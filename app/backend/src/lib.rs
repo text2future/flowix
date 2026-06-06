@@ -97,7 +97,6 @@ pub fn run() {
             commands::select_files,
             commands::save_file_dialog,
             commands::write_export_file,
-            commands::write_export_binary_file,
             commands::save_attachment,
             commands::save_attachment_content,
             commands::init_agent,

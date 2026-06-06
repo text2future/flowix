@@ -1,11 +1,9 @@
-// Markdown export utilities for Markdown / PDF / Word (DOC) outputs.
+// Markdown export utilities for Markdown / Word (DOC) outputs.
 
 import { Marked } from 'marked';
-import html2pdf from 'html2pdf.js';
 
 const FRONTMATTER_PATTERN = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 const MAX_FILE_NAME_LENGTH = 120;
-const PRINT_HOST_WIDTH_PX = 794; // ~A4 width at 96dpi
 
 // Use a dedicated `Marked` instance so `@tiptap/markdown`'s global extensions
 // (which register a `taskList` tokenizer without a renderer) don't leak in
@@ -115,26 +113,6 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Wrap rendered HTML in a complete HTML document with print-friendly styles.
- * Used as the source for both the PDF renderer and any future print preview.
- */
-export function buildPrintableHtml(title: string, bodyHtml: string, extraHead = ''): string {
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title || 'Untitled')}</title>
-<style>${PRINT_BASE_STYLES}</style>
-${extraHead}
-</head>
-<body>
-<main>${bodyHtml}</main>
-</body>
-</html>`;
-}
-
-/**
  * Wrap rendered HTML in a Word-compatible HTML document (saved with a `.doc` extension).
  * Word treats these files as native documents and renders them with the declared styles.
  */
@@ -161,46 +139,6 @@ export function buildWordHtml(title: string, bodyHtml: string): string {
 <main>${bodyHtml}</main>
 </body>
 </html>`;
-}
-
-/**
- * Render the given HTML to a PDF in base64 form. The HTML is mounted in a
- * hidden off-screen host so html2canvas can measure it before jsPDF lays it
- * out as a real PDF. Returns the base64 payload (no `data:application/pdf;…`
- * prefix).
- */
-export async function renderHtmlToPdfBase64(title: string, bodyHtml: string): Promise<string> {
-  const host = document.createElement('div');
-  host.setAttribute('aria-hidden', 'true');
-  host.style.position = 'fixed';
-  host.style.left = '-10000px';
-  host.style.top = '0';
-  host.style.width = `${PRINT_HOST_WIDTH_PX}px`;
-  host.style.background = '#ffffff';
-  host.innerHTML = buildPrintableHtml(title, bodyHtml);
-
-  document.body.appendChild(host);
-
-  try {
-    const dataUri: string = await html2pdf()
-      .set({
-        margin: [10, 12, 12, 12],
-        filename: `${sanitizeFileName(title)}.pdf`,
-        image: { type: 'jpeg', quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      })
-      .from(host.querySelector('main') ?? host)
-      .outputPdf('datauristring');
-
-    const base64 = dataUri.split(',', 2)[1] ?? '';
-    if (!base64) {
-      throw new Error('html2pdf produced an empty PDF');
-    }
-    return base64;
-  } finally {
-    host.remove();
-  }
 }
 
 /** Strip characters that are illegal in file names on common desktop file systems. */

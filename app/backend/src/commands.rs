@@ -1074,18 +1074,6 @@ pub fn write_export_file(file_path: String, content: String) -> bool {
     write_bytes_to_path(&file_path, content.as_bytes())
 }
 
-#[tauri::command]
-pub fn write_export_binary_file(file_path: String, content_base64: String) -> bool {
-    let bytes = match base64::engine::general_purpose::STANDARD.decode(content_base64.as_bytes()) {
-        Ok(b) => b,
-        Err(err) => {
-            eprintln!("[write_export_binary_file] base64 decode failed: {}", err);
-            return false;
-        }
-    };
-    write_bytes_to_path(&file_path, &bytes)
-}
-
 // ==================== Agent Commands ====================
 
 #[tauri::command]
@@ -1217,6 +1205,20 @@ pub async fn open_preferences_window(
             .title("Preferences")
             .inner_size(800.0, 600.0)
             .center();
+
+    // macOS: use the same overlay title bar style as the main window so the
+    // app-rendered drag region is contiguous with the system-rendered traffic
+    // lights, instead of stacking a second native title strip on top. The
+    // traffic light cluster is positioned at y=18 so it sits vertically
+    // centered within the app's 48px (`h-12`) drag bar; x=18 matches the
+    // main window and macOS' default left inset.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::Position::Logical(
+            tauri::LogicalPosition::new(18.0, 18.0),
+        ));
 
     #[cfg(target_os = "windows")]
     let builder = builder.decorations(false);

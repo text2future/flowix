@@ -7,12 +7,12 @@ import { useUserSettings } from "./hooks/useUserSettings";
 import { useApplyFontSettings } from "./hooks/useApplyFontSettings";
 import { useApplyTheme } from "./hooks/useApplyTheme";
 
-const AppLayout = lazy(() =>
-  import("./components/app-layout").then((module) => ({ default: module.AppLayout }))
+const MainLayout = lazy(() =>
+  import("./windows/main/main-layout").then((module) => ({ default: module.MainLayout }))
 );
 
 const PreferencesView = lazy(() =>
-  import("./components/preferences/preferences-view").then((module) => ({ default: module.PreferencesView }))
+  import("./windows/preferences/preferences-view").then((module) => ({ default: module.PreferencesView }))
 );
 
 function AppToaster() {
@@ -58,7 +58,7 @@ function App() {
     <ErrorBoundary>
       <AppToaster />
       <Suspense fallback={null}>
-        <AppLayout />
+        <MainLayout />
       </Suspense>
     </ErrorBoundary>
   );

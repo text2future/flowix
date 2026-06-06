@@ -1,4 +1,5 @@
-﻿use once_cell::sync::Lazy;
+﻿use chrono::Datelike;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -149,6 +150,41 @@ impl Default for MemoMetadataFile {
             todos: Vec::new(),
         }
     }
+}
+
+// Returns the current UTC time in milliseconds. Timestamps stored on memos
+// are produced via `chrono::Utc::now().timestamp_millis()`, so we read them
+// back against the same clock to keep time-based filters consistent.
+fn chrono_now() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+// Start of the current ISO week (Monday 00:00 UTC) in epoch milliseconds.
+fn start_of_this_week(now_ms: i64) -> i64 {
+    let now = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+        .unwrap_or_else(chrono::Utc::now);
+    let date = now.date_naive();
+    let weekday = date.weekday();
+    let days_from_monday = weekday.num_days_from_monday() as i64;
+    let monday = date - chrono::Duration::days(days_from_monday);
+    let monday_midnight = monday
+        .and_hms_opt(0, 0, 0)
+        .unwrap_or_else(|| date.and_hms_opt(0, 0, 0).unwrap());
+    monday_midnight
+        .and_utc()
+        .timestamp_millis()
+}
+
+// First instant of the current calendar month (UTC) in epoch milliseconds.
+fn start_of_this_month(now_ms: i64) -> i64 {
+    let now = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+        .unwrap_or_else(chrono::Utc::now);
+    let first = now
+        .date_naive()
+        .with_day(1)
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .unwrap_or_else(|| now.date_naive().and_hms_opt(0, 0, 0).unwrap());
+    first.and_utc().timestamp_millis()
 }
 
 pub struct MemoFile {
@@ -674,6 +710,11 @@ impl MemoFile {
     ) -> Vec<Memo> {
         let all_memos = self.read_all_memos();
 
+        // Compute time-range boundaries once so time-based filters can share them.
+        let now = chrono_now();
+        let week_start = start_of_this_week(now);
+        let month_start = start_of_this_month(now);
+
         // Filter
         let filtered: Vec<Memo> = match filter {
             "todos" => all_memos
@@ -694,6 +735,17 @@ impl MemoFile {
                         .collect()
                 }
             }
+            "thisWeek" => all_memos
+                .into_iter()
+                .filter(|m| m.created_at >= week_start && m.created_at <= now)
+                .collect(),
+            // "thisMonth" intentionally uses month_start (the 1st of the month) rather
+            // than week_start, so memos created earlier in the month are still visible.
+            // Because month_start <= week_start, anything in thisWeek is also in thisMonth.
+            "thisMonth" => all_memos
+                .into_iter()
+                .filter(|m| m.created_at >= month_start && m.created_at <= now)
+                .collect(),
             _ => all_memos, // "all" - no filter
         };
 

@@ -177,20 +177,6 @@
 	overflow: hidden;
 }
 
-/* 代码块语言标签 */
-.agent-message .code-block .lang-tag {
-	position: absolute;
-	top: 0;
-	right: 0;
-	padding: 0.25rem 0.5rem;
-	font-size: 0.75rem;
-	font-weight: 500;
-	color: var(--agent-text-secondary);
-	background: transparent;
-	border: none;
-	z-index: 0;
-}
-
 /* 代码块内容 */
 .agent-message pre {
 	margin: 0;

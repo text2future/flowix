@@ -58,7 +58,7 @@ export const settings = {
 };
 
 // Memos
-export type FilterType = 'all' | 'todos' | 'favorited' | 'tagged';
+export type FilterType = 'all' | 'todos' | 'favorited' | 'tagged' | 'thisWeek' | 'thisMonth';
 export type SortType = 'createdAt' | 'updatedAt';
 
 export const memos = {
@@ -139,8 +139,6 @@ export const dialogs = {
     }),
   writeExportFile: (filePath: string, content: string) =>
     invoke<boolean>('write_export_file', { filePath, content }),
-  writeExportBinaryFile: (filePath: string, contentBase64: string) =>
-    invoke<boolean>('write_export_binary_file', { filePath, contentBase64 }),
   saveAttachment: (sourcePath: string, notebookId?: string) =>
     invoke<string | null>('save_attachment', { sourcePath, notebookId }),
 };

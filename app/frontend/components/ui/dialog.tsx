@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -50,34 +50,65 @@ interface DialogContentProps {
 	showOverlay?: boolean;
 }
 
+const EXIT_ANIMATION_MS = 300;
+
 export function DialogContent({ children, className, showOverlay = true }: DialogContentProps) {
 	const context = useDialogContext();
 	const open = context?.open ?? false;
 	const onOpenChange = context?.onOpenChange ?? (() => {});
 
-	if (!open) return null;
+	// Drive mount/visibility separately from `open` so the exit animation
+	// has time to play before the dialog is removed from the DOM.
+	const [mounted, setMounted] = useState(open);
+	const [visible, setVisible] = useState(open);
+
+	useEffect(() => {
+		if (open) {
+			setMounted(true);
+			// Defer to the next frame so the browser commits the initial
+			// render before flipping to `animate-in`, which triggers the
+			// enter animation cleanly.
+			const id = requestAnimationFrame(() => setVisible(true));
+			return () => cancelAnimationFrame(id);
+		}
+		setVisible(false);
+		const timer = setTimeout(() => setMounted(false), EXIT_ANIMATION_MS);
+		return () => clearTimeout(timer);
+	}, [open]);
+
+	if (!mounted) return null;
 
 	return createPortal(
 		<>
 			{showOverlay && (
 				<div
-					className="fixed inset-0 bg-black/50 z-50 transition-opacity duration-200 ease-out"
+					className={cn(
+						'fixed inset-0 bg-black/50 z-50',
+						visible ? 'woop-fade-enter' : 'woop-fade-leave'
+					)}
 					onClick={() => onOpenChange(false)}
 				/>
 			)}
-			<div
-				className={cn(
-					'fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[380px] rounded-xl bg-[var(--background)] p-6 shadow-lg transition-all duration-200 ease-out animate-in fade-in zoom-in-95',
-					className
-				)}
-			>
-				<button
-					onClick={() => onOpenChange(false)}
-					className="absolute top-4 right-4 p-1 rounded-md hover:bg-[var(--muted)]"
+			{/* Centering wrapper — keeps the dialog centered without fighting
+			    the keyframe's `transform` (which would clobber Tailwind's
+			    `-translate-x-1/2 -translate-y-1/2`). `pointer-events-none` lets
+			    clicks on the wrapper pass through to the overlay behind. */}
+			<div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+				<div
+					className={cn(
+						'relative w-full max-w-[380px] rounded-2xl bg-[var(--background)] px-5 py-4 shadow-lg pointer-events-auto',
+						visible ? 'woop-dialog-enter' : 'woop-dialog-leave',
+						className
+					)}
 				>
-					<X className="w-5 h-5" />
-				</button>
-				{children}
+					<button
+						onClick={() => onOpenChange(false)}
+						className="absolute top-4 right-4 p-1 rounded-md hover:bg-[var(--muted)]"
+					>
+						<X className="w-4 h-4" />
+					</button>
+					{children}
+				</div>
 			</div>
 		</>,
 		document.body
@@ -95,7 +126,7 @@ export function DialogClose({ children }: DialogCloseProps) {
 			onClick={() => context?.onOpenChange(false)}
 			className="absolute top-4 right-4 p-1 rounded-md hover:bg-[var(--muted)]"
 		>
-			{children || <X className="w-5 h-5" />}
+			{children || <X className="w-4 h-4" />}
 		</button>
 	);
 }
@@ -110,7 +141,7 @@ export function DialogHeader({ className, children }: { className?: string; chil
 
 export function DialogTitle({ className, children }: { className?: string; children: ReactNode }) {
 	return (
-		<h2 className={cn('text-base text-[var(--foreground)]', className)}>
+		<h2 className={cn('text-base font-semibold text-[var(--foreground)]', className)}>
 			{children}
 		</h2>
 	);

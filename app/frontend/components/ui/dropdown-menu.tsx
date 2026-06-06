@@ -83,12 +83,14 @@ function DropdownMenuContent({
 	side = "bottom",
 	sideOffset = 4,
 	className,
+	style,
 }: {
 	children: React.ReactNode;
 	align?: "start" | "center" | "end";
 	side?: "top" | "bottom";
 	sideOffset?: number;
 	className?: string;
+	style?: React.CSSProperties;
 }) {
 	const { open, setOpen } = useDropdownContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
@@ -141,7 +143,7 @@ function DropdownMenuContent({
 				alignClass[align],
 				className
 			)}
-			style={sideStyle}
+			style={{ ...sideStyle, ...style }}
 		>
 			{children}
 		</div>
