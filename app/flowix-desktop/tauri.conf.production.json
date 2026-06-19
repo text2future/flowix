@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "_comment": "Tauri v2 production bundle 签名覆盖层 ── 不修改主 tauri.conf.json。dev build 仍走主 conf (无 signing 字段), release build 用 `tauri build --config tauri.conf.production.json` 触发签名管线。脚本 `scripts/sign-cli.sh` 在 build 前先把占位值换成真值, 或 jq patch 写出 .local.json。",
+
+  "bundle": {
+    "macOS": {
+      "_comment_signingIdentity": "Developer ID Application: <name> (<TEAMID>) ── APPLE_SIGNING_IDENTITY env 注入",
+      "signingIdentity": "Developer ID Application: REPLACE_WITH_APPLE_SIGNING_IDENTITY",
+      "_comment_providerShortName": "Apple Team ID ── APPLE_TEAM_ID env 注入",
+      "providerShortName": "REPLACE_WITH_APPLE_TEAM_ID",
+      "_comment_entitlements": "走 entitlements.plist (本目录)",
+      "entitlements": "entitlements.plist",
+      "hardenedRuntime": true
+    },
+    "windows": {
+      "_comment_certificateThumbprint": "PFX 证书 SHA1 thumbprint ── WINDOWS_CERT_THUMBPRINT env 注入",
+      "certificateThumbprint": "REPLACE_WITH_WINDOWS_CERT_THUMBPRINT",
+      "digestAlgorithm": "sha256",
+      "_comment_timestampUrl": "RFC 3161 timestamp ── 默认 Sectigo 公共端点, 私有 CA 改 WINDOWS_TIMESTAMP_URL",
+      "timestampUrl": "http://timestamp.sectigo.com"
+    }
+  }
+}

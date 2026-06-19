@@ -1,0 +1,79 @@
+[data-theme="rock"] {
+	--neutral-hue: 92;
+	/* 品牌色: 岩浆红 hue 22, 在岩灰低饱和底色上充当"热源"焦点, 比原紫色更炽热 */
+	--brand-hue: 22;
+	--brand-chroma: 0.12;
+
+	--primary: oklch(0.440 0.009 var(--neutral-hue));
+	--primary-foreground: oklch(0.970 0.007 var(--neutral-hue));
+	--brand: oklch(0.55 var(--brand-chroma) var(--brand-hue));
+
+	/* 背景: L=0.918 "页岩"色, 比 0.955 "近白纸"更深更厚重, chroma/hue 不动保留橄榄基调 */
+	--background: oklch(0.918 0.007 var(--neutral-hue));
+	--foreground: oklch(0.333 0.012 var(--neutral-hue));
+	--card: oklch(0.970 0.007 var(--neutral-hue));
+
+	/* 浮层底: 纯白, 与页岩主底形成最锐利的明度差, 浮层读作"白纸" */
+	--popover: oklch(1 0 0);
+	--popover-foreground: var(--foreground);
+
+	--secondary: oklch(0.904 0.011 var(--neutral-hue));
+	--secondary-foreground: oklch(0.372 0.009 var(--neutral-hue));
+	--muted: oklch(0.885 0.015 var(--neutral-hue));
+	--muted-foreground: oklch(0.576 0.014 var(--neutral-hue));
+	--accent: oklch(0.904 0.011 var(--neutral-hue));
+
+	--border: oklch(0.861 0.009 var(--neutral-hue));
+	--input: var(--border);
+	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
+	--ring: oklch(0.770 0.013 var(--neutral-hue));
+
+	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
+	--agent-bg: oklch(0.944 0.010 var(--neutral-hue));
+	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
+
+	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));
+
+	--bg-titlebar: oklch(0.934 0.010 var(--neutral-hue));
+	/* 文档: 在 background 上提一档亮度, 让编辑器外侧到窗口边的留白读作"温润纸边" */
+	--document-bg: oklch(0.961 0.008 var(--neutral-hue));
+	--document-foreground: oklch(0.379 0.009 var(--neutral-hue));
+	/* 链接: L=0.42 "冷却中岩浆" 锚定浅橄榄底, 改同色系深浅对比, 对比 11.77:1 */
+	--document-link: oklch(0.42 0.18 var(--brand-hue));
+	--document-highlight-bg: oklch(0.86 0.14 78);
+	--document-tag-bg: oklch(0.50 0.08 var(--brand-hue));
+
+	/* 文档颜色标签 — rock 主题底是低饱和岩灰 + 橄榄基调 (hue 92),
+	 * chroma 取三主题里最低档, 让色块"嵌进"岩灰而非"浮在"岩灰。
+	 * red/orange 往 brand-hue 22/38 偏, 与 brand 颜色同一色系, 不破坏
+	 * rock 主题的"热源焦点"语义; cyan 几乎收回成中性, 与岩灰底色融
+	 * 合。hue 调整幅度 ≤ 8°, 不影响跨主题的身份识别。 */
+	--memo-color-red:    oklch(56% 0.175 22);
+	--memo-color-orange: oklch(62% 0.150 38);
+	--memo-color-yellow: oklch(70% 0.145 80);
+	--memo-color-green:  oklch(58% 0.150 142);
+	--memo-color-cyan:   oklch(58% 0.090 220);
+	--memo-color-blue:   oklch(54% 0.175 258);
+	--memo-color-gray:   oklch(54% 0.012 92);
+
+	--code-bg: oklch(0.894 0.014 var(--neutral-hue));
+	--code-block-bg: oklch(0.985 0 0);
+
+	--floating-bg: oklch(0.323 0.007 var(--neutral-hue));
+	/* 浮层文字: 与 floating-bg 配对, 三主题统一柔和白, 避纯白在深底的眩光 */
+	--floating-foreground: oklch(0.95 0 0);
+
+	/* 反色面: 与当前主题背景形成强对比, 用于 tooltip、临时标记等小面积 UI */
+	--inverse-background: oklch(0.333 0.012 var(--neutral-hue));
+	--inverse-foreground: oklch(0.985 0.004 var(--neutral-hue));
+
+	--success: oklch(0.723 0.192 150);
+	/* 危险: 降 chroma 避红绿对抗 (橄榄底 hue 92) */
+	--destructive: oklch(0.50 0.20 22);
+	/* 警告: 向橄榄偏 5° 形成同色系呼应, 不与底色产生红绿对抗 */
+	--warning: oklch(0.62 0.13 85);
+
+	color-scheme: light;
+
+	--shiki-theme: one-light;
+}

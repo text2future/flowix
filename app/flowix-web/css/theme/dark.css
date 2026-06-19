@@ -1,0 +1,74 @@
+[data-theme="dark"] {
+	--neutral-hue: 265;
+	--brand-hue: 273;
+	--brand-chroma: 0.108;
+
+	--primary: oklch(0.816 0.142 92);
+	--primary-foreground: oklch(0.173 0.009 var(--neutral-hue));
+	--brand: oklch(0.787 var(--brand-chroma) var(--brand-hue));
+
+	--background: oklch(0.173 0.009 var(--neutral-hue));
+	--foreground: oklch(0.930 0.005 var(--neutral-hue));
+	--card: oklch(0.213 0.013 var(--neutral-hue));
+
+	/* 浮层底: 中灰, 与暗桌主底形成中等明度差, 浮层读作"亮一档" */
+	--popover: oklch(0.24 0 0);
+	--popover-foreground: var(--foreground);
+
+	--secondary: oklch(0.244 0.014 var(--neutral-hue));
+	--secondary-foreground: oklch(0.865 0.008 var(--neutral-hue));
+	--muted: oklch(0.284 0.016 var(--neutral-hue));
+	--muted-foreground: oklch(0.716 0.015 var(--neutral-hue));
+	--accent: oklch(0.273 0.022 var(--neutral-hue));
+
+	--border: oklch(0.284 0.014 var(--neutral-hue));
+	--input: var(--border);
+	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
+	--ring: oklch(0.375 0.027 var(--neutral-hue));
+
+	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
+	--agent-bg: oklch(0.173 0.009 var(--neutral-hue));
+	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
+
+	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));
+
+	--bg-titlebar: oklch(0.173 0.009 var(--neutral-hue));
+	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
+	--document-bg: oklch(0.200 0.013 var(--neutral-hue));
+	--document-foreground: oklch(0.858 0.013 var(--neutral-hue));
+	/* 链接: 高亮+提 chroma 路线, 与普通文字拉开"可点击"权重; hover 由 color-mix 派生 */
+	--document-link: oklch(0.80 0.18 var(--brand-hue));
+	--document-highlight-bg: oklch(0.800 0.182 152);
+	--document-tag-bg: oklch(0.55 0.10 var(--neutral-hue));
+
+	/* 文档颜色标签 — 暗底上整体提 L 一档 (相对 light), 既避免色块被吞
+	 * 没, 又不抢前景文字。chroma 取保守档位, 防高饱和红/蓝在冷暗底上
+	 * "刺眼"。hue 与 light 完全一致, 跨主题切换时身份识别稳定。 */
+	--memo-color-red:    oklch(64% 0.185 27);
+	--memo-color-orange: oklch(70% 0.165 52);
+	--memo-color-yellow: oklch(78% 0.155 88);
+	--memo-color-green:  oklch(70% 0.180 142);
+	--memo-color-cyan:   oklch(70% 0.125 215);
+	--memo-color-blue:   oklch(64% 0.185 260);
+	--memo-color-gray:   oklch(64% 0.015 264);
+
+	--code-bg: oklch(0.229 0.018 275);
+	--code-block-bg: oklch(0.176 0.014 var(--neutral-hue));
+
+	--floating-bg: oklch(0.213 0.013 var(--neutral-hue));
+	/* 浮层文字: 与 floating-bg 配对, 三主题统一柔和白, 避纯白在深底的眩光 */
+	--floating-foreground: oklch(0.95 0 0);
+
+	/* 反色面: 与当前主题背景形成强对比, 用于 tooltip、临时标记等小面积 UI */
+	--inverse-background: oklch(0.930 0.005 var(--neutral-hue));
+	--inverse-foreground: oklch(0.173 0.009 var(--neutral-hue));
+
+	--success: oklch(0.723 0.192 150);
+	/* 危险: 降 chroma 提亮度, 避免在冷蓝灰底上与高饱和红产生刺眼对比 */
+	--destructive: oklch(0.5953 0.18775 34.867);
+	--warning: oklch(0.80 0.15 80);
+
+	color-scheme: dark;
+
+	--shiki-theme: github-dark;
+}

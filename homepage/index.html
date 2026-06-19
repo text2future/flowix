@@ -1,0 +1,1806 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flowix — 用 Markdown 管理 AI 工作</title>
+  <meta name="description" content="Flowix 是一款本地优先 Markdown 笔记应用。用它启动 Agent、Codex、Claude，AI 在你的上下文里接着写。" />
+  <meta name="theme-color" content="#ffffff" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" href="icon.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <style>
+    :root {
+      /* 默认主题 = light。token 数值与 [data-theme="light"] 完全等价,
+       * 写在 :root 里保证 JS 没跑起来之前页面就已经有完整配色。 */
+      --bg: oklch(1 0 0);
+      --bg-soft: oklch(0.969 0.003 255);
+      --text: oklch(0.215 0.038 255);
+      --text-soft: oklch(0.278 0.030 255);
+      --text-muted: oklch(0.613 0.018 255);
+      --border: oklch(0.928 0.006 255);
+      --border-strong: oklch(0.87 0.008 255);
+      --brand: oklch(0.552 0.185 273);
+      --brand-hover: oklch(0.48 0.185 273);
+      --brand-fg: oklch(1 0 0);
+      --link: oklch(0.45 0.18 273);
+    }
+    [data-theme="light"] {
+      --bg: oklch(1 0 0);
+      --bg-soft: oklch(0.969 0.003 255);
+      --text: oklch(0.215 0.038 255);
+      --text-soft: oklch(0.278 0.030 255);
+      --text-muted: oklch(0.613 0.018 255);
+      --border: oklch(0.928 0.006 255);
+      --border-strong: oklch(0.87 0.008 255);
+      --brand: oklch(0.552 0.185 273);
+      --brand-hover: oklch(0.48 0.185 273);
+      --brand-fg: oklch(1 0 0);
+      --link: oklch(0.45 0.18 273);
+    }
+    [data-theme="dark"] {
+      --bg: oklch(0.173 0.009 265);
+      --bg-soft: oklch(0.213 0.013 265);
+      --text: oklch(0.930 0.005 265);
+      --text-soft: oklch(0.865 0.008 265);
+      --text-muted: oklch(0.716 0.015 265);
+      --border: oklch(0.284 0.014 265);
+      --border-strong: oklch(0.36 0.014 265);
+      --brand: oklch(0.787 0.108 273);
+      --brand-hover: oklch(0.85 0.108 273);
+      --brand-fg: oklch(0.173 0.009 265);
+      --link: oklch(0.80 0.18 273);
+    }
+    [data-theme="rock"] {
+      --bg: oklch(0.918 0.007 92);
+      --bg-soft: oklch(0.970 0.007 92);
+      --text: oklch(0.333 0.012 92);
+      --text-soft: oklch(0.372 0.009 92);
+      --text-muted: oklch(0.576 0.014 92);
+      --border: oklch(0.861 0.009 92);
+      --border-strong: oklch(0.79 0.009 92);
+      --brand: oklch(0.55 0.12 22);
+      --brand-hover: oklch(0.48 0.12 22);
+      --brand-fg: oklch(0.970 0.007 92);
+      --link: oklch(0.42 0.18 22);
+    }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", system-ui, "Helvetica Neue", Arial, "Public Sans", sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      letter-spacing: 0.005em;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: var(--link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--border);
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    a:hover { border-bottom-color: var(--link); }
+    a.bare { border: none; }
+
+    code, pre, kbd {
+      font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", monospace;
+      font-size: 0.9em;
+    }
+
+    code {
+      background: var(--bg-soft);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    pre {
+      background: var(--bg-soft);
+      padding: 1rem 1.25rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      line-height: 1.55;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+      border: none;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+    .container-wide {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    /* Header */
+    header {
+      padding: 1.25rem 0;
+    }
+    header .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .wordmark {
+      font-weight: 600;
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .wordmark .logo {
+      width: 24px;
+      height: 24px;
+      display: block;
+      border-radius: 6px;
+    }
+    .wordmark .dot { color: var(--text-muted); }
+    .nav-links { display: flex; gap: 1.5rem; font-size: 0.9rem; }
+    .nav-links a {
+      color: var(--text-soft);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .nav-links a svg { display: block; }
+    .nav-links a:hover { color: var(--text); }
+
+    /* Hero */
+    .hero {
+      padding: 3.5rem 0 2rem;
+      border-top: none;
+    }
+    .hero h1 {
+      font-size: clamp(2.25rem, 5.5vw, 3.5rem);
+      font-weight: 600;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin: 0 0 1.5rem;
+    }
+    .hero .lede {
+      font-size: 1.1rem;
+      color: var(--text-soft);
+      margin: 0 0 2.5rem;
+      max-width: 36em;
+    }
+    .hero .ctas {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-bottom: 1.5rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 1.1rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      border: 1px solid var(--border-strong);
+      background: var(--bg);
+      color: var(--text);
+      transition: all 0.15s ease;
+    }
+    .btn:hover { border-color: var(--text); }
+    .btn-primary {
+      background: var(--brand);
+      color: var(--brand-fg);
+      border-color: var(--brand);
+      border-radius: 12px;
+    }
+    .btn-primary:hover {
+      background: var(--brand-hover);
+      border-color: var(--brand-hover);
+      color: var(--brand-fg);
+    }
+    .hero .meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* Generic sections */
+    section {
+      padding: 0 0 4rem;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0 0 2.5rem;
+    }
+    .eyebrow {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--brand);
+      letter-spacing: -0.01em;
+      margin: 0 0 2rem;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+    .eyebrow::before {
+      content: "#";
+      color: color-mix(in oklch, var(--brand) 50%, transparent);
+      font-weight: 400;
+    }
+    .prose { max-width: 720px; }
+    .prose p { margin: 0 0 1rem; }
+    .prose p:last-child { margin-bottom: 0; }
+
+    /* Features grid */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+    @media (min-width: 640px) {
+      .features { grid-template-columns: 1fr 1fr; gap: 2rem 3rem; }
+    }
+    .agent-features {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2rem;
+      margin-top: 1.5rem;
+    }
+    @media (min-width: 640px) {
+      .agent-features { grid-template-columns: repeat(3, 1fr); gap: 2rem; }
+    }
+    .feature h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 0 0 0.4rem;
+      letter-spacing: -0.01em;
+    }
+    .feature p {
+      color: var(--text-soft);
+      margin: 0;
+      font-size: 0.95rem;
+    }
+
+    /* Audience split */
+    .audience {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.5rem;
+    }
+    @media (min-width: 640px) {
+      .audience { grid-template-columns: 1fr 1fr; gap: 3rem; }
+    }
+    .audience-col h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0 0 1rem;
+    }
+    .audience-col ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .audience-col li {
+      padding: 0.65rem 0;
+      border-top: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .audience-col li:last-child { border-bottom: 1px solid var(--border); }
+    .audience-col .not { color: var(--text-soft); }
+
+    /* Theme previews */
+    .theme-tabs {
+      display: flex;
+      justify-content: flex-start;
+      gap: 0.6rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .theme-tab {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      background: var(--swatch, var(--bg-soft));
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
+    .theme-tab[data-theme="light"] { --swatch: oklch(1 0 0); }
+    .theme-tab[data-theme="dark"]  { --swatch: oklch(0.173 0.009 265); }
+    .theme-tab[data-theme="rock"]  { --swatch: oklch(0.918 0.007 92); }
+    .theme-tab.active {
+      border-color: var(--text);
+    }
+    .theme-tab:focus-visible {
+      outline: 2px solid var(--brand);
+      outline-offset: 3px;
+    }
+    .theme-tab .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .theme-stage {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg-soft);
+      /* 三层投影 ——
+       * 原本想写在 .theme-preview 上, 但 .theme-stage 的 overflow:hidden
+       * 会把子元素的 box-shadow 裁掉。挪到 stage 上, 配合已有的 12px
+       * border-radius, 阴影形状跟随 stage 边缘投影出去。
+       *  - 1px 接触阴影: 紧贴边缘, 模拟窗口贴桌面
+       *  - 中模糊 (8px / 24px 偏移): 抬升的中段投影
+       *  - 大模糊 (24px / 48px 偏移, -16 spread): 远端扩散, 营造悬浮感 */
+      box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.05),
+        0 8px 24px -6px rgba(0, 0, 0, 0.10),
+        0 24px 48px -16px rgba(0, 0, 0, 0.10);
+    }
+    .theme-image {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .theme-image[hidden] { display: none; }
+
+    /* === Theme-driven app preview (3-column mock) =====================
+     * 与项目中 main-layout 的三栏结构对齐: 笔记列表 | 文档 | AI 面板,
+     * 底部 status bar。data-theme 在 <html> 上由 tab JS 切换, 所有
+     * preview 专属 token 走 [data-theme="X"] 选择器级联下来, 不影响
+     * 站点其他区域的 :root 颜色。 */
+    .theme-preview {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      font-size: clamp(8px, 1.05vw, 13px);
+      line-height: 1.5;
+      color: var(--p-text);
+      background: var(--p-bg);
+      border: 1px solid var(--p-border);
+      border-radius: 12px;
+      /* 阴影挪到 .theme-stage 上 (避免被父级 overflow:hidden 裁掉),
+       * 这里只保留 1px 边框 + 12px 圆角。视觉外缘由 .theme-stage 的
+       * border + box-shadow 共同贡献。 */
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    .theme-preview[hidden] { display: none; }
+
+    /* Theme tokens — 复用 app/flowix-web/css/theme/*.css 的 oklch 数值 */
+    [data-theme="light"] {
+      --p-bg: oklch(0.979 0.005 255 / 0.557);
+      --p-card: oklch(1 0 0);
+      --p-titlebar: oklch(0.979 0 0);
+      --p-agent-bg: oklch(0.979 0 0);
+      --p-text: oklch(0.215 0.038 255);
+      --p-muted: oklch(0.613 0.018 255);
+      --p-soft: oklch(0.469 0.022 255);
+      --p-border: oklch(0.928 0.006 255);
+      --p-divider: color-mix(in oklch, oklch(1 0 0) 50%, oklch(0.928 0.006 255));
+      --p-brand: oklch(0.552 0.185 273);
+      --p-brand-fg: oklch(1 0 0);
+      --p-accent: oklch(0.969 0.003 255);
+      --p-statusbar: color-mix(in oklch, oklch(1 0 0) 92%, oklch(1 0 0));
+      --p-code-bg: oklch(0.938 0.003 286);
+    }
+    [data-theme="dark"] {
+      --p-bg: oklch(0.200 0.013 265);
+      --p-card: oklch(0.213 0.013 265);
+      --p-titlebar: oklch(0.173 0.009 265);
+      --p-agent-bg: oklch(0.173 0.009 265);
+      --p-text: oklch(0.930 0.005 265);
+      --p-muted: oklch(0.716 0.015 265);
+      --p-soft: oklch(0.616 0.014 265);
+      --p-border: oklch(0.284 0.014 265);
+      --p-divider: color-mix(in oklch, oklch(0.173 0.009 265) 50%, oklch(0.284 0.014 265));
+      --p-brand: oklch(0.787 0.108 273);
+      --p-brand-fg: oklch(0.173 0.009 265);
+      --p-accent: oklch(0.273 0.022 265);
+      --p-statusbar: color-mix(in oklch, oklch(0.213 0.013 265) 92%, oklch(0.173 0.009 265));
+      --p-code-bg: oklch(0.229 0.018 275);
+    }
+    [data-theme="rock"] {
+      --p-bg: oklch(0.961 0.008 92);
+      --p-card: oklch(0.970 0.007 92);
+      --p-titlebar: oklch(0.934 0.010 92);
+      --p-agent-bg: oklch(0.944 0.010 92);
+      --p-text: oklch(0.333 0.012 92);
+      --p-muted: oklch(0.576 0.014 92);
+      --p-soft: oklch(0.476 0.013 92);
+      --p-border: oklch(0.861 0.009 92);
+      --p-divider: color-mix(in oklch, oklch(0.918 0.007 92) 50%, oklch(0.861 0.009 92));
+      --p-brand: oklch(0.55 0.12 22);
+      --p-brand-fg: oklch(0.970 0.007 92);
+      --p-accent: oklch(0.904 0.011 92);
+      --p-statusbar: color-mix(in oklch, oklch(0.970 0.007 92) 92%, oklch(0.918 0.007 92));
+      --p-code-bg: oklch(0.894 0.014 92);
+    }
+
+    .tp-main {
+      display: grid;
+      grid-template-columns: 24% 52% 24%;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .tp-col {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .tp-memos { background: var(--p-card); border-right: 1px solid var(--p-border); }
+    .tp-doc { background: var(--p-card); }
+    .tp-agent { background: var(--p-agent-bg); border-left: 1px solid var(--p-border); }
+
+    /* Column titlebars — 跟 main-layout 的 MemoListTitlebar / DocumentTitlebar / AgentHeader 同形 */
+    .tp-titlebar {
+      height: 5.5%;
+      min-height: 16px;
+      padding: 0 0.7em;
+      display: flex;
+      align-items: center;
+      gap: 0.35em;
+      background: var(--p-titlebar);
+      flex-shrink: 0;
+    }
+
+    /* macOS-style traffic lights — 挂在第一列的列头里, 跟随
+     * .tp-titlebar 的 align-items: center 自然上下居中。 */
+    .tp-traffic-lights {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45em;
+    }
+    .tp-traffic-light {
+      width: 0.85em;
+      height: 0.85em;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .tp-traffic-light.red    { background: #ff5f57; }
+    .tp-traffic-light.yellow { background: #febc2e; }
+    .tp-traffic-light.green  { background: #28c840; }
+    .tp-memos .tp-titlebar { justify-content: space-between; }
+    .tp-doc .tp-titlebar { justify-content: space-between; }
+    .tp-agent .tp-titlebar { justify-content: flex-start; gap: 0.6em; }
+
+    /* 第一列 + 第二列：列头背景与列体背景合并 ——
+     * 默认 --p-titlebar 比 --p-card 略深一档 (gradient 头那种风格),
+     * 这里让 memo / doc 两列的头部"沉"到列体里, 视觉上消除头/体的色阶差。
+     * 第三列 (agent) 保留原 --p-titlebar, 它的列体本来就是 --p-agent-bg
+     * 与 --p-titlebar 配套设计的。 */
+    .tp-memos .tp-titlebar,
+    .tp-doc .tp-titlebar {
+      background: var(--p-card);
+    }
+
+    .tp-filename {
+      color: var(--p-muted);
+      font-size: 0.92em;
+      letter-spacing: -0.005em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tp-titlebar-actions {
+      display: flex;
+      gap: 0.15em;
+    }
+
+    .tp-icon-btn {
+      width: 1.7em;
+      height: 1.7em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--p-muted);
+      background: transparent;
+      border: 0;
+      padding: 0;
+      border-radius: 0.45em;
+    }
+    .tp-icon-btn svg {
+      width: 1em;
+      height: 1em;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Navigation arrows 在没有 history 时退化为 35% 不透明, 跟 macOS Finder
+     * 后退/前进按钮的 inactive 视觉一致。 */
+    .tp-icon-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    /* 文档颜色选择器 ——
+     * 对齐 document-titlebar-shared.tsx 的 MemoColorPicker 有色态:
+     * 真实 Flowix 在 memo.colors 非空时把 Palette 图标换成 1~3 个叠加小圆点,
+     * 表达"这文档有这些色"。这里的色对应选中 memo 的 green + blue。
+     * 用 absolute 叠放, 比例跟真实组件 (14px 容器 / 10px 圆点 / 4px 偏移) 一致。 */
+    .tp-color-cluster {
+      position: relative;
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+    }
+    .tp-color-cluster-dot {
+      position: absolute;
+      width: 0.62em;
+      height: 0.62em;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .tp-color-cluster-dot:nth-child(1) { top: 0.06em; left: 0.06em; z-index: 2; }
+    .tp-color-cluster-dot:nth-child(2) { top: 0.32em; left: 0.32em; z-index: 1; }
+
+    .tp-thread {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4em;
+      color: var(--p-text);
+      font-size: 0.92em;
+      padding: 0.2em 0.5em;
+      background: transparent;
+      border: 0;
+      border-radius: 0.4em;
+    }
+    .tp-thread svg { width: 0.85em; height: 0.85em; stroke: var(--p-muted); fill: none; stroke-width: 1.6; }
+
+    /* ===== Memo list body ===== */
+    .tp-memo-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Memo tab: notebook dropdown (left) + search + new (right) —
+     * 对齐 memo-list.tsx 的 "Memo Tab" 区域 (notebook 下拉 + Search +
+     * SquarePen primary button)。 */
+    .tp-memo-tab {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5em;
+      padding: 0.5em 0.55em 0.35em;
+    }
+    .tp-notebook {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25em;
+      min-width: 0;
+      padding: 0.1em 0.35em;
+      border-radius: 0.4em;
+      color: var(--p-text);
+      background: transparent;
+      border: 0;
+    }
+    .tp-notebook-text {
+      font-size: 1em;
+      font-weight: 500;
+      letter-spacing: -0.005em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tp-notebook-caret {
+      width: 0.9em;
+      height: 0.9em;
+      stroke: var(--p-muted);
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+    .tp-memo-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3em;
+      flex-shrink: 0;
+    }
+    .tp-action-btn {
+      width: 1.85em;
+      height: 1.85em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--p-card);
+      color: var(--p-muted);
+      border: 1px solid var(--p-border);
+      border-radius: 999px;
+    }
+    .tp-action-btn svg {
+      width: 0.95em;
+      height: 0.95em;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .tp-action-btn.primary {
+      background: var(--p-brand);
+      color: var(--p-brand-fg);
+      border-color: var(--p-brand);
+    }
+    .tp-action-btn.primary svg {
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.7;
+    }
+
+    /* Tag pills row — 对齐 memo-list.tsx 1061-1088 那一段水平滚动的 #tag pill。 */
+    .tp-tag-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35em;
+      padding: 0.05em 0.6em 0.55em;
+      overflow: hidden;
+    }
+    .tp-tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25em;
+      height: 1.55em;
+      padding: 0 0.5em;
+      max-width: 7em;
+      background: transparent;
+      border: 1px solid var(--p-border);
+      border-radius: 0.5em;
+      color: var(--p-text);
+      font-size: 0.82em;
+      font-weight: 500;
+      line-height: 1;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .tp-tag-pill > span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tp-tag-pill svg {
+      width: 0.85em;
+      height: 0.85em;
+      stroke: var(--p-muted);
+      fill: none;
+      stroke-width: 1.7;
+      flex-shrink: 0;
+    }
+    .tp-tag-pill.active {
+      border-color: var(--p-brand);
+      color: var(--p-brand);
+      background: var(--p-accent);
+    }
+    .tp-tag-pill.active svg { stroke: var(--p-brand); }
+    .tp-tag-overflow {
+      width: 1.6em;
+      height: 1.6em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--p-muted);
+      background: transparent;
+      border: 0;
+      padding: 0;
+      flex-shrink: 0;
+      margin-left: auto;
+      border-radius: 999px;
+    }
+    .tp-tag-overflow svg {
+      width: 0.85em;
+      height: 0.85em;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Memo cards list — 对齐 MemoCard 组件: 圆角卡片 + color dot 标题 +
+     * 双行 preview + meta 行 (tag pill / pin / 时间), hover 出现 more 按钮,
+     * 卡片之间用 <hr> 细分隔。 */
+    .tp-memo-cards {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      padding: 0.1em 0.35em 0.4em;
+      display: flex;
+      flex-direction: column;
+    }
+    .tp-card {
+      padding: 0.65em 0.6em;
+      border-radius: 0.75em;
+      position: relative;
+    }
+    .tp-card.selected { background: var(--p-accent); }
+    .tp-card-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.35em;
+    }
+    .tp-card-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3em;
+    }
+    .tp-card h4 {
+      margin: 0;
+      font-size: 0.95em;
+      font-weight: 500;
+      color: var(--p-text);
+      letter-spacing: -0.005em;
+      line-height: 1.3;
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      min-width: 0;
+    }
+    .tp-card h4 .tp-card-title-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tp-color-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.18em;
+      flex-shrink: 0;
+    }
+    .tp-color-dot {
+      width: 0.45em;
+      height: 0.45em;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .tp-card-preview {
+      margin: 0;
+      font-size: 0.86em;
+      color: var(--p-text);
+      opacity: 0.5;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .tp-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      font-size: 0.78em;
+      color: var(--p-muted);
+    }
+    .tp-card-meta .tp-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.18em;
+      padding: 0.05em 0.45em;
+      border: 1px solid var(--p-border);
+      border-radius: 0.4em;
+      color: var(--p-muted);
+      line-height: 1.2;
+    }
+    .tp-card-meta .tp-tag svg {
+      width: 0.78em;
+      height: 0.78em;
+      stroke: var(--p-muted);
+      fill: none;
+      stroke-width: 1.7;
+    }
+    .tp-card-meta .tp-pin {
+      width: 0.85em;
+      height: 0.85em;
+      fill: var(--p-text);
+      flex-shrink: 0;
+    }
+    .tp-card-meta .tp-time { margin-left: auto; }
+
+    .tp-card-more {
+      width: 1.55em;
+      height: 1.55em;
+      border-radius: 0.35em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--p-muted);
+      background: transparent;
+      border: 0;
+      padding: 0;
+      flex-shrink: 0;
+      align-self: flex-start;
+      margin-top: -0.05em;
+      margin-right: -0.2em;
+      opacity: 0;
+    }
+    .tp-card.selected .tp-card-more { opacity: 1; }
+    .tp-card-more svg {
+      width: 0.95em;
+      height: 0.95em;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.6;
+    }
+    .tp-card-more svg circle { fill: currentColor; stroke: none; }
+
+    .tp-card-divider {
+      height: 1px;
+      background: var(--p-border);
+      opacity: 0.5;
+      margin: 0 0.55em;
+    }
+
+    /* ===== Document body ===== */
+    .tp-doc-body {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      padding: 1.2em 7% 1em;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55em;
+    }
+    .tp-doc-body h1 {
+      margin: 0;
+      font-size: 1.6em;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--p-text);
+      line-height: 1.2;
+    }
+    .tp-doc-body h2 {
+      margin: 0.35em 0 -0.05em;
+      font-size: 1.05em;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+      color: var(--p-text);
+    }
+    .tp-doc-body p {
+      margin: 0;
+      font-size: 0.95em;
+      color: var(--p-text);
+      opacity: 0.78;
+      line-height: 1.55;
+    }
+    .tp-doc-body pre {
+      margin: 0;
+      background: var(--p-code-bg);
+      padding: 0.7em 0.85em;
+      border-radius: 0.55em;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 0.86em;
+      color: var(--p-text);
+      line-height: 1.55;
+      white-space: pre;
+      overflow: hidden;
+    }
+    .tp-doc-body ul.tp-list {
+      margin: 0;
+      padding-left: 1.2em;
+      font-size: 0.95em;
+      color: var(--p-text);
+      opacity: 0.82;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15em;
+    }
+    .tp-doc-body ul.tp-todos {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.95em;
+      color: var(--p-text);
+      opacity: 0.82;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2em;
+    }
+    .tp-doc-body ul.tp-todos li {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+    .tp-doc-body ul.tp-todos li.done {
+      text-decoration: line-through;
+      opacity: 0.5;
+    }
+    .tp-check {
+      width: 1em;
+      height: 1em;
+      border: 1.5px solid var(--p-soft);
+      border-radius: 0.22em;
+      display: inline-block;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .tp-check.done {
+      background: var(--p-brand);
+      border-color: var(--p-brand);
+    }
+    .tp-check.done::after {
+      content: '';
+      position: absolute;
+      left: 0.18em;
+      top: 0.04em;
+      width: 0.42em;
+      height: 0.7em;
+      border: solid var(--p-brand-fg);
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    /* Doc body — 拓展元素: kicker / h3 / blockquote / figure / chart。 */
+    .tp-doc-kicker {
+      margin: -0.35em 0 0.6em;
+      font-size: 0.78em;
+      color: var(--p-muted);
+      letter-spacing: 0.005em;
+    }
+    .tp-doc-body h3 {
+      margin: 0.25em 0 -0.15em;
+      font-size: 0.92em;
+      font-weight: 600;
+      color: var(--p-text);
+      opacity: 0.92;
+    }
+    .tp-doc-body em { color: var(--p-text); font-style: italic; opacity: 0.95; }
+    .tp-doc-body strong { color: var(--p-text); font-weight: 600; opacity: 1; }
+
+    .tp-doc-body blockquote {
+      margin: 0.4em 0;
+      padding: 0.5em 0 0.5em 0.85em;
+      border-left: 2px solid var(--p-brand);
+      color: var(--p-text);
+      font-style: italic;
+      font-size: 0.86em;
+      line-height: 1.5;
+      background: linear-gradient(
+        to right,
+        color-mix(in oklch, var(--p-brand) 8%, transparent),
+        transparent 70%
+      );
+      border-radius: 0 0.4em 0.4em 0;
+    }
+    .tp-doc-body blockquote p { margin: 0 0 0.3em; opacity: 0.88; font-style: italic; }
+    .tp-doc-body blockquote cite {
+      font-style: normal;
+      font-size: 0.82em;
+      color: var(--p-muted);
+      display: block;
+    }
+
+    .tp-figure {
+      margin: 0.4em 0;
+      padding: 0.5em 0.6em 0.4em;
+      background: var(--p-accent);
+      border: 1px solid var(--p-border);
+      border-radius: 0.55em;
+    }
+    .tp-chart-svg {
+      width: 100%;
+      height: 5.2em;
+      display: block;
+    }
+    .tp-figure figcaption {
+      margin-top: 0.3em;
+      font-size: 0.74em;
+      color: var(--p-muted);
+      text-align: center;
+    }
+
+    /* ===== Agent panel body ===== */
+    .tp-chat-body {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      padding: 0.85em 0.85em 0.4em;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55em;
+    }
+    .tp-msg {
+      max-width: 88%;
+      padding: 0.55em 0.8em;
+      border-radius: 0.75em;
+      font-size: 0.9em;
+      line-height: 1.45;
+    }
+    .tp-msg.user {
+      align-self: flex-end;
+      background: var(--p-brand);
+      color: var(--p-brand-fg);
+    }
+    .tp-msg.assistant {
+      align-self: flex-start;
+      background: var(--p-card);
+      border: 1px solid var(--p-border);
+      color: var(--p-text);
+    }
+    .tp-thinking {
+      align-self: flex-start;
+      display: inline-flex;
+      gap: 0.3em;
+      padding: 0.75em 0.85em;
+      background: var(--p-card);
+      border: 1px solid var(--p-border);
+      border-radius: 0.75em;
+    }
+    .tp-dot {
+      width: 0.45em;
+      height: 0.45em;
+      background: var(--p-brand);
+      border-radius: 50%;
+      opacity: 0.4;
+      animation: tp-dot-pulse 1.4s infinite ease-in-out both;
+    }
+    .tp-dot:nth-child(2) { animation-delay: 0.18s; }
+    .tp-dot:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes tp-dot-pulse {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+
+    .tp-input {
+      margin: 0 0.8em 0.85em;
+      padding: 0.5em 0.6em 0.5em 0.75em;
+      background: var(--p-card);
+      border: 1px solid var(--p-border);
+      border-radius: 0.65em;
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      font-size: 0.9em;
+    }
+    .tp-input-placeholder {
+      color: var(--p-muted);
+      flex: 1;
+    }
+    .tp-send {
+      width: 1.6em;
+      height: 1.6em;
+      background: var(--p-brand);
+      border-radius: 0.35em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .tp-send svg { width: 0.85em; height: 0.85em; fill: none; stroke: var(--p-brand-fg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ===== Status bar (底部一行, 跟 main-layout 的 StatusBar 同形) ===== */
+    .tp-statusbar {
+      height: 6%;
+      min-height: 18px;
+      background: var(--p-statusbar);
+      border-top: 1px solid var(--p-divider);
+      display: flex;
+      align-items: center;
+      padding: 0 0.9em;
+      gap: 0.7em;
+      font-size: 0.78em;
+      color: var(--p-muted);
+    }
+    .tp-statusbar svg { width: 0.9em; height: 0.9em; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .tp-status-item { display: inline-flex; align-items: center; gap: 0.3em; }
+    .tp-status-brand { color: var(--p-brand); }
+    .tp-spacer { flex: 1; }
+
+    /* AI capability cards */
+    .ai-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+    @media (min-width: 640px) {
+      .ai-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .ai-item {
+      padding: 0.9rem 1rem;
+      background: var(--bg-soft);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .ai-item .label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+    .ai-item .desc { font-size: 0.9rem; color: var(--text); line-height: 1.45; }
+
+    /* Writing experience */
+    .experience-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    @media (min-width: 768px) {
+      .experience-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2rem;
+      }
+    }
+    .experience-col {
+      display: flex;
+      flex-direction: column;
+    }
+    .experience-col h3 { margin: 0 0 0.5rem; }
+    .experience-col p  { margin: 0 0 1rem; }
+    .experience-col .preview {
+      height: 320px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+    }
+    .experience-col .preview svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .experience-col h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .experience-col p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    /* Install */
+    .install pre { margin: 1rem 0 1.25rem; }
+    .install p { font-size: 0.9rem; color: var(--text-soft); margin: 0 0 0.4rem; }
+
+    /* Footer */
+    footer {
+      padding: 2.5rem 0;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    footer .container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    footer a { color: var(--text-soft); }
+    footer a:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="container">
+      <a href="/" class="wordmark bare"><img src="icon.png" alt="" class="logo" />Flowix Memo</a>
+      <nav class="nav-links">
+        <a href="https://github.com/aicollaborate/flowix" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <h1>用 Markdown 管理 AI 工作。</h1>
+        <p class="lede">本地优先的 Markdown 笔记，写得顺手。用它启动 Agent、Codex、Claude——写 prompt、列需求、编规范、画工作流，AI 在你的上下文里接着写。</p>
+        <div class="ctas">
+          <a href="https://github.com/aicollaborate/flowix" target="_blank" rel="noopener" class="btn btn-primary bare">立即下载</a>
+          <a href="#install" class="btn bare">更多平台</a>
+        </div>
+        <p class="meta">macOS / Windows / 免账号</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="container-wide">
+        <div class="theme-tabs" role="tablist" aria-label="主题切换">
+          <button class="theme-tab active" data-theme="light" role="tab" aria-selected="true"><span class="label">浅色</span></button>
+          <button class="theme-tab" data-theme="dark" role="tab" aria-selected="false"><span class="label">深色</span></button>
+          <button class="theme-tab" data-theme="rock" role="tab" aria-selected="false"><span class="label">岩灰</span></button>
+        </div>
+        <div class="theme-stage">
+          <div class="theme-preview" role="img" aria-label="Flowix 主界面预览: 三栏布局">
+
+            <div class="tp-main">
+
+              <!-- ===== Memo list column ===== -->
+              <div class="tp-col tp-memos">
+                <div class="tp-titlebar">
+                  <span class="tp-traffic-lights" aria-hidden="true">
+                    <span class="tp-traffic-light red"></span>
+                    <span class="tp-traffic-light yellow"></span>
+                    <span class="tp-traffic-light green"></span>
+                  </span>
+                  <div class="tp-titlebar-actions">
+                    <button class="tp-icon-btn" aria-label="折叠侧栏" type="button">
+                      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="9" y1="5" x2="9" y2="19"/></svg>
+                    </button>
+                    <button class="tp-icon-btn" aria-label="偏好设置" type="button">
+                      <svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="14" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="tp-memo-body">
+                  <!-- Memo tab: notebook dropdown + search/new (对齐 memo-list.tsx:980) -->
+                  <div class="tp-memo-tab">
+                    <button type="button" class="tp-notebook" aria-label="切换笔记本">
+                      <span class="tp-notebook-text">我的笔记本</span>
+                      <svg class="tp-notebook-caret" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="tp-memo-actions">
+                      <button type="button" class="tp-action-btn" aria-label="搜索" title="搜索">
+                        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+                      </button>
+                      <button type="button" class="tp-action-btn primary" aria-label="新建笔记" title="新建笔记">
+                        <svg viewBox="0 0 24 24"><path d="M14 4l6 6-4 1-1 4-6-6-4 4v-3l4-4 5-2z"/><path d="M3 21l4-1 4-4-3-3-4 4z"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Tag pills row (对齐 memo-list.tsx:1061 的水平 #tag 列表) -->
+                  <div class="tp-tag-row">
+                    <button type="button" class="tp-tag-pill active">
+                      <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                      <span>prompt</span>
+                    </button>
+                    <button type="button" class="tp-tag-pill">
+                      <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                      <span>需求</span>
+                    </button>
+                    <button type="button" class="tp-tag-pill">
+                      <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                      <span>规范</span>
+                    </button>
+                    <button type="button" class="tp-tag-pill">
+                      <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                      <span>工作流</span>
+                    </button>
+                    <button type="button" class="tp-tag-overflow" aria-label="更多标签">
+                      <svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>
+                    </button>
+                  </div>
+
+                  <!-- Memo cards list (对齐 memo-list.tsx:1275 的 displayMemos.map) -->
+                  <div class="tp-memo-cards">
+                    <div class="tp-card selected">
+                      <div class="tp-card-row">
+                        <div class="tp-card-main">
+                          <h4>
+                            <span class="tp-color-dots">
+                              <span class="tp-color-dot" style="background:#22c55e"></span>
+                              <span class="tp-color-dot" style="background:#3b82f6"></span>
+                            </span>
+                            <span class="tp-card-title-text">启动 Codex 的 prompt 模板</span>
+                          </h4>
+                          <p class="tp-card-preview">rllm v1.1 走 openai_compatible,工具调用 + 流式输出</p>
+                          <div class="tp-card-meta">
+                            <span class="tp-tag">
+                              <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                              <span>prompt</span>
+                            </span>
+                            <svg class="tp-pin" viewBox="0 0 24 24"><path d="M14 4l6 6-4 1-1 4-6-6-4 4v-3l4-4 5-2z"/></svg>
+                            <span class="tp-time">刚刚</span>
+                          </div>
+                        </div>
+                        <button type="button" class="tp-card-more" aria-label="更多">
+                          <svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="tp-card-divider"></div>
+
+                    <div class="tp-card">
+                      <div class="tp-card-row">
+                        <div class="tp-card-main">
+                          <h4>
+                            <span class="tp-color-dots">
+                              <span class="tp-color-dot" style="background:#f97316"></span>
+                            </span>
+                            <span class="tp-card-title-text">AI 协作 v2 需求清单</span>
+                          </h4>
+                          <p class="tp-card-preview">前端 / 后端 / 测试三块,每块拆成可独立交付的小任务</p>
+                          <div class="tp-card-meta">
+                            <span class="tp-tag">
+                              <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                              <span>需求</span>
+                            </span>
+                            <svg class="tp-pin" viewBox="0 0 24 24"><path d="M14 4l6 6-4 1-1 4-6-6-4 4v-3l4-4 5-2z"/></svg>
+                            <span class="tp-time">2 小时前</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tp-card-divider"></div>
+
+                    <div class="tp-card">
+                      <div class="tp-card-row">
+                        <div class="tp-card-main">
+                          <h4><span class="tp-card-title-text">Flowix 主题规范</span></h4>
+                          <p class="tp-card-preview">中性色 oklch L=0.21,品牌色 hue 273 chroma 0.185</p>
+                          <div class="tp-card-meta">
+                            <span class="tp-tag">
+                              <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                              <span>规范</span>
+                            </span>
+                            <span class="tp-time">昨天</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tp-card-divider"></div>
+
+                    <div class="tp-card">
+                      <div class="tp-card-row">
+                        <div class="tp-card-main">
+                          <h4><span class="tp-card-title-text">岩灰配色草案</span></h4>
+                          <p class="tp-card-preview">记录自己的想法</p>
+                          <div class="tp-card-meta">
+                            <span class="tp-tag">
+                              <svg viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                              <span>配色</span>
+                            </span>
+                            <span class="tp-time">上周</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ===== Document column ===== -->
+              <div class="tp-col tp-doc">
+                <div class="tp-titlebar">
+                  <div class="tp-titlebar-actions" aria-label="文档历史导航">
+                    <button class="tp-icon-btn" aria-label="后退" type="button" disabled>
+                      <svg viewBox="0 0 24 24"><polyline points="14 6 8 12 14 18"/></svg>
+                    </button>
+                    <button class="tp-icon-btn" aria-label="前进" type="button" disabled>
+                      <svg viewBox="0 0 24 24"><polyline points="10 6 16 12 10 18"/></svg>
+                    </button>
+                  </div>
+                  <div class="tp-titlebar-actions">
+                    <button class="tp-icon-btn" aria-label="文档颜色" type="button">
+                      <span class="tp-color-cluster" aria-hidden="true">
+                        <span class="tp-color-cluster-dot" style="background:#22c55e"></span>
+                        <span class="tp-color-cluster-dot" style="background:#3b82f6"></span>
+                      </span>
+                    </button>
+                    <button class="tp-icon-btn" aria-label="文档搜索" type="button">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="11" cy="11" r="7"/>
+                        <line x1="16.5" y1="16.5" x2="21" y2="21"/>
+                      </svg>
+                    </button>
+                    <button class="tp-icon-btn" aria-label="更多" type="button">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="5" cy="12" r="1.3" style="fill: currentColor"/>
+                        <circle cx="12" cy="12" r="1.3" style="fill: currentColor"/>
+                        <circle cx="19" cy="12" r="1.3" style="fill: currentColor"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="tp-doc-body">
+                  <h1>推出全新评估工具：深入理解 AI 带来的学习成效</h1>
+                  <p class="tp-doc-kicker">OpenAI · 全球事务 · 2026 年 3 月 4 日</p>
+
+                  <p>教育是 AI 最具潜力的应用前沿之一。借助 ChatGPT 等工具，个性化的学习支持已变得触手可及，让学生能随时随地获得帮助。然而，教育界对 AI 如何影响学习成效的认知仍处于起步阶段。</p>
+
+                  <p>为了填补这一空白，我们与爱沙尼亚塔尔图大学以及斯坦福 SCALE 项目联合开发了<em>学习成效衡量套件</em>——一套支持跨教育场景进行纵向跟踪、衡量学习成效的系统性框架。</p>
+
+                  <h2>核心要点</h2>
+                  <ul class="tp-list">
+                    <li><strong>当前研究的局限性：</strong>现有的 AI 学习影响评估方法仍无法完整刻画 AI 随时间推移对学习成效产生的全周期影响。</li>
+                    <li><strong>标准化衡量框架：</strong>"学习成效衡量套件"首次为纵向研究提供标准化框架。</li>
+                    <li><strong>推进研究生态建设：</strong>OpenAI 的"学习实验室"将联合合作伙伴持续发布研究成果。</li>
+                  </ul>
+
+                  <blockquote>
+                    <p>"这项研究让我们能够快速获取经验，同时也为深入理解如何将 AI 审慎地整合进学校教育奠定了基础。我们希望了解这些工具在支持严谨学科学习的同时，如何培养高阶思维、创造力、好奇心，以及学习者的自信心。"</p>
+                    <cite>— Susanna Loeb，斯坦福大学教育学教授、SCALE 项目主任</cite>
+                  </blockquote>
+
+                  <h2>起源与早期研究</h2>
+                  <p>学生利用 AI 工具进行学习的方式多种多样：既包括直接索取答案，也包括在类似导师的引导下逐步推导问题。为了帮助用户以促进"深度理解"和"技能构建"的方式使用 ChatGPT，OpenAI 推出了<em>学习模式</em>——由教学法专家编写的系统指令驱动，核心行为包括脚手架式引导、理解程度检查与启发式练习。</p>
+
+                  <h3>实验设计</h3>
+                  <p>针对 300 多名大学生进行随机研究：对照组使用传统在线资源（如 Google 搜索和 YouTube），另外两个实验组分别使用两种版本的"学习模式"。</p>
+
+                  <h3>研究发现</h3>
+                  <p>在微观经济学考试中，被分配使用"学习模式"的学生与对照组相比，成绩显著提升——得分高出约 15%。</p>
+
+                  <figure class="tp-figure">
+                    <svg class="tp-chart-svg" viewBox="0 0 280 90" preserveAspectRatio="xMidYMid meet">
+                      <line x1="20" y1="68" x2="260" y2="68" stroke="var(--p-border)" stroke-width="0.5"/>
+                      <rect x="40"  y="32" width="55" height="36" rx="3" fill="var(--p-muted)" opacity="0.55"/>
+                      <rect x="115" y="14" width="55" height="54" rx="3" fill="var(--p-brand)"/>
+                      <rect x="190" y="18" width="55" height="50" rx="3" fill="var(--p-brand)" opacity="0.78"/>
+                      <g font-family="-apple-system, sans-serif" text-anchor="middle" fill="var(--p-muted)" font-size="9">
+                        <text x="67"  y="82">对照组</text>
+                        <text x="142" y="82">学习模式 A</text>
+                        <text x="217" y="82">学习模式 B</text>
+                      </g>
+                      <g font-family="-apple-system, sans-serif" text-anchor="middle" fill="var(--p-text)" font-size="9" font-weight="700">
+                        <text x="67"  y="27">基准</text>
+                        <text x="142" y="9">+15%</text>
+                        <text x="217" y="13">+13%</text>
+                      </g>
+                    </svg>
+                    <figcaption>"学习模式"（版本 A 与 B）与对照组比较：调整后微观经济学考试得分</figcaption>
+                  </figure>
+
+                  <p>虽然这些数据反映了现实世界的差异，但也暴露出传统学习成效衡量方式的深层局限——单次研究无法捕捉 AI 与学习者策略、偏好和习惯共同演化的机制。</p>
+
+                  <h2>构建更完善的衡量体系</h2>
+                  <p>基于"学习模式"的研究成果，我们正在构建一套结构化的衡量体系，立足于三大核心信号：模型行为、学习者反馈、以及随时间推移产生的可衡量认知产出。</p>
+
+                  <ul class="tp-list">
+                    <li><strong>系统指令：</strong>利用自然语言改变模型默认行为，使其与教学法精准对齐。</li>
+                    <li><strong>学习交互分类器：</strong>自动检测真实交互中的"学习瞬间"，标注参与度与纠错表现。</li>
+                    <li><strong>学习质量评分器：</strong>评估每一个学习瞬间，判断学习者是否达成目标。</li>
+                    <li><strong>纵向学习评分器：</strong>在个人和群组层面长期追踪参与度、持久性与元认知策略。</li>
+                    <li><strong>标准化认知衡量：</strong>通过接入前 / 中 / 后的第三方量表衡量批判性思维、创造力与记忆力。</li>
+                  </ul>
+
+                  <h2>未来展望</h2>
+                  <p>在广泛开放学习成效衡量套件之前，我们正与塔尔图大学及斯坦福 SCALE 项目合作，在爱沙尼亚开展大规模验证——研究涵盖近 2 万名 16 至 18 岁学生，跨度长达数月。</p>
+
+                  <blockquote>
+                    <p>"爱沙尼亚始终将教育视为一个持续改进的动态系统。随着 AI 融入这一版图，核心挑战在于我们如何衡量 AI 对学习的长期影响。"</p>
+                    <cite>— Jaan Aru，塔尔图大学</cite>
+                  </blockquote>
+                </div>
+              </div>
+
+              <!-- ===== Agent panel column ===== -->
+              <div class="tp-col tp-agent">
+                <div class="tp-titlebar">
+                  <button class="tp-icon-btn" aria-label="关闭面板" type="button">
+                    <svg viewBox="0 0 24 24"><polyline points="14 6 20 12 14 18"/><line x1="20" y1="12" x2="10" y2="12"/></svg>
+                  </button>
+                  <button type="button" class="tp-thread">
+                    <span>当前会话</span>
+                    <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+                <div class="tp-chat-body">
+                  <div class="tp-msg user">接着写需求清单的下一项</div>
+                  <div class="tp-msg assistant">好的,我先看下你的文档上下文…</div>
+                  <div class="tp-thinking" aria-label="正在思考">
+                    <span class="tp-dot"></span><span class="tp-dot"></span><span class="tp-dot"></span>
+                  </div>
+                </div>
+                <div class="tp-input">
+                  <span class="tp-input-placeholder">问点什么,或者按 / 召唤工具</span>
+                  <button type="button" class="tp-send" aria-label="发送">
+                    <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- ===== Status bar ===== -->
+            <div class="tp-statusbar">
+              <span class="tp-status-item">
+                <svg viewBox="0 0 24 24"><path d="M4 4h12l4 4v12a2 2 0 0 1-2 2H4z"/><polyline points="14 4 14 10 20 10"/></svg>
+                我的笔记本
+              </span>
+              <span class="tp-status-item">
+                <svg viewBox="0 0 24 24"><polyline points="4 6 10 6 10 4 20 4 20 12 10 12 10 10 4 10"/><line x1="4" y1="6" x2="4" y2="10"/><line x1="20" y1="4" x2="20" y2="12"/></svg>
+                待办 2
+              </span>
+              <span class="tp-status-item">字 247</span>
+              <span class="tp-spacer"></span>
+              <span class="tp-status-item tp-status-brand">
+                <svg viewBox="0 0 24 24"><path d="M18 6c0-2-2-3-4-3s-3 2-3 4 1 3 1 5-2 4-4 4 1 2 4 2c4 0 7-3 7-7 0-2-1-4-1-5z"/></svg>
+                AI Chat
+              </span>
+              <span class="tp-status-item">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <hr />
+        <p class="eyebrow">写作体验</p>
+        <div class="experience-grid">
+          <div class="experience-col">
+            <h3>简洁 Markdown 格式</h3>
+            <p>支持 MD 语法或富文本，读写俱佳。</p>
+            <div class="preview">
+              <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <circle cx="14" cy="14" r="3" style="fill: #ff5f57"/>
+                <circle cx="26" cy="14" r="3" style="fill: #febc2e"/>
+                <circle cx="38" cy="14" r="3" style="fill: #28c840"/>
+                <line x1="0" y1="28" x2="240" y2="28" style="stroke: var(--border)"/>
+                <text x="16" y="58" font-size="16" font-weight="700" font-family="-apple-system, sans-serif" style="fill: var(--text)"># 标题</text>
+                <text x="16" y="84" font-size="12" font-family="-apple-system, sans-serif" style="fill: var(--text-soft)">正文内容支持</text>
+                <text x="16" y="108" font-size="12" font-weight="700" font-family="-apple-system, sans-serif" style="fill: var(--text)">**加粗** 与 _斜体_</text>
+                <text x="16" y="130" font-size="12" font-family="-apple-system, sans-serif" style="fill: var(--text-soft)">- 列表项一</text>
+                <text x="16" y="150" font-size="12" font-family="-apple-system, sans-serif" style="fill: var(--text-soft)">- 列表项二</text>
+                <text x="16" y="170" font-size="12" font-family="ui-monospace, monospace" style="fill: var(--link)">`内联代码`</text>
+              </svg>
+            </div>
+          </div>
+          <div class="experience-col">
+            <h3>AI 辅助写作</h3>
+            <p>AI 在你的上下文里接着写，每一步都看得见。</p>
+            <div class="preview">
+              <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <rect x="96" y="24" width="128" height="30" rx="8" style="fill: var(--bg-soft); stroke: var(--border)"/>
+                <text x="108" y="44" font-size="11" font-family="-apple-system, sans-serif" style="fill: var(--text)">帮我续写这一段</text>
+                <rect x="16" y="68" width="184" height="60" rx="8" style="fill: var(--brand)"/>
+                <text x="28" y="88" font-size="11" font-family="-apple-system, sans-serif" style="fill: #ffffff">好的，我先读一下</text>
+                <text x="28" y="104" font-size="11" font-family="-apple-system, sans-serif" style="fill: #ffffff">你的笔记上下文…</text>
+                <text x="28" y="120" font-size="11" font-family="-apple-system, sans-serif" style="fill: #ffffff; opacity: 0.75">接着往下写</text>
+                <circle cx="32" cy="152" r="3" style="fill: var(--brand)"/>
+                <circle cx="44" cy="152" r="3" style="fill: var(--brand); opacity: 0.6"/>
+                <circle cx="56" cy="152" r="3" style="fill: var(--brand); opacity: 0.3"/>
+              </svg>
+            </div>
+          </div>
+          <div class="experience-col">
+            <h3>排版自定义</h3>
+            <p>浅色 / 深色 / 岩灰主题，编辑器与导出风格一致。</p>
+            <div class="preview">
+              <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <text x="16" y="18" font-size="9" font-weight="600" font-family="-apple-system, sans-serif" style="fill: var(--text)">排版</text>
+                <line x1="16" y1="24" x2="224" y2="24" style="stroke: var(--border)"/>
+                <rect x="16" y="32" width="208" height="34" rx="6" style="fill: var(--bg-soft); stroke: var(--border)"/>
+                <rect x="22" y="38" width="22" height="10" rx="3" style="fill: var(--bg); stroke: var(--border)"/>
+                <text x="33" y="45" font-size="6" font-family="-apple-system, sans-serif" style="fill: var(--text-muted)">预览</text>
+                <text x="22" y="56" font-size="6" font-family="-apple-system, sans-serif" style="fill: var(--text)">The quick brown fox jumps over the lazy dog.</text>
+                <text x="22" y="62" font-size="6" font-family="-apple-system, sans-serif" style="fill: var(--text)">敏捷的棕色狐狸跨越了懒狗。</text>
+                <text x="16" y="82" font-size="6" font-weight="500" font-family="-apple-system, sans-serif" style="fill: var(--text)">字体</text>
+                <rect x="160" y="76" width="64" height="11" rx="4" style="fill: var(--bg-soft); stroke: var(--border)"/>
+                <text x="166" y="83" font-size="5" font-family="-apple-system, sans-serif" style="fill: var(--text)">系统字体</text>
+                <text x="16" y="100" font-size="6" font-weight="500" font-family="-apple-system, sans-serif" style="fill: var(--text)">文档宽度</text>
+                <rect x="120" y="96" width="84" height="4" rx="2" style="fill: var(--bg-soft); stroke: var(--border)"/>
+                <rect x="160" y="94" width="6" height="8" rx="2" style="fill: var(--brand)"/>
+                <text x="210" y="100" font-size="5" font-family="-apple-system, sans-serif" style="fill: var(--text-muted)">720px</text>
+                <text x="16" y="118" font-size="6" font-weight="500" font-family="-apple-system, sans-serif" style="fill: var(--text)">字号</text>
+                <rect x="120" y="114" width="84" height="4" rx="2" style="fill: var(--bg-soft); stroke: var(--border)"/>
+                <rect x="160" y="112" width="6" height="8" rx="2" style="fill: var(--brand)"/>
+                <text x="210" y="118" font-size="5" font-family="-apple-system, sans-serif" style="fill: var(--text-muted)">16px</text>
+                <text x="16" y="136" font-size="6" font-weight="500" font-family="-apple-system, sans-serif" style="fill: var(--text)">行间距</text>
+                <rect x="120" y="132" width="84" height="4" rx="2" style="fill: var(--bg-soft); stroke: var(--border)"/>
+                <rect x="160" y="130" width="6" height="8" rx="2" style="fill: var(--brand)"/>
+                <text x="210" y="136" font-size="5" font-family="-apple-system, sans-serif" style="fill: var(--text-muted)">1.50</text>
+                <rect x="16" y="150" width="56" height="16" rx="4" style="fill: none; stroke: var(--border)"/>
+                <text x="44" y="160" font-size="6" font-family="-apple-system, sans-serif" style="fill: var(--text-muted)">恢复默认</text>
+              </svg>
+            </div>
+          </div>
+          <div class="experience-col">
+            <h3>多种主题选择</h3>
+            <p>内置多套配色，浅色深色之外还有岩灰、护眼、夜晚。</p>
+            <div class="preview">
+              <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <rect x="20" y="24" width="44" height="44" rx="8" fill="#fafaf7" stroke="var(--border)"/>
+                <rect x="72" y="24" width="44" height="44" rx="8" fill="#1a1a1a" stroke="var(--border)"/>
+                <rect x="124" y="24" width="44" height="44" rx="8" fill="#8a857a" stroke="var(--border)"/>
+                <rect x="176" y="24" width="44" height="44" rx="8" fill="#f4ecd8" stroke="var(--border)"/>
+                <rect x="20" y="80" width="44" height="44" rx="8" fill="#e0e8f0" stroke="var(--border)"/>
+                <rect x="72" y="80" width="44" height="44" rx="8" fill="#1f2937" stroke="var(--border)"/>
+                <rect x="124" y="80" width="44" height="44" rx="8" fill="#fce7f3" stroke="var(--border)"/>
+                <rect x="176" y="80" width="44" height="44" rx="8" fill="#e7e5e4" stroke="var(--border)"/>
+                <rect x="16" y="20" width="52" height="52" rx="11" fill="none" stroke="var(--brand)" stroke-width="2"/>
+              </svg>
+            </div>
+          </div>
+          <div class="experience-col">
+            <h3>笔记管理简单</h3>
+            <p>笔记本分组 + 标签 + 颜色标记，再多笔记也不乱。</p>
+            <div class="preview">
+              <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <rect x="16" y="20" width="80" height="140" rx="6" fill="var(--bg-soft)" stroke="var(--border)"/>
+                <text x="24" y="38" font-size="9" font-weight="600" font-family="-apple-system, sans-serif" style="fill: var(--text-muted)">笔记本</text>
+                <rect x="24" y="48" width="60" height="6" rx="2" style="fill: var(--text)"/>
+                <rect x="24" y="64" width="48" height="4" rx="2" style="fill: var(--text-muted)"/>
+                <rect x="24" y="76" width="56" height="4" rx="2" style="fill: var(--text-muted)"/>
+                <rect x="24" y="88" width="40" height="4" rx="2" style="fill: var(--text-muted)"/>
+                <rect x="24" y="100" width="52" height="4" rx="2" style="fill: var(--text-muted)"/>
+                <rect x="104" y="20" width="120" height="32" rx="6" fill="var(--bg-soft)" stroke="var(--border)"/>
+                <circle cx="116" cy="36" r="4" style="fill: var(--brand)"/>
+                <rect x="126" y="30" width="56" height="3" rx="1.5" style="fill: var(--text)"/>
+                <rect x="126" y="38" width="72" height="2" rx="1" style="fill: var(--text-muted)"/>
+                <rect x="186" y="29" width="28" height="9" rx="3" style="fill: var(--brand); opacity: 0.18"/>
+                <text x="190" y="36" font-size="6" font-family="-apple-system, sans-serif" style="fill: var(--brand)">prompt</text>
+                <rect x="104" y="58" width="120" height="32" rx="6" fill="var(--bg-soft)" stroke="var(--border)"/>
+                <circle cx="116" cy="74" r="4" style="fill: #22c55e"/>
+                <rect x="126" y="68" width="48" height="3" rx="1.5" style="fill: var(--text)"/>
+                <rect x="126" y="76" width="72" height="2" rx="1" style="fill: var(--text-muted)"/>
+                <rect x="186" y="67" width="28" height="9" rx="3" style="fill: #22c55e; opacity: 0.18"/>
+                <rect x="104" y="96" width="120" height="32" rx="6" fill="var(--bg-soft)" stroke="var(--border)"/>
+                <circle cx="116" cy="112" r="4" style="fill: #f59e0b"/>
+                <rect x="126" y="106" width="64" height="3" rx="1.5" style="fill: var(--text)"/>
+                <rect x="126" y="114" width="72" height="2" rx="1" style="fill: var(--text-muted)"/>
+                <rect x="186" y="105" width="28" height="9" rx="3" style="fill: #f59e0b; opacity: 0.18"/>
+                <rect x="104" y="134" width="120" height="26" rx="6" fill="none" stroke="var(--border)" stroke-dasharray="3 3"/>
+              </svg>
+            </div>
+          </div>
+          <div class="experience-col">
+            <h3>更多</h3>
+            <p>持续开发中，更多能力在路上。</p>
+            <div class="preview">
+              <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <rect x="40" y="30" width="160" height="120" rx="12" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4"/>
+                <line x1="120" y1="72" x2="120" y2="108" stroke="var(--text-muted)" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="102" y1="90" x2="138" y2="90" stroke="var(--text-muted)" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <hr />
+        <p class="eyebrow">Agent 使用搭档</p>
+        <div class="prose">
+          <p>Flowix 是 AI Agent 的记忆库与协作层——文档即任务、笔记即上下文，外部工具通过 CLI 与 MCP 直接对接。</p>
+        </div>
+        <div class="agent-features">
+          <div class="feature">
+            <h3>可作为 AI Agent 的记忆库</h3>
+            <p>Markdown + YAML 纯文本存储，Agent 直接读写无需转换。</p>
+          </div>
+          <div class="feature">
+            <h3>文档即任务 / 审计 / 调度</h3>
+            <p>笔记可作为任务清单、审计日志、调度凭据，供 Agent 调用。</p>
+          </div>
+          <div class="feature">
+            <h3>CLI &amp; MCP 支持</h3>
+            <p>内置 CLI sidecar + MCP server，外部 Agent 与工具无缝对接。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <hr />
+        <p class="eyebrow">数据本地保存，离线使用</p>
+        <div class="prose">
+          <p>全部笔记以 <code>.md</code> 文档保存在电脑中（或私有云盘），仅大模型联网使用。</p>
+          <p>笔记是硬盘上的 Markdown + YAML 文件，纯文本——Vim、VS Code、Obsidian，任何编辑器都能直接打开。换台机器，整个数据目录打包就能带走。</p>
+          <p>没有云端同步、没有遥测、没有埋点。AI 在本地读你的文件、写你的文件——只有你主动按下的那一句 prompt 才会离开本机。配置存在本地 JSON，源码以 <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener">CC BY-NC 4.0</a> 协议开源，每一行都能读。</p>
+          <p>离线也能写、也能读——网络只在让 AI 干活时才需要。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <hr />
+        <p class="eyebrow">适合谁 &middot; 不适合谁</p>
+        <div class="audience">
+          <div class="audience-col">
+            <h3>适合你，如果&hellip;</h3>
+            <ul>
+              <li>想让 AI 接着你的笔记写，而不是从零开始</li>
+              <li>在 Markdown 里写 prompt、需求、规范、工作流</li>
+              <li>用笔记启动 Agent、Codex、Claude 让它们接着干</li>
+              <li>重视数据主权，文件能直接打开</li>
+            </ul>
+          </div>
+          <div class="audience-col">
+            <h3>不适合你，如果你需要&hellip;</h3>
+            <ul>
+              <li class="not">只需要简单记事（系统便签就够了）</li>
+              <li class="not">团队协作 / 多人同步</li>
+              <li class="not">双链 / 知识图谱</li>
+              <li class="not">离不开插件生态</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="install">
+      <div class="container">
+        <hr />
+        <h2 class="eyebrow">快速开始</h2>
+        <pre><code>git clone https://github.com/aicollaborate/flowix.git
+cd flowix
+npm install
+npm run tauri dev</code></pre>
+        <p>环境要求：Node.js 20+、Rust 1.75+、macOS 14+ 或 Windows 10+。</p>
+        <p>生产构建：<code>npm run tauri build</code></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div>Flowix &middot; 用 Markdown 管理 AI 工作</div>
+      <div>
+        <a href="https://github.com/aicollaborate/flowix" target="_blank" rel="noopener" class="bare">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var tabs = document.querySelectorAll('.theme-tab');
+
+      function activate(tab) {
+        tabs.forEach(function(t) {
+          var isActive = t === tab;
+          t.classList.toggle('active', isActive);
+          t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        // 预览是单个 block, 主题变量走 [data-theme="X"] 选择器级联 ——
+        // 把当前主题写到 <html> 上即可重新着色整个 .theme-preview。
+        document.documentElement.dataset.theme = tab.dataset.theme;
+      }
+
+      tabs.forEach(function(tab, i) {
+        tab.addEventListener('click', function() { activate(tab); });
+        tab.addEventListener('keydown', function(e) {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            var dir = e.key === 'ArrowRight' ? 1 : -1;
+            var next = tabs[(i + dir + tabs.length) % tabs.length];
+            next.focus();
+            activate(next);
+          }
+        });
+      });
+    })();
+  </script>
+
+</body>
+</html>

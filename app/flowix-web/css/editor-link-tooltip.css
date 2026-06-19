@@ -1,0 +1,81 @@
+/* render 到 document.body 以避免被面板裁剪 */
+.editor-link-hover-tooltip {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--floating-bg);
+  /* 浮层文字统一用 --floating-foreground (柔和白), 不沿用 --primary-foreground:
+   * 后者在 dark 主题里是深色 (oklch 0.173), 套到深色浮层上就是"深在深上"
+   * → 黑图标/黑文字. --floating-foreground 在三主题下都是浅色, 配对
+   * 始终深色的 --floating-bg 形成稳定的高对比文本对. */
+  color: var(--floating-foreground);
+  /* padding 缩到 4/6/4/8 (上/右/下/左):
+   * - 上下各 4px → 浮层高度从 34px 降到 30px, 减少对正文的遮挡压迫感
+   * - 右侧 6px → 与 22px 按钮 + hover 时 14% 亮色背景留出微呼吸
+   * - 左侧保留 8px → URL 文字距圆角边更远, 视觉上不被"压角" */
+  padding: 4px 6px 4px 8px;
+  /* 圆角从 4px 提到 8px: 让浮层视觉上读作"气泡/胶囊"而非"矩形",
+   * 配合 30px 高度, 圆角比 ≈ 27%, 接近 iOS/macOS 系统气泡的视觉风格. */
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: min(380px, calc(100vw - 16px));
+  opacity: 0;
+  pointer-events: auto;
+  transition: opacity 0.2s ease;
+  z-index: 2147483647;
+  /* 阴影改用 oklch(0 0 0 / .18) 而非 rgba(0,0,0,.18): 在 color-scheme 切换时
+   * 不会因 sRGB 空间外推丢失色相信息, 跟弹窗的 --floating-bg 保持中性灰调一致. */
+  box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
+}
+
+.editor-link-hover-tooltip-text {
+  /* 气泡里的 URL 固定为浅灰, 不随主题切换:
+   * - 浮层底色 (--floating-bg) 在三主题下都是深色, 浅灰 (L=0.7) 在上面
+   *   始终保持高对比, 不会出现 --foreground 在 light/rock 上"深叠深"的问题
+   * - 不用 token: 这是"浮层里的次要信息"专属视觉, 不参与主题色板
+   * - 选 oklch(0.7 0 0) 而非 #9ca3af: 保持项目 OKLCH 统一, 中性无色相
+   *   不会与品牌色 / 链接色产生任何"暗合"的视觉干扰 */
+  color: oklch(0.7 0 0);
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-link-hover-tooltip-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.editor-link-hover-tooltip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  /* 图标颜色: 同容器思路, 改用 --floating-foreground 派生半透明白.
+   * 之前 84% 透明白在 light/rock 没问题, 但 dark 主题因 primary-foreground
+   * 本身就是深色 → 算出深色 → 黑图标, 修复后三主题都显示为亮图标. */
+  color: color-mix(in oklch, var(--floating-foreground) 84%, transparent);
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-link-hover-tooltip-button:hover {
+  color: var(--floating-foreground);
+  background: color-mix(in oklch, var(--floating-foreground) 14%, transparent);
+}
+
+.editor-link-hover-tooltip-button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}

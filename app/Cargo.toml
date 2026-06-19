@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "flowix-desktop",
+    "flowix-core",
+    "flowix-cli",
+]
+
+# 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。
+[workspace.dependencies]
+flowix-core = { path = "flowix-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+walkdir = "2.4"
+regex = "1.10"
+once_cell = "1.19"
+thiserror = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+nanoid = "0.4"
+dunce = "1.0"
+tempfile = "3"
+sha2 = "0.10"
+clap = { version = "4.5", features = ["std"] }
+clap_complete = "4.5"

@@ -1,0 +1,14 @@
+/* Nunito Sans — 可变字体 (300-800 weight) */
+@font-face {
+	font-family: 'Nunito Sans';
+	src: url('../assets/fonts/NunitoSans.ttf') format('truetype');
+	font-weight: 300 800;
+	font-style: normal;
+}
+
+@font-face {
+	font-family: 'Nunito Sans';
+	src: url('../assets/fonts/NunitoSans-Italic.ttf') format('truetype');
+	font-weight: 300 800;
+	font-style: italic;
+}

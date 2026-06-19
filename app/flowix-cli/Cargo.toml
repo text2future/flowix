@@ -1,0 +1,23 @@
+[package]
+name = "flowix-cli"
+version = "0.1.0"
+description = "Flowix 命令行工具 ── 共享同一份 memo_file 存储, 跟桌面端 watcher 双向同步"
+authors = ["Flowix Contributors"]
+edition = "2021"
+default-run = "flowix-cli"
+
+[[bin]]
+name = "flowix-cli"
+path = "src/main.rs"
+
+[dependencies]
+flowix-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+thiserror = { workspace = true }
+tempfile = { workspace = true }
+nanoid = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }

@@ -1,0 +1,50 @@
+# Local backups
+flowix-main.zip
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri
+target/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# CLI sidecar 构建产物 (由 scripts/build-cli.sh 生成, 见 app/flowix-desktop/tauri.conf.json externalBin)
+app/flowix-desktop/binaries/flowix-cli-*
+# dev-mode symlink: Tauri 2 `cargo tauri dev` 找 `binaries/flowix-cli` (无 triple);
+# scripts/build-cli.sh 在单 host build 后创建。 永远不 commit 符号链接本身。
+app/flowix-desktop/binaries/flowix-cli
+app/flowix-desktop/binaries/flowix-cli.exe
+!app/flowix-desktop/binaries/.gitkeep
+
+# 代码签名相关 ── 永远不 commit 证书 / 私钥 / patch 后的 conf
+*.pfx
+*.p12
+*.local.json
+tauri.conf.production.local.json
+app/flowix-desktop/entitlements.local.plist
+
+# Playwright 测试产物
+test-results/
+playwright-report/
+
