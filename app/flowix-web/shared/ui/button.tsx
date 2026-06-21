@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { Tooltip, type TooltipAlign, type TooltipSide } from "@shared/ui/tooltip"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-[color-mix(in_oklch,var(--ring)_50%,transparent)] active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-[color-mix(in_oklch,var(--destructive)_20%,transparent)] dark:aria-invalid:border-[color-mix(in_oklch,var(--destructive)_50%,transparent)] dark:aria-invalid:ring-[color-mix(in_oklch,var(--destructive)_40%,transparent)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-[color-mix(in_oklch,var(--destructive)_20%,transparent)] dark:aria-invalid:border-[color-mix(in_oklch,var(--destructive)_50%,transparent)] dark:aria-invalid:ring-[color-mix(in_oklch,var(--destructive)_40%,transparent)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -18,7 +18,7 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-[color-mix(in_oklch,var(--muted)_50%,transparent)]",
         destructive:
-          "bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] text-destructive hover:bg-[color-mix(in_oklch,var(--destructive)_20%,transparent)] focus-visible:border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] focus-visible:ring-[color-mix(in_oklch,var(--destructive)_20%,transparent)] dark:bg-[color-mix(in_oklch,var(--destructive)_20%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--destructive)_30%,transparent)] dark:focus-visible:ring-[color-mix(in_oklch,var(--destructive)_40%,transparent)]",
+          "bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] text-destructive hover:bg-[color-mix(in_oklch,var(--destructive)_20%,transparent)] dark:bg-[color-mix(in_oklch,var(--destructive)_20%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

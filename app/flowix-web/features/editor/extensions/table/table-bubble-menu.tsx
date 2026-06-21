@@ -227,6 +227,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
               editor.chain().focus().deleteRow().run();
             }}
             type="button"
+            className="destructive"
           >
             <RowsDeleteIcon size={18} />
           </button>
@@ -261,6 +262,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
               editor.chain().focus().deleteColumn().run();
             }}
             type="button"
+            className="destructive"
           >
             <ColumnsDeleteIcon size={18} />
           </button>
@@ -273,9 +275,9 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
               editor.chain().focus().deleteTable().run();
             }}
             type="button"
-            className="delete-table-btn"
+            className="destructive"
           >
-            <AgentTrashIcon size={18} />
+            <AgentTrashIcon size={16} />
           </button>
         </Tooltip>
       </div>

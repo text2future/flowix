@@ -199,6 +199,14 @@
 	}
 }
 
+/* Global keyboard focus ring for native buttons and shared Button instances.
+ * Keep this unlayered and after Tailwind utilities so buttons that do not use
+ * shared/ui/Button still get the same system ring token when reached by Tab. */
+:where(button, [role="button"]):focus-visible:not(:disabled):not([aria-disabled="true"]) {
+	outline: none;
+	box-shadow: 0 0 0 1px var(--ring);
+}
+
 /* agent-* 元素的样式已合并到组件 className (Tailwind 工具类);
  * 关键帧由 animate-[<name>_<duration>_<timing>] arbitrary value 引用,
  * 必须保留 CSS。 */

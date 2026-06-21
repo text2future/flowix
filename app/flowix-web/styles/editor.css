@@ -118,10 +118,10 @@
 }
 
 .markdown-editor .tiptap pre  {
-  background: color-mix(in oklch, var(--code-block-bg) 60%, transparent);
+  background: color-mix(in oklch, var(--editor-block-bg) 60%, transparent);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  padding: 0.5rem 1rem 1rem;
+  padding: 0.4rem 0.8rem 1.2rem;
   margin: 1rem 0;
   font-family: inherit;
   /* em: 跟随父级段落字号 */
@@ -253,7 +253,7 @@
 }
 
 .markdown-editor .tiptap .selectedCell {
-  background-color: rgba(82, 98, 220, 0.15) !important;
+  background-color: color-mix(in oklch, var(--brand), transparent 85%) !important;
 }
 
 /* prosemirror-tables 为列中每个 cell 插入一个 .column-resize-handle widget,
@@ -319,7 +319,7 @@
   max-width: 100%;
   position: relative;
   display: block;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.8rem;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -377,8 +377,7 @@
 }
 
 .markdown-editor .table-edge-insert-button:hover {
-  background: var(--muted, #f3f4f6);
-  border-color: color-mix(in oklch, var(--border), var(--foreground) 18%);
+  background: color-mix(in oklch, var(--card, var(--background, #fff)), var(--muted, #f3f4f6) 50%);
   color: var(--foreground, #111827);
 }
 
@@ -483,6 +482,24 @@
   border: none;
   border-top: 0.0625rem solid var(--border);
   margin: 1rem 0 2rem 0;
+  /* 让 .is-block-selected / .ProseMirror-selectednode 切到 brand 时
+   * 平滑过渡, 与其他块的高亮入场节奏一致 (120ms)。 */
+  transition: border-top-color 120ms ease-out;
+}
+
+/* hr 选中态: 复用 .is-block-selected / .ProseMirror-selectednode 的
+ * brand 色相, 但 hr 是 1px 边线、box 高度近乎 0, 通用规则的背景色铺
+ * 不到线上, 视觉上读不出"被选中"。改为把 border-top 直接切到 brand
+ * 作为唯一视觉锚 ——
+ *   - is-block-selected: drag context menu 钉住 (与通用 .is-block-selected
+ *     的 inset left stripe 共用, 形成 "线 + 左竖条" 的组合指示);
+ *   - ProseMirror-selectednode: NodeSelection (点击 hr 直接选中),
+ *     不再加 outline / box-shadow 等外框 — hr 自身就是 1px 边, 高亮
+ *     只在线本身, 视觉更克制。
+ * 选择器特异性 (0,3,1) 高于全局 .ProseMirror-selectednode (0,1,0)。 */
+.markdown-editor .ProseMirror hr.is-block-selected,
+.markdown-editor .ProseMirror hr.ProseMirror-selectednode {
+  border-top-color: var(--brand);
 }
 
 .markdown-editor .tag-node {
@@ -526,6 +543,15 @@
 
 .markdown-editor .ProseMirror .is-block-selected:hover {
   background-color: color-mix(in oklch, var(--brand) 10%, transparent);
+}
+
+.markdown-editor .ProseMirror .flowix-block-drop-indicator {
+  display: block;
+  height: 2px;
+  margin: 3px 0;
+  border-radius: 999px;
+  background: var(--brand);
+  pointer-events: none;
 }
 
 /* 节点级选中 (image / videoAttachment / fileAttachment 等

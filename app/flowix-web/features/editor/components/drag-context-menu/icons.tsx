@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react'
-import type { Editor } from '@tiptap/core'
 import {
   TextHOneIcon,
   TextHTwoIcon,
   TextHThreeIcon,
   TextHFourIcon,
 } from '@phosphor-icons/react'
-import { getCurrentBlockInfo } from '@features/editor/components/drag-context-menu/block-info'
+import type { CurrentBlockInfo } from '@features/editor/components/drag-context-menu/block-info'
 
 /**
  * Handle's icon. Pure render-time derivation from
@@ -43,8 +42,7 @@ export function DefaultDragIcon() {
 
 /** H1–H4 Phosphor icon when the cursor sits in a matching heading,
  *  otherwise the default grip glyph. */
-export function renderDragIcon(editor: Editor): ReactNode {
-  const info = getCurrentBlockInfo(editor)
+export function renderDragIcon(info: CurrentBlockInfo | null): ReactNode {
   if (info?.typeName === 'heading') {
     const level = info.attrs.level
     if (level === 1 || level === 2 || level === 3 || level === 4) {

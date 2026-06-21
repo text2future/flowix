@@ -19,14 +19,18 @@
 
 	--secondary: oklch(0.904 0.011 var(--neutral-hue));
 	--secondary-foreground: oklch(0.372 0.009 var(--neutral-hue));
-	--muted: oklch(0.885 0.015 var(--neutral-hue));
-	--muted-foreground: oklch(0.576 0.014 var(--neutral-hue));
+	/* 弱化: muted 向 background 拉近 (ΔL 0.033 → 0.013) 并消色 (chroma 0.015 → 0.009),
+	 * 让 hover / 用户消息气泡 / 头像块这些面读作"纸面浮起"而非"色块凸出" */
+	--muted: oklch(0.905 0.009 var(--neutral-hue));
+	/* muted-foreground 同步提亮, 向 light 主题 0.613 看齐, 文字不再比 light 更沉 */
+	--muted-foreground: oklch(0.605 0.012 var(--neutral-hue));
 	--accent: oklch(0.904 0.011 var(--neutral-hue));
 
 	--border: oklch(0.861 0.009 var(--neutral-hue));
 	--input: var(--border);
 	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
-	--ring: oklch(0.770 0.013 var(--neutral-hue));
+	/* Keyboard focus ring follows the theme primary color. */
+	--ring: var(--primary);
 
 	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
 	--agent-bg: oklch(0.944 0.010 var(--neutral-hue));
@@ -36,7 +40,7 @@
 
 	--bg-titlebar: oklch(0.934 0.010 var(--neutral-hue));
 	/* 文档: 在 background 上提一档亮度, 让编辑器外侧到窗口边的留白读作"温润纸边" */
-	--document-bg: oklch(0.961 0.008 var(--neutral-hue));
+	--document-bg: oklch(0.98 0.003 var(--neutral-hue));
 	--document-foreground: oklch(0.379 0.009 var(--neutral-hue));
 	/* 链接: L=0.42 "冷却中岩浆" 锚定浅橄榄底, 改同色系深浅对比, 对比 11.77:1 */
 	--document-link: oklch(0.42 0.18 var(--brand-hue));
@@ -57,7 +61,7 @@
 	--memo-color-gray:   oklch(54% 0.012 92);
 
 	--code-bg: oklch(0.894 0.014 var(--neutral-hue));
-	--code-block-bg: oklch(0.985 0 0);
+	--editor-block-bg: oklch(0.985 0 0);
 
 	--floating-bg: oklch(0.323 0.007 var(--neutral-hue));
 	/* 浮层文字: 与 floating-bg 配对, 三主题统一柔和白, 避纯白在深底的眩光 */

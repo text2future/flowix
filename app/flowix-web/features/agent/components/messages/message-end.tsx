@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ChatMessage as ChatMessageType } from "@/types";
 import { getAgentMessageVisibleContent } from "@features/agent/message/agent-message";
 
@@ -5,7 +6,7 @@ interface MessageEndProps {
   message: ChatMessageType;
 }
 
-export function MessageEnd({ message }: MessageEndProps) {
+function MessageEndInner({ message }: MessageEndProps) {
   const visibleContent = getAgentMessageVisibleContent(message);
 
   return (
@@ -18,3 +19,12 @@ export function MessageEnd({ message }: MessageEndProps) {
     </div>
   );
 }
+
+// Layer 1: end 行只渲染纯文本, content 不变则跳过.
+export const MessageEnd = memo(
+  MessageEndInner,
+  (prev, next) =>
+    prev.message === next.message ||
+    (prev.message.id === next.message.id &&
+      prev.message.content === next.message.content)
+);

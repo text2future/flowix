@@ -14,19 +14,11 @@ import type { MemoColor } from '@features/memo';
 
 export type { ChatMessage } from '@/types/agent';
 
-// Lightweight message type for LLM communication (without id/timestamp)
-export interface LlmMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
-export interface RpcRequest {
-  <T = unknown>(method: string, params?: unknown): Promise<T>;
-}
-
 // ============================================
 // Tauri RPC Client
 // ============================================
+
+type RpcRequest = <T = unknown>(method: string, params?: unknown) => Promise<T>;
 
 let rpcInstance: RpcRequest | null = null;
 
@@ -35,17 +27,6 @@ export function initTauriClient(): void {
     return await invoke<T>(method, params as Record<string, unknown> || {});
   };
   (window as any).__tauriRpc = rpcInstance;
-}
-
-export function getRpc(): RpcRequest {
-  if (!rpcInstance) {
-    throw new Error("Tauri RPC not initialized. Call initTauriClient() first.");
-  }
-  return rpcInstance;
-}
-
-export function isInitialized(): boolean {
-  return rpcInstance !== null;
 }
 
 // ============================================
@@ -313,11 +294,11 @@ export interface AgentConfig {
   apiKey: string;
 }
 
-export interface ChatResponse {
+interface ChatResponse {
   response: string;
 }
 
-export interface AgentUserMessage {
+interface AgentUserMessage {
   content: string;
   llmContent?: string;
   systemReminderDirectory?: string;
@@ -353,6 +334,22 @@ export const agent = {
     invoke<ThreadInfo>('thread_create', { title }),
   getThread: (threadId: string) =>
     invoke<{ messages: ChatMessage[] }>('thread_get', { threadId }),
+  /**
+   * Layer 4: 分页加载 thread 历史. 返回 { messages (ASC), oldestSequence, hasMore }.
+   *  - beforeSequence = null/undefined → 取最近 limit 条
+   *  - beforeSequence = N → 取 sequence < N 的最近 limit 条 (向上翻页)
+   * 服务端 clamp limit 到 [1, 1000].
+   */
+  getThreadPage: (
+    threadId: string,
+    beforeSequence: number | null,
+    limit: number,
+  ) =>
+    invoke<{
+      messages: ChatMessage[];
+      oldestSequence: number | null;
+      hasMore: boolean;
+    }>('thread_get_page', { threadId, beforeSequence, limit }),
   listCodexThreads: () =>
     invoke<ThreadInfo[]>('codex_thread_list'),
   getCodexThread: (threadId: string) =>
@@ -381,7 +378,7 @@ export const agent = {
 // listener 长在, 永远不卸, 派发器自己按 `thread_id` 路由到正确的 store
 // 状态。 旧调用点 (chat-store.ts: sendMessageStream 里的
 // `listenToAgentStream((chunk) => ...)`) 已经整体替换为单点 dispatch。
-export type StreamCallback = (chunk: AgentChunk) => void;
+type StreamCallback = (chunk: AgentChunk) => void;
 
 // CLI sidecar JSON-RPC ── 通过后端 `cli_invoke` 命令走 `flowix-cli serve` 子进程。
 // 后端 spawn sidecar 进程, 维护 stdin/stdout 双向流, 把 method + params 包成
@@ -402,17 +399,6 @@ export function listenToAgentStream(callback: StreamCallback): UnlistenFn {
   return subscribe<AgentChunk>('agent-chunk', callback);
 }
 
-export function stopListeningToAgentStream(): void {
-  // 走 event-bus 的 reset: 清空该 event 的所有 handler。 主要供过去
-  // 的单个调用点调用, 现代代码不应该还在调 stopXxx()
-  // (业务上应该让 subscribe 的 UnlistenFn 走 useEffect cleanup)。
-  // 为保持向后兼容, 不动 state, 让 GC 自然清理。
-  //
-  // 但 chat-store 里用了 module-level bridge 实现幂等, 需要能够在
-  // 测试中完全清除. 提供 _resetForTests 走 event-bus 全量 reset,
-  // 调用点会被迁移到 reset 路径。
-}
-
 // ============================================
 // 跨窗口同步
 // ============================================
@@ -421,8 +407,8 @@ export function stopListeningToAgentStream(): void {
 // 其它窗口收到后从磁盘重新 load, 解决: 两个 Tauri 窗口各跑独立 React 树
 // + 独立 zustand store, 一边改动另一边看不到的问题。
 
-export type UserConfigChangeKind = 'preference' | 'ai_config';
-export type UserConfigChangeHandler = (kind: UserConfigChangeKind) => void;
+type UserConfigChangeKind = 'preference' | 'ai_config';
+type UserConfigChangeHandler = (kind: UserConfigChangeKind) => void;
 
 export function listenToUserConfigChanges(
   handler: UserConfigChangeHandler,
@@ -430,22 +416,21 @@ export function listenToUserConfigChanges(
   return subscribe<UserConfigChangeKind>('user-config-changed', handler);
 }
 
+// 历史兼容: useEffect cleanup 仍有人手调这个空函数(例如
+// `preferences/sections/agent.tsx`)。 内部走 event-bus.unsubscribe 不需要
+// 全量 reset, GC 自然清理就行。 不删避免破坏调用方。
 export function stopListeningToUserConfigChanges(): void {
-  // 同上, 走 event-bus 的 UnlistenFn, 业务上应该让
+  // 走 event-bus 的 UnlistenFn, 业务上应该让
   // subscribe 返回的 unlisten 走 useEffect cleanup, 不该手工调 stopXxx。
 }
 
 // Agent 可访问目录变更事件 ── 后端 set_agent_access / notebook CRUD
 // 钩子任一成功都 emit, payload 是 `()` (无 payload), 监听者直接
 // `loadInitial()` 拉整份 config。 与 `user-config-changed` 同形。
-export type AgentAccessChangeHandler = () => void;
+type AgentAccessChangeHandler = () => void;
 
 export function listenToAgentAccessChanges(
   handler: AgentAccessChangeHandler,
 ): UnlistenFn {
   return subscribe<unknown>('agent-access-changed', () => handler());
-}
-
-export function stopListeningToAgentAccessChanges(): void {
-  // 走 event-bus, 同上。
 }

@@ -13,8 +13,8 @@ interface EdgeTarget {
 }
 
 const tableEdgeInsertPluginKey = new PluginKey('tableEdgeInsert');
-const EDGE_BUTTON_SIZE = 14;
-const EDGE_GAP = 2;
+const EDGE_BUTTON_SIZE = 16;
+const EDGE_GAP = 4;
 
 function closestTableCell(target: EventTarget | null): HTMLTableCellElement | null {
   if (!(target instanceof Element)) return null;
@@ -26,6 +26,13 @@ function getEdgeTarget(view: EditorView, eventTarget: EventTarget | null): EdgeT
   const cell = closestTableCell(eventTarget);
   const table = cell?.closest('table');
   if (!cell || !(table instanceof HTMLTableElement)) return null;
+
+  // AgentThreadCard 是只读 NodeView (`contentEditable='false'`), 卡片内
+  // 的 markdown 表格用 `marked` 实时渲染, 不属于 ProseMirror 表格节点 ──
+  // 它的 cell 在 ProseMirror 文档里没有对应位置, 触发 addColumnAfter/
+  // addRowAfter 会出错, 按钮本身也会错位叠加在卡片边缘. 命中则当作
+  // "非编辑器表格" 直接忽略.
+  if (cell.closest('.agent-thread-card')) return null;
 
   const row = cell.parentElement;
   if (!(row instanceof HTMLTableRowElement)) return null;

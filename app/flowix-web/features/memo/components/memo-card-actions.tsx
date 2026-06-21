@@ -1,6 +1,6 @@
 'use client';
 
-import { PushPin, TrashIcon } from "@phosphor-icons/react";
+import { PushPin, TrashSimpleIcon } from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
 import type { MemoItem } from '@features/memo';
 
@@ -47,9 +47,9 @@ export function MemoCardActions({
       </Item>
       <Item
         onClick={() => onDelete(memo)}
-        className={cn(ITEM_BASE, "text-[var(--destructive)]")}
+        className={cn(ITEM_BASE, "hover:text-[var(--destructive)]")}
       >
-        <TrashIcon className="w-4 h-4 mr-2" /> 删除
+        <TrashSimpleIcon className="w-4 h-4 mr-2" /> 删除
       </Item>
     </>
   );

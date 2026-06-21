@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ChatMessage as ChatMessageType } from "@/types";
 import { useSettingsStore } from "@features/shell";
@@ -11,7 +12,7 @@ interface MessageReasoningProps {
   message: ChatMessageType;
 }
 
-export function MessageReasoning({ message }: MessageReasoningProps) {
+function MessageReasoningInner({ message }: MessageReasoningProps) {
   const reasoningCollapsed = useSettingsStore((state) => state.reasoningCollapsed);
   const toggleReasoningCollapsed = useSettingsStore((state) => state.toggleReasoningCollapsed);
 
@@ -42,3 +43,17 @@ export function MessageReasoning({ message }: MessageReasoningProps) {
     </div>
   );
 }
+
+// Layer 1: 当 message props 不变时跳过. 内部消费的 `reasoningCollapsed` /
+// `toggleReasoningCollapsed` 来自 useSettingsStore, store 变化时 zustand
+// 会自然触发该组件重渲, 与外层 memo 不冲突 (memo 只挡 props 相同时的
+// 父级 re-render, 不挡 hook 订阅触发的内部更新).
+export const MessageReasoning = memo(
+  MessageReasoningInner,
+  (prev, next) =>
+    prev.message === next.message ||
+    (prev.message.id === next.message.id &&
+      prev.message.content === next.message.content &&
+      prev.message.reasoning === next.message.reasoning &&
+      prev.message.isCompleted === next.message.isCompleted)
+);

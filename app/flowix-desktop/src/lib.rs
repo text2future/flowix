@@ -733,6 +733,7 @@ pub fn run() {
             commands::thread::thread_list,
             commands::thread::thread_create,
             commands::thread::thread_get,
+            commands::thread::thread_get_page,
             commands::thread::codex_thread_list,
             commands::thread::codex_thread_get,
             commands::thread::codex_thread_session_id,

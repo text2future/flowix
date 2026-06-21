@@ -10,7 +10,7 @@ import {
   FileMdIcon,
   FileDocIcon,
   ClockIcon,
-  TrashIcon,
+  TrashSimpleIcon,
   BoxArrowDownIcon,
 } from '@phosphor-icons/react';
 import {
@@ -219,7 +219,7 @@ export function MemoColorPicker({
               onClick={clear}
               className={`relative h-7 w-7 rounded-md transition-colors ${
                 colors.length === 0
-                  ? 'ring-2 ring-[var(--muted)]'
+                  ? 'ring-1 ring-[var(--muted)]'
                   : 'hover:bg-[var(--muted)]'
               }`}
             >
@@ -231,25 +231,24 @@ export function MemoColorPicker({
           {MEMO_COLORS.map((c) => {
             const isSelected = selected.has(c);
             return (
-              <Tooltip key={c} content={COLOR_LABELS[c]}>
-                <button
-                  type="button"
-                  aria-label={COLOR_LABELS[c]}
-                  aria-pressed={isSelected}
-                  onClick={() => toggle(c)}
-                  className="relative h-7 w-7 rounded-md transition-transform hover:scale-110"
-                  style={{ backgroundColor: MEMO_COLOR_HEX[c] }}
-                >
-                  {isSelected && (
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 flex items-center justify-center text-white opacity-70"
-                    >
-                      <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                    </span>
-                  )}
-                </button>
-              </Tooltip>
+              <button
+                key={c}
+                type="button"
+                aria-label={COLOR_LABELS[c]}
+                aria-pressed={isSelected}
+                onClick={() => toggle(c)}
+                className="relative h-7 w-7 rounded-md transition-transform hover:scale-110"
+                style={{ backgroundColor: MEMO_COLOR_HEX[c] }}
+              >
+                {isSelected && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 flex items-center justify-center text-white opacity-70"
+                  >
+                    <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                  </span>
+                )}
+              </button>
             );
           })}
         </div>
@@ -570,9 +569,9 @@ export function MemoActions({
           />
           <DropdownMenuItem
             onClick={onRequestDeleteMemo}
-            className="flex items-center cursor-pointer rounded-md px-2 hover:bg-[var(--muted)] text-[var(--destructive)]"
+            className="flex items-center cursor-pointer rounded-md px-2 hover:bg-[var(--muted)] hover:text-[var(--destructive)]"
           >
-            <TrashIcon className="w-4 h-4 mr-2" /> 删除
+            <TrashSimpleIcon className="w-4 h-4 mr-2" /> 删除
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

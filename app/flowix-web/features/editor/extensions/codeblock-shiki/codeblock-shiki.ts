@@ -70,6 +70,3 @@ export const CodeBlockShiki = CodeBlock.extend({
     ];
   },
 });
-
-// Export for external usage
-export { loadHighlighter, initHighlighter, loadLanguage, loadTheme } from '@features/editor/extensions/codeblock-shiki/shiki/shiki-highlighter';

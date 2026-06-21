@@ -8,6 +8,8 @@ export default {
         background: "var(--background)",
         foreground: "var(--foreground)",
         border: "var(--border)",
+        input: "var(--input)",
+        ring: "var(--ring)",
 
         card: {
           DEFAULT: "var(--card)",

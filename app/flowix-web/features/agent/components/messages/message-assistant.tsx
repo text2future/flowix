@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ChatMessage as ChatMessageType } from "@/types";
 import {
   getAgentMessageVisibleContent,
@@ -9,7 +10,7 @@ interface MessageAssistantProps {
   message: ChatMessageType;
 }
 
-export function MessageAssistant({ message }: MessageAssistantProps) {
+function MessageAssistantInner({ message }: MessageAssistantProps) {
   if (!shouldRenderAgentMessage(message)) {
     return null;
   }
@@ -25,3 +26,15 @@ export function MessageAssistant({ message }: MessageAssistantProps) {
     </div>
   );
 }
+
+// Layer 1: memo 保险层. 外层 ChatMessage 已 memo, 但 MessageAssistant 也可能
+// 被其它地方直接复用 (chat-message.tsx 字典分发外). content 不变则跳过 ──
+// 与 MarkdownRenderer 自身的 memo 形成两层保护.
+export const MessageAssistant = memo(
+  MessageAssistantInner,
+  (prev, next) =>
+    prev.message === next.message ||
+    (prev.message.id === next.message.id &&
+      prev.message.content === next.message.content &&
+      prev.message.role === next.message.role)
+);

@@ -285,6 +285,7 @@ function handleSelect(item: SlashMenuItem): void {
   // 这样不会出现 "/引用" 这种残留字符, 也避免选中既有段落内容被误改。
   const blockToggleById: Partial<Record<SlashMenuItem['id'], () => void>> = {
     'blockquote': () => editor.chain().focus().toggleBlockquote().run(),
+    'code-block': () => editor.chain().focus().toggleCodeBlock().run(),
     'bullet-list': () => editor.chain().focus().toggleBulletList().run(),
     'ordered-list': () => editor.chain().focus().toggleOrderedList().run(),
     'task-list': () => editor.chain().focus().toggleTaskList().run(),

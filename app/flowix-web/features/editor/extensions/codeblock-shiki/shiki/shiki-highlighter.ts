@@ -16,14 +16,6 @@ function loadShikiModule() {
   return shikiModulePromise
 }
 
-export function resetHighlighter() {
-  highlighter = undefined
-  highlighterPromise = undefined
-  shikiModulePromise = undefined
-  loadingLanguages.clear()
-  loadingThemes.clear()
-}
-
 export function getShiki() {
   return highlighter
 }

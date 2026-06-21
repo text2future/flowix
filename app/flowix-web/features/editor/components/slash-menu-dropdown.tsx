@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, type MouseEvent } from 'react';
 import {
   CheckSquareIcon,
+  CodeIcon,
   ImageSquareIcon,
   ListBulletsIcon,
   ListNumbersIcon,
@@ -16,6 +17,7 @@ import { ShortcutKbd } from '@shared/ui/shortcut-kbd';
 
 export type SlashMenuItemId =
   | 'blockquote'
+  | 'code-block'
   | 'table'
   | 'horizontal-rule'
   | 'bullet-list'
@@ -74,6 +76,13 @@ export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
     label: '引用',
     keywords: ['quote', 'blockquote', 'yinyong', '引用'],
     icon: QuotesIcon,
+    section: '添加块',
+  },
+  {
+    id: 'code-block',
+    label: '代码块',
+    keywords: ['code', 'block', 'codeblock', 'daimakuai', '代码', 'kuai'],
+    icon: CodeIcon,
     section: '添加块',
   },
   {

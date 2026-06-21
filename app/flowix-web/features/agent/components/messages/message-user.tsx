@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ChatMessage as ChatMessageType } from "@/types";
 import { parseYamlMeta } from "@features/agent/message/parse";
 import { truncateStart } from "@features/agent/message/format";
@@ -9,7 +10,7 @@ interface MessageUserProps {
   message: ChatMessageType;
 }
 
-export function MessageUser({ message }: MessageUserProps) {
+function MessageUserInner({ message }: MessageUserProps) {
   // Parse YAML meta + optional `<citation>` block. The citation lives at the
   // top of the payload and is rendered as a card above the bubble body,
   // matching the inputbox's pre-send preview.
@@ -39,3 +40,13 @@ export function MessageUser({ message }: MessageUserProps) {
     </>
   );
 }
+
+// Layer 1: user 消息一旦发送 content 不再变化, memo 之后历史 user 消息
+// 永远跳过 re-render.
+export const MessageUser = memo(
+  MessageUserInner,
+  (prev, next) =>
+    prev.message === next.message ||
+    (prev.message.id === next.message.id &&
+      prev.message.content === next.message.content)
+);

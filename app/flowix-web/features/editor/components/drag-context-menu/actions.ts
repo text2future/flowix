@@ -14,8 +14,12 @@ import type { BlockMenuItem } from '@features/editor/components/drag-context-men
 // menu-pin extension's transaction metadata API. The decoration is
 // rendered by ProseMirror's view-update pipeline (see extensions/menu-pin.ts),
 // not by direct DOM mutation, so it survives any external class-stripping.
-export function pinBlock(editor: Editor, pos: number): void {
-  editor.view.dispatch(editor.view.state.tr.setMeta(menuPinPluginKey, pos))
+export function pinBlock(editor: Editor, info: CurrentBlockInfo): void {
+  editor.view.dispatch(editor.view.state.tr.setMeta(menuPinPluginKey, {
+    pos: info.pos,
+    typeName: info.typeName,
+    nodeSize: info.nodeSize,
+  }))
 }
 
 export function unpinBlock(editor: Editor): void {
@@ -45,7 +49,7 @@ export function applyMenuItem(editor: Editor, item: BlockMenuItem): void {
  *    those node types use for keyboard delete.
  *  - TextSelection / cursor: `deleteRange` from the block's open-token
  *    position to its end, deleting the entire block (heading, paragraph,
- *    listItem, tableCell, codeBlock, etc.).
+ *    listItem, codeBlock, etc.). Tables use the table extension command.
  * Returns true if a delete was actually attempted.
  */
 export function deleteBlock(editor: Editor): boolean {
@@ -56,6 +60,10 @@ export function deleteBlock(editor: Editor): boolean {
   }
   const info: CurrentBlockInfo | null = getCurrentBlockInfo(editor)
   if (info) {
+    if (info.typeName === 'table') {
+      editor.chain().focus().deleteTable().run()
+      return true
+    }
     editor.chain().focus().deleteRange({ from: info.pos, to: info.pos + info.nodeSize }).run()
     return true
   }

@@ -21,6 +21,8 @@ declare module '@tiptap/core' {
       insertAgentThreadCard: (options?: {
         roleKey?: AgentRoleKey;
         replaceRange?: { from: number; to: number };
+        initialPrompt?: string;
+        autoSubmit?: boolean;
       }) => ReturnType;
     };
   }
@@ -695,6 +697,7 @@ actions.append(
     this.subscribe();
     this.updateMultiLineState();
     this.scheduleLoadThreadCache();
+    this.runInitialPromptIfNeeded();
   }
 
   private get threadId(): string | null {
@@ -714,6 +717,29 @@ actions.append(
 
   private get collapsed(): boolean {
     return !!this.node.attrs.collapsed;
+  }
+
+  private consumeInitialPrompt(): string | null {
+    const initialPrompt = typeof this.node.attrs.initialPrompt === 'string'
+      ? this.node.attrs.initialPrompt.trim()
+      : '';
+    if (!initialPrompt || !this.node.attrs.autoSubmit) return null;
+
+    this.updateAttrs({ initialPrompt: null, autoSubmit: false });
+    return initialPrompt;
+  }
+
+  private runInitialPromptIfNeeded(): void {
+    const initialPrompt = this.consumeInitialPrompt();
+    if (!initialPrompt) return;
+
+    this.input.value = initialPrompt;
+    this.updateMultiLineState();
+
+    requestAnimationFrame(() => {
+      if (this.isDestroyed) return;
+      void this.submit();
+    });
   }
 
   private subscribe(): void {
@@ -1395,6 +1421,8 @@ export const AgentThreadCard = Node.create({
       title: { default: DEFAULT_TITLE },
       roleKey: { default: DEFAULT_AGENT_ROLE_KEY },
       collapsed: { default: false },
+      initialPrompt: { default: null },
+      autoSubmit: { default: false },
     };
   },
 
@@ -1482,6 +1510,8 @@ export const AgentThreadCard = Node.create({
             title: DEFAULT_TITLE,
             roleKey,
             collapsed: false,
+            initialPrompt: options?.initialPrompt ?? null,
+            autoSubmit: !!options?.autoSubmit,
           });
           const from = options?.replaceRange?.from ?? state.selection.from;
           const to = options?.replaceRange?.to ?? from;

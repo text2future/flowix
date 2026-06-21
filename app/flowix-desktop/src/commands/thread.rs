@@ -8,7 +8,7 @@ use tauri::State;
 use tokio::process::Command;
 
 use crate::agent::default_agent_id;
-use crate::threads::{ChatMessage, ThreadInfo};
+use crate::threads::{ChatMessage, ThreadInfo, ThreadMessagesPage};
 
 use super::AppState;
 
@@ -52,6 +52,33 @@ pub async fn thread_get(
         }),
         None => Err("Thread not found".to_string()),
     }
+}
+
+/// Layer 4: 分页加载 thread 历史. 取代 thread_get 在 1MB 级 thread 上的全量
+/// 序列化开销, IPC payload 从 ~1MB 降到 ~100KB (100 条 × 平均 1KB).
+///
+/// 参数:
+///   - thread_id: 目标 thread
+///   - before_sequence: None → 取最近 limit 条; Some(s) → 取 sequence < s 的最近 limit 条
+///   - limit: 单次返回上限, 服务端 clamp 到 [1, 1000], 默认建议前端传 100
+///
+/// 返回 ThreadMessagesPage { messages (ASC), oldest_sequence, has_more }
+/// 前端用 oldest_sequence 作为下一页 cursor, has_more 决定顶部 prefetch.
+///
+/// 旧 thread_get 保留不删 ── 一些路径 (调试 / 全量导出) 仍可能需要,
+/// 也避免破坏未迁移到分页的调用方.
+#[tauri::command]
+pub async fn thread_get_page(
+    thread_id: String,
+    before_sequence: Option<i64>,
+    limit: i64,
+    state: State<'_, AppState>,
+) -> Result<ThreadMessagesPage, String> {
+    let manager = state.thread_manager.read().await;
+    manager
+        .get_thread_messages_page(&thread_id, before_sequence, limit)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

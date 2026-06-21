@@ -105,20 +105,25 @@ class FileView implements ProseMirrorNodeView {
         card.appendChild(icon);
         card.appendChild(filenameSpan);
 
-        // 节点首部 caret 占位:
-        //  inline atom node 位于段落行首时, 浏览器把 caret 贴到
-        //  NodeView 第一个可定位点; 此前该点是 icon, caret 视觉上
-        //  "穿入图标". 改为在 wrapper 内、card 之前塞一个零宽空格
-        //  文本节点, caret 自然落在这个文本节点上, 与图标不再重叠.
+        // 节点首/尾部 caret 占位:
+        //  inline atom node 位于段落行首/行尾时, 浏览器把 caret 贴到
+        //  NodeView 第一个/最后一个可定位点; 此前该点是 icon / 末尾文字,
+        //  caret 视觉上 "穿入图标" 或 "贴卡片右边缘". 改为在 wrapper 内、
+        //  card 前后各塞一个零宽空格文本节点, caret 自然落在文本节点上,
+        //  与卡片边缘不再重叠.
         //  - 必须是 TextNode (createTextNode), <span> 不行——
-        //    span 的边缘问题与 icon 相同, caret 仍会贴其左边缘.
+        //    span 的边缘问题与 icon 相同, caret 仍会贴其左/右边缘.
         //  - 零宽空格 U+200B 不可见、不占字宽, 视觉上无副作用.
         //  - wrapper 整体 contentEditable=false + user-select:none
         //    (见 editor-attachment-link.css), 用户无法选中或编辑.
         //  - ignoreMutation 返回 true, PM 不会把这段 DOM 视为内容变更.
-        const caretSpacer = document.createTextNode('​');
-        wrapper.appendChild(caretSpacer);
+        //  - 前后对称两个 spacer: 保证从左侧进卡片 (← / Home) 与从右侧
+        //    出卡片 (→ / End) 时 caret 着陆点一致, 与 note-reference 同源.
+        const caretSpacerLeading = document.createTextNode('​');
+        const caretSpacerTrailing = document.createTextNode('​');
+        wrapper.appendChild(caretSpacerLeading);
         wrapper.appendChild(card);
+        wrapper.appendChild(caretSpacerTrailing);
 
         wrapper.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
@@ -279,12 +284,15 @@ export const FileAttachment = Node.create({
             : url ?? '';
         // DOM 形状与 createCard (NodeView) 对齐:
         //   wrapper [.editor-file-attachment]
-        //     zero-width 文本 (caret spacer, 与 NodeView 一致)
+        //     leading zero-width 文本 (caret spacer, 与 NodeView 一致)
         //     __card [.editor-file-attachment__card]
         //       icon (RiAttachment2 SVG, currentColor)
         //       __name (附件名)
+        //     trailing zero-width 文本 (caret spacer, 与 NodeView 一致)
         // 嵌套 __card 才能让 CSS 的 .is-selected .editor-file-attachment__card
         // 选中背景匹配 (避免 round-trip 后选中背景失效).
+        // 前后对称两个 spacer, 与 createCard 的 NodeView 保持一致, 保证
+        // 文档从 HTML 解析回来时 caret 落点与编辑器实时渲染一致.
         return [
             'span',
             mergeAttributes(
@@ -320,6 +328,7 @@ export const FileAttachment = Node.create({
                 ],
                 ['span', { class: 'editor-file-attachment__name' }, name ?? ''],
             ],
+            '​',
         ];
     },
 

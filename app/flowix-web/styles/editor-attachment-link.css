@@ -122,8 +122,12 @@
   transition: color 0.15s ease;
 }
 
+/* 节点被 NodeSelection 选中 — 与 .editor-note-reference.is-selected 同源
+ * 走 color-mix(--document-link × transparent) 派生公式, 跨主题自动适配.
+ * 浓度 10% 与 .editor-note-reference.is-selected 对齐, inline 卡片在文本
+ * 行内不应铺大色块喧宾夺主, 视觉权重对齐 hover 反馈。 */
 .markdown-editor .tiptap .editor-file-attachment.is-selected .editor-file-attachment__card {
-  background-color: transparent;
+  background-color: color-mix(in oklch, var(--document-link) 10%, transparent);
 }
 
 .markdown-editor .tiptap .editor-image-attachment {

@@ -68,7 +68,7 @@
   outline: none;
 }
 
-.table-bubble-menu .delete-table-btn:hover {
+.table-bubble-menu .destructive:hover {
   background: color-mix(in oklch, var(--destructive, #ef4444) 12%, transparent);
   color: var(--destructive, #ef4444);
 }

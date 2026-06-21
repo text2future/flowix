@@ -29,8 +29,10 @@ import { SearchAndReplace } from '@features/editor/extensions/search-replace';
 import { SearchReplacePanel } from '@features/editor/components/search-replace-panel';
 import Frontmatter from '@features/editor/extensions/frontmatter';
 import { MenuPinExtension } from '@features/editor/extensions/menu-pin';
+import { BlockDragExtension } from '@features/editor/extensions/block-drag';
 import { SlashMenu } from '@features/editor/extensions/slash-menu';
 import { AgentThreadCard } from '@features/editor/extensions/agent-thread-card';
+import { TabAgentRun } from '@features/editor/extensions/tab-agent-run';
 import { TablePlugin } from '@features/editor/extensions/table/table-plugin';
 
 interface MarkdownEditorProps {
@@ -419,8 +421,10 @@ export function MarkdownEditor({
         TagMention,
         AgentThreadCard,
         SlashMenu,
+        TabAgentRun,
         SearchAndReplace,
         MenuPinExtension,
+        BlockDragExtension,
       ],
       content: initialContent,
       contentType: 'markdown',

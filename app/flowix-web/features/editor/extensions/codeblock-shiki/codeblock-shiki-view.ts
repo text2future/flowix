@@ -12,6 +12,20 @@ type CodeBlockViewMode = 'preview' | 'code'
 
 const MERMAID_LANGUAGE = 'mermaid'
 
+// shiki 的 "无高亮" sentinel ── 'plaintext' 不是真实语言 (shiki
+// 的 bundledLanguagesInfo 不收录这个条目, langs/ 目录也没有
+// plaintext.mjs), 它只是占位标识, 让 shiki 跳过 grammar 加载。
+// codebase 在多处用它当默认值:
+//   - codeblock-shiki.ts 的 defaultLanguage (Tiptap 节点 attr 默认值)
+//   - shiki-decorations.ts / shiki-highlighter.ts 里 "language !== 'plaintext' 才加载 grammar" 的判断
+//
+// 因此 id → label 解析时, 'plaintext' 必须走专门分支, 不能依赖
+// bundled.find() ── 后者会 miss, 退回 id 自身, button 上就
+// 永远停在 'plaintext' (小写)。空 attr 同理 ── dropdown "Plain Text"
+// 项设置的就是空值, 也走这条分支, 跟 'plaintext' 渲染统一。
+const PLAIN_TEXT_ID = 'plaintext'
+const PLAIN_TEXT_LABEL = 'Plain Text'
+
 const MERMAID_PREVIEW_ICON = `<svg class="code-block-mode-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <path d="M2 3h20"></path>
   <path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"></path>
@@ -40,6 +54,19 @@ const ZOOM_OUT_ICON = '<svg class="code-block-fullscreen-icon" viewBox="0 0 256 
 
 const ZOOM_IN_ICON = '<svg class="code-block-fullscreen-icon" viewBox="0 0 256 256" aria-hidden="true" focusable="false"><path fill="currentColor" d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>'
 
+// 复制按钮图标 ── 默认态 (clipboard) 和成功态 (checkmark)。提到模块
+// 顶层做常量, 不再每次 click 时从 DOM 读 innerHTML 当「原始态」保存 ──
+// 那种保存方式在快速重复点击下会让第二次点击把 check icon 当成原态,
+// 后续 timer 全部还原成 check icon, 状态卡死。
+const COPY_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+</svg>`
+
+const COPY_CHECK_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  <polyline points="20 6 9 17 4 12"></polyline>
+</svg>`
+
 type BundledLanguageInfo = {
   id: string
   name: string
@@ -55,11 +82,7 @@ function loadBundledLanguagesInfo(): Promise<readonly BundledLanguageInfo[]> {
 }
 
 export interface CodeBlockShikiViewOptions {
-  name: string
-  language: string | null
   theme: string
-  showLineNumbers?: boolean
-  highlightLines?: number[]
 }
 
 class CodeBlockShikiView implements NodeView {
@@ -67,7 +90,6 @@ class CodeBlockShikiView implements NodeView {
   contentDOM: HTMLElement
   view: NodeViewRendererProps['view']
   node: NodeViewRendererProps['node']
-  options: CodeBlockShikiViewOptions
   getPosFn: () => number | null | undefined
   private isDropdownOpen: boolean = false
   private boundOutsideClickHandler: ((e: Event) => void) | null = null
@@ -87,6 +109,12 @@ class CodeBlockShikiView implements NodeView {
   private actions: HTMLElement | null = null
   private fullscreenButton: HTMLButtonElement | null = null
   private viewMode: CodeBlockViewMode = 'code'
+  // 当前语言 id ── 与 button 显示的 label 解耦: button 走的是
+  // shiki metadata 里的 name (e.g. "TypeScript"), attr 存的是
+  // id (e.g. "typescript")。update() 路径需要靠这个字段 diff
+  // 外部变更, 不再读 button 文本 (label 跟 id 不对应, 没法
+  // 直接拿 button 文本跟新 id 比)。
+  private currentLanguageId: string = ''
   private renderVersion = 0
   private lastRenderedSource: string | null = null
   private boundThemeChangeHandler: ((e: Event) => void) | null = null
@@ -94,6 +122,10 @@ class CodeBlockShikiView implements NodeView {
   private boundHandleFullscreenKeydown: ((event: KeyboardEvent) => void) | null = null
   private isDestroyed = false
   private isFullscreen = false
+  // 复制成功态 reset timer ── 每次点击复制都重新调度, 旧的必须先
+  // clearTimeout, 否则快速重复点击会让多个 timer 串行触发, 后发的
+  // 把先发的还原给覆盖掉, 状态卡在 check icon 上不去。
+  private copyResetTimer: ReturnType<typeof setTimeout> | null = null
   // 全屏 overlay ── 独立的 DOM 树, 挂在 document.body 上, 跟原
   // code-block-wrapper 解耦, 避免与 wrapper 自身的预览态 / 折叠态
   // 互相影响。fullscreenContainer 是 overlay 的"定位参照物"
@@ -122,24 +154,22 @@ class CodeBlockShikiView implements NodeView {
     this.view = view
     this.node = node
     this.getPosFn = getPos
-    this.options = {
-      name: node.type.name,
-      showLineNumbers: node.attrs.showLineNumbers,
-      highlightLines: node.attrs.highlightLines,
-      language: node.attrs.language,
-      theme: node.attrs.theme
-    }
 
     this.dom = document.createElement('pre')
     this.contentDOM = document.createElement('code')
 
     this.createView()
     this.handleEvents()
+    // 异步把 button 上的原始 id (e.g. "typescript") 替换成 label
+    // (e.g. "TypeScript") ── createView 里先用 id 占位是必要的,
+    // 否则首帧 button 是空的; 后续 microtask 内覆盖, 闪一帧
+    // 用户基本无感。
+    void this.applyLanguageDisplay()
   }
 
   private createView() {
     this.dom.classList.add('code-block-wrapper')
-    this.dom.setAttribute('data-theme', this.options.theme || 'rose-pine-dawn')
+    this.dom.setAttribute('data-theme', this.node.attrs.theme || 'rose-pine-dawn')
 
     // Create header
     this.header = document.createElement('div')
@@ -159,7 +189,11 @@ class CodeBlockShikiView implements NodeView {
     this.languageBtn.classList.add('code-block-language-selector')
     this.languageBtn.type = 'button'
     this.languageBtn.tabIndex = -1
-    this.languageBtn.innerHTML = `<span class="code-block-language-label">${this.node.attrs.language || 'plaintext'}</span>
+    this.languageBtn.innerHTML = `<span class="code-block-language-label">${
+      !this.node.attrs.language || this.node.attrs.language === PLAIN_TEXT_ID
+        ? PLAIN_TEXT_LABEL
+        : this.node.attrs.language
+    }</span>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="6 9 12 15 18 9"></polyline>
       </svg>`
@@ -170,10 +204,7 @@ class CodeBlockShikiView implements NodeView {
     this.copyBtn.type = 'button'
     this.copyBtn.tabIndex = -1
     this.copyBtn.title = 'Copy code'
-    this.copyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-    </svg>`
+    this.copyBtn.innerHTML = COPY_ICON_SVG
 
     // Mermaid preview/code tabs
     this.modeTabs = document.createElement('div')
@@ -279,7 +310,10 @@ class CodeBlockShikiView implements NodeView {
     item.dataset.label = label.toLowerCase()
     item.dataset.value = value.toLowerCase()
     item.addEventListener('click', () => {
-      this.updateLanguage(value)
+      // 把构造时的 label 一并塞进去 ── updateLanguage 拿到同步 label
+      // 就直接写 button, 跳过 applyLanguageDisplay 的 microtask,
+      // 避免用户点完看到 "typescript" 闪一下再变 "TypeScript"。
+      this.updateLanguage(value, label)
       this.closeDropdown()
     })
     return item
@@ -352,8 +386,13 @@ class CodeBlockShikiView implements NodeView {
     if (this.isDestroyed) return
     list.replaceChildren()
 
-    // Auto detect option
-    list.appendChild(this.createLanguageDropdownItem('Auto Detect', ''))
+    // Plain text option ── dropdown 选项文案跟 button 状态描述
+    // 对齐: 空 attr 在两条路径 (sync click / async resolve) 都
+    // 显示 "Plain Text", 用户视角一个按钮一种文案。不用 "Auto Detect"
+    // 是因为 shiki 并没有自动检测能力, 选它只是清空 attr, "Plain Text"
+    // 更准确反映 shiki "无高亮" 的语义, 也跟 shiki metadata 里
+    // id="plaintext", name="Plain Text" 的命名一致。
+    list.appendChild(this.createLanguageDropdownItem('Plain Text', ''))
 
     // Language options
     const languages = bundledLanguagesInfo.map(lang => ({
@@ -432,7 +471,7 @@ class CodeBlockShikiView implements NodeView {
     this.boundOutsideClickHandler = null
   }
 
-  private updateLanguage(language: string) {
+  private updateLanguage(language: string, displayLabel?: string) {
     const { state, dispatch } = this.view
     const pos = this.getPos()
 
@@ -440,7 +479,17 @@ class CodeBlockShikiView implements NodeView {
 
     const tr = state.tr.setNodeAttribute(pos, 'language', language)
     dispatch(tr)
-    this.updateLanguageButton(language)
+    // dropdown click 路径 ── 构造 item 时 label 已传进来, 同步
+    // 塞给 button, 避免 async 解析造成一闪 "typescript" → "TypeScript"。
+    // 其他路径 (外部 update) 没有 label, 走 applyLanguageDisplay 异步
+    // 解析。两条路径都顺手更新 currentLanguageId, 让 update() 后续
+    // 不会再误判成"语言变了"重复刷新。
+    this.currentLanguageId = language
+    if (displayLabel) {
+      this.updateLanguageButton(displayLabel)
+    } else {
+      void this.applyLanguageDisplay()
+    }
     // 切到非 mermaid 语言时强制退出全屏 ── 避免全屏态挂着 mermaid
     // SVG 但节点本身已不再是 mermaid, view 渲染可能与全屏态不一致
     // (e.g. preview 表面被 display: none 隐藏, 全屏 CSS 仍 fixed 显示
@@ -452,10 +501,44 @@ class CodeBlockShikiView implements NodeView {
     this.syncMermaidView()
   }
 
-  private updateLanguageButton(language: string) {
+  // 把当前 attr.language 解析成人类可读 label 并写入 button ──
+  // 统一入口: 初始化 / 外部 update / fallback 路径都走这里。dropdown
+  // click 路径直接传 label 绕过, 避免 microtask 闪一下。
+  //
+  // 空 id (用户选了 dropdown 里的 "Plain Text" 项, 或 attr 初始为
+  // 空) 走 "Plain Text" 显示 ── dropdown 项跟 button 状态描述文案
+  // 对齐: 同一份数据两种视图都用 "Plain Text", 不再区分动作/状态
+  // 语义, 用户视角一个空 attr 只对应一个 label。
+  private async applyLanguageDisplay(): Promise<void> {
     if (!this.languageBtn) return
 
-    const label = language || 'plaintext'
+    const id = this.node.attrs.language || ''
+    this.currentLanguageId = id
+
+    let displayLabel: string
+    if (!id || id === PLAIN_TEXT_ID) {
+      // 专门处理 'plaintext' sentinel ── shiki bundledLanguagesInfo
+      // 不收录此条目 (它不是真实语言, 只是无高亮占位), lookup 必然
+      // miss 会让 button 永远停在 'plaintext' 小写态。空 attr 同理:
+      // dropdown "Plain Text" 项设的就是空值, 两条路径统一走 label。
+      displayLabel = PLAIN_TEXT_LABEL
+    } else {
+      try {
+        const bundled = await loadBundledLanguagesInfo()
+        if (this.isDestroyed) return
+        const match = bundled.find((lang) => lang.id === id)
+        displayLabel = match?.name ?? id
+      } catch {
+        // metadata 加载失败 ── 退回 id 自身 (跟旧行为一致), 不阻塞 UI。
+        displayLabel = id
+      }
+    }
+    this.updateLanguageButton(displayLabel)
+  }
+
+  private updateLanguageButton(label: string) {
+    if (!this.languageBtn) return
+
     const labelSpan = this.languageBtn.querySelector('.code-block-language-label')
     if (labelSpan) {
       labelSpan.textContent = label
@@ -1021,17 +1104,24 @@ private unmountFullscreenOverlay(): void {
   private showCopySuccess() {
     if (!this.copyBtn) return
 
-    const originalHTML = this.copyBtn.innerHTML
-    this.copyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="20 6 9 17 4 12"></polyline>
-    </svg>`
+    // 取消上一次点击的 reset timer ── 防止快速重复点击下多个 timer
+    // 串行触发, 后发 timer 把先发 timer 的还原给覆盖, 状态卡在
+    // check icon 上不去。直接复用「原态是 COPY_ICON_SVG」这一恒定
+    // 不变量, 不再从 DOM 读 innerHTML 存「原态」(后者在 check 态
+    // 下会捕获到错误值, 是 bug 的直接成因)。
+    if (this.copyResetTimer !== null) {
+      clearTimeout(this.copyResetTimer)
+      this.copyResetTimer = null
+    }
+
+    this.copyBtn.innerHTML = COPY_CHECK_ICON_SVG
     this.copyBtn.classList.add('copied')
 
-    setTimeout(() => {
-      if (this.copyBtn) {
-        this.copyBtn.innerHTML = originalHTML
-        this.copyBtn.classList.remove('copied')
-      }
+    this.copyResetTimer = setTimeout(() => {
+      this.copyResetTimer = null
+      if (!this.copyBtn) return
+      this.copyBtn.innerHTML = COPY_ICON_SVG
+      this.copyBtn.classList.remove('copied')
     }, 2000)
   }
 
@@ -1045,10 +1135,9 @@ private unmountFullscreenOverlay(): void {
     this.node = node
 
     // Update language button if changed externally
-    const newLang = node.attrs.language || ''
-    const currentLang = (this.languageBtn?.querySelector('.code-block-language-label') as HTMLElement)?.textContent || ''
-    if (newLang !== currentLang && newLang !== currentLang.replace(/^\s+|\s+$/g, '')) {
-      this.updateLanguageButton(newLang)
+    const newId = node.attrs.language || ''
+    if (newId !== this.currentLanguageId) {
+      void this.applyLanguageDisplay()
     }
 
     this.updateLanguageAttribute()
@@ -1074,6 +1163,14 @@ private unmountFullscreenOverlay(): void {
     if (this.boundThemeChangeHandler) {
       window.removeEventListener('app-theme-changed', this.boundThemeChangeHandler)
       this.boundThemeChangeHandler = null
+    }
+    // 取消 pending 的 copy reset timer ── 不清的话, NodeView 销毁
+    // (用户切走文档 / 关闭代码块) 后 timer 仍会触发, 对已 detach 的
+    // copyBtn 做 innerHTML 写入, 既无效也浪费 CPU, 还可能触发
+    // MutationObserver 噪声。
+    if (this.copyResetTimer !== null) {
+      clearTimeout(this.copyResetTimer)
+      this.copyResetTimer = null
     }
   }
 }

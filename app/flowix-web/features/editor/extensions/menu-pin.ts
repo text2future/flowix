@@ -1,6 +1,13 @@
 import { Extension } from '@tiptap/core'
+import type { Node as PMNode } from 'prosemirror-model'
 import { Plugin, PluginKey } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
+
+export interface MenuPinState {
+  pos: number
+  typeName: string
+  nodeSize: number
+}
 
 /**
  * Editor-wide "menu pin" plugin.
@@ -18,52 +25,54 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
  *
  * The position is set / cleared via the standard transaction metadata API:
  *
- *   editor.view.dispatch(editor.view.state.tr.setMeta(menuPinPluginKey, pos))
+ *   editor.view.dispatch(editor.view.state.tr.setMeta(menuPinPluginKey, pin))
  *   editor.view.dispatch(editor.view.state.tr.setMeta(menuPinPluginKey, null))
  *
- * The `pos` is the open-token position of the block (same value the
- * drag-context-menu uses for `deleteRange`). A range `pos .. pos + 1`
- * is the smallest valid range for a `Decoration.node`.
+ * The `pos` is the open-token position of the block. The plugin stores
+ * typeName/nodeSize with it so mapped positions are only kept when they
+ * still point to the same node. Decorations cover `pos .. pos + nodeSize`.
  */
-export const menuPinPluginKey = new PluginKey<number | null>('menuPin')
+export const menuPinPluginKey = new PluginKey<MenuPinState | null>('menuPin')
 
 export const MenuPinExtension = Extension.create({
   name: 'menuPin',
 
   addProseMirrorPlugins() {
     return [
-      new Plugin({
+      new Plugin<MenuPinState | null>({
         key: menuPinPluginKey,
         state: {
           init: () => null,
           apply(tr, value, _oldState, newState) {
             // External API takes priority (drag-context-menu dispatches
             // a transaction with setMeta to set or clear the pin).
-            const meta = tr.getMeta(menuPinPluginKey)
+            const meta = tr.getMeta(menuPinPluginKey) as MenuPinState | null | undefined
             if (meta !== undefined) return meta
 
-            // On doc changes, re-validate the pinned position. If the
-            // position is out of range or no longer points to a block,
-            // drop the pin (e.g. the user deleted the block via the menu).
+            // On doc changes, map the pinned position through the
+            // transaction before validating it. Without this, edits before
+            // the pinned block can leave the decoration attached to the
+            // wrong node.
             if (value != null && tr.docChanged) {
-              try {
-                const $pos = newState.doc.resolve(value)
-                if ($pos.depth < 1) return null
-                return value
-              } catch {
-                return null
-              }
+              const result = tr.mapping.mapResult(value.pos, -1)
+              if (result.deleted) return null
+              return validatePin(newState.doc, {
+                ...value,
+                pos: result.pos,
+              })
             }
 
-            return value
+            return validatePin(newState.doc, value)
           },
         },
         props: {
           decorations(state) {
-            const pos = menuPinPluginKey.getState(state)
-            if (pos == null) return null
+            const pin = validatePin(state.doc, menuPinPluginKey.getState(state) ?? null)
+            if (pin == null) return null
+            const node = state.doc.nodeAt(pin.pos)
+            if (!node) return null
             return DecorationSet.create(state.doc, [
-              Decoration.node(pos, pos + 1, { class: 'is-block-selected' }),
+              Decoration.node(pin.pos, pin.pos + node.nodeSize, { class: 'is-block-selected' }),
             ])
           },
         },
@@ -71,3 +80,19 @@ export const MenuPinExtension = Extension.create({
     ]
   },
 })
+
+function validatePin(doc: PMNode, pin: MenuPinState | null): MenuPinState | null {
+  if (pin == null) return null
+  if (pin.pos < 0 || pin.pos > doc.content.size) return null
+
+  try {
+    doc.resolve(pin.pos)
+    const node = doc.nodeAt(pin.pos)
+    if (!node) return null
+    if (node.type.name !== pin.typeName) return null
+    if (node.nodeSize !== pin.nodeSize) return null
+    return pin
+  } catch {
+    return null
+  }
+}

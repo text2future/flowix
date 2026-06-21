@@ -72,7 +72,7 @@ export function DocumentTitlebarWin({
     <div
       data-tauri-drag-region
       className={`h-9 shrink-0 pl-2 z-[50] flex items-center ${isAgentPanelVisible ? 'pr-0' : 'pr-[126px]'}`}
-      style={{ backgroundImage: 'linear-gradient(to bottom, var(--bg-titlebar), transparent)' }}
+      style={{ backgroundImage: 'linear-gradient(to bottom, var(--bg-titlebar), var(--document-bg))' }}
     >
       <div className="flex shrink-0 items-center gap-1">
         {isSidebarHidden && (

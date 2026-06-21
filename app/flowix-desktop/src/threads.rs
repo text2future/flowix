@@ -60,6 +60,18 @@ pub struct Thread {
     pub messages: Vec<ChatMessage>,
 }
 
+/// Layer 4: 分页加载的返回类型. 前端用 `oldest_sequence` 作下一页 cursor,
+/// `has_more` 决定是否在顶部显示"加载更多"或自动 prefetch.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadMessagesPage {
+    pub messages: Vec<ChatMessage>,
+    /// 本批最早一条消息的 sequence; None 表示本批为空 (thread 无消息或 before_sequence 已到顶).
+    pub oldest_sequence: Option<i64>,
+    /// 是否还有更早的历史. false 时前端停止 prefetch 顶部.
+    pub has_more: bool,
+}
+
 pub struct ThreadManager {
     conn: Mutex<Connection>,
 }
@@ -251,6 +263,84 @@ impl ThreadManager {
         let messages = rows.collect::<Result<Vec<_>, _>>()?;
 
         Ok(Some(Thread { info, messages }))
+    }
+
+    /// Layer 4: 分页加载 thread 历史 ── 不再一次 SELECT 全部, 按 sequence DESC
+    /// 取最近 `limit` 条, 在 Rust 侧 reverse 回 ASC 返回. `before_sequence`:
+    ///   - None: 取最近 `limit` 条 (首次进入 thread)
+    ///   - Some(s): 取 sequence < s 的最近 `limit` 条 (用户向上滚加载更早)
+    ///
+    /// 返回 `(messages, oldest_sequence, has_more)`:
+    ///   - oldest_sequence: 本批最早一条的 sequence (或 None 若本批为空), 用作下一页 cursor
+    ///   - has_more: 是否还有更早的历史 (用本批 oldest 之前还有几条判断)
+    ///
+    /// 不返回 ThreadInfo (那部分仍走 get_thread 全量 ── 但实际上 ThreadInfo
+    /// 在 thread_list 缓存里, 前端 loadThread 走 list 取 title 即可不必再查).
+    /// 这里专心做 messages 分页, 单一职责.
+    pub async fn get_thread_messages_page(
+        &self,
+        thread_id: &str,
+        before_sequence: Option<i64>,
+        limit: i64,
+    ) -> Result<ThreadMessagesPage, ThreadError> {
+        // 上下文限制: limit 卡在 [1, 1000] 防御性兜底, 避免前端误传 0 或巨大值.
+        let limit = limit.clamp(1, 1000);
+        let conn = self.lock_conn();
+
+        // DESC + LIMIT 取最近 N 条 ── (thread_id, sequence) 复合索引覆盖,
+        // 单次查询即可定位, 无需 OFFSET 扫描.
+        let messages: Vec<(ChatMessage, i64)> = match before_sequence {
+            Some(before) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, role, content, llm_content, system_reminder_directory, timestamp,
+                            is_loading, tool_call_id, tool_name, tool_data, tool_input, tool_calls, reasoning,
+                            is_completed, is_collapsed, sequence
+                     FROM thread_messages
+                     WHERE thread_id = ?1 AND sequence < ?2
+                     ORDER BY sequence DESC LIMIT ?3",
+                )?;
+                let rows =
+                    stmt.query_map(params![thread_id, before, limit], Self::row_to_message_with_seq)?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            }
+            None => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, role, content, llm_content, system_reminder_directory, timestamp,
+                            is_loading, tool_call_id, tool_name, tool_data, tool_input, tool_calls, reasoning,
+                            is_completed, is_collapsed, sequence
+                     FROM thread_messages
+                     WHERE thread_id = ?1
+                     ORDER BY sequence DESC LIMIT ?2",
+                )?;
+                let rows =
+                    stmt.query_map(params![thread_id, limit], Self::row_to_message_with_seq)?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            }
+        };
+
+        // 反转为 ASC 给前端 (前端 messages 按时间顺序排列).
+        let oldest_sequence = messages.last().map(|(_, seq)| *seq); // DESC 排序时最后一个是最小 sequence
+        let mut messages_asc: Vec<ChatMessage> = messages.into_iter().map(|(m, _)| m).collect();
+        messages_asc.reverse();
+
+        // has_more: 看 oldest_sequence 之前还有没有数据. 单 COUNT(*) 极快
+        // (复合索引覆盖, 不读 row body).
+        let has_more = if let Some(oldest) = oldest_sequence {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM thread_messages WHERE thread_id = ?1 AND sequence < ?2",
+                params![thread_id, oldest],
+                |row| row.get(0),
+            )?;
+            count > 0
+        } else {
+            false
+        };
+
+        Ok(ThreadMessagesPage {
+            messages: messages_asc,
+            oldest_sequence,
+            has_more,
+        })
     }
 
     pub async fn add_message(
@@ -506,6 +596,17 @@ impl ThreadManager {
             is_collapsed: int_to_opt_bool(row.get(14)?),
         })
     }
+
+    /// Layer 4: 与 `row_to_message` 同形, 但 SELECT 多取了 sequence 列
+    /// (column 15). 分页 SQL 用这个版本拿回 sequence 以构造 oldest_sequence
+    /// cursor; 其它路径用 `row_to_message` 不变.
+    fn row_to_message_with_seq(
+        row: &rusqlite::Row<'_>,
+    ) -> rusqlite::Result<(ChatMessage, i64)> {
+        let message = Self::row_to_message(row)?;
+        let sequence: i64 = row.get(15)?;
+        Ok((message, sequence))
+    }
 }
 
 fn opt_bool_to_int(value: Option<bool>) -> Option<i64> {
@@ -515,3 +616,153 @@ fn opt_bool_to_int(value: Option<bool>) -> Option<i64> {
 fn int_to_opt_bool(value: Option<i64>) -> Option<bool> {
     value.map(|v| v != 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_message(id: &str, role: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            id: id.to_string(),
+            role: role.to_string(),
+            content: content.to_string(),
+            llm_content: None,
+            system_reminder_directory: None,
+            timestamp: "2026-06-21T00:00:00Z".to_string(),
+            is_loading: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_data: None,
+            tool_input: None,
+            tool_calls: None,
+            reasoning: None,
+            is_completed: None,
+            is_collapsed: None,
+        }
+    }
+
+    async fn seed_thread(manager: &ThreadManager, thread_id: &str, n_messages: usize) {
+        manager
+            .create_thread(
+                AgentId("test-agent".to_string()),
+                "test thread".to_string(),
+            )
+            .await
+            .expect("create_thread");
+        // 注意: create_thread 已经用 default 实现生成 thread_id, 这里覆盖.
+        // 简化测试: 用直接 SQL 插入控制 thread_id.
+        {
+            let conn = manager.lock_conn();
+            conn.execute(
+                "INSERT OR REPLACE INTO threads (thread_id, agent_id, title, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![thread_id, "test-agent", "test thread", 0_i64, 0_i64],
+            )
+            .unwrap();
+        }
+        for i in 0..n_messages {
+            manager
+                .add_message(thread_id, make_message(&format!("msg-{i}"), "user", &format!("body {i}")))
+                .await
+                .expect("add_message");
+        }
+    }
+
+    #[tokio::test]
+    async fn page_returns_latest_n_when_before_is_none() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "t1", 25).await;
+
+        let page = manager
+            .get_thread_messages_page("t1", None, 10)
+            .await
+            .expect("page");
+
+        assert_eq!(page.messages.len(), 10);
+        // ASC 排序 ── 最后一条应是 msg-24, 第一条应是 msg-15.
+        assert_eq!(page.messages.first().unwrap().id, "msg-15");
+        assert_eq!(page.messages.last().unwrap().id, "msg-24");
+        assert!(page.has_more, "25 条数据取最近 10 条, 还有 15 条未拉");
+        assert_eq!(page.oldest_sequence, Some(16)); // msg-15 是第 16 条 (sequence 从 1 起)
+    }
+
+    #[tokio::test]
+    async fn page_cursor_walks_backward() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "t2", 25).await;
+
+        let first = manager
+            .get_thread_messages_page("t2", None, 10)
+            .await
+            .unwrap();
+        let cursor = first.oldest_sequence.unwrap();
+
+        let second = manager
+            .get_thread_messages_page("t2", Some(cursor), 10)
+            .await
+            .unwrap();
+
+        assert_eq!(second.messages.len(), 10);
+        assert_eq!(second.messages.first().unwrap().id, "msg-5");
+        assert_eq!(second.messages.last().unwrap().id, "msg-14");
+        assert!(second.has_more, "拉了 20 条还剩 5 条");
+    }
+
+    #[tokio::test]
+    async fn page_reaches_top_marks_has_more_false() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "t3", 8).await;
+
+        let page = manager
+            .get_thread_messages_page("t3", None, 10)
+            .await
+            .unwrap();
+
+        assert_eq!(page.messages.len(), 8);
+        assert!(!page.has_more, "全部拉完就没有更早历史");
+        assert_eq!(page.oldest_sequence, Some(1));
+    }
+
+    #[tokio::test]
+    async fn page_empty_thread_returns_empty() {
+        let manager = ThreadManager::for_tests();
+        {
+            let conn = manager.lock_conn();
+            conn.execute(
+                "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
+                 VALUES ('t4', 'test-agent', 'empty', 0, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let page = manager
+            .get_thread_messages_page("t4", None, 10)
+            .await
+            .unwrap();
+        assert!(page.messages.is_empty());
+        assert!(!page.has_more);
+        assert_eq!(page.oldest_sequence, None);
+    }
+
+    #[tokio::test]
+    async fn page_limit_clamp() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "t5", 5).await;
+
+        // limit=0 应被 clamp 到 1
+        let page = manager
+            .get_thread_messages_page("t5", None, 0)
+            .await
+            .unwrap();
+        assert_eq!(page.messages.len(), 1);
+
+        // limit > 1000 应被 clamp 到 1000 (这里只有 5 条数据, 实际返回 5)
+        let page = manager
+            .get_thread_messages_page("t5", None, 10_000)
+            .await
+            .unwrap();
+        assert_eq!(page.messages.len(), 5);
+    }
+}
+

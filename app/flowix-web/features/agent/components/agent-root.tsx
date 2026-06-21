@@ -1,4 +1,5 @@
 ﻿import { useRef, useEffect, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChatMessage as ChatMessageComponent } from "@features/agent/components/chat-message";
 import { CodexInputbox, FlowixInputbox } from "@features/agent/components/agent-inputbox";
 import { AgentWelcome } from "@features/agent/components/agent-welcome";
@@ -127,7 +128,9 @@ function MacAgentHeader({ onClosePanel, onSelectThread }: AgentHeaderProps) {
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export function AgentChatRoot({ onSendMessage, onClosePanel }: AgentRootProps) {
-	const messagesEndRef = useRef<HTMLDivElement>(null);
+	// Layer 3: 虚拟滚动 ── scrollRef 既作 useVirtualizer 的 getScrollElement,
+	// 也用于自动滚动 (替代旧 messagesEndRef.scrollIntoView 路径).
+	const scrollRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	// 浠呬綔涓?鏈厤缃?鈫?璺宠浆鍋忓ソ璁剧疆"鐨?gate, 涓嶅啀淇濈暀 agent instance:
 	// 鍚庣 chat 鏃舵寜闇€璇?ai_config.json銆?
@@ -155,6 +158,14 @@ export function AgentChatRoot({ onSendMessage, onClosePanel }: AgentRootProps) {
 	const stopMessageStream = useChatStore((s) => s.stopStream);
 	const setPendingPrompt = useChatStore((s) => s.setPendingPrompt);
 	const loadThread = useChatStore((s) => s.loadThread);
+	const loadMoreHistory = useChatStore((s) => s.loadMoreHistory);
+	const hasMoreHistory = useChatStore((s) => {
+		const tid =
+			getAgentRole(s.activeAgentRoleKey).runtime === "codex"
+				? s.activeCodexThreadId
+				: s.activeThreadId;
+		return tid ? s.threadStates[tid]?.hasMoreHistory ?? false : false;
+	});
 	const loadThreadList = useChatStore((s) => s.loadThreadList);
 	const loadCodexThread = useChatStore((s) => s.loadCodexThread);
 	const loadCodexThreadList = useChatStore((s) => s.loadCodexThreadList);
@@ -219,6 +230,30 @@ export function AgentChatRoot({ onSendMessage, onClosePanel }: AgentRootProps) {
 	// chain keeps the head stable, a replace swaps it out.
 	// 鍙紦瀛橀鏉?id 鑰屴笉鏄暣鏁扮粍 鈥?ref 鍐欏叆鏄?O(1) 瀛楃涓? 涓嶇敤鍦?	// 姣?chunk hot path 涓婂仛 ChatMessage[] 鐨勫紩鐢ㄤ紶閫掋€?
 	const prevFirstIdRef = useRef<string | undefined>(undefined);
+	// Layer 3: 用户手动向上滚后不强制 follow 到底 ── 距离底部 < 120px
+	// 视作"还在底部", 流式时自动 follow; 否则保持视口不动. 120px 比
+	// 80px 宽松一点是给"用户刚滑动了一下还没到内容深处"留缓冲.
+	const FOLLOW_BOTTOM_THRESHOLD_PX = 120;
+	const isNearBottomRef = useRef(true);
+
+	// Layer 3: useVirtualizer 动态测量. estimateSize=140 是常见单条消息
+	// 平均高度的保守估计 (短文本 60-100px, 中等 markdown 150-300px,
+	// 工具调用单行 ~40px). overscan=8 给上下各预渲 8 条, 平滑滚动
+	// 不出现空白. measureElement 自动跟踪每条实际高度 ── 流式时
+	// pending assistant 高度持续变化也能自动 re-layout, lazy 加载的
+	// 代码块完成后高度跳变同样会被自动重测.
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => scrollRef.current,
+		estimateSize: () => 140,
+		overscan: 8,
+		measureElement: (el) => el.getBoundingClientRect().height,
+		// 用 message id 作 key, 切换 thread 时 React 能正确复用 / 卸载
+		// 虚拟项. 默认是 index, 在 prepend (Layer 4 分页) 场景下 index
+		// 会偏移导致全部重新挂载, 用 id 避免.
+		getItemKey: (index) => messages[index]?.id ?? index,
+	});
+
 	useEffect(() => {
 		const prevId = prevFirstIdRef.current;
 		const nextId = messages[0]?.id;
@@ -228,7 +263,8 @@ export function AgentChatRoot({ onSendMessage, onClosePanel }: AgentRootProps) {
 		// instantly (no smooth animation) so the user lands on the
 		// latest message instead of the top of a long history.
 		if (prevId === undefined && nextId !== undefined) {
-			messagesEndRef.current?.scrollIntoView({ block: "end" });
+			virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+			isNearBottomRef.current = true;
 			return;
 		}
 		// Cleared (new conversation / cleared thread): no scroll.
@@ -239,8 +275,106 @@ export function AgentChatRoot({ onSendMessage, onClosePanel }: AgentRootProps) {
 		if (prevId !== nextId) return;
 
 		// Streaming / new messages: smooth follow.
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages]);
+		// Layer 3: 仅当用户在底部附近时 follow, 否则保持视口不动.
+		if (isNearBottomRef.current) {
+			virtualizer.scrollToIndex(messages.length - 1, {
+				align: "end",
+				behavior: "smooth",
+			});
+		}
+	}, [messages, virtualizer]);
+
+	// Layer 3: 监听 scroll 事件, 维护 isNearBottomRef. 用 passive listener,
+	// 直接读 scrollTop / scrollHeight / clientHeight, 不进 React state ──
+	// 避免每次滚动都触发 re-render.
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		const handler = () => {
+			const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+			isNearBottomRef.current = distance < FOLLOW_BOTTOM_THRESHOLD_PX;
+		};
+		el.addEventListener("scroll", handler, { passive: true });
+		// 初始判定一次, 避免首屏未触发 scroll 时 isNearBottomRef 默认值
+		// 与实际位置不符.
+		handler();
+		return () => el.removeEventListener("scroll", handler);
+	}, []);
+
+	// Layer 4: 顶部触达检测 + prepend 后视口稳定.
+	// 触发条件: 滚动距离顶部 < 200px AND has-more AND 当前是 flowix runtime
+	// (codex 走独立 codex_thread_get, 本期不分页).
+	//
+	// 视口稳定算法: prepend 前快照 scrollHeight → prepend 完成 resolve 后,
+	// 新 scrollHeight 增大, 把当前 scrollTop 也按相同 delta 推下, 用户视口
+	// 里看到的内容位置不变. requestAnimationFrame 让 react-virtual 先把新
+	// 虚拟项 measure 好再写 scrollTop, 否则会跳一下.
+	//
+	// **F-1 修复 (thread-switch race)**: handler 启动时 `activeThreadId` 闭
+	// 包捕获的是 effect setup 时的值. IPC in-flight 期间用户切 thread/role
+	// 会导致 rAF 回调里 `el` 已是新 thread 的 scroll container, 此时再写
+	// `el.scrollTop` 会把新 thread 的视口推到错位置. 修复: 在 `.then` 与
+	// rAF 回调里用 `useChatStore.getState()` 直读最新 active thread, 与
+	// 触发时的 tidAtCall 比对, 不一致就 bail.
+	//
+	// **F-2 修复 (rapid-fire scroll / scroll-during-IPC)**: 之前快照了
+	// `beforeScrollTop` 并在 rAF 写回 `beforeScrollTop + delta`. 但若 IPC
+	// 期间用户滚了几 px (触屏 / 鼠标惯性), 用陈旧的 beforeScrollTop 算
+	// 出的新 scrollTop 会"甩"用户, 视觉上短暂跳一下. 修复: 不快照
+	// scrollTop, rAF 内现读 `el.scrollTop + delta`, 把视口锚到"当前看到
+	// 的内容 + delta 偏移", 在用户停在顶部 / 滚到中间 / 自动 follow 到底
+	// 三种情况下都自然正确. 多次触发的并发由 `loadMoreHistory` 自身的
+	// `loadingMore` 守门保证只有一个 fetch 跑 ── 其它 handler 调用走
+	// `loadMoreHistory` 立即返 false, 不调度 rAF.
+	const PREFETCH_TOP_THRESHOLD_PX = 200;
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		// codex runtime 不分页 ── Layer 4 仅对 flowix 后端做了 SQL 分页, codex
+		// 走 codex_history::get_session 仍是全量, 不必拦截.
+		if (activeRole.runtime === "codex") return;
+
+		const handler = () => {
+			if (el.scrollTop > PREFETCH_TOP_THRESHOLD_PX) return;
+			if (!hasMoreHistory) return;
+			if (!activeThreadId) return;
+
+			const tidAtCall = activeThreadId;
+			const beforeScrollHeight = el.scrollHeight;
+
+			// F-1: 直读 store 最新 active thread, 不依赖闭包 ── 闭包里的
+			// `activeThreadId` 是 effect 重建时捕获的旧值, IPC in-flight
+			// 期间用户切 thread 不会反映到这里. 用 `getState()` 拿实时值.
+			const isStillOnSameThread = (): boolean => {
+				const s = useChatStore.getState();
+				const role = getAgentRole(s.activeAgentRoleKey);
+				const currentTid =
+					role.runtime === "codex" ? s.activeCodexThreadId : s.activeThreadId;
+				return currentTid === tidAtCall;
+			};
+
+			void loadMoreHistory(tidAtCall).then((loaded) => {
+				if (!loaded) return;
+				if (!isStillOnSameThread()) return;
+				// 等一帧让 react-virtual 应用新 messages → 重新 measure 虚拟项 → 总高度更新.
+				requestAnimationFrame(() => {
+					if (!isStillOnSameThread()) return;
+					const afterScrollHeight = el.scrollHeight;
+					const delta = afterScrollHeight - beforeScrollHeight;
+					if (delta > 0) {
+						// F-2: 不用陈旧 beforeScrollTop, 用当前 scrollTop + delta ──
+						// 视口锚到"用户当前看到的内容", 不甩回 IPC 前的位置.
+						el.scrollTop = el.scrollTop + delta;
+					}
+				});
+			});
+		};
+		el.addEventListener("scroll", handler, { passive: true });
+		// 初次进入也判定一次 (短 thread 可能首屏就触顶, 自动加载更多).
+		handler();
+		return () => el.removeEventListener("scroll", handler);
+	}, [activeThreadId, activeRole.runtime, hasMoreHistory, loadMoreHistory]);
+
 
 	// 鎶婃枃鏈€佽繘 chat store 鐨?pendingPrompt, 鐢?Inputbox 鑷繁鐨?effect 璋?	// setInput 鍐欏叆鍙楁帶 state 鈥?鐩存帴鏀?DOM ref 浼氳 value={input} 鐨勫彈鎺?	// textarea 鍦ㄤ笅娆℃覆鏌撴椂鍥炴粴, 鍙戦€佹寜閽殑 disabled 涔熻涓嶅埌鍊笺€?
 	const setInputValue = (value: string) => {
@@ -275,13 +409,51 @@ export function AgentChatRoot({ onSendMessage, onClosePanel }: AgentRootProps) {
 				<MacAgentHeader onClosePanel={onClosePanel} onSelectThread={handleSelectThread} />
 			)}
 
-			<div className="flex-1 overflow-y-auto scrollbar overflow-x-hidden">
+			<div
+				ref={scrollRef}
+				className="flex-1 overflow-y-auto scrollbar overflow-x-hidden"
+			>
 				{messages.length > 0 ? (
-					<div className="space-y-1.5 px-6 py-4">
-						{messages.map((message) => (
-							<ChatMessageComponent key={message.id} message={message} />
-						))}
-						<div ref={messagesEndRef} />
+					// Layer 3: 虚拟滚动容器. 外层 div 高度 = virtualizer.getTotalSize(),
+					// 内部用 absolute + transform 定位每个虚拟项 ── DOM 节点数从
+					// O(N) 降到 O(overscan + visible) ≈ 20 左右, 1MB 历史 (~500 条)
+					// 首屏从 1.5-4s 降到 <200ms.
+					//
+					// padding 处理: 横向 px-6 留在外层 scroll 容器 (不影响虚拟化
+					// 高度); 纵向 py-4 + 行间距 space-y-1.5 通过给虚拟内层
+					// 顶 / 底 padding + 每项 wrapper 加 pb-1.5 等效模拟. 不直接
+					// 用 padding 包裹虚拟项, 否则 absolute 定位会被 padding 偏移
+					// 顶掉, getTotalSize 算出来的总高与实际不一致.
+					<div className="px-6">
+						<div
+							style={{
+								height: virtualizer.getTotalSize() + 32, // +32 = py-4 上下各 16px
+								position: "relative",
+								paddingTop: 16,
+							}}
+						>
+							{virtualizer.getVirtualItems().map((vi) => {
+								const message = messages[vi.index];
+								if (!message) return null;
+								return (
+									<div
+										key={vi.key}
+										data-index={vi.index}
+										ref={virtualizer.measureElement}
+										style={{
+											position: "absolute",
+											top: 0,
+											left: 0,
+											width: "100%",
+											transform: `translateY(${vi.start + 16}px)`,
+											paddingBottom: 6, // ≈ space-y-1.5 (0.375rem)
+										}}
+									>
+										<ChatMessageComponent message={message} />
+									</div>
+								);
+							})}
+						</div>
 					</div>
 				) : (
 					<AgentWelcome onSelectPrompt={setInputValue} />

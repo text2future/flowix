@@ -58,7 +58,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--card);
+  background: var(--editor-block-bg);
   color: var(--foreground);
 }
 
@@ -110,9 +110,9 @@
 
 /* 头部 ── grid auto 行, 高度由 grid-template-rows 显式控制 (40px)。
  * 取消旧的 min-height 写法, 用 height 让 grid 行严格等于 token。
- * 背景与消息区一致 (var(--card)): 头部不再走 frosted glass, 改为
- * 与 body 同色 ── 卡片视觉是一个整体, header 仅靠 1px 下边框或
- * 字重差异与 body 分区, 不再用半透明 + 模糊制造"分块感"。
+ * 背景透明,继承 container 的 --editor-block-bg: 与 body 严格同色 ──
+ * 卡片视觉是一个整体, header 仅靠 1px 下边框或字重差异与 body 分区,
+ * 不用半透明 + 模糊制造"分块感"。
  *
  * ── 圆角裁剪责任收口到 card 根 ──
  * 之前 header 自己写 border-top-left-radius + border-top-right-radius
@@ -132,12 +132,11 @@
   height: var(--atc-header-h);
   padding: 0 0.8rem;
   box-sizing: border-box;
-  /* 与 body 视觉合一: body 显式不写 background, 继承自 card 根
-   * var(--card); header 直接写同色, 头/体在视觉上是同一块, 靠
-   * 文字层级和组件内部 padding 区分。去掉 backdrop-filter ──
-   * 半透明 + 模糊只在背景透出时才有意义, 实色背景下无效果且
-   * 徒增 GPU 开销。 */
-  background: var(--card);
+  /* 与 body 视觉合一: 背景透明, header 继承 container 的
+   * --editor-block-bg, 头/体在视觉上是同一块, 靠文字层级和组件
+   * 内部 padding 区分。去掉 backdrop-filter ── 半透明 + 模糊只在
+   * 背景透出时才有意义, 实色背景下无效果且徒增 GPU 开销。 */
+  background: transparent;
 }
 
 /* 左侧: agent-role-badge (icon + role 名) + 对话标题 单行排版, 整体
@@ -727,7 +726,7 @@
  * 挂在 pre 上 (跟编辑器一致), pre code 只还原 padding 与透明背景
  * (让内层 code 不再叠加边框/底色 ── 避免双层视觉)。
  *
- *   pre:     background  color-mix(--code-block-bg 60%, transparent)
+ *   pre:     background  color-mix(--editor-block-bg 60%, transparent)
  *            border      var(--border)
  *            radius      0.5rem
  *            padding     0.5rem 1rem 1rem
@@ -746,7 +745,7 @@
   padding: 0.5rem 1rem 1rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: color-mix(in oklch, var(--code-block-bg) 60%, transparent);
+  background: color-mix(in oklch, var(--editor-block-bg) 60%, transparent);
   font-family: inherit;
   font-size: 0.85em;
   line-height: var(--app-line-height, 1.6);
@@ -883,7 +882,7 @@
   padding: 0.4rem 0.4rem 0.4rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 1rem;
-  background: var(--card);
+  background: transparent;
   box-sizing: border-box;
   max-height: 15rem;
 }

@@ -35,6 +35,20 @@ export interface CurrentBlockInfo {
   dom: HTMLElement
 }
 
+const WRAPPING_BLOCK_TYPES = new Set([
+  'blockquote',
+  'table',
+  'bulletList',
+  'orderedList',
+  'taskList',
+])
+
+const LIST_BLOCK_TYPES = new Set([
+  'bulletList',
+  'orderedList',
+  'taskList',
+])
+
 /** Resolve the block the editor's current selection is on (PM-native, not DOM). */
 export function getCurrentBlockInfo(editor: Editor): CurrentBlockInfo | null {
   const view = editor.view
@@ -57,30 +71,47 @@ export function getCurrentBlockInfo(editor: Editor): CurrentBlockInfo | null {
     }
   }
 
-  // TextSelection / cursor: $from.parent is the immediate block the cursor
-  // lives in (paragraph, heading, listItem, tableCell, blockquote, etc.).
+  // TextSelection / cursor: use the nearest wrapping block when the cursor
+  // is inside one. This keeps the handle's visual anchor and the command /
+  // drag target aligned for lists, tables, and quotes.
+  // Plain text blocks (paragraph, heading, codeBlock, etc.) fall back to the
+  // immediate parent.
   const { $from } = selection
-  const parent = $from.parent
-  if (!parent) return null
-  // `$from.depth` is the depth of the parent (1 for top-level blocks,
-  // 2 for listItem/taskItem, 4 for tableCell, etc.). `$from.start(depth)`
-  // returns the position just inside the parent's open token, so subtract
-  // 1 to land on the open token itself — that's the position `view.nodeDOM`
-  // uses to return the parent's outer DOM. (Using `$from.before(1)` would
-  // hardcode depth 1, which for a listItem cursor resolves to the *first*
-  // listItem of the list, not the one the cursor is in.)
   if ($from.depth < 1) return null
-  const pos = $from.start($from.depth) - 1
+  const depth = getTargetBlockDepth($from)
+  const node = $from.node(depth)
+  const pos = $from.before(depth)
   const dom = view.nodeDOM(pos)
   if (!(dom instanceof HTMLElement)) return null
   return {
-    node: parent,
-    typeName: parent.type.name,
-    attrs: parent.attrs,
+    node,
+    typeName: node.type.name,
+    attrs: node.attrs,
     pos,
-    nodeSize: parent.nodeSize,
+    nodeSize: node.nodeSize,
     dom,
   }
+}
+
+function getTargetBlockDepth($from: { depth: number; node: (depth: number) => PMNode }): number {
+  for (let depth = $from.depth; depth >= 1; depth--) {
+    if ($from.node(depth).type.name === 'table') {
+      return depth
+    }
+  }
+
+  for (let depth = 1; depth <= $from.depth; depth++) {
+    if (LIST_BLOCK_TYPES.has($from.node(depth).type.name)) {
+      return depth
+    }
+  }
+
+  for (let depth = $from.depth; depth >= 1; depth--) {
+    if (WRAPPING_BLOCK_TYPES.has($from.node(depth).type.name)) {
+      return depth
+    }
+  }
+  return $from.depth
 }
 
 /**
@@ -107,13 +138,38 @@ export function selectBlockContent(editor: Editor): void {
     return
   }
 
-  const from = info.pos + 1
-  const to = info.pos + info.nodeSize - 1
-  if (from > to) {
-    // Empty block: nothing to select, but make sure focus lands at the
-    // start of the block so the menu's transform commands act on it.
-    editor.chain().focus().setTextSelection(from).run()
+  const textblockSelection = getFirstTextblockSelection(info)
+  if (textblockSelection) {
+    editor.chain().focus().setTextSelection(textblockSelection).run()
     return
   }
-  editor.chain().focus().setTextSelection({ from, to }).run()
+
+  if (NodeSelection.isSelectable(info.node)) {
+    editor.chain().focus().setNodeSelection(info.pos).run()
+  }
+}
+
+function getFirstTextblockSelection(info: CurrentBlockInfo): { from: number; to: number } | null {
+  if (!isWrappingBlock(info)) {
+    return getNodeTextSelection(info.pos, info.node)
+  }
+
+  let selection: { from: number; to: number } | null = null
+  info.node.descendants((node, relativePos) => {
+    if (!node.isTextblock) return true
+    selection = getNodeTextSelection(info.pos + 1 + relativePos, node)
+    return false
+  })
+  return selection
+}
+
+function getNodeTextSelection(pos: number, node: PMNode): { from: number; to: number } | null {
+  if (!node.isTextblock) return null
+  const from = pos + 1
+  const to = pos + node.nodeSize - 1
+  return { from, to }
+}
+
+function isWrappingBlock(info: CurrentBlockInfo): boolean {
+  return WRAPPING_BLOCK_TYPES.has(info.typeName)
 }

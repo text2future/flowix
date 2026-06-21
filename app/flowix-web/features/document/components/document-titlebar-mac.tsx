@@ -72,7 +72,7 @@ export function DocumentTitlebarMac({
     <div
       data-tauri-drag-region
       className={`h-12 shrink-0 ${isSidebarHidden ? 'pl-[90px]' : 'pl-0'} pr-0 z-[50] flex items-center`}
-      style={{ backgroundImage: 'linear-gradient(to bottom, var(--bg-titlebar), transparent)' }}
+      style={{ backgroundImage: 'linear-gradient(to bottom, var(--bg-titlebar), var(--document-bg))' }}
     >
       <div className="flex shrink-0 items-center gap-1">
         {isSidebarHidden && (

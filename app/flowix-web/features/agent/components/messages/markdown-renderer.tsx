@@ -1,5 +1,5 @@
-import { isValidElement, lazy, Suspense } from "react";
-import ReactMarkdown from "react-markdown";
+import { isValidElement, lazy, memo, Suspense } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { openNoteByDeepLink } from "@platform/open-target";
@@ -22,7 +22,7 @@ const CodeBlock = lazy(async () => {
         customStyle={{
           margin: 0,
           padding: "0.5rem 0.75rem 0.75rem",
-          background: "var(--code-block-bg)",
+          background: "var(--editor-block-bg)",
           borderRadius: "0.5rem",
           border: "1px solid var(--border)",
           fontSize: "0.78rem",
@@ -87,7 +87,7 @@ const WRAPPER_CLASS =
   // padding: 0 0.4rem / border-radius: 0.4rem / font-size: 0.78rem /
   // background: var(--code-bg) / color: var(--foreground) / font-family: inherit. 跨三处
   // (Tiptap 正文 / AgentThreadCard 卡片 / 右栏 Agent 消息体) 走同一套 token. 块 code 仍
-  // 走 --code-block-bg + 0.5rem 圆角区分视觉权重. 
+  // 走 --editor-block-bg + 0.5rem 圆角区分视觉权重.
   "[&_code]:bg-[var(--code-bg)] [&_code]:px-[0.4rem] [&_code]:py-0 [&_code]:rounded-[0.4rem] [&_code]:border [&_code]:border-border [&_code]:text-[0.78rem] [&_code]:text-foreground [&_code]:font-sans " +
   // pre 内的 code 还原: 透明背景, 无边框, 字号回到 pre 字号, color 走 muted-foreground
   // (与 tiptap pre code 行为一致: padding: 0, 走父级 pre 背景)
@@ -111,94 +111,116 @@ const CODE_BLOCK_CLASS = "relative my-3 rounded-lg overflow-hidden border border
 // 收口, 套两层会出现"双边框 + 圆角错位"。
 const TABLE_WRAPPER_CLASS = "overflow-x-auto my-3 bg-transparent";
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+// Layer 1: components / urlTransform / onClick handler 都提到 module 顶层
+// 常量 ── 否则每次 render 都是 inline 新对象, 顶层 React.memo 拿到的
+// content 即便相同, 内部 ReactMarkdown 也会因 components 引用变化重新
+// 走它内部的 reconcile (这一层不是 memo 决定的, 但提到顶层有零成本).
+//
+// 真正决定 memo 是否生效的是 `MarkdownRenderer` 自身的 props 比较 ── 只比
+// `content`. WRAPPER_CLASS 等已是常量, content 不变 → memo 跳过.
+
+const MARKDOWN_COMPONENTS: Components = {
+  a({ href, children, ...props }) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+        {children}
+      </a>
+    );
+  },
+  pre({ children }) {
+    // react-markdown v10 仍会为围栏代码块包一层默认 <pre>。
+    // 我们在下面的 `code` 覆盖里已经返回了 <div class="code-block">，
+    // 把它再套进 <pre> 会形成两套盒模型叠加（外层 <pre> 的
+    // font-size / line-height / overflow-x: auto 与 SyntaxHighlighter
+    // 的 customStyle 重复），导致代码块视觉上出现「重影 / 双边框」。
+    // 因此当 <pre> 的子节点是 code-block 容器时，直接透传 children。
+    const child = Array.isArray(children) ? children[0] : children;
+    if (
+      isValidElement(child) &&
+      child.type === "div" &&
+      (child.props as { className?: string })?.className === CODE_BLOCK_CLASS
+    ) {
+      return <>{child}</>;
+    }
+    return <pre>{children}</pre>;
+  },
+  code({ className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || "");
+    const isInline = !match;
+    const language = match ? match[1] : "";
+
+    if (isInline) {
+      return <code {...props}>{children}</code>;
+    }
+
+    return (
+      <div className={CODE_BLOCK_CLASS}>
+        {/* 懒加载: 250KB+ chunk 只在第一个带代码块的消息到达时拉。
+            Suspense fallback 走 inline <pre>, 加载完无缝替换 ── 用户
+            视觉上不会感知 (chat 流本来就是逐 token 出现)。 */}
+        <Suspense
+          fallback={
+            <pre className="m-0 px-3 py-2 text-[0.78rem] text-[var(--muted-foreground)] font-sans">
+              {String(children).replace(/\n$/, "")}
+            </pre>
+          }
+        >
+          <CodeBlock language={language}>
+            {String(children).replace(/\n$/, "")}
+          </CodeBlock>
+        </Suspense>
+      </div>
+    );
+  },
+  table({ children }) {
+    return (
+      <div className={TABLE_WRAPPER_CLASS}>
+        <table>{children}</table>
+      </div>
+    );
+  },
+};
+
+// react-markdown v10 默认 urlTransform 只放行 http/https/mailto/tel,
+// `flowix://` 会被清空成 `""`。 透传自定义 scheme 之后,
+// 下文自定义的 <a> 才能在点击时拿到完整 href。
+const urlTransform = (url: string) => url;
+
+const remarkPlugins = [remarkGfm];
+
+// 委托: 点击 Agent 输出里的 flowix:// 深链时, 走 `openByTarget` 统一管线
+// (跟 noteReference 双击 / 单 instance 二次启动 / 外部深链同一入口)。
+// 不影响 http(s) 链接 — 那些由 <a> 默认行为走浏览器/OS。
+function handleWrapperClick(e: React.MouseEvent<HTMLDivElement>) {
+  const a = (e.target as HTMLElement).closest<HTMLAnchorElement>(
+    'a[href^="flowix://"]'
+  );
+  if (!a) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const href = a.getAttribute("href");
+  if (href) void openNoteByDeepLink(href);
+}
+
+function MarkdownRendererInner({ content }: MarkdownRendererProps) {
   return (
-    <div
-      className={WRAPPER_CLASS}
-      // 委托: 点击 Agent 输出里的 flowix:// 深链时, 走 `openByTarget` 统一管线
-      // (跟 noteReference 双击 / 单 instance 二次启动 / 外部深链同一入口)。
-      // 不影响 http(s) 链接 — 那些由 <a> 默认行为走浏览器/OS。
-      onClick={(e) => {
-        const a = (e.target as HTMLElement).closest<HTMLAnchorElement>(
-          'a[href^="flowix://"]'
-        );
-        if (!a) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const href = a.getAttribute("href");
-        if (href) void openNoteByDeepLink(href);
-      }}
-    >
+    <div className={WRAPPER_CLASS} onClick={handleWrapperClick}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        // react-markdown v10 默认 urlTransform 只放行 http/https/mailto/tel,
-        // `flowix://` 会被清空成 `""`。 透传自定义 scheme 之后,
-        // 下文自定义的 <a> 才能在点击时拿到完整 href。
-        urlTransform={(url) => url}
-        components={{
-          a({ href, children, ...props }) {
-            return (
-              <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
-                {children}
-              </a>
-            );
-          },
-          pre({ children }) {
-            // react-markdown v10 仍会为围栏代码块包一层默认 <pre>。
-            // 我们在下面的 `code` 覆盖里已经返回了 <div class="code-block">，
-            // 把它再套进 <pre> 会形成两套盒模型叠加（外层 <pre> 的
-            // font-size / line-height / overflow-x: auto 与 SyntaxHighlighter
-            // 的 customStyle 重复），导致代码块视觉上出现「重影 / 双边框」。
-            // 因此当 <pre> 的子节点是 code-block 容器时，直接透传 children。
-            const child = Array.isArray(children) ? children[0] : children;
-            if (
-              isValidElement(child) &&
-              child.type === "div" &&
-              (child.props as { className?: string })?.className === CODE_BLOCK_CLASS
-            ) {
-              return <>{child}</>;
-            }
-            return <pre>{children}</pre>;
-          },
-          code({ className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || "");
-            const isInline = !match;
-            const language = match ? match[1] : "";
-
-            if (isInline) {
-              return <code {...props}>{children}</code>;
-            }
-
-            return (
-              <div className={CODE_BLOCK_CLASS}>
-                {/* 懒加载: 250KB+ chunk 只在第一个带代码块的消息到达时拉。
-                    Suspense fallback 走 inline <pre>, 加载完无缝替换 ── 用户
-                    视觉上不会感知 (chat 流本来就是逐 token 出现)。 */}
-                <Suspense
-                  fallback={
-                    <pre className="m-0 px-3 py-2 text-[0.78rem] text-[var(--muted-foreground)] font-sans">
-                      {String(children).replace(/\n$/, "")}
-                    </pre>
-                  }
-                >
-                  <CodeBlock language={language}>
-                    {String(children).replace(/\n$/, "")}
-                  </CodeBlock>
-                </Suspense>
-              </div>
-            );
-          },
-          table({ children }) {
-            return (
-              <div className={TABLE_WRAPPER_CLASS}>
-                <table>{children}</table>
-              </div>
-            );
-          },
-        }}
+        remarkPlugins={remarkPlugins}
+        urlTransform={urlTransform}
+        components={MARKDOWN_COMPONENTS}
       >
         {content}
       </ReactMarkdown>
     </div>
   );
 }
+
+// Layer 1: 用 React.memo 包裹, 只在 content 变化时重 parse markdown.
+// 流式场景下 (chat-store `applyTextChunk` 仅修改 pending assistant 那一条),
+// 其它历史消息的 content 引用稳定, 此处直接跳过, 历史 N 条消息零 markdown
+// 重 parse 开销.
+export const MarkdownRenderer = memo(
+  MarkdownRendererInner,
+  (prev, next) => prev.content === next.content
+);

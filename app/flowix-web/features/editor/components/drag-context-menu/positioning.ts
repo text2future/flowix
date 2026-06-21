@@ -1,5 +1,5 @@
 import type { Editor } from '@tiptap/core'
-import { getCurrentBlockInfo } from '@features/editor/components/drag-context-menu/block-info'
+import { getCurrentBlockInfo, type CurrentBlockInfo } from '@features/editor/components/drag-context-menu/block-info'
 import { getYOffset } from '@features/editor/components/drag-context-menu/style'
 
 /**
@@ -15,6 +15,7 @@ export interface HandlePosition {
   visible: true
   x: number
   y: number
+  blockInfo: CurrentBlockInfo
 }
 
 export interface HandleHidden {
@@ -22,11 +23,11 @@ export interface HandleHidden {
 }
 
 // Visible block ancestor selector. The handle positions itself on the
-// outermost "block" the user reads as a unit (the whole <ul>/<ol> for a
-// listItem cursor, the <td> for a tableCell, the <p> for a paragraph).
+// outermost "block" the user reads as a unit (the <ul>/<ol> for a list,
+// the <table> for a table, the <p> for a paragraph).
 // `.ProseMirror-node` is the catch-all for node-view wrappers.
 const BLOCK_SELECTOR =
-  'p, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, pre, .ProseMirror-node'
+  'p, h1, h2, h3, h4, h5, h6, ul, ol, table, .tableWrapper, blockquote, pre, .ProseMirror-node'
 
 const HANDLE_X_OFFSET = 18
 
@@ -43,18 +44,20 @@ export function computeHandlePosition(
   editor: Editor,
   fontSize: number,
   lineHeight: number,
+  requireFocus = true,
 ): HandlePosition | HandleHidden | null {
   const view = editor.view
-  if (!view?.hasFocus()) return null
+  if (!view || (requireFocus && !view.hasFocus())) return null
 
   const editorDom = view.dom as HTMLElement
   const editorContent = editorDom.closest('.editor-content') as HTMLElement | null
   const info = getCurrentBlockInfo(editor)
   if (!info || !editorContent) return null
 
-  // Anchor the handle on the visible block ancestor (e.g. the
-  // <ul>/<ol> for a listItem, the <td> for a tableCell).
-  const domNode = info.dom.closest?.(BLOCK_SELECTOR) as HTMLElement | null
+  // Anchor the handle on the visible block element. Table node DOM may be the
+  // table itself or Tiptap's `.tableWrapper`; list node DOM is the rendered
+  // <ul>/<ol>. Resolve these before falling back to generic block ancestors.
+  const domNode = getVisibleBlockElement(info)
   if (!domNode) return null
 
   const proseMirrorRect = view.dom.getBoundingClientRect()
@@ -68,5 +71,19 @@ export function computeHandlePosition(
   const x = (proseMirrorRect.left - contentRect.left) + HANDLE_X_OFFSET
   const y = nodeRect.top - proseMirrorRect.top + getYOffset(info, fontSize, lineHeight)
 
-  return { visible: true, x, y }
+  return { visible: true, x, y, blockInfo: info }
+}
+
+function getVisibleBlockElement(info: CurrentBlockInfo): HTMLElement | null {
+  if (info.typeName === 'table') {
+    if (info.dom.matches('table, .tableWrapper')) return info.dom
+    const table = info.dom.querySelector('table')
+    if (table instanceof HTMLElement) return table
+  }
+  if (info.typeName === 'bulletList' || info.typeName === 'orderedList' || info.typeName === 'taskList') {
+    if (info.dom.matches('ul, ol')) return info.dom
+    const list = info.dom.querySelector('ul, ol')
+    if (list instanceof HTMLElement) return list
+  }
+  return info.dom.closest?.(BLOCK_SELECTOR) as HTMLElement | null
 }

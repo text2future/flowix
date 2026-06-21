@@ -1,11 +1,12 @@
 'use client';
 
+import { memo } from "react";
 import type { ChatMessage } from "@/types";
 import { getToolIconPath } from "@features/agent/message/tools";
 import { createAgentMessageViewModel } from "@features/agent/message/agent-message";
 import { Loader2 } from "lucide-react";
 
-export function MessageTool({ message }: { message: ChatMessage }) {
+function MessageToolInner({ message }: { message: ChatMessage }) {
   const iconPath = getToolIconPath(message.toolName);
   const isLoading = Boolean(message.isLoading);
   const messageView = createAgentMessageViewModel(message);
@@ -39,3 +40,20 @@ export function MessageTool({ message }: { message: ChatMessage }) {
     </div>
   );
 }
+
+// Layer 1: tool 行的展示依赖 toolName/toolInput/toolData/isLoading.
+// `createAgentMessageViewModel` 对这些字段消费, 不变则视图不变.
+// toolInput / toolCalls 是对象引用 ── 浅比较即可: chat-store
+// `applyToolCallChunk` / `applyToolResultChunk` 命中目标行才重建对象,
+// 其它行引用稳定.
+export const MessageTool = memo(
+  MessageToolInner,
+  (prev, next) =>
+    prev.message === next.message ||
+    (prev.message.id === next.message.id &&
+      prev.message.toolName === next.message.toolName &&
+      prev.message.toolData === next.message.toolData &&
+      prev.message.toolInput === next.message.toolInput &&
+      prev.message.toolCalls === next.message.toolCalls &&
+      prev.message.isLoading === next.message.isLoading)
+);

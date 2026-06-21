@@ -24,7 +24,8 @@
 	--border: oklch(0.284 0.014 var(--neutral-hue));
 	--input: var(--border);
 	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
-	--ring: oklch(0.375 0.027 var(--neutral-hue));
+	/* Keyboard focus ring follows the theme primary color. */
+	--ring: var(--primary);
 
 	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
 	--agent-bg: oklch(0.173 0.009 var(--neutral-hue));
@@ -53,7 +54,7 @@
 	--memo-color-gray:   oklch(64% 0.015 264);
 
 	--code-bg: oklch(0.229 0.018 275);
-	--code-block-bg: oklch(0.176 0.014 var(--neutral-hue));
+	--editor-block-bg: oklch(0.176 0.014 var(--neutral-hue));
 
 	--floating-bg: oklch(0.213 0.013 var(--neutral-hue));
 	/* 浮层文字: 与 floating-bg 配对, 三主题统一柔和白, 避纯白在深底的眩光 */
