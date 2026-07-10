@@ -1,18 +1,52 @@
 name: Release
 
+# Tag-driven release pipeline. Triggers on:
+#   - push of a tag matching v* (e.g. v1.0.3)
+#   - manual workflow_dispatch (for ad-hoc dry runs)
+#
+# Cross-platform matrix builds everything that `npm run tauri:build` can
+# produce. `tauri-action` is the official Tauri integration: it consumes
+# TAURI_SIGNING_PRIVATE_KEY, signs updater artifacts, and creates the
+# GitHub release with the right assets and an `update.json` manifest.
+#
+# Required secrets (set in repo Settings → Secrets and variables):
+#   TAURI_SIGNING_PRIVATE_KEY         - minisign private key contents
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - optional, only if your key has one
+#   GITHUB_TOKEN                      - provided automatically by Actions
+#
+# Optional (only needed for native installer signing, NOT required for
+# tauri-plugin-updater's minisign signature):
+#   APPLE_SIGNING_IDENTITY, APPLE_TEAM_ID, APPLE_KEYCHAIN_PROFILE
+#   WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD, WINDOWS_CERT_THUMBPRINT, WINDOWS_TIMESTAMP_URL
+
 on:
   workflow_dispatch:
   push:
     tags:
       - "v*"
 
-jobs:
-  windows-nsis:
-    name: Windows NSIS
-    runs-on: windows-latest
-    permissions:
-      contents: write
+# prevent duplicate runs while a release is in flight
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
+jobs:
+  release:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,39 +59,52 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/target -> release
+
+      - name: Linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Import Windows signing certificate
-        shell: pwsh
+      - name: Build + sign + publish
+        uses: tauri-apps/tauri-action@v0
         env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $pfx = Join-Path $env:RUNNER_TEMP "flowix.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password | Out-Null
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build signed Windows NSIS installer
-        shell: bash
-        env:
+          # minisign (tauri-plugin-updater). Required.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+          # macOS code-signing. Optional. Skip with FLOWIX_ALLOW_UNSIGNED=1.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_KEYCHAIN_PROFILE: ${{ secrets.APPLE_KEYCHAIN_PROFILE }}
+
+          # Windows code-signing.
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           WINDOWS_CERT_THUMBPRINT: ${{ secrets.WINDOWS_CERT_THUMBPRINT }}
-          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
-        run: npm run tauri:build:production
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
 
-      - name: Upload NSIS artifact
-        uses: actions/upload-artifact@v4
         with:
-          name: flowix-windows-nsis
-          path: app/target/release/bundle/nsis/*setup.exe
-          if-no-files-found: error
+          tagName: v__VERSION__
+          releaseName: "Flowix v__VERSION__"
+          releaseBody: |
+            See the [CHANGELOG] for the full set of changes.
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: app/target/release/bundle/nsis/*setup.exe
+            [CHANGELOG]: ../../CHANGELOG.md
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
