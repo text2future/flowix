@@ -1,0 +1,2346 @@
+.markdown-editor {
+  --atc-send-size: 28px;
+  --atc-bottom-pad: 10px;
+  --atc-min-height: 13rem;
+  --atc-max-height: 24rem;
+  --atc-composer-max-h: 200px;
+  --atc-header-h: 40px;
+}
+
+.agent-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem; /* h-5 w-5 = 20px ── 跟按钮 28px / chevron 14px 视觉节奏
+                   * 匹配; header 总高 40px, 20px 方形 icon 居中后上下
+                   * 各留 10px 呼吸, 不顶到 header 边缘。 */
+  height: 1.25rem;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: transparent;
+  flex: 0 0 auto;
+  user-select: none;
+  cursor: default;
+  transition: border-color 180ms ease;
+}
+
+.agent-type-badge--unavailable {
+  border-color: color-mix(in oklch, var(--border) 70%, transparent);
+  color: var(--muted-foreground);
+  opacity: 0.6;
+}
+
+.agent-type-badge__icon {
+  display: block;
+  width: 0.875rem; /* 14px ── 20px 方块留 3px 内边距, 视觉重量跟
+                    * 28px 按钮 + 14px icon 节奏一致。 */
+  height: 0.875rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  object-position: center;
+  border: 0 !important;
+  border-radius: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.agent-type-badge__icon--unavailable {
+  filter: grayscale(1);
+}
+
+/* __name 元素在 header 中 hidden (badge 改为纯 icon), 样式只留
+ * 兜底: 任何意外显示的实例也不会撑破 badge 容器。 */
+.agent-type-badge__name[hidden] {
+  display: none;
+}
+
+.agent-type-badge__name {
+  display: inline-block;
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  line-height: 1;
+  font-weight: 400; /* 明确非加粗 ── 不被父级 600 继承 */
+  color: var(--foreground);
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.agent-type-badge--unavailable .agent-type-badge__name {
+  color: var(--muted-foreground);
+}
+
+.markdown-editor
+  .agent-thread-card--running
+  .agent-type-badge:not(.agent-type-badge--unavailable) {
+  animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes agent-type-badge-running-border {
+  from {
+    border-color: var(--border);
+  }
+  to {
+    border-color: color-mix(in oklch, var(--brand) 50%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-editor
+    .agent-thread-card--running
+    .agent-type-badge:not(.agent-type-badge--unavailable) {
+    animation: none;
+    border-color: color-mix(in oklch, var(--brand) 50%, transparent);
+  }
+}
+
+.markdown-editor .agent-thread-card {
+  margin: 1rem 0;
+  background: var(--document-bg);
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+}
+
+.markdown-editor .agent-thread-card * {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.markdown-editor .agent-thread-card:focus,
+.markdown-editor .agent-thread-card:focus-within {
+  outline: none;
+  box-shadow: none;
+}
+
+.markdown-editor .agent-thread-card button,
+.markdown-editor .agent-thread-card a,
+.markdown-editor .agent-thread-card [role="button"] {
+  cursor: pointer;
+}
+
+.markdown-editor .agent-thread-card button *,
+.markdown-editor .agent-thread-card a *,
+.markdown-editor .agent-thread-card [role="button"] * {
+  cursor: inherit;
+}
+
+.markdown-editor .agent-thread-card__container {
+  display: grid;
+  grid-template-rows: var(--atc-header-h) 1fr auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  /* min-height 同时作为"无 threadId"态与"有 threadId"态的显式下限 ──
+   * 两端都用显式值, transition min-height 才能从 13rem → 24rem 线性
+   * 插值; 否则从隐式 0 起步会停在内容高度上"卡" ~ 一半时长才开始动
+   * (浏览器只在 min-height > 内容高度时才影响渲染高度)。
+   * 折叠态由下方 .--collapsed 分支 reset 到 0, 不被这里锁住。 */
+  min-height: var(--atc-min-height);
+  max-height: var(--atc-max-height);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--editor-block-bg);
+  color: var(--foreground);
+  outline: none;
+  /* 首条消息发出后 threadId 注入 → min-height 13rem → 24rem 撑开 ──
+   * 250ms 略长于通用 150ms (padding / opacity) 但短于 collapsed 风格
+   * 的明显塌缩, 符合"撑开"语义的轻盈感。 cubic-bezier(0.4, 0, 0.2, 1)
+   * 与全站过渡曲线一致 (ease-out 偏重, 起势快收势稳)。 */
+  transition: min-height 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 已绑定 threadId 的卡片: 提升到与 max-height 一致的最小高度,
+   避免短消息时卡片被压扁到 13rem 显得空荡。 */
+.markdown-editor
+  .agent-thread-card--has-threadid:not(.agent-thread-card--fullscreen):not(.agent-thread-card--collapsed)
+  .agent-thread-card__container {
+  min-height: var(--atc-max-height);
+}
+
+.markdown-editor .agent-thread-card--fullscreen {
+  position: fixed;
+  top: var(--atc-fullscreen-top, 0px);
+  left: var(--atc-fullscreen-left, 0px);
+  width: var(--atc-fullscreen-width, 100vw);
+  height: var(--atc-fullscreen-height, 100vh);
+  /* height 不显式写 ── 由 top + bottom 推出 = 100vh - statusbar-height */
+  max-height: none;
+  margin: 0;
+  margin-top: 0 !important;
+  padding: 0;
+  background: var(--editor-block-bg);
+  z-index: 1000;
+}
+
+/* 全屏态: container 必须拉满根的 padding 内侧, 否则会因自己的
+ * margin / max-height 在 fixed 容器里留出多余空隙 / 被高度上限
+ * 截断。把 margin 与 max-height 全部归零, 让它按根的尺寸 1:1
+ * 跟随。
+ *
+ * container 的 padding 不在这里归零 ── 它本就是 0 (base 规则
+ * padding: 0), 这里再写一次是冗余的, 删掉。 */
+.markdown-editor
+  .agent-thread-card--fullscreen
+  > .agent-thread-card__container {
+  margin: 0;
+  max-height: none;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* NodeSelection 选中态 ── 覆盖 editor.css:729 的全局 .ProseMirror-selectednode
+ * (outline: 2px; outline-offset: 2px; 给 image/videoAttachment 等用)。
+ *
+ * Agent 卡片是 1px border, 要让选中外描边"贴"在 border 上:
+ * - outline 1px 厚: 与原 border 同粗, 不出现 2px 厚重感
+ * - outline-offset: -1px: outline 从元素 box 外侧往内缩 1px ──
+ *   元素有 1px border, 所以 outline 落在"border 内边沿"上,
+ *   视觉上"正好覆盖"原 border (从外面看就是 brand 色替换了 --border 色)
+ * - border-radius: 8px: 显式继承卡片圆角, 防止 outline 在圆角处变直角
+ *   (现代浏览器 outline 已支持 border-radius, 但显式写更稳)
+ * - 选择器特异性: .agent-thread-card.ProseMirror-selectednode = (0,2,0)
+ *   高于全局 .ProseMirror-selectednode = (0,1,0), 本规则胜出 */
+.markdown-editor .ProseMirror .agent-thread-card.ProseMirror-selectednode {
+  outline: 1px solid var(--brand);
+  outline-offset: -1px;
+  border-radius: 8px;
+  transition: outline-color 120ms ease-out;
+}
+
+.markdown-editor
+  .ProseMirror
+  .agent-thread-card.agent-thread-card--fullscreen.ProseMirror-selectednode {
+  outline: none;
+}
+
+/* 头部 ── grid auto 行, 高度由 grid-template-rows 显式控制 (40px)。
+ * 取消旧的 min-height 写法, 用 height 让 grid 行严格等于 token。
+ * 背景透明,继承 container 的 --editor-block-bg: 与 body 严格同色 ──
+ * 卡片视觉是一个整体, header 仅靠 1px 下边框或字重差异与 body 分区,
+ * 不用半透明 + 模糊制造"分块感"。
+ *
+ * ── 圆角裁剪责任收口到 card 根 ──
+ * 之前 header 自己写 border-top-left-radius + border-top-right-radius
+ * + overflow: hidden, 把"圆角裁剪 header 背景"的责任扛在 header 上。
+ * 现在 card 根加了 overflow: hidden, 8px border-radius 已经是硬裁剪
+ * 边界 ── header 矩形背景自动被夹在 card 圆角内, 顶部 8px 圆角
+ * 跟 card 顶部 8px 圆角重合, 不需要在 header 重复声明。
+ *
+ * 收口的好处: 圆角裁剪的"责任唯一真源"在 .agent-thread-card, 后续
+ * 若改 card 圆角 (e.g. 8px → 12px) 只需改一处, header 不会忘记
+ * 同步。 */
+.markdown-editor .agent-thread-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: var(--atc-header-h);
+  min-width: 0;
+  padding: 0 0.8rem;
+  box-sizing: border-box;
+  /* 与 body 视觉合一: 背景透明, header 继承 container 的
+   * --editor-block-bg, 头/体在视觉上是同一块, 靠文字层级和组件
+   * 内部 padding 区分。去掉 backdrop-filter ── 半透明 + 模糊只在
+   * 背景透出时才有意义, 实色背景下无效果且徒增 GPU 开销。 */
+  background: transparent;
+  cursor: grab;
+  user-select: none;
+}
+
+.markdown-editor .agent-thread-card--dragging .agent-thread-card__header {
+  cursor: grabbing;
+}
+
+.markdown-editor .agent-thread-card__header button,
+.markdown-editor .agent-thread-card__header [role="button"],
+.markdown-editor .agent-thread-card__header a[href] {
+  cursor: pointer;
+}
+
+/* 左侧: agent-type-badge (icon + role 名) + 对话标题 单行排版, 整体
+ * flex 1 让 meta 推到右边。role 名称已迁出到 badge 内, 这里只剩 title。
+ * badge 样式见本文件顶部的 .agent-type-badge 块, 这里只负责外层布局。 */
+.markdown-editor .agent-thread-card__agent {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 8px;
+}
+
+/* 右侧 actions: meta + collapse 按钮, 整体右对齐 flex 容器。 */
+.markdown-editor .agent-thread-card__actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  transform: translateX(0.4rem);
+}
+
+/* 标题挂在 __agent 下 ── role 标识由 badge 承担, 这里只渲染对话标题
+ * (this.title), 不再拼接 role.name 前缀。
+ *
+ * line-height: 1 ── title 行高 14px, badge 高度 1.3rem (20.8px), 通过
+ * __agent 的 align-items: center 让 title 在 badge 行盒内垂直居中,
+ * 视觉上"标题贴在 badge 中线", 没有'图标挂在文字下面'的假象。
+ * nowrap + ellipsis ── 长标题截断不换行, badge 保持自然宽度。 */
+.markdown-editor .agent-thread-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  cursor: text;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .agent-thread-card__title-input {
+  width: 100%;
+  min-width: 0;
+  height: 1em;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground);
+  cursor: text;
+  font: inherit;
+  line-height: 1;
+  outline: none;
+}
+
+.markdown-editor .agent-thread-card__meta {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.markdown-editor .agent-thread-card__run-status {
+  display: inline-flex;
+  align-items: center;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.markdown-editor .agent-thread-card__run-status::before {
+  content: none;
+}
+
+.markdown-editor .agent-thread-card__run-status--running {
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .agent-thread-card__run-status--running::before {
+  animation: none;
+}
+
+.markdown-editor .agent-thread-card__run-status--failed {
+  color: var(--destructive);
+}
+
+.markdown-editor .agent-thread-card__run-status--cancelled {
+  color: var(--muted-foreground);
+}
+
+@keyframes agent-thread-card-run-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* ── Header icon button (共享基类) ──────────────────────────────────────
+ * header 右侧 actions 区的四个方形按钮 (折叠 / 删除 / 全屏 / 打开侧边栏)
+ * 在视觉上完全同源 ── 28×28 方形 + 0.38rem 圆角 + muted-foreground 文字
+ * 色 + hover var(--muted) 70% 透混背景 + 前景色。
+ *
+ * 之前各自重复 14 行 CSS ── 改基类 + 4 个具体 class 只放"独有"扩展点。
+ * 语义解耦靠具体 className (--collapse / --delete / --fullscreen /
+ * --open-panel) 维持, 视觉同源靠共享基类统一 ── 两件事各司其职。
+ *
+ * ── 颜色用 var(--muted-foreground) 而非硬编码 #888 ──
+ *   - 三套主题 (light/dark/rock) 都定义了 --muted-foreground, 与
+ *     __meta 等"次要文字"位置用同一 token, 跨主题视觉一致。
+ *   - 硬编码 #888 在 dark 主题下偏亮 (与 muted-foreground 不匹配),
+ *     rock 主题下色彩倾向也不对 ── 改 token 后自动跟随主题。
+ *
+ * 选类名 __icon-btn (而非 __header-btn) ── 后续若 composer / footer
+ * 等位置出现同款方形按钮可直接复用同一基类, 不必再起一个名字。 */
+.markdown-editor .agent-thread-card__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0.38rem;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.markdown-editor .agent-thread-card__icon-btn:hover {
+  background: color-mix(in oklch, var(--muted) 70%, transparent);
+  color: var(--foreground);
+}
+
+/* __icon-btn 默认 display: inline-flex 优先级等同 [hidden] (各 0,1,0),
+ * 且因后定义而胜出, 导致按钮设 hidden 仍占位 ── 在基类层显式声明
+ * [hidden] = display: none, 任何 __icon-btn 子类 (delete / fullscreen /
+ * collapse) 设 hidden 都能正确隐藏。 */
+.markdown-editor .agent-thread-card__icon-btn[hidden] {
+  display: none;
+}
+
+/* 折叠按钮 ── 14×14 Caret 图标。
+ * 颜色与 meta 文字一致 (muted-foreground), hover 时背景 var(--muted) 形成
+ * "可点击"暗示。不用圆形是因为只有 22px, 圆角 5px 与 agent-icon 视觉对齐。 */
+.markdown-editor .agent-thread-card__collapse {
+  /* 视觉由 __icon-btn 提供 ── 这里仅放独有扩展点 (当前无) */
+}
+
+.markdown-editor .agent-thread-card__chevron-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+  /* 折叠态旋转 180° ── DOM 只挂一个 chevron-down SVG, 通过 CSS transform
+   * 翻成 chevron-up, 比 TS 端 replaceChildren+append 重建节点更省 ──
+   * SVG path 不变, 不重新创建节点, 不重新触发 layout, 旋转也走 GPU
+   * 合成层。transition 配合状态切换给出 150ms 的平滑动画, 比硬切更
+   * 柔和。 */
+  transition: transform 150ms ease;
+}
+
+.markdown-editor
+  .agent-thread-card--collapsed
+  .agent-thread-card__chevron-icon {
+  transform: rotate(180deg);
+}
+
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__collapse {
+  display: none;
+}
+
+/* reasoning 消息折叠态旋转 ── 与卡片级 collapse 按钮同源思路, 复用
+ * .agent-thread-card__chevron-icon class 命中 SVG。父级折叠类挂在
+ * per-message item 上 (agent-thread-card__message--reasoning-collapsed),
+ * 不与 card 根的 .--collapsed 耦合 ── 卡片折叠时 body display:none 整体
+ * 隐藏, reasoning chevron 不会渲染; 反之卡片展开、某条 reasoning 折叠
+ * 时, 这里的修饰类仍然能命中。每条 reasoning 独立切旋转, 与父级
+ * card 折叠态解耦。 */
+.markdown-editor
+  .agent-thread-card__message--reasoning:not(
+    .agent-thread-card__message--reasoning-collapsed
+  )
+  .agent-thread-card__chevron-icon {
+  transform: rotate(90deg);
+}
+
+.markdown-editor
+  .agent-thread-card__message--reasoning-collapsed
+  .agent-thread-card__chevron-icon {
+  transform: rotate(0deg);
+}
+
+/* 删除对话按钮 ── 位于折叠按钮左侧, 视觉同 __icon-btn 基类 ──
+ * hover 色不用 destructive: 当前是文件 icon 在 muted 体系里, hover 走 var(--muted)
+ * 跟其他三个按钮保持一致; 真要做 destructive 高亮应该放在删除确认弹窗阶段, 而
+ * 不是把单按钮 hover 染色 ── 那会跟其他三个按钮形成视觉不协调, 反而弱化警示。
+ *
+ * ── 为什么保留独立 className ──
+ *   - 语义解耦: __collapse 是'折叠/展开', __delete 是'删除对话', 行为完全不同。
+ *   - 未来扩展: __delete 可能加二次确认 / loading 态 / 错误提示, __collapse 不会。
+ *   - DevTools 可读性: 看 className 就能直接区分。 */
+.markdown-editor .agent-thread-card__delete {
+  /* 视觉由 __icon-btn 提供 ── 这里仅放独有扩展点 (当前无) */
+}
+
+/* 复用 __copy-icon 口径 ── 14×14, color 继承按钮文字色, 不缩小。
+ * 之所以独立类不复用, 是因为以后可能给删除按钮单独调 hover 色或加危险态, 独立类
+ * 给未来留扩展空间。 */
+.markdown-editor .agent-thread-card__trash-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* 全屏按钮 ── 视觉同 __icon-btn 基类。 */
+.markdown-editor .agent-thread-card__fullscreen {
+  /* 视觉由 __icon-btn 提供 ── 这里仅放独有扩展点 (当前无) */
+}
+
+.markdown-editor .agent-thread-card__fullscreen-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* 全屏 / 删除按钮之间的竖向分割线 ── 把"视图操作"与"破坏性操作"
+ * 在视觉上明确分组, 减少误删概率。
+ *
+ * ── 几何 ──
+ *   - 1px × 16px, 比按钮 28px 短, 让分割线"漂浮"在按钮中部而非顶满。
+ *     这样视觉上更像一个分隔标记, 不至于与按钮边框抢眼。
+ *   - background-color 而非 border ── 1px border 在 28px flexbox 容器
+ *     里会因 box-sizing 撑大 0.5px, 而 background 完全不影响几何。
+ *   - border-radius 0.5px 让两端圆滑, 避免 1px 实心方块的"硬边"感。
+ *
+ * ── 颜色 ──
+ *   - var(--border) ── 跨三套主题 (light/dark/rock) 都有定义, 与卡片
+ *     其它 1px 描边 (e.g. agent-type-badge) 用同一 token, 视觉一致。
+ *   - 不用 var(--muted-foreground) ── 那是文字色 token, 在分割线这
+ *     种"非文字"几何元素上复用偏亮, 会让分割线变成"第二条文字"。 */
+.markdown-editor .agent-thread-card__actions-divider {
+  display: block;
+  width: 1px;
+  height: 16px;
+  align-self: center;
+  background-color: var(--border);
+  border-radius: 0.5px;
+}
+
+.markdown-editor .agent-thread-card__actions-divider[hidden] {
+  display: none;
+}
+
+.markdown-editor .agent-thread-card__copy-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* 消息区 ── grid 1fr 中间行, min-height: 0 允许被 max-height 收缩。
+ *
+ *  - grid 1fr 在显式 grid-template-rows 下 = 父级高度 - 头尾,
+ *    永远确定, overflow-y: auto 触发条件天然满足。
+ *  - min-height: 0 允许 body 行被 max-height 父级收缩 (否则 grid
+ *    行默认 min-height: auto 会被内容撑开, max-height 形同虚设)。
+ *  - padding 上下 3.6rem / 左右 12px ── 上下留白让首/末条消息
+ *    不会"贴"在 header 下沿 / composer 上沿, 滚动到边界时消息与
+ *    卡片边缘有缓冲。3.6rem ≈ 57.6px (16px 根字号), 接近 composer
+ *    高度 (≈55px), 给消息"与 composer 对齐的呼吸感"。左右 12px
+ *    保持与原来一致, 不影响消息气泡的左右间距。 */
+.markdown-editor .agent-thread-card__body {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 2rem 1.5rem 0 1.5rem;
+  /* transition 配合 .--collapsed 折叠: padding 3.6rem 12px → 0, 150ms ease 塌缩。
+   * 注: 现在折叠改用 display: none ── body 直接消失; padding transition
+   * 仍保留, 给后续若想"保留行只压内容"的玩法留接口。 */
+  opacity: 1;
+  transition:
+    padding 150ms ease,
+    opacity 120ms ease;
+}
+
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__body {
+  overflow-y: scroll;
+  scrollbar-gutter: stable both-edges;
+  padding-inline: 0;
+}
+
+.markdown-editor
+  .agent-thread-card--thread-cache-loading
+  .agent-thread-card__body {
+  pointer-events: none;
+}
+
+/* 折叠态 ── 隐藏 body / error / composer, 卡片仅保留 header。
+ * grid 容器 (.agent-thread-card__container) 中 1fr 行在 body
+ * display: none 时, grid 把它的轨道高缩到 0, composer 行被
+ * grid-template-rows 推到 body 顶 ── 视觉上等同于"body 消失,
+ * composer 顶到 header 下"。注意: --collapsed 类仍挂在卡片根
+ * (.agent-thread-card) 上, 通过后代选择器跨过 __container 命中
+ * 各子元素。
+ *
+ * min-height 显式归 0 ── 否则基线 13rem 会把折叠态撑成 13rem
+ * 高 (只剩 header 时仍锁在 13rem, 折叠按钮毫无意义)。 */
+.markdown-editor .agent-thread-card--collapsed .agent-thread-card__container {
+  min-height: 0;
+}
+
+.markdown-editor .agent-thread-card--collapsed .agent-thread-card__body {
+  display: none;
+}
+
+.markdown-editor .agent-thread-card--collapsed .agent-thread-card__error {
+  display: none;
+}
+
+.markdown-editor .agent-thread-card--collapsed .agent-thread-card__composer {
+  display: none;
+}
+
+.markdown-editor .agent-thread-card__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.markdown-editor .agent-thread-card__skeleton {
+  display: flex;
+  width: 100%;
+  max-width: 780px;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0 auto;
+  padding: 2px 0 4px;
+}
+
+.markdown-editor .agent-thread-card__skeleton-item {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.markdown-editor .agent-thread-card__skeleton-item--assistant,
+.markdown-editor .agent-thread-card__skeleton-item--user {
+  flex-direction: column;
+}
+
+.markdown-editor .agent-thread-card__skeleton-item--user {
+  width: min(76%, 420px);
+  align-self: flex-end;
+}
+
+.markdown-editor .agent-thread-card__skeleton-item--user.agent-thread-card__skeleton-item--left {
+  align-self: flex-start;
+}
+
+.markdown-editor .agent-thread-card__skeleton-line {
+  display: block;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--muted-foreground) 7%, transparent);
+}
+
+.markdown-editor .agent-thread-card__skeleton-lines {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.markdown-editor .agent-thread-card__skeleton-line {
+  height: 14px;
+}
+
+.markdown-editor .agent-thread-card__skeleton-line--long {
+  width: 88%;
+}
+
+.markdown-editor .agent-thread-card__skeleton-line--medium {
+  width: 64%;
+}
+
+.markdown-editor .agent-thread-card__skeleton-line--short {
+  width: 38%;
+}
+
+.markdown-editor
+  .agent-thread-card__skeleton-item--user
+  .agent-thread-card__skeleton-lines {
+  align-items: flex-end;
+}
+
+.markdown-editor
+  .agent-thread-card__skeleton-item--user.agent-thread-card__skeleton-item--left
+  .agent-thread-card__skeleton-lines {
+  align-items: flex-start;
+}
+
+.markdown-editor
+  .agent-thread-card--fullscreen
+  .agent-thread-card__skeleton {
+  width: calc(100% - 3rem);
+}
+
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__messages {
+  width: calc(100% - 3rem);
+  max-width: 780px;
+  margin-inline: auto;
+}
+
+.markdown-editor .agent-thread-card__messages > * {
+  max-width: 100%;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * 消息卡片 ── 完全对齐 Agent 面板 message-*.tsx 的视觉与布局。
+ * ─────────────────────────────────────────────────────────────────
+ *
+ * 面板 5 种 role 的视觉规范:
+ *   user       气泡 (bg-muted), 靠右, 圆角 8/16/8/8
+ *   assistant  纯文本, 占满, 无气泡, mt-1 顶部留白
+ *   reasoning  折叠按钮 + 左边竖线 (border-l) + 缩进, 灰字
+ *   tool       单行 flex: icon + 名称 + summary, 无气泡
+ *   end        居中小字, 灰字, 时间戳
+ *
+ * 卡片 base 默认 "无背景无圆角", 5 个 role 修饰类各自按面板
+ * 对应风格覆盖 ── 不再是"一统气泡"模式。 */
+.markdown-editor .agent-thread-card__message {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ── user: 气泡 + 靠右 ──────────────────────────────────────────
+ * 圆角体系 (与面板 Tailwind token 对应):
+ *   rounded-lg  = 0.5rem = 8px
+ *   rounded-2xl = 1rem   = 16px
+ * 面板 user 圆角: 8px 16px 8px 8px (右上 2xl 最圆, 其它 lg)。
+ * margin-left: auto 在 flex column 容器里把 user 推右 (CSS 端
+ * 替代 row-reverse, 不破坏 assistant 左对齐)。 */
+.markdown-editor .agent-thread-card__message--user {
+  margin-left: auto;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px 16px 8px 8px;
+  background: var(--muted);
+}
+
+/* ── assistant: 纯文本, 无气泡, 顶部 mt-1 留白 ────────────────
+ * 面板 assistant = `text-sm mt-1`, 无背景无圆角, 占满左侧。 */
+.markdown-editor .agent-thread-card__message--assistant {
+  padding: 4px 0 0;
+  color: var(--foreground);
+}
+
+.markdown-editor
+  .agent-thread-card:not(.agent-thread-card--fullscreen)
+  .agent-thread-card__message--user
+  .agent-thread-card__message-content,
+.markdown-editor
+  .agent-thread-card:not(.agent-thread-card--fullscreen)
+  .agent-thread-card__message--user
+  .agent-thread-card__message-content
+  *,
+.markdown-editor
+  .agent-thread-card:not(.agent-thread-card--fullscreen)
+  .agent-thread-card__message--assistant
+  .agent-thread-card__message-content,
+.markdown-editor
+  .agent-thread-card:not(.agent-thread-card--fullscreen)
+  .agent-thread-card__message--assistant
+  .agent-thread-card__message-content
+  * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ── reasoning: 可折叠 ── 对齐面板 message-reasoning 布局 ─────────
+ * 面板结构:
+ *   <div flex gap-3>
+ *     <div flex-col gap-1 w-full>
+ *       <button> {ChevronDown|Right + "思考中/思考完成"} </button>
+ *       {!reasoningCollapsed && <div pl-4 ml-1.5 border-l> ...content </div>}
+ *     </div>
+ *   </div>
+ *
+ * 卡片版 (per-message 折叠态, 不走全局 store):
+ *   .__message--reasoning { gap: 4px }
+ *     .__message-reasoning-header (button) { flex 排 caret + label,
+ *       hover 反馈用 var(--muted-foreground) → var(--agent-foreground) }
+ *     .__message-reasoning-body { pl-12px + border-l + mt-4px }
+ *     .__message--reasoning-collapsed .__message-reasoning-body { display: none }
+ * 数值: pl-4 = 12px (这里 12px 与 6px ml-1.5 视觉接近, 同时让缩进在
+ * 卡片宽度下不至于挤掉内容), border-l = 2px (卡片小尺寸下更可见)。 */
+.markdown-editor .agent-thread-card__message--reasoning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .agent-thread-card__message-reasoning-header {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  margin-left: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  font-weight: 500;
+  line-height: 1.1;
+  cursor: pointer;
+  /* hover 反馈改为纯字色变化 ── reasoning 折叠按钮嵌入在消息流里,
+   * 视觉权重本就低, 鼠标悬停时给一个"高亮"色就够了, 加背景块会
+   * 跟上下相邻消息之间制造色块边界, 反而打断阅读节奏。颜色用
+   * 前景色 var(--foreground) ── 比 --muted-foreground 对比度高,
+   * 鼠标移上去按钮文本"亮起来"的暗示清晰。 */
+  transition: color 150ms ease;
+}
+
+.markdown-editor .agent-thread-card__message-reasoning-header:hover {
+  color: var(--foreground);
+}
+
+.markdown-editor .agent-thread-card__message-reasoning-header svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: currentColor;
+  transition: transform 150ms ease;
+}
+
+.markdown-editor .agent-thread-card__message-reasoning-body {
+  padding: 2px 0 4px 12px;
+  margin-left: 5px;
+  border-left: 1px solid var(--border);
+}
+
+.markdown-editor
+  .agent-thread-card__message--reasoning-collapsed
+  .agent-thread-card__message-reasoning-body {
+  display: none;
+}
+
+/* ── tool: 单行 flex: icon + 名称 + summary ─────────────────────
+ * 面板 message-tool 容器 = `w-full pr-1 py-1.5` 内部
+ *   `flex items-center gap-2`:
+ *     - ToolIcon (h-3.5 w-3.5 text-muted-foreground, 按 toolName 切换)
+ *     - 工具名 (text-sm text-agent-foreground) ── 走 getToolLabel
+ *       做中英映射, e.g. read → 读取, bash → 执行命令
+ *     - summary (text-xs font-mono text-muted-foreground) ── pathLike 字段
+ *
+ * 卡片场景没有 React 组件, 改用内联 SVG 路径 ── toolName → 图标
+ * 走 features/agent/message/tools 单源 registry (getToolIconPath),
+ * 与面板 (inline SVG 同样 path) 共用 TOOL_ICON_PATHS regular weight 数据,
+ * 视觉完全一致 (同样 14×14 渲染, 同样 muted-foreground 颜色)。未命中 → terminal。 */
+.markdown-editor .agent-thread-card__message--tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.4;
+}
+
+.markdown-editor .agent-thread-card__message--tool-command {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+  /* 命令块是多行容器 (含 head + body + 多条 command-line),
+   * 不能继承父级 --tool 的 1.4 (那是给单行摘要用的) ──
+   * 显式声明 1.7 = __message-content 的行高, 让 command-name / args
+   * 与正文 p 的行节奏一致, 视觉上不"压扁"。 */
+  line-height: 1.7;
+}
+
+.markdown-editor .agent-thread-card__message-tool-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.markdown-editor .agent-thread-card__message-tool-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.markdown-editor .agent-thread-card__message-tool-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .agent-thread-card__message--tool-command .agent-thread-card__message-tool-icon {
+  transform: translateY(2px);
+}
+
+/* 工具名视觉规格: __message-tool-name + __command-name 共享 ──
+ * 颜色 (前景) + 字重 (500) + 横向布局 (auto) 同步,
+ * command-name 额外保留 45% 宽度上限 + ellipsis 截断。 */
+.markdown-editor .agent-thread-card__message-tool-name,
+.markdown-editor .agent-thread-card__command-name {
+  flex: 0 0 auto;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+/* tool-name 不需要水平截断, command-name 需要 ——
+ * flex/color/weight 已在上一规则声明, 此处仅追加独有的截断属性 */
+.markdown-editor .agent-thread-card__command-name {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .agent-thread-card__message-tool-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .agent-thread-card__command-list {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  /* 字体: 与工具描述信息统一为 sans (默认), 删除原先的 mono, 让命令列表跟其它工具描述在视觉上无法区分 */
+}
+
+.markdown-editor .agent-thread-card__command-list--nested {
+  max-width: calc(100% - 10px);
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.markdown-editor .agent-thread-card__command-item {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 1px 0;
+}
+
+.markdown-editor .agent-thread-card__command-line {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  /* 字体/字号/行高 全部走 inherit (跟工具描述信息统一 sans 视觉) */
+}
+
+/* command 输入信息视觉对齐工具描述 (tool-name / tool-summary), 字体一律 inherit (sans) */
+
+.markdown-editor .agent-thread-card__command-args-inline,
+.markdown-editor .agent-thread-card__command-env,
+.markdown-editor .agent-thread-card__command-more {
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .agent-thread-card__command-args-inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .agent-thread-card__command-env,
+.markdown-editor .agent-thread-card__command-more {
+  flex: 0 0 auto;
+}
+
+.markdown-editor .agent-thread-card__command-env {
+  margin-right: 4px;
+}
+
+/* ── end: 居中小字 + 时间戳 ────────────────────────────────────
+ * 面板 message-end = `text-xs text-[var(--muted-foreground)]
+ * text-center`, 内容或时间戳。卡片里 mt-2 让 end 消息与前一条
+ * 有视觉间距, 不与下一条 user/assistant "贴" 一起。 */
+.markdown-editor .agent-thread-card__message--end {
+  display: block;
+  margin: 4px 0;
+  text-align: center;
+}
+
+.markdown-editor
+  .agent-thread-card__message--end
+  .agent-thread-card__message-content {
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  text-align: center;
+}
+
+/* 消息正文容器 ── 现在内容是 marked 输出的 HTML 树, 不能再用
+ * white-space: pre-wrap (会把 <p> 节点当文本节点, 不再分段)。改成
+ * 默认 block 流式 + overflow-wrap: anywhere (替代 word-break:
+ * break-word, 语义更准), 字号 14px 与面板 message-assistant 节奏
+ * 接近。 */
+.markdown-editor .agent-thread-card__message-content {
+  color: var(--foreground);
+  cursor: text;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-editor
+  .agent-thread-card__message-content
+  :where(:not(a):not(button):not([role="button"])) {
+  cursor: text;
+}
+
+/* reasoning 的正文用 muted-foreground + 13px, 与面板 reasoning
+ * 颜色一致。 */
+.markdown-editor
+  .agent-thread-card__message--reasoning
+  .agent-thread-card__message-content {
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+
+/* end 角色的 content: 居中灰字 (保留在 .--end 修饰里)。 */
+.markdown-editor
+  .agent-thread-card__message--end
+  .agent-thread-card__message-content {
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  text-align: center;
+}
+
+/* ── markdown 元素排版 ── 对齐面板 markdown-renderer WRAPPER_CLASS
+ * 子选择器 (面板走 Tailwind arbitrary variant, 卡片走原生 CSS 子选择器,
+ * 效果相同)。面板整体节奏 text-[0.82rem] / leading-[1.8] / mt-1.5,
+ * 卡片统一为 13px / 1.6 / mt-6px ── 比面板略紧凑, 让卡片小尺寸下
+ * 信息密度更合适。 */
+.markdown-editor .agent-thread-card__message-content > *:first-child {
+  margin-top: 0;
+}
+.markdown-editor .agent-thread-card__message-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-editor .agent-thread-card__message-content p {
+  margin: 6px 0;
+}
+.markdown-editor .agent-thread-card__message-content h1,
+.markdown-editor .agent-thread-card__message-content h2,
+.markdown-editor .agent-thread-card__message-content h3,
+.markdown-editor .agent-thread-card__message-content h4 {
+  margin: 8px 0 4px;
+  color: var(--foreground);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.markdown-editor .agent-thread-card__message-content h1 {
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+.markdown-editor .agent-thread-card__message-content h2 {
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+.markdown-editor .agent-thread-card__message-content h3 {
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+.markdown-editor .agent-thread-card__message-content h4 {
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 500;
+}
+
+.markdown-editor .agent-thread-card__message-content ul,
+.markdown-editor .agent-thread-card__message-content ol {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+.markdown-editor .agent-thread-card__message-content ul {
+  list-style: disc;
+}
+.markdown-editor .agent-thread-card__message-content ol {
+  list-style: decimal;
+}
+.markdown-editor .agent-thread-card__message-content li {
+  margin: 2px 0;
+  line-height: 1.7;
+}
+.markdown-editor .agent-thread-card__message-content li > p {
+  margin: 2px 0;
+}
+
+.markdown-editor .agent-thread-card__message-content strong {
+  font-weight: 600;
+}
+.markdown-editor .agent-thread-card__message-content em {
+  font-style: italic;
+}
+.markdown-editor .agent-thread-card__message-content del {
+  color: var(--muted-foreground);
+}
+
+/* 链接 ── 面板走 text-primary + hover:underline; 卡片用 var(--brand)
+ * + hover:underline。target=_blank / rel=noopener 在 marked 输出
+ * 不会自动加, 后续如需可注入属性 (此处保留基础样式)。 */
+.markdown-editor .agent-thread-card__message-content a {
+  color: var(--brand);
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklch, var(--brand) 35%, transparent);
+}
+
+.markdown-editor .agent-thread-card__message-content a *,
+.markdown-editor .agent-thread-card__message-content button *,
+.markdown-editor .agent-thread-card__message-content [role="button"] * {
+  cursor: inherit;
+}
+.markdown-editor .agent-thread-card__message-content a:hover {
+  border-bottom-color: var(--brand);
+}
+
+/* 引用块 ── 颜色对齐编辑器内的 quote (tiptap blockquote border-left:
+ * 0.1875rem solid #ddd), 用 var(--border) token 做三主题自适应
+ * (与右栏面板 markdown-renderer 同源, 不硬编码 #ddd)。卡片
+ * 映射到 3px 左边框 + 12px 左 padding, italic + muted-foreground
+ * 跟编辑器一致。 */
+.markdown-editor .agent-thread-card__message-content blockquote {
+  margin: 6px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* 分隔线 ── 面板 border-t 10% 透明; 卡片走 1px 透明分割。 */
+.markdown-editor .agent-thread-card__message-content hr {
+  margin: 10px 0;
+  border: 0;
+  border-top: 1px solid
+    color-mix(in oklch, var(--muted-foreground) 12%, transparent);
+}
+
+/* 内联 code ── 严格对齐 .markdown-editor .tiptap p code 的视觉口径:
+ *   border: 1px solid color-mix(in oklch, var(--border) 90%, transparent)
+ *   border-radius: 0.4rem
+ *   padding: 0 0.3rem
+ *   color:   color-mix(in oklch, var(--foreground) 80%, transparent)
+ *   font-family: inherit; font-size: 0.84rem
+ *
+ * 选择器用 :not(pre) > code ── 让 inline code 规则只命中"pre 之外
+ * 的直接子 code", <pre><code> 内的 code 不会被这条规则命中, 避免
+ * 与下面 pre 块样式叠加 (双重 border / 双重 border-radius / 字色
+ * 被 color-mix 改写 等)。
+ *  - <p><code>foo</code></p>              命中 (p 不是 pre)
+ *  - <li>foo <code>bar</code></li>        命中 (li 不是 pre)
+ *  - <h1>foo <code>bar</code></h1>        命中 (h1 不是 pre)
+ *  - <pre><code>foo</code></pre>          不命中 (pre 是 pre)
+ * 编辑器正文也不带背景色 ── 仅靠 1px 边框 + 字色 80% 透明弱化做区分。
+ * 卡片跨三处 (Tiptap 正文 / 卡片 / 右栏面板) 走同一套 token。 */
+.markdown-editor .agent-thread-card__message-content :not(pre) > code {
+  padding: 0 0.3rem;
+  border: 1px solid color-mix(in oklch, var(--border) 90%, transparent);
+  border-radius: 0.4rem;
+  color: color-mix(in oklch, var(--foreground) 80%, transparent);
+  font-family: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* was 0.84rem ≈ 13.44px */
+}
+
+/* fenced code 块 ── 严格对齐 .markdown-editor .tiptap pre / pre code
+ * 的视觉口径: 把"边框 / 底色 / 圆角 / padding / 字号 / 行高"全部
+ * 挂在 pre 上 (跟编辑器一致), pre code 只还原 padding 与透明背景
+ * (让内层 code 不再叠加边框/底色 ── 避免双层视觉)。
+ *
+ *   pre:     background  var(--editor-block-bg)
+ *            border      var(--border)
+ *            radius      0.5rem
+ *            padding     0.5rem 1rem 1rem
+ *            margin      1rem 0
+ *            font-size   0.85em  (相对父级 message-content 14px ≈ 12px)
+ *            line-height inherit (from message-content)
+ *            white-space pre-wrap (跟编辑器一致, 长代码在卡片宽度下自动换行)
+ *   pre code: padding 0 / background transparent (还原内层, 让 pre
+ *            的样式不被 code 覆盖)
+ *
+ * 卡片之前把样式挂在 pre code 上 ── 与编辑器结构相反, 这里收口到
+ * pre。pre-wrap + 卡片宽度窄, 代码块天然按卡片宽换行, 不需要
+ * overflow-x: auto (编辑器是 overflow-x: visible, 同源)。 */
+.markdown-editor .agent-thread-card__message-content pre {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--editor-block-bg);
+  font-family: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* 从 0.85em (≈ 11.9px @ 父级 14px) 升到 0.82rem ≈ 13.12px, 与右栏面板代码块对齐 */
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.markdown-editor .agent-thread-card__message-content pre code {
+  /* 还原: 1) 上方 :not(pre) > code 已经让 inline code 规则不命中
+   * pre code ── 但浏览器 UA stylesheet 默认给 code 元素
+   * font-family: monospace, 会盖过 pre 的 font-family: inherit,
+   * 这里显式把字体 / 字号 / 颜色全部按 pre 继承, 让 pre code 视觉
+   * 与 pre 完全一致; 2) 背景 / 边框 / 内边距全部归零, 防止任何
+   * 残留样式 ── 这条规则是"边界声明", 写在这里表达 pre code 故意
+   * 不带 inline code 视觉, 后续若改 inline code 选择器, 这条不需
+   * 跟着改。 */
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 表格 ── 面板走 min-w-full border-collapse + thead transparent +
+ * tr border-b + th/td px-3 py-2; 卡片同节奏。 */
+.markdown-editor .agent-thread-card__message-content table {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+.markdown-editor .agent-thread-card__message-content thead {
+  background: transparent;
+}
+.markdown-editor .agent-thread-card__message-content tr {
+  border-bottom: 1px solid var(--border);
+}
+.markdown-editor .agent-thread-card__message-content tr:last-child {
+  border-bottom: 0;
+}
+.markdown-editor .agent-thread-card__message-content th,
+.markdown-editor .agent-thread-card__message-content td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-editor .agent-thread-card__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+
+.markdown-editor .agent-thread-card__empty--codex-settings {
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 46px;
+  padding: 4px 10px;
+}
+
+.markdown-editor .agent-thread-card__empty-control {
+  display: inline-flex;
+  align-items: center;
+  max-width: 190px;
+  min-width: 0;
+  height: 28px;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.markdown-editor .agent-thread-card__empty-control:hover,
+.markdown-editor .agent-thread-card__empty-control--open,
+.markdown-editor .agent-thread-card__empty-control:focus-visible {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.markdown-editor .agent-thread-card__empty-control-label {
+  flex: 0 0 auto;
+}
+
+.markdown-editor .agent-thread-card__empty-control-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  line-height: 1.6;
+}
+
+.markdown-editor .agent-thread-card__empty-control-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: currentColor;
+  opacity: 0.72;
+}
+
+.agent-thread-card__codex-settings-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1050;
+  width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.375rem 0.25rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--agent-foreground);
+  box-shadow: 0 10px 30px
+    color-mix(in oklch, var(--foreground) 16%, transparent);
+  opacity: 0;
+  transform: scale(0.96);
+  transform-origin: top left;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.agent-thread-card__codex-settings-popover:not([hidden]) {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.agent-thread-card__codex-settings-popover[hidden] {
+  display: none;
+}
+
+.agent-thread-card__codex-settings-title {
+  padding: 0.15rem 0.375rem 0.35rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.agent-thread-card__codex-settings-section {
+  padding: 0.15rem 0.375rem 0.35rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.agent-thread-card__codex-settings-divider {
+  margin: 0.25rem 0.5rem;
+  border: 0;
+  border-top: 1px solid var(--border);
+  opacity: 0.5;
+}
+
+.agent-thread-card__codex-settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 32px;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.agent-thread-card__codex-settings-item:hover,
+.agent-thread-card__codex-settings-item:focus-visible {
+  background: var(--muted);
+}
+
+.agent-thread-card__codex-settings-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-card__codex-settings-item .agent-thread-card__copy-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.markdown-editor .agent-thread-card__loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: fit-content;
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0rem;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* was 0.78rem ≈ 12.48px */
+  font-weight: 500;
+  line-height: 1;
+}
+
+.markdown-editor
+  .agent-thread-card--fullscreen
+  .agent-thread-card__loading-indicator {
+  width: calc(100% - 3rem);
+  max-width: 780px;
+  margin-inline: auto;
+}
+
+.markdown-editor .agent-thread-card__loading-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  animation:
+    agentThinkingDot 1.45s ease-in-out infinite,
+    agentThreadCardWorkingDot 1.45s linear infinite;
+}
+
+.markdown-editor .agent-thread-card__loading-text {
+  color: transparent;
+  /* 单层扫光: 3 stop (暗→亮→暗) — 只一个亮度峰, 没有 white 核叠在 foreground 晕上 */
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--muted-foreground) 55%, transparent) 0%,
+    var(--foreground) 50%,
+    color-mix(in oklch, var(--muted-foreground) 55%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  background-position: 100% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: agentThreadCardWorkingText 1.2s linear infinite;
+}
+
+.markdown-editor .agent-thread-card__loading-dot[hidden],
+.markdown-editor .agent-thread-card__loading-text[hidden] {
+  display: none;
+}
+
+@keyframes agentThreadCardWorkingText {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: -100% 50%;
+  }
+}
+
+@keyframes agentThreadCardWorkingDot {
+  0%,
+  100% {
+    background: var(--muted-foreground);
+  }
+  45%,
+  55% {
+    background: white;
+  }
+}
+
+/* 折叠态 ── 与 body 一起消失, 不留孤立的 24px 空白带。 */
+.markdown-editor
+  .agent-thread-card--collapsed
+  .agent-thread-card__loading-indicator {
+  display: none;
+}
+
+/* error 提示块 ── 默认 hidden (DOM 写了 hidden 属性), 用 absolute
+ * 浮在 composer 之上, 不挤压 body 区域; 视觉上 error 与 composer
+ * 间距 6px, 高度由内容决定。折叠态在 .--collapsed 下用 display: none
+ * 进一步隐藏 (虽然 hidden 已隐, 双保险)。
+ *
+ * bottom 数值: composer 实际占位 = 8 (padding-top) + 28.8 (textarea)
+ * + 10 (padding-bottom) + 2 (border) + 6 (margin-bottom) = 54.8px ──
+ * 圆到 55, error 浮在 composer 顶 + 6px 间距 = bottom: 61px。 */
+.markdown-editor .agent-thread-card__error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 61px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklch, var(--destructive) 30%, transparent);
+  border-radius: 6px;
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 8%, transparent);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  z-index: 1;
+}
+
+/* composer 圆角胶囊容器 ── grid auto 行, 高度由内容决定 (auto 行
+ * 在子元素 display: none 时收缩到 0, 这是折叠态没有空白区块的关键)。
+ * 外层 max-height: --atc-composer-max-h (200px) 兜底封顶; 内部
+ * textarea 在 field-sizing: content 配合自身 max-height (= 外层
+ * max-height - padding-y) 下, 内容超出时走 overflow-y 内部滚动,
+ * composer 容器不被撑破。
+ *
+ * 背景统一用 var(--document-bg) ── 跟文档背景融合 (与全屏态视觉一致),
+ * 1px border 保留, 仍能围出胶囊形状; textarea 自身 transparent, 直接
+ * 透出 composer 背景。多行状态由 .--multi-line 修饰类切到 flex-end
+ * (按钮贴底, 始终维持 --atc-bottom-pad 距离)。 类切换由 agent-thread-card.tsx
+ * 的 input 事件控制。 */
+.markdown-editor .agent-thread-card__composer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: end;
+  width: calc(100% - 24px);
+  margin: 0 0.8rem 0.6rem;
+  padding: 0.4rem 0.4rem 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--document-bg);
+  box-sizing: border-box;
+  max-height: 15rem;
+  user-select: none;
+}
+
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__composer {
+  width: calc(100% - 3rem);
+  max-width: 780px;
+  margin: 0 auto 0.6rem;
+  /* 全屏态: 宽度 / margin 与基线不同; 背景由基线 var(--document-bg) 提供,
+   * 不再覆盖, 全屏 / 非全屏视觉一致。 */
+}
+
+.markdown-editor .agent-thread-card__composer--multi-line {
+  align-items: flex-end;
+}
+
+.markdown-editor .agent-thread-card__composer-role-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-self: center;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--secondary-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+/* 之前 `hidden` 时 display: none ── 现在 composerRoleIcon 永远是 button,
+ * 不再设 hidden 属性, 这条规则保留作兜底, 防止后续调用方误设 hidden 时
+ * 留下 24px 空白 (auto 行高 collapse 已处理, 但显式更稳)。 */
+.markdown-editor .agent-thread-card__composer-role-icon[hidden] {
+  display: none;
+}
+
+.markdown-editor .agent-thread-card__composer-role-icon img,
+.markdown-editor .agent-thread-card__composer-role-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  /* 子元素 SVG / img 不接收 pointer events ── 点击落到底层 button,
+   * 走统一的 click handler。 否则某些浏览器 (尤其带 ::after 高亮的
+   * svg) 会把事件吞掉, 让 button 的 onclick 不触发。 */
+  pointer-events: none;
+}
+
+/* 空态 Plus 图标 ── 14×14, 复用 access popover 新增资料夹按钮
+ * (`.agent-thread-card__access-add-icon`) 的尺寸。 20×20 对 Plus
+ * filled cross 来说偏大, 与按钮 24×24 容器几乎填满, 视觉上比 memo
+ * 文档图标更"重", 与"未设置"的轻量占位语义不符。 缩到 14×14 后,
+ * 与 access popover 新增资料夹视觉同源, "次级 indicator" 这一类
+ * UI 元素有统一节奏。 */
+.markdown-editor
+  .agent-thread-card__composer-role-icon
+  svg.agent-thread-card__composer-role-icon-empty {
+  width: 14px;
+  height: 14px;
+}
+
+/* hover / open 态 ── 与文件内 __icon-btn 的 hover 风格同源, 用 var(--muted)
+ * 与 var(--foreground) 混合色 + transition 150ms。 popover 打开时挂
+ * --open 修饰类, 视觉上"按钮被按下"。 */
+.markdown-editor .agent-thread-card__composer-role-icon:hover,
+.markdown-editor .agent-thread-card__composer-role-icon--open,
+.markdown-editor .agent-thread-card__composer-role-icon:focus-visible {
+  background: color-mix(in oklch, var(--muted) 80%, var(--foreground) 12%);
+  color: var(--foreground);
+  outline: none;
+}
+
+.markdown-editor
+  .agent-thread-card__composer-role-icon.agent-thread-card__role-icon--svg {
+  color: #3f3f46;
+}
+
+[data-theme="dark"]
+  .markdown-editor
+  .agent-thread-card__composer-role-icon.agent-thread-card__role-icon--svg {
+  color: #fff;
+}
+
+.markdown-editor .agent-thread-card__composer textarea {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 1rem;
+  max-height: calc(var(--atc-composer-max-h) - 8px - var(--atc-bottom-pad));
+  height: auto;
+  field-sizing: content;
+  resize: none;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+  caret-color: var(--brand);
+  padding: 0;
+  font: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  cursor: text;
+  outline: none;
+  user-select: none;
+}
+
+.markdown-editor .agent-thread-card__composer textarea:focus {
+  /* base 已 border: 0, 这里只压掉默认 focus ring 的 box-shadow */
+  box-shadow: none;
+}
+
+.markdown-editor .agent-thread-card__composer textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+}
+
+/* 发送按钮 ── 28×28 圆形, 内嵌 16×16 Phosphor 图标。
+ * 尺寸取自 --atc-send-size, 与 textarea min-height 公式联动。 */
+.agent-thread-card__access-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--atc-send-size);
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  padding: 0 0.5rem;
+  font: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.agent-thread-card__access-trigger:hover,
+.agent-thread-card__access-trigger--open {
+  color: var(--foreground);
+}
+
+/* 整体外框 ── position: fixed, 不写 max-height 也不写 overflow。
+ *
+ * 关键设计 ── overflow: visible (默认) ── 让内嵌子节点越界时不被裁
+ * 剪 (例如 future inline submenu)。 max-height 不写 ── 由 JS 写到内层
+ * .access-popover-scroll 上, 控制整个滚动区高度。
+ *
+ * 副作用 ── overflow visible 配合 box-shadow: shadow 仍按 outer 矩形
+ * 渲染, 不会因 visible 失效; border-radius 8px 配合 children 圆角 ──
+ * children 在 rounded 边缘内时被裁, 在外时不被裁。 */
+.agent-thread-card__access-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1050;
+  width: 208px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--agent-foreground);
+  box-shadow: 0 10px 30px
+    color-mix(in oklch, var(--foreground) 16%, transparent);
+  padding: 0.375rem 0.25rem 0.25rem;
+}
+
+/* 滚动容器 ── 装整个可滚动内容: notebook section、folder section、
+ * 末尾的"添加资料夹"按钮。 max-height 由 JS 动态计算 (= 可用空间)。
+ * 内容超出时整体滚动, 不再有 sticky footer ── 按钮作为列表最后一项
+ * 跟随内容滚动, 长列表下滚到底才能看到, 避免按钮在视觉上"凭空"出现
+ * 在分隔很远的列表底部, 维持"按钮属于 folder 区域"的归属感。 */
+.agent-thread-card__access-popover-scroll {
+  overflow-y: auto;
+}
+
+/* "添加资料夹"按钮容器 ── 挂在 Custom folders 列表末尾
+ * (folderEntries 非空时), 或 scrollWrap 末尾 (folderEntries 为空
+ * 时的 fallback)。 视觉上是 folder section 的自然延伸, 不是独立的
+ * 全局操作 ── 用户打开弹窗扫到 folder 列表就能立刻看到"加一个"。
+ *
+ * 仅 margin-top: 4px 给一个柔和的呼吸空间, 不加 border-top 或 padding-
+ * top, 让按钮与 folder row 视觉连续。 长列表下跟随内容滚动, 不再被钉
+ * 在弹窗底部固定可见 ── 配合自定义 overlay scrollbar, Windows 下滚
+ * 动条体验与 mention 下拉同源。
+ *
+ * 演变: 顶部 actions → 底部 sticky footer → folder 区域末尾
+ *   - 顶部 actions: 用户先看到按钮再看列表, 视觉重音错位。
+ *   - 底部 sticky footer: 列表滚动时按钮被钉在弹窗底部固定可见, 长列
+ *     表下按钮与列表末尾分隔很远, 与 folder 语义割裂。
+ *   - 现在: 紧贴 folder 列表末尾, 翻到 notebook 之前就能看到, 按钮
+ *     与 folder section 视觉归属一致。 */
+.agent-thread-card__access-popover-footer {
+  margin-top: 4px;
+}
+
+.agent-thread-card__access-popover[hidden] {
+  display: none;
+}
+
+/* ── 角色选择下拉弹窗 (composer role popover) ────────────────────────
+ * 独立挂在 document.body, 通过 JS 算 position: fixed 坐标 (top/left)
+ * 锚定到 composerRoleIcon button 上方/下方。 视觉与 accessPopover 同源
+ * (border / radius / box-shadow / padding), 但去掉 actions/scroll 双
+ * 层结构 ── 单层 list + header, 因为它只承担"选择角色"一件事。
+ *
+ * 旧实现 (accessPopover → 「角色」按钮 → typeSettingsPopover 二级展开)
+ * 的 CSS 已删除 ── 现在走单级方案, 点击 composerRoleIcon 直接出这个
+ * 弹窗。 */
+.agent-thread-card__composer-role-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1050;
+  width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0.375rem 0.25rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--agent-foreground);
+  box-shadow: 0 10px 30px
+    color-mix(in oklch, var(--foreground) 16%, transparent);
+  /* 弹窗入场动画 ── 与旧 type-settings-popover 一致: opacity 0→1 +
+   * scale 0.95→1, transform-origin top left (从 trigger 右上角弹出)。 */
+  opacity: 0;
+  transform: scale(0.95);
+  transform-origin: top left;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.agent-thread-card__composer-role-popover:not([hidden]) {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.agent-thread-card__composer-role-popover[hidden] {
+  display: none;
+}
+
+.agent-thread-card__composer-role-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.15rem 0.375rem 0.35rem;
+}
+
+.agent-thread-card__composer-role-popover-title {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.agent-thread-card__composer-role-popover-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--primary);
+  animation: agent-thread-card-role-spinner 1s linear infinite;
+}
+
+@keyframes agent-thread-card-role-spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.agent-thread-card__access-empty {
+  padding: 12px 8px;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+}
+
+.agent-thread-card__access-section-label {
+  padding: 0.15rem 0.375rem 0.35rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.agent-thread-card__access-divider {
+  margin: 4px 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  opacity: 0.5;
+}
+
+.agent-thread-card__access-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.agent-thread-card__access-row:hover {
+  background: var(--muted);
+}
+
+.agent-thread-card__access-row--disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.agent-thread-card__access-row--disabled:hover {
+  background: transparent;
+}
+
+.agent-thread-card__access-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--secondary-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 600;
+}
+
+.agent-thread-card__access-avatar--icon {
+  background: var(--muted);
+  color: #3f3f46;
+}
+
+[data-theme="dark"] .agent-thread-card__access-avatar--icon {
+  color: #fff;
+}
+
+.agent-thread-card__access-avatar--icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  opacity: 0.9;
+}
+
+.agent-thread-card__access-row-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+
+.agent-thread-card__access-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.agent-thread-card__access-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+
+.agent-thread-card__access-alert-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+
+.agent-thread-card__access-default-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--primary);
+  padding: 0 6px;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1;
+}
+
+.agent-thread-card__access-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0;
+  padding: 0;
+}
+
+.agent-thread-card__access-row:hover .agent-thread-card__access-remove,
+.agent-thread-card__access-remove:focus {
+  opacity: 1;
+}
+
+.agent-thread-card__access-remove:hover {
+  color: var(--destructive);
+}
+
+.agent-thread-card__access-remove .agent-thread-card__trash-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Workspace row 视觉 ── 之前的 `.access-workspace` 是 row 右侧的 home
+ * 图标按钮 (手动切主空间), 现在 UI 不再提供手动切换入口 ── home
+ * 图标按钮的整套样式 (`.access-workspace` / `:hover` / `--checked` /
+ * `:disabled`) 全部移除。 仅保留 `__access-workspace-icon` 用于
+ * workspace folder 的 avatar 内 LaptopIcon 渲染。
+ *
+ * workspace row 不再加背景或左边框, 只通过 avatar Laptop 图标和 badge 标记。 */
+
+.agent-thread-card__access-avatar--workspace {
+  background: color-mix(in oklch, var(--primary) 12%, var(--muted));
+  color: var(--primary);
+}
+
+.agent-thread-card__access-avatar--workspace svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.agent-thread-card__access-workspace-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.agent-thread-card__access-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid var(--muted-foreground);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--primary-foreground);
+  cursor: pointer;
+  padding: 0;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1;
+}
+
+.agent-thread-card__access-checkbox--checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.agent-thread-card__access-checkbox-mark {
+  width: 11px;
+  height: 9px;
+  color: var(--primary-foreground);
+}
+
+.agent-thread-card__access-checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.agent-thread-card__access-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1;
+  text-align: left;
+  box-sizing: border-box;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.agent-thread-card__access-add:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.agent-thread-card__access-add-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--secondary-foreground);
+}
+
+.agent-thread-card__access-add-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-card__access-add-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* ── 角色设置弹窗 (composer role popover) ────────────────────────────
+ * 旧实现 (accessPopover → 「角色」按钮 → typeSettingsPopover 二级展开)
+ * 的 CSS 已删除 ── 现在走单级方案, 点击 composerRoleIcon 直接出这个
+ * 弹窗。 视觉与 accessPopover 同源 (border / radius / box-shadow /
+ * padding), 但内容只承载"选择角色"单层 list + header, 不需要 actions/
+ * scroll 双层结构。
+ *
+ * 角色项 ── 与旧 type-settings-item 完全同源视觉: min-height 36px /
+ * radius 6px / padding 6px 8px / gap 10px / hover bg var(--muted) /
+ * selected 走 muted 持续高亮 / disabled opacity 0.55 + not-allowed。
+ * icon 是 24×24 (与旧 notebook-icon 同尺寸, 因为现在 popover 更宽 ──
+ * 260px, 旧 submenu 也是 260px, 视觉对齐)。 */
+
+.agent-thread-card__composer-role-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.2;
+  text-align: left;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background-color 120ms ease;
+}
+
+.agent-thread-card__composer-role-item
+  + .agent-thread-card__composer-role-item {
+  margin-top: 2px;
+}
+
+.agent-thread-card__composer-role-item:hover {
+  background: var(--muted);
+}
+
+/* 当前 Role ── 选中态直接走 muted 底色 (无需独立 highlight token),
+ * hover 态保持一致 ── 让选中态在视觉上是"持续高亮", 而非"额外标记"。 */
+.agent-thread-card__composer-role-item--selected {
+  background: var(--muted);
+}
+
+.agent-thread-card__composer-role-item--selected:hover {
+  background: var(--muted);
+}
+
+/* 加载中 / 没有角色 ── 透明度 0.55 + not-allowed 光标 + hover 不显示背景 ──
+ * disabled 属性让 click 事件不触发, 避免误操作。 */
+.agent-thread-card__composer-role-item--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agent-thread-card__composer-role-item--disabled:hover {
+  background: transparent;
+}
+
+/* icon ── 24×24 圆角头像, 复用旧 type-settings-notebook-icon 的视觉 ──
+ * 因为现在 popover 内容不再嵌套在 accessPopover 里, 这个 24px 头像的
+ * 视觉节奏与 role list 单层布局更搭 (旧 18px 太挤)。 */
+.agent-thread-card__composer-role-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--secondary-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-thread-card__composer-role-item-icon--svg {
+  background: var(--muted);
+  color: #3f3f46;
+}
+
+[data-theme="dark"] .agent-thread-card__composer-role-item-icon--svg {
+  color: #fff;
+}
+
+.agent-thread-card__composer-role-item-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  opacity: 0.9;
+}
+
+.agent-thread-card__composer-role-item-icon img {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+/* 文本 fallback (在 appendRoleIconContent 没拿到 memoIcon 时) ── 与
+ * icon 同尺寸, 字体风格一致, 让"无 icon"项的视觉与"有 icon"项对齐。 */
+.agent-thread-card__composer-role-item-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--secondary-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-thread-card__composer-role-item-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agent-thread-card__composer-role-item-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-card__composer-role-item-desc {
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .agent-thread-card__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--atc-send-size);
+  height: var(--atc-send-size);
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+
+.markdown-editor .agent-thread-card__send:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--primary) 88%, var(--foreground) 12%);
+}
+
+.markdown-editor .agent-thread-card__send-tooltip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.markdown-editor .agent-thread-card__send:disabled {
+  cursor: not-allowed;
+}
+
+/* 未输入内容时: 跟 inputbox 同步, 走 muted 色变, 不再依赖 opacity 半透明。
+ * --stop 变体由 :not() 排除, 保持 warning 全亮 ── 停止按钮在 loading 期间
+ * 仍需"亮"以传达"这是可点击的停止动作", 与 inputbox 中 isLoading 时强制
+ * canSend=false 但视觉走 dim 的逻辑不同, 这里停止按钮是 dim→亮态的逆例。
+ *
+ * 图标色用 muted-foreground ── 与 muted 背景同色系, 形成'暗底 + 灰图标'
+ * 的纯灰 dim 关系, 不再保留 primary 色相。 */
+.markdown-editor
+  .agent-thread-card__send:disabled:not(.agent-thread-card__send--stop) {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+/* send 图标: 15×15 ── 跟主面板 inputbox 不必对齐, 卡片按钮更小一档
+ * (--atc-send-size 28×28 vs 主面板 h-8 w-8 = 32×32), 图标按比例缩小
+ * 维持视觉密度。stop 图标 (Phosphor 矩形 fill 满框) 在 15×15 下比例
+ * 仍满, 不需要单独 size 分支。 */
+.markdown-editor .agent-thread-card__send-icon {
+  display: block;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.markdown-editor .agent-thread-card__send--stop {
+  background: var(--warning);
+  color: var(--floating-foreground);
+}
+
+.markdown-editor
+  .agent-thread-card__send.agent-thread-card__send--stop:hover:not(:disabled) {
+  background: var(--warning);
+  filter: brightness(1.08);
+}
+
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__body,
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__body *,
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__message,
+.markdown-editor .agent-thread-card--fullscreen .agent-thread-card__message *,
+.markdown-editor
+  .agent-thread-card--fullscreen
+  .agent-thread-card__composer
+  textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ── 全屏时的 Agent 徽章 HoverCard ──────────────────────────────
+ * mount 默认 display: none (不占 agentWrap flex 流空间),全屏时由
+ * syncBadgeHoverCardPosition() 设为 position: absolute + top/left/width/height
+ * 覆盖到 badge 区域。 trigger 覆盖层 absolute 占满 mount。
+ * 不包 badgeEl ── 避免 React render(null) 把 badge 一并清空。 */
+.agent-thread-card__badge-hover-card-mount {
+  display: none;
+}
+
+.agent-thread-card__badge-hover-trigger {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  cursor: pointer;
+  background: transparent;
+  border-radius: inherit;
+}
+
+/* open 状态不加重背景 (避免与按钮灰色 hover 视觉冲突) ──
+ * 仅在 trigger:hover / open 时让下层 badge 文字提亮。 */
+.agent-thread-card__badge-hover-trigger:hover ~ .agent-type-badge .agent-type-badge__name,
+.agent-thread-card__badge-hover-trigger[data-state="open"] ~ .agent-type-badge .agent-type-badge__name {
+  color: var(--foreground);
+}

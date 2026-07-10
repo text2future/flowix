@@ -1,0 +1,26 @@
+{
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/flowix-cli-path.nsh",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "",
+        "decorations": false,
+        "width": 1100,
+        "height": 720,
+        "minWidth": 420,
+        "minHeight": 600
+      }
+    ]
+  }
+}

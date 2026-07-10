@@ -1,0 +1,90 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flowix Dev",
+  "mainBinaryName": "Flowix Dev",
+  "version": "1.0.2",
+  "identifier": "com.flowix.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Flowix Dev",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 25
+        },
+        "width": 1100,
+        "height": 720,
+        "minWidth": 420,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; font-src 'self' asset: http://asset.localhost https://asset.localhost data:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http://asset.localhost https://asset.localhost https:; worker-src 'self' blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**"
+        ]
+      }
+    },
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/flowix-cli-path.nsh",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "mimeType": "text/markdown",
+        "role": "Editor"
+      }
+    ],
+    "macOS": {
+      "bundleName": "Flowix Dev",
+      "infoPlist": "Info.plist"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/flowix-cli"
+    ],
+    "resources": {
+      "resources/skills/.system/**/*": "skills/.system/"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "dialog": true,
+      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZEMTdGREE1NzQ0MjY3NzcKUldSM1owSjBwZjBYYmVZM3dGc2k4RG45ZFBia2NyZzZ2VHc2YUZ0blpDMjV3WTdVaE1nSnhGSDYK"
+    }
+  }
+}

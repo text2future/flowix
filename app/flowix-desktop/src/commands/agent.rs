@@ -1,0 +1,516 @@
+//! Agent IPC — LLM 流式 chat + abort。
+//!
+//! Agent 的配置真源是 `~/.flowix/agent-config.toml` (经 `set_ai_config` 命令落盘)。
+//! 后端按需从 `UserConfigStore` 拉取并在 `AgentManager` 里缓存 provider 实例,
+//! 前端不再 init agent / 提交模型信息, 只发起 chat / thread 操作。
+
+use std::{collections::HashMap, path::Path, process::Command, sync::Arc};
+
+use async_trait::async_trait;
+use serde::Serialize;
+use tauri::State;
+
+use crate::agent::{AgentChatResponse, AgentManager, AgentUserMessage, RunInfo};
+use crate::claude_cli::ClaudeCliManager;
+use crate::codex_cli::CodexCliManager;
+use crate::hermes_cli::HermesCliManager;
+use crate::simple_cli::SimpleCliManager;
+
+use super::AppState;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgentRuntime {
+    Flowix,
+    Codex,
+    Claude,
+    Gemini,
+    Hermes,
+    OpenClaw,
+}
+
+impl AgentRuntime {
+    fn from_agent_type(agent_type: Option<&str>) -> Self {
+        match agent_type
+            .unwrap_or("flowix")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "codex" => Self::Codex,
+            "claude" => Self::Claude,
+            "gemini" => Self::Gemini,
+            "hermes" => Self::Hermes,
+            "openclaw" => Self::OpenClaw,
+            _ => Self::Flowix,
+        }
+    }
+
+    fn from_message(message: &AgentUserMessage) -> Self {
+        Self::from_agent_type(message.agent_type.as_deref())
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Flowix => "flowix",
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+            Self::Gemini => "gemini",
+            Self::Hermes => "hermes",
+            Self::OpenClaw => "openclaw",
+        }
+    }
+}
+
+enum RuntimeHandle<'a> {
+    Flowix(&'a Arc<AgentManager>),
+    Codex(&'a Arc<CodexCliManager>),
+    Claude(&'a Arc<ClaudeCliManager>),
+    Gemini(&'a Arc<SimpleCliManager>),
+    Hermes(&'a Arc<HermesCliManager>),
+    OpenClaw(&'a Arc<SimpleCliManager>),
+}
+
+#[async_trait]
+trait ChatRuntime {
+    async fn chat_stream(
+        &self,
+        thread_id: &str,
+        message: AgentUserMessage,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<String, String>;
+    async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool;
+    async fn running_threads(&self) -> HashMap<String, RunInfo>;
+}
+
+#[async_trait]
+impl ChatRuntime for RuntimeHandle<'_> {
+    async fn chat_stream(
+        &self,
+        thread_id: &str,
+        message: AgentUserMessage,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<String, String> {
+        match self {
+            Self::Flowix(manager) => manager
+                .chat_stream(thread_id, message, app_handle)
+                .await
+                .map_err(|e| e.to_string()),
+            Self::Codex(manager) => manager.chat_stream(thread_id, message, app_handle).await,
+            Self::Claude(manager) => manager.chat_stream(thread_id, message, app_handle).await,
+            Self::Gemini(manager) => manager.chat_stream(thread_id, message, app_handle).await,
+            Self::Hermes(manager) => manager.chat_stream(thread_id, message, app_handle).await,
+            Self::OpenClaw(manager) => manager.chat_stream(thread_id, message, app_handle).await,
+        }
+    }
+
+    async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+        match self {
+            Self::Flowix(manager) => manager.stop_chat(thread_id, run_id).await,
+            Self::Codex(manager) => manager.stop_chat(thread_id, run_id).await,
+            Self::Claude(manager) => manager.stop_chat(thread_id, run_id).await,
+            Self::Gemini(manager) => manager.stop_chat(thread_id, run_id).await,
+            Self::Hermes(manager) => manager.stop_chat(thread_id, run_id).await,
+            Self::OpenClaw(manager) => manager.stop_chat(thread_id, run_id).await,
+        }
+    }
+
+    async fn running_threads(&self) -> HashMap<String, RunInfo> {
+        match self {
+            Self::Flowix(manager) => manager.running_threads().await,
+            Self::Codex(manager) => manager.running_threads().await,
+            Self::Claude(manager) => manager.running_threads().await,
+            Self::Gemini(manager) => manager.running_threads().await,
+            Self::Hermes(manager) => manager.running_threads().await,
+            Self::OpenClaw(manager) => manager.running_threads().await,
+        }
+    }
+}
+
+fn runtime_handle<'a>(state: &'a AppState, runtime: AgentRuntime) -> RuntimeHandle<'a> {
+    match runtime {
+        AgentRuntime::Flowix => RuntimeHandle::Flowix(&state.agent_manager),
+        AgentRuntime::Codex => RuntimeHandle::Codex(&state.codex_cli_manager),
+        AgentRuntime::Claude => RuntimeHandle::Claude(&state.claude_cli_manager),
+        AgentRuntime::Gemini => RuntimeHandle::Gemini(&state.gemini_cli_manager),
+        AgentRuntime::Hermes => RuntimeHandle::Hermes(&state.hermes_cli_manager),
+        AgentRuntime::OpenClaw => RuntimeHandle::OpenClaw(&state.openclaw_cli_manager),
+    }
+}
+
+fn all_runtime_handles(state: &AppState) -> [RuntimeHandle<'_>; 6] {
+    [
+        RuntimeHandle::Flowix(&state.agent_manager),
+        RuntimeHandle::Codex(&state.codex_cli_manager),
+        RuntimeHandle::Claude(&state.claude_cli_manager),
+        RuntimeHandle::Gemini(&state.gemini_cli_manager),
+        RuntimeHandle::Hermes(&state.hermes_cli_manager),
+        RuntimeHandle::OpenClaw(&state.openclaw_cli_manager),
+    ]
+}
+
+async fn stop_any_runtime_chat(thread_id: &str, state: &AppState) -> bool {
+    let mut signalled = false;
+    for runtime in all_runtime_handles(state) {
+        signalled |= runtime.stop_chat(thread_id, None).await;
+    }
+    signalled
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRuntimeAvailability {
+    available: bool,
+    reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRuntimeStatus {
+    flowix: AgentRuntimeAvailability,
+    codex: AgentRuntimeAvailability,
+    claude: AgentRuntimeAvailability,
+    gemini: AgentRuntimeAvailability,
+    hermes: AgentRuntimeAvailability,
+    openclaw: AgentRuntimeAvailability,
+}
+
+fn executable_available(path: &Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+
+    if path.components().count() != 1 {
+        return false;
+    }
+
+    std::env::var_os("PATH")
+        .map(|path_var| std::env::split_paths(&path_var).any(|dir| dir.join(path).is_file()))
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
+    let ai_config = state.user_config.get_ai_config().model;
+    let flowix_available = !ai_config.model.trim().is_empty();
+
+    let codex_binary = crate::codex_cli::resolve_codex_binary();
+    let codex_available = executable_available(&codex_binary);
+
+    let claude_binary = crate::claude_cli::resolve_claude_binary();
+    let claude_available = executable_available(&claude_binary);
+    let gemini_binary =
+        crate::simple_cli::resolve_simple_cli_binary(crate::simple_cli::SimpleCliKind::Gemini);
+    let gemini_available = executable_available(&gemini_binary);
+    let hermes_binary = crate::hermes_cli::resolve_hermes_binary();
+    let hermes_available = executable_available(&hermes_binary);
+    let openclaw_binary =
+        crate::simple_cli::resolve_simple_cli_binary(crate::simple_cli::SimpleCliKind::OpenClaw);
+    let openclaw_available = executable_available(&openclaw_binary);
+
+    AgentRuntimeStatus {
+        flowix: AgentRuntimeAvailability {
+            available: flowix_available,
+            reason: (!flowix_available).then(|| "Flowix model is not configured".to_string()),
+        },
+        codex: AgentRuntimeAvailability {
+            available: codex_available,
+            reason: (!codex_available)
+                .then(|| format!("Codex CLI not found ({})", codex_binary.display())),
+        },
+        claude: AgentRuntimeAvailability {
+            available: claude_available,
+            reason: (!claude_available)
+                .then(|| format!("Claude Code CLI not found ({})", claude_binary.display())),
+        },
+        gemini: AgentRuntimeAvailability {
+            available: gemini_available,
+            reason: (!gemini_available)
+                .then(|| format!("Gemini CLI not found ({})", gemini_binary.display())),
+        },
+        hermes: AgentRuntimeAvailability {
+            available: hermes_available,
+            reason: (!hermes_available)
+                .then(|| format!("Hermes Agent CLI not found ({})", hermes_binary.display())),
+        },
+        openclaw: AgentRuntimeAvailability {
+            available: openclaw_available,
+            reason: (!openclaw_available)
+                .then(|| format!("OpenClaw CLI not found ({})", openclaw_binary.display())),
+        },
+    }
+}
+
+#[cfg(target_os = "windows")]
+const CODEX_INSTALL_COMMAND: &str = "npm.cmd install -g @openai/codex";
+
+#[cfg(not(target_os = "windows"))]
+const CODEX_INSTALL_COMMAND: &str = "npm install -g @openai/codex";
+
+#[tauri::command]
+pub fn open_codex_cli_install_terminal() -> Result<(), String> {
+    open_terminal_with_command(CODEX_INSTALL_COMMAND)
+}
+
+#[tauri::command]
+pub fn open_codex_config() -> Result<(), String> {
+    let home =
+        dirs::home_dir().ok_or_else(|| "Could not resolve the home directory".to_string())?;
+    let config_dir = home.join(".codex");
+    let config_path = config_dir.join("config.toml");
+    std::fs::create_dir_all(&config_dir).map_err(|err| err.to_string())?;
+    if !config_path.exists() {
+        std::fs::write(
+            &config_path,
+            "# Codex CLI configuration\n# Add custom model settings here.\n",
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    open_config_file(&config_path)
+}
+
+#[cfg(target_os = "windows")]
+fn open_terminal_with_command(command: &str) -> Result<(), String> {
+    Command::new("powershell.exe")
+        .args([
+            "-NoExit",
+            "-Command",
+            &format!("{command}; Write-Host ''; Write-Host 'Codex CLI install command finished.'"),
+        ])
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn open_config_file(path: &Path) -> Result<(), String> {
+    Command::new("notepad.exe")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn open_terminal_with_command(command: &str) -> Result<(), String> {
+    Command::new("osascript")
+        .args([
+            "-e",
+            &format!(
+                "tell application \"Terminal\" to do script \"{}\"",
+                escape_applescript(command)
+            ),
+            "-e",
+            "tell application \"Terminal\" to activate",
+        ])
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn escape_applescript(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(target_os = "macos")]
+fn open_config_file(path: &Path) -> Result<(), String> {
+    Command::new("open")
+        .args(["-t"])
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_terminal_with_command(command: &str) -> Result<(), String> {
+    let shell_command = format!("{command}; echo; read -r -p 'Press Enter to close...'");
+    let candidates: &[(&str, &[&str])] = &[
+        ("x-terminal-emulator", &["-e", "sh", "-lc"]),
+        ("gnome-terminal", &["--", "sh", "-lc"]),
+        ("konsole", &["-e", "sh", "-lc"]),
+        ("xfce4-terminal", &["-e", "sh -lc"]),
+        ("xterm", &["-e", "sh", "-lc"]),
+    ];
+
+    for (program, args) in candidates {
+        let mut cmd = Command::new(program);
+        cmd.args(*args);
+        cmd.arg(&shell_command);
+        if cmd.spawn().is_ok() {
+            return Ok(());
+        }
+    }
+    Err("Could not find a supported terminal application".to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_config_file(path: &Path) -> Result<(), String> {
+    Command::new("xdg-open")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn chat_with_agent_stream(
+    threadId: String,
+    message: AgentUserMessage,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<AgentChatResponse, String> {
+    let runtime = AgentRuntime::from_message(&message);
+    tracing::info!(
+        "[Command] chat_with_agent_stream called for thread: {}, agent_type: {}",
+        threadId,
+        runtime.key()
+    );
+
+    // `agent_manager` 是 `Arc<AgentManager>`, `chat_stream` 内部已经
+    // `tokio::spawn` ── IPC 立即返回, 不再 await 整个 stream 跑完。
+    // 真正的助手回答通过 `agent-chunk` 事件 (`Text` / `Reasoning` 变体)
+    // 推到前端, 按 `thread_id` 派发到 `threadStates[tid]`。
+    //
+    // Tauri IPC 边界仍要求 `Result<T, String>` ── `AgentError` 在此
+    // `.map_err(|e| e.to_string())` 透传。当前 spawn 后不会走到 Err 分支
+    // (错误信号已全部走 `Error` chunk), 但保留 Result 形状不破 IPC 契约。
+    let result = runtime_handle(&state, runtime)
+        .chat_stream(&threadId, message, &app_handle)
+        .await;
+    tracing::info!(
+        "[Command] {} chat_with_agent_stream result: {:?}",
+        runtime.key(),
+        result.is_ok()
+    );
+    result.map(|response| AgentChatResponse { response })
+}
+
+/// Frontend-initiated abort for an in-flight `chat_with_agent_stream`.
+/// Returns `true` if a chat was actually running for this `threadId` and
+/// got a cancel signal; `false` if there was nothing to cancel (e.g. user
+/// clicked stop after the LLM had already finished, or never sent a
+/// message). The frontend uses the boolean to decide whether to also
+/// hide the stop button / show a toast — a `false` return is harmless.
+///
+/// `runId` (optional) scopes the kill to a single in-flight run on the
+/// thread. When `None` / unmatched, the manager falls back to a thread-wide
+/// stop so legacy callers (and the `thread_delete` cleanup path that
+/// doesn't track runs) keep working unchanged.
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn stop_agent_stream(
+    threadId: String,
+    agentType: Option<String>,
+    runId: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let runtime = agentType
+        .as_deref()
+        .map(|agent_type| AgentRuntime::from_agent_type(Some(agent_type)));
+    tracing::info!(
+        "[Command] stop_agent_stream called for thread: {}, agent_type: {}, run_id: {}",
+        threadId,
+        runtime.map(AgentRuntime::key).unwrap_or("unknown"),
+        runId.as_deref().unwrap_or("<any>")
+    );
+    let signalled = match runtime {
+        Some(runtime) => {
+            runtime_handle(&state, runtime)
+                .stop_chat(&threadId, run_id_for_kill(runId.as_deref()))
+                .await
+        }
+        None => stop_any_runtime_chat(&threadId, &state).await,
+    };
+    tracing::info!(
+        "[Command] stop_agent_stream result: {} (chat was {}running)",
+        threadId,
+        if signalled { "" } else { "not " }
+    );
+    Ok(signalled)
+}
+
+fn run_id_for_kill(provided: Option<&str>) -> Option<&str> {
+    provided.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// 查询当前所有 in-flight chat ── 前端启动时调一次, seed
+/// `threadStates[].isLoading`, 让"进程内已有后台跑 chat"在重启后
+/// 仍然可见。返回 `HashMap<thread_id, RunInfo>`; 空 map 表示当前
+/// 没有 in-flight chat (稳态)。
+///
+/// 进程退出 in-flight chat 自然死, 这是"瞬态"信息; A5 启动清理
+/// 兜底 `is_loading=1` 的 SQLite 残留行, 二者组合保证 UI 状态一致。
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn agent_running_threads(
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, RunInfo>, String> {
+    let mut running = HashMap::new();
+    for runtime in all_runtime_handles(&state) {
+        running.extend(runtime.running_threads().await);
+    }
+    Ok(running)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message_with_agent_type(agent_type: Option<&str>) -> AgentUserMessage {
+        AgentUserMessage {
+            content: "hello".to_string(),
+            llm_content: None,
+            run_id: None,
+            system_reminder_directory: None,
+            agent_type: agent_type.map(str::to_string),
+            runtime_config: None,
+            permission_mode: None,
+            codex_model: None,
+            codex_reasoning_effort: None,
+            agent_role_memo_id: None,
+            agent_role_name: None,
+        }
+    }
+
+    #[test]
+    fn agent_runtime_defaults_to_flowix() {
+        assert_eq!(
+            AgentRuntime::from_message(&message_with_agent_type(None)),
+            AgentRuntime::Flowix
+        );
+        assert_eq!(
+            AgentRuntime::from_message(&message_with_agent_type(Some(""))),
+            AgentRuntime::Flowix
+        );
+    }
+
+    #[test]
+    fn agent_runtime_normalizes_known_agent_types() {
+        let cases = [
+            ("flowix", AgentRuntime::Flowix),
+            (" CODEX ", AgentRuntime::Codex),
+            ("Claude", AgentRuntime::Claude),
+            ("gemini", AgentRuntime::Gemini),
+            ("HERMES", AgentRuntime::Hermes),
+            ("openclaw", AgentRuntime::OpenClaw),
+        ];
+
+        for (agent_type, expected) in cases {
+            assert_eq!(
+                AgentRuntime::from_message(&message_with_agent_type(Some(agent_type))),
+                expected,
+                "agent_type {agent_type:?} should map to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_runtime_unknown_values_fall_back_to_flowix() {
+        assert_eq!(
+            AgentRuntime::from_message(&message_with_agent_type(Some("unknown-agent"))),
+            AgentRuntime::Flowix
+        );
+    }
+}

@@ -1,0 +1,111 @@
+[data-theme="dark"] {
+	--neutral-hue: 265;
+	/* brand-hue: 与 --primary 同色 (hue 92, 暖黄/橄榄) ── 复刻 light 的
+	 * "primary=brand" 套路, 让 --brand 通过同公式拿到与 --primary 完全
+	 * 相等的色值。改一处全跟: focus ring / 选区 / 链接 / tag 全部染黄,
+	 * 替代原 brand-hue 273 (紫) 与 primary 92 分离的旧设计。 */
+	--brand-hue: 92;
+	/* brand-chroma: 与 --primary 同档 (0.142), 让 --brand 通过同公式复刻
+	 * --primary 的饱和度。 */
+	--brand-chroma: 0.142;
+
+	/* 主色 + brand: 沿用 light 的"primary=brand"同值结构 ── 都引用
+	 * --brand-chroma 与 --brand-hue, 公式完全一致。L=0.816 暖黄在暗底
+	 * 上是"高亮信号灯", 与暗字 ΔL=0.64, 对比 ~15:1 (AAA), 远高于 light
+	 * (L=0.552) 的 6:1 ── 暗底配色习惯性提亮主色, 让 focus / 选中 / 链
+	 * 接在深色场景下"跳出来"。 */
+	--primary: oklch(0.816 var(--brand-chroma) var(--brand-hue));
+	--primary-foreground: oklch(0.173 0.009 var(--neutral-hue));
+	--brand: oklch(0.816 var(--brand-chroma) var(--brand-hue));
+
+	--background: oklch(0.173 0.009 var(--neutral-hue));
+	--foreground: oklch(0.930 0.005 var(--neutral-hue));
+	--card: oklch(0.213 0.013 var(--neutral-hue));
+
+	/* 浮层底: 中灰, 与暗桌主底形成中等明度差, 浮层读作"亮一档" */
+	--popover: oklch(0.24 0 0);
+	--popover-foreground: var(--foreground);
+
+	--secondary: oklch(0.244 0.014 var(--neutral-hue));
+	--secondary-foreground: oklch(0.865 0.008 var(--neutral-hue));
+	--muted: oklch(0.284 0.016 var(--neutral-hue));
+	--muted-foreground: oklch(0.716 0.015 var(--neutral-hue));
+	--accent: oklch(0.273 0.022 var(--neutral-hue));
+
+	--border: oklch(0.284 0.014 var(--neutral-hue));
+	--input: var(--border);
+	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
+	/* Keyboard focus ring follows the theme primary color. */
+	--ring: var(--primary);
+
+	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
+	--agent-bg: oklch(0.173 0.009 var(--neutral-hue));
+	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
+
+	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));
+
+	--bg-titlebar: oklch(0.173 0.009 var(--neutral-hue));
+	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
+	--document-bg: oklch(0.200 0.013 var(--neutral-hue));
+	--document-foreground: oklch(0.858 0.013 var(--neutral-hue));
+	/* 链接: 高亮+提 chroma 路线, 与普通文字拉开"可点击"权重; hover 由 color-mix 派生 */
+	--document-link: oklch(0.80 0.18 var(--brand-hue));
+	--document-highlight-bg: oklch(0.800 0.182 152);
+	/* 标签: 沿用 light 的"近底色 + 高对比字 + 微妙染色"套路, 适配暗底 ──
+	 * 但 dark 的 chip 走"暗色"路线 (与 main bg 0.173 拉开), 文本必须反向
+	 * 翻成"浅色"才能撑对比度:
+	 *   bg (L=0.40) 比 background (0.173) 高 ΔL=+0.227, 暗胶囊"浮起";
+	 *   fg (L=0.88) 浅紫, 与 bg 拉 ΔL=0.48, 对比 ~10:1 (AAA);
+	 *     (原 0.15 深紫与 0.40 暗底 ΔL 仅 0.25, 几乎不可读 ── 这是 dark
+	 *      模式 chip 走暗色路线后的必然选择, 与 light 的"深字在浅胶囊"是
+	 *      文本方向上的镜像)
+	 *   hover 把 L 提到 0.48、chroma 提到 0.07, 暗底 hover 走"浮起"路线
+	 *     (与 light 的"按下"反向, 暗底元素越亮越"被高亮")。
+	 *
+	 * chroma 0.05 是 light (0.024) 的 2x ── 暗底上 chroma 损失明显, 适度
+	 * 提一档维持 brand 染色识别度。文本 chroma 0.08 比 bg 略高, 给"浅紫
+	 * 文字"留一抹 brand 色, 不至于在 0.88 L 上读作纯白。 */
+	--document-tag-bg: oklch(0.40 0.05 var(--brand-hue));
+	/* 标签文字: 直接接 --foreground, 与正文同色 ── 让 tag 读作"被高亮背景
+	 * 托住的普通文字", 而非"一段彩色字"。原色 (0.88 0.08 brand) 是
+	 * 浅黄字, 与 chip 同色系, 但与正文 (0.930 0.005 neutral) 拉开
+	 * 色相差 ── 视觉上 tag 像"被框出的彩色字", 抢了"被高亮的正文"
+	 * 这层语义。统一到 --foreground 后, 文字永远跟正文同步, chip 的
+	 * brand 染色单独承担 tag 视觉信号。 */
+	--document-tag-foreground: var(--foreground);
+	--document-tag-hover-bg: oklch(0.48 0.07 var(--brand-hue));
+
+	/* 文档颜色标签 — 暗底上整体提 L 一档 (相对 light), 既避免色块被吞
+	 * 没, 又不抢前景文字。chroma 取保守档位, 防高饱和红/蓝在冷暗底上
+	 * "刺眼"。hue 与 light 完全一致, 跨主题切换时身份识别稳定。 */
+	--memo-color-red:    oklch(64% 0.185 27);
+	--memo-color-orange: oklch(70% 0.165 52);
+	--memo-color-yellow: oklch(78% 0.155 88);
+	--memo-color-green:  oklch(70% 0.180 142);
+	--memo-color-cyan:   oklch(70% 0.125 215);
+	--memo-color-blue:   oklch(64% 0.185 260);
+	--memo-color-gray:   oklch(64% 0.015 264);
+
+	--code-bg: oklch(0.229 0.018 275);
+	--editor-block-bg: oklch(0.176 0.014 var(--neutral-hue));
+
+	--floating-bg: oklch(0.213 0.013 var(--neutral-hue));
+	/* 浮层文字: 与 floating-bg 配对, 三主题统一柔和白, 避纯白在深底的眩光 */
+	--floating-foreground: oklch(0.95 0 0);
+
+	/* 反色面: 与当前主题背景形成强对比, 用于 tooltip、临时标记等小面积 UI */
+	--inverse-background: oklch(0.930 0.005 var(--neutral-hue));
+	--inverse-foreground: oklch(0.173 0.009 var(--neutral-hue));
+
+	--success: oklch(0.723 0.192 150);
+	/* 危险: 降 chroma 提亮度, 避免在冷蓝灰底上与高饱和红产生刺眼对比 */
+	--destructive: oklch(0.5953 0.18775 34.867);
+	--warning: oklch(0.80 0.15 80);
+	/* 信息提示: 与 light 同值 ── 暗底上蓝本身已亮, chroma 不必再提 */
+	--info: oklch(0.62 0.165 235);
+	--info-foreground: oklch(1 0 0);
+
+	color-scheme: dark;
+
+	--shiki-theme: github-dark;
+}

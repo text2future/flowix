@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      macOS bundle entitlements for Flowix.
+
+      用于 `tauri.conf.production.json` 的 `bundle.macOS.entitlements` 字段;
+      走 `codesign --options runtime --entitlements entitlements.plist ...`。
+      见 `scripts/sign-cli.sh`。
+
+      v3 rationale:
+      - allow-jit / allow-unsigned-executable-memory ── rllm crate 跟部分 Rust
+        动态库需要运行时生成可执行内存, Apple notarization 允许这两条
+        entitlement 配合 hardened runtime。
+      - disable-library-validation ── 允许加载未 Apple 签名的 .dylib
+        (rllm / 第三方 Rust 依赖)。
+      - network.client ── IPC 跟 AI provider 走 https。
+      - network.server ── tauri://localhost webview 跟 IPC bridge。
+    -->
+
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!--
+      User-selected directories are persisted with security-scoped bookmarks
+      in `security_bookmark.rs`. These entitlements are required for the
+      standard macOS sandbox/bookmark model and are harmless for local
+      ad-hoc/dev builds that do not enable the app sandbox.
+
+      Do not enable `com.apple.security.app-sandbox` here yet: Flowix runs
+      local agents / CLI tools, and a full sandbox would need a broader
+      audit of child process and workspace access.
+    -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+</dict>
+</plist>

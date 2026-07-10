@@ -1,0 +1,983 @@
+/* Tiptap Editor — Markdown Styles */
+@import "highlight.js/styles/github-dark.css";
+
+.markdown-editor {
+  display: block;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown-editor .editor-content {
+  position: relative;
+  box-sizing: border-box;
+  height: 100%;
+  overflow-y: auto;
+  /* 固定滚动条 gutter 宽度, 避免 ProseMirror 内容区在滚动条出现/隐藏时抖动 */
+  scrollbar-gutter: stable;
+}
+
+.markdown-editor .ProseMirror {
+  display: block;
+  width: 100%;
+  min-height: 100%;
+  max-width: var(--app-document-width, 680px);
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 0 2.5rem 10rem 2.5rem;
+  outline: none;
+  font-family: var(--app-font-family, 'Nunito Sans', 'Inter', -apple-system, 'Segoe UI', sans-serif, BlinkMacSystemFont);
+  font-size: var(--app-font-size, 15px);
+  line-height: var(--app-line-height, 1.6);
+  color: var(--document-foreground);
+  background: transparent !important;
+  caret-color: var(--brand);
+  cursor: text;
+  tab-size: 5;
+
+  /* 让标题 rem 值跟随用户设定的基准字号 */
+  --editor-scale: calc(var(--app-font-size, 15px) / 16px);
+}
+
+.markdown-editor:focus .ProseMirror {
+  outline: none;
+}
+
+.markdown-editor .ProseMirror > *:not(.editor-datetime-widget):first-of-type {
+  margin-top: 0.5rem;
+}
+
+.markdown-editor .tiptap h1,
+.markdown-editor .tiptap h2,
+.markdown-editor .tiptap h3,
+.markdown-editor .tiptap h4,
+.markdown-editor .tiptap h5,
+.markdown-editor .tiptap h6 {
+  margin: 1.5rem 0 0.5rem 0;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: pre-wrap;
+}
+
+.markdown-editor .tiptap h1 {
+  font-size: calc(1.9rem * var(--editor-scale));
+  padding-bottom: calc(0.3rem * var(--editor-scale));
+}
+
+.markdown-editor .tiptap h2 {
+  font-size: calc(1.4rem * var(--editor-scale));
+}
+
+.markdown-editor .tiptap h3 {
+  font-size: calc(1.15rem * var(--editor-scale));
+}
+
+.markdown-editor .tiptap h4 {
+  font-size: calc(1.05rem * var(--editor-scale));
+}
+
+/* 行高相关公式统一走 var(--app-font-size) × var(--app-line-height):
+ *  - 用 1rem 是错的 — 那是根 html 字号 (16px), 跟 --app-font-size (15px) 脱节,
+ *    用户在 Preferences 改字号时 p 的下边距 / 空 p 的 min-height 不会跟着缩放。
+ *  - 三处共享同一基线 → 空 p / 非空 p / 单 item 列表行盒等高 (24px),
+ *    下边距也等宽 (12px), 互相对齐。 */
+
+.markdown-editor .tiptap p {
+  /* 半行 box, 作为块间节奏 */
+  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.6) * 0.5) 0;
+  white-space: pre-wrap;
+}
+
+.markdown-editor .tiptap p:empty,
+.markdown-editor .tiptap p:has(> br.ProseMirror-trailingBreak:only-child) {
+  /* 1 行 box, 与非空 <p> 等高 */
+  min-height: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.6));
+}
+
+.markdown-editor .tiptap p:empty::before {
+  content: "\00a0";
+}
+
+.markdown-editor .ProseMirror .terminal-inline-atom-caret-anchor {
+  display: inline;
+}
+
+.markdown-editor .ProseMirror .terminal-inline-atom-caret-anchor + br.ProseMirror-trailingBreak {
+  display: none;
+}
+
+.markdown-editor .tiptap strong {
+  font-weight: 700;
+}
+
+.markdown-editor .tiptap em {
+  font-style: italic;
+  font-weight: 300;
+}
+
+.markdown-editor .tiptap p code {
+  border: 1px solid color-mix(in oklch, var(--border) 90%, transparent);
+  border-radius: 0.4rem;
+  padding: 0rem 0.3rem;
+  font-family: inherit;
+  font-size: 0.84rem;
+  color: color-mix(in oklch, var(--foreground) 80%, transparent);
+}
+
+.markdown-editor .tiptap pre  {
+  background: var(--editor-block-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.8rem 1.2rem;
+  margin: 1rem 0;
+  font-family: inherit;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: visible;
+  line-height: var(--app-line-height, 1.6);
+}
+
+.markdown-editor .tiptap pre code {
+  padding: 0;
+  font-family: inherit;
+}
+
+
+.markdown-editor .tiptap blockquote {
+  border-left: 0.1875rem solid #ddd;
+  margin: 1rem 0;
+  padding-left: 1rem;
+  color: #666;
+  font-style: italic;
+}
+
+.markdown-editor .tiptap ul,
+.markdown-editor .tiptap ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-editor .tiptap li {
+  margin: 0.25rem 0;
+  line-height: var(--app-line-height, 1.6);
+}
+
+/* 单 item 列表: 收掉 ul/ol + li 的多余 margin, 与单行 <p> 等高 (36px)。
+ *  ul/li margin 在 ul 无 padding/border 时穿过父级合并, 单 item 场景下
+ *  合并为 8 + 24 + 8 = 40px, 比 <p> 的 0 + 24 + 12 = 36px 高 4px,
+ *  上下不对称 (上 +8 / 下 -4) → 视觉上"下面内容向上偏移"。
+ *  多 item 列表不受影响, 仍保留原本的项间/段间节奏。
+ *  仅作用于 .tiptap 直接子列表 — 嵌套在 <li> 内的二级及更深列表维持
+ *  正常的 0.5rem / 0.25rem 节奏, 不被压缩。 */
+.markdown-editor .tiptap > ul:has(> li:only-child),
+.markdown-editor .tiptap > ol:has(> li:only-child) {
+  margin-top: 0;
+  margin-bottom: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.6) * 0.5);
+}
+
+.markdown-editor .tiptap > ul > li:only-child,
+.markdown-editor .tiptap > ol > li:only-child {
+  margin: 0;
+}
+
+.markdown-editor .tiptap table td p,
+.markdown-editor .tiptap table th p {
+  margin-bottom: 0;
+}
+
+.markdown-editor .tiptap li p {
+  margin: 0;
+}
+
+.markdown-editor .tiptap ul {
+  list-style-type: disc;
+}
+
+.markdown-editor .tiptap ul ul {
+  list-style-type: circle;
+}
+
+.markdown-editor .tiptap mark {
+  background-color: var(--document-highlight-bg);
+  /* 文字色继承 document-foreground, 不另设 token */
+  border-radius: 0.15rem;
+  padding: 0.1rem 0.2rem;
+}
+
+.markdown-editor .tiptap table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: 100%;
+  min-width: 60px;
+  margin-bottom: 0;
+  border-radius: 8px;
+}
+
+.markdown-editor .tiptap table td,
+.markdown-editor .tiptap table th {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-left: none;
+  padding: 0.5rem;
+  min-width: 5rem;
+  max-width: 600px;
+  width: auto;
+  vertical-align: top;
+}
+
+.markdown-editor .tiptap table th {
+  background: var(--muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.markdown-editor .tiptap table tr td:first-child,
+.markdown-editor .tiptap table tr th:first-child {
+  border-left: 1px solid var(--border);
+}
+
+.markdown-editor .tiptap table tr:first-child td,
+.markdown-editor .tiptap table tr:first-child th {
+  border-top: 1px solid var(--border);
+}
+
+.markdown-editor .tiptap table tr:first-child th:first-child {
+  border-top-left-radius: 8px;
+}
+
+.markdown-editor .tiptap table tr:first-child th:last-child {
+  border-top-right-radius: 8px;
+}
+
+.markdown-editor .tiptap table tr:last-child td:first-child {
+  border-bottom-left-radius: 8px;
+}
+
+.markdown-editor .tiptap table tr:last-child td:last-child {
+  border-bottom-right-radius: 8px;
+}
+
+.markdown-editor .ProseMirror.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.markdown-editor .ProseMirror.ProseMirror-hideselection *::-moz-selection {
+  background: transparent;
+}
+
+.markdown-editor .ProseMirror.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+
+.markdown-editor .tiptap .selectedCell::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background-color: color-mix(in oklch, var(--brand), transparent 85%);
+  pointer-events: none;
+}
+
+/* prosemirror-tables 为列中每个 cell 插入一个 .column-resize-handle widget,
+ * 默认在离列边 ~5px 时显示; 由于同一列所有 cell 共用右边线, 这些 widget
+ * 像素对齐, 视觉上形成一条连续竖线。这里把默认态设为可见, 让用户靠近列边
+ * 时整条边即高亮, 不必等直接 hover。
+ *
+ * 颜色 token 化:
+ *  - 基色: var(--brand) — 跨主题与 caret / 链接 / 选中态 / 标签底色同源
+ *    (light: 紫 273 / dark: 亮紫 / rock: 浅紫, 全部融入各自底色)
+ *    取代原硬编码 #5262DC (hue 240 indigo) 在 dark/rock 主题下脱节的问题.
+ *  - hover: color-mix × white 25% 提亮派生, 与 .tiptap a:hover (white 20%)
+ *    同公式一族, 三主题共享同一提亮曲线, 不会有"某主题的 hover 没设计". */
+.markdown-editor .tiptap .column-resize-handle {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize !important;
+  background: transparent;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.markdown-editor .tiptap table tr > td:last-child .column-resize-handle,
+.markdown-editor .tiptap table tr > th:last-child .column-resize-handle {
+  right: 0;
+}
+
+.markdown-editor .tiptap .column-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: var(--brand);
+  opacity: 0.8;
+  transform: translateX(-50%);
+  transition: background-color 0.12s ease, opacity 0.12s ease;
+}
+
+.markdown-editor .tiptap .column-resize-handle:hover::before {
+  background: color-mix(in oklch, var(--brand), white 25%);
+  opacity: 1;
+}
+
+/* prosemirror-tables 在鼠标进入列边检测区时给 editor 根节点加 `resize-cursor`。
+ * 默认 cursor 规则来自 prosemirror-tables/style/tables.css, 但本项目未引入,
+ * 故在此声明, 让整个编辑器区域(而非仅 2px handle)在靠近列边时都显示调整光标。 */
+.markdown-editor .tiptap.resize-cursor,
+.markdown-editor .tiptap.ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+
+/* prosemirror-tables 在拖拽期间会给 cell 加 `column-resize-dragging` 装饰类;
+ * 故意不样式化 — 列边高亮由 .column-resize-handle widget 自身形成连续线。 */
+
+.markdown-editor .tiptap .tableWrapper {
+  overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
+  position: relative;
+  display: block;
+  margin-bottom: 1.8rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* relative 定位: 作为 column-resize-handle 的定位上下文 */
+.markdown-editor .tiptap table td,
+.markdown-editor .tiptap table th {
+  position: relative;
+}
+
+.markdown-editor .table-edge-insert-button {
+  position: absolute;
+  z-index: 18;
+  border: 1px solid var(--border);
+  padding: 0;
+  margin: 0;
+  border-radius: 6px;
+  background: var(--card, var(--background, #fff));
+  color: var(--muted-foreground, #6b7280);
+  cursor: pointer;
+  opacity: 1;
+  box-shadow: none;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.markdown-editor .table-edge-insert-hover-zone {
+  position: absolute;
+  z-index: 17;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.markdown-editor .table-edge-insert-button[hidden],
+.markdown-editor .table-edge-insert-hover-zone[hidden] {
+  display: none;
+}
+
+.markdown-editor .table-edge-insert-button::before,
+.markdown-editor .table-edge-insert-button::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.markdown-editor .table-edge-insert-button::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.markdown-editor .table-edge-insert-button:hover {
+  background: color-mix(in oklch, var(--card, var(--background, #fff)), var(--muted, #f3f4f6) 50%);
+  color: var(--foreground, #111827);
+}
+
+.markdown-editor .tiptap ul li::marker {
+  color: var(--brand);
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  /* margin-top: 3px 之前用来把 checkbox 视觉下移对齐文字 baseline,
+   * 但在 flex 容器里 margin 会进 outer size, 给 <li> 多撑 3px。
+   * 现在用 input 上的 transform: translateY(3px) 替代, 视觉一致,
+   * 但 transform 不参与 box model, 不会撑高 <li>。 */
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  appearance: none;
+  background-color: transparent;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  position: relative;
+  transform: translateY(3px);
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  background-color: transparent;
+  border-color: #999;
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #999;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: '';
+  width: 11px;
+  height: 9px;
+  top: 51%;
+  background-color: #999;
+  color: transparent;
+  font-size: 0;
+  font-weight: normal;
+  mask: var(--flowix-hand-check-mask) center / contain no-repeat;
+}
+
+.markdown-editor .tiptap ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+/* text-decoration 是可继承属性，原本写在 > div 上会经由继承作用到嵌套的
+ * 子 todo，所以选择器要限定到本级文本所在的 <p>，避免子级被划线。 */
+.markdown-editor .tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p {
+  text-decoration: line-through;
+  color: #999;
+}
+
+/* todo 切到已完成态时, 标签底色跟着文本一起走灰, 视觉上"这条 todo 已经
+ * 收尾, 标签也一并沉寂"。复用与文本同色的 #999, 保持和上方 li > p 的
+ * color 一致 — 改 li 文字色时这里要同步。 */
+.markdown-editor .tiptap ul[data-type="taskList"] li[data-checked="true"] .tag-node {
+  background: #999;
+}
+
+.markdown-editor .tiptap ol {
+  list-style-type: decimal;
+}
+
+.markdown-editor .tiptap ol li::marker {
+  color: var(--brand);
+}
+
+.markdown-editor .tiptap > img,
+.markdown-editor .tiptap > p > img,
+.markdown-editor .tiptap li > img,
+.markdown-editor .tiptap li > p > img {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 1rem;
+}
+
+.markdown-editor .tiptap > img.error,
+.markdown-editor .tiptap > p > img.error,
+.markdown-editor .tiptap li > img.error,
+.markdown-editor .tiptap li > p > img.error {
+  border: 1px dashed var(--muted-foreground);
+  border-radius: 8px;
+  opacity: 1 !important;
+}
+
+.markdown-editor .tiptap .editor-link-selection-highlight {
+  /* 链接选区高亮: 与 .is-block-selected 同思路, 用 --brand 派生透明底,
+   * 在三套主题 (light / dark / rock) 下都能融入品牌色相, 避免硬编码 indigo. */
+  background: color-mix(in oklch, var(--brand) 18%, transparent);
+  border-radius: 2px;
+}
+
+
+.markdown-editor .tiptap hr {
+  border: none;
+  border-top: 0.0625rem solid var(--border);
+  margin: 1rem 0 2rem 0;
+  /* 让 .is-block-selected / .ProseMirror-selectednode 切到 brand 时
+   * 平滑过渡, 与其他块的高亮入场节奏一致 (120ms)。 */
+  transition: border-top-color 120ms ease-out;
+}
+
+/* hr 选中态: 复用 .is-block-selected / .ProseMirror-selectednode 的
+ * brand 色相, 但 hr 是 1px 边线、box 高度近乎 0, 通用规则的背景色铺
+ * 不到线上, 视觉上读不出"被选中"。改为把 border-top 直接切到 brand
+ * 作为唯一视觉锚 ——
+ *   - is-block-selected: drag context menu 钉住 (与通用 .is-block-selected
+ *     的 inset left stripe 共用, 形成 "线 + 左竖条" 的组合指示);
+ *   - ProseMirror-selectednode: NodeSelection (点击 hr 直接选中),
+ *     不再加 outline / box-shadow 等外框 — hr 自身就是 1px 边, 高亮
+ *     只在线本身, 视觉更克制。
+ * 选择器特异性 (0,3,1) 高于全局 .ProseMirror-selectednode (0,1,0)。 */
+.markdown-editor .ProseMirror hr.is-block-selected,
+.markdown-editor .ProseMirror hr.ProseMirror-selectednode {
+  border-top-color: var(--brand);
+}
+
+.markdown-editor .tag-node {
+  color: var(--document-tag-foreground, var(--primary-foreground));
+  font-weight: 400;
+  font-size: 0.78rem;
+  cursor: pointer;
+  background: var(--document-tag-bg);
+  border-radius: 8px;
+  line-height: 1.2;
+  padding: 2px 6px;
+  caret-color: var(--document-tag-foreground, var(--primary-foreground));
+}
+
+.markdown-editor .tag-node:hover {
+  /* hover = 底色与 brand 强调色轻混, 往 indigo 偏一档 */
+  background: var(
+    --document-tag-hover-bg,
+    color-mix(in oklch, var(--document-tag-bg) 70%, var(--brand) 30%)
+  );
+}
+
+@keyframes editor-block-input-popup-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.markdown-editor .math-block-node {
+  position: relative;
+  margin: 0.85rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  cursor: text;
+  background: transparent;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.markdown-editor .math-block-node.is-active {
+  background: color-mix(in oklch, var(--brand) 7%, transparent);
+}
+
+.markdown-editor .math-block-display {
+  min-height: 2.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-x: auto;
+  padding: 0.125rem 0;
+  color: var(--foreground);
+}
+
+.markdown-editor .math-block-node.is-active .math-block-display {
+  margin-bottom: 0;
+}
+
+.markdown-editor .math-block-node:not(.is-active) .math-block-editor {
+  display: none;
+}
+
+.markdown-editor .math-block-editor {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 0.42rem);
+  z-index: 30;
+  width: min(34rem, calc(100vw - 3rem));
+  transform: translateX(-50%);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 10px 24px color-mix(in oklch, var(--foreground) 14%, transparent);
+  padding: 0.55rem;
+  animation: editor-block-input-popup-in 0.14s ease-out;
+  transform-origin: top center;
+}
+
+.markdown-editor .math-block-hint {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .math-block-input {
+  width: 100%;
+  min-height: 4.25rem;
+  resize: vertical;
+  border: none;
+  outline: none;
+  background: var(--card);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.42rem 0.5rem;
+}
+
+.markdown-editor .web-card-node {
+  position: relative;
+  margin: 0.55rem 0;
+  cursor: text;
+}
+
+.markdown-editor .web-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 5.25rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--card) 86%, var(--background));
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.markdown-editor .web-card-node:not(.has-url) .web-card {
+  border-style: dashed;
+  background: transparent;
+}
+
+.markdown-editor .web-card-node:not(.has-url) .web-card::before {
+  content: "网页";
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  opacity: 0.72;
+}
+
+.markdown-editor .web-card-node.has-url .web-card {
+  align-items: stretch;
+  justify-content: flex-start;
+  border-style: solid;
+}
+
+.markdown-editor .web-card-node.is-active .web-card {
+  border-color: var(--border);
+  background: color-mix(in oklch, var(--brand) 6%, transparent);
+}
+
+.markdown-editor .web-card-content {
+  min-width: 0;
+  flex: 1;
+  padding: 0.78rem 0.9rem;
+}
+
+.markdown-editor .web-card-title {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.94rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .web-card-description {
+  display: -webkit-box;
+  margin-top: 0.32rem;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.markdown-editor .web-card-link {
+  margin-top: 0.48rem;
+  overflow: hidden;
+  color: color-mix(in oklch, var(--brand) 72%, var(--muted-foreground));
+  font-size: 0.76rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .web-card-preview {
+  width: 8.5rem;
+  flex: 0 0 8.5rem;
+  border-left: 1px solid var(--border);
+  background: var(--muted);
+}
+
+.markdown-editor .web-card-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.markdown-editor .web-card-node:not(.is-active) .web-card-editor {
+  display: none;
+}
+
+.markdown-editor .web-card-editor {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 0.42rem);
+  z-index: 30;
+  width: min(28rem, calc(100vw - 3rem));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 10px 24px color-mix(in oklch, var(--foreground) 14%, transparent);
+  padding: 0.45rem 0.55rem;
+  animation: editor-block-input-popup-in 0.14s ease-out;
+  transform-origin: top center;
+}
+
+.markdown-editor .web-card-editor:focus-within {
+  border-color: color-mix(in oklch, var(--brand) 45%, var(--border));
+}
+
+.markdown-editor .web-card-input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  padding: 0.24rem 0.3rem;
+}
+
+.markdown-editor .web-card-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .web-card-status {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  opacity: 0.72;
+}
+
+.markdown-editor .web-card-node.is-loading .web-card-status {
+  color: color-mix(in oklch, var(--brand) 70%, var(--foreground));
+}
+
+.markdown-editor .tiptap p.is-empty::before {
+  content: attr(data-placeholder);
+  color: #aaa;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* 整个编辑器失焦时, 把光标曾停留的空块上的占位一并清掉。
+ * 背景:Tiptap Placeholder 用 selection.anchor 判定"当前块", 但 ProseMirror
+ * blur 时不会重置 editor.state.selection —— 只要最后落点的块为空,
+ * 它仍被加上 is-empty + data-placeholder, 原规则会一直显示。
+ * ProseMirror 在 view.dom 上自动维护 ProseMirror-focused 类, 这里未聚焦
+ * 时直接把 ::before 的 content 置 none 即可, 不影响聚焦态。 */
+.markdown-editor .tiptap:not(.ProseMirror-focused) p.is-empty::before {
+  content: none;
+}
+
+/* 块级选中态: 由 drag context menu 在用户点击 handle 后切换, 用来指示
+ * 浮动菜单的 transform / delete 操作作用于哪一段。柔背景 + 圆角 + 左侧
+ * 强调色, 视觉上读作"行指示", 不抢文本。
+ * transition 只动画会被改动的属性, 避免影响光标闪烁等 ProseMirror 内部更新。 */
+.markdown-editor .ProseMirror .is-block-selected {
+  position: relative;
+  background-color: color-mix(in oklch, var(--brand) 6%, transparent);
+  border-radius: 6px;
+  transition:
+    background-color 120ms ease-out;
+}
+
+.markdown-editor .ProseMirror .is-block-selected:hover {
+  background-color: color-mix(in oklch, var(--brand) 10%, transparent);
+}
+
+.markdown-editor .ProseMirror .flowix-block-drop-indicator {
+  display: block;
+  height: 1px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--brand);
+  pointer-events: none;
+}
+
+/* 节点级选中 (image / videoAttachment / fileAttachment 等
+ * atom 节点被 NodeSelection 选中时): 用品牌色 outline 替代 Tiptap 默认
+ * 的浅蓝 #8cf, 与 .is-block-selected 左侧描边、::selection 文字底色共
+ * 同收口到 var(--brand), 三主题下视觉一致。 */
+.markdown-editor .ProseMirror .ProseMirror-selectednode {
+  /* outline: 2px solid var(--brand);
+  outline-offset: 2px; */
+  border-radius: 6px;
+  /* border: none; */
+  outline: none;
+  transition: outline-color 120ms ease-out;
+}
+
+/* 编辑器内文本选区: 比全局 ::selection 更显眼, 配合块高亮读作"这段
+ * 文字被选中了"。限定在 .markdown-editor 内, 避免影响侧栏 / 输入
+ * 框等非编辑区域的选区色。 */
+.markdown-editor .ProseMirror ::selection {
+  background: color-mix(in oklch, var(--brand) 26%, transparent) !important;
+  color: inherit !important;
+}
+
+/* 工具栏容器: 始终位于编辑器底部, 可见性由 collapsed 状态决定
+ * (而非 focus 状态)。不再使用 opacity/visibility/pointer-events 的隐式
+ * 切换 —— 这避免了在折叠/展开切换时与子元素 (toolbar-content /
+ * toolbar-expand-handle) 之间的层叠上下文冲突。 */
+.editor-toolbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 1px 0;
+  /* 低于 dialog 蒙层 (z-1300): 删除等弹窗打开时, 工具栏需沉到蒙层之下,
+   * 避免遮住弹窗背景或视觉上"漂浮"在确认框之上。 */
+  z-index: 48;
+}
+
+.editor-toolbar .toolbar-content {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* 表面色: 用 --card 充当浮层底, 与编辑器/侧栏面板保持一致的"卡片"语义 */
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* 阴影: 各方向均匀扩散, 不带方向偏置; 外圈柔光 + 内圈贴近的薄环,
+   * 让工具条在 3 套主题下都像"漂"在编辑器之上, 而非"压"在底面上。
+   * 透明度较初版减半 (6%→3% / 14%→7%), 进一步弱化, 避免压重视觉。 */
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 0 14px color-mix(in oklch, var(--foreground) 7%, transparent);
+  padding: 4px 8px;
+}
+
+/* 折叠态的展开按钮 — 与 toolbar-content 共用卡片语义, 但去掉多按钮布局
+ * 所需的 gap / padding-x, 收敛为一个紧凑的 chip 形态, 减少视觉重量。 */
+.editor-toolbar .toolbar-expand-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  /* 与 .toolbar-content 同步: 阴影透明度较初版减半 (6%→3% / 14%→7%) */
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 0 14px color-mix(in oklch, var(--foreground) 7%, transparent);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.editor-toolbar .toolbar-expand-handle:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+/* 时间戳行: 不可编辑, 随编辑器滚动 */
+.markdown-editor .timestamp-row {
+  font-size: 0.75rem;
+  color: #999;
+  padding: 0.5rem 0;
+  pointer-events: none;
+  user-select: none;
+  background: transparent;
+}
+
+.editor-toolbar .toolbar-item-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.editor-toolbar .toolbar-button {
+  padding: 6px 6px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  transition: background-color 0.15s ease, color 0.15s ease;
+  min-width: 28px;
+  text-align: center;
+}
+
+.editor-toolbar .toolbar-button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.editor-toolbar .toolbar-button.active {
+  /* 激活态: 用 --brand 派生浅底 + 品牌色文字, 避免硬编码的紫蓝 */
+  background: color-mix(in oklch, var(--brand) 12%, transparent);
+  color: var(--brand);
+}
+
+.editor-toolbar .toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--divider);
+  margin: 0 4px;
+}
+
+
+
+
+.markdown-editor .ProseMirror .search-result {
+  background-color: rgba(255, 213, 79, 0.4);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.markdown-editor .ProseMirror .search-result-current {
+  background-color: rgba(255, 193, 7, 0.6);
+  outline: 1px solid rgba(255, 152, 0, 0.8);
+}

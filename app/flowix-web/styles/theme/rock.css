@@ -1,0 +1,77 @@
+[data-theme="rock"] {
+	/* Rock follows the same light-mode contrast ladder as mist:
+	 * near-white warm stone surfaces, shallow neutral layers, and one chromatic
+	 * heat-source accent for links, selection, and semantic emphasis.
+	 */
+	--neutral-hue: 92;
+	--brand-hue: 22;
+	--brand-chroma: 0.120;
+
+	/* Main rock anchor: #55524d in OKLCH, kept low-chroma and text-safe. */
+	--primary: oklch(0.440 0.009 var(--neutral-hue));
+	--primary-foreground: oklch(0.970 0.007 var(--neutral-hue));
+	--brand: oklch(0.550 var(--brand-chroma) var(--brand-hue));
+
+	/* Same lightness structure as mist, shifted to rock's olive-gray axis. */
+	--background: oklch(0.988 0.006 var(--neutral-hue));
+	--foreground: oklch(0.300 0.009 var(--neutral-hue));
+	--card: oklch(0.997 0.003 var(--neutral-hue));
+
+	--popover: oklch(1 0 0);
+	--popover-foreground: var(--foreground);
+
+	--secondary: oklch(0.980 0.005 var(--neutral-hue));
+	--secondary-foreground: oklch(0.360 0.010 var(--neutral-hue));
+	--muted: oklch(0.948 0.006 var(--neutral-hue));
+	--muted-foreground: oklch(0.620 0.009 var(--neutral-hue));
+	--accent: oklch(0.972 0.006 var(--neutral-hue));
+
+	--border: oklch(0.946 0.006 var(--neutral-hue));
+	--input: var(--border);
+	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
+	--ring: var(--primary);
+
+	--agent-bg: oklch(0.984 0.006 var(--neutral-hue));
+	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
+
+	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));
+
+	--bg-titlebar: oklch(0.984 0.005 var(--neutral-hue));
+
+	--document-bg: oklch(1 0 0);
+	--document-foreground: oklch(0.300 0.009 var(--neutral-hue));
+	--document-link: oklch(0.480 0.140 var(--brand-hue));
+	--document-highlight-bg: oklch(0.940 0.060 84);
+	--document-tag-bg: oklch(0.900 0 0);
+	--document-tag-foreground: var(--foreground);
+	--document-tag-hover-bg: oklch(0.860 0 0);
+
+	/* Match mist's perceived color weight; only rock-specific warm hues change. */
+	--memo-color-red:    oklch(64% 0.140 22);
+	--memo-color-orange: oklch(70% 0.130 48);
+	--memo-color-yellow: oklch(78% 0.115 86);
+	--memo-color-green:  oklch(66% 0.125 145);
+	--memo-color-cyan:   oklch(66% 0.090 215);
+	--memo-color-blue:   oklch(60% 0.150 257);
+	--memo-color-gray:   oklch(62% 0.008 var(--neutral-hue));
+
+	--code-bg: oklch(0.982 0.005 var(--neutral-hue));
+	--editor-block-bg: oklch(0.982 0.005 var(--neutral-hue));
+
+	--floating-bg: oklch(0.320 0.012 var(--neutral-hue));
+	--floating-foreground: oklch(0.950 0 0);
+
+	--inverse-background: oklch(0.300 0.009 var(--neutral-hue));
+	--inverse-foreground: oklch(0.985 0.006 var(--neutral-hue));
+
+	--success: oklch(0.740 0.115 145);
+	--destructive: oklch(0.620 0.165 22);
+	--warning: oklch(0.800 0.105 75);
+	/* 信息提示: 与 light 同值 ── blue 跟 warm rock 中性灰拉得开, 不与 brand 抢 */
+	--info: oklch(0.62 0.165 235);
+	--info-foreground: oklch(1 0 0);
+
+	color-scheme: light;
+
+	--shiki-theme: github-light;
+}

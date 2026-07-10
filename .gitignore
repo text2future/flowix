@@ -1,0 +1,40 @@
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Rust / Cargo
+app/target/
+**/*.rs.bk
+**/*.pdb
+
+# Tauri sidecar 二进制（cli:build 产物，按平台生成）
+app/flowix-desktop/binaries/
+
+# Dev logs（运行 tauri dev / vite 产生）
+tauri-dev.log
+tauri-dev.err.log
+vite-dev.log
+vite-dev.err.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Env
+.env
+.env.local
+.env.*.local
+app/flowix-desktop/tauri.conf.production.local.json
+
+# Build outputs
+*.tsbuildinfo
+
+# Local runtime / scratch
+app/flowix-desktop/index.db
+momo-yellow.png
+scratch-build.log
+verify-icon.ps1
