@@ -49,7 +49,7 @@ if (process.platform === "win32") {
   production.bundle.windows.digestAlgorithm = "sha256";
   production.bundle.windows.timestampUrl = process.env.WINDOWS_TIMESTAMP_URL || "http://timestamp.sectigo.com";
 } else if (process.platform === "darwin") {
-  production.bundle.targets = ["dmg"];
+  production.bundle.targets = ["app", "dmg"];
   production.bundle.macOS ??= {};
   if (production.bundle.windows) {
     delete production.bundle.windows.certificateThumbprint;
