@@ -59,11 +59,6 @@ pub async fn add_agent_access_folder_from_picker(
         return Ok(None);
     }
 
-    state
-        .security_bookmarks
-        .record_directory(Path::new(&trimmed))
-        .map_err(|e| format!("bookmark persist failed: {e}"))?;
-
     let comparable = trimmed.to_ascii_lowercase();
     let mut config = state.agent_access.get_config();
     if config.entries.iter().any(|entry| {

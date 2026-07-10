@@ -13,6 +13,7 @@ use crate::providers::{
     OpenAICompatibleProvider, OpenAICompatibleStreamItem,
 };
 use crate::runtime_log;
+use crate::security_bookmark::SecurityBookmarkStore;
 use crate::skills::SkillStore;
 use crate::threads::{ChatMessage as ThreadChatMessage, ThreadManager};
 use crate::user_config::{AiModelConfig, UserConfigStore};
@@ -112,6 +113,8 @@ pub struct AgentManager {
     /// `execute_tool` 把它喂给 `ToolScope::from_memo_file_and_access`
     /// 决定 `allowed_roots`, 也用来过滤 `available_dirs` 工具的返回。
     agent_access: Arc<AgentAccessStore>,
+    /// macOS security-scoped bookmarks for user-selected notebook / agent roots.
+    security_bookmarks: Arc<SecurityBookmarkStore>,
     /// Skills registry (`~/.flowix/skills/.system/` + 用户自添加)。
     /// 系统 prompt builder 读 `summaries()` 注入 "# Skills" 段;
     /// `load_skill` 工具 handler 读 `get(name)` 拿 body。
@@ -1222,13 +1225,14 @@ fn build_llm_context_window(messages: Vec<ThreadChatMessage>) -> Vec<LlmChatMess
 }
 
 impl AgentManager {
-    /// 构造时必须传入 5 个共享依赖 ── 与 `AppState` 持有同一份 Arc 引用。
+    /// 构造时必须传入共享依赖 ── 与 `AppState` 持有同一份 Arc 引用。
     /// 这样 `agent` 模块不再依赖 `commands::AppState` (历史 P2-#2 反向依赖)。
     pub fn new(
         user_config: Arc<UserConfigStore>,
         thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
         memo_file: Arc<std::sync::RwLock<MemoFile>>,
         agent_access: Arc<AgentAccessStore>,
+        security_bookmarks: Arc<SecurityBookmarkStore>,
         skill_store: Arc<SkillStore>,
     ) -> Self {
         Self {
@@ -1240,11 +1244,12 @@ impl AgentManager {
             thread_manager,
             memo_file,
             agent_access,
+            security_bookmarks,
             skill_store,
         }
     }
 
-    /// 测试用 fixture ── 用空 / 临时路径构造 5 个依赖, 不真正读写磁盘。
+    /// 测试用 fixture ── 用空 / 临时路径构造依赖, 不真正读写业务磁盘。
     /// 现存的单元测试只验证 `record_tool_call` / `clear_tool_call_attempts` /
     /// `cleanup_thread` 的 HashMap 状态, 不触碰 `user_config` / `thread_manager` /
     /// `memo_file` / `agent_access` (参见 `cleanup_thread_removes_read_snapshot`
@@ -1266,6 +1271,7 @@ impl AgentManager {
                 home.join(".flowix"),
                 &MemoFile::default(),
             )),
+            Arc::new(SecurityBookmarkStore::new(home.join(".flowix"))),
             Arc::new(SkillStore::load(&skills_root)),
         )
     }
@@ -2504,6 +2510,7 @@ impl AgentManager {
                             &call.function.arguments,
                             &self.memo_file,
                             &self.agent_access,
+                            Some(self.security_bookmarks.clone()),
                             &self.skill_store,
                             None,
                         )
@@ -2596,6 +2603,7 @@ impl AgentManager {
             arguments,
             &self.memo_file,
             &self.agent_access,
+            Some(self.security_bookmarks.clone()),
             &self.skill_store,
             read_snapshot.as_deref(),
         )

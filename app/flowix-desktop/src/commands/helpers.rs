@@ -27,6 +27,10 @@ pub(crate) fn mark_self_write_for(app: &AppHandle, path: &Path) {
     }
 }
 
+pub(crate) fn start_security_bookmark_access(state: &AppState, path: &Path) {
+    state.security_bookmarks.start_accessing_for_path(path);
+}
+
 pub(crate) fn refresh_watcher_roots(state: &AppState, app: &AppHandle) {
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let configs = memo_file
@@ -87,6 +91,7 @@ fn switch_notebook(
             .get_notebook_config_by_id(target_id)
             .map(|config| std::path::PathBuf::from(config.path))
             .ok_or_else(|| format!("notebook {target_id} not found"))?;
+        start_security_bookmark_access(state, &target_path);
         if !target_path.is_dir() {
             return Err(format!(
                 "notebook {target_id} path is missing: {}",

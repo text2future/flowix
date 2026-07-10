@@ -13,7 +13,9 @@ use tauri::State;
 
 use crate::path_scope::path_is_inside;
 
-use super::helpers::{can_access_scoped_file, is_registered_notebook_path};
+use super::helpers::{
+    can_access_scoped_file, is_registered_notebook_path, start_security_bookmark_access,
+};
 use super::AppState;
 
 #[derive(Serialize)]
@@ -97,6 +99,7 @@ fn read_dir_recursive(dir_path: &Path, parent_id: Option<String>) -> Vec<DocTree
 #[tauri::command]
 pub fn get_file_tree(space_path: String, state: State<AppState>) -> Option<Vec<DocTreeItem>> {
     let path = Path::new(&space_path);
+    start_security_bookmark_access(&state, path);
     if !path.exists() || !is_registered_notebook_path(path, &state) {
         return None;
     }
@@ -106,6 +109,7 @@ pub fn get_file_tree(space_path: String, state: State<AppState>) -> Option<Vec<D
 #[tauri::command]
 pub fn get_dir_children(dir_path: String, state: State<AppState>) -> Vec<DocTreeItem> {
     let path = Path::new(&dir_path);
+    start_security_bookmark_access(&state, path);
     if !path.exists() || !is_registered_notebook_path(path, &state) {
         return vec![];
     }
@@ -122,6 +126,7 @@ pub fn read_file(
         eprintln!("[read_file] refused out-of-scope path: {}", file_path);
         return None;
     }
+    start_security_bookmark_access(&state, Path::new(&file_path));
     fs::read_to_string(&file_path).ok()
 }
 
@@ -137,6 +142,7 @@ pub fn write_file(
         eprintln!("[write_file] refused out-of-scope path: {}", file_path);
         return false;
     }
+    start_security_bookmark_access(&state, Path::new(&file_path));
     if let Some(parent) = Path::new(&file_path).parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -149,6 +155,7 @@ pub fn delete_file(file_path: String, space_path: Option<String>, state: State<A
         eprintln!("[delete_file] refused out-of-scope path: {}", file_path);
         return false;
     }
+    start_security_bookmark_access(&state, Path::new(&file_path));
     fs::remove_file(&file_path).is_ok()
 }
 
@@ -169,6 +176,7 @@ pub fn create_folder(
         );
         return None;
     }
+    start_security_bookmark_access(&state, &target_path);
     fs::create_dir_all(&target_path).ok()?;
 
     Some(DocTreeItem {
@@ -203,6 +211,7 @@ pub fn create_document(
         );
         return None;
     }
+    start_security_bookmark_access(&state, &target_path);
     fs::write(&target_path, "").ok()?;
 
     Some(DocTreeItem {

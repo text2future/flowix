@@ -21,7 +21,7 @@ use flowix_core::search::MemoSearchHit;
 
 use super::helpers::{
     force_rebuild_index, mark_self_write_for, rebuild_index_in_background, synthesize_minimal_memo,
-    try_index_remove, try_index_upsert,
+    start_security_bookmark_access, try_index_remove, try_index_upsert,
 };
 use super::AppState;
 
@@ -447,6 +447,7 @@ pub fn read_memo(id: String, state: State<AppState>) -> Option<Memo> {
     let memo = read_lock(&state.memo_file, "memo_file").read_memo_global(&id)?;
     // Keep stale index entries from opening an empty editor when the file is gone.
     let path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&memo.id)?;
+    start_security_bookmark_access(&state, &path);
     if !path.exists() {
         tracing::info!(
             "[read_memo] file gone, unregistering ghost: {}",
@@ -465,6 +466,7 @@ pub fn read_document(file_path: String, state: State<AppState>) -> Option<String
         return None;
     }
     let io_path = resolve_document_path_for_io(&file_path, state.inner());
+    start_security_bookmark_access(&state, &io_path);
     fs::read_to_string(&io_path).ok()
 }
 
@@ -589,6 +591,7 @@ fn write_document_internal(
                 return None;
             }
         };
+        start_security_bookmark_access(state.inner(), &current_path);
         match fs::read_to_string(&current_path) {
             Ok(current) if cas_content_matches(&current, expected, content) => {}
             Ok(_) => {
@@ -607,6 +610,7 @@ fn write_document_internal(
 
     // Mark the target before writing so the watcher can suppress our own change.
     if let Some(path) = read_lock(&state.memo_file, "memo_file").find_memo_file_path(key) {
+        start_security_bookmark_access(state.inner(), &path);
         mark_self_write_for(app, &path);
     }
     let result = read_lock(&state.memo_file, "memo_file")
@@ -620,6 +624,7 @@ fn write_document_internal(
             let final_path = read_lock(&state.memo_file, "memo_file")
                 .find_memo_file_path(key)
                 .expect("just verified memo exists");
+            start_security_bookmark_access(state.inner(), &final_path);
             mark_self_write_for(app, &final_path);
             let final_content = match fs::read_to_string(&final_path) {
                 Ok(c) => c,
@@ -678,6 +683,7 @@ fn write_document_external(
         let _ = fs::create_dir_all(parent);
     }
     let io_path = resolve_document_path_for_io(file_path, state.inner());
+    start_security_bookmark_access(state.inner(), &io_path);
     if let Some(parent) = io_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -1243,6 +1249,7 @@ pub fn create_memo_version(
     state: State<AppState>,
 ) -> Option<MemoVersionMeta> {
     let path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id)?;
+    start_security_bookmark_access(&state, &path);
     let content = fs::read_to_string(path).ok()?;
     match read_lock(&state.memo_file, "memo_file").create_memo_version(
         &id,
@@ -1270,6 +1277,7 @@ pub fn restore_memo_version(
         read_lock(&state.memo_file, "memo_file").read_memo_version(&id, &version_id)?;
     let before = read_memo_or_none(state.inner(), &id);
     let current_path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id)?;
+    start_security_bookmark_access(&state, &current_path);
     let current_content = fs::read_to_string(&current_path).ok()?;
 
     if let Some(expected) = expectedContent.as_deref() {
@@ -1298,6 +1306,7 @@ pub fn restore_memo_version(
         Ok(_) => {
             emit_updated_after_write(state.inner(), &app, &id, before);
             let final_path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id)?;
+            start_security_bookmark_access(&state, &final_path);
             let final_content = fs::read_to_string(&final_path).ok()?;
             Some(WriteDocumentResult {
                 path: final_path.to_string_lossy().to_string(),

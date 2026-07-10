@@ -18,6 +18,7 @@ use tauri::{Manager, State};
 
 use crate::lock_utils::{read_lock, write_lock};
 
+use super::helpers::start_security_bookmark_access;
 use super::AppState;
 
 // ==================== 域内 helper ====================
@@ -130,9 +131,12 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
                 let result = crate::security_bookmark::pick_directory_with_bookmark(
                     "选择笔记本文件夹",
                 )
-                .map(|(path, _bookmark)| {
+                .map(|(path, bookmark)| {
                     let state = state_handle.state::<AppState>();
-                    if let Err(e) = state.security_bookmarks.record_directory(Path::new(&path)) {
+                    if let Err(e) = state
+                        .security_bookmarks
+                        .record_directory_bookmark(Path::new(&path), bookmark)
+                    {
                         tracing::warn!("[select_directory] failed to persist bookmark: {e}");
                     }
                     path
@@ -252,6 +256,7 @@ pub async fn save_attachment(
     let attachments_dir = read_lock(&state.memo_file, "memo_file")
         .get_memo_base()
         .join("attachments");
+    start_security_bookmark_access(&state, &attachments_dir);
     fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
 
     let source = Path::new(&source_path);
@@ -262,6 +267,8 @@ pub async fn save_attachment(
         .ok_or("Invalid file name")?;
     let dest_path = unique_attachment_path(&attachments_dir, file_name)?;
 
+    start_security_bookmark_access(&state, source);
+    start_security_bookmark_access(&state, &dest_path);
     fs::copy(&source_path, &dest_path).map_err(|e| e.to_string())?;
 
     Ok(Some(dest_path.to_str().unwrap().to_string()))
@@ -284,12 +291,14 @@ pub async fn save_attachment_content(
     let attachments_dir = read_lock(&state.memo_file, "memo_file")
         .get_memo_base()
         .join("attachments");
+    start_security_bookmark_access(&state, &attachments_dir);
     fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
 
     let dest_path = unique_attachment_path(&attachments_dir, &file_name)?;
 
     // Decode base64 content and write to file
     let decoded = base64_decode(&content).map_err(|e| format!("Failed to decode base64: {}", e))?;
+    start_security_bookmark_access(&state, &dest_path);
     fs::write(&dest_path, decoded).map_err(|e| e.to_string())?;
 
     Ok(Some(dest_path.to_str().unwrap().to_string()))
@@ -316,6 +325,8 @@ pub async fn copy_attachment_file(
         return Err("Attachment does not exist".to_string());
     }
 
+    start_security_bookmark_access(&state, source);
+    start_security_bookmark_access(&state, Path::new(&target_path));
     fs::copy(source, Path::new(&target_path)).map_err(|e| e.to_string())?;
     Ok(true)
 }

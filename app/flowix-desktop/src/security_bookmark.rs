@@ -4,6 +4,7 @@
 //! because both features can point at the same directory.
 
 use std::collections::BTreeMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -65,12 +66,27 @@ impl SecurityBookmarkStore {
 
     pub fn record_directory(&self, path: &Path) -> Result<(), UserConfigError> {
         #[cfg(target_os = "macos")]
-        if let Some(bookmark) = macos::bookmark_for_directory(path) {
-            self.upsert(path, bookmark)?;
-            self.start_accessing_path(path);
+        {
+            let bookmark = macos::bookmark_for_directory(path).ok_or_else(|| {
+                UserConfigError::Io(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("failed to create security-scoped bookmark for {}", path.display()),
+                ))
+            })?;
+            self.record_directory_bookmark(path, bookmark)?;
         }
         #[cfg(not(target_os = "macos"))]
         let _ = path;
+        Ok(())
+    }
+
+    pub fn record_directory_bookmark(
+        &self,
+        path: &Path,
+        bookmark: String,
+    ) -> Result<(), UserConfigError> {
+        self.upsert(path, bookmark)?;
+        self.start_accessing_path(path);
         Ok(())
     }
 
@@ -112,15 +128,54 @@ impl SecurityBookmarkStore {
                     .map(|entry| entry.bookmark.clone())
             };
             if let Some(bookmark) = bookmark {
-                if let Some(access) = macos::resolve_bookmark(&bookmark) {
-                    let mut active = self.active.write().unwrap_or_else(|p| p.into_inner());
-                    active.retain(|existing| existing.path_key() != key);
-                    active.push(access);
-                }
+                self.activate_bookmark(key, bookmark, path);
             }
         }
         #[cfg(not(target_os = "macos"))]
         let _ = path;
+    }
+
+    pub fn start_accessing_for_path(&self, path: &Path) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let Some((key, bookmark)) = self.bookmark_for_containing_path(path) else {
+                return false;
+            };
+            self.activate_bookmark(key, bookmark, path)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = path;
+            false
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn activate_bookmark(&self, key: String, bookmark: String, requested_path: &Path) -> bool {
+        if let Some(access) = macos::resolve_bookmark(&bookmark) {
+            let mut active = self.active.write().unwrap_or_else(|p| p.into_inner());
+            active.retain(|existing| existing.path_key() != key);
+            active.push(access);
+            return true;
+        }
+        tracing::warn!(
+            "[security_bookmark] failed to activate bookmark for {} via {}",
+            requested_path.display(),
+            key
+        );
+        false
+    }
+
+    #[cfg(target_os = "macos")]
+    fn bookmark_for_containing_path(&self, path: &Path) -> Option<(String, String)> {
+        self.inner
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .entries
+            .iter()
+            .filter(|(_, entry)| crate::path_scope::path_is_inside(path, Path::new(&entry.path)))
+            .max_by_key(|(key, _)| key.len())
+            .map(|(key, entry)| (key.clone(), entry.bookmark.clone()))
     }
 
     fn upsert(&self, path: &Path, bookmark: String) -> Result<(), UserConfigError> {

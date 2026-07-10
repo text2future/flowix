@@ -31,6 +31,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BINARIES_DIR="$REPO_ROOT/app/flowix-desktop/binaries"
+ENTITLEMENTS="$REPO_ROOT/app/flowix-desktop/entitlements.plist"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -72,13 +73,13 @@ sign_macos() {
 
   if [[ "$identity" == "-" ]]; then
     # ad-hoc 模式 ── 本地调试用, Gatekeeper 会拦截但本地跑得动
-    echo "[sign] macOS ad-hoc signing (no Developer ID)"
-    codesign --force --sign - "$bin"
+    echo "[sign] macOS ad-hoc signing with entitlements (no Developer ID)"
+    codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$bin"
     return 0
   fi
 
-  echo "[sign] codesign --options runtime --timestamp --sign $identity $bin"
-  codesign --force --options runtime --timestamp --sign "$identity" "$bin"
+  echo "[sign] codesign --options runtime --timestamp --entitlements $ENTITLEMENTS --sign $identity $bin"
+  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$identity" "$bin"
 
   # notarize ── 跳过 if 没配 keychain profile (dev 跳过)
   if [[ -z "${APPLE_KEYCHAIN_PROFILE:-}" ]]; then

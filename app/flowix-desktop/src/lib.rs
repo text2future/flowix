@@ -373,6 +373,7 @@ pub fn run() {
         thread_manager_arc.clone(),
         memo_file_arc.clone(),
         agent_access_arc.clone(),
+        security_bookmarks_arc.clone(),
         skill_store,
     ));
     let codex_cli_manager = Arc::new(CodexCliManager::new(thread_manager_arc.clone()));

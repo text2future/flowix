@@ -324,6 +324,7 @@ mod tests {
         ToolScope {
             allowed_roots: vec![root.clone()],
             _default_root: root,
+            security_bookmarks: None,
         }
     }
 

@@ -3,8 +3,10 @@
 use rllm::chat::Tool;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::agent_access::AgentAccessStore;
+use crate::security_bookmark::SecurityBookmarkStore;
 use crate::skills::SkillStore;
 
 mod filesystem;
@@ -91,7 +93,7 @@ pub fn get_sub_agent_tools() -> Vec<Tool> {
     ]
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ToolScope {
     allowed_roots: Vec<PathBuf>,
     /// Canonical default notebook path (e.g. `~/Documents/flowix` on macOS).
@@ -100,6 +102,7 @@ pub struct ToolScope {
     /// typically a stale `~/Documents/woop notebook` from before the
     /// 2026/06 brand rename. See `MemoFile::get_default_notebook_path`.
     _default_root: PathBuf,
+    security_bookmarks: Option<Arc<SecurityBookmarkStore>>,
 }
 
 impl ToolScope {
@@ -111,6 +114,7 @@ impl ToolScope {
     pub fn from_memo_file_and_access(
         memo_file: &std::sync::RwLock<flowix_core::memo_file::MemoFile>,
         agent_access: &AgentAccessStore,
+        security_bookmarks: Option<Arc<SecurityBookmarkStore>>,
     ) -> Self {
         let (default_root, registered) = memo_file
             .read()
@@ -148,6 +152,7 @@ impl ToolScope {
         Self {
             allowed_roots: roots,
             _default_root: default_root,
+            security_bookmarks,
         }
     }
 
@@ -163,6 +168,12 @@ impl ToolScope {
     pub fn default_root(&self) -> &Path {
         &self._default_root
     }
+
+    pub fn start_accessing_for_path(&self, path: &Path) {
+        if let Some(bookmarks) = &self.security_bookmarks {
+            bookmarks.start_accessing_for_path(path);
+        }
+    }
 }
 
 /// Execute a tool by name with the given arguments.
@@ -171,10 +182,11 @@ pub async fn execute_tool(
     arguments: &str,
     memo_file: &std::sync::RwLock<flowix_core::memo_file::MemoFile>,
     agent_access: &AgentAccessStore,
+    security_bookmarks: Option<Arc<SecurityBookmarkStore>>,
     skill_store: &SkillStore,
     read_snapshot: Option<&str>,
 ) -> ToolResult {
-    let scope = ToolScope::from_memo_file_and_access(memo_file, agent_access);
+    let scope = ToolScope::from_memo_file_and_access(memo_file, agent_access, security_bookmarks);
     match tool_name {
         // `available_dirs` 是新名字 (`list_notebooks` 的升级版, 详见
         // notebook.rs), 兼容老名字 ── 老对话 / 老 checkpoint 流出

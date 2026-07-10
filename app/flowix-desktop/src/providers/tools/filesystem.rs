@@ -303,6 +303,17 @@ fn glob_static_prefix(pattern: &str) -> PathBuf {
     PathBuf::from(prefix)
 }
 
+fn canonicalize_absolute_glob_pattern(pattern: &str) -> String {
+    let normalized = pattern.replace('\\', "/");
+    let prefix = glob_static_prefix(&normalized);
+    let Some(prefix_str) = prefix.to_str().filter(|value| !value.is_empty()) else {
+        return normalized;
+    };
+    let suffix = normalized.strip_prefix(prefix_str).unwrap_or_default();
+    let canonical_prefix = dunce::canonicalize(&prefix).unwrap_or(prefix);
+    format!("{}{}", glob_pattern_string(canonical_prefix), suffix)
+}
+
 fn roots_for_absolute_pattern(pattern: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
     let prefix = glob_static_prefix(pattern);
     let prefix = dunce::canonicalize(&prefix).unwrap_or(prefix);
@@ -904,6 +915,7 @@ async fn read(arguments: &str, scope: &ToolScope) -> ToolResult {
     if let Err(result) = ensure_visible(&path) {
         return result;
     }
+    scope.start_accessing_for_path(&path);
     let content = match tokio::fs::read_to_string(&path).await {
         Ok(content) => content,
         Err(e) => return ToolResult::error(format!("Failed to read {}: {}", path.display(), e)),
@@ -963,6 +975,7 @@ async fn write(arguments: &str, scope: &ToolScope) -> ToolResult {
     if let Err(result) = ensure_visible(&path) {
         return result;
     }
+    scope.start_accessing_for_path(&path);
     if args.create_dirs.unwrap_or(true) {
         if let Some(parent) = path.parent() {
             if let Err(e) = tokio::fs::create_dir_all(parent).await {
@@ -1034,6 +1047,7 @@ async fn delete(arguments: &str, scope: &ToolScope) -> ToolResult {
     if let Err(result) = ensure_visible(&path) {
         return result;
     }
+    scope.start_accessing_for_path(&path);
 
     let metadata = match tokio::fs::metadata(&path).await {
         Ok(metadata) => metadata,
@@ -1081,6 +1095,7 @@ async fn edit(arguments: &str, read_snapshot: Option<&str>, scope: &ToolScope) -
     if let Err(result) = ensure_visible(&path) {
         return result;
     }
+    scope.start_accessing_for_path(&path);
     let current = match tokio::fs::read_to_string(&path).await {
         Ok(content) => content,
         Err(e) => return ToolResult::error(format!("Failed to read {}: {}", path.display(), e)),
@@ -1265,6 +1280,7 @@ async fn ls(arguments: &str, scope: &ToolScope) -> ToolResult {
     if let Err(result) = ensure_visible(&path) {
         return result;
     }
+    scope.start_accessing_for_path(&path);
     let limit = clamp_limit(args.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
     let mut entries = match tokio::fs::read_dir(&path).await {
         Ok(entries) => entries,
@@ -1357,7 +1373,7 @@ async fn glob_paths(arguments: &str, scope: &ToolScope) -> ToolResult {
 
     for pattern in &expanded_patterns {
         if Path::new(pattern).is_absolute() {
-            let concrete = glob_pattern_string(PathBuf::from(pattern));
+            let concrete = canonicalize_absolute_glob_pattern(pattern);
             let regex = match glob_pattern_to_regex(&concrete) {
                 Ok(regex) => regex,
                 Err(e) => return ToolResult::error(format!("Invalid glob pattern: {e}")),
@@ -1404,6 +1420,9 @@ async fn glob_paths(arguments: &str, scope: &ToolScope) -> ToolResult {
             .map(|root| dunce::canonicalize(root).unwrap_or_else(|_| root.clone()))
             .collect()
     };
+    for root in &roots_for_blocking {
+        scope.start_accessing_for_path(root);
+    }
     let search_patterns_for_blocking = search_patterns.clone();
     let blocking_result = tokio::task::spawn_blocking(move || -> Result<GlobScanResult, String> {
         let mut seen = HashSet::new();
@@ -1537,6 +1556,7 @@ async fn grep(arguments: &str, scope: &ToolScope) -> ToolResult {
     if let Err(result) = ensure_visible(&root) {
         return result;
     }
+    scope.start_accessing_for_path(&root);
     let limit = clamp_limit(args.limit, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
     // scope.is_allowed 走 is_allowed(path) 在 blocking 闭包里调 ── scope
     // move 进闭包。
@@ -1644,6 +1664,7 @@ mod tests {
         ToolScope {
             allowed_roots: vec![root.clone()],
             _default_root: root,
+            security_bookmarks: None,
         }
     }
 
@@ -1651,6 +1672,7 @@ mod tests {
         ToolScope {
             _default_root: roots.first().cloned().unwrap_or_default(),
             allowed_roots: roots,
+            security_bookmarks: None,
         }
     }
 

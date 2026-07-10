@@ -41,17 +41,21 @@ dev 与生产当前共用 bundle ID 是为了让 macOS TCC / security-scoped boo
 
 ### macOS 本地生产包 ad-hoc 签名
 
-构建 macOS 生产包后，如果没有 Developer ID，也要对 `.app` 做一次本地 ad-hoc codesign，让 `entitlements.plist` 写进 app bundle；否则 security-scoped bookmarks / user-selected folder 权限相关 entitlement 不会实际生效。
+构建 macOS 生产包后，如果没有 Developer ID，也要对 bundle 内 sidecar 和 `.app` 做一次本地 ad-hoc codesign，让 `entitlements.plist` 写进可执行产物；否则 security-scoped bookmarks / user-selected folder 权限相关 entitlement 不会实际生效。
 
 ```bash
 npm run tauri:build:production
+
+codesign --force --options runtime --sign - \
+  --entitlements app/flowix-desktop/entitlements.plist \
+  "app/flowix-desktop/target/release/bundle/macos/Flowix.app/Contents/MacOS/flowix-cli"
 
 codesign --force --deep --sign - \
   --entitlements app/flowix-desktop/entitlements.plist \
   "app/flowix-desktop/target/release/bundle/macos/Flowix.app"
 ```
 
-`--sign -` 是 ad-hoc 签名，只适合本机开发 / 本地试装，不能替代 Developer ID 签名与 notarization。若实际产物路径不同，以 `target/release/bundle/macos/*.app` 为准。
+`--sign -` 是 ad-hoc 签名，只适合本机开发 / 本地试装，不能替代 Developer ID 签名与 notarization。先签 `Contents/MacOS/flowix-cli`，再签外层 `.app`；若实际产物路径不同，以 `target/release/bundle/macos/*.app` 为准。
 
 ## Rules
 
