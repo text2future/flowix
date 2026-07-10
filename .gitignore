@@ -39,3 +39,10 @@ momo-yellow.png
 scratch-build.log
 verify-icon.ps1
 tmp/
+
+# 本地专属文件（不进远端）
+CLAUDE.md
+app/flowix-web/**/*.test.ts
+app/flowix-web/**/__tests__/
+app/flowix-cli/tests/
+app/flowix-core/src/memo_file/tests.rs
