@@ -12,23 +12,6 @@ A local-first desktop note app that brings notes, knowledge work, and AI convers
 
 ---
 
-<div align="center">
-
-### Theme Preview
-
-**Light**
-![Light theme](homepage/theme-light.jpg)
-
-**Dark**
-![Dark theme](homepage/theme-dark.jpg)
-
-**Rock**
-![Rock theme](homepage/theme-rock.jpg)
-
-</div>
-
----
-
 > **What is Flowix?**
 > A desktop workspace for managing ideas and AI conversations as documents.
 > Plain Markdown files stay on your disk; AI joins when you need help writing,

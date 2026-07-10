@@ -12,21 +12,6 @@
 
 </div>
 
-<div align="center">
-
-### 🎨 主题预览 · Theme preview
-
-**☀️ 浅色 · Light**
-![浅色主题 Light](homepage/theme-light.jpg)
-
-**🌙 深色 · Dark**
-![深色主题 Dark](homepage/theme-dark.jpg)
-
-**🪨 岩灰 · Rock**
-![岩灰主题 Rock](homepage/theme-rock.jpg)
-
-</div>
-
 ---
 
 > 💡 **Flowix 是什么？**
