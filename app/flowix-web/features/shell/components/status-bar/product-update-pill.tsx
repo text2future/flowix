@@ -85,13 +85,20 @@ export function ProductUpdatePill() {
         return;
       }
       setPhase('downloading');
-      setProgress({ transferred: 0, total: 0 });
+      let transferred = 0;
+      let total = 0;
       await update.downloadAndInstall((event) => {
-        if (event.event === 'progress') {
-          setProgress({
-            transferred: event.data.transferred,
-            total: event.data.contentLength ?? 0,
-          });
+        // plugin-updater 的 DownloadEvent 是分类型判别联合:
+        //   Started   → data.contentLength (可选)
+        //   Progress  → data.chunkLength   (当前这一块的字节数, 不是累计)
+        //   Finished  → 无 data
+        // 累计得自己加; 不能直接用 event.data.transferred。
+        if (event.event === 'Started') {
+          total = event.data.contentLength ?? 0;
+          setProgress({ transferred, total });
+        } else if (event.event === 'Progress') {
+          transferred += event.data.chunkLength;
+          setProgress({ transferred, total });
         }
       });
       setPhase('ready');

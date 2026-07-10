@@ -1662,7 +1662,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const explicitName = workspaceEntry.name?.trim();
     if (explicitName) return explicitName;
     const segments = workspaceEntry.path.split(/[\\/]+/).filter(Boolean);
-    const folderName = segments.at(-1)?.trim();
+    const folderName = segments[segments.length - 1]?.trim();
     return folderName ? folderName : this.t("agent.access.empty.empty");
   }
 
