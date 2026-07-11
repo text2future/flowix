@@ -1,6 +1,6 @@
 # Flowix Memo
 
-<a href="README.md" style="color: inherit">中文</a> · <a href="README.en.md" style="color: inherit">English</a>
+<a href="README.md" style="color: #38362F">中文</a> · <a href="README.en.md" style="color: #38362F">English</a> · <a href="https://flowix-memo.com/roadmap" style="color: #38362F">Roadmap</a> · <a href="https://flowix-memo.com/updates" style="color: #38362F">Updates</a>
 
 **Manage ideas and AI conversations with documents.**
 

@@ -1,4 +1,4 @@
-<a href="README.md" style="color: inherit">中文</a> · <a href="README.en.md" style="color: inherit">English</a>
+<a href="README.md" style="color: #38362F">中文</a> · <a href="README.en.md" style="color: #38362F">English</a> · <a href="https://flowix-memo.com/roadmap" style="color: #38362F">产品路线</a> · <a href="https://flowix-memo.com/updates" style="color: #38362F">近期更新</a>
 
 # Flowix Memo
 
