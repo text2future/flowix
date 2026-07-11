@@ -1,4 +1,6 @@
-# Flowix Memo <sup>[中文](README.md) · [English](README.en.md)</sup>
+# Flowix Memo
+
+<a href="README.md" style="color: inherit">中文</a> · <a href="README.en.md" style="color: inherit">English</a>
 
 [![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Windows-0078D4)](https://github.com/text2future/flowix/releases)
 [![Latest Release](https://img.shields.io/github/v/release/text2future/flowix)](https://github.com/text2future/flowix/releases)

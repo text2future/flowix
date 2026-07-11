@@ -1,4 +1,6 @@
-# Flowix Memo <sup>[中文](README.md) · [English](README.en.md)</sup>
+# Flowix Memo
+
+<a href="README.md" style="color: inherit">中文</a> · <a href="README.en.md" style="color: inherit">English</a>
 
 **Manage ideas and AI conversations with documents.**
 
