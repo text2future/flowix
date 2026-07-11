@@ -3,7 +3,7 @@
   "productName": "Flowix Dev",
   "mainBinaryName": "Flowix Dev",
   "version": "1.0.3",
-  "identifier": "com.flowix.app",
+  "identifier": "com.flowix.app.dev",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

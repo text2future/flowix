@@ -1,6 +1,6 @@
-# Flowix Memo
-
 <a href="README.md" style="color: inherit">中文</a> · <a href="README.en.md" style="color: inherit">English</a>
+
+# Flowix Memo
 
 [![支持平台](https://img.shields.io/badge/Platform-macOS%20|%20Windows-0078D4)](https://github.com/text2future/flowix/releases)
 [![版本号](https://img.shields.io/github/v/release/text2future/flowix)](https://github.com/text2future/flowix/releases)
@@ -10,9 +10,11 @@
 
 Flowix 是一款本地优先的桌面笔记应用。
 
-和传统的 Notion、Obsidian 等不同，Flowix 聚焦在管理 AI 输入与 AI 对话，把人和 AI 的写作都装进同一份文档。
+和传统的 Notion、Obsidian 等不同，Flowix 聚焦在管理 AI 输入与 AI 对话，把人和 AI 的写作都装进同一份文档进行管理。
 
-**Flowix 将文档视为最高优先级元素：传统产品用 AI 管理文档，而 Flowix 通过文档管理 AI。AI 的行为被记录下来，人的写作与 AI 生成的内容都能被有效管理。**
+```
+Flowix 将文档视为最高优先级元素：传统产品用 AI 管理文档，而 Flowix 通过文档管理 AI。AI 的行为被记录下来，人的写作与 AI 生成的内容都能被有效管理。
+```
 
 
 #### → 调研 & 开发项目管理
@@ -48,4 +50,6 @@ Flowix 内置 AI Agent， 采用 BYOK 模式使用你倾向的模型，同时支
 
 
 ---
-**环境要求**：Node.js 20+、Rust 1.75+、macOS 14+ 或 Windows 10+。
+**环境要求**：
+安装需求 macOS 14+ 或 Windows 10+。
+进行 2 次开发，额外的需要 Node.js 20+、Rust 1.75+支持。
