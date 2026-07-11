@@ -3,6 +3,9 @@ node_modules/
 dist/
 .vite/
 
+# Project-local build staging
+.flowix-build/
+
 # Rust / Cargo
 app/target/
 **/*.rs.bk
@@ -30,10 +33,19 @@ vite-dev.err.log
 .env.*.local
 app/flowix-desktop/tauri.conf.production.local.json
 
+# Supabase CLI local state
+supabase/.temp/
+
 # Build outputs
 *.tsbuildinfo
 
-# Local runtime / scratch
+# Local runtime / scratch files should live under .flowix-build/runtime/.
+# Keep legacy path ignores below so old tools cannot pollute the worktree.
+
+# Local Codex / coding-agent session logs (developer telemetry; never ship)
+test.json
+
+# Legacy local runtime / scratch paths
 app/flowix-desktop/index.db
 momo-yellow.png
 scratch-build.log
@@ -42,7 +54,3 @@ tmp/
 
 # 本地专属文件（不进远端）
 CLAUDE.md
-app/flowix-web/**/*.test.ts
-app/flowix-web/**/__tests__/
-app/flowix-cli/tests/
-app/flowix-core/src/memo_file/tests.rs
