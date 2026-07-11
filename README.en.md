@@ -1,12 +1,16 @@
-<div align="center">
-
-# Flowix
-
 [中文](README.md) · [English](README.en.md)
+---
+
+# Flowix Memo
 
 **Manage ideas and AI conversations with documents.**
 
 A local-first desktop note app that brings notes, knowledge work, and AI conversations into one document workflow.
+
+[![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Windows-0078D4?logo=apple&logoColor=white)](https://github.com/text2future/flowix/releases)
+[![Latest Release](https://img.shields.io/github/v/release/text2future/flowix?logo=github&logoColor=white)](https://github.com/text2future/flowix/releases)
+
+![Flowix](./docs/images/readme-banner.png)
 
 </div>
 
@@ -95,6 +99,8 @@ not trapped in disposable chat threads.
 - **Documented output**: useful AI responses can be folded back into
   your notes, with no loss across restarts
 
+![AI Agent](./docs/images/readme-agent.png)
+
 **Typical AI workflows**:
 
 - Polish conversational text into a formal draft
@@ -118,7 +124,7 @@ not trapped in disposable chat threads.
 
 ```bash
 # Clone
-git clone https://github.com/aicollaborate/flowix.git
+git clone https://github.com/text2future/flowix.git
 cd flowix
 
 # Install dependencies
@@ -138,88 +144,3 @@ npm run tauri:build:production
 ```
 
 **Requirements**: Node.js 20+, Rust 1.75+, macOS 14+ or Windows 10+.
-
----
-
-### CLI Tool (Sidecar)
-
-Flowix ships with a standalone `flowix` command that **shares the same
-`memo_file` storage** as the desktop app. Edits from the terminal are visible
-in the desktop UI within about 1 second, and vice versa, through the filesystem
-watcher.
-
-Build and expose it to `PATH`:
-
-```bash
-# 1. Compile the CLI (release, current host)
-npm run cli:build
-
-# 2. Symlink the sidecar into PATH
-ln -sf "$(pwd)/app/flowix-desktop/binaries/flowix-cli-$(rustc -vV | sed -n 's|host: ||p')" /usr/local/bin/flowix
-
-# 3. Verify
-flowix --version
-```
-
-Or copy it from an existing `.app` bundle:
-
-```bash
-cp "app/flowix-desktop/target/release/bundle/macos/Flowix.app/Contents/MacOS/flowix-cli" /usr/local/bin/flowix
-```
-
-#### Commands
-
-```bash
-flowix --version
-flowix --help
-
-flowix notebooks              # List all notebooks
-flowix list <notebook>        # List notes in a notebook
-flowix show <id>              # Print a note to stdout
-flowix create <notebook>      # Create from stdin (echo "# title" | flowix create work)
-flowix write <id>             # Overwrite a note from stdin
-flowix edit <id> --old <text> --new <text>
-flowix search <query>         # Full-text search
-```
-
-#### Environment
-
-- `FLOWIX_HOME`: override config dir (default `~/.flowix`)
-- `FLOWIX_DATA`: override data dir (default `<OS data dir>/flowix`)
-
-#### Data Flow
-
-- CLI reads `~/.flowix/notebook.json` + `<notebook>/.metadata/index.json` + `<notebook>/*.md`
-- Writes are atomic (write tmp + `fs::rename`), sharing the desktop app's code path
-- The CLI is a **fully independent** process from the desktop app; the desktop watcher picks up `index.json` changes automatically
-
----
-
-### Distribution (CI / Homebrew)
-
-Release artifacts are built automatically by GitHub Actions (`.github/workflows/release.yml`):
-
-- 3-platform sidecar: macOS (arm64 + x64) / Linux / Windows
-- 3-platform Tauri bundle: `.dmg` / Windows NSIS `.exe` / `.deb` + `.AppImage`
-- Trigger: `git tag v0.1.0 && git push --tags`
-
-Install CLI on macOS with Homebrew:
-
-```bash
-brew install aicollaborate/flowix/flowix
-# or the .app:
-brew install --cask aicollaborate/flowix/flowix
-```
-
-For direct downloads, see [GitHub Releases](https://github.com/aicollaborate/flowix/releases).
-
----
-
-### Contributing
-
-PRs, issues, and discussions are welcome.
-Before submitting code, read [CLAUDE.md](CLAUDE.md) for the project structure and conventions.
-
-### License
-
-[CC BY-NC 4.0](LICENSE) — Attribution, Non-Commercial. Contact the author for commercial licensing.
