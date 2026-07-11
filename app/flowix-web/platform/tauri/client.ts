@@ -390,7 +390,6 @@ export interface ProductUpdateNotice {
   title: string;
   body: string;
   version?: string | null;
-  ctaLabel?: string | null;
   ctaUrl?: string | null;
   publishedAt?: string | null;
 }

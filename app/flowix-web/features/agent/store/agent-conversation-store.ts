@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
 import type { ChatMessage } from "@/types";
 import type { AgentTypeKey } from "@/types/agent";
 import { stripSystemBlock } from "@features/agent/message";
@@ -181,6 +182,14 @@ function normalizeConversationTitle(title: string | null | undefined): string {
 }
 
 const instanceWriteQueues = new Map<string, Promise<void>>();
+const RUN_PERSIST_DEBOUNCE_MS = 2000;
+
+type PendingRunWrite = {
+  timer: ReturnType<typeof setTimeout>;
+  run: AgentConversationRun;
+};
+
+const pendingRunWrites = new Map<string, PendingRunWrite>();
 
 function enqueueInstanceWrite(
   instanceId: string,
@@ -218,6 +227,47 @@ function persistRun(instanceId: string, run: AgentConversationRun): void {
   );
 }
 
+function schedulePersistRun(instanceId: string, run: AgentConversationRun): void {
+  const existing = pendingRunWrites.get(instanceId);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+
+  const timer = setTimeout(() => {
+    const pending = pendingRunWrites.get(instanceId);
+    if (!pending || pending.timer !== timer) return;
+    pendingRunWrites.delete(instanceId);
+    persistRun(instanceId, pending.run);
+  }, RUN_PERSIST_DEBOUNCE_MS);
+
+  pendingRunWrites.set(instanceId, { timer, run });
+}
+
+function flushPersistRun(instanceId: string): void {
+  const pending = pendingRunWrites.get(instanceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingRunWrites.delete(instanceId);
+  persistRun(instanceId, pending.run);
+}
+
+function cancelPersistRun(instanceId: string): void {
+  const pending = pendingRunWrites.get(instanceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingRunWrites.delete(instanceId);
+}
+
+function shouldPersistRunImmediately(
+  patch: Partial<Omit<AgentConversationRun, "runId" | "startedAt">>,
+): boolean {
+  return (
+    patch.status !== undefined ||
+    patch.endedAt !== undefined ||
+    patch.reason !== undefined
+  );
+}
+
 function deletePersistedInstance(instanceId: string): void {
   enqueueInstanceWrite(
     instanceId,
@@ -233,6 +283,7 @@ function deletePersistedInstancesForThread(threadId: string): void {
 }
 
 export const useAgentConversationStore = create<AgentConversationStore>()(
+  subscribeWithSelector(
     (set, get) => ({
       instances: {},
       messageStates: {},
@@ -351,6 +402,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
       },
 
       markRunStarted: (instanceId, run) => {
+        flushPersistRun(instanceId);
         let nextRun: AgentConversationRun | null = null;
         let nextInstance: AgentConversationInstance | null = null;
         set((state) => {
@@ -381,6 +433,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
       },
 
       markRunEnded: (instanceId, status, endedAt, reason) => {
+        flushPersistRun(instanceId);
         let nextRun: AgentConversationRun | null = null;
         let nextInstance: AgentConversationInstance | null = null;
         set((state) => {
@@ -429,10 +482,18 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           };
         });
         if (nextInstance) persistInstance(nextInstance);
-        if (nextRun) persistRun(instanceId, nextRun);
+        if (nextRun) {
+          if (shouldPersistRunImmediately(patch)) {
+            flushPersistRun(instanceId);
+            persistRun(instanceId, nextRun);
+          } else {
+            schedulePersistRun(instanceId, nextRun);
+          }
+        }
       },
 
       removeInstance: (instanceId) => {
+        cancelPersistRun(instanceId);
         set((state) => {
           if (!state.instances[instanceId]) return state;
           const { [instanceId]: _removed, ...instances } = state.instances;
@@ -462,6 +523,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           return { instances, messageStates };
         });
         for (const instanceId of removedIds) {
+          cancelPersistRun(instanceId);
           deletePersistedInstance(instanceId);
         }
         deletePersistedInstancesForThread(threadId);
@@ -736,6 +798,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
         }
       },
     }),
+  ),
 );
 
 export function selectRunningAgentConversationInstances(

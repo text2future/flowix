@@ -15,8 +15,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../app" && pwd)"
 BINARIES_DIR="$APP_DIR/flowix-desktop/binaries"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/.flowix-build/cargo-target}"
+export CARGO_TARGET_DIR
 
 PROFILE="release"
 BUILD_ALL=0
@@ -90,7 +93,7 @@ if [ "$BUILD_ALL" = "1" ]; then
       --bin flowix-cli \
       --target "$triple" \
       --release
-    bin_path="$APP_DIR/target/$triple/release/flowix-cli"
+    bin_path="$CARGO_TARGET_DIR/$triple/release/flowix-cli"
     [[ "$triple" == *windows* ]] && bin_path="${bin_path}.exe"
     copy_to_binaries "$host" "$bin_path"
     # 签名 ── macOS / Windows 走 codesign / signtool, Linux 跳过。
@@ -104,10 +107,11 @@ else
     --manifest-path "$APP_DIR/Cargo.toml" \
     --bin flowix-cli \
     $([ "$PROFILE" = "release" ] && echo "--release")
-  bin_path="$APP_DIR/target/$host/$PROFILE/flowix-cli"
+  bin_path="$CARGO_TARGET_DIR/$PROFILE/flowix-cli"
   if [ ! -f "$bin_path" ]; then
-    # Cargo 偶尔把 host-specific 输出放在 target/release/ 而不是 target/$host/release/
-    bin_path="$APP_DIR/target/$PROFILE/flowix-cli"
+    # If callers override CARGO_TARGET_DIR or Cargo uses host-specific output,
+    # keep a fallback that mirrors explicit --target builds.
+    bin_path="$CARGO_TARGET_DIR/$host/$PROFILE/flowix-cli"
   fi
   copy_to_binaries "$host" "$bin_path"
   bash "$SCRIPT_DIR/sign-cli.sh" --host="$host" || true

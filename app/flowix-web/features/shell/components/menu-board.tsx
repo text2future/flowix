@@ -113,7 +113,6 @@ export function MenuBoard({ open, onOpenChange }: MenuBoardProps) {
                   settings={settings.personalize}
                   language={settings.language}
                   region={settings.region}
-                  productUpdates={settings.productUpdates}
                   memoCardVariant={settings.memoCardVariant}
                   updateSettings={updateSettings}
                 />

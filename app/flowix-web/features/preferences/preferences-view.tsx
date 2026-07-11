@@ -141,7 +141,6 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 									settings={settings.personalize}
 									language={settings.language}
 									region={settings.region}
-									productUpdates={settings.productUpdates}
 									memoCardVariant={settings.memoCardVariant}
 									updateSettings={updateSettings}
 								/>

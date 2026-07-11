@@ -120,10 +120,6 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
     productUpdates: {
       ...base.productUpdates,
       ...(updates.productUpdates ?? {}),
-      remindLater: {
-        ...base.productUpdates.remindLater,
-        ...(updates.productUpdates?.remindLater ?? {}),
-      },
     },
   };
 }
@@ -164,24 +160,12 @@ function sanitizeAgentsConfig(agents: AgentsConfig | undefined): AgentsConfig {
 }
 
 function sanitizeProductUpdatesConfig(productUpdates: ProductUpdatesConfig | undefined): ProductUpdatesConfig {
-  const remindLater =
-    productUpdates?.remindLater && typeof productUpdates.remindLater === 'object'
-      ? productUpdates.remindLater
-      : {};
   return {
     enabled: productUpdates?.enabled !== false,
     lastCheckedAt:
       typeof productUpdates?.lastCheckedAt === 'number' && Number.isFinite(productUpdates.lastCheckedAt)
         ? productUpdates.lastCheckedAt
         : DEFAULT_USER_SETTINGS.productUpdates.lastCheckedAt,
-    dismissedNoticeIds: Array.isArray(productUpdates?.dismissedNoticeIds)
-      ? productUpdates.dismissedNoticeIds.map((id) => String(id)).filter(Boolean)
-      : [],
-    remindLater: Object.fromEntries(
-      Object.entries(remindLater)
-        .map(([id, until]) => [String(id), Number(until)] as const)
-        .filter(([id, until]) => Boolean(id) && Number.isFinite(until)),
-    ),
   };
 }
 

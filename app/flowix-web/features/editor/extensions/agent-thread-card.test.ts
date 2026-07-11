@@ -134,6 +134,19 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
+async function seedRenderableMessages(
+  typeKey: "flowix" | "codex" | "claude" | "gemini" | "hermes" | "openclaw",
+  threadId: string,
+  messages: any[],
+): Promise<void> {
+  const { useAgentConversationStore } = await import(
+    "@features/agent/store/agent-conversation-store"
+  );
+  useAgentConversationStore
+    .getState()
+    .syncRenderableMessages(typeKey, threadId, messages);
+}
+
 describe("AgentThreadCard NodeView streaming", () => {
   let editor: Editor | null = null;
 
@@ -296,7 +309,7 @@ describe("AgentThreadCard NodeView streaming", () => {
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [firstMessage, streamingMessage],
+          messages: [],
           isLoading: true,
           activeRunId: "run-incremental",
           runs: {},
@@ -308,6 +321,10 @@ describe("AgentThreadCard NodeView streaming", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, [
+      firstMessage,
+      streamingMessage,
+    ]);
 
     editor = new Editor({
       element: host,
@@ -334,6 +351,10 @@ describe("AgentThreadCard NodeView streaming", () => {
     const firstMessageNode = messagesBefore[0];
     expect(firstMessageNode?.textContent).toContain("stable history");
 
+    const patchedMessages = [
+      firstMessage,
+      { ...streamingMessage, content: "Hello incremental patch" },
+    ];
     useChatStore.setState((state) => {
       const current = state.threadStates[threadId]!;
       return {
@@ -341,14 +362,12 @@ describe("AgentThreadCard NodeView streaming", () => {
           ...state.threadStates,
           [threadId]: {
             ...current,
-            messages: [
-              firstMessage,
-              { ...streamingMessage, content: "Hello incremental patch" },
-            ],
+            messages: [],
           },
         },
       };
     });
+    await seedRenderableMessages("flowix", threadId, patchedMessages);
 
     await flushAnimationFrame();
 
@@ -1622,28 +1641,30 @@ describe("AgentThreadCard NodeView streaming", () => {
       },
     });
 
+    const messages = [
+      {
+        id: "tool-broken",
+        role: "tool" as const,
+        content: "",
+        timestamp: new Date().toISOString(),
+        toolCallId: "tool-broken",
+        toolName: "shell_command",
+        toolInput: brokenInput,
+      },
+      {
+        id: "assistant-after-broken",
+        role: "assistant" as const,
+        content: "still renders",
+        timestamp: new Date().toISOString(),
+      },
+    ];
+
     useChatStore.setState((state) => ({
       threadTypes: { ...state.threadTypes, [threadId]: "codex" },
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            {
-              id: "tool-broken",
-              role: "tool",
-              content: "",
-              timestamp: new Date().toISOString(),
-              toolCallId: "tool-broken",
-              toolName: "shell_command",
-              toolInput: brokenInput,
-            },
-            {
-              id: "assistant-after-broken",
-              role: "assistant",
-              content: "still renders",
-              timestamp: new Date().toISOString(),
-            },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -1655,6 +1676,7 @@ describe("AgentThreadCard NodeView streaming", () => {
         },
       },
     }));
+    await seedRenderableMessages("codex", threadId, messages);
 
     await flushAnimationFrame();
 
@@ -1785,26 +1807,28 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      {
+        role: "user" as const,
+        content:
+          "first question\n<## CONTEXT PROMPT ##>\n当前笔记路径: hidden\n\n# flowix CLI\nhidden",
+        id: "u0",
+        timestamp: "t0",
+      },
+      { role: "assistant" as const, content: "answer", id: "a0", timestamp: "t1" },
+      {
+        role: "user" as const,
+        content: "second question",
+        id: "u1",
+        timestamp: "t2",
+      },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            {
-              role: "user",
-              content:
-                "first question\n<## CONTEXT PROMPT ##>\n当前笔记路径: hidden\n\n# flowix CLI\nhidden",
-              id: "u0",
-              timestamp: "t0",
-            },
-            { role: "assistant", content: "answer", id: "a0", timestamp: "t1" },
-            {
-              role: "user",
-              content: "second question",
-              id: "u1",
-              timestamp: "t2",
-            },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -1816,6 +1840,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(
@@ -1862,14 +1887,16 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      { role: "user" as const, content: "older", id: "u0", timestamp: "t0" },
+      { role: "user" as const, content: "newer", id: "u1", timestamp: "t1" },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            { role: "user", content: "older", id: "u0", timestamp: "t0" },
-            { role: "user", content: "newer", id: "u1", timestamp: "t1" },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -1881,6 +1908,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(
@@ -1929,14 +1957,16 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      { role: "user" as const, content: "older", id: "u0", timestamp: "t0" },
+      { role: "user" as const, content: "newer", id: "u1", timestamp: "t1" },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            { role: "user", content: "older", id: "u0", timestamp: "t0" },
-            { role: "user", content: "newer", id: "u1", timestamp: "t1" },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -1948,6 +1978,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(
@@ -2013,13 +2044,15 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      { role: "user" as const, content: "only one", id: "u0", timestamp: "t0" },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            { role: "user", content: "only one", id: "u0", timestamp: "t0" },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -2031,6 +2064,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(
@@ -2070,14 +2104,16 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      { role: "user" as const, content: "first", id: "u0", timestamp: "t0" },
+      { role: "user" as const, content: "second", id: "u1", timestamp: "t1" },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            { role: "user", content: "first", id: "u0", timestamp: "t0" },
-            { role: "user", content: "second", id: "u1", timestamp: "t1" },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -2089,6 +2125,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(
@@ -2135,14 +2172,16 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      { role: "user" as const, content: "older", id: "u0", timestamp: "t0" },
+      { role: "user" as const, content: "newer\nline", id: "u1", timestamp: "t1" },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            { role: "user", content: "older", id: "u0", timestamp: "t0" },
-            { role: "user", content: "newer\nline", id: "u1", timestamp: "t1" },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -2154,6 +2193,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(
@@ -2205,14 +2245,16 @@ describe("AgentThreadCard input history navigation", () => {
     });
     await flushAnimationFrame();
 
+    const messages = [
+      { role: "user" as const, content: "older", id: "u0", timestamp: "t0" },
+      { role: "user" as const, content: "newer", id: "u1", timestamp: "t1" },
+    ];
+
     useChatStore.setState((state) => ({
       threadStates: {
         ...state.threadStates,
         [threadId]: {
-          messages: [
-            { role: "user", content: "older", id: "u0", timestamp: "t0" },
-            { role: "user", content: "newer", id: "u1", timestamp: "t1" },
-          ],
+          messages: [],
           isLoading: false,
           activeRunId: null,
           runs: {},
@@ -2224,6 +2266,7 @@ describe("AgentThreadCard input history navigation", () => {
         },
       },
     }));
+    await seedRenderableMessages("flowix", threadId, messages);
     await flushAnimationFrame();
 
     const input = host.querySelector<HTMLTextAreaElement>(

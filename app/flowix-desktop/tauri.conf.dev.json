@@ -2,13 +2,13 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Flowix Dev",
   "mainBinaryName": "Flowix Dev",
-  "version": "1.0.2",
+  "version": "1.0.1",
   "identifier": "com.flowix.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../../dist"
+    "frontendDist": "../../.flowix-build/web-dist"
   },
   "app": {
     "windows": [
@@ -77,14 +77,6 @@
     ],
     "resources": {
       "resources/skills/.system/**/*": "skills/.system/"
-    }
-  },
-  "plugins": {
-    "updater": {
-      "active": false,
-      "dialog": true,
-      "endpoints": [],
-      "pubkey": "RWQaO2qzbAPuurCQt9iOOeLsukp7OwATgOWI7b1gIKAGPcI9JF7drC0i"
     }
   }
 }

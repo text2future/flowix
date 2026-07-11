@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "clean": "rm -rf .flowix-build dist app/target app/flowix-desktop/binaries",
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",

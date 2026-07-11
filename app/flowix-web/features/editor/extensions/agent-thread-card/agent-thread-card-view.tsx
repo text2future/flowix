@@ -8,7 +8,6 @@ import * as React from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { BadgeHoverCard } from "@features/editor/extensions/agent-thread-card/badge-hover-card";
-import { agent } from "@platform/tauri/client";
 import {
   useChatStore,
   type ThreadState,
@@ -21,21 +20,10 @@ import { selectRenderableThreadMessages } from "@features/agent/store/thread-ren
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
 import { useMemoStore } from "@features/memo";
-import {
-  getNotebookIconLetter,
-  getNotebookIconMarkup,
-} from "@features/memo/components/notebook-icon";
-import {
-  getPropertyIconOption,
-} from "@features/document/properties/property-icons";
 import { Tooltip } from "@shared/ui/tooltip";
 import { translate, type AppLanguage, type I18nKey } from "@features/i18n";
-import type {
-  AgentCodexModel,
-  AgentPermissionMode,
-  AgentTypeKey,
-} from "@/types/agent";
-import { createAgentMessageViewModel, stripSystemBlock } from "@features/agent/message";
+import type { AgentTypeKey } from "@/types/agent";
+import { stripSystemBlock } from "@features/agent/message";
 import { openNoteByDeepLink } from "@platform/open-target";
 import { isWindowsPlatform } from "@features/shortcuts";
 import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-link";
@@ -44,16 +32,7 @@ import {
   normalizeAgentTypeKey,
 } from "@/lib/agent-types";
 import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
-import { displayTitleFromFilename } from "@/lib/utils";
-import {
-  CODEX_MODEL_OPTIONS,
-  CODEX_REASONING_OPTIONS,
-} from "@features/agent/config/codex-options";
-import {
-  getAgentAccessOptions,
-  supportsAgentRuntimeSetting,
-  type AgentRuntimeSettingKind,
-} from "@features/agent/runtime/agent-runtime-spec";
+import type { AgentRuntimeSettingKind } from "@features/agent/runtime/agent-runtime-spec";
 import {
   applyResolvedExternalSession,
   createExternalAgentRuntimeHandle,
@@ -68,66 +47,29 @@ import {
   selectAgentThreadCardRunStatus,
   selectAgentThreadCardSendButtonState,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-selectors";
-import { ensureAgentThreadCardThread } from "@features/editor/extensions/agent-thread-card/agent-thread-card-submit";
-import {
-  createAnchoredPopoverController,
-  type AnchoredPopoverController,
-} from "@features/editor/extensions/agent-thread-card/anchored-popover-controller";
-import {
-  fillWithAgentThreadCardMarkdownHtml as fillWithMarkdownHtml,
-  renderAgentThreadCardMarkdownToHtml as renderMarkdownToHtml,
-} from "@features/editor/extensions/agent-thread-card/agent-thread-card-markdown";
+import { submitAgentThreadCardConversation } from "@features/editor/extensions/agent-thread-card/agent-thread-card-submit-controller";
 import {
   ICON_STOP_PATH,
   createChevronIcon,
-  createComposerRoleEmptyIcon,
   createFullscreenIcon,
-  createPlusIcon,
-  createRoleOptionsLoadingIcon,
   createTrashIcon,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-icons";
-import {
-  createAccessDivider,
-  createAccessEntryRow,
-  createAccessSectionLabel,
-} from "@features/editor/extensions/agent-thread-card/access/access-entries";
-import { attachAccessPopoverScrollbar } from "@features/editor/extensions/agent-thread-card/access/access-popover-scrollbar";
-import {
-  createCodexSettingsItem,
-  createExternalAgentEmptyControl,
-  updateExternalAgentEmptyControl,
-  type ExternalAgentEmptyControlKind,
-} from "@features/editor/extensions/agent-thread-card/settings/external-agent-settings";
-import {
-  appendRoleIconContent,
-  type AgentRoleOption,
-} from "@features/editor/extensions/agent-thread-card/agent-thread-card-role";
-import {
-  fallbackAgentRoleOptionsFromStore,
-  listAgentRoleMemosWithTimeout,
-  loadAgentRoleBodyFromMemo,
-} from "@features/editor/extensions/agent-thread-card/role/role-options-loader";
-import {
-  adjustEditorScrollToCardTop as adjustEditorScrollToCardTopByDelta,
-  captureAgentThreadCardScrollSnapshot,
-  clearAgentThreadCardFullscreenBounds,
-  getAgentThreadCardEditorScrollContainer,
-  getAgentThreadCardFullscreenContainer,
-  getFullscreenExitFallbackTop,
-  restoreAgentThreadCardScrollSnapshotAfterFocusChange,
-  syncAgentThreadCardFullscreenBounds,
-} from "@features/editor/extensions/agent-thread-card/fullscreen/fullscreen-scroll";
+import { AccessPopoverController } from "@features/editor/extensions/agent-thread-card/access/access-popover-controller";
+import { ExternalAgentSettingsController } from "@features/editor/extensions/agent-thread-card/settings/external-agent-settings-controller";
+import { AgentRolePickerController } from "@features/editor/extensions/agent-thread-card/role/agent-role-picker-controller";
+import { FullscreenLayoutController } from "@features/editor/extensions/agent-thread-card/fullscreen/fullscreen-layout-controller";
 import { getPersistableInputDraft } from "@features/editor/extensions/agent-thread-card/composer/composer-draft";
+import { ComposerDraftController } from "@features/editor/extensions/agent-thread-card/composer/composer-draft-controller";
 import { getAgentThreadCardUserHistoryMessagesFromMessages } from "@features/editor/extensions/agent-thread-card/composer/composer-history";
 import { createThreadCacheSkeleton } from "@features/editor/extensions/agent-thread-card/messages/thread-cache-skeleton";
-import { getRenderedAgentMessages as selectRenderedAgentMessages } from "@features/editor/extensions/agent-thread-card/messages/message-list-renderer";
-import { createAgentThreadCardMessageElement } from "@features/editor/extensions/agent-thread-card/messages/message-item-renderer";
 import {
-  applyPopoverPosition,
-  calculateAnchoredPopoverPosition,
-} from "@features/editor/extensions/agent-thread-card/popover/popover-position";
+  appendRenderedAgentMessagesToTail,
+  createRenderedAgentMessageList,
+  getRenderedAgentMessages,
+  patchLastRenderedAgentMessage,
+  type AgentThreadCardMessageRenderContext,
+} from "@features/editor/extensions/agent-thread-card/messages/message-list-renderer";
 import { getCurrentThreadCardSource } from "@features/editor/extensions/agent-thread-card/runtime/thread-card-source";
-import { upsertAgentThreadCardConversationInstance } from "@features/editor/extensions/agent-thread-card/runtime/thread-card-conversation";
 import {
   canSkipMessageRebuild,
   consumeEditorPopoverDismissPointer,
@@ -178,27 +120,12 @@ const AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT =
   "flowix:agent-thread-card-fullscreen-change";
 const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
   "flowix:agent-thread-card-request-fullscreen";
-const ACCESS_POPOVER_OFFSET_ABOVE_PX = 15;
-const ACCESS_POPOVER_OFFSET_BELOW_PX = 2;
-const ACCESS_POPOVER_VIEWPORT_PADDING_PX = 8;
-const ACCESS_POPOVER_WIDTH_PX = 208;
-const ACCESS_POPOVER_MAX_HEIGHT_PX = 320;
-const ACCESS_POPOVER_MIN_HEIGHT_PX = 96;
-const CODEX_SETTINGS_POPOVER_WIDTH_PX = 220;
-const CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX = 280;
-const CODEX_SETTINGS_POPOVER_OFFSET_PX = 6;
-const CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 const AGENT_THREAD_CARD_INPUT_DRAFT_MAX_CHARS = 500;
 // inputDraft 落盘 debounce ── 1s 静默期后把本地草稿写入 ProseMirror attrs。
 // 见 AgentThreadCardView.scheduleDraftPersist 注释。 必须 flush 的时机:
 // submit / destroy / input blur / 窗口 hidden ── 否则会丢稿 (ProseMirror
 // attr 是 input 重新挂载时回填 input.value 的唯一来源)。
 const AGENT_THREAD_CARD_DRAFT_PERSIST_DEBOUNCE_MS = 1000;
-
-type AgentModelOption = {
-  id: AgentCodexModel;
-  label: string;
-};
 
 // 注: 二级弹窗走纯 CSS 定位 (right: 100% / top: 0), 不需要 JS
 // 计算坐标所需的 viewport padding / offset / hide-delay 常量。
@@ -298,45 +225,18 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private collapseButton: HTMLButtonElement;
   private deleteButton: HTMLButtonElement;
   private fullscreenButton: HTMLButtonElement;
+  private fullscreenLayout: FullscreenLayoutController;
+  private composerDraft: ComposerDraftController;
   // 全屏 / 删除按钮之间的竖向分割线 ── 非交互元素, aria-hidden 让屏幕
   // 阅读器跳过; 视觉与按钮同高 (28px), 1px var(--border) 着色。
   // 可见性与 fullscreenButton 同步 (renderFullscreenState 一起切 hidden)。
   private actionsDivider: HTMLSpanElement;
   private accessButton: HTMLButtonElement;
   private accessPopover: HTMLDivElement;
-  private accessPopoverAnchor: HTMLElement | null = null;
-  private accessPopoverPreferBelow = false;
-  private externalEmptyModelButton: HTMLButtonElement | null = null;
-  private externalEmptyReasoningButton: HTMLButtonElement | null = null;
-  private externalEmptyPermissionButton: HTMLButtonElement | null = null;
-  private externalEmptyFilesButton: HTMLButtonElement | null = null;
-  private codexSettingsPopover: HTMLDivElement;
-  private codexSettingsPopoverAnchor: HTMLButtonElement | null = null;
-  private codexSettingsPopoverKind: AgentRuntimeSettingKind | null = null;
-  private isCodexSettingsPopoverOpen = false;
-  private codexSettingsPopoverResizeObserver: ResizeObserver | null = null;
-  private codexSettingsPopoverPositionFrame: number | null = null;
-  private codexDefaultModel = "";
-  private localSupportedModelsTypeKey: AgentTypeKey | null = null;
-  private localSupportedModels: AgentModelOption[] = [];
-  // 角色选择下拉弹窗 ── 直接挂在 composerRoleIcon button 下方/上方, 取代
-  // 之前 accessPopover → 「角色」按钮 → typeSettingsPopover 的两级展开。
-  // 一次性创建, 构造器挂到 document.body, 后续 renderRoleOptionsList
-  // 复用, 不再频繁重建节点。 与 accessPopover 同一套 fixed 定位范式 ──
-  // 详见 CSS .agent-thread-card__composer-role-popover 块。
-  private composerRolePopover: HTMLDivElement;
-  private isComposerRolePopoverOpen = false;
-  private composerRolePopoverController: AnchoredPopoverController | null =
-    null;
-  private agentRoleOptions: AgentRoleOption[] | null = null;
-  private isLoadingAgentRoleOptions = false;
-  private agentRoleOptionsRequestSeq = 0;
-  // Agent Role memo body 缓存 ── 提交首条消息时把 role 文档拼到 user
-  // 消息末尾, body 需走 IPC 拉。 同一 memoId 后续提交直接复用, 避免
-  // 每次发消息都触发 read_document 往返。 null = 拉过但失败 / 文档
-  // 已被删, 与"未拉过"(key 缺失)区分, 失败不重试 (角色文档被删是
-  // 显式操作, 让用户重选 role 才是正确恢复路径)。
-  private cachedAgentRoleBodies: Map<string, string | null> = new Map();
+  private accessPopoverController: AccessPopoverController;
+  private externalAgentSettings: ExternalAgentSettingsController;
+  private externalSettingsLoadedTypeKey: AgentTypeKey | null = null;
+  private agentRolePicker: AgentRolePickerController;
   private unsubscribe?: () => void;
   private unsubscribeConversation?: () => void;
   private unsubscribeAccess?: () => void;
@@ -355,7 +255,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   // extra Down presses do not replace the draft with a previewed history item.
   // It is cleared only when the user actually edits/submits the composer.
   private preNavDraft: string | null = null;
-  private isAccessPopoverOpen = false;
   private isLoadingThreadCache = false;
   private loadedThreadCacheFor: string | null = null;
   private loadingThreadCacheFor: string | null = null;
@@ -369,24 +268,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private renderedMessagesList: HTMLDivElement | null = null;
   private renderedMessageRefs: ThreadState["messages"] = [];
   private isDestroyed = false;
-  // 草稿落盘 debounce 状态 ── 详见 scheduleDraftPersist / flushPendingDraft。
-  // draftSnapshot 是"待落盘"的值, 在 debounce 期间充当本地真值, 阻止
-  // refreshAttrs 把 input.value 错误地覆写回 ProseMirror attr 旧值。
-  private draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
-  private draftSnapshot: string | null = null;
-  private oversizedInputDraftDomValue: string | null = null;
   private isFullscreen = false;
   private reasoningCollapsedOverrides = new Map<string, boolean>();
   private appliedResolvedSessionKeys = new Set<string>();
-  private fullscreenContainer: HTMLElement | null = null;
-  private fullscreenReturnAnchor: {
-    scrollContainer: HTMLElement;
-    topWithinContainer: number;
-  } | null = null;
-  private fullscreenResizeObserver: ResizeObserver | null = null;
-  private accessPopoverResizeObserver: ResizeObserver | null = null;
-  private accessPopoverPositionFrame: number | null = null;
-  private detachAccessPopoverScrollbar: (() => void) | null = null;
   // 上一帧折叠态, 仅用于识别'折叠→展开'瞬时事件触发置顶。
   private prevCollapsed: boolean = false;
   private shouldFollowBottom = true;
@@ -398,12 +282,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private boundHandleBodyScroll = (): void => {
     this.shouldFollowBottom = this.isBodyNearBottom();
     this.requestMoreHistoryIfNeeded();
-    this.scheduleAccessPopoverPosition();
-  };
-  private boundSyncFullscreenBounds = (): void => {
-    this.syncFullscreenBounds();
-  };
-  private boundPositionAccessPopover = (): void => {
     this.scheduleAccessPopoverPosition();
   };
   private boundHandleFullscreenKeydown = (event: KeyboardEvent): void => {
@@ -559,55 +437,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
   private boundHandleOutsidePointerDown = (event: PointerEvent): void => {
     this.blurOwnedFocusForOutsidePointer(event);
-  };
-  private boundHandleAccessOutsidePointer = (event: PointerEvent): void => {
-    if (!this.isAccessPopoverOpen) return;
-    const target = event.target as globalThis.Node | null;
-    if (
-      target &&
-      (this.accessPopover.contains(target) ||
-        this.accessButton.contains(target) ||
-        this.externalEmptyFilesButton?.contains(target) ||
-        this.composerRoleIcon.contains(target))
-      )
-      return;
-    this.setAccessPopoverOpen(false);
-    consumeEditorPopoverDismissPointer(event);
-  };
-  private boundHandleCodexSettingsOutsidePointer = (
-    event: PointerEvent,
-  ): void => {
-    if (!this.isCodexSettingsPopoverOpen) return;
-    const target = event.target as globalThis.Node | null;
-    if (
-      target &&
-      (this.codexSettingsPopover.contains(target) ||
-        this.codexSettingsPopoverAnchor?.contains(target))
-      )
-      return;
-    this.setCodexSettingsPopoverOpen(false);
-    consumeEditorPopoverDismissPointer(event);
-  };
-  private boundPositionCodexSettingsPopover = (): void => {
-    this.scheduleCodexSettingsPopoverPosition();
-  };
-  // 独立 outside-click 处理 ── 与 accessPopover 完全独立, 因为现在是
-  // 两套独立的下拉弹窗, 一开一关互不干扰。 同样把 click 目标在
-  // composerRoleIcon / composerRolePopover 内部的情况判作"内部", 不关
-  // 弹窗。
-  private boundHandleComposerRoleOutsidePointer = (
-    event: PointerEvent,
-  ): void => {
-    if (!this.isComposerRolePopoverOpen) return;
-    const target = event.target as globalThis.Node | null;
-    if (
-      target &&
-      (this.composerRolePopover.contains(target) ||
-        this.composerRoleIcon.contains(target))
-      )
-      return;
-    this.setComposerRolePopoverOpen(false);
-    consumeEditorPopoverDismissPointer(event);
   };
   /** 当前 AppLanguage ── NodeView 不在 React 树里, 不能用 useI18n,
    *  走 user-settings-store 读最新值 (跨窗口同步跟 I18nProvider 一致)。 */
@@ -875,15 +704,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       this.t("editor.threadCard.selectRole"),
     );
     this.composerRoleIcon.title = this.t("editor.threadCard.roleIconTooltip");
-    this.composerRoleIcon.addEventListener("click", (event) => {
-      // 与同文件其它 trigger button (accessButton 等) 一致 ── stopPropagation
-      // 阻止冒泡到卡片根 mousedown, 避免卡片被 selected / focus 状态接管,
-      // 同时不让 document 级 outside-click listener 把"打开弹窗"那一下误判
-      // 为 outside 而立即关闭。 boundHandleComposerRoleOutsidePointer 的
-      // allowlist 已包含 this.composerRoleIcon, 见构造函数上方的 handler。
-      event.stopPropagation();
-      this.toggleComposerRolePopover();
-    });
 
     this.input = document.createElement("textarea");
     this.input.rows = 1;
@@ -936,7 +756,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.accessButton.setAttribute("aria-expanded", "false");
     this.accessButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.setAccessPopoverOpen(!this.isAccessPopoverOpen);
+      this.setAccessPopoverOpen(!this.accessPopoverController.isOpen);
     });
 
     this.accessPopover = document.createElement("div");
@@ -951,47 +771,90 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     );
     document.body.appendChild(this.accessPopover);
 
-    this.codexSettingsPopover = document.createElement("div");
-    this.codexSettingsPopover.className =
+    const codexSettingsPopover = document.createElement("div");
+    codexSettingsPopover.className =
       "agent-thread-card__codex-settings-popover";
-    this.codexSettingsPopover.setAttribute("role", "menu");
-    this.codexSettingsPopover.hidden = true;
-    this.codexSettingsPopover.addEventListener("mousedown", (event) =>
+    codexSettingsPopover.setAttribute("role", "menu");
+    codexSettingsPopover.hidden = true;
+    codexSettingsPopover.addEventListener("mousedown", (event) =>
       event.stopPropagation(),
     );
-    this.codexSettingsPopover.addEventListener("click", (event) =>
+    codexSettingsPopover.addEventListener("click", (event) =>
       event.stopPropagation(),
     );
-    document.body.appendChild(this.codexSettingsPopover);
+    document.body.appendChild(codexSettingsPopover);
+    this.externalAgentSettings = new ExternalAgentSettingsController({
+      popover: codexSettingsPopover,
+      getTypeKey: () => this.typeKey,
+      getLanguage: () => this.language,
+      t: (key) => this.t(key),
+      isDestroyed: () => this.isDestroyed,
+      isAccessPopoverOpen: () => this.accessPopoverController.isOpen,
+      setAccessPopoverOpen: (open, anchor = null, preferBelow = false) => {
+        this.setAccessPopoverOpen(open, anchor, preferBelow);
+      },
+      consumeOutsidePointer: consumeEditorPopoverDismissPointer,
+    });
 
     // composerRolePopover ── 角色选择下拉弹窗, 直接挂在 composerRoleIcon
     // button 下方/上方, 不再嵌套在 accessPopover 里。 构造器一次性创建,
     // 挂到 document.body, 后续 renderRoleOptionsList 在它内部 replaceChildren
     // 复用 ── 与 accessPopover 同一套"单例 + replaceChildren"模式, 不
     // 每次重建节点 (避免反复 bind event listener / ResizeObserver)。
-    this.composerRolePopover = document.createElement("div");
-    this.composerRolePopover.className =
+    const composerRolePopover = document.createElement("div");
+    composerRolePopover.className =
       "agent-thread-card__composer-role-popover";
-    this.composerRolePopover.setAttribute("role", "menu");
-    this.composerRolePopover.hidden = true;
+    composerRolePopover.setAttribute("role", "menu");
+    composerRolePopover.hidden = true;
     // 阻止 mousedown / click 冒泡 ── 弹窗内部的点击不应该触发卡片根
     // mousedown 处理 (避免 composer mousedown 把焦点抢到 textarea), 也
     // 不应该冒泡到 outside-click listener 把"选角色"误判为 outside 而
     // 关闭弹窗。 boundHandleComposerRoleOutsidePointer 的 allowlist
     // 已包含 composerRolePopover 自身 ── 内部点击不会被判 outside。
-    this.composerRolePopover.addEventListener("mousedown", (event) =>
+    composerRolePopover.addEventListener("mousedown", (event) =>
       event.stopPropagation(),
     );
-    this.composerRolePopover.addEventListener("click", (event) =>
+    composerRolePopover.addEventListener("click", (event) =>
       event.stopPropagation(),
     );
-    document.body.appendChild(this.composerRolePopover);
-    this.composerRolePopoverController = createAnchoredPopoverController({
-      isOpen: () => this.isComposerRolePopoverOpen,
+    document.body.appendChild(composerRolePopover);
+    this.agentRolePicker = new AgentRolePickerController({
+      trigger: this.composerRoleIcon,
+      popover: composerRolePopover,
+      t: (key) => this.t(key),
       isDestroyed: () => this.isDestroyed,
-      isHidden: () => this.composerRolePopover.hidden,
-      position: () => this.positionComposerRolePopover(),
-      observe: () => [this.composerRoleIcon],
+      getCurrentMemoId: () => this.agentRoleMemoId,
+      getCurrentName: () => this.agentRoleName,
+      getMessageCount: () => this.currentMessages().length,
+      updateRole: (role) => this.updateAgentRole(role),
+      consumeOutsidePointer: consumeEditorPopoverDismissPointer,
+    });
+    this.accessPopoverController = new AccessPopoverController({
+      button: this.accessButton,
+      popover: this.accessPopover,
+      t: (key) => this.t(key),
+      isDestroyed: () => this.isDestroyed,
+      isInsideRelatedTarget: (target) =>
+        !!(
+          this.externalAgentSettings.filesControl?.contains(target) ||
+          this.composerRoleIcon.contains(target)
+      ),
+      consumeOutsidePointer: consumeEditorPopoverDismissPointer,
+    });
+    this.fullscreenLayout = new FullscreenLayoutController({
+      dom: this.dom,
+      isFullscreen: () => this.isFullscreen,
+      isDestroyed: () => this.isDestroyed,
+      getTitlebarHeight: () =>
+        isWindowsPlatform() ? WINDOWS_TITLEBAR_HEIGHT_PX : 0,
+      minExitTopPx: FULLSCREEN_EXIT_FALLBACK_MIN_TOP_PX,
+      maxExitTopPx: FULLSCREEN_EXIT_FALLBACK_MAX_TOP_PX,
+      exitTopRatio: FULLSCREEN_EXIT_FALLBACK_TOP_RATIO,
+      scrollDeltaEpsilonPx: SCROLL_DELTA_EPSILON_PX,
+    });
+    this.composerDraft = new ComposerDraftController({
+      persistDelayMs: AGENT_THREAD_CARD_DRAFT_PERSIST_DEBOUNCE_MS,
+      persist: (draft) => this.updateAttrs({ inputDraft: draft }),
     });
 
     this.sendButtonMount = document.createElement("span");
@@ -1139,7 +1002,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       value,
       AGENT_THREAD_CARD_INPUT_DRAFT_MAX_CHARS,
     );
-    this.oversizedInputDraftDomValue = oversizedDomValue;
+    this.composerDraft.setOversizedValue(oversizedDomValue);
     if (nextDraft === this.inputDraft) return;
     this.scheduleDraftPersist(nextDraft);
   }
@@ -1154,32 +1017,14 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   //   - inputDraft 落盘后才能跨卡片重新挂载时回填, 故 submit / destroy /
   //     blur / 不可见 时必须 flushPendingDraft(), 避免丢稿。
   //   - 落盘前如果 ProseMirror 派发了其它 update(node) (例如新消息到达),
-  //     refreshAttrs 里的 sync 逻辑会因为 draftSnapshot !== null 跳过
+  //     refreshAttrs 不覆写 input.value, 保护用户正在键入的 DOM 内容。
   //     对 input.value 的覆写, 保护用户正在键入的内容。
   private scheduleDraftPersist(nextDraft: string): void {
-    this.draftSnapshot = nextDraft;
-    if (this.draftPersistTimer !== null) {
-      clearTimeout(this.draftPersistTimer);
-    }
-    this.draftPersistTimer = setTimeout(() => {
-      this.draftPersistTimer = null;
-      const snapshot = this.draftSnapshot;
-      this.draftSnapshot = null;
-      if (snapshot === null) return;
-      this.updateAttrs({ inputDraft: snapshot || null });
-    }, AGENT_THREAD_CARD_DRAFT_PERSIST_DEBOUNCE_MS);
+    this.composerDraft.schedule(nextDraft);
   }
 
   private flushPendingDraft(): void {
-    if (this.draftPersistTimer === null) return;
-    clearTimeout(this.draftPersistTimer);
-    this.draftPersistTimer = null;
-    const snapshot = this.draftSnapshot;
-    this.draftSnapshot = null;
-    if (snapshot === null) return;
-    // 直接走 ProseMirror 事务 (不再次 scheduleDraftPersist) ── 否则会
-    // 形成 schedule 链, 永远延后。
-    this.updateAttrs({ inputDraft: snapshot || null });
+    this.composerDraft.flush();
   }
 
   private consumeInitialPrompt(): string | null {
@@ -1207,102 +1052,119 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private subscribe(): void {
-    let previousThreadId = this.renderThreadId;
-    let previousThreadState = this.currentThreadState();
-    let previousResolvedSessionId = this.runtimeThreadId
-      ? useChatStore.getState().externalSessionResolutions[this.runtimeThreadId]
-      : undefined;
-    let previousPermissionMode = useChatStore.getState().agentPermissionMode;
-    let previousCodexModel = useChatStore.getState().agentCodexModel;
-    let previousCodexReasoningEffort =
-      useChatStore.getState().agentCodexReasoningEffort;
-    this.unsubscribe = useChatStore.subscribe((state) => {
-      const threadId = this.runtimeThreadId;
-      const renderThreadId = this.renderThreadId;
-      const storedThreadId = (this.node.attrs.threadId as string | null) || null;
-      const nextThreadState = renderThreadId
-        ? state.threadStates[renderThreadId]
-        : undefined;
-      const resolvedSessionId =
-        getResolvedExternalSessionId(threadId) ??
-        getResolvedExternalSessionId(storedThreadId);
-      const localThreadId =
-        threadId && isLocalExternalThreadId(threadId, this.typeKey)
-          ? threadId
-          : storedThreadId && isLocalExternalThreadId(storedThreadId, this.typeKey)
-            ? storedThreadId
-            : null;
-      const threadChanged =
-        renderThreadId !== previousThreadId ||
-        nextThreadState !== previousThreadState ||
-        resolvedSessionId !== previousResolvedSessionId;
-      const settingsChanged =
-        state.agentPermissionMode !== previousPermissionMode ||
-        state.agentCodexModel !== previousCodexModel ||
-        state.agentCodexReasoningEffort !== previousCodexReasoningEffort;
-      if (!threadChanged && !settingsChanged) return;
-      previousThreadId = renderThreadId;
-      previousThreadState = nextThreadState;
-      previousResolvedSessionId = resolvedSessionId;
-      previousPermissionMode = state.agentPermissionMode;
-      previousCodexModel = state.agentCodexModel;
-      previousCodexReasoningEffort = state.agentCodexReasoningEffort;
-      if (settingsChanged) {
-        this.refreshExternalAgentEmptySettings();
-        if (this.isCodexSettingsPopoverOpen) this.renderCodexSettingsPopover();
-      }
-      if (threadChanged) this.renderThreadState();
-      if (
-        threadChanged &&
-        (this.typeKey === "codex" || this.typeKey === "claude") &&
-        !!localThreadId &&
-        resolvedSessionId
-      ) {
-        this.applyResolvedExternalSessionId(
-          localThreadId,
+    const unsubscribeThread = useChatStore.subscribe(
+      (state) => {
+        const threadId = this.runtimeThreadId;
+        const renderThreadId = this.renderThreadId;
+        const storedThreadId =
+          (this.node.attrs.threadId as string | null) || null;
+        const resolvedSessionId =
+          getResolvedExternalSessionId(threadId) ??
+          getResolvedExternalSessionId(storedThreadId);
+        const localThreadId =
+          threadId && isLocalExternalThreadId(threadId, this.typeKey)
+            ? threadId
+            : storedThreadId &&
+                isLocalExternalThreadId(storedThreadId, this.typeKey)
+              ? storedThreadId
+              : null;
+        return {
+          threadId,
+          renderThreadId,
+          nextThreadState: renderThreadId
+            ? state.threadStates[renderThreadId]
+            : undefined,
           resolvedSessionId,
-          this.typeKey,
-        );
-      } else if (
-        threadChanged &&
-        (this.typeKey === "codex" || this.typeKey === "claude") &&
-        !!threadId &&
-        isLocalExternalThreadId(threadId, this.typeKey) &&
-        nextThreadState &&
-        !nextThreadState.isLoading &&
-        !nextThreadState.activeRunId
-      ) {
-        void resolveExternalSessionId(threadId, this.typeKey).then(
-          (sessionId) => {
-            if (sessionId && sessionId !== threadId) {
-              this.applyResolvedExternalSessionId(
-                threadId,
-                sessionId,
-                this.typeKey,
-              );
-            }
-          },
-        );
-      }
-    });
-    let previousConversationInstance = this.instance;
-    let previousConversationMessageState = this.currentConversationMessageState();
-    this.unsubscribeConversation = useAgentConversationStore.subscribe((state) => {
-      const instanceId = this.instanceId;
-      const threadId = this.renderThreadId;
-      const nextInstance = instanceId ? state.instances[instanceId] : undefined;
-      const nextMessageState = threadId
-        ? state.messageStates[threadId]
-        : undefined;
-      const instanceChanged = nextInstance !== previousConversationInstance;
-      const messagesChanged =
-        nextMessageState !== previousConversationMessageState;
-      if (!instanceChanged && !messagesChanged) return;
-      previousConversationInstance = nextInstance ?? null;
-      previousConversationMessageState = nextMessageState ?? null;
-      if (instanceChanged) this.refreshAttrs();
-      this.renderThreadState();
-    });
+          localThreadId,
+        };
+      },
+      (next) => {
+        this.renderThreadState();
+        if (
+          (this.typeKey === "codex" || this.typeKey === "claude") &&
+          next.localThreadId &&
+          next.resolvedSessionId
+        ) {
+          this.applyResolvedExternalSessionId(
+            next.localThreadId,
+            next.resolvedSessionId,
+            this.typeKey,
+          );
+        } else if (
+          (this.typeKey === "codex" || this.typeKey === "claude") &&
+          next.threadId &&
+          isLocalExternalThreadId(next.threadId, this.typeKey) &&
+          next.nextThreadState &&
+          !next.nextThreadState.isLoading &&
+          !next.nextThreadState.activeRunId
+        ) {
+          const localThreadId = next.threadId;
+          void resolveExternalSessionId(localThreadId, this.typeKey).then(
+            (sessionId) => {
+              if (sessionId && sessionId !== localThreadId) {
+                this.applyResolvedExternalSessionId(
+                  localThreadId,
+                  sessionId,
+                  this.typeKey,
+                );
+              }
+            },
+          );
+        }
+      },
+      {
+        equalityFn: (a, b) =>
+          a.threadId === b.threadId &&
+          a.renderThreadId === b.renderThreadId &&
+          a.nextThreadState === b.nextThreadState &&
+          a.resolvedSessionId === b.resolvedSessionId &&
+          a.localThreadId === b.localThreadId,
+      },
+    );
+
+    const unsubscribeSettings = useChatStore.subscribe(
+      (state) => ({
+        agentPermissionMode: state.agentPermissionMode,
+        agentCodexModel: state.agentCodexModel,
+        agentCodexReasoningEffort: state.agentCodexReasoningEffort,
+      }),
+      () => {
+        this.refreshExternalAgentEmptySettings();
+        if (this.externalAgentSettings.isOpen) {
+          this.renderCodexSettingsPopover();
+        }
+      },
+      {
+        equalityFn: (a, b) =>
+          a.agentPermissionMode === b.agentPermissionMode &&
+          a.agentCodexModel === b.agentCodexModel &&
+          a.agentCodexReasoningEffort === b.agentCodexReasoningEffort,
+      },
+    );
+
+    this.unsubscribe = () => {
+      unsubscribeThread();
+      unsubscribeSettings();
+    };
+
+    this.unsubscribeConversation = useAgentConversationStore.subscribe(
+      (state) => {
+        const instanceId = this.instanceId;
+        const threadId = this.renderThreadId;
+        return {
+          instance: instanceId ? state.instances[instanceId] : undefined,
+          messageState: threadId ? state.messageStates[threadId] : undefined,
+        };
+      },
+      (next, previous) => {
+        if (next.instance !== previous.instance) this.refreshAttrs();
+        this.renderThreadState();
+      },
+      {
+        equalityFn: (a, b) =>
+          a.instance === b.instance && a.messageState === b.messageState,
+      },
+    );
   }
 
   private subscribeAccessPopover(): void {
@@ -1310,65 +1172,18 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       // agent-access 状态变化 (toggle / setWorkspace / addFolder /
       // removeFolder / loadInitial) 都可能改变主空间指向, 同步刷新 label。
       this.refreshExternalAgentEmptySettings();
-      if (this.isAccessPopoverOpen) this.renderAccessPopover();
+      if (this.accessPopoverController.isOpen) this.renderAccessPopover();
     });
     this.unsubscribeRuntime = useAgentRuntimeStore.subscribe(() => {
       this.syncAgentRuntimeBadge();
     });
     this.unsubscribeNotebooks = useMemoStore.subscribe(() => {
-      if (this.isAccessPopoverOpen) this.renderAccessPopover();
+      if (this.accessPopoverController.isOpen) this.renderAccessPopover();
     });
   }
 
   private loadCodexDefaultModel(): void {
-    const typeKey = this.typeKey;
-    void agent
-      .getCodexDefaultModel()
-      .then((model) => {
-        if (this.isDestroyed) return;
-        this.codexDefaultModel = model.trim();
-        this.refreshExternalAgentEmptySettings();
-        if (
-          this.isCodexSettingsPopoverOpen &&
-          this.codexSettingsPopoverKind === "model"
-        ) {
-          this.renderCodexSettingsPopover();
-          this.scheduleCodexSettingsPopoverPosition();
-        }
-      })
-      .catch(() => {
-        // Keep the generic default label when Codex has no configured default.
-      });
-
-    void agent
-      .listSupportedModels(typeKey)
-      .then((models) => {
-        if (this.isDestroyed || this.typeKey !== typeKey) return;
-        const seen = new Set<string>();
-        this.localSupportedModelsTypeKey = typeKey;
-        this.localSupportedModels = models
-          .map((model) => model.trim())
-          .filter((model) => model.length > 0)
-          .filter((model) => {
-            if (seen.has(model)) return false;
-            seen.add(model);
-            return true;
-          })
-          .map((model) => ({ id: model, label: model }));
-        this.refreshExternalAgentEmptySettings();
-        if (
-          this.isCodexSettingsPopoverOpen &&
-          this.codexSettingsPopoverKind === "model"
-        ) {
-          this.renderCodexSettingsPopover();
-          this.scheduleCodexSettingsPopoverPosition();
-        }
-      })
-      .catch(() => {
-        if (this.isDestroyed || this.typeKey !== typeKey) return;
-        this.localSupportedModelsTypeKey = typeKey;
-        this.localSupportedModels = [];
-      });
+    this.externalAgentSettings.loadDefaultModel();
   }
 
   private setAccessPopoverOpen(
@@ -1376,391 +1191,19 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     anchor: HTMLElement | null = null,
     preferBelow = false,
   ): void {
-    if (this.isAccessPopoverOpen === open) return;
-    this.isAccessPopoverOpen = open;
-    this.accessPopoverAnchor = open ? (anchor ?? this.accessButton) : null;
-    this.accessPopoverPreferBelow = open && preferBelow;
-    this.accessPopover.hidden = !open;
-    this.accessButton.setAttribute("aria-expanded", open ? "true" : "false");
-    this.accessButton.classList.toggle(
-      "agent-thread-card__access-trigger--open",
-      open,
-    );
-
-    if (open) {
-      const accessState = useAgentAccessStore.getState();
-      const memoState = useMemoStore.getState();
-      if (!accessState.isLoading && accessState.config.entries.length === 0) {
-        void accessState.loadInitial();
-      }
-      if (memoState.notebooks.length === 0) {
-        void memoState.loadNotebooks().catch(() => {});
-      }
-      this.renderAccessPopover();
-      this.scheduleAccessPopoverPosition();
-      this.startAccessPopoverPositionTracking();
-      document.addEventListener(
-        "pointerdown",
-        this.boundHandleAccessOutsidePointer,
-        true,
-      );
-    } else {
-      // 之前"关闭主弹窗时同时关闭二级弹窗 (typeSettingsPopover)"的逻辑
-      // 已删除 ── role popover 现在是独立的 composerRolePopover, 与
-      // accessPopover 完全解耦, 不再跟随主弹窗一起关。 用户可以在
-      // accessPopover 关闭后仍打开 role popover, 反之亦然。
-      this.stopAccessPopoverPositionTracking();
-      document.removeEventListener(
-        "pointerdown",
-        this.boundHandleAccessOutsidePointer,
-        true,
-      );
-      // 拆掉 overlay scrollbar 的 scroll/resize/pointer 监听 ── 弹窗
-      // 关闭后 thumb 不再使用, 留着 listener 只占内存 (pointer capture
-      // 还可能跨打开/关闭边界残留 state)。 下次打开会重新 attach。
-      this.detachAccessPopoverScrollbar?.();
-      this.detachAccessPopoverScrollbar = null;
-    }
+    this.accessPopoverController.setOpen(open, anchor, preferBelow);
   }
 
   private renderAccessPopover(): void {
-    const { config, isLoading, toggle, addFolderFromPicker, removeFolder } =
-      useAgentAccessStore.getState();
-    const { notebooks } = useMemoStore.getState();
-    const notebookEntries = config.entries.filter(
-      (entry) => entry.kind === "notebook",
-    );
-    const folderEntries = config.entries.filter(
-      (entry) => entry.kind === "folder",
-    );
-
-    this.accessPopover.replaceChildren();
-
-    // ── DOM 结构 ──
-    // outer access-popover (fixed, overflow visible) 包一层:
-    //   .overlay-scrollbar-frame           ── 滚动容器外壳 (relative,
-    //     overflow hidden), 装 thumb 元素
-    //   .access-popover-scroll             ── 内部真实滚动元素 (overflow
-    //     auto + 隐藏原生滚动条), 装整个内容
-    //     - notebook 列表 (或 folder 列表, 顺序见下)
-    //     - 分隔线 (两边都有时才画)
-    //     - folder 列表 (或 notebook 列表, 顺序见下)
-    //     - 末尾的"添加资料夹"按钮
-    //   .overlay-scrollbar-thumb           ── 自定义 thumb, 走 mention
-    //     下拉同源的 `html[data-platform="non-mac"] .overlay-scrollbar-*`
-    //     样式; attachAccessPopoverScrollbar 同步 thumb 位置 + 处理拖动
-    //
-    // 顺序 ── folder (自定义资料夹) 在 notebook 之上。 folder 是用户主动
-    // 添加的工作目录 (本次会话粒度, 上下文重要), notebook 是静态资产
-    // (默认启用, 重要但权重低)。 把 folder 放上面, 用户打开弹窗第一眼
-    // 看到的是"这次会话能访问什么文件", 而不是"所有笔记本"。
-    //
-    // 之前顺序是 notebook → folder, 现在改成 folder → notebook; folder
-    // 为空时 (常见) 只显示 notebook section, 视觉与原顺序无差。
-    //
-    // 角色选择入口已从 accessPopover 移除 ── 改为左侧 composerRoleIcon
-    // button → 独立的 composerRolePopover 单级下拉。
-    const scrollFrame = document.createElement("div");
-    scrollFrame.className = "overlay-scrollbar-frame";
-    this.accessPopover.append(scrollFrame);
-
-    const scrollWrap = document.createElement("div");
-    scrollWrap.className =
-      "agent-thread-card__access-popover-scroll overlay-scrollbar";
-    scrollFrame.append(scrollWrap);
-
-    const thumb = document.createElement("div");
-    thumb.className = "overlay-scrollbar-thumb";
-    thumb.setAttribute("aria-hidden", "true");
-    scrollFrame.append(thumb);
-
-    // "添加资料夹"按钮 ── footerWrap 总是创建, 挂载位置按场景分:
-    //   - folderEntries.length > 0 ── 紧贴最后一个 folder row (folder
-    //     section 末尾), 视觉上属于 folder section, 用户翻到 notebook
-    //     之前就能看到, 表达"按钮是给 folder 列表用的"。
-    //   - folderEntries.length === 0 (含纯 notebook / 纯 empty 两个
-    //     子情况) ── 没有 folder section 可"末尾", fallback 到
-    //     scrollWrap 末尾, 仍可见可用, 用户可加第一个 folder。
-    //
-    // 视觉与左栏笔记本列表「+ 新建」同源 ── 24×24 圆角图标容器包 14px
-    // Plus 图标 + 单行文字左对齐。 结构:
-    //   [icon-wrap(24×24) → Plus(14×14)] [label(单行截断)]
-    //
-    // footerWrap 用一个 div 包 button ── 给一点上方的呼吸空间
-    // (margin-top) + 让 button 在 scroll 内与 row 风格区分 (透明的
-    // 容器, 不是 row)。
-    const footerWrap = document.createElement("div");
-    footerWrap.className = "agent-thread-card__access-popover-footer";
-
-    if (notebookEntries.length === 0 && folderEntries.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "agent-thread-card__access-empty";
-      empty.textContent = isLoading
-        ? this.t("agent.access.empty.loading")
-        : this.t("agent.access.empty.empty");
-      scrollWrap.append(empty);
-      // empty 态: 按钮 fallback 到 scrollWrap 末尾, 让用户在加载未完成
-      // 或全部清空时仍能点"添加资料夹"。
-      scrollWrap.append(footerWrap);
-    } else {
-      // folder 在上 (本次会话的临时工作目录, 优先级高)
-      if (folderEntries.length > 0) {
-        scrollWrap.append(
-          createAccessSectionLabel(this.t("agent.access.sectionFolder")),
-        );
-        folderEntries.forEach((entry) => {
-          scrollWrap.append(
-            createAccessEntryRow({
-              entry,
-              notebooks,
-              t: (key) => this.t(key as I18nKey),
-              toggle,
-              removeFolder,
-            }),
-          );
-        });
-        // 按钮紧贴最后一个 folder row (见上方注释) ── 视觉上属于 folder
-        // section。 之前放在 scrollWrap 末尾 (notebook 之后) ── 与
-        // folder 语义割裂, 用户得翻过整个 notebook section 才能找到
-        // "加一个"。
-        scrollWrap.append(footerWrap);
-      }
-      if (notebookEntries.length > 0 && folderEntries.length > 0) {
-        scrollWrap.append(createAccessDivider());
-      }
-      // notebook 在下 (静态资产, 默认集合)
-      if (notebookEntries.length > 0) {
-        scrollWrap.append(
-          createAccessSectionLabel(this.t("agent.access.sectionNotebook")),
-        );
-        notebookEntries.forEach((entry) => {
-          scrollWrap.append(
-            createAccessEntryRow({
-              entry,
-              notebooks,
-              t: (key) => this.t(key as I18nKey),
-              toggle,
-              removeFolder,
-            }),
-          );
-        });
-        // folderEntries === 0 (只显示 notebook) ── 没有 folder section
-        // 可挂, fallback 到 scrollWrap 末尾。
-        if (folderEntries.length === 0) {
-          scrollWrap.append(footerWrap);
-        }
-      }
-    }
-
-    const addButton = document.createElement("button");
-    addButton.type = "button";
-    addButton.className = "agent-thread-card__access-add";
-    const addIconWrap = document.createElement("span");
-    addIconWrap.className = "agent-thread-card__access-add-icon-wrap";
-    addIconWrap.append(createPlusIcon());
-    const addLabel = document.createElement("span");
-    addLabel.className = "agent-thread-card__access-add-label";
-    addLabel.textContent = this.t("agent.access.addFolder");
-    addButton.append(addIconWrap, addLabel);
-    addButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      void addFolderFromPicker().then((result) => {
-        if (!result.ok && result.code !== "not-selected") {
-          console.error(`addFolderFromPicker error: ${result.code}`);
-        }
-      });
-    });
-    footerWrap.append(addButton);
-
-    // 重渲时拆掉上一次绑的滚动条监听 (renderAccessPopover 会被 store
-    // subscribe 调用多次, 每次都新建 DOM + 重连), 否则会泄漏 listener
-    // ── 每多渲染一次就多挂一份 scroll/resize/pointer 监听, 旧 DOM
-    // 节点被 replaceChildren 丢出 DOM 树但 listener 还在, GC 不到。
-    this.detachAccessPopoverScrollbar?.();
-    this.detachAccessPopoverScrollbar =
-      attachAccessPopoverScrollbar(scrollWrap);
-
-    this.scheduleAccessPopoverPosition();
-  }
-
-  private getPermissionLabel(id: AgentPermissionMode): string {
-    const options = this.getAccessOptionsForType();
-    return (
-      options.find((option) => option.id === id)?.label ?? options[0].label
-    );
-  }
-
-  private getAccessOptionsForType(): readonly {
-    id: AgentPermissionMode;
-    label: string;
-  }[] {
-    return getAgentAccessOptions(this.typeKey);
-  }
-
-  private getCodexModelOptions(): AgentModelOption[] {
-    const inheritLabel = this.codexDefaultModel
-      ? translate(this.language, "agent.codexModel.defaultWith", {
-          model: this.codexDefaultModel,
-        })
-      : this.t("agent.codexModel.default");
-    const agentCodexModel = useChatStore.getState().agentCodexModel;
-    const localOptions =
-      this.localSupportedModelsTypeKey === this.typeKey
-        ? this.localSupportedModels
-        : [];
-    const modelOptions =
-      localOptions.length > 0 ? localOptions : CODEX_MODEL_OPTIONS;
-    const options: AgentModelOption[] = [
-      { id: "inherit", label: inheritLabel },
-      ...modelOptions,
-    ];
-    if (
-      agentCodexModel !== "inherit" &&
-      !options.some((option) => option.id === agentCodexModel)
-    ) {
-      options.push({ id: agentCodexModel, label: agentCodexModel });
-    }
-    return options;
-  }
-
-  private getCurrentCodexModelLabel(): string {
-    const model = useChatStore.getState().agentCodexModel;
-    return (
-      this.getCodexModelOptions().find((option) => option.id === model)
-        ?.label ?? this.t("agent.codexModel.default")
-    );
-  }
-
-  private getCurrentCodexReasoningLabel(): string {
-    const effort = useChatStore.getState().agentCodexReasoningEffort;
-    return (
-      CODEX_REASONING_OPTIONS.find((option) => option.id === effort)?.label ??
-      "Medium"
-    );
-  }
-
-  private getCurrentPermissionLabel(): string {
-    return this.getPermissionLabel(useChatStore.getState().agentPermissionMode);
-  }
-
-  private getFilesControlLabel(): string {
-    // 按钮 value 从「已启用的可访问文件夹数量」改为「主工作空间 (主空间) 的
-    // 末尾文件夹名称」。 主工作空间是 agent-access 配置里 `workspace=true`
-    // 那一条 (由 `normalizeWorkspaceSelection` 自动把第一个启用的 folder
-    // 标记为主空间, 用户也可手动 `setWorkspace` 切换) ── 这才是 Flowix 里
-    // "工作空间"的真源, 跟当前打开的 memo 所属笔记本不一定一致 (笔记本是
-    // 静态资产, 主空间是用户在 agent access 配置里选的主目录)。
-    //
-    // 取名口径: entry.name (用户加 folder 时给的别名 / 默认末段) 优先;
-    // name 为空时从 path 末段兜底。 都没拿到才回落空态文案。
-    const workspaceEntry = useAgentAccessStore
-      .getState()
-      .config.entries.find(
-        (entry) => entry.workspace && !entry.missing,
-      );
-    if (!workspaceEntry) return this.t("agent.access.empty.empty");
-    const explicitName = workspaceEntry.name?.trim();
-    if (explicitName) return explicitName;
-    const segments = workspaceEntry.path.split(/[\\/]+/).filter(Boolean);
-    const folderName = segments[segments.length - 1]?.trim();
-    return folderName ? folderName : this.t("agent.access.empty.empty");
-  }
-
-  private createExternalAgentEmptyControl(
-    kind: ExternalAgentEmptyControlKind,
-    label: string,
-    value: string,
-  ): HTMLButtonElement {
-    return createExternalAgentEmptyControl(kind, label, value, (nextKind, button) => {
-      if (nextKind === "files") {
-        this.setCodexSettingsPopoverOpen(false);
-        this.setAccessPopoverOpen(!this.isAccessPopoverOpen, button, true);
-        return;
-      }
-      this.setAccessPopoverOpen(false);
-      this.toggleCodexSettingsPopover(nextKind, button);
-    });
-  }
-
-  private supportsRuntimeSetting(
-    kind: AgentRuntimeSettingKind,
-  ): boolean {
-    return supportsAgentRuntimeSetting(this.typeKey, kind);
+    this.accessPopoverController.render();
   }
 
   private createExternalAgentEmptySettings(): HTMLElement {
-    const empty = document.createElement("div");
-    empty.className =
-      "agent-thread-card__empty agent-thread-card__empty--codex-settings";
-
-    this.externalEmptyModelButton = this.supportsRuntimeSetting("model")
-      ? this.createExternalAgentEmptyControl(
-          "model",
-          this.t("agent.model.title"),
-          this.getCurrentCodexModelLabel(),
-        )
-      : null;
-    this.externalEmptyReasoningButton = null;
-    this.externalEmptyPermissionButton =
-      this.supportsRuntimeSetting("permission")
-        ? this.createExternalAgentEmptyControl(
-            "permission",
-            this.t("agent.permission.title"),
-            this.getCurrentPermissionLabel(),
-          )
-        : null;
-    this.externalEmptyFilesButton = this.createExternalAgentEmptyControl(
-      "files",
-      this.t("agent.files.title"),
-      this.getFilesControlLabel(),
-    );
-
-    for (const button of [
-      this.externalEmptyModelButton,
-      this.externalEmptyReasoningButton,
-      this.externalEmptyPermissionButton,
-      this.externalEmptyFilesButton,
-    ]) {
-      if (button) empty.append(button);
-    }
-    return empty;
+    return this.externalAgentSettings.createEmptySettings();
   }
 
   private refreshExternalAgentEmptySettings(): void {
-    this.updateExternalAgentEmptyControl(
-      this.externalEmptyModelButton,
-      this.getCurrentCodexModelLabel(),
-    );
-    this.updateExternalAgentEmptyControl(
-      this.externalEmptyPermissionButton,
-      this.getCurrentPermissionLabel(),
-    );
-    this.updateExternalAgentEmptyControl(
-      this.externalEmptyReasoningButton,
-      this.getCurrentCodexReasoningLabel(),
-    );
-    this.updateExternalAgentEmptyControl(
-      this.externalEmptyFilesButton,
-      this.getFilesControlLabel(),
-    );
-  }
-
-  private updateExternalAgentEmptyControl(
-    button: HTMLButtonElement | null,
-    value: string,
-  ): void {
-    updateExternalAgentEmptyControl(button, value);
-  }
-
-  private toggleCodexSettingsPopover(
-    kind: AgentRuntimeSettingKind,
-    anchor: HTMLButtonElement,
-  ): void {
-    const sameMenuOpen =
-      this.isCodexSettingsPopoverOpen &&
-      this.codexSettingsPopoverKind === kind &&
-      this.codexSettingsPopoverAnchor === anchor;
-    this.setCodexSettingsPopoverOpen(!sameMenuOpen, kind, anchor);
+    this.externalAgentSettings.refreshEmptySettings();
   }
 
   private setCodexSettingsPopoverOpen(
@@ -1768,244 +1211,11 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     kind: AgentRuntimeSettingKind | null = null,
     anchor: HTMLButtonElement | null = null,
   ): void {
-    if (
-      this.isCodexSettingsPopoverOpen === open &&
-      (!open || this.codexSettingsPopoverKind === kind)
-    )
-      return;
-    this.isCodexSettingsPopoverOpen = open;
-    this.codexSettingsPopoverKind = open ? kind : null;
-    this.codexSettingsPopoverAnchor = open ? anchor : null;
-    this.codexSettingsPopover.hidden = !open;
-    this.externalEmptyModelButton?.setAttribute(
-      "aria-expanded",
-      open && kind === "model" ? "true" : "false",
-    );
-    this.externalEmptyPermissionButton?.setAttribute(
-      "aria-expanded",
-      open && kind === "permission" ? "true" : "false",
-    );
-    this.externalEmptyReasoningButton?.setAttribute(
-      "aria-expanded",
-      open && kind === "reasoning" ? "true" : "false",
-    );
-    this.externalEmptyModelButton?.classList.toggle(
-      "agent-thread-card__empty-control--open",
-      open && kind === "model",
-    );
-    this.externalEmptyPermissionButton?.classList.toggle(
-      "agent-thread-card__empty-control--open",
-      open && kind === "permission",
-    );
-    this.externalEmptyReasoningButton?.classList.toggle(
-      "agent-thread-card__empty-control--open",
-      open && kind === "reasoning",
-    );
-
-    if (open && kind && anchor) {
-      this.renderCodexSettingsPopover();
-      this.scheduleCodexSettingsPopoverPosition();
-      this.startCodexSettingsPopoverPositionTracking();
-      document.addEventListener(
-        "pointerdown",
-        this.boundHandleCodexSettingsOutsidePointer,
-        true,
-      );
-    } else {
-      this.stopCodexSettingsPopoverPositionTracking();
-      document.removeEventListener(
-        "pointerdown",
-        this.boundHandleCodexSettingsOutsidePointer,
-        true,
-      );
-    }
+    this.externalAgentSettings.setSettingsPopoverOpen(open, kind, anchor);
   }
 
   private renderCodexSettingsPopover(): void {
-    const kind = this.codexSettingsPopoverKind;
-    this.codexSettingsPopover.replaceChildren();
-    if (!kind) return;
-    if (!this.supportsRuntimeSetting(kind)) return;
-
-    if (kind !== "model") {
-      const title = document.createElement("div");
-      title.className = "agent-thread-card__codex-settings-title";
-      title.textContent = this.t(kind === "reasoning" ? "agent.reasoning.title" : "agent.permission.title");
-      this.codexSettingsPopover.append(title);
-    }
-
-    if (kind === "model") {
-      const modelSection = document.createElement("div");
-      modelSection.className = "agent-thread-card__codex-settings-section";
-      modelSection.textContent = this.t("agent.model.title");
-      this.codexSettingsPopover.append(modelSection);
-
-      const current = useChatStore.getState().agentCodexModel;
-      this.getCodexModelOptions().forEach((option) => {
-        this.codexSettingsPopover.append(
-          createCodexSettingsItem(
-            option.label,
-            option.id === current,
-            () => {
-              useChatStore.getState().setAgentCodexModel(option.id);
-              this.setCodexSettingsPopoverOpen(false);
-            },
-          ),
-        );
-      });
-
-      const divider = document.createElement("hr");
-      divider.className = "agent-thread-card__codex-settings-divider";
-      this.codexSettingsPopover.append(divider);
-
-      const reasoningSection = document.createElement("div");
-      reasoningSection.className = "agent-thread-card__codex-settings-section";
-      reasoningSection.textContent = this.t("agent.reasoningDepth.title");
-      this.codexSettingsPopover.append(reasoningSection);
-
-      const reasoning = useChatStore.getState().agentCodexReasoningEffort;
-      CODEX_REASONING_OPTIONS.forEach((option) => {
-        this.codexSettingsPopover.append(
-          createCodexSettingsItem(
-            option.label,
-            option.id === reasoning,
-            () => {
-              useChatStore.getState().setAgentCodexReasoningEffort(option.id);
-              this.setCodexSettingsPopoverOpen(false);
-            },
-          ),
-        );
-      });
-      return;
-    }
-
-    if (kind === "reasoning") {
-      const current = useChatStore.getState().agentCodexReasoningEffort;
-      CODEX_REASONING_OPTIONS.forEach((option) => {
-        this.codexSettingsPopover.append(
-          createCodexSettingsItem(
-            option.label,
-            option.id === current,
-            () => {
-              useChatStore.getState().setAgentCodexReasoningEffort(option.id);
-              this.setCodexSettingsPopoverOpen(false);
-            },
-          ),
-        );
-      });
-      return;
-    }
-
-    const current = useChatStore.getState().agentPermissionMode;
-    this.getAccessOptionsForType().forEach((option) => {
-      this.codexSettingsPopover.append(
-        createCodexSettingsItem(
-          option.label,
-          option.id === current,
-          () => {
-            useChatStore.getState().setAgentPermissionMode(option.id);
-            this.setCodexSettingsPopoverOpen(false);
-          },
-        ),
-      );
-    });
-  }
-
-  private startCodexSettingsPopoverPositionTracking(): void {
-    window.addEventListener("resize", this.boundPositionCodexSettingsPopover);
-    window.addEventListener(
-      "scroll",
-      this.boundPositionCodexSettingsPopover,
-      true,
-    );
-    if ("ResizeObserver" in window && this.codexSettingsPopoverAnchor) {
-      this.codexSettingsPopoverResizeObserver?.disconnect();
-      this.codexSettingsPopoverResizeObserver = new ResizeObserver(() => {
-        this.scheduleCodexSettingsPopoverPosition();
-      });
-      this.codexSettingsPopoverResizeObserver.observe(
-        this.codexSettingsPopoverAnchor,
-      );
-      this.codexSettingsPopoverResizeObserver.observe(
-        this.codexSettingsPopover,
-      );
-    }
-  }
-
-  private stopCodexSettingsPopoverPositionTracking(): void {
-    window.removeEventListener(
-      "resize",
-      this.boundPositionCodexSettingsPopover,
-    );
-    window.removeEventListener(
-      "scroll",
-      this.boundPositionCodexSettingsPopover,
-      true,
-    );
-    this.codexSettingsPopoverResizeObserver?.disconnect();
-    this.codexSettingsPopoverResizeObserver = null;
-    if (this.codexSettingsPopoverPositionFrame !== null) {
-      window.cancelAnimationFrame(this.codexSettingsPopoverPositionFrame);
-      this.codexSettingsPopoverPositionFrame = null;
-    }
-  }
-
-  private scheduleCodexSettingsPopoverPosition(): void {
-    if (
-      !this.isCodexSettingsPopoverOpen ||
-      this.codexSettingsPopover.hidden ||
-      this.isDestroyed
-    )
-      return;
-    if (this.codexSettingsPopoverPositionFrame !== null) return;
-    this.codexSettingsPopoverPositionFrame = window.requestAnimationFrame(
-      () => {
-        this.codexSettingsPopoverPositionFrame = null;
-        this.positionCodexSettingsPopover();
-      },
-    );
-  }
-
-  private positionCodexSettingsPopover(): void {
-    const anchor = this.codexSettingsPopoverAnchor;
-    if (
-      !this.isCodexSettingsPopoverOpen ||
-      this.codexSettingsPopover.hidden ||
-      !anchor ||
-      this.isDestroyed
-    )
-      return;
-    if (!anchor.isConnected || !this.codexSettingsPopover.isConnected) {
-      this.setCodexSettingsPopoverOpen(false);
-      return;
-    }
-
-    const anchorRect = anchor.getBoundingClientRect();
-    const padding = CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const popoverRect = this.codexSettingsPopover.getBoundingClientRect();
-    const popoverWidth = popoverRect.width || CODEX_SETTINGS_POPOVER_WIDTH_PX;
-    const popoverHeight = Math.min(
-      popoverRect.height || CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX,
-      CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX,
-    );
-    applyPopoverPosition(
-      this.codexSettingsPopover,
-      calculateAnchoredPopoverPosition({
-        anchorRect,
-        popoverWidth,
-        popoverHeight,
-        viewportWidth,
-        viewportHeight,
-        padding,
-        offset: CODEX_SETTINGS_POPOVER_OFFSET_PX,
-      }),
-    );
-  }
-
-  private getAgentRoleOptions(): AgentRoleOption[] {
-    return this.agentRoleOptions ?? fallbackAgentRoleOptionsFromStore();
+    this.externalAgentSettings.renderPopover();
   }
 
   private updateAgentRole(role: { memoId: string; name: string }): void {
@@ -2021,499 +1231,20 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     });
   }
 
-  private loadAgentRoleOptions(): void {
-    if (this.isLoadingAgentRoleOptions) return;
-    if (this.agentRoleOptions === null) {
-      this.agentRoleOptions = fallbackAgentRoleOptionsFromStore();
-    }
-    const requestSeq = ++this.agentRoleOptionsRequestSeq;
-    this.isLoadingAgentRoleOptions = true;
-    void listAgentRoleMemosWithTimeout()
-      .then((items) => {
-        if (this.isDestroyed || requestSeq !== this.agentRoleOptionsRequestSeq)
-          return;
-        this.agentRoleOptions = items.map((item) => ({
-          memoId: item.memoId,
-          name: item.roleName,
-          filename: item.filename,
-          memoIcon: item.memoIcon,
-          notebookId: item.notebookId,
-          notebookName: item.notebookName,
-          notebookIcon: item.notebookIcon,
-        }));
-      })
-      .catch((error) => {
-        console.error(
-          "[AgentThreadCard] Failed to load agent-role memos:",
-          error,
-        );
-        if (
-          !this.isDestroyed &&
-          requestSeq === this.agentRoleOptionsRequestSeq
-        ) {
-          this.agentRoleOptions = fallbackAgentRoleOptionsFromStore();
-        }
-      })
-      .finally(() => {
-        if (this.isDestroyed || requestSeq !== this.agentRoleOptionsRequestSeq)
-          return;
-        this.isLoadingAgentRoleOptions = false;
-        this.refreshComposerRoleIcon();
-        if (
-          this.isComposerRolePopoverOpen &&
-          !this.composerRolePopover.hidden
-        ) {
-          this.renderRoleOptionsList(this.composerRolePopover);
-          this.scheduleComposerRolePopoverPosition();
-        }
-      });
-  }
-
-  /**
-   * 加载 Agent Role memo body ── 提交首条消息时, 把对应 memo 的 markdown
-   * 内容拼到 user 消息末尾。 走两步:
-   *   1. memosClient.readMemo(memoId) 拿 Memo (含 filename)
-   *   2. memosClient.readDocument(notebookPath/filename) 拿 body
-   *
-   * notebookPath 来源: AgentRoleOption.notebookId → useMemoStore.notebooks
-   * 找 path (listAgentRoleMemos 返回的 notebookId 是后端 notebook.id, 与
-   * store notebooks.id 同源)。
-   *
-   * 缓存: cachedAgentRoleBodies 命中直接返回; 失败也缓存 null, 避免对
-   * 已删文档反复重试 IPC ── 角色文档被删是显式操作, 让用户重选 role 才是
-   * 正确恢复路径。
-   */
   private async loadAgentRoleBody(memoId: string): Promise<string | null> {
-    return loadAgentRoleBodyFromMemo({
-      memoId,
-      roleOptions: this.getAgentRoleOptions(),
-      cache: this.cachedAgentRoleBodies,
-      isDestroyed: () => this.isDestroyed,
-    });
-  }
-
-  private renderRoleOptionsList(target: HTMLElement): void {
-    target.replaceChildren();
-    const entries = this.getAgentRoleOptions();
-    const currentMemoId = this.agentRoleMemoId;
-
-    // 是否锁定: 已发送过消息后, Role 已被 inline 拼到首条 user 消息
-    // 末尾, 后续切换不会回灌历史消息 ── 锁定 UI 让用户感知"现在改也
-    // 无效"。 判定: 关联 thread 的消息数 > 0 ── 与 chat-store 的
-    // `isFirstMessage = currentMessages.length === 0` 同源。
-    const messageCount = this.currentMessages().length;
-    const isLocked = messageCount > 0;
-
-    const header = document.createElement("div");
-    header.className = "agent-thread-card__composer-role-popover-header";
-    const title = document.createElement("div");
-    title.className = "agent-thread-card__composer-role-popover-title";
-    // 锁定时把"(开启对话后无法切换)" 直接拼到 title 后面 ── 视觉上
-    // 是 header 副标题延伸, 不再单独开一行 hint, 节省垂直空间。
-    // 用 muted-foreground 同色, 通过 spacing (空格 + 半角括号) 区分
-    // 主标题, 不引入新的字号/颜色 token。
-    title.textContent = isLocked
-      ? `${this.t("editor.threadCard.selectRole")} ${this.t(
-          "editor.threadCard.selectRoleLocked",
-        )}`
-      : this.t("editor.threadCard.selectRole");
-    header.append(title);
-    if (this.isLoadingAgentRoleOptions) {
-      header.append(createRoleOptionsLoadingIcon());
-    }
-    target.append(header);
-
-    if (this.isLoadingAgentRoleOptions && this.agentRoleOptions === null) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className =
-        "agent-thread-card__composer-role-item agent-thread-card__composer-role-item--disabled";
-      item.disabled = true;
-      item.setAttribute("role", "menuitem");
-      const fallback = document.createElement("span");
-      fallback.className = "agent-thread-card__composer-role-item-fallback";
-      fallback.textContent = "...";
-      const body = document.createElement("span");
-      body.className = "agent-thread-card__composer-role-item-body";
-      const name = document.createElement("span");
-      name.className = "agent-thread-card__composer-role-item-name";
-      name.textContent = "加载角色";
-      const desc = document.createElement("span");
-      desc.className = "agent-thread-card__composer-role-item-desc";
-      desc.textContent = "正在读取所有笔记本";
-      body.append(name, desc);
-      item.append(fallback, body);
-      target.append(item);
-      return;
-    }
-
-    if (entries.length === 0) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className =
-        "agent-thread-card__composer-role-item agent-thread-card__composer-role-item--disabled";
-      item.disabled = true;
-      item.setAttribute("role", "menuitem");
-      const fallback = document.createElement("span");
-      fallback.className = "agent-thread-card__composer-role-item-fallback";
-      fallback.textContent = "-";
-      const body = document.createElement("span");
-      body.className = "agent-thread-card__composer-role-item-body";
-      const name = document.createElement("span");
-      name.className = "agent-thread-card__composer-role-item-name";
-      name.textContent = "没有角色";
-      const desc = document.createElement("span");
-      desc.className = "agent-thread-card__composer-role-item-desc";
-      desc.textContent = "在笔记属性中设置 agent-role";
-      body.append(name, desc);
-      item.append(fallback, body);
-      target.append(item);
-      return;
-    }
-
-    for (const entry of entries) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "agent-thread-card__composer-role-item";
-      item.setAttribute("role", "menuitem");
-
-      const isCurrent = entry.memoId === currentMemoId;
-      if (isCurrent) {
-        item.classList.add("agent-thread-card__composer-role-item--selected");
-      }
-
-      // 锁定态: 非当前选中的项都灰显 + 禁用, 禁止切换 ── Role 已被
-      // 拼到首条 user 消息末尾, 后续切不回灌历史, 让用户改也无效。
-      // 当前选中项保留可点击 (允许再次点击, 行为同"关弹窗"), 不让
-      // 它看着"突然变灰"反直觉 ── 但点它不触发 updateAttrs, 等价
-      // no-op, 用户没有副作用。
-      if (isLocked && !isCurrent) {
-        item.classList.add("agent-thread-card__composer-role-item--disabled");
-        item.disabled = true;
-        item.setAttribute("aria-disabled", "true");
-      }
-
-      const sourceIcon = document.createElement("span");
-      sourceIcon.className = "agent-thread-card__composer-role-item-icon";
-      const memoIcon = entry.memoIcon?.trim() || "";
-      if (appendRoleIconContent(sourceIcon, memoIcon, entry.name)) {
-        sourceIcon.classList.toggle(
-          "agent-thread-card__composer-role-item-icon--svg",
-          !!getNotebookIconMarkup(memoIcon) && !getPropertyIconOption(memoIcon),
-        );
-      } else {
-        sourceIcon.textContent = getNotebookIconLetter(entry.name);
-      }
-
-      const body = document.createElement("span");
-      body.className = "agent-thread-card__composer-role-item-body";
-
-      const name = document.createElement("span");
-      name.className = "agent-thread-card__composer-role-item-name";
-      name.textContent = entry.name;
-
-      const desc = document.createElement("span");
-      desc.className = "agent-thread-card__composer-role-item-desc";
-      desc.textContent = displayTitleFromFilename(entry.filename);
-
-      body.append(name, desc);
-      item.append(sourceIcon, body);
-
-      // 锁定态下非当前项不绑 click (双重保险: 即使 disabled 因 CSS
-      // 失效也不会改 attrs)。 当前项在锁定态仍绑 click, 行为退化为
-      // "再次点选同角色" = 关弹窗, no-op。
-      if (!isLocked || isCurrent) {
-        item.addEventListener("click", (event) => {
-          event.stopPropagation();
-          this.updateAgentRole({ memoId: entry.memoId, name: entry.name });
-          this.setComposerRolePopoverOpen(false);
-        });
-      }
-
-      target.append(item);
-    }
+    return this.agentRolePicker.loadRoleBody(memoId);
   }
 
   private setComposerRolePopoverOpen(open: boolean): void {
-    if (this.isComposerRolePopoverOpen === open) return;
-    this.isComposerRolePopoverOpen = open;
-    this.composerRolePopover.hidden = !open;
-    // composerRoleIcon 是 trigger button, aria-expanded 必须同步反映
-    // 弹窗状态 ── 与同文件其它 trigger button 完全同构。
-    this.composerRoleIcon.setAttribute(
-      "aria-expanded",
-      open ? "true" : "false",
-    );
-    this.composerRoleIcon.classList.toggle(
-      "agent-thread-card__composer-role-icon--open",
-      open,
-    );
-
-    if (open) {
-      this.loadAgentRoleOptions();
-      this.renderRoleOptionsList(this.composerRolePopover);
-      this.scheduleComposerRolePopoverPosition();
-      this.startComposerRolePopoverPositionTracking();
-      document.addEventListener(
-        "pointerdown",
-        this.boundHandleComposerRoleOutsidePointer,
-        true,
-      );
-    } else {
-      this.stopComposerRolePopoverPositionTracking();
-      document.removeEventListener(
-        "pointerdown",
-        this.boundHandleComposerRoleOutsidePointer,
-        true,
-      );
-    }
+    this.agentRolePicker.setOpen(open);
   }
 
-  private toggleComposerRolePopover(): void {
-    this.setComposerRolePopoverOpen(!this.isComposerRolePopoverOpen);
-  }
-
-  private startComposerRolePopoverPositionTracking(): void {
-    this.composerRolePopoverController?.start();
-  }
-
-  private stopComposerRolePopoverPositionTracking(): void {
-    this.composerRolePopoverController?.stop();
-  }
-
-  private scheduleComposerRolePopoverPosition(): void {
-    this.composerRolePopoverController?.schedule();
-  }
-
-  // 定位 ── 与 accessPopover 完全同思路:
-  //   - 视口上下空间比较, 自动选择 above / below
-  //   - ACCESS_POPOVER_OFFSET_*_PX / ACCESS_POPOVER_VIEWPORT_PADDING_PX 复用
-  //   - 水平方向: button 左对齐到 popover 左, 避免右侧溢出
-  private positionComposerRolePopover(): void {
-    if (
-      !this.isComposerRolePopoverOpen ||
-      this.composerRolePopover.hidden ||
-      this.isDestroyed
-    )
-      return;
-    if (
-      !this.composerRoleIcon.isConnected ||
-      !this.composerRolePopover.isConnected
-    ) {
-      this.setComposerRolePopoverOpen(false);
-      return;
-    }
-
-    const anchorRect = this.composerRoleIcon.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const padding = ACCESS_POPOVER_VIEWPORT_PADDING_PX;
-    const spaceAbove =
-      anchorRect.top - padding - ACCESS_POPOVER_OFFSET_ABOVE_PX;
-    const spaceBelow =
-      viewportHeight -
-      anchorRect.bottom -
-      padding -
-      ACCESS_POPOVER_OFFSET_BELOW_PX;
-    // 与 accessPopover 同策略: 上方空间 ≥ 下方时放上方 ── 让卡片底
-    // 边不挤 input。
-    const placeAbove =
-      spaceAbove >= ACCESS_POPOVER_MIN_HEIGHT_PX || spaceAbove >= spaceBelow;
-
-    const popoverRect = this.composerRolePopover.getBoundingClientRect();
-    const popoverWidth = popoverRect.width || ACCESS_POPOVER_WIDTH_PX;
-    const popoverHeight = popoverRect.height || ACCESS_POPOVER_MAX_HEIGHT_PX;
-
-    // 水平: 按钮左对齐, 但右边不能超出 viewport。
-    const maxLeft = Math.max(padding, viewportWidth - padding - popoverWidth);
-    const left = Math.min(Math.max(anchorRect.left, padding), maxLeft);
-
-    const offset = placeAbove
-      ? ACCESS_POPOVER_OFFSET_ABOVE_PX
-      : ACCESS_POPOVER_OFFSET_BELOW_PX;
-    const rawTop = placeAbove
-      ? anchorRect.top - offset - popoverHeight
-      : anchorRect.bottom + offset;
-    const maxTop = Math.max(padding, viewportHeight - padding - popoverHeight);
-    const top = Math.min(Math.max(rawTop, padding), maxTop);
-
-    this.composerRolePopover.style.left = `${left}px`;
-    this.composerRolePopover.style.top = `${top}px`;
-  }
-
-  private selectedAgentRoleOption(): AgentRoleOption | null {
-    const memoId = this.agentRoleMemoId;
-    const roleName = this.agentRoleName;
-    if (!memoId && !roleName) return null;
-    const entries = this.getAgentRoleOptions();
-    return (
-      entries.find((entry) => entry.memoId === memoId) ??
-      entries.find((entry) => roleName !== null && entry.name === roleName) ??
-      null
-    );
-  }
-
-  // 输入框左侧 role 图标内容 ── 始终可见 (不再 hidden=true): 未设置角色
-  // 时显示 UserCircleDashedIcon (虚线占位), 设置后显示 memo 文档图标。
-  // 同步 aria-expanded 与 composerRolePopover 开合态 (独立 popover,
-  // 不再跟随 accessPopover), 给屏幕阅读器一致反馈。
   private refreshComposerRoleIcon(): void {
-    const roleName = this.agentRoleName;
-    this.composerRoleIcon.replaceChildren();
-    // 重置类 ── 切掉可能的 .--open / .--svg 修饰, 后面按需重新挂。
-    this.composerRoleIcon.className = "agent-thread-card__composer-role-icon";
-    // aria-expanded 与 composerRolePopover 同步 (独立 popover)。 --open
-    // 修饰类同样同步, 让 CSS 的 hover/open 视觉态正确反映。
-    this.composerRoleIcon.setAttribute(
-      "aria-expanded",
-      this.isComposerRolePopoverOpen ? "true" : "false",
-    );
-    this.composerRoleIcon.classList.toggle(
-      "agent-thread-card__composer-role-icon--open",
-      this.isComposerRolePopoverOpen,
-    );
-
-    if (!roleName) {
-      // 未设置角色 ── 显示 Plus 图标作为 "点击新增角色" 的强引导。
-      this.composerRoleIcon.append(createComposerRoleEmptyIcon());
-      this.composerRoleIcon.title = this.t("editor.threadCard.roleIconTooltip");
-      return;
-    }
-
-    const entry = this.selectedAgentRoleOption();
-    const memoIcon = entry?.memoIcon?.trim() ?? "";
-    if (
-      !memoIcon &&
-      this.agentRoleMemoId &&
-      this.agentRoleOptions === null &&
-      !this.isLoadingAgentRoleOptions
-    ) {
-      // 已设置角色但 options 还在加载 ── 触发异步加载。 但不在这里
-      // 立刻画 fallback, 而是先让 appendRoleIconContent 走 fallback 路径:
-      // 等 options 回来后会再调 refreshComposerRoleIcon, 那时 memoIcon 就
-      // 能拿到了。
-      this.loadAgentRoleOptions();
-    }
-
-    if (!appendRoleIconContent(this.composerRoleIcon, memoIcon, roleName)) {
-      // appendRoleIconContent 返回 false ── 通常意味着 memo icon 为空
-      // (entry 没有 icon)。 遵循列表的图标规则, 走首字母头像 (与
-      // renderRoleOptionsList 完全同源的 getNotebookIconLetter): ASCII 取
-      // 首字符大写, CJK 走 pinyin-pro 取拼音首字母。 这样"已选但无图标"
-      // 的 role 与列表里"无图标"的 role 视觉一致 ── 用户在两个位置看
-      // 同一个 role 是同一个头像, 不会产生认知割裂。
-      this.composerRoleIcon.textContent = getNotebookIconLetter(roleName);
-    }
-    this.composerRoleIcon.title = roleName;
-  }
-
-  private startAccessPopoverPositionTracking(): void {
-    window.addEventListener("resize", this.boundPositionAccessPopover);
-    window.addEventListener("scroll", this.boundPositionAccessPopover, true);
-
-    if ("ResizeObserver" in window) {
-      this.accessPopoverResizeObserver?.disconnect();
-      this.accessPopoverResizeObserver = new ResizeObserver(() => {
-        this.scheduleAccessPopoverPosition();
-      });
-      this.accessPopoverResizeObserver.observe(this.accessButton);
-      this.accessPopoverResizeObserver.observe(this.accessPopover);
-    }
-  }
-
-  private stopAccessPopoverPositionTracking(): void {
-    window.removeEventListener("resize", this.boundPositionAccessPopover);
-    window.removeEventListener("scroll", this.boundPositionAccessPopover, true);
-    this.accessPopoverResizeObserver?.disconnect();
-    this.accessPopoverResizeObserver = null;
-    if (this.accessPopoverPositionFrame !== null) {
-      window.cancelAnimationFrame(this.accessPopoverPositionFrame);
-      this.accessPopoverPositionFrame = null;
-    }
+    this.agentRolePicker.refreshIcon();
   }
 
   private scheduleAccessPopoverPosition(): void {
-    if (
-      !this.isAccessPopoverOpen ||
-      this.accessPopover.hidden ||
-      this.isDestroyed
-    )
-      return;
-    if (this.accessPopoverPositionFrame !== null) return;
-    this.accessPopoverPositionFrame = window.requestAnimationFrame(() => {
-      this.accessPopoverPositionFrame = null;
-      this.positionAccessPopover();
-    });
-  }
-
-  private positionAccessPopover(): void {
-    if (
-      !this.isAccessPopoverOpen ||
-      this.accessPopover.hidden ||
-      this.isDestroyed
-    )
-      return;
-    const anchor = this.accessPopoverAnchor ?? this.accessButton;
-    if (!anchor.isConnected || !this.accessPopover.isConnected) {
-      this.setAccessPopoverOpen(false);
-      return;
-    }
-
-    const anchorRect = anchor.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const padding = ACCESS_POPOVER_VIEWPORT_PADDING_PX;
-    const spaceAbove =
-      anchorRect.top - padding - ACCESS_POPOVER_OFFSET_ABOVE_PX;
-    const spaceBelow =
-      viewportHeight -
-      anchorRect.bottom -
-      padding -
-      ACCESS_POPOVER_OFFSET_BELOW_PX;
-    const placeAbove = this.accessPopoverPreferBelow
-      ? spaceBelow < ACCESS_POPOVER_MIN_HEIGHT_PX && spaceAbove > spaceBelow
-      : spaceAbove >= 160 || spaceAbove >= spaceBelow;
-    const availableHeight = Math.max(
-      ACCESS_POPOVER_MIN_HEIGHT_PX,
-      Math.min(
-        ACCESS_POPOVER_MAX_HEIGHT_PX,
-        placeAbove ? spaceAbove : spaceBelow,
-      ),
-    );
-
-    // scroll 区域就是整个弹窗的滚动区 ── notebook + folder + 末尾的"添
-    // 加资料夹"按钮 都在同一个 scroll 内。 整个 scroll max-height =
-    // availableHeight, 不再单独扣 footer 高度 ── 按钮跟随内容滚动,
-    // 长列表下滚到底就能看到, 而不是被钉在弹窗底部固定可见。
-    const scrollEl = this.accessPopover.querySelector<HTMLDivElement>(
-      ".agent-thread-card__access-popover-scroll",
-    );
-    if (scrollEl) {
-      scrollEl.style.maxHeight = `${availableHeight}px`;
-    }
-
-    const popoverRect = this.accessPopover.getBoundingClientRect();
-    const popoverWidth = popoverRect.width || ACCESS_POPOVER_WIDTH_PX;
-    const popoverHeight = Math.min(
-      popoverRect.height || availableHeight,
-      availableHeight,
-    );
-    const maxLeft = Math.max(padding, viewportWidth - padding - popoverWidth);
-    const left = Math.min(
-      Math.max(anchorRect.right - popoverWidth, padding),
-      maxLeft,
-    );
-    const offset = placeAbove
-      ? ACCESS_POPOVER_OFFSET_ABOVE_PX
-      : ACCESS_POPOVER_OFFSET_BELOW_PX;
-    const rawTop = placeAbove
-      ? anchorRect.top - offset - popoverHeight
-      : anchorRect.bottom + offset;
-    const maxTop = Math.max(padding, viewportHeight - padding - popoverHeight);
-    const top = Math.min(Math.max(rawTop, padding), maxTop);
-
-    this.accessPopover.style.left = `${left}px`;
-    this.accessPopover.style.top = `${top}px`;
+    this.accessPopoverController.schedulePosition();
   }
 
   private applyResolvedExternalSessionId(
@@ -2804,14 +1535,14 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.badgeIcon.alt = type.name;
     this.badgeName.textContent = type.name;
     this.syncAgentRuntimeBadge();
-    if (this.localSupportedModelsTypeKey !== typeKey) {
-      this.localSupportedModels = [];
+    if (this.externalSettingsLoadedTypeKey !== typeKey) {
+      this.externalSettingsLoadedTypeKey = typeKey;
       this.loadCodexDefaultModel();
     }
     this.refreshComposerRoleIcon();
     if (
-      this.oversizedInputDraftDomValue !== null &&
-      this.input.value === this.oversizedInputDraftDomValue
+      this.composerDraft.oversizedValue !== null &&
+      this.input.value === this.composerDraft.oversizedValue
     ) {
       // Oversized drafts are intentionally not persisted, but the user should
       // still be able to keep typing and send the current in-DOM value.
@@ -2823,13 +1554,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     //
     // 旧版此处有 `else if` 分支会在 guard 全部通过时把 input.value 复位
     // 到 inputDraft ── 在 oversized paste 后, 第一分支"恰好相等"的保护
-    // 极窄, 任何微任务错位 (例如中间输入事件重设了 oversizedInputDraftDomValue,
-    // draftSnapshot 仍是 null, 且外部 updateAttrs 在 1s 窗口内到来)
+    // 极窄, 任何微任务错位 (例如中间输入事件重设了 oversized draft guard,
+    // pending snapshot 仍是 null, 且外部 updateAttrs 在 1s 窗口内到来)
     // 都会让这条分支静默吞掉用户粘贴内容。 删掉后:
     //   - 构造器已经 `this.input.value = this.inputDraft` (line 884)
     //     处理首次挂载同步;
     //   - submit / runInitialPromptIfNeeded / setComposerHistoryValue 三处
-    //     显式改写 input.value 后, 都自行更新 draftSnapshot 或 running state;
+    //     显式改写 input.value 后, 都自行更新 pending draft 或 running state;
     //   - 任何 refreshAttrs 调用对 input.value 都是 no-op, 用户的 paste
     //     / typing / IME 都不会被吞。
     this.renderCollapseState();
@@ -3083,76 +1814,34 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
     this.view.dom.blur();
     this.focusFullscreenSurface();
-    this.fullscreenContainer = this.getFullscreenContainer();
-    this.syncFullscreenBounds();
-    this.observeFullscreenContainer();
-    window.addEventListener("resize", this.boundSyncFullscreenBounds);
+    this.fullscreenLayout.enter();
     window.addEventListener("keydown", this.boundHandleFullscreenKeydown, true);
-    window.requestAnimationFrame(() => this.syncFullscreenBounds());
   }
 
   private exitFullscreenMode(): void {
-    this.fullscreenResizeObserver?.disconnect();
-    this.fullscreenResizeObserver = null;
-    this.fullscreenContainer = null;
-    window.removeEventListener("resize", this.boundSyncFullscreenBounds);
     window.removeEventListener(
       "keydown",
       this.boundHandleFullscreenKeydown,
       true,
     );
-    this.clearFullscreenBounds();
-    this.restoreFullscreenReturnAnchor();
-  }
-
-  private observeFullscreenContainer(): void {
-    this.fullscreenResizeObserver?.disconnect();
-    if (!this.fullscreenContainer || !("ResizeObserver" in window)) return;
-
-    this.fullscreenResizeObserver = new ResizeObserver(() => {
-      this.syncFullscreenBounds();
-    });
-    this.fullscreenResizeObserver.observe(this.fullscreenContainer);
-  }
-
-  private syncFullscreenBounds(): void {
-    if (!this.isFullscreen) return;
-    const container = this.fullscreenContainer ?? this.getFullscreenContainer();
-    if (!container) return;
-    this.fullscreenContainer = container;
-    syncAgentThreadCardFullscreenBounds({
-      dom: this.dom,
-      container,
-      titlebarHeight: isWindowsPlatform() ? WINDOWS_TITLEBAR_HEIGHT_PX : 0,
-    });
-    this.scheduleAccessPopoverPosition();
-  }
-
-  private getFullscreenContainer(): HTMLElement | null {
-    return getAgentThreadCardFullscreenContainer(this.dom);
-  }
-
-  private getEditorScrollContainer(): HTMLElement | null {
-    return getAgentThreadCardEditorScrollContainer(this.dom);
+    this.fullscreenLayout.exit();
   }
 
   private captureScrollSnapshot(): ScrollSnapshot {
-    return captureAgentThreadCardScrollSnapshot(
-      this.getEditorScrollContainer(),
-    );
+    return this.fullscreenLayout.captureScrollSnapshot();
   }
 
   private restoreScrollSnapshotAfterFocusChange(snapshot: ScrollSnapshot): void {
-    restoreAgentThreadCardScrollSnapshotAfterFocusChange(snapshot);
+    this.fullscreenLayout.restoreScrollSnapshotAfterFocusChange(snapshot);
   }
 
   private ownsNode(target: globalThis.Node | null): boolean {
     return !!(
       target &&
       (this.dom.contains(target) ||
-        this.accessPopover.contains(target) ||
-        this.codexSettingsPopover.contains(target) ||
-        this.composerRolePopover.contains(target))
+        this.accessPopoverController.popoverElement.contains(target) ||
+        this.externalAgentSettings.popoverElement.contains(target) ||
+        this.agentRolePicker.popoverElement.contains(target))
     );
   }
 
@@ -3170,80 +1859,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private captureFullscreenReturnAnchor(): void {
-    const scrollContainer = this.getEditorScrollContainer();
-    if (!scrollContainer) {
-      this.fullscreenReturnAnchor = null;
-      return;
-    }
-
-    const cardRect = this.dom.getBoundingClientRect();
-    const containerRect = scrollContainer.getBoundingClientRect();
-    this.fullscreenReturnAnchor = {
-      scrollContainer,
-      topWithinContainer: cardRect.top - containerRect.top,
-    };
-  }
-
-  private restoreFullscreenReturnAnchor(): void {
-    const anchor = this.fullscreenReturnAnchor;
-    this.fullscreenReturnAnchor = null;
-
-    window.requestAnimationFrame(() => {
-      if (this.isDestroyed || this.isFullscreen) return;
-      if (
-        !anchor ||
-        !anchor.scrollContainer.isConnected ||
-        !this.dom.isConnected
-      ) {
-        this.scrollCardToExitFallbackPosition();
-        return;
-      }
-
-      const containerRect = anchor.scrollContainer.getBoundingClientRect();
-      const cardRect = this.dom.getBoundingClientRect();
-      this.adjustEditorScrollToCardTop(
-        anchor.scrollContainer,
-        cardRect.top - containerRect.top,
-        anchor.topWithinContainer,
-      );
-    });
-  }
-
-  private scrollCardToExitFallbackPosition(): void {
-    const scrollContainer = this.getEditorScrollContainer();
-    if (
-      !scrollContainer ||
-      !scrollContainer.isConnected ||
-      !this.dom.isConnected
-    )
-      return;
-
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const cardRect = this.dom.getBoundingClientRect();
-    const targetTop = getFullscreenExitFallbackTop({
-      containerHeight: containerRect.height,
-      minTopPx: FULLSCREEN_EXIT_FALLBACK_MIN_TOP_PX,
-      maxTopPx: FULLSCREEN_EXIT_FALLBACK_MAX_TOP_PX,
-      topRatio: FULLSCREEN_EXIT_FALLBACK_TOP_RATIO,
-    });
-    this.adjustEditorScrollToCardTop(
-      scrollContainer,
-      cardRect.top - containerRect.top,
-      targetTop,
-    );
-  }
-
-  private adjustEditorScrollToCardTop(
-    scrollContainer: HTMLElement,
-    currentTopWithinContainer: number,
-    targetTopWithinContainer: number,
-  ): void {
-    adjustEditorScrollToCardTopByDelta({
-      scrollContainer,
-      currentTopWithinContainer,
-      targetTopWithinContainer,
-      epsilonPx: SCROLL_DELTA_EPSILON_PX,
-    });
+    this.fullscreenLayout.captureReturnAnchor();
   }
 
   private focusFullscreenSurface(): void {
@@ -3261,10 +1877,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     ) {
       activeElement.blur();
     }
-  }
-
-  private clearFullscreenBounds(): void {
-    clearAgentThreadCardFullscreenBounds(this.dom);
   }
 
   private currentThreadState(): ThreadState | undefined {
@@ -3447,10 +2059,30 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.renderedMessageRefs = messages;
   }
 
-  private getRenderedAgentMessages(
-    messages: ThreadState["messages"],
-  ): ThreadState["messages"] {
-    return selectRenderedAgentMessages(messages);
+  private createMessageRenderContext(): AgentThreadCardMessageRenderContext {
+    return {
+      language: this.language,
+      getReasoningCollapsed: (message) => this.getReasoningCollapsed(message),
+      setReasoningCollapsed: (messageId, collapsed) => {
+        this.reasoningCollapsedOverrides.set(messageId, collapsed);
+      },
+    };
+  }
+
+  private canReuseRenderedMessages(messages: ThreadState["messages"]): boolean {
+    const list = this.renderedMessagesList;
+    if (!list || !this.body.contains(list)) return false;
+    const renderedMessages = getRenderedAgentMessages(messages);
+    if (
+      renderedMessages.length !== this.renderedMessageRefs.length ||
+      list.children.length !== renderedMessages.length
+    ) {
+      return false;
+    }
+    for (let i = 0; i < renderedMessages.length; i += 1) {
+      if (renderedMessages[i] !== this.renderedMessageRefs[i]) return false;
+    }
+    return true;
   }
 
   private tryPatchLastRenderedMessage(
@@ -3461,77 +2093,17 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       shouldFollowStreaming: boolean;
     },
   ): boolean {
-    const list = this.renderedMessagesList;
-    if (!list || !this.body.contains(list)) return false;
-
-    const renderedMessages = this.getRenderedAgentMessages(messages);
-    if (
-      renderedMessages.length === 0 ||
-      renderedMessages.length !== this.renderedMessageRefs.length ||
-      list.children.length !== renderedMessages.length
-    ) {
-      return false;
-    }
-
-    for (let i = 0; i < renderedMessages.length - 1; i += 1) {
-      if (renderedMessages[i] !== this.renderedMessageRefs[i]) return false;
-    }
-
-    const previousLast = this.renderedMessageRefs[renderedMessages.length - 1];
-    const nextLast = renderedMessages[renderedMessages.length - 1];
-    if (
-      previousLast === nextLast ||
-      previousLast.id !== nextLast.id ||
-      previousLast.role !== nextLast.role
-    ) {
-      return false;
-    }
-
-    const item = list.lastElementChild as HTMLDivElement | null;
-    if (!item) return false;
-
-    const messageView = createAgentMessageViewModel(nextLast, this.language);
-    if (nextLast.role === "assistant" || nextLast.role === "user") {
-      const content = item.querySelector<HTMLElement>(
-        ".agent-thread-card__message-content",
-      );
-      if (!content) return false;
-      fillWithMarkdownHtml(
-        content,
-        renderMarkdownToHtml(messageView.visibleContent),
-      );
-    } else if (nextLast.role === "reasoning") {
-      const label = item.querySelector<HTMLSpanElement>(
-        ".agent-thread-card__message-reasoning-header span",
-      );
-      const content = item.querySelector<HTMLElement>(
-        ".agent-thread-card__message-content",
-      );
-      if (!label || !content) return false;
-      label.textContent = messageView.reasoningLabel;
-      item.classList.toggle(
-        "agent-thread-card__message--reasoning-collapsed",
-        this.getReasoningCollapsed(nextLast),
-      );
-      fillWithMarkdownHtml(
-        content,
-        renderMarkdownToHtml(messageView.visibleContent),
-      );
-    } else if (nextLast.role === "end") {
-      const content = item.querySelector<HTMLElement>(
-        ".agent-thread-card__message-content",
-      );
-      if (!content) return false;
-      content.textContent = messageView.visibleContent;
-    } else {
-      return false;
-    }
-
-    this.renderedMessageRefs = [
-      ...this.renderedMessageRefs.slice(0, -1),
-      nextLast,
-    ];
-    this.applyBodyScrollAfterRender(options);
+    const nextRefs = patchLastRenderedAgentMessage(messages, {
+      body: this.body,
+      cache: {
+        list: this.renderedMessagesList,
+        refs: this.renderedMessageRefs,
+      },
+      context: this.createMessageRenderContext(),
+      afterRender: () => this.applyBodyScrollAfterRender(options),
+    });
+    if (!nextRefs) return false;
+    this.renderedMessageRefs = nextRefs;
     return true;
   }
 
@@ -3565,61 +2137,17 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       shouldFollowStreaming: boolean;
     },
   ): boolean {
-    const oldRefs = this.renderedMessageRefs;
-    const list = this.renderedMessagesList;
-
-    // 1) 第一条消息 (oldRefs 为空) 走不到这里 ── `renderedMessagesList`
-    //    与 `renderedMessageRefs` 同步初始化, oldRefs 为空时 list 必为 null,
-    //    下面的 list 检查会一并兜住。 此处显式早返, 让"from empty" 落到
-    //    全量重建里走 empty / loading 的可见分支。
-    if (oldRefs.length === 0) return false;
-    if (!list || !this.body.contains(list)) return false;
-
-    const newRendered = this.getRenderedAgentMessages(messages);
-
-    // 2) 必须有可追加内容 (严格更长)。
-    if (newRendered.length <= oldRefs.length) return false;
-    // 3) DOM 节点数必须与旧 refs 一致 ── 不一致说明 DOM 状态已经漂移
-    //    (可能其它路径改过 body), 不能在此基础上 append, 必须全量重建。
-    if (list.children.length !== oldRefs.length) return false;
-
-    // 4) 前缀逐项引用相等 ── 任一不等说明中间或头部有变化 (例如
-    //    session_resolved 的 mergeHistoricalMessages、loadMoreMessages
-    //    的 prepend), 这些场景只能全量重建。
-    for (let i = 0; i < oldRefs.length; i += 1) {
-      if (newRendered[i] !== oldRefs[i]) return false;
-    }
-
-    const appended = newRendered.slice(oldRefs.length);
-    let appendedCount = 0;
-    for (const message of appended) {
-      const rendered = createAgentThreadCardMessageElement({
-        message,
-        language: this.language,
-        getReasoningCollapsed: (nextMessage) =>
-          this.getReasoningCollapsed(nextMessage),
-        setReasoningCollapsed: (messageId, collapsed) => {
-          this.reasoningCollapsedOverrides.set(messageId, collapsed);
-        },
-      });
-      if (!rendered) continue;
-      list.append(rendered.element);
-      appendedCount += 1;
-    }
-    // 全部 appended 都返 null (被 filter 跳过的尾部), 不能前进 refs ──
-    // 否则 refs 与 DOM 节点数会脱钩, 后续 tryPatchLastRenderedMessage 的
-    // `list.children.length !== renderedMessages.length` 校验会持续返
-    // false, 形成隐性死循环。 一并回退全量重建。
-    if (appendedCount === 0) return false;
-
-    // 完整地替换 refs ── 即使 factory 跳过了部分元素 (上面 counted by
-    // appendedCount, 与 renderedMessageRefs 走"filter 后集合"的语义不同)。
-    // renderedMessageRefs 是 filter 后集合, 与 `newRendered` 同长 ──
-    // `list.children.length` 不一定等于 newRendered.length, 因为跳过
-    // 的消息不产生 DOM 节点。 这是已有 `tryPatchLastRenderedMessage`
-    // 已经接受的同一不变量。
-    this.renderedMessageRefs = newRendered;
-    this.applyBodyScrollAfterRender(options);
+    const nextRefs = appendRenderedAgentMessagesToTail(messages, {
+      body: this.body,
+      cache: {
+        list: this.renderedMessagesList,
+        refs: this.renderedMessageRefs,
+      },
+      context: this.createMessageRenderContext(),
+      afterRender: () => this.applyBodyScrollAfterRender(options),
+    });
+    if (!nextRefs) return false;
+    this.renderedMessageRefs = nextRefs;
     return true;
   }
 
@@ -3739,6 +2267,10 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const visibleMessages = messages;
     this.pruneReasoningCollapsedOverrides(visibleMessages);
 
+    if (this.canReuseRenderedMessages(visibleMessages)) {
+      return;
+    }
+
     if (
       this.tryPatchLastRenderedMessage(visibleMessages, {
         isLoading,
@@ -3793,27 +2325,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       return;
     }
 
-    const list = document.createElement("div");
-    list.className = "agent-thread-card__messages";
-    const renderedMessages: ThreadState["messages"] = [];
-
-    for (const message of visibleMessages) {
-      const rendered = createAgentThreadCardMessageElement({
-        message,
-        language: this.language,
-        getReasoningCollapsed: (nextMessage) =>
-          this.getReasoningCollapsed(nextMessage),
-        setReasoningCollapsed: (messageId, collapsed) => {
-          this.reasoningCollapsedOverrides.set(messageId, collapsed);
-        },
-      });
-      if (!rendered) continue;
-      if (rendered.shouldRemember) renderedMessages.push(message);
-      list.append(rendered.element);
-    }
+    const { list, rememberedMessages } = createRenderedAgentMessageList(
+      visibleMessages,
+      this.createMessageRenderContext(),
+    );
 
     this.body.append(list, this.loadingIndicator);
-    this.rememberRenderedMessages(list, renderedMessages);
+    this.rememberRenderedMessages(list, rememberedMessages);
     this.applyBodyScrollAfterRender({
       isLoading,
       previousScrollTop,
@@ -4040,106 +2558,49 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.resetHistoryNavigation();
     // 清空草稿是"已知终态", 不必走 1s debounce ── 直接 updateAttrs 同步
     // 落 ProseMirror attr, 避免后续 reload / 跨卡片挂载时拿到旧 draft。
-    // 同时把 draftSnapshot 清掉 (若之前有未触发的 debounce), 防止空 input
+    // 同时把 pending draft 清掉 (若之前有未触发的 debounce), 防止空 input
     // 被旧 snapshot 误保护。
-    this.draftSnapshot = null;
-    if (this.draftPersistTimer !== null) {
-      clearTimeout(this.draftPersistTimer);
-      this.draftPersistTimer = null;
-    }
+    this.composerDraft.clear();
     this.updateAttrs({ inputDraft: null });
     this.updateMultiLineState();
     this.setError(null);
     this.renderThreadState();
 
-    let nextThreadId = this.threadId;
-    let nextInstanceId = this.instanceId;
-    let nextTitle = this.title || buildTitle(rawPrompt, this.t("editor.threadCard.title"));
     const source = getCurrentThreadCardSource();
     try {
-      if (!nextThreadId) {
+      if (!this.threadId) {
         this.isCreating = true;
         this.renderThreadState();
-        const ensured = await ensureAgentThreadCardThread({
-          prompt: rawPrompt,
-          fallbackTitle: this.t("editor.threadCard.title"),
-          typeKey: this.typeKey,
-          currentThreadId: this.threadId,
-          runtimeHandleId: this.runtimeHandleId,
-          buildTitle,
-        });
-        if (ensured) {
-          nextThreadId = ensured.threadId;
-          nextTitle = ensured.title;
-          if (!nextInstanceId) {
-            const instance = useAgentConversationStore
-              .getState()
-              .createInstance({
-                agentType: ensured.typeKey,
-                title: ensured.title,
-                threadId: ensured.threadId,
-                source,
-                role: {
-                  memoId: this.agentRoleMemoId,
-                  name: this.agentRoleName,
-                },
-              });
-            nextInstanceId = instance.instanceId;
-          } else {
-            useAgentConversationStore.getState().updateThread(nextInstanceId, {
-              agentType: ensured.typeKey,
-              threadId: ensured.threadId,
-            });
-          }
-        }
       }
-
-      if (!nextThreadId) {
-        throw new Error("Agent thread id was not created");
-      }
-      const conversation = upsertAgentThreadCardConversationInstance({
-        instanceId: nextInstanceId,
-        agentType: this.typeKey,
-        title: nextTitle,
-        threadId: nextThreadId,
+      await submitAgentThreadCardConversation({
+        prompt: rawPrompt,
+        fallbackTitle: this.t("editor.threadCard.title"),
+        typeKey: this.typeKey,
+        currentThreadId: this.threadId,
+        currentInstanceId: this.instanceId,
+        currentTitle: this.title,
+        runtimeHandleId: this.runtimeHandleId,
         source,
         role: {
           memoId: this.agentRoleMemoId,
           name: this.agentRoleName,
         },
+        isFirstMessage: this.currentMessages().length === 0,
+        documentContext,
+        buildTitle,
+        loadAgentRoleBody: (memoId) => this.loadAgentRoleBody(memoId),
+        onThreadBound: (binding) => {
+          // Persist the card binding only after the optimistic user message has
+          // entered the store. Otherwise the node attr update schedules history
+          // cache loading while the message list is still empty, producing a
+          // visible delay before the just-sent message appears.
+          this.updateAttrs({
+            instanceId: binding.instanceId,
+            threadId: binding.threadId,
+            typeKey: binding.typeKey,
+          });
+        },
       });
-      nextInstanceId = conversation.instanceId;
-      // Agent Role 文档: 首条消息时, 把 role memo body 拼到 user 消息
-      // 末尾 ── 与 currentNote / flowix CLI 块同源 inline 拼接。 拉
-      // body 失败 / 文档已删时返回 null, chat-store 静默跳过, 不污染
-      // user 消息。 缓存命中 (同 memo 重复发) 走 0 IPC 路径。
-      const isFirstMessage = this.currentMessages().length === 0;
-      const roleMemoId = this.agentRoleMemoId;
-      const roleBody =
-        isFirstMessage && roleMemoId
-          ? await this.loadAgentRoleBody(roleMemoId)
-          : null;
-      const sendPromise = useChatStore
-        .getState()
-        .sendMessageToThread(nextThreadId, rawPrompt, this.typeKey, {
-          instanceId: nextInstanceId ?? undefined,
-          conversationTitle: nextTitle,
-          currentNoteContent: documentContext,
-          agentRoleMemoId: this.agentRoleMemoId ?? undefined,
-          agentRoleName: this.agentRoleName ?? undefined,
-          isFirstMessage,
-          agentRoleBody: roleBody,
-        });
-      // Persist the card binding only after the optimistic user message has
-      // entered the store. Otherwise the node attr update schedules history
-      // cache loading while the message list is still empty, producing a
-      // visible delay before the just-sent message appears.
-      this.updateAttrs({
-        instanceId: nextInstanceId,
-        threadId: nextThreadId,
-        typeKey: this.typeKey,
-      });
-      await sendPromise;
     } catch (err) {
       this.setError(
         typeof err === "string" ? err : this.t("editor.threadCard.sendFailed"),
@@ -4240,12 +2701,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       this.boundHandleOutsidePointerDown,
       true,
     );
-    // composerRolePopover 关闭放在 isDestroyed 置位之前 ── 它内部的
-    // scheduleComposerRolePopoverPosition 会检查 isDestroyed 提前返,
-    // 必须先把弹窗关掉再置标志。 setComposerRolePopoverOpen 本身不
-    // 依赖 isDestroyed, 但其后续清理路径 (RemoveEventListener /
-    // ResizeObserver disconnect) 需要弹窗 open 状态, 否则 idempotent
-    // 早返会跳过清理。
     this.setComposerRolePopoverOpen(false);
     this.isDestroyed = true;
     if (this.loadThreadCacheTimeout !== null) {
@@ -4268,32 +2723,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.sendButtonRoot.unmount();
     this.stopBadgeHoverCardTimer();
     this.badgeHoverCardRoot.unmount();
-    // accessPopover 不再嵌套 typeSettingsPopover ── accessPopover 自己
-    // 独立 remove 即可。typeSettingsPopover 字段已删除, 不需要清理。
-    this.accessPopover.remove();
-    this.codexSettingsPopoverResizeObserver?.disconnect();
-    this.codexSettingsPopoverResizeObserver = null;
-    if (this.codexSettingsPopoverPositionFrame !== null) {
-      window.cancelAnimationFrame(this.codexSettingsPopoverPositionFrame);
-      this.codexSettingsPopoverPositionFrame = null;
-    }
-    document.removeEventListener(
-      "pointerdown",
-      this.boundHandleCodexSettingsOutsidePointer,
-      true,
-    );
-    this.codexSettingsPopover.remove();
-    // composerRolePopover 是独立挂在 document.body 的弹窗, 跟 accessPopover
-    // 互不嵌套, 需要单独 remove。 setComposerRolePopoverOpen(false) 已经在
-    // destroy 顶部调用过, 这里再 cleanup 一次 ResizeObserver / position
-    // frame / document listener, 保证视图销毁后没有 ghost callback。
-    this.composerRolePopoverController?.dispose();
-    this.composerRolePopoverController = null;
-    document.removeEventListener(
-      "pointerdown",
-      this.boundHandleComposerRoleOutsidePointer,
-      true,
-    );
-    this.composerRolePopover.remove();
+    this.accessPopoverController.dispose();
+    this.externalAgentSettings.dispose();
+    this.agentRolePicker.dispose();
+    this.fullscreenLayout.dispose();
   }
 }

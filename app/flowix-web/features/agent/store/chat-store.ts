@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, subscribeWithSelector } from "zustand/middleware";
 import type { ChatMessage, ThreadListItem } from "@/types";
 import type {
   AgentChunk,
@@ -623,7 +623,8 @@ function ensureConversationInstanceForThread(
 }
 
 export const useChatStore = create<ChatStore>()(
-  persist(
+  subscribeWithSelector(
+    persist(
     (set, get) => {
 
       return {
@@ -1837,6 +1838,7 @@ export const useChatStore = create<ChatStore>()(
         };
       },
     },
+    ),
   ),
 );
 

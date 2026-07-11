@@ -105,7 +105,12 @@
   display: inline;
 }
 
-.markdown-editor .ProseMirror .terminal-inline-atom-caret-anchor + br.ProseMirror-trailingBreak {
+/* ProseMirror appends img.ProseMirror-separator before the trailingBreak
+ * after contenteditable=false inline atoms in Safari/Chrome. The caret anchor
+ * already provides the terminal landing point, so both DOM shapes should keep
+ * the hack br visually hidden. */
+.markdown-editor .ProseMirror .terminal-inline-atom-caret-anchor + br.ProseMirror-trailingBreak,
+.markdown-editor .ProseMirror .terminal-inline-atom-caret-anchor + img.ProseMirror-separator + br.ProseMirror-trailingBreak {
   display: none;
 }
 

@@ -24,9 +24,8 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_TITLE_CLASS,
 } from '@features/preferences/sections/primitives';
-import { LANGUAGE_OPTIONS, useI18n, type AppLanguage } from '@features/i18n';
+import { LANGUAGE_OPTIONS, useI18n, type AppLanguage, type Region } from '@features/i18n';
 import type { MemoCardVariant } from '@/lib/constants';
-import type { ProductUpdatesConfig } from '@/lib/constants';
 
 interface GeneralSectionProps {
   settings: {
@@ -36,8 +35,7 @@ interface GeneralSectionProps {
     preferredLanguage: string;
   };
   language: AppLanguage;
-  region: string;
-  productUpdates: ProductUpdatesConfig;
+  region: Region;
   memoCardVariant: MemoCardVariant;
   updateSettings: (updates: {
     personalize?: Partial<{
@@ -48,7 +46,7 @@ interface GeneralSectionProps {
     }>;
     language?: AppLanguage;
     memoCardVariant?: MemoCardVariant;
-    productUpdates?: Partial<ProductUpdatesConfig>;
+    productUpdates?: Partial<{ lastCheckedAt: number }>;
   }) => Promise<void>;
 }
 
@@ -179,7 +177,7 @@ function MemoCardVariantOption({
   );
 }
 
-export function GeneralSection({ settings, language, region, productUpdates, memoCardVariant, updateSettings }: GeneralSectionProps) {
+export function GeneralSection({ settings, language, region, memoCardVariant, updateSettings }: GeneralSectionProps) {
   const { t } = useI18n();
   const customInstruction = useComposingValue(
     settings.customInstruction,
@@ -240,11 +238,6 @@ export function GeneralSection({ settings, language, region, productUpdates, mem
     if (!manualNotice?.ctaUrl) return;
     try {
       await openUrl(manualNotice.ctaUrl);
-      await updateSettings({
-        productUpdates: {
-          dismissedNoticeIds: [...productUpdates.dismissedNoticeIds, manualNotice.id],
-        },
-      });
     } catch {
       toast.error(t('productUpdates.openFailed'));
     }
@@ -388,11 +381,16 @@ export function GeneralSection({ settings, language, region, productUpdates, mem
               <p className="mt-1 line-clamp-3 whitespace-pre-line text-sm leading-5 text-[var(--muted-foreground)]">
                 {manualNotice.body}
               </p>
+              {manualNotice.version && (
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                  {t('productUpdates.version', { version: manualNotice.version })}
+                </p>
+              )}
             </div>
             {manualNotice.ctaUrl && (
               <Button variant="outline" size="sm" onClick={handleOpenNoticeLink}>
                 <ExternalLink className="w-3.5 h-3.5" />
-                {manualNotice.ctaLabel || t('productUpdates.openLink')}
+                {t('status.upgrade')}
               </Button>
             )}
           </div>

@@ -104,11 +104,16 @@ export function hydrateToolDisplay(
   const toolAgentType = message.toolAgentType ?? agentType;
   if (message.toolDisplay && message.toolAgentType === toolAgentType)
     return message;
-  const toolDisplay = createAgentToolDisplay({
-    agentType: toolAgentType,
-    toolName: message.toolName,
-    input: message.toolInput,
-  });
+  let toolDisplay: ReturnType<typeof createAgentToolDisplay> = undefined;
+  try {
+    toolDisplay = createAgentToolDisplay({
+      agentType: toolAgentType,
+      toolName: message.toolName,
+      input: message.toolInput,
+    });
+  } catch (err) {
+    console.error("Failed to hydrate agent tool display:", err);
+  }
   return toolDisplay || toolAgentType
     ? {
         ...message,

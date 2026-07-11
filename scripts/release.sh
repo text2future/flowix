@@ -37,8 +37,10 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────────────
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUNDLE_DIR="$REPO_ROOT/app/target/release/bundle"
-RELEASE_OUT="$REPO_ROOT/app/target/release/updater"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/.flowix-build/cargo-target}"
+export CARGO_TARGET_DIR
+BUNDLE_DIR="$CARGO_TARGET_DIR/release/bundle"
+RELEASE_OUT="$CARGO_TARGET_DIR/release/updater"
 VERSION="$(awk -F'"' '/^version *=/{print $2; exit}' "$REPO_ROOT/app/Cargo.toml")"
 PUBKEY_PATH="${TAURI_SIGNING_PUBKEY_PATH:-$HOME/.tauri/keys/flowix-dev.key.pub}"
 GH_OWNER="${GH_OWNER:-text2future}"

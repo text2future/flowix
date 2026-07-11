@@ -5,6 +5,11 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::runtime_log;
 
+const DEFAULT_UPDATE_NOTICE_ENDPOINT: &str =
+    "https://fqvruyesgivjlwhojyya.supabase.co/functions/v1/product-update-notices";
+const DEFAULT_SUPABASE_ANON_KEY: &str =
+    "sb_publishable_l6AmH0K0Uq8_roThQHSnnQ_2xxxl0o1";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductInfo {
@@ -26,8 +31,6 @@ pub struct ProductUpdateNotice {
     #[serde(default)]
     pub version: Option<String>,
     #[serde(default)]
-    pub cta_label: Option<String>,
-    #[serde(default)]
     pub cta_url: Option<String>,
     #[serde(default)]
     pub published_at: Option<String>,
@@ -44,6 +47,7 @@ fn update_notice_endpoint() -> Option<String> {
     std::env::var("FLOWIX_PRODUCT_UPDATES_URL")
         .ok()
         .or_else(|| option_env!("FLOWIX_PRODUCT_UPDATES_URL").map(str::to_string))
+        .or_else(|| Some(DEFAULT_UPDATE_NOTICE_ENDPOINT.to_string()))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }
@@ -52,6 +56,7 @@ fn supabase_anon_key() -> Option<String> {
     std::env::var("FLOWIX_SUPABASE_ANON_KEY")
         .ok()
         .or_else(|| option_env!("FLOWIX_SUPABASE_ANON_KEY").map(str::to_string))
+        .or_else(|| Some(DEFAULT_SUPABASE_ANON_KEY.to_string()))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }

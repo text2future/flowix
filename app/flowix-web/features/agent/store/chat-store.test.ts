@@ -106,6 +106,12 @@ async function flushAnimationFrame(): Promise<void> {
   });
 }
 
+async function flushPromises(): Promise<void> {
+  for (let i = 0; i < 50; i += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe("chat-store Agent Thread Card streaming flow", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -510,6 +516,160 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         useAgentConversationStore.getState(),
       ),
     ).toEqual([]);
+  });
+
+  it("debounces high-frequency Agent conversation run persistence", async () => {
+    vi.useFakeTimers();
+    try {
+      const { agent } = await import("@platform/tauri/client");
+      const { useAgentConversationStore } = await import(
+        "@features/agent/store/agent-conversation-store"
+      );
+      const instanceStore = useAgentConversationStore.getState();
+      const instanceId = "agent-inst-debounced-run";
+      useAgentConversationStore.setState({
+        instances: {
+          [instanceId]: {
+            instanceId,
+            agentType: "flowix",
+            title: "Debounced run",
+            threadId: "thread-debounced-run",
+            source: { kind: "thread-card" },
+            run: {
+              runId: "run-debounced",
+              startedAt: 1000,
+              status: "running",
+            },
+            createdAt: 1000,
+            updatedAt: 1000,
+          },
+        },
+      });
+      vi.mocked(agent.upsertConversationRunState).mockClear();
+
+      instanceStore.updateRun(instanceId, { currentTool: "read" });
+      instanceStore.updateRun(instanceId, { currentTool: "write" });
+      instanceStore.updateRun(instanceId, { totalTokens: 42 });
+
+      await vi.advanceTimersByTimeAsync(1999);
+      await flushPromises();
+      expect(agent.upsertConversationRunState).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises();
+      expect(agent.upsertConversationRunState).toHaveBeenCalledTimes(1);
+      expect(agent.upsertConversationRunState).toHaveBeenLastCalledWith(
+        instanceId,
+        expect.objectContaining({
+          currentTool: "write",
+          totalTokens: 42,
+          status: "running",
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes pending run persistence before marking a run ended", async () => {
+    vi.useFakeTimers();
+    try {
+      const { agent } = await import("@platform/tauri/client");
+      const { useAgentConversationStore } = await import(
+        "@features/agent/store/agent-conversation-store"
+      );
+      const instanceStore = useAgentConversationStore.getState();
+      const instanceId = "agent-inst-ended-run";
+      useAgentConversationStore.setState({
+        instances: {
+          [instanceId]: {
+            instanceId,
+            agentType: "flowix",
+            title: "Ended run",
+            threadId: "thread-ended-run",
+            source: { kind: "thread-card" },
+            run: {
+              runId: "run-ended",
+              startedAt: 1000,
+              status: "running",
+            },
+            createdAt: 1000,
+            updatedAt: 1000,
+          },
+        },
+      });
+      vi.mocked(agent.upsertConversationRunState).mockClear();
+
+      instanceStore.updateRun(instanceId, {
+        currentTool: "final-tool",
+        totalTokens: 100,
+      });
+      instanceStore.markRunEnded(instanceId, "completed", 2000);
+      await flushPromises();
+
+      expect(agent.upsertConversationRunState).toHaveBeenCalledTimes(2);
+      expect(agent.upsertConversationRunState).toHaveBeenNthCalledWith(
+        1,
+        instanceId,
+        expect.objectContaining({
+          currentTool: "final-tool",
+          totalTokens: 100,
+          status: "running",
+        }),
+      );
+      expect(agent.upsertConversationRunState).toHaveBeenNthCalledWith(
+        2,
+        instanceId,
+        expect.objectContaining({
+          currentTool: "final-tool",
+          totalTokens: 100,
+          status: "completed",
+          endedAt: 2000,
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels pending run persistence when removing an instance", async () => {
+    vi.useFakeTimers();
+    try {
+      const { agent } = await import("@platform/tauri/client");
+      const { useAgentConversationStore } = await import(
+        "@features/agent/store/agent-conversation-store"
+      );
+      const instanceStore = useAgentConversationStore.getState();
+      const instanceId = "agent-inst-removed-run";
+      useAgentConversationStore.setState({
+        instances: {
+          [instanceId]: {
+            instanceId,
+            agentType: "flowix",
+            title: "Removed run",
+            threadId: "thread-removed-run",
+            source: { kind: "thread-card" },
+            run: {
+              runId: "run-removed",
+              startedAt: 1000,
+              status: "running",
+            },
+            createdAt: 1000,
+            updatedAt: 1000,
+          },
+        },
+      });
+      vi.mocked(agent.upsertConversationRunState).mockClear();
+
+      instanceStore.updateRun(instanceId, { totalTokens: 55 });
+      instanceStore.removeInstance(instanceId);
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushPromises();
+
+      expect(agent.upsertConversationRunState).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps optimistic local run during backend snapshot grace window", async () => {

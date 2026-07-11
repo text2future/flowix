@@ -119,7 +119,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
   },
   claude: {
     typeKey: "claude",
-    emptySettings: ["permission"],
+    emptySettings: ["model", "permission"],
     accessOptions: CODEX_ACCESS_OPTIONS,
     buildRuntimeConfig: ({ cwd, workspacePaths, permissionMode }) => ({
       claude: { cwd, workspacePaths, permissionMode },

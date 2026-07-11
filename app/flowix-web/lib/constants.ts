@@ -93,8 +93,6 @@ export interface AgentsConfig {
 export interface ProductUpdatesConfig {
   enabled: boolean;
   lastCheckedAt: number;
-  dismissedNoticeIds: string[];
-  remindLater: Record<string, number>;
 }
 
 export interface UserSettings {
@@ -246,8 +244,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   productUpdates: {
     enabled: true,
     lastCheckedAt: 0,
-    dismissedNoticeIds: [],
-    remindLater: {},
   },
 };
 
