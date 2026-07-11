@@ -27,12 +27,77 @@ function listAllows(list: string[], value: string): boolean {
   return list.length === 0 || list.includes(value.toLowerCase());
 }
 
+type ParsedVersion = {
+  numbers: number[];
+  pre: (number | string)[];
+  build: string[];
+};
+
+// Strict semver-ish parser: tolerates a leading "v" and surrounding whitespace,
+// splits build metadata ("+…") from pre-release ("-…"), and coerces only fully
+// numeric segments — anything else stays as a string so the pre-release compare
+// can decide ordering. Per the semver spec, build metadata is dropped before
+// comparison.
+function parseVersion(raw: string): ParsedVersion {
+  const head = raw.trim().replace(/^v/i, "");
+  const plusIndex = head.indexOf("+");
+  const numericPart = plusIndex === -1 ? head : head.slice(0, plusIndex);
+  const buildPart = plusIndex === -1 ? "" : head.slice(plusIndex + 1);
+  const dashIndex = numericPart.indexOf("-");
+  const core = dashIndex === -1 ? numericPart : numericPart.slice(0, dashIndex);
+  const prePart = dashIndex === -1 ? "" : numericPart.slice(dashIndex + 1);
+
+  const numbers = core.length === 0
+    ? [0]
+    : core.split(".").map((segment) => {
+      const parsed = Number.parseInt(segment, 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    });
+
+  const pre = prePart.length === 0
+    ? []
+    : prePart.split(".").map((segment) =>
+      /^\d+$/.test(segment) ? Number.parseInt(segment, 10) : segment
+    );
+
+  const build = buildPart.length === 0
+    ? []
+    : buildPart.split(".").filter((segment) => segment.length > 0);
+
+  return { numbers, pre, build };
+}
+
+// Semver: numeric identifiers sort before alphanumeric ones; within the same
+// kind, numeric/string compare normally.
+function comparePreId(a: number | string, b: number | string): number {
+  if (typeof a === "number" && typeof b === "string") return -1;
+  if (typeof a === "string" && typeof b === "number") return 1;
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
 function compareSemver(a: string, b: string): number {
-  const left = a.split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const right = b.split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const len = Math.max(left.length, right.length);
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+
+  const len = Math.max(left.numbers.length, right.numbers.length);
   for (let index = 0; index < len; index += 1) {
-    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    const diff = (left.numbers[index] ?? 0) - (right.numbers[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+
+  // Per semver: a release outranks the same numeric core with a pre-release
+  // tag (e.g. 1.2.3 > 1.2.3-rc.1).
+  if (left.pre.length === 0 && right.pre.length > 0) return 1;
+  if (left.pre.length > 0 && right.pre.length === 0) return -1;
+  if (left.pre.length === 0 && right.pre.length === 0) return 0;
+
+  const preLen = Math.max(left.pre.length, right.pre.length);
+  for (let index = 0; index < preLen; index += 1) {
+    if (index >= left.pre.length) return -1;
+    if (index >= right.pre.length) return 1;
+    const diff = comparePreId(left.pre[index]!, right.pre[index]!);
     if (diff !== 0) return diff;
   }
   return 0;

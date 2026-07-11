@@ -384,13 +384,16 @@ export class ExternalAgentSettingsController {
     useChatStore.getState().setAgentCodexModel(model);
   }
 
+  // Returns empty string when there is no real default model id to display.
+  // 空状态 ── 没有真实 default model id 时返回空串, 调用方应据此隐藏
+  // 「Default」项而不是渲染「Codex default」之类的兜底文案。
   private getExternalModelDefaultLabel(): string {
     if (this.getTypeKey() === "claude") return this.t("agent.permission.default");
     return this.codexDefaultModel
       ? translate(this.getLanguage(), "agent.codexModel.defaultWith", {
           model: this.codexDefaultModel,
         })
-      : this.t("agent.codexModel.default");
+      : "";
   }
 
   private getExternalModelFallbackOptions(): AgentModelOption[] {
@@ -409,8 +412,9 @@ export class ExternalAgentSettingsController {
       localOptions.length > 0
         ? localOptions
         : this.getExternalModelFallbackOptions();
+    const inheritLabel = this.getExternalModelDefaultLabel();
     const options: AgentModelOption[] = [
-      { id: "inherit", label: this.getExternalModelDefaultLabel() },
+      ...(inheritLabel ? [{ id: "inherit" as AgentCodexModel, label: inheritLabel }] : []),
       ...modelOptions,
     ];
     if (
@@ -424,10 +428,17 @@ export class ExternalAgentSettingsController {
 
   private getCurrentExternalModelLabel(): string {
     const model = this.getExternalAgentModel();
-    return (
-      this.getExternalModelOptions().find((option) => option.id === model)
-        ?.label ?? this.getExternalModelDefaultLabel()
+    const options = this.getExternalModelOptions();
+    const match = options.find((option) => option.id === model);
+    if (match) return match.label;
+    // 「inherit」被过滤 (无 default model id) ── 落到第一个真实 model,
+    // 不渲染空 label。 选取 CODEX_MODEL_OPTIONS / CLAUDE_MODEL_OPTIONS
+    // 中第一个作为 fallback, 与「无 default 时第一个 model 即默认」的
+    // 隐式语义对齐。
+    const fallback = options.find(
+      (option) => option.id !== ("inherit" as AgentCodexModel),
     );
+    return fallback?.label ?? this.getExternalModelDefaultLabel();
   }
 
   private getCurrentCodexReasoningLabel(): string {

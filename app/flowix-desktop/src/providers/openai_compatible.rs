@@ -1936,7 +1936,7 @@ mod tests {
         );
         let message = LlmChatMessage {
             role: ChatRole::User,
-            content: format!("describe this video {}", path.display()),
+            content: format!("describe this video [sample]({})", path.display()),
             message_type: MessageType::Text,
         };
         let messages = provider.prepare_messages(&[message]).await.unwrap();

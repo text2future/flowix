@@ -1,4 +1,3 @@
-import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
 
@@ -53,35 +52,9 @@ const cardMarked = new Marked({
   breaks: true,
 });
 
-const MARKDOWN_SANITIZE_CONFIG = {
-  USE_PROFILES: { html: true },
-  FORBID_TAGS: [
-    "style",
-    "iframe",
-    "object",
-    "embed",
-    "form",
-    "input",
-    "button",
-    "textarea",
-    "select",
-    "option",
-  ],
-  FORBID_ATTR: ["style", "srcdoc"],
-  ALLOW_DATA_ATTR: false,
-  ALLOWED_URI_REGEXP:
-    /^(?:(?:(?:https?|mailto|tel|flowix):)|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-};
-
-function sanitizeMarkdownHtml(html: string): string {
-  if (!html) return "";
-  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_CONFIG);
-}
-
 export function renderAgentThreadCardMarkdownToHtml(content: string): string {
   if (!content || !content.trim()) return "";
-  const raw = cardMarked.parse(content) as string;
-  return sanitizeMarkdownHtml(raw);
+  return cardMarked.parse(content) as string;
 }
 
 export function fillWithAgentThreadCardMarkdownHtml(

@@ -20,6 +20,28 @@ import {
 
 type AgentMessage = ThreadState["messages"][number];
 
+// User 消息正文最大展示字符数 ── 超过截断并在末尾加省略号。
+//
+// 临时为以下场景做防护: Claude Code CLI 在 user-event 里会把加载到的
+// skill 文档全文注入到 `tool_result` 之前的 text block, 后端
+// `claude_history::value_to_chat_messages` 当前会把这种 text 累积成一
+// 条 `role: "user"` 的历史消息, 重新加载 thread 时就会被当作用户输入
+// 长文本铺满整个 Agent Thread Card。 这里先做展示层限长, 后续在 history
+// 解析层应该正经修。
+const USER_MESSAGE_PREVIEW_MAX_CHARS = 1000;
+const USER_MESSAGE_PREVIEW_ELLIPSIS = "…";
+
+function truncateUserMessagePreview(text: string): string {
+  // 用 Array.from 按 code point 切, 避免 surrogate pair / CJK 字符被
+  // 截在中间, 也避免单纯 .length 把 emoji 算成 2 个单位。
+  const chars = Array.from(text);
+  if (chars.length <= USER_MESSAGE_PREVIEW_MAX_CHARS) return text;
+  return (
+    chars.slice(0, USER_MESSAGE_PREVIEW_MAX_CHARS).join("") +
+    USER_MESSAGE_PREVIEW_ELLIPSIS
+  );
+}
+
 export interface AgentThreadCardMessageElementResult {
   element: HTMLElement;
   shouldRemember: boolean;
@@ -79,6 +101,17 @@ export function createAgentThreadCardMessageElement(options: {
       const content = document.createElement("div");
       content.className = "agent-thread-card__message-content";
       content.textContent = messageView.visibleContent;
+      item.append(content);
+    } else if (message.role === "user") {
+      const content = document.createElement("div");
+      content.className =
+        "agent-thread-card__message-content agent-thread-card__message-content--user-preview";
+      fillWithAgentThreadCardMarkdownHtml(
+        content,
+        renderAgentThreadCardMarkdownToHtml(
+          truncateUserMessagePreview(messageView.visibleContent),
+        ),
+      );
       item.append(content);
     } else if (message.role === "reasoning") {
       const header = document.createElement("button");
