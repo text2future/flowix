@@ -1,7 +1,16 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { ChatMessage } from "@/types";
-import type { AgentTypeKey, StatusInfo, UsageInfo } from "@/types/agent";
+import type {
+  AgentTypeKey,
+  RuntimeConfig,
+  RuntimeConfigPatch,
+  StatusInfo,
+  UsageInfo,
+} from "@/types/agent";
+import type {
+  AgentConversationInstance as BackendAgentConversationInstance,
+} from "@platform/tauri/client";
 import { stripSystemBlock } from "@features/agent/message";
 import { agentClient } from "@features/agent/store/agent-client";
 import {
@@ -47,6 +56,7 @@ export interface AgentConversationInstance {
   agentType: AgentTypeKey;
   title: string;
   threadId: string | null;
+  runtimeConfig?: RuntimeConfig | null;
   source: AgentConversationSource;
   role?: AgentConversationRole | null;
   run?: AgentConversationRun | null;
@@ -66,6 +76,7 @@ export interface CreateAgentConversationInstanceInput {
   agentType: AgentTypeKey;
   title: string;
   threadId?: string | null;
+  runtimeConfig?: RuntimeConfig | null;
   source: AgentConversationSource;
   role?: AgentConversationRole;
 }
@@ -81,6 +92,7 @@ export interface AgentConversationStore {
     instanceId: string,
     patch: Partial<Omit<AgentConversationInstance, "instanceId" | "createdAt">>,
   ) => AgentConversationInstance;
+  setRuntimeConfig: (instanceId: string, patch: RuntimeConfigPatch) => void;
   getInstance: (instanceId: string | null | undefined) => AgentConversationInstance | null;
   updateThread: (
     instanceId: string,
@@ -114,7 +126,7 @@ export interface AgentConversationStore {
     endedAt: number,
   ) => void;
   resolveSessionByThreadId: (
-    pendingThreadId: string,
+    localThreadId: string,
     sessionId: string,
     agentType: AgentTypeKey,
   ) => string | null;
@@ -162,13 +174,55 @@ function emptyMessageState(): AgentConversationMessageState {
   };
 }
 
+function parseRuntimeConfigSnapshot(
+  value: BackendAgentConversationInstance["runtimeConfig"] | RuntimeConfig | null | undefined,
+): RuntimeConfig | null {
+  if (!value) return null;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as RuntimeConfig;
+  } catch {
+    return null;
+  }
+}
+
+function serializeRuntimeConfigSnapshot(
+  value: RuntimeConfig | null | undefined,
+): string | null {
+  if (!value || Object.keys(value).length === 0) return null;
+  return JSON.stringify(value);
+}
+
+function mergeRuntimeConfig(
+  current: RuntimeConfig | null | undefined,
+  patch: RuntimeConfigPatch,
+): RuntimeConfig {
+  const merged: RuntimeConfig = { ...(current ?? {}) };
+  for (const key of Object.keys(patch) as (keyof RuntimeConfig)[]) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    (merged as Record<string, unknown>)[key] = value;
+  }
+  return merged;
+}
+
 function normalizeBackendInstance(
-  instance: AgentConversationInstance,
+  instance: AgentConversationInstance | BackendAgentConversationInstance,
 ): AgentConversationInstance {
   return {
     ...instance,
+    runtimeConfig: parseRuntimeConfigSnapshot(instance.runtimeConfig),
     role: instance.role ?? undefined,
     run: instance.run ?? undefined,
+  };
+}
+
+function toBackendInstance(
+  instance: AgentConversationInstance,
+): BackendAgentConversationInstance {
+  return {
+    ...instance,
+    runtimeConfig: serializeRuntimeConfigSnapshot(instance.runtimeConfig),
   };
 }
 
@@ -209,7 +263,7 @@ function enqueueInstanceWrite(
 function persistInstance(instance: AgentConversationInstance): void {
   enqueueInstanceWrite(
     instance.instanceId,
-    () => agentClient.upsertConversationInstance(normalizeBackendInstance(instance)).then(() => undefined),
+    () => agentClient.upsertConversationInstance(toBackendInstance(instance)).then(() => undefined),
     "persist instance",
   );
 }
@@ -309,6 +363,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           agentType: input.agentType,
           title: normalizeConversationTitle(input.title),
           threadId: input.threadId ?? null,
+          runtimeConfig: input.runtimeConfig ?? null,
           source: input.source,
           role: input.role,
           createdAt: now,
@@ -337,6 +392,10 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
                 ? normalizeConversationTitle(patch.title)
                 : existing?.title ?? "",
             threadId: patch.threadId ?? existing?.threadId ?? null,
+            runtimeConfig:
+              patch.runtimeConfig !== undefined
+                ? patch.runtimeConfig
+                : existing?.runtimeConfig ?? null,
             source: patch.source ?? existing?.source ?? { kind: "thread-card" },
             role: patch.role ?? existing?.role,
             run: patch.run ?? existing?.run,
@@ -352,6 +411,25 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
         });
         persistInstance(nextInstance!);
         return nextInstance!;
+      },
+
+      setRuntimeConfig: (instanceId, patch) => {
+        let nextInstance: AgentConversationInstance | null = null;
+        set((state) => {
+          const existing = state.instances[instanceId];
+          if (!existing) return state;
+          nextInstance = touch({
+            ...existing,
+            runtimeConfig: mergeRuntimeConfig(existing.runtimeConfig, patch),
+          });
+          return {
+            instances: {
+              ...state.instances,
+              [instanceId]: nextInstance!,
+            },
+          };
+        });
+        if (nextInstance) persistInstance(nextInstance);
       },
 
       getInstance: (instanceId) =>
@@ -565,18 +643,18 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
         }
       },
 
-      resolveSessionByThreadId: (pendingThreadId, sessionId, agentType) => {
-        const instance = get().findByThreadId(pendingThreadId);
+      resolveSessionByThreadId: (localThreadId, sessionId, agentType) => {
+        const instance = get().findByThreadId(localThreadId);
         if (!instance) return null;
         get().updateThread(instance.instanceId, {
           agentType,
           threadId: sessionId,
         });
         set((state) => {
-          const pending = state.messageStates[pendingThreadId];
-          if (!pending) return state;
+          const localMessages = state.messageStates[localThreadId];
+          if (!localMessages) return state;
           const existing = state.messageStates[sessionId] ?? emptyMessageState();
-          const { [pendingThreadId]: _removed, ...rest } = state.messageStates;
+          const { [localThreadId]: _removed, ...rest } = state.messageStates;
           return {
             messageStates: {
               ...rest,
@@ -584,15 +662,15 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
                 ...existing,
                 messages: mergeHistoricalMessages(
                   existing.messages,
-                  pending.messages,
+                  localMessages.messages,
                   agentType,
                 ),
-                oldestSequence: existing.oldestSequence ?? pending.oldestSequence,
+                oldestSequence: existing.oldestSequence ?? localMessages.oldestSequence,
                 hasMoreHistory:
-                  existing.hasMoreHistory || pending.hasMoreHistory,
+                  existing.hasMoreHistory || localMessages.hasMoreHistory,
                 loadingInitial:
-                  existing.loadingInitial || pending.loadingInitial,
-                loadingMore: existing.loadingMore || pending.loadingMore,
+                  existing.loadingInitial || localMessages.loadingInitial,
+                loadingMore: existing.loadingMore || localMessages.loadingMore,
               },
             },
           };
@@ -797,8 +875,20 @@ export function selectRunningAgentConversationInstances(
   state: Pick<AgentConversationStore, "instances">,
 ): AgentConversationInstance[] {
   return Object.values(state.instances)
-    .filter((instance) => instance.run?.status === "running")
+    .filter(selectIsAgentConversationRunning)
     .sort((a, b) => (a.run?.startedAt ?? 0) - (b.run?.startedAt ?? 0));
+}
+
+export function selectAgentConversationRunStatus(
+  instance: AgentConversationInstance | null | undefined,
+): AgentConversationRun["status"] | null {
+  return instance?.run?.status ?? null;
+}
+
+export function selectIsAgentConversationRunning(
+  instance: AgentConversationInstance | null | undefined,
+): boolean {
+  return selectAgentConversationRunStatus(instance) === "running";
 }
 
 export function selectRunningAgentConversationThreadIds(

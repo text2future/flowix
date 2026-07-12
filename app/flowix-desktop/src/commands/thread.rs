@@ -5,30 +5,12 @@
 
 use serde::Serialize;
 use tauri::State;
-use tokio::process::Command;
 
 use crate::agent::default_agent_id;
 use crate::threads::{
     AgentConversationInstance, AgentConversationRun, ChatMessage, ThreadInfo, ThreadMessagesPage,
     UpsertAgentConversationInstance,
 };
-
-/// 拉取 thread 的 runtime_config 快照（JSON 字符串）。
-/// 前端切 thread / 重启 / 第一次打开卡片时调，作为 UI 控件的初值。
-///
-/// 返回 `None` 时表示 thread 尚未持久化任何 config → UI 应回退到全局默认。
-/// 写入侧由 chat_stream 入口自动完成（懒写），不暴露独立 update IPC。
-#[tauri::command]
-pub async fn thread_get_runtime_config(
-    thread_id: String,
-    state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    let manager = state.thread_manager.read().await;
-    manager
-        .get_runtime_config(&thread_id)
-        .await
-        .map_err(|e| e.to_string())
-}
 
 use super::AppState;
 
@@ -314,94 +296,6 @@ pub async fn hermes_thread_session_id(
 }
 
 #[tauri::command]
-pub async fn codex_default_model() -> Result<String, String> {
-    if let Some(model) = read_codex_config_model() {
-        return Ok(model);
-    }
-
-    if let Some(model) = query_codex_models().await?.first().cloned() {
-        return Ok(model);
-    }
-
-    Ok("gpt-5.5".to_string())
-}
-
-#[tauri::command]
-pub async fn agent_supported_models(agent_type: String) -> Result<Vec<String>, String> {
-    match agent_type.trim().to_ascii_lowercase().as_str() {
-        "codex" => query_codex_models().await,
-        _ => Ok(Vec::new()),
-    }
-}
-
-async fn query_codex_models() -> Result<Vec<String>, String> {
-    let mut cmd = Command::new(crate::codex_cli::resolve_codex_binary());
-    crate::process_window::hide_command_window(&mut cmd);
-    let output = cmd
-        .args(["debug", "models"])
-        .output()
-        .await
-        .map_err(|e| format!("failed to query Codex models: {e}"))?;
-
-    if output.status.success() {
-        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-            return Ok(parse_codex_models(&value));
-        }
-    }
-
-    Ok(Vec::new())
-}
-
-fn parse_codex_models(value: &serde_json::Value) -> Vec<String> {
-    let Some(models) = value.get("models").and_then(serde_json::Value::as_array) else {
-        return Vec::new();
-    };
-    let mut seen = std::collections::HashSet::new();
-    models
-        .iter()
-        .filter_map(|model| {
-            model
-                .get("slug")
-                .or_else(|| model.get("id"))
-                .or_else(|| model.get("name"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|model| !model.is_empty())
-        })
-        .filter(|model| seen.insert((*model).to_string()))
-        .map(str::to_string)
-        .collect()
-}
-
-fn read_codex_config_model() -> Option<String> {
-    let config_path = dirs::home_dir()?.join(".codex").join("config.toml");
-    let content = std::fs::read_to_string(config_path).ok()?;
-    parse_codex_config_model(&content)
-}
-
-fn parse_codex_config_model(content: &str) -> Option<String> {
-    content.lines().find_map(|line| {
-        let line = line.trim();
-        if line.starts_with('#') || !line.starts_with("model") {
-            return None;
-        }
-        let (key, value) = line.split_once('=')?;
-        if key.trim() != "model" {
-            return None;
-        }
-        let value = value
-            .split('#')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .trim();
-        (!value.is_empty()).then(|| value.to_string())
-    })
-}
-
-#[tauri::command]
 pub async fn thread_delete(thread_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let flowix_stopped = state.agent_manager.stop_chat(&thread_id, None).await;
     let codex_stopped = state.codex_cli_manager.stop_chat(&thread_id, None).await;
@@ -462,40 +356,4 @@ pub async fn thread_update_title(
         .update_title(&thread_id, title)
         .await
         .map_err(|e| e.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_codex_config_model() {
-        assert_eq!(
-            parse_codex_config_model("model = \"gpt-5.5\"\n").as_deref(),
-            Some("gpt-5.5")
-        );
-        assert_eq!(
-            parse_codex_config_model("model = 'gpt-5-codex' # comment\n").as_deref(),
-            Some("gpt-5-codex")
-        );
-        assert_eq!(parse_codex_config_model("service_tier = \"default\""), None);
-    }
-
-    #[test]
-    fn parses_codex_supported_models() {
-        let value = serde_json::json!({
-            "models": [
-                { "slug": "gpt-5.6" },
-                { "id": "gpt-5.6-sol" },
-                { "name": "gpt-5.6-terra" },
-                { "slug": "gpt-5.6" },
-                { "slug": "" }
-            ]
-        });
-
-        assert_eq!(
-            parse_codex_models(&value),
-            vec!["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra"]
-        );
-    }
 }

@@ -16,6 +16,7 @@ import type { AgentTypeKey } from '@/types/agent';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import { useChatStore } from '@features/agent/store/chat-store';
 import {
+  selectIsAgentConversationRunning,
   useAgentConversationStore,
   type AgentConversationInstance,
 } from '@features/agent/store/agent-conversation-store';
@@ -36,9 +37,7 @@ export function AgentRuntimeStatusMenu() {
   const instancesMap = useAgentConversationStore((s) => s.instances);
   const hasRunning = useMemo(
     () =>
-      Object.values(instancesMap).some(
-        (instance) => instance.run?.status === 'running',
-      ),
+      Object.values(instancesMap).some(selectIsAgentConversationRunning),
     [instancesMap],
   );
   const instancesByType = useMemo(() => {
@@ -207,7 +206,7 @@ export function AgentRuntimeStatusMenu() {
                               <span
                                 className={cn(
                                   'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border bg-[var(--background)] p-0.5',
-                                  instance.run?.status === 'running'
+                                  selectIsAgentConversationRunning(instance)
                                     ? 'agent-runtime-submenu__icon--running border-transparent'
                                     : 'border-[var(--border)]',
                                 )}

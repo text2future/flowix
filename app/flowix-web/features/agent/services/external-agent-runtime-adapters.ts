@@ -5,7 +5,7 @@ export type ExternalAgentTypeKey = Extract<AgentTypeKey, 'codex' | 'claude' | 'h
 
 export interface ExternalAgentRuntimeAdapter {
   readonly typeKey: ExternalAgentTypeKey;
-  createPendingThreadId(sequence: number, now?: number): string;
+  createLocalThreadId(instanceId: string): string;
   isLocalThreadId(threadId: string): boolean;
   resolveSessionId(threadId: string): Promise<string | null>;
 }
@@ -16,11 +16,12 @@ function createPrefixRuntimeAdapter(
 ): ExternalAgentRuntimeAdapter {
   return {
     typeKey,
-    createPendingThreadId(sequence, now = Date.now()) {
-      return `${typeKey}-pending-${now}-${sequence}`;
+    createLocalThreadId(instanceId) {
+      return `${typeKey}-local-${instanceId}`;
     },
     isLocalThreadId(threadId) {
       return threadId.startsWith(`${typeKey}-local-`) ||
+        // Legacy local ids created before instance-backed routing.
         threadId.startsWith(`${typeKey}-pending-`);
     },
     resolveSessionId,

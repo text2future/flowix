@@ -76,9 +76,9 @@ export interface AgentRuntimeConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Per-thread runtime config 快照 ── 后端 `threads.runtime_config` 列
-// (JSON 字符串) 的反序列化目标。Phase 3 引入, 用于让 Agent Thread Card
-// 各自锁定 model / permission / files 配置, 互不污染。
+// Runtime config snapshot ── stored on `agent_conversation_instances`.
+// Used by Agent Thread Card instances to lock model / permission / files
+// configuration without polluting other cards.
 //
 // 字段语义对齐后端 `app/flowix-desktop/src/threads.rs::RuntimeConfig`。
 // 序列化 / 反序列化与后端保持 camelCase 命名一致。
@@ -86,8 +86,6 @@ export interface AgentRuntimeConfig {
 
 export interface ModelConfig {
   key: string;
-  /** 预留：speed / capability 标签, 当前 UI 未展示 */
-  speed?: string;
 }
 
 export interface AccessConfig {
@@ -119,7 +117,7 @@ export interface RuntimeConfig {
 }
 
 /**
- * `RuntimeConfig` 的 partial patch ── setThreadRuntimeConfig 用。
+ * `RuntimeConfig` 的 partial patch ── instance runtimeConfig updates use this.
  *
  * 三态语义（与 chat-store 实际 merge 行为一致）：
  *   - 字段缺失 / `undefined` → 不动

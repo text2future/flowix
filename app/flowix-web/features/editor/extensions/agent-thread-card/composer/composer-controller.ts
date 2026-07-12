@@ -13,7 +13,7 @@ export interface ComposerControllerOptions {
   getCurrentInputDraft: () => string;
   getUserHistoryMessages: () => string[];
   getSendLabel: (wantStop: boolean) => string;
-  isLoading: () => boolean;
+  getSendButtonWantsStop: () => boolean;
   submit: () => void;
   stop: () => void;
 }
@@ -27,7 +27,7 @@ export class ComposerController {
   private readonly getCurrentInputDraft: () => string;
   private readonly getUserHistoryMessages: () => string[];
   private readonly getSendLabel: (wantStop: boolean) => string;
-  private readonly isLoading: () => boolean;
+  private readonly getSendButtonWantsStop: () => boolean;
   private readonly submit: () => void;
   private readonly stop: () => void;
 
@@ -44,7 +44,7 @@ export class ComposerController {
     this.getCurrentInputDraft = options.getCurrentInputDraft;
     this.getUserHistoryMessages = options.getUserHistoryMessages;
     this.getSendLabel = options.getSendLabel;
-    this.isLoading = options.isLoading;
+    this.getSendButtonWantsStop = options.getSendButtonWantsStop;
     this.submit = options.submit;
     this.stop = options.stop;
 
@@ -107,7 +107,7 @@ export class ComposerController {
 
   setSendButtonState(inputValue: string = this.input.value.trim()): void {
     const { wantStop, disabled } = selectAgentThreadCardSendButtonState({
-      isLoading: this.isLoading(),
+      wantStop: this.getSendButtonWantsStop(),
       inputValue,
     });
     renderAgentThreadCardSendButton({

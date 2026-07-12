@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ThreadState } from '@features/agent/store/chat-store';
 import {
   selectAgentThreadCardRunStatus,
+  selectAgentThreadCardRuntimeView,
   selectAgentThreadCardSendButtonState,
 } from './agent-thread-card-selectors';
 
@@ -61,17 +62,65 @@ describe('agent thread card selectors', () => {
     expect(status.latestRun?.runId).toBe('run-1');
   });
 
+  it('prefers the conversation run status over thread runtime fallback', () => {
+    const status = selectAgentThreadCardRunStatus({
+      state: threadState({
+        activeRunId: 'run-thread',
+        runs: {
+          'run-thread': {
+            runId: 'run-thread',
+            agentType: 'codex',
+            threadId: 'thread-1',
+            status: 'completed',
+            startedAt: 10,
+          },
+        },
+      }),
+      conversationRun: {
+        runId: 'run-conversation',
+        status: 'running',
+        startedAt: 20,
+      },
+      isCreating: false,
+      isLoading: false,
+      typeKey: 'codex',
+    });
+
+    expect(status.shouldShowStatus).toBe(true);
+    expect(status.status).toBe('running');
+    expect(status.latestRun?.runId).toBe('run-conversation');
+  });
+
+  it('derives Thread Card runtime UI from the conversation run', () => {
+    const runtime = selectAgentThreadCardRuntimeView({
+      state: undefined,
+      conversationRun: {
+        runId: 'run-conversation',
+        status: 'running',
+        startedAt: 20,
+      },
+      isCreating: false,
+      isLoading: false,
+      typeKey: 'codex',
+    });
+
+    expect(runtime.isRunning).toBe(true);
+    expect(runtime.isBusy).toBe(true);
+    expect(runtime.showLoadingIndicator).toBe(true);
+    expect(runtime.sendButtonWantsStop).toBe(true);
+  });
+
   it('selects send button state from loading and input text', () => {
     expect(selectAgentThreadCardSendButtonState({
-      isLoading: false,
+      wantStop: false,
       inputValue: '',
     })).toEqual({ wantStop: false, disabled: true });
     expect(selectAgentThreadCardSendButtonState({
-      isLoading: false,
+      wantStop: false,
       inputValue: 'hello',
     })).toEqual({ wantStop: false, disabled: false });
     expect(selectAgentThreadCardSendButtonState({
-      isLoading: true,
+      wantStop: true,
       inputValue: '',
     })).toEqual({ wantStop: true, disabled: false });
   });

@@ -57,6 +57,9 @@ import {
   isAgentThreadCardSelectableMessageText,
   type ScrollSnapshot,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-dom";
+import {
+  selectAgentThreadCardRuntimeView,
+} from "@features/editor/extensions/agent-thread-card/agent-thread-card-selectors";
 
 // OS 顶部控件区高度 ── AgentThreadCard 全屏时把卡片向上探出这条带状区
 // 高度, 覆盖到 webview 顶端 (而不是停在文档区顶边)。
@@ -252,8 +255,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       onBodyClick: this.handleBodyClick,
       onBodyScroll: this.boundHandleBodyScroll,
       onAccessClick: (event) => {
+        // 指令按钮：暂时去掉弹窗，后续再设计
         event.stopPropagation();
-        this.setAccessPopoverOpen(!this.accessPopoverController.isOpen);
       },
       onComposerMouseDown: (event) => {
         const target = event.target as HTMLElement | null;
@@ -315,9 +318,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.externalAgentSettings = new ExternalAgentSettingsController({
       popover: codexSettingsPopover,
       getTypeKey: () => this.typeKey,
-      // Per-thread runtime settings are keyed by threadId; unbound cards
-      // fall back to global defaults inside the settings controller.
-      getThreadId: () => this.threadId ?? undefined,
+      getInstanceId: () => this.instanceId ?? undefined,
       getLanguage: () => this.language,
       t: (key) => this.t(key),
       isDestroyed: () => this.isDestroyed,
@@ -350,9 +351,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
           this.composerRoleIcon.contains(target)
       ),
       consumeOutsidePointer: consumeEditorPopoverDismissPointer,
-      // File access settings are per-thread when the card is bound.
-      // Unbound cards keep using the global access-store fallback.
-      getThreadId: () => this.threadId ?? undefined,
+      getInstanceId: () => this.instanceId ?? undefined,
     });
     this.fullscreenLayout = new FullscreenLayoutController({
       dom: this.dom,
@@ -434,7 +433,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         wantStop
           ? this.t("editor.threadCard.stop")
           : this.t("editor.threadCard.send"),
-      isLoading: () => !!this.currentThreadState()?.isLoading || this.isCreating,
+      getSendButtonWantsStop: () =>
+        this.currentRuntimeView().sendButtonWantsStop,
       submit: () => {
         void this.submit();
       },
@@ -446,9 +446,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
     this.refreshAttrs();
     this.renderThreadState();
-    // Load persisted per-thread runtime config before the settings popovers
-    // need it. The store internally de-duplicates repeated loads.
-    this.maybeLoadThreadRuntimeConfig();
     window.addEventListener(
       AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT,
       this.boundHandleRequestFullscreen,
@@ -463,6 +460,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.observeThreadCacheVisibility();
     this.requestThreadMessagesIfNeeded();
     this.runInitialPromptIfNeeded();
+    queueMicrotask(() => this.ensureInstanceBinding());
   }
 
   private get threadId(): string | null {
@@ -500,6 +498,25 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
   private get instance() {
     return useAgentConversationStore.getState().getInstance(this.instanceId);
+  }
+
+  private ensureInstanceBinding(): void {
+    if (this.isDestroyed || this.instanceId) return;
+    const instance = useAgentConversationStore.getState().createInstance({
+      agentType: this.typeKey,
+      title: this.title,
+      threadId: this.threadId,
+      source: getCurrentThreadCardSource(),
+      role: {
+        memoId: this.agentRoleMemoId,
+        name: this.agentRoleName,
+      },
+    });
+    this.updateAttrs({
+      instanceId: instance.instanceId,
+      threadId: instance.threadId,
+      typeKey: instance.agentType,
+    });
   }
 
   private get agentRoleMemoId(): string | null {
@@ -872,6 +889,16 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       : undefined;
   }
 
+  private currentRuntimeView(state: ThreadState | undefined = this.currentThreadState()) {
+    return selectAgentThreadCardRuntimeView({
+      state,
+      conversationRun: this.instance?.run ?? undefined,
+      isCreating: this.isCreating,
+      isLoading: !!state?.isLoading,
+      typeKey: this.typeKey,
+    });
+  }
+
   private currentConversationMessageState() {
     const threadId = this.renderThreadId;
     return threadId
@@ -926,6 +953,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       metaEl: this.metaEl,
       runStatusEl: this.runStatusEl,
       state,
+      conversationRun: this.instance?.run ?? undefined,
       isCreating: this.isCreating,
       isLoading,
       typeKey: this.typeKey,
@@ -937,7 +965,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const state = this.currentThreadState();
     const shouldRenderMessages = !this.collapsed || this.isFullscreen;
     const messages = shouldRenderMessages ? this.currentMessages() : [];
-    const isLoading = !!state?.isLoading || this.isCreating;
+    const runtimeView = this.currentRuntimeView(state);
     this.dom.classList.toggle(
       "agent-thread-card--thread-cache-loading",
       this.isThreadCachePresentationHidden(),
@@ -952,14 +980,14 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 拦截在 submit() 里: isBusy 时早返, 不清空 input.value, 也不触发
     // ensureAgentThreadCardThread / sendMessageToThread。
     //
-    // send 按钮仍交给 ComposerController 处理 ── isLoading 时 wantStop=true,
-    // 渲染 stop 图标 + 走 stopExternalAgentThreadCardRun, 不投递新消息。
+    // send 按钮仍交给 ComposerController 处理 ── runtimeView 判定忙碌时
+    // wantStop=true, 渲染 stop 图标 + 走 stopExternalAgentThreadCardRun。
     this.composerController.setSendButtonState();
-    this.renderMetaState(state, isLoading);
+    this.renderMetaState(state, runtimeView.isBusy);
 
     this.messages.render({
       messages,
-      isLoading,
+      isLoading: runtimeView.showLoadingIndicator,
       shouldRenderMessages,
     });
   }
@@ -994,9 +1022,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 清空; 用户可在运行结束后再次按 Enter 投递同一段草稿。
     //
     // 输入框不 disabled; busy 时只阻止发送, 用户仍可继续编辑草稿。
-    const isBusy =
-      !!this.currentThreadState()?.isLoading || this.isCreating;
-    if (isBusy) return;
+    if (this.currentRuntimeView().isBusy) return;
 
     // 提取全文档作为隐藏 LLM 上下文 ── 跳过本卡 (agentThreadCard), 避免把
     // LLM 自己之前的回答 / 工具结果当成'笔记内容'再喂回去造成循环。
@@ -1068,10 +1094,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.node = node;
     const isCollapsed = this.collapsed;
     this.refreshAttrs();
-    // threadId 变化时拉新 thread 的持久态；store 会跳过已加载配置。
-    if (oldAttrs.threadId !== node.attrs.threadId) {
-      this.maybeLoadThreadRuntimeConfig();
-    }
     // requestThreadMessagesIfNeeded 始终调用 ── shouldLoadThreadMessages
     // 自己会短路 (折叠态不加载, 已加载过不重复), 但"折叠→展开"这种
     // lite 路径下不能漏, 否则消息永远不被加载。
@@ -1115,13 +1137,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
   ignoreMutation(): boolean {
     return true;
-  }
-
-  /** Load persisted runtime settings for the bound thread, if any. */
-  private maybeLoadThreadRuntimeConfig(): void {
-    const tid = this.threadId;
-    if (!tid) return;
-    void useChatStore.getState().ensureThreadRuntimeConfigLoaded(tid);
   }
 
   destroy(): void {

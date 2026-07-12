@@ -449,7 +449,7 @@ mod tests {
         // pid + nano 后缀防跟其它测试的 tempdir 撞名, 避免 cargo test 并行
         // 跑时的偶发 flake。
         let tmp = std::env::temp_dir().join(format!(
-            "woop-fs-watcher-norm-{}-{}",
+            "flowix-fs-watcher-norm-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

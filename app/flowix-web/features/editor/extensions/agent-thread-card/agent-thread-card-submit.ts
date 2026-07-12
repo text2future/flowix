@@ -11,6 +11,7 @@ export interface EnsureAgentThreadCardThreadInput {
   typeKey: AgentTypeKey;
   currentThreadId: string | null;
   runtimeHandleId: string;
+  instanceId: string;
   buildTitle: (prompt: string, fallback: string) => string;
 }
 
@@ -37,7 +38,8 @@ export async function ensureAgentThreadCardThread(
       threadId: beginExternalAgentThreadCardRun(
         input.runtimeHandleId,
         type.key,
-        input.currentThreadId
+        input.currentThreadId,
+        input.instanceId,
       ),
       title: nextTitle,
       typeKey: type.key,

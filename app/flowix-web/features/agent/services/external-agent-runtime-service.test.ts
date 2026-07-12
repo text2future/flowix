@@ -30,7 +30,7 @@ describe('external agent runtime service', () => {
     chatStoreMock.state.threadStates = {};
   });
 
-  it('creates a stable pending thread id per runtime handle', async () => {
+  it('creates a stable local thread id per runtime handle', async () => {
     const {
       beginExternalAgentThreadCardRun,
       createExternalAgentRuntimeHandle,
@@ -38,16 +38,16 @@ describe('external agent runtime service', () => {
     } = await import('./external-agent-runtime-service');
     const handleId = createExternalAgentRuntimeHandle();
 
-    const firstThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null);
-    const secondThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null);
+    const firstThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null, 'inst-1');
+    const secondThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null, 'inst-1');
 
-    expect(firstThreadId).toMatch(/^codex-pending-/);
+    expect(firstThreadId).toBe('codex-local-inst-1');
     expect(secondThreadId).toBe(firstThreadId);
     expect(getExternalAgentRuntimeThreadId(handleId, null)).toBe(firstThreadId);
     expect(chatStoreMock.state.setActiveAgentThread).toHaveBeenCalledWith('codex', firstThreadId);
   });
 
-  it('migrates pending thread state when the external session is resolved', async () => {
+  it('migrates local thread state when the external session is resolved', async () => {
     const {
       applyResolvedExternalSession,
       beginExternalAgentThreadCardRun,
@@ -55,18 +55,18 @@ describe('external agent runtime service', () => {
       getExternalAgentRuntimeThreadId,
     } = await import('./external-agent-runtime-service');
     const handleId = createExternalAgentRuntimeHandle();
-    const pendingThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null);
+    const localThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null, 'inst-1');
 
     const didApply = applyResolvedExternalSession(
       handleId,
-      pendingThreadId,
+      localThreadId,
       'codex-real-session',
       'codex'
     );
 
     expect(didApply).toBe(true);
     expect(chatStoreMock.state.migrateThreadState).toHaveBeenCalledWith(
-      pendingThreadId,
+      localThreadId,
       'codex-real-session',
       'codex'
     );
@@ -79,13 +79,13 @@ describe('external agent runtime service', () => {
     vi.mocked(agent.getCodexSessionId).mockResolvedValueOnce('codex-real-session');
     vi.mocked(agent.getClaudeSessionId).mockResolvedValueOnce('claude-real-session');
 
-    await expect(resolveExternalSessionId('codex-pending-1', 'codex'))
+    await expect(resolveExternalSessionId('codex-local-inst-1', 'codex'))
       .resolves.toBe('codex-real-session');
-    await expect(resolveExternalSessionId('claude-pending-1', 'claude'))
+    await expect(resolveExternalSessionId('claude-local-inst-1', 'claude'))
       .resolves.toBe('claude-real-session');
 
-    expect(agent.getCodexSessionId).toHaveBeenCalledWith('codex-pending-1');
-    expect(agent.getClaudeSessionId).toHaveBeenCalledWith('claude-pending-1');
+    expect(agent.getCodexSessionId).toHaveBeenCalledWith('codex-local-inst-1');
+    expect(agent.getClaudeSessionId).toHaveBeenCalledWith('claude-local-inst-1');
   });
 
   it('stops the active run for the current runtime thread id', async () => {
@@ -95,11 +95,11 @@ describe('external agent runtime service', () => {
       stopExternalAgentThreadCardRun,
     } = await import('./external-agent-runtime-service');
     const handleId = createExternalAgentRuntimeHandle();
-    const pendingThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null);
-    chatStoreMock.state.threadStates[pendingThreadId] = { activeRunId: 'run-1' };
+    const localThreadId = beginExternalAgentThreadCardRun(handleId, 'codex', null, 'inst-1');
+    chatStoreMock.state.threadStates[localThreadId] = { activeRunId: 'run-1' };
 
     await stopExternalAgentThreadCardRun(handleId, null);
 
-    expect(chatStoreMock.state.stopThreadRun).toHaveBeenCalledWith(pendingThreadId, 'run-1');
+    expect(chatStoreMock.state.stopThreadRun).toHaveBeenCalledWith(localThreadId, 'run-1');
   });
 });

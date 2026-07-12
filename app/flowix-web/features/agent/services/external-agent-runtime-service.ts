@@ -2,10 +2,9 @@ import type { AgentTypeKey } from '@/types/agent';
 import { useChatStore } from '@features/agent/store/chat-store';
 import { getExternalAgentRuntimeAdapter } from './external-agent-runtime-adapters';
 
-const pendingThreadIdsByHandle = new Map<string, string>();
+const localThreadIdsByHandle = new Map<string, string>();
 const resolvingSessionIds = new Set<string>();
 let handleSeq = 0;
-let pendingSeq = 0;
 
 export function createExternalAgentRuntimeHandle(): string {
   handleSeq += 1;
@@ -20,24 +19,24 @@ export function getExternalAgentRuntimeThreadId(
   handleId: string,
   persistedThreadId: string | null
 ): string | null {
-  return persistedThreadId ?? pendingThreadIdsByHandle.get(handleId) ?? null;
+  return persistedThreadId ?? localThreadIdsByHandle.get(handleId) ?? null;
 }
 
 export function beginExternalAgentThreadCardRun(
   handleId: string,
   typeKey: AgentTypeKey,
-  persistedThreadId: string | null
+  persistedThreadId: string | null,
+  instanceId: string,
 ): string {
   if (persistedThreadId) return persistedThreadId;
-  const existing = pendingThreadIdsByHandle.get(handleId);
+  const existing = localThreadIdsByHandle.get(handleId);
   if (existing) return existing;
   const adapter = getExternalAgentRuntimeAdapter(typeKey);
-  pendingSeq += 1;
-  const pendingThreadId = adapter?.createPendingThreadId(pendingSeq) ??
-    `${typeKey}-pending-${Date.now()}-${pendingSeq}`;
-  pendingThreadIdsByHandle.set(handleId, pendingThreadId);
-  useChatStore.getState().setActiveAgentThread(typeKey, pendingThreadId);
-  return pendingThreadId;
+  const localThreadId = adapter?.createLocalThreadId(instanceId) ??
+    `${typeKey}-local-${instanceId}`;
+  localThreadIdsByHandle.set(handleId, localThreadId);
+  useChatStore.getState().setActiveAgentThread(typeKey, localThreadId);
+  return localThreadId;
 }
 
 export function getResolvedExternalSessionId(runtimeThreadId: string | null): string | undefined {
@@ -53,8 +52,8 @@ export function applyResolvedExternalSession(
 ): boolean {
   if (!sessionId || sessionId === runtimeThreadId) return false;
   useChatStore.getState().migrateThreadState(runtimeThreadId, sessionId, typeKey);
-  if (pendingThreadIdsByHandle.get(handleId) === runtimeThreadId) {
-    pendingThreadIdsByHandle.delete(handleId);
+  if (localThreadIdsByHandle.get(handleId) === runtimeThreadId) {
+    localThreadIdsByHandle.delete(handleId);
   }
   return true;
 }

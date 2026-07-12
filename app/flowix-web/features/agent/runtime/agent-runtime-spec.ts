@@ -4,6 +4,7 @@ import type {
   AgentPermissionMode,
   AgentRuntimeConfig,
   AgentTypeKey,
+  RuntimeConfig,
 } from "@/types/agent";
 import { CODEX_ACCESS_OPTIONS } from "@features/agent/config/codex-options";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
@@ -22,6 +23,7 @@ export interface BuildAgentRuntimeConfigInput {
   permissionMode: AgentPermissionMode;
   codexModel: AgentCodexModel;
   codexReasoningEffort: AgentCodexReasoningEffort;
+  instanceRuntimeConfig?: RuntimeConfig;
 }
 
 export interface AgentRuntimeSpec {
@@ -57,11 +59,12 @@ function getEnabledAgentWorkspacePaths(): string[] {
 }
 
 function getPrimaryAgentWorkspacePath(): string | undefined {
+  // workspace 可由用户点 avatar 显式设在 folder 或 notebook 上 ── 这里只看
+  // workspace 标志, 不再限制 kind, notebook 被设为主空间时其 path 同样作为 cwd。
   const entry = useAgentAccessStore
     .getState()
     .config.entries.find(
       (item) =>
-        item.kind === "folder" &&
         item.workspace &&
         item.enabled &&
         !item.missing,
@@ -174,18 +177,49 @@ export function buildAgentRuntimeConfig({
   permissionMode,
   codexModel,
   codexReasoningEffort,
+  instanceRuntimeConfig,
 }: BuildAgentRuntimeConfigInput): AgentRuntimeConfig {
-  const workspacePaths = getEnabledAgentWorkspacePaths();
+  const instanceFiles = instanceRuntimeConfig?.files;
+  const instanceWorkspacePaths = instanceFiles
+    ? [...instanceFiles.folders, ...instanceFiles.notebooks]
+        .map(normalizeWorkspacePath)
+        .filter(Boolean)
+    : [];
+
+  // primaryWorkspace 兜底链 ── 必须保证非空, 否则 CLI 启动会因缺 cwd 失败
+  // ("Claude Code CLI exited with status exit status: 1: Please provide a
+  // directory path")。 旧版用 `!instanceFiles` 把 global 兜底门控住, 让
+  // thread 的 per-thread runtime 一旦存在就完全屏蔽 global workspace ──
+  // 但用户点 star 设的 global workspace 不写 per-thread, 这种设计下
+  // thread 没显式设 workspace 时 cwd 就空了。
+  //
+  // per-thread 优先 (workspace / folders), 但**不论** instanceFiles 是否
+  // 存在, global workspace 始终作为兜底 ── 这样用户在 agent panel 上点
+  // star 设的 workspace 才会落到所有 thread 上, CLI 启动也能拿到 cwd。
+  const hasPerThreadChoice =
+    !!instanceFiles && instanceWorkspacePaths.length > 0;
+  const globalWorkspacePaths = getEnabledAgentWorkspacePaths();
+  const effectiveWorkspacePaths = hasPerThreadChoice
+    ? Array.from(new Set(instanceWorkspacePaths))
+    : globalWorkspacePaths;
   const primaryWorkspace =
+    normalizeWorkspacePath(instanceFiles?.workspace) ||
+    (hasPerThreadChoice ? effectiveWorkspacePaths[0] : undefined) ||
     getPrimaryAgentWorkspacePath() ||
     getFirstEnabledAgentFolderPath() ||
     normalizeWorkspacePath(cwd) ||
     undefined;
+  const effectivePermissionMode =
+    instanceRuntimeConfig?.access?.sandbox ?? permissionMode;
+  const effectiveModel =
+    instanceRuntimeConfig?.model?.key ?? codexModel;
+  const effectiveReasoningEffort =
+    instanceRuntimeConfig?.reasoningEffort ?? codexReasoningEffort;
   return getAgentRuntimeSpec(typeKey).buildRuntimeConfig({
     cwd: primaryWorkspace,
-    workspacePaths,
-    permissionMode,
-    codexModel,
-    codexReasoningEffort,
+    workspacePaths: effectiveWorkspacePaths,
+    permissionMode: effectivePermissionMode,
+    codexModel: effectiveModel,
+    codexReasoningEffort: effectiveReasoningEffort,
   });
 }

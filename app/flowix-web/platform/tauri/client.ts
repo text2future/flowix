@@ -426,15 +426,6 @@ interface AgentUserMessage {
   codexReasoningEffort?: AgentCodexReasoningEffort;
   agentRoleMemoId?: string;
   agentRoleName?: string;
-  /**
-   * Per-thread 配置快照（懒写）。
-   * 发消息时由前端把 `chat-store.threadRuntimeConfig[tid]` 序列化为 JSON
-   * 字符串塞进来；后端 `chat_stream_inner` 入口 upsert 到
-   * `threads.runtime_config` 列，然后读出来覆盖 ai_config / runtime_config。
-   *
-   * 空字符串视同 None（控件未改动时不携带）。
-   */
-  threadRuntimeConfig?: string;
 }
 
 export interface ThreadInfo {
@@ -442,13 +433,6 @@ export interface ThreadInfo {
   title: string;
   createdAt: number;
   updatedAt: number;
-  /**
-   * Per-thread 配置快照（JSON 字符串）。
-   * 与后端 `ThreadInfo.runtime_config` 字段镜像 ── 前端在 list / get 时拿到,
-   * 可直接解析为 RuntimeConfig 用作 UI 控件初值。
-   * null = 未持久化（走全局 fallback）。
-   */
-  runtimeConfig?: string | null;
 }
 
 export type AgentConversationSource = {
@@ -484,6 +468,7 @@ export interface AgentConversationInstance {
   agentType: AgentTypeKey;
   title: string;
   threadId: string | null;
+  runtimeConfig?: string | null;
   source: AgentConversationSource;
   role?: AgentConversationRole | null;
   run?: AgentConversationRun | null;
@@ -532,15 +517,6 @@ export const agent = {
     invoke<ThreadInfo>('thread_create', { title }),
   getThread: (threadId: string) =>
     invoke<{ messages: ChatMessage[] }>('thread_get', { threadId }),
-  /**
-   * 拉取 thread 的 runtime_config 快照（JSON 字符串）── 后端 `thread_get_runtime_config` IPC。
-   * UI 首次打开卡片 / 切 thread 时调用, 作为控件初值; null 表示未持久化。
-   *
-   * 注意：`thread_list` 已经把 runtimeConfig 带回, 但 list 里不含消息; 切到
-   * 已有 thread 但前端 store 缺该 tid 的 cached config 时, 这个 IPC 兜底。
-   */
-  getThreadRuntimeConfig: (threadId: string) =>
-    invoke<string | null>('thread_get_runtime_config', { threadId }),
   /**
    * Layer 4: 鍒嗛〉鍔犺浇 thread 鍘嗗彶. 杩斿洖 { messages (ASC), oldestSequence, hasMore }.
    *  - beforeSequence = null/undefined 鈫?鍙栨渶杩?limit 鏉?   *  - beforeSequence = N 鈫?鍙?sequence < N 鐨勬渶杩?limit 鏉?(鍚戜笂缈婚〉)

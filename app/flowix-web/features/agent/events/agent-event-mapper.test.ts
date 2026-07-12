@@ -57,18 +57,18 @@ describe("agent event mapper", () => {
     });
   });
 
-  it("keeps session_resolved routed to the pending thread id", () => {
+  it("keeps session_resolved routed to the local thread id", () => {
     const event = mapAgentChunkToEvent(
       {
         kind: "session_resolved",
-        thread_id: "codex-pending-1",
+        thread_id: "codex-local-inst-1",
         session_id: "codex-real-session",
         agent_type: "codex",
         run_id: "run-1",
       },
       state({
         externalSessionResolutions: {
-          "codex-pending-1": "codex-real-session",
+          "codex-local-inst-1": "codex-real-session",
         },
       }),
       () => 123,
@@ -76,7 +76,7 @@ describe("agent event mapper", () => {
 
     expect(event).toMatchObject({
       kind: "session_resolved",
-      threadId: "codex-pending-1",
+      threadId: "codex-local-inst-1",
       sessionId: "codex-real-session",
     });
   });
@@ -85,14 +85,14 @@ describe("agent event mapper", () => {
     const event = mapAgentChunkToEvent(
       {
         kind: "stream_end",
-        thread_id: "codex-pending-1",
+        thread_id: "codex-local-inst-1",
         reason: null,
         agent_type: "codex",
         run_id: "run-1",
       },
       state({
         externalSessionResolutions: {
-          "codex-pending-1": "codex-real-session",
+          "codex-local-inst-1": "codex-real-session",
         },
       }),
       () => 123,

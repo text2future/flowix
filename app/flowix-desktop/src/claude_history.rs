@@ -23,7 +23,21 @@ pub async fn get_session(session_id: &str) -> Result<Vec<ChatMessage>, String> {
 }
 
 pub fn is_claude_session_id(text: &str) -> bool {
-    text.len() >= 32 && text.chars().filter(|c| *c == '-').count() >= 4
+    // 必须显式拒绝 "claude-local-agent-inst-<ts>-<seq>" 等前端 thread id
+    // 占位符 ── 这些字符串长度 ≥ 32 且包含 5 个 dash, 老版宽松判断会把
+    // 它们当成 session id 透传给 Claude CLI 的 --resume, 但 CLI 是 UUID
+    // 严格校验: "Provided value ... is not a UUID and does not match any
+    // session title"。
+    let value = text.trim();
+    if value.is_empty() || value.starts_with("claude-local-") {
+        return false;
+    }
+    // Claude Code 真 session id 是 UUID ── 36 字符, 4 个 dash, 其余全是
+    // ASCII 十六进制位。 同时也兼容 Claude 后续可能的非 UUID 格式
+    // (例如未来他们换 ULID/base32), 通过长度 + dash 计数宽放, 仍是合法
+    // 的"长得像 id 字符串"。
+    let dash_count = value.chars().filter(|c| *c == '-').count();
+    value.len() >= 32 && dash_count == 4
 }
 
 #[derive(Default)]
@@ -70,7 +84,6 @@ fn list_claude_sessions() -> Result<Vec<ThreadInfo>, String> {
                     .unwrap_or_else(|| "Claude Code Session".to_string()),
                 created_at,
                 updated_at: draft.updated_at.unwrap_or(created_at),
-                runtime_config: None,
             }
         })
         .collect::<Vec<_>>();
@@ -517,6 +530,24 @@ mod tests {
     fn recognizes_claude_session_ids() {
         assert!(is_claude_session_id("019ed38f-e9e3-7b61-8be3-80a40788d6e3"));
         assert!(!is_claude_session_id("claude-local-1"));
+    }
+
+    #[test]
+    fn rejects_local_claude_thread_ids() {
+        // 回归 ── 这条字符串长度 ≥ 32 且含 5 个 dash, 老版宽松规则会误判为
+        // "是真的 session id", 把 `claude-local-agent-inst-...` 当真实 UUID
+        // 透传给 Claude CLI 的 --resume。 CLI 是 UUID 严格校验, 报错:
+        // "Provided value ... is not a UUID and does not match any session
+        // title"。 修正后必须以 `claude-local-` 前缀直接拒掉。
+        assert!(!is_claude_session_id(
+            "claude-local-agent-inst-1783828675847-3"
+        ));
+        assert!(!is_claude_session_id(
+            "claude-local-agent-inst-1783828675847-100"
+        ));
+        // 空白 + 短字符串 ── 老版意外匹配的 corner。
+        assert!(!is_claude_session_id(""));
+        assert!(!is_claude_session_id("   "));
     }
 
     #[test]

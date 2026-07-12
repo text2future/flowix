@@ -22,11 +22,11 @@ export function getConversationRunLastRunAt(
 
 export function computeAgentThreadCardBadgeData(options: {
   threadState: ThreadState | undefined;
-  persistedRun: AgentConversationRun | undefined;
+  conversationRun: AgentConversationRun | undefined;
   codexModel: string | undefined;
   typeKey: AgentTypeKey;
 }): AgentThreadCardBadgeData {
-  const { threadState, persistedRun, codexModel, typeKey } = options;
+  const { threadState, conversationRun, codexModel, typeKey } = options;
   let model: string | undefined;
   let lastRunAt: number | undefined;
   let totalTokens: number | undefined;
@@ -71,15 +71,15 @@ export function computeAgentThreadCardBadgeData(options: {
     }
   }
 
-  if (persistedRun) {
-    if (!model && persistedRun.model) model = persistedRun.model;
-    if (totalTokens === undefined && persistedRun.usage?.total_tokens != null) {
-      totalTokens = persistedRun.usage.total_tokens;
+  if (conversationRun) {
+    if (!model && conversationRun.model) model = conversationRun.model;
+    if (totalTokens === undefined && conversationRun.usage?.total_tokens != null) {
+      totalTokens = conversationRun.usage.total_tokens;
     }
-    if (!usage && persistedRun.usage) usage = persistedRun.usage;
-    if (!statusInfo && persistedRun.statusInfo) statusInfo = persistedRun.statusInfo;
+    if (!usage && conversationRun.usage) usage = conversationRun.usage;
+    if (!statusInfo && conversationRun.statusInfo) statusInfo = conversationRun.statusInfo;
     if (lastRunAt === undefined) {
-      lastRunAt = getConversationRunLastRunAt(persistedRun);
+      lastRunAt = getConversationRunLastRunAt(conversationRun);
     }
   }
 
@@ -95,15 +95,17 @@ export function renderAgentThreadCardMetaState(options: {
   metaEl: HTMLElement;
   runStatusEl: HTMLSpanElement;
   state: ThreadState | undefined;
+  conversationRun?: AgentConversationRun;
   isCreating: boolean;
   isLoading: boolean;
   typeKey: AgentTypeKey;
   t: (key: I18nKey) => string;
 }): void {
-  const { dom, metaEl, runStatusEl, state, isCreating, isLoading, typeKey, t } =
+  const { dom, metaEl, runStatusEl, state, conversationRun, isCreating, isLoading, typeKey, t } =
     options;
   const statusView = selectAgentThreadCardRunStatus({
     state,
+    conversationRun,
     isCreating,
     isLoading,
     typeKey,

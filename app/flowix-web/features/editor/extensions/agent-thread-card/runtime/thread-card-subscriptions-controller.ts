@@ -154,6 +154,9 @@ export class AgentThreadCardSubscriptionsController {
         if (options.isExternalSettingsOpen()) {
           options.renderCodexSettingsPopover();
         }
+        if (options.isAccessPopoverOpen()) {
+          options.renderAccessPopover();
+        }
       },
       {
         equalityFn: (a, b) =>
@@ -176,7 +179,16 @@ export class AgentThreadCardSubscriptionsController {
         };
       },
       (next, previous) => {
-        if (next.instance !== previous.instance) options.refreshAttrs();
+        if (next.instance !== previous.instance) {
+          options.refreshAttrs();
+          options.refreshExternalAgentEmptySettings();
+          if (options.isExternalSettingsOpen()) {
+            options.renderCodexSettingsPopover();
+          }
+          if (options.isAccessPopoverOpen()) {
+            options.renderAccessPopover();
+          }
+        }
         options.renderThreadState();
       },
       {
@@ -187,10 +199,12 @@ export class AgentThreadCardSubscriptionsController {
   }
 
   private subscribeAccess(): Unsubscribe {
-    const options = this.options;
+    // 注意 ── 弹窗自身的重渲由 AccessPopoverController 在构造时订阅
+    // useAgentAccessStore 完成 (见 access/access-popover-controller.ts),
+    // 这里不再转发 renderAccessPopover, 避免双重 render。 这里只保留
+    // 对外 (空 settings 区域) 的刷新, 那条仍然依赖外部 options 转发。
     return useAgentAccessStore.subscribe(() => {
-      options.refreshExternalAgentEmptySettings();
-      if (options.isAccessPopoverOpen()) options.renderAccessPopover();
+      this.options.refreshExternalAgentEmptySettings();
     });
   }
 

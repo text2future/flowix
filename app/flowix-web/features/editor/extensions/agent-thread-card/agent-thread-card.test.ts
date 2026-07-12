@@ -283,6 +283,54 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(card?.classList.contains("agent-thread-card--running")).toBe(false);
   });
 
+  it("uses the conversation run as the Thread Card footer running source", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const threadId = "thread-card-conversation-run-source";
+    const instance = useAgentConversationStore.getState().createInstance({
+      agentType: "flowix",
+      title: "Conversation Run Source",
+      threadId,
+      source: { kind: "thread-card" },
+    });
+    useAgentConversationStore.getState().markRunStarted(instance.instanceId, {
+      runId: "run-conversation-source",
+      startedAt: Date.now(),
+    });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: instance.instanceId,
+              threadId,
+              title: "Conversation Run Source",
+              typeKey: "flowix",
+              collapsed: false,
+            },
+          },
+        ],
+      },
+    });
+
+    const card = host.querySelector<HTMLElement>(".agent-thread-card");
+    expect(
+      card?.querySelector(".agent-thread-card__run-status--running"),
+    ).not.toBeNull();
+    expect(card?.classList.contains("agent-thread-card--running")).toBe(true);
+  });
+
   it("patches the last rendered message without rebuilding previous message DOM", async () => {
     const { AgentThreadCard } =
       await import("@features/editor/extensions/agent-thread-card");
@@ -478,7 +526,6 @@ describe("AgentThreadCard NodeView streaming", () => {
     const updated = useAgentConversationStore
       .getState()
       .getInstance(result.instanceId);
-    expect(result.created).toBe(false);
     expect(updated?.title).toBe("User renamed title");
     expect(updated?.role).toEqual({ memoId: "role-new", name: "New role" });
   });
@@ -1567,32 +1614,33 @@ describe("AgentThreadCard NodeView streaming", () => {
     sendButton!.click();
     await flushPromises();
 
-    const pendingThreadId = chatStreamMock.mock.calls[0]?.[0] as string;
+    const localThreadId = chatStreamMock.mock.calls[0]?.[0] as string;
     const runId = chatStreamMock.mock.calls[0]?.[1]?.runId;
-    expect(pendingThreadId).toMatch(/^codex-pending-/);
-    expect(editor.getJSON().content?.[0]?.attrs?.threadId).toBe(pendingThreadId);
-    expect(editor.getJSON().content?.[0]?.attrs?.instanceId).toMatch(/^agent-inst-/);
-    expect(card?.dataset.threadId).toBe(pendingThreadId);
-    expect(card?.dataset.instanceId).toMatch(/^agent-inst-/);
+    const instanceId = editor.getJSON().content?.[0]?.attrs?.instanceId as string;
+    expect(instanceId).toMatch(/^agent-inst-/);
+    expect(localThreadId).toBe(`codex-local-${instanceId}`);
+    expect(editor.getJSON().content?.[0]?.attrs?.threadId).toBe(localThreadId);
+    expect(card?.dataset.threadId).toBe(localThreadId);
+    expect(card?.dataset.instanceId).toBe(instanceId);
     expect(card?.textContent).toContain("first codex request");
 
     const store = useChatStore.getState();
     store.dispatchAgentChunk({
       kind: "stream_start",
-      thread_id: pendingThreadId,
+      thread_id: localThreadId,
       run_id: runId,
       agent_type: "codex",
     });
     store.dispatchAgentChunk({
       kind: "session_resolved",
-      thread_id: pendingThreadId,
+      thread_id: localThreadId,
       session_id: sessionId,
       run_id: runId,
       agent_type: "codex",
     });
     store.dispatchAgentChunk({
       kind: "stream_end",
-      thread_id: pendingThreadId,
+      thread_id: localThreadId,
       run_id: runId,
       reason: null,
       agent_type: "codex",

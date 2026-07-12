@@ -61,7 +61,6 @@ vi.mock("@platform/tauri/client", () => ({
     upsertConversationRunState: vi.fn(async () => undefined),
     deleteConversationInstance: vi.fn(async () => undefined),
     deleteConversationInstancesForThread: vi.fn(async () => undefined),
-    getThreadRuntimeConfig: vi.fn(async () => null),
   },
   listenToAgentStream: vi.fn(),
 }));
@@ -306,6 +305,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const {
       useAgentConversationStore,
+      selectIsAgentConversationRunning,
       selectRunningAgentConversationInstances,
     } = await import("@features/agent/store/agent-conversation-store");
     const threadId = "thread-snapshot-instance-running";
@@ -344,6 +344,13 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         },
       },
     ]);
+    expect(
+      selectIsAgentConversationRunning(
+        selectRunningAgentConversationInstances(
+          useAgentConversationStore.getState(),
+        )[0],
+      ),
+    ).toBe(true);
   });
 
   it("does not replace an existing external conversation title with the default snapshot title", async () => {
@@ -806,24 +813,24 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   it("deleteThread clears threadTypes and reverse-mapped externalSessionResolutions", async () => {
     // 修复 #7: deleteThread 之前没清 `state.threadTypes[threadId]`, 留下孤儿
     // 条目 ── 后续 `get().threadTypes[threadId] ?? "flowix"` 会拿到旧 type,
-    // 误判 dispatch 路径。 同时反向映射 `externalSessionResolutions[pending] === threadId`
-    // (即 pending 已经被 resolve 到这个被删的 thread) 也要清, 否则 findByThreadId
+    // 误判 dispatch 路径。 同时反向映射 `externalSessionResolutions[local] === threadId`
+    // (即 local id 已经被 resolve 到这个被删的 thread) 也要清, 否则 findByThreadId
     // 会误命中已删 id。
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const store = useChatStore.getState();
     const threadId = "thread-delete-cleans-thread-types";
-    const pendingThreadId = "codex-local-pending-orphan";
+    const localThreadId = "codex-local-agent-inst-orphan";
 
     store.bindThreadType(threadId, "codex");
-    // 模拟一个 pending → session 已 resolve 过的状态, 且 session === threadId
-    // (最常见的本地 thread 模式: pending id 是 `${type}-local-${Date.now()}`,
-    // resolve 后变成真实 session_id, 此时 pending 仍然作为 mapping 留在
+    // 模拟一个 local → session 已 resolve 过的状态, 且 session === threadId
+    // (本地 thread id 是 `${type}-local-${instanceId}`,
+    // resolve 后变成真实 session_id, 此时 local id 仍然作为 mapping 留在
     // externalSessionResolutions 里)。
     useChatStore.setState((state) => ({
       ...state,
       externalSessionResolutions: {
         ...state.externalSessionResolutions,
-        [pendingThreadId]: threadId, // 反向映射指向被删 thread
+        [localThreadId]: threadId, // 反向映射指向被删 thread
       },
     }));
 
@@ -834,7 +841,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.threadTypes[threadId]).toBeUndefined();
     // 反向映射清理 ── `findByThreadId(threadId)` 不再命中已删 entry。
     expect(
-      state.externalSessionResolutions[pendingThreadId],
+      state.externalSessionResolutions[localThreadId],
     ).toBeUndefined();
   });
 
@@ -892,7 +899,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.runs["run-3"]?.status).toBe("running");
   });
 
-  it("migrates a pending Codex thread to the resolved session id", async () => {
+  it("migrates a local Codex thread to the resolved session id", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/chat-store"
     );
@@ -901,47 +908,54 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       useAgentConversationStore,
     } = await import("@features/agent/store/agent-conversation-store");
     const store = useChatStore.getState();
-    const pendingThreadId = "codex-pending-store-session";
+    const localThreadId = "codex-local-agent-inst-store-session";
     const sessionId = "019f0000-0000-7000-8000-000000000000";
     const instance = useAgentConversationStore.getState().createInstance({
       agentType: "codex",
-      title: "Pending Codex",
-      threadId: pendingThreadId,
+      title: "Local Codex",
+      threadId: localThreadId,
       source: {
         kind: "thread-card",
         memoId: "memo-running-session",
         documentPath: "/tmp/running-session.md",
       },
+      runtimeConfig: {
+        files: {
+          workspace: "/tmp/project",
+          folders: ["/tmp/project"],
+          notebooks: [],
+        },
+      },
     });
 
-    store.bindThreadType(pendingThreadId, "codex");
+    store.bindThreadType(localThreadId, "codex");
     store.dispatchAgentChunk({
       kind: "stream_start",
-      thread_id: pendingThreadId,
-      run_id: "run-pending-1",
+      thread_id: localThreadId,
+      run_id: "run-local-1",
       agent_type: "codex",
     });
     store.dispatchAgentChunk({
       kind: "text",
-      thread_id: pendingThreadId,
-      run_id: "run-pending-1",
+      thread_id: localThreadId,
+      run_id: "run-local-1",
       text: "Codex answer before session id",
       agent_type: "codex",
     });
     store.dispatchAgentChunk({
       kind: "session_resolved",
-      thread_id: pendingThreadId,
+      thread_id: localThreadId,
       session_id: sessionId,
-      run_id: "run-pending-1",
+      run_id: "run-local-1",
       agent_type: "codex",
     });
 
     const state = useChatStore.getState();
-    expect(state.externalSessionResolutions[pendingThreadId]).toBe(sessionId);
+    expect(state.externalSessionResolutions[localThreadId]).toBe(sessionId);
     expect(state.activeThreadIds.codex).toBe(sessionId);
     expect(state.threadTypes[sessionId]).toBe("codex");
     expect(state.threadStates[sessionId].isLoading).toBe(true);
-    expect(state.threadStates[sessionId].activeRunId).toBe("run-pending-1");
+    expect(state.threadStates[sessionId].activeRunId).toBe("run-local-1");
     expect(state.threadStates[sessionId].messages[0]?.content).toBe(
       "Codex answer before session id",
     );
@@ -956,7 +970,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         documentPath: "/tmp/running-session.md",
       },
       run: {
-        runId: "run-pending-1",
+        runId: "run-local-1",
         status: "running",
       },
     });
@@ -965,11 +979,10 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         useAgentConversationStore.getState(),
       ),
     ).toEqual([sessionId]);
-
     store.dispatchAgentChunk({
       kind: "stream_end",
-      thread_id: pendingThreadId,
-      run_id: "run-pending-1",
+      thread_id: localThreadId,
+      run_id: "run-local-1",
       reason: null,
       agent_type: "codex",
     });
@@ -1718,122 +1731,4 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     );
   });
 
-});
-
-// ── Phase 3+4 修复: per-thread runtime_config 三态语义 + 懒加载 + GC ──
-
-describe("chat-store per-thread runtime_config", () => {
-  beforeEach(async () => {
-    const { agent } = await import("@platform/tauri/client");
-    vi.mocked(agent.getThreadRuntimeConfig).mockReset();
-    vi.mocked(agent.getThreadRuntimeConfig).mockResolvedValue(null);
-  });
-
-  it("setThreadRuntimeConfig 三态: undefined 跳过 / null 清空 / 有值覆盖", async () => {
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-    const store = useChatStore.getState();
-
-    store.setThreadRuntimeConfig("tid-A", { model: { key: "M1" } });
-    expect(useChatStore.getState().threadRuntimeConfig["tid-A"]).toEqual({
-      model: { key: "M1" },
-    });
-
-    // undefined 字段跳过 ── 不动 model, 写入 access
-    store.setThreadRuntimeConfig("tid-A", {
-      model: undefined,
-      access: { sandbox: "workspace-write" },
-    });
-    const after1 = useChatStore.getState().threadRuntimeConfig["tid-A"];
-    expect(after1.model).toEqual({ key: "M1" });
-    expect(after1.access).toEqual({ sandbox: "workspace-write" });
-
-    // null = 显式清空 ── merged.model = null (后端反序列化为 None)
-    store.setThreadRuntimeConfig("tid-A", { model: null });
-    const after2 = useChatStore.getState().threadRuntimeConfig["tid-A"];
-    expect(after2.model).toBeNull();
-    expect(after2.access).toEqual({ sandbox: "workspace-write" });
-  });
-
-  it("clearThreadRuntimeConfig: 不存在的 tid 是 no-op", async () => {
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-    const before = useChatStore.getState().threadRuntimeConfig;
-    useChatStore.getState().clearThreadRuntimeConfig("ghost-tid");
-    expect(useChatStore.getState().threadRuntimeConfig).toBe(before);
-  });
-
-  it("clearThreadRuntimeConfig: 存在的 tid 删 entry", async () => {
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-    useChatStore.getState().setThreadRuntimeConfig("tid-C", {
-      model: { key: "M" },
-    });
-    expect(
-      useChatStore.getState().threadRuntimeConfig["tid-C"],
-    ).toBeDefined();
-    useChatStore.getState().clearThreadRuntimeConfig("tid-C");
-    expect(
-      useChatStore.getState().threadRuntimeConfig["tid-C"],
-    ).toBeUndefined();
-  });
-
-  it("ensureThreadRuntimeConfigLoaded: 空 entry (Object.keys=0) 不阻塞重新拉取", async () => {
-    const { agent } = await import("@platform/tauri/client");
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-
-    const fakeJson = JSON.stringify({ model: { key: "LOADED" } });
-    vi.mocked(agent.getThreadRuntimeConfig).mockResolvedValueOnce(fakeJson);
-
-    // P1#3 修复场景: 先写空 patch (entry = {})
-    useChatStore.getState().setThreadRuntimeConfig("tid-D", {});
-    expect(
-      Object.keys(useChatStore.getState().threadRuntimeConfig["tid-D"]).length,
-    ).toBe(0);
-
-    await useChatStore.getState().ensureThreadRuntimeConfigLoaded("tid-D");
-    expect(vi.mocked(agent.getThreadRuntimeConfig)).toHaveBeenCalledWith(
-      "tid-D",
-    );
-    expect(useChatStore.getState().threadRuntimeConfig["tid-D"]).toEqual({
-      model: { key: "LOADED" },
-    });
-  });
-
-  it("ensureThreadRuntimeConfigLoaded: 非空 entry 缓存命中跳过 IPC", async () => {
-    const { agent } = await import("@platform/tauri/client");
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-
-    useChatStore.getState().setThreadRuntimeConfig("tid-E", {
-      model: { key: "M" },
-    });
-
-    await useChatStore.getState().ensureThreadRuntimeConfigLoaded("tid-E");
-    expect(vi.mocked(agent.getThreadRuntimeConfig)).not.toHaveBeenCalled();
-  });
-
-  it("ensureThreadRuntimeConfigLoaded: 后端返回 null 不写入", async () => {
-    const { agent } = await import("@platform/tauri/client");
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-
-    vi.mocked(agent.getThreadRuntimeConfig).mockResolvedValueOnce(null);
-    await useChatStore.getState().ensureThreadRuntimeConfigLoaded("tid-F");
-    expect(
-      useChatStore.getState().threadRuntimeConfig["tid-F"],
-    ).toBeUndefined();
-  });
-
-  it("deleteThread: GC 掉 threadRuntimeConfig[tid] 镜像", async () => {
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-
-    // deleteThread IPC 返回 void ── 不显式 mock, 默认 undefined 即可。
-    useChatStore.getState().setThreadRuntimeConfig("tid-G", {
-      model: { key: "X" },
-    });
-    expect(
-      useChatStore.getState().threadRuntimeConfig["tid-G"],
-    ).toBeDefined();
-
-    await useChatStore.getState().deleteThread("tid-G");
-    expect(
-      useChatStore.getState().threadRuntimeConfig["tid-G"],
-    ).toBeUndefined();
-  });
 });

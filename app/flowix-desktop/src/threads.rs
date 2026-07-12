@@ -26,74 +26,6 @@ pub struct ThreadInfo {
     pub title: String,
     pub created_at: i64,
     pub updated_at: i64,
-    /// Per-thread 配置快照（JSON 字符串）。None = 未设置走全局 fallback；
-    /// Some(json) = 锁定。后端只在 chat_stream 入口 upsert（懒写），
-    /// UI 改控件不直接触发写盘，发消息时由前端把当前生效 config 随 IPC payload
-    /// 一并送达 → 后端写入本字段。
-    ///
-    /// schema: [`RuntimeConfig`] 的序列化形式。serde 解析失败时静默回退 None。
-    #[serde(default)]
-    pub runtime_config: Option<String>,
-}
-
-/// Per-thread 配置快照。所有字段都是 `Option`，区分三态：
-///   - 字段缺失 / `None` → 未设置，走全局 fallback
-///   - `Some(None)` → 显式清空（保留字段，但回到全局）
-///   - `Some(Some(v))` → 锁定为 v
-///
-/// 读侧 chat_stream 入口会用 [`RuntimeConfig::effective_*`] 方法解析 JSON
-/// 字符串并合成最终生效配置（thread 优先，缺失则用 user_payload / 全局 ai_config）。
-#[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<ModelConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access: Option<AccessConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub files: Option<FilesConfig>,
-    /// 推理 effort("low" / "medium" / "high" / "xhigh") ── 与后端
-    /// `AgentUserMessage.codex_reasoning_effort` 对应, chat_stream 入口
-    /// 把它写到 message.codex_reasoning_effort 让 `codex_reasoning_effort_for_runtime`
-    /// 读到。tool 三态同 model / access: None = 走全局。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning_effort: Option<String>,
-    /// 工具白名单预留
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<String>>,
-    /// 主工作目录预留
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelConfig {
-    pub key: String,
-    /// 预留：speed / capability 标签，前端展示用
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub speed: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccessConfig {
-    /// 沙箱模式：full-access / workspace-write / read-only
-    pub sandbox: String,
-}
-
-#[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FilesConfig {
-    /// 主工作目录（path，单值）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    /// 启用目录列表（path 数组）
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub folders: Vec<String>,
-    /// 笔记本路径列表（path 数组，与 agent-access-store AgentAccessEntry.path 同语义）
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notebooks: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -171,6 +103,7 @@ pub struct AgentConversationInstance {
     pub agent_type: String,
     pub title: String,
     pub thread_id: Option<String>,
+    pub runtime_config: Option<String>,
     pub source: AgentConversationSource,
     pub role: Option<AgentConversationRole>,
     pub run: Option<AgentConversationRun>,
@@ -185,6 +118,7 @@ pub struct UpsertAgentConversationInstance {
     pub agent_type: String,
     pub title: String,
     pub thread_id: Option<String>,
+    pub runtime_config: Option<String>,
     pub source: AgentConversationSource,
     pub role: Option<AgentConversationRole>,
     pub created_at: Option<i64>,
@@ -243,8 +177,7 @@ impl ThreadManager {
                 agent_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                runtime_config TEXT
+                updated_at INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS thread_messages (
@@ -287,6 +220,7 @@ impl ThreadManager {
                 agent_type TEXT NOT NULL,
                 title TEXT NOT NULL,
                 thread_id TEXT,
+                runtime_config TEXT,
                 source_kind TEXT NOT NULL DEFAULT 'thread-card',
                 source_document_path TEXT,
                 source_memo_id TEXT,
@@ -326,10 +260,11 @@ impl ThreadManager {
         if let Err(e) = conn.execute("ALTER TABLE thread_messages ADD COLUMN tool_calls TEXT", []) {
             tracing::debug!("[ThreadManager] tool_calls migration: {}", e);
         }
-        // threads.runtime_config: per-thread 配置快照 JSON 字符串。nullable,
-        // 旧行自动 None → 走全局 fallback，零迁移风险。
-        if let Err(e) = conn.execute("ALTER TABLE threads ADD COLUMN runtime_config TEXT", []) {
-            tracing::debug!("[ThreadManager] runtime_config migration: {e}");
+        if let Err(e) = conn.execute(
+            "ALTER TABLE agent_conversation_instances ADD COLUMN runtime_config TEXT",
+            [],
+        ) {
+            tracing::debug!("[ThreadManager] instance runtime_config migration: {e}");
         }
         for column in [
             "input_tokens INTEGER",
@@ -494,7 +429,7 @@ impl ThreadManager {
     pub async fn list_threads(&self) -> Result<Vec<ThreadInfo>, ThreadError> {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
+            "SELECT thread_id, agent_id, title, created_at, updated_at
              FROM threads
              WHERE agent_id = 'default'
              ORDER BY updated_at DESC",
@@ -510,7 +445,7 @@ impl ThreadManager {
     ) -> Result<Vec<ThreadInfo>, ThreadError> {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
+            "SELECT thread_id, agent_id, title, created_at, updated_at
              FROM threads
              WHERE agent_id = ?1
              ORDER BY updated_at DESC",
@@ -534,20 +469,18 @@ impl ThreadManager {
             title,
             created_at: now,
             updated_at: now,
-            runtime_config: None,
         };
 
         let conn = self.lock_conn();
         conn.execute(
-            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at, runtime_config)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 info.thread_id,
                 info.agent_id.0,
                 info.title,
                 info.created_at,
-                info.updated_at,
-                info.runtime_config
+                info.updated_at
             ],
         )?;
 
@@ -571,20 +504,18 @@ impl ThreadManager {
             title,
             created_at: now,
             updated_at: now,
-            runtime_config: None,
         };
 
         let conn = self.lock_conn();
         conn.execute(
-            "INSERT OR IGNORE INTO threads (thread_id, agent_id, title, created_at, updated_at, runtime_config)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT OR IGNORE INTO threads (thread_id, agent_id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 info.thread_id,
                 info.agent_id.0,
                 info.title,
                 info.created_at,
-                info.updated_at,
-                info.runtime_config
+                info.updated_at
             ],
         )?;
 
@@ -597,7 +528,7 @@ impl ThreadManager {
         let conn = self.lock_conn();
         let info = conn
             .query_row(
-                "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
+                "SELECT thread_id, agent_id, title, created_at, updated_at
                  FROM threads
                  WHERE thread_id = ?1",
                 [thread_id],
@@ -608,7 +539,6 @@ impl ThreadManager {
                         title: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
-                        runtime_config: row.get::<_, Option<String>>(5)?,
                     })
                 },
             )
@@ -916,7 +846,7 @@ impl ThreadManager {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT
-                i.instance_id, i.agent_type, i.title, i.thread_id,
+                i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
@@ -937,7 +867,7 @@ impl ThreadManager {
         let conn = self.lock_conn();
         conn.query_row(
             "SELECT
-                i.instance_id, i.agent_type, i.title, i.thread_id,
+                i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
@@ -960,7 +890,7 @@ impl ThreadManager {
         let conn = self.lock_conn();
         conn.query_row(
             "SELECT
-                i.instance_id, i.agent_type, i.title, i.thread_id,
+                i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
@@ -985,7 +915,7 @@ impl ThreadManager {
         let conn = self.lock_conn();
         conn.query_row(
             "SELECT
-                i.instance_id, i.agent_type, i.title, i.thread_id,
+                i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
@@ -1022,13 +952,14 @@ impl ThreadManager {
         conn.execute(
             "INSERT INTO agent_conversation_instances (
                 instance_id, agent_type, title, thread_id,
-                source_kind, source_document_path, source_memo_id, role_memo_id, role_name,
-                created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                runtime_config, source_kind, source_document_path, source_memo_id,
+                role_memo_id, role_name, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(instance_id) DO UPDATE SET
                 agent_type = excluded.agent_type,
                 title = excluded.title,
                 thread_id = excluded.thread_id,
+                runtime_config = excluded.runtime_config,
                 source_kind = excluded.source_kind,
                 source_document_path = excluded.source_document_path,
                 source_memo_id = excluded.source_memo_id,
@@ -1040,6 +971,7 @@ impl ThreadManager {
                 input.agent_type,
                 input.title,
                 input.thread_id,
+                input.runtime_config,
                 source_kind,
                 input.source.document_path,
                 input.source.memo_id,
@@ -1052,7 +984,7 @@ impl ThreadManager {
         let instance = conn
             .query_row(
                 "SELECT
-                    i.instance_id, i.agent_type, i.title, i.thread_id,
+                    i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                     i.source_kind, i.source_document_path, i.source_memo_id,
                     i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                     r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
@@ -1185,7 +1117,7 @@ impl ThreadManager {
         // 鐪熺殑 await, 绛惧悕淇濈暀 async 鏄负涓婂眰鎺ュ彛涓€鑷淬€?
         let info = conn
             .query_row(
-                "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
+                "SELECT thread_id, agent_id, title, created_at, updated_at
                  FROM threads
                  WHERE thread_id = ?1",
                 [thread_id],
@@ -1196,7 +1128,6 @@ impl ThreadManager {
                         title: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
-                        runtime_config: row.get::<_, Option<String>>(5)?,
                     })
                 },
             )
@@ -1217,51 +1148,6 @@ impl ThreadManager {
         Ok(())
     }
 
-    /// 写入/覆盖 thread 的 runtime_config 快照（JSON 字符串）。
-    ///
-    /// 写时机：仅 chat_stream 入口（懒写）；UI 改控件不调此方法。
-    /// 接收 raw JSON 字符串而非 `RuntimeConfig` 结构 → 避免双层序列化，
-    /// 也让前端可以传"半成品"（比如只改 model 不带 access）原样落盘。
-    ///
-    /// 若 thread 不存在返回 ThreadError::NotFound ── chat_stream 入口
-    /// 走 ensure_thread 先保证行存在再写。
-    pub async fn upsert_runtime_config(
-        &self,
-        thread_id: &str,
-        config_json: &str,
-    ) -> Result<(), ThreadError> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let conn = self.lock_conn();
-        let updated = conn.execute(
-            "UPDATE threads SET runtime_config = ?1, updated_at = ?2 WHERE thread_id = ?3",
-            params![config_json, now, thread_id],
-        )?;
-        if updated == 0 {
-            return Err(ThreadError::NotFound(thread_id.to_string()));
-        }
-        Ok(())
-    }
-
-    /// 读取 thread 的 runtime_config（JSON 字符串形式）。
-    /// 供前端启动 / 切 thread 时拉持久态作为 UI 控件初值。
-    pub async fn get_runtime_config(&self, thread_id: &str) -> Result<Option<String>, ThreadError> {
-        let conn = self.lock_conn();
-        // `optional()` 把 Result<Option<String>, _> 转成 Option<Result<_, _>>。
-        // 第一个 `?` 抛错后剩下 Option<Option<String>> ── None = 行不存在,
-        // Some(None) = 行存在但 runtime_config 列是 NULL。
-        let raw = conn
-            .query_row(
-                "SELECT runtime_config FROM threads WHERE thread_id = ?1",
-                [thread_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()
-            .map_err(ThreadError::from)?
-            .flatten();
-        // 规范化：空字符串视同 None（避免上游意外写入空 JSON）
-        Ok(raw.filter(|s| !s.is_empty()))
-    }
-
     fn get_thread_info_with_conn(
         &self,
         conn: &Connection,
@@ -1269,7 +1155,7 @@ impl ThreadManager {
     ) -> Result<Option<ThreadInfo>, ThreadError> {
         Ok(conn
             .query_row(
-                "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
+                "SELECT thread_id, agent_id, title, created_at, updated_at
                  FROM threads
                  WHERE thread_id = ?1",
                 [thread_id],
@@ -1280,7 +1166,6 @@ impl ThreadManager {
                         title: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
-                        runtime_config: row.get::<_, Option<String>>(5)?,
                     })
                 },
             )
@@ -1316,8 +1201,6 @@ impl ThreadManager {
             title: row.get(2)?,
             created_at: row.get(3)?,
             updated_at: row.get(4)?,
-            // runtime_config 列 nullable ── 用 Option<String> 类型断言拿到 NULL。
-            runtime_config: row.get::<_, Option<String>>(5)?,
         })
     }
 
@@ -1327,12 +1210,12 @@ impl ThreadManager {
         row: &rusqlite::Row<'_>,
     ) -> rusqlite::Result<AgentConversationInstance> {
         let source = AgentConversationSource {
-            kind: row.get(4)?,
-            document_path: row.get(5)?,
-            memo_id: row.get(6)?,
+            kind: row.get(5)?,
+            document_path: row.get(6)?,
+            memo_id: row.get(7)?,
         };
-        let role_memo_id: Option<String> = row.get(7)?;
-        let role_name: Option<String> = row.get(8)?;
+        let role_memo_id: Option<String> = row.get(8)?;
+        let role_name: Option<String> = row.get(9)?;
         let role = if role_memo_id.is_some() || role_name.is_some() {
             Some(AgentConversationRole {
                 memo_id: role_memo_id,
@@ -1341,21 +1224,21 @@ impl ThreadManager {
         } else {
             None
         };
-        let run_id: Option<String> = row.get(11)?;
+        let run_id: Option<String> = row.get(12)?;
         let run = if let Some(run_id) = run_id {
-            let usage_json: Option<String> = row.get(20)?;
-            let status_info_json: Option<String> = row.get(21)?;
+            let usage_json: Option<String> = row.get(21)?;
+            let status_info_json: Option<String> = row.get(22)?;
             Some(AgentConversationRun {
                 run_id,
-                status: row.get(12)?,
-                started_at: row.get(13)?,
-                ended_at: row.get(14)?,
-                current_tool: row.get(15)?,
-                model: row.get(16)?,
-                model_id: row.get(17)?,
-                reasoning_effort: row.get(18)?,
-                last_run_at: row.get(19)?,
-                reason: row.get(22)?,
+                status: row.get(13)?,
+                started_at: row.get(14)?,
+                ended_at: row.get(15)?,
+                current_tool: row.get(16)?,
+                model: row.get(17)?,
+                model_id: row.get(18)?,
+                reasoning_effort: row.get(19)?,
+                last_run_at: row.get(20)?,
+                reason: row.get(23)?,
                 usage: usage_json.and_then(|s| serde_json::from_str(&s).ok()),
                 status_info: status_info_json.and_then(|s| serde_json::from_str(&s).ok()),
             })
@@ -1368,11 +1251,12 @@ impl ThreadManager {
             agent_type: row.get(1)?,
             title: row.get(2)?,
             thread_id: row.get(3)?,
+            runtime_config: row.get(4)?,
             source,
             role,
             run,
-            created_at: row.get(9)?,
-            updated_at: row.get(10)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     }
 
@@ -1568,125 +1452,5 @@ mod tests {
         assert_eq!(second.title, "first title");
     }
 
-    // ── Phase 4: per-thread runtime_config 持久化测试 ──
-    // 覆盖: 写入 → 读回 → 跨 thread 隔离 → 缺 thread 时 NotFound
 
-    #[tokio::test]
-    async fn upsert_runtime_config_round_trip() {
-        let manager = ThreadManager::for_tests();
-        seed_thread(&manager, "cfg-t1", 0).await;
-
-        // 未写时读 → None
-        assert_eq!(
-            manager.get_runtime_config("cfg-t1").await.unwrap(),
-            None,
-            "fresh thread should not have runtime_config",
-        );
-
-        // 写入
-        let cfg_json = r#"{"model":{"key":"gpt-5.5"},"access":{"sandbox":"full-access"},"files":{"workspace":"/tmp/a","folders":["/tmp/a"],"notebooks":[]}}"#;
-        manager
-            .upsert_runtime_config("cfg-t1", cfg_json)
-            .await
-            .expect("upsert");
-
-        // 读回一致
-        let read_back = manager
-            .get_runtime_config("cfg-t1")
-            .await
-            .unwrap()
-            .expect("config should be present after upsert");
-        assert_eq!(read_back, cfg_json);
-
-        // 解析为 RuntimeConfig 校验字段
-        let parsed: RuntimeConfig = serde_json::from_str(&read_back).expect("parse RuntimeConfig");
-        assert_eq!(parsed.model.as_ref().unwrap().key, "gpt-5.5");
-        assert_eq!(parsed.access.as_ref().unwrap().sandbox, "full-access",);
-        assert_eq!(
-            parsed.files.as_ref().unwrap().workspace.as_deref(),
-            Some("/tmp/a"),
-        );
-        assert_eq!(parsed.files.as_ref().unwrap().folders, vec!["/tmp/a"]);
-    }
-
-    #[tokio::test]
-    async fn runtime_config_isolated_per_thread() {
-        let manager = ThreadManager::for_tests();
-        // 直接 INSERT OR REPLACE 跳过 seed_thread 的 create_thread ──
-        // 避免同毫秒 timestamp 撞 key。
-        {
-            let conn = manager.lock_conn();
-            for tid in ["iso-a", "iso-b"] {
-                conn.execute(
-                    "INSERT OR REPLACE INTO threads (thread_id, agent_id, title, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![tid, "test-agent", "iso test", 0_i64, 0_i64],
-                )
-                .unwrap();
-            }
-        }
-
-        manager
-            .upsert_runtime_config("iso-a", r#"{"model":{"key":"A"}}"#)
-            .await
-            .unwrap();
-        manager
-            .upsert_runtime_config("iso-b", r#"{"model":{"key":"B"}}"#)
-            .await
-            .unwrap();
-
-        let a = manager.get_runtime_config("iso-a").await.unwrap().unwrap();
-        let b = manager.get_runtime_config("iso-b").await.unwrap().unwrap();
-        assert!(a.contains(r#""key":"A""#));
-        assert!(b.contains(r#""key":"B""#));
-        assert!(!a.contains(r#""key":"B""#));
-        assert!(!b.contains(r#""key":"A""#));
-    }
-
-    #[tokio::test]
-    async fn upsert_runtime_config_unknown_thread_returns_not_found() {
-        let manager = ThreadManager::for_tests();
-        let err = manager
-            .upsert_runtime_config("ghost", r#"{"model":{"key":"X"}}"#)
-            .await
-            .expect_err("should fail");
-        match err {
-            ThreadError::NotFound(id) => assert_eq!(id, "ghost"),
-            other => panic!("expected NotFound, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn get_runtime_config_treats_empty_string_as_none() {
-        let manager = ThreadManager::for_tests();
-        seed_thread(&manager, "empty-cfg", 0).await;
-        manager
-            .upsert_runtime_config("empty-cfg", "")
-            .await
-            .expect("upsert empty");
-
-        let read = manager.get_runtime_config("empty-cfg").await.unwrap();
-        // 空字符串视同 None ── `chat_stream` 入口对 message.thread_runtime_config
-        // 做 trim().is_empty() 过滤, 这里是 SQL 层 normalize, 防止上游意外写入空 JSON。
-        assert_eq!(read, None);
-    }
-
-    #[tokio::test]
-    async fn upsert_overrides_previous_config() {
-        let manager = ThreadManager::for_tests();
-        seed_thread(&manager, "ovr", 0).await;
-
-        manager
-            .upsert_runtime_config("ovr", r#"{"model":{"key":"OLD"}}"#)
-            .await
-            .unwrap();
-        manager
-            .upsert_runtime_config("ovr", r#"{"model":{"key":"NEW"}}"#)
-            .await
-            .unwrap();
-
-        let read = manager.get_runtime_config("ovr").await.unwrap().unwrap();
-        assert!(read.contains(r#""key":"NEW""#));
-        assert!(!read.contains(r#""key":"OLD""#));
-    }
 }

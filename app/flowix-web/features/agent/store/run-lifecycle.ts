@@ -223,7 +223,7 @@ export function applyRunEnded<T extends RunLifecycleThreadState>(
   st: T,
   event: AgentEvent & { kind: 'stream_end'; reason: string | null }
 ): T {
-  // External CLIs can resolve a pending thread id to a real session id while a
+  // External CLIs can resolve a local thread id to a real session id while a
   // run is in flight. Treat an unmatched stream_end as the current active run's
   // end only when the event does not point at a known sibling run.
   const effectiveRunId =

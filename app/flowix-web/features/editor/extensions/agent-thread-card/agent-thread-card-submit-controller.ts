@@ -36,6 +36,18 @@ export async function submitAgentThreadCardConversation(
   let nextInstanceId = input.currentInstanceId;
   let nextTitle =
     input.currentTitle || input.buildTitle(input.prompt, input.fallbackTitle);
+  let nextTypeKey = input.typeKey;
+
+  if (!nextInstanceId) {
+    const instance = useAgentConversationStore.getState().createInstance({
+      agentType: nextTypeKey,
+      title: nextTitle,
+      threadId: nextThreadId,
+      source: input.source,
+      role: input.role,
+    });
+    nextInstanceId = instance.instanceId;
+  }
 
   if (!nextThreadId) {
     const ensured = await ensureAgentThreadCardThread({
@@ -44,27 +56,18 @@ export async function submitAgentThreadCardConversation(
       typeKey: input.typeKey,
       currentThreadId: input.currentThreadId,
       runtimeHandleId: input.runtimeHandleId,
+      instanceId: nextInstanceId,
       buildTitle: input.buildTitle,
     });
 
     if (ensured) {
       nextThreadId = ensured.threadId;
       nextTitle = ensured.title;
-      if (!nextInstanceId) {
-        const instance = useAgentConversationStore.getState().createInstance({
-          agentType: ensured.typeKey,
-          title: ensured.title,
-          threadId: ensured.threadId,
-          source: input.source,
-          role: input.role,
-        });
-        nextInstanceId = instance.instanceId;
-      } else {
-        useAgentConversationStore.getState().updateThread(nextInstanceId, {
-          agentType: ensured.typeKey,
-          threadId: ensured.threadId,
-        });
-      }
+      nextTypeKey = ensured.typeKey;
+      useAgentConversationStore.getState().updateThread(nextInstanceId, {
+        agentType: ensured.typeKey,
+        threadId: ensured.threadId,
+      });
     }
   }
 
@@ -74,13 +77,14 @@ export async function submitAgentThreadCardConversation(
 
   const conversation = upsertAgentThreadCardConversationInstance({
     instanceId: nextInstanceId,
-    agentType: input.typeKey,
+    agentType: nextTypeKey,
     title: nextTitle,
     threadId: nextThreadId,
     source: input.source,
     role: input.role,
   });
   nextInstanceId = conversation.instanceId;
+  const runtimeConfig = conversation.instance.runtimeConfig ?? null;
 
   const roleBody =
     input.isFirstMessage && input.role.memoId
@@ -89,7 +93,7 @@ export async function submitAgentThreadCardConversation(
 
   const sendPromise = useChatStore
     .getState()
-    .sendMessageToThread(nextThreadId, input.prompt, input.typeKey, {
+    .sendMessageToThread(nextThreadId, input.prompt, nextTypeKey, {
       instanceId: nextInstanceId,
       conversationTitle: nextTitle,
       currentNoteContent: input.documentContext,
@@ -97,12 +101,13 @@ export async function submitAgentThreadCardConversation(
       agentRoleName: input.role.name ?? undefined,
       isFirstMessage: input.isFirstMessage,
       agentRoleBody: roleBody,
+      runtimeConfig,
     });
 
   input.onThreadBound({
     instanceId: nextInstanceId,
     threadId: nextThreadId,
-    typeKey: input.typeKey,
+    typeKey: nextTypeKey,
   });
 
   await sendPromise;

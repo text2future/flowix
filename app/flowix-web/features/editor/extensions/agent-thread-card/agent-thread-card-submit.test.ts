@@ -12,7 +12,7 @@ vi.mock('@features/agent/store/chat-store', () => ({
 }));
 
 vi.mock('@features/agent/services/external-agent-runtime-service', () => ({
-  beginExternalAgentThreadCardRun: vi.fn(() => 'codex-pending-1'),
+  beginExternalAgentThreadCardRun: vi.fn(() => 'codex-local-inst-1'),
 }));
 
 vi.mock('@platform/tauri/client', () => ({
@@ -31,7 +31,7 @@ describe('agent thread card submit helper', () => {
     vi.clearAllMocks();
   });
 
-  it('creates a pending runtime thread for external agents', async () => {
+  it('creates an instance-backed local runtime thread for external agents', async () => {
     const { beginExternalAgentThreadCardRun } = await import('@features/agent/services/external-agent-runtime-service');
     const { ensureAgentThreadCardThread } = await import('./agent-thread-card-submit');
 
@@ -41,15 +41,21 @@ describe('agent thread card submit helper', () => {
       typeKey: 'codex',
       currentThreadId: null,
       runtimeHandleId: 'handle-1',
+      instanceId: 'inst-1',
       buildTitle: (prompt) => `Title: ${prompt}`,
     });
 
     expect(result).toEqual({
-      threadId: 'codex-pending-1',
+      threadId: 'codex-local-inst-1',
       title: 'Title: hello codex',
       typeKey: 'codex',
     });
-    expect(beginExternalAgentThreadCardRun).toHaveBeenCalledWith('handle-1', 'codex', null);
+    expect(beginExternalAgentThreadCardRun).toHaveBeenCalledWith(
+      'handle-1',
+      'codex',
+      null,
+      'inst-1',
+    );
     expect(chatStoreMock.setActiveAgentThread).not.toHaveBeenCalled();
   });
 
@@ -63,6 +69,7 @@ describe('agent thread card submit helper', () => {
       typeKey: 'flowix',
       currentThreadId: null,
       runtimeHandleId: 'handle-1',
+      instanceId: 'inst-1',
       buildTitle: (prompt) => `Title: ${prompt}`,
     });
 

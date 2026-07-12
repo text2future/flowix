@@ -41,13 +41,13 @@ describe('agent thread card cache helper', () => {
     });
   });
 
-  it('returns a resolved Codex session without loading when pending id is resolved', async () => {
+  it('returns a resolved Codex session without loading when local id is resolved', async () => {
     const { resolveExternalSessionId } = await import('@features/agent/services/external-agent-runtime-service');
     vi.mocked(resolveExternalSessionId).mockResolvedValueOnce('codex-real-session');
     const { loadAgentThreadCardCache } = await import('./agent-thread-card-cache');
 
     const result = await loadAgentThreadCardCache({
-      threadId: 'codex-pending-1',
+      threadId: 'codex-local-inst-1',
       typeKey: 'codex',
     });
 

@@ -435,7 +435,6 @@ fn parse_sessions_list(text: &str) -> Vec<ThreadInfo> {
                 },
                 created_at: now,
                 updated_at: now,
-                runtime_config: None,
             })
         })
         .collect()
@@ -462,7 +461,6 @@ fn thread_info_from_session(session: &ParsedSession) -> ThreadInfo {
             .unwrap_or_else(|| "Hermes Agent session".to_string()),
         created_at: session.created_at.unwrap_or(now),
         updated_at: session.updated_at.unwrap_or(now),
-        runtime_config: None,
     }
 }
 

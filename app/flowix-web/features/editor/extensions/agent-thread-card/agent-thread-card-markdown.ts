@@ -107,6 +107,5 @@ export function renderAgentThreadCardMarkdown(node: {
   const inputDraft = escapeAgentThreadCardAttr(
     encodeAgentThreadCardInputDraft(node.attrs?.inputDraft as string),
   );
-
   return `::agent-thread-card{instanceId="${instanceId}" threadId="${threadId}" title="${title}" agentType="${typeKey}" agentRoleMemoId="${agentRoleMemoId}" agentRoleName="${agentRoleName}" collapsed="${collapsed}" inputDraft="${inputDraft}"}\n`;
 }

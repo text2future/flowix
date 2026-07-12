@@ -35,13 +35,13 @@ export function resolveExternalChunkAgentType(
 
 export function applyExternalSessionResolved(
   state: ExternalSessionStateInput,
-  pendingThreadId: string,
+  localThreadId: string,
   sessionId: string,
   agentType: AgentTypeKey,
   mergeMessages: (existing: ChatMessage[], incoming: ChatMessage[]) => ChatMessage[],
   emptyThreadState: () => ThreadState
 ): ExternalSessionResolvedState {
-  const fromState = state.threadStates[pendingThreadId] ?? emptyThreadState();
+  const fromState = state.threadStates[localThreadId] ?? emptyThreadState();
   const toState = state.threadStates[sessionId] ?? emptyThreadState();
   const messages = fromState.messages.length > 0
     ? mergeMessages(toState.messages, fromState.messages)
@@ -50,12 +50,12 @@ export function applyExternalSessionResolved(
   return {
     threadTypes: {
       ...state.threadTypes,
-      [pendingThreadId]: agentType,
+      [localThreadId]: agentType,
       [sessionId]: agentType,
     },
     externalSessionResolutions: {
       ...state.externalSessionResolutions,
-      [pendingThreadId]: sessionId,
+      [localThreadId]: sessionId,
     },
     threadStates: {
       ...state.threadStates,

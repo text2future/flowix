@@ -38,7 +38,16 @@ pub async fn get_session_page(
 }
 
 pub fn is_codex_session_id(text: &str) -> bool {
-    text.len() >= 32 && text.chars().filter(|c| *c == '-').count() >= 4
+    // 必须显式拒绝 "codex-local-agent-inst-<ts>-<seq>" 等前端占位符 ──
+    // 这些字符串长度 ≥ 32 且包含 5 个 dash, 老版宽松判断会把它当成
+    // session id 传给 Codex CLI 的 resume, 但 CLI 不认 ── 与
+    // claude_history 同病同治。
+    let value = text.trim();
+    if value.is_empty() || value.starts_with("codex-local-") {
+        return false;
+    }
+    value.len() >= 32
+        && value.chars().filter(|c| *c == '-').count() == 4
 }
 
 #[derive(Default)]
@@ -95,7 +104,6 @@ fn list_codex_sessions() -> Result<Vec<ThreadInfo>, String> {
                     .unwrap_or_else(|| "Codex Session".to_string()),
                 created_at,
                 updated_at: draft.updated_at.unwrap_or(created_at),
-                runtime_config: None,
             }
         })
         .collect::<Vec<_>>();
@@ -594,6 +602,16 @@ mod tests {
     fn recognizes_codex_session_ids() {
         assert!(is_codex_session_id("019ed38f-e9e3-7b61-8be3-80a40788d6e3"));
         assert!(!is_codex_session_id("thread_1781665906"));
+    }
+
+    #[test]
+    fn rejects_local_codex_thread_ids() {
+        // 同 claude 的修复 ── "codex-local-agent-inst-..." 前缀直接拒掉,
+        // 避免误把前端占位符当 Codex CLI session id。
+        assert!(!is_codex_session_id(
+            "codex-local-agent-inst-1783828675847-3"
+        ));
+        assert!(!is_codex_session_id(""));
     }
 
     #[test]

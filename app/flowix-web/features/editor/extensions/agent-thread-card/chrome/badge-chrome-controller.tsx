@@ -119,7 +119,7 @@ export class AgentThreadCardBadgeChromeController {
     const { model, lastRunAt, totalTokens } =
       computeAgentThreadCardBadgeData({
         threadState: this.getThreadState(),
-        persistedRun: this.getPersistedRun(),
+        conversationRun: this.getPersistedRun(),
         codexModel: useChatStore.getState().agentCodexModel,
         typeKey: this.getTypeKey(),
       });

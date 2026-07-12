@@ -133,14 +133,16 @@ impl AgentAccessStore {
         //    启用的对应 entry; 反过来 kind=Notebook 但 notebook.json
         //    里没有对应 id 的就是孤儿, 删掉。这一步同时承担了"两个文件
         //    写入中间崩溃 → 启动时自我修复"的语义。
+        //
+        // **不做 workspace normalize** ── workspace 是用户显式选择,
+        // 读盘时原样保留。 兜底语义 (unset → 第一个 enabled) 在前端的
+        // `reassignWorkspaceToFirstEnabled` 一处处理, 启动时不强加。
         let notebook_configs = memo_file.read_notebook_configs().unwrap_or_default();
-        // dirty check 用: reconcile 之前的 entries 快照。 排除 `updated_at` /
-        // `workspace` ── 这俩字段 reconcile / normalize 每次都会刷, 即便语义
-        // 没变化 (e.g. notebook 改名后过几个 cycle 又改回原名, 或 workspace
-        // 重新选了一遍), 不应当作 dirty 信号。
+        // dirty check 用: reconcile 之前的 entries 快照。 排除 `updated_at`
+        // ── 这个字段 reconcile 每次都会刷, 即便语义没变化 (e.g. notebook
+        // 改名后过几个 cycle 又改回原名), 不应当作 dirty 信号。
         let pre_reconcile_entries = config.entries.clone();
         reconcile_with_notebook_configs(&mut config.entries, &notebook_configs);
-        normalize_workspace_selection(&mut config.entries);
 
         let is_dirty = !entries_semantically_equal(&pre_reconcile_entries, &config.entries);
 
@@ -174,11 +176,19 @@ impl AgentAccessStore {
 
     /// 先把整份 config 落盘, 成功后才覆盖内存。 `Err` 时内存与磁盘
     /// 都保留旧值。
+    ///
+    /// **不做 workspace normalize** ── workspace 是用户在 UI 上显式
+    /// 设的 (star 按钮), 写盘时原样保留。 旧版本在每次 replace_config
+    /// 时强制把 workspace 标志重写到"第一个 enabled folder", 这会把
+    /// 用户通过 star 设的非首位 workspace 抹掉, 再通过
+    /// `agent-access-changed` 事件把前端状态回滚, 让用户感觉点 star
+    /// "闪一下就还原"。 workspace 槽位的兜底 (unset → 第一个 enabled)
+    /// 由前端 `useAgentAccessStore.toggle / removeFolder` 在
+    /// `reassignWorkspaceToFirstEnabled` 一处处理, 这里只信任入参。
     pub fn replace_config(
         &self,
-        mut config: AgentAccessConfig,
+        config: AgentAccessConfig,
     ) -> Result<AgentAccessConfig, UserConfigError> {
-        normalize_workspace_selection(&mut config.entries);
         let content = serde_json::to_string_pretty(&config)?;
         let path = self.config_dir.join(AGENT_ACCESS_FILE_NAME);
         atomic_write_json(&path, &content)?;
@@ -379,34 +389,22 @@ fn reconcile_with_notebook_configs(
     }
 }
 
-fn normalize_workspace_selection(entries: &mut [AgentAccessEntry]) {
-    // 主空间不再是用户手动选择项, 而是列表中第一个 enabled=true 且
-    // missing=false 的 folder。每次加载/写入都重算, 避免旧 config 保留
-    // 第二个 folder 的 workspace=true 后, 用户重新勾选第一个 folder 时
-    // 主空间不回到第一个。
-    let first_folder = entries
-        .iter()
-        .position(|e| e.kind == AgentAccessKind::Folder && e.enabled && !e.missing);
-
-    for (index, entry) in entries.iter_mut().enumerate() {
-        entry.workspace = Some(index) == first_folder;
-    }
-}
+// normalize_workspace_selection 已删除 ── 见 replace_config 的注释。
+// workspace 是用户在 UI 上显式设的, 读写都原样保留, 不再做任何
+// "force workspace = 第一个 enabled folder" 的派生。
 
 /// 比较两份 entries 是否语义等价 ── 用于 `AgentAccessStore::new` 的 dirty 判断。
 ///
-/// **不**比较的字段 (视为自动派生, reconcile / normalize 每次会刷新, 不算 dirty):
+/// **不**比较的字段 (视为自动派生, reconcile 每次会刷新, 不算 dirty):
 /// - `updated_at`: 每次 reconcile_with_notebook_configs 都刷成 `chrono::Utc::now()`,
 ///   即使 path / name 没变。 同样, ensure_skill_folder 漂移修复也会刷。
-/// - `workspace`: normalize_workspace_selection 每次启动都重算 ── 用户没动
-///   folder 也会被重写一次, 不应当 dirty。
 /// - `added_at`: 历史数据保留, reconcile 不会改 (新 entry 才设)。
 ///
 /// **不**比较 `missing` ── 该字段 `skip_deserializing`, 序列化时不出现, 内存里
 /// 默认 false, 实际语义等价比较不依赖它。
 ///
-/// **依赖** entries 顺序稳定: reconcile 用 `retain` + `push` 不重排, normalize
-/// 只 in-place 改 workspace。 因此 `zip` 比较是安全的。
+/// **依赖** entries 顺序稳定: reconcile 用 `retain` + `push` 不重排, 因此
+/// `zip` 比较是安全的。
 fn entries_semantically_equal(a: &[AgentAccessEntry], b: &[AgentAccessEntry]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -521,7 +519,12 @@ mod tests {
     }
 
     #[test]
-    fn replace_config_recomputes_workspace_from_first_enabled_folder() {
+    fn replace_config_preserves_user_workspace_choice() {
+        // 新契约 ── workspace 是用户在 UI 上显式设的 (star 按钮),
+        // replace_config 写盘时原样保留, 不再重写到第一个 enabled folder。
+        // 这条守住"用户清掉旧的 workspace 标志再选另一个" 的写盘路径 ──
+        // 旧版 normalize 会把 workspace 强行放回第一个 enabled folder,
+        // 让用户的"显式清空 + 选另一个"变成"隐式选第一个"。
         let dir = tempdir();
         let memo_path = dir.join("notebook.json");
         std::fs::write(&memo_path, "[]").unwrap();
@@ -536,8 +539,8 @@ mod tests {
                     kind: AgentAccessKind::Folder,
                     path: "/tmp/a".into(),
                     name: "A".into(),
-                    enabled: false,
-                    workspace: true,
+                    enabled: true,
+                    workspace: false, // 用户清掉了 workspace 标志
                     added_at: 1,
                     updated_at: 1,
                     missing: false,
@@ -548,7 +551,7 @@ mod tests {
                     path: "/tmp/b".into(),
                     name: "B".into(),
                     enabled: true,
-                    workspace: true,
+                    workspace: true, // 用户选了第二个作为 workspace
                     added_at: 1,
                     updated_at: 1,
                     missing: false,
@@ -558,24 +561,70 @@ mod tests {
 
         store.replace_config(config).unwrap();
         let cfg = store.get_config();
+        // 入参原样落库 ── 第一个 folder 不是 workspace, 第二个是。
+        // 旧版会强行把 workspace 挪回第一个 enabled, 是错的。
         assert!(!cfg.entries[0].workspace);
-        assert!(!cfg.entries[0].enabled);
         assert!(cfg.entries[1].workspace);
     }
 
     #[test]
-    fn replace_config_auto_assigns_first_folder_when_no_workspace() {
+    fn replace_config_preserves_off_first_workspace_when_first_is_enabled() {
+        // 用户在非首位 folder 上显式设 workspace (例如点了第二个 folder
+        // 的 star), 写盘时这条选择必须保留 ── 不能被 normalize 重写到
+        // 第一个 enabled folder, 否则前端刚做完乐观更新就被事件回滚。
         let dir = tempdir();
         let memo_path = dir.join("notebook.json");
         std::fs::write(&memo_path, "[]").unwrap();
         let memo = MemoFile::new(dir.clone(), memo_path);
         let store = AgentAccessStore::new(dir.clone(), &memo);
 
-        // 两个 folder + 一个 notebook, 都 workspace=false (旧磁盘 config
-        // 从未手动指定过 workspace, 因为 UI 早先还没有 home 图标)。 落
-        // 盘时 normalize 应该把第一个 enabled 且非 missing 的 folder 自
-        // 动设为 workspace ── 对应"第一个 folder 作为主工作区"的 UI 约
-        // 定。
+        let config = AgentAccessConfig {
+            version: 1,
+            entries: vec![
+                AgentAccessEntry {
+                    id: "fld_a".into(),
+                    kind: AgentAccessKind::Folder,
+                    path: "/tmp/a".into(),
+                    name: "A".into(),
+                    enabled: true,
+                    workspace: false, // 第一个 enabled, 但用户没选它
+                    added_at: 1,
+                    updated_at: 1,
+                    missing: false,
+                },
+                AgentAccessEntry {
+                    id: "fld_b".into(),
+                    kind: AgentAccessKind::Folder,
+                    path: "/tmp/b".into(),
+                    name: "B".into(),
+                    enabled: true,
+                    workspace: true, // 用户在第二位显式设了 workspace
+                    added_at: 1,
+                    updated_at: 1,
+                    missing: false,
+                },
+            ],
+        };
+
+        store.replace_config(config).unwrap();
+        let cfg = store.get_config();
+        // 不重写 ── fld_b 仍是 workspace, fld_a 仍不是。
+        assert!(!cfg.entries[0].workspace);
+        assert!(cfg.entries[1].workspace);
+    }
+
+    #[test]
+    fn replace_config_preserves_all_workspace_false() {
+        // 新契约 ── 入参 workspace 全 false 时不做任何自动 promote, 原样
+        // 落库。 这是和"workspace 是用户显式选择"的对称面: 没有用户选择时,
+        // 落空 workspace 也是合法状态, 不偷偷塞一个进去 (老 UI 没有 star
+        // 入口时期遗留的旧 config 仍按旧值保留, 但新的写盘操作不再改它)。
+        let dir = tempdir();
+        let memo_path = dir.join("notebook.json");
+        std::fs::write(&memo_path, "[]").unwrap();
+        let memo = MemoFile::new(dir.clone(), memo_path);
+        let store = AgentAccessStore::new(dir.clone(), &memo);
+
         let config = AgentAccessConfig {
             version: 1,
             entries: vec![
@@ -617,21 +666,18 @@ mod tests {
 
         store.replace_config(config).unwrap();
         let cfg = store.get_config();
-        assert!(
-            cfg.entries[0].workspace,
-            "first folder should be auto-assigned"
-        );
-        assert!(cfg.entries[0].enabled);
+        assert!(!cfg.entries[0].workspace, "no auto-promote on write");
         assert!(!cfg.entries[1].workspace);
         assert!(!cfg.entries[2].workspace);
     }
 
     #[test]
-    fn replace_config_skips_disabled_folders_when_picking_workspace() {
-        // 第一个 folder 被用户手动 disabled, 第二个 enabled ── auto-assign
-        // 应该跳过第一个, 把第二个 folder 标为 workspace。 这是 "第一个
-        // 勾选的文件夹作为主空间" 的核心: workspace 跟的是 "第一个 enabled",
-        // 不是 "第一个位置"。
+    fn replace_config_preserves_workspace_when_first_is_disabled() {
+        // 新契约 ── 不管第一个 folder 是否 enabled, workspace 入参原样保留。
+        // 这条特别守住: 用户可能故意选了第一个 folder, 但中途把它 disabled
+        // (例如临时取消勾选) 但还想保留它的 workspace 标志 ── 旧版
+        // normalize 会趁机把这个 disabled 的 workspace 标志挪到第二位,
+        // 让用户感觉"取消勾选 ≠ 临时, 还顺便改了主空间", 这是错误的。
         let dir = tempdir();
         let memo_path = dir.join("notebook.json");
         std::fs::write(&memo_path, "[]").unwrap();
@@ -646,8 +692,8 @@ mod tests {
                     kind: AgentAccessKind::Folder,
                     path: "/tmp/disabled".into(),
                     name: "Disabled".into(),
-                    enabled: false, // 用户手动取消勾选
-                    workspace: false,
+                    enabled: false,
+                    workspace: true, // 用户显式设过 workspace, 之后才 disabled
                     added_at: 1,
                     updated_at: 1,
                     missing: false,
@@ -668,16 +714,9 @@ mod tests {
 
         store.replace_config(config).unwrap();
         let cfg = store.get_config();
-        // 第一个被跳过 (enabled=false), 第二个 enabled 的 fld_active 成为
-        // workspace。
-        assert!(
-            !cfg.entries[0].workspace,
-            "disabled folder should NOT be auto-assigned as workspace"
-        );
-        assert!(
-            cfg.entries[1].workspace,
-            "first enabled folder should be auto-assigned as workspace"
-        );
+        // 入参原样保留 ── 第一个 disabled 仍是 workspace, 第二个不是。
+        assert!(cfg.entries[0].workspace, "workspace on disabled folder preserved");
+        assert!(!cfg.entries[1].workspace);
     }
 
     fn entry(
@@ -723,8 +762,16 @@ mod tests {
 
     #[test]
     fn entries_semantically_equal_returns_true_when_workspace_changes() {
-        // normalize_workspace_selection 每次启动都重算 workspace ── 即便
-        // 其它字段没变, workspace 也可能不同。 不应当 dirty。
+        // 这条历史包袱的合理性已经变了 ── 旧版 normalize 在启动时把
+        // workspace 重写到第一个 enabled, 所以"workspace 字段变了"会
+        // 被当作正常 reconcile 噪声。 现在的实现完全保留入参, 不再做
+        // workspace normalize, workspace 的差异本就该算语义变化。
+        //
+        // 但保留这条断言的目的: 调用方 (AgentAccessStore::new) 用
+        // entries_semantically_equal 来判断"要不要写盘"。 如果将来
+        // 有路径会改 workspace 但又不想触发写盘, 需要扩展对比规则;
+        // 现在直接断言"workspace 不同 ≠ dirty 信号" 仍然成立 ── 因
+        // 为 reconcile 不会动 workspace, 这条成立没有副作用。
         let mut a = vec![entry(
             "fld_a",
             AgentAccessKind::Folder,

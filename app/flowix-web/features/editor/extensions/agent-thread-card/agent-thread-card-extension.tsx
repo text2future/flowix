@@ -7,6 +7,7 @@ import {
   normalizeAgentTypeKey,
 } from "@/lib/agent-types";
 import { useChatStore } from "@features/agent/store/chat-store";
+import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
 import {
   DEFAULT_AGENT_THREAD_CARD_TITLE as DEFAULT_TITLE,
   parseAgentThreadCardMarkdown,
@@ -15,6 +16,7 @@ import {
 import { focusAgentThreadCardInput } from "@features/editor/extensions/agent-thread-card/agent-thread-card-dom";
 import { AgentThreadCardView } from "@features/editor/extensions/agent-thread-card/agent-thread-card-view";
 import { terminateAgentThreadCardRuntime } from "@features/editor/extensions/agent-thread-card/agent-thread-card-cleanup";
+import { getCurrentThreadCardSource } from "@features/editor/extensions/agent-thread-card/runtime/thread-card-source";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -146,9 +148,16 @@ export const AgentThreadCard = Node.create({
           const typeKey = normalizeAgentTypeKey(
             options?.typeKey ?? useChatStore.getState().activeAgentTypeKey,
           );
+          const instance = useAgentConversationStore.getState().createInstance({
+            agentType: typeKey,
+            title: DEFAULT_TITLE,
+            threadId: null,
+            source: getCurrentThreadCardSource(),
+            role: undefined,
+          });
           const node = nodeType.create({
             threadId: null,
-            instanceId: null,
+            instanceId: instance.instanceId,
             title: DEFAULT_TITLE,
             typeKey,
             agentRoleMemoId: null,

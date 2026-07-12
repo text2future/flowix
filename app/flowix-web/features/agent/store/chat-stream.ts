@@ -21,13 +21,8 @@ export interface DispatchChatStreamArgs {
   codexReasoningEffort: AgentCodexReasoningEffort;
   agentRoleMemoId?: string;
   agentRoleName?: string;
-  /**
-   * Per-thread 配置快照（in-memory 的 lazy patch）── Phase 3 懒写载体。
-   * 由 caller 从 `chat-store.threadRuntimeConfig[tid]` 取出, 序列化为 JSON
-   * 字符串随 IPC 一并发送, 后端 chat_stream 入口 upsert 到
-   * `threads.runtime_config` 列。未传 / undefined = 不携带（视为未改动）。
-   */
-  threadRuntimeConfig?: RuntimeConfig;
+  /** Runtime config snapshot from the conversation instance. */
+  runtimeConfig?: RuntimeConfig;
 }
 
 /**
@@ -50,7 +45,7 @@ export async function dispatchChatStream({
   codexReasoningEffort,
   agentRoleMemoId,
   agentRoleName,
-  threadRuntimeConfig,
+  runtimeConfig: instanceRuntimeConfig,
 }: DispatchChatStreamArgs): Promise<void> {
   const runtimeConfig = buildAgentRuntimeConfig({
     typeKey: agentType,
@@ -58,13 +53,8 @@ export async function dispatchChatStream({
     permissionMode,
     codexModel,
     codexReasoningEffort,
+    instanceRuntimeConfig,
   });
-  // 仅当有非空配置才序列化携带 ── 控件未改动时不要塞空对象, 后端 upsert
-  // 会把已有持久态覆盖成 `{}`, 等于"清空 thread 配置", 与用户意图不符。
-  const threadRuntimeConfigJson =
-    threadRuntimeConfig && Object.keys(threadRuntimeConfig).length > 0
-      ? JSON.stringify(threadRuntimeConfig)
-      : undefined;
   await agentClient.chatStream(threadId, {
     content,
     llmContent,
@@ -75,6 +65,5 @@ export async function dispatchChatStream({
     runtimeConfig,
     agentRoleMemoId,
     agentRoleName,
-    threadRuntimeConfig: threadRuntimeConfigJson,
   });
 }

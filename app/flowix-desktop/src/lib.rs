@@ -36,21 +36,18 @@ use codex_cli::CodexCliManager;
 use flowix_core::search::{BigramTokenizer, MemoIndex};
 use hermes_cli::HermesCliManager;
 use security_bookmark::SecurityBookmarkStore;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use system_data::SystemData;
 use tauri::{Listener, Manager};
 use threads::ThreadManager;
 
 /// 用户配置目录名 (~/.<NAME>/ 下放 boot/preference.json / agent-config.toml /
-/// notebook.json / boot/system.json)。原 WoopMemo 时代叫 `.woop`,
-/// 2026/06 品牌重塑后改为 `.flowix`。 旧目录由 `migrate_legacy_woop_dirs`
-/// 一次性迁移, 见 `run()`。
+/// notebook.json / boot/system.json)。
 pub const USER_CONFIG_DIR_NAME: &str = ".flowix";
 
 /// 桌面应用数据目录名 (在 `dirs::data_dir()` 之下, macOS:
-/// `~/Library/Application Support/<NAME>/`)。 旧 WoopMemo 时代叫
-/// `woopmemo`, 现统一为 `flowix`。
+/// `~/Library/Application Support/<NAME>/`)。
 pub const APP_DATA_DIR_NAME: &str = "flowix";
 const EXTERNAL_AGENT_WATCHDOG_INTERVAL_MS: u64 = 5_000;
 const EXTERNAL_AGENT_DEFAULT_IDLE_TIMEOUT_MS: i64 = 30 * 60 * 1_000;
@@ -63,25 +60,6 @@ pub fn get_app_data_path() -> PathBuf {
 
 pub fn get_user_config_dir(home_dir: &PathBuf) -> PathBuf {
     home_dir.join(USER_CONFIG_DIR_NAME)
-}
-
-/// 递归复制目录 (文件覆盖, 子目录递归创建)。 简单实现, 假设源都是
-/// 普通文件 / 目录, 遇到 symlink 走 `fs::copy` 的跟随语义。
-/// 仅用于一次性用户数据迁移, 不替代通用备份工具。
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let file_type = entry.file_type()?;
-        if file_type.is_dir() {
-            copy_dir_recursive(&from, &to)?;
-        } else {
-            std::fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
 }
 
 fn external_agent_watchdog_idle_timeout_ms() -> i64 {
@@ -119,111 +97,6 @@ fn spawn_external_agent_watchdog(
     });
 }
 
-/// 把 WoopMemo 时代的用户数据目录一次性搬到 Flowix 位置。 两个目标:
-///   1. `~/.woop/`                → `~/.flowix/`
-///   2. `<data_dir>/woopmemo/`    → `<data_dir>/flowix/`
-///
-/// 触发条件: 旧目录存在 **且** 新目录不存在 (避免覆盖)。 任何步骤
-/// 出错都 `tracing::warn!` 但不中断启动 — 用户数据在原位仍然可读。
-/// **此操作不可逆**: 旧目录在 copy 成功后被 `remove_dir_all` 删除。
-pub fn migrate_legacy_woop_dirs(home_dir: &PathBuf, app_data_path: &PathBuf) {
-    // 1. ~/.woop/ → ~/.flowix/
-    let old_cfg = home_dir.join(".woop");
-    let new_cfg = home_dir.join(USER_CONFIG_DIR_NAME);
-    if old_cfg.exists() && !new_cfg.exists() {
-        match copy_dir_recursive(&old_cfg, &new_cfg) {
-            Ok(()) => {
-                if let Err(e) = std::fs::remove_dir_all(&old_cfg) {
-                    tracing::warn!("failed to remove legacy ~/.woop after copy: {e}");
-                } else {
-                    tracing::info!("migrated ~/.woop → ~/.flowix");
-                }
-            }
-            Err(e) => tracing::warn!("failed to copy ~/.woop → ~/.flowix: {e}"),
-        }
-    }
-
-    // 2. <data_dir>/woopmemo/ → <app_data_path>
-    //    app_data_path 此时已是 data_dir.join(APP_DATA_DIR_NAME) = data_dir/flowix。
-    if let Some(parent) = app_data_path.parent() {
-        let old_data = parent.join("woopmemo");
-        if old_data.exists() && !app_data_path.exists() {
-            match copy_dir_recursive(&old_data, app_data_path) {
-                Ok(()) => {
-                    if let Err(e) = std::fs::remove_dir_all(&old_data) {
-                        tracing::warn!("failed to remove legacy app data dir: {e}");
-                    } else {
-                        tracing::info!(
-                            "migrated {} → {}",
-                            old_data.display(),
-                            app_data_path.display()
-                        );
-                    }
-                }
-                Err(e) => tracing::warn!("failed to copy app data dir: {e}"),
-            }
-        }
-    }
-
-    // 3. notebook.json path rewrite. We avoid probing ~/Documents here:
-    //    macOS treats it as a protected directory and would prompt on startup.
-    rewrite_legacy_notebook_paths(home_dir);
-}
-
-/// One-shot rewrite of `~/.flowix/notebook.json` rows whose `path` still
-/// contains the legacy `Documents/woop notebook` prefix. Idempotent —
-/// only rows that mention `woop notebook` are touched. A no-op when the
-/// file is absent or not deserializable as `Vec<NotebookConfig>`.
-fn rewrite_legacy_notebook_paths(home_dir: &Path) {
-    let Some(docs) = dirs::document_dir() else {
-        return;
-    };
-    let old_prefix = docs.join("woop notebook");
-    let new_prefix = docs.join("flowix");
-    let notebook_path = home_dir.join(USER_CONFIG_DIR_NAME).join("notebook.json");
-    let Ok(content) = std::fs::read_to_string(&notebook_path) else {
-        return;
-    };
-    let Ok(mut configs) =
-        serde_json::from_str::<Vec<flowix_core::memo_file::NotebookConfig>>(&content)
-    else {
-        tracing::debug!("notebook.json present but not deserializable as Vec<NotebookConfig>");
-        return;
-    };
-    let old_segment = old_prefix.to_string_lossy().to_string();
-    let new_segment = new_prefix.to_string_lossy().to_string();
-    let now = chrono::Utc::now().timestamp_millis();
-    let rewritten = configs
-        .iter_mut()
-        .filter(|cfg| cfg.path.contains(&old_segment) || cfg.path.contains("woop notebook"))
-        .map(|cfg| {
-            cfg.path = cfg
-                .path
-                .replace(&old_segment, &new_segment)
-                .replace("woop notebook", "flowix");
-            cfg.updated_at = now;
-        })
-        .count();
-    if rewritten == 0 {
-        return;
-    }
-    let serialized = match serde_json::to_string_pretty(&configs) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!("failed to serialize notebook.json for rewrite: {e}");
-            return;
-        }
-    };
-    if let Err(e) = std::fs::write(&notebook_path, serialized) {
-        tracing::warn!("failed to rewrite notebook.json paths: {e}");
-    } else {
-        tracing::info!(
-            "rewrote {} legacy 'woop notebook' path(s) in notebook.json",
-            rewritten
-        );
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_panic_log_hook();
@@ -246,13 +119,7 @@ pub fn run() {
         ),
     );
 
-    // 启动时一次性迁移 WoopMemo → Flowix 数据目录。 必须早于 user_config_dir
-    // / user_config 初始化, 否则 UserConfigStore 会建一个空的 ~/.flowix/,
-    // migrate 检测到新目录已存在就跳过, 旧 ~/.woop/ 数据被遗漏。
-    migrate_legacy_woop_dirs(&home_dir, &app_data_path);
-
-    // 启动时在 `~/.local/bin/flowix-cli` 建一个 symlink ── 跟 migrate
-    // 同类的"一次性启动 hook", 跟 user_config_dir 初始化解耦。 详情见
+    // 启动时在 `~/.local/bin/flowix-cli` 建一个 symlink。详情见
     // `cli_link` 模块: 幂等 (每次启动都跑, 已存在就不动), 失败只 warn
     // 不阻塞 GUI 启动, 范围 macOS + Linux (cfg(unix))。
     cli_link::ensure_cli_symlink();
@@ -779,8 +646,8 @@ pub fn run() {
             commands::thread::codex_thread_get,
             commands::thread::codex_thread_get_page,
             commands::thread::codex_thread_session_id,
-            commands::thread::codex_default_model,
-            commands::thread::agent_supported_models,
+            commands::agent::codex_default_model,
+            commands::agent::agent_supported_models,
             commands::thread::claude_thread_list,
             commands::thread::claude_thread_get,
             commands::thread::claude_thread_session_id,
@@ -790,7 +657,6 @@ pub fn run() {
             commands::thread::hermes_thread_session_id,
             commands::thread::thread_delete,
             commands::thread::thread_update_title,
-            commands::thread::thread_get_runtime_config,
             // window
             commands::window::open_preferences_window,
             commands::window::open_note_window,

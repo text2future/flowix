@@ -376,12 +376,21 @@ fn build_chat_provider(
     }
 }
 
+/// 统一 runtime 配置 ── 所有 agent type 复用同一形状。
+///
+/// 字段一致性是经过裁剪的: 早期 Codex/Claude/Hermes 各有独立 struct,
+/// 字段其实完全一致; `permission_mode` / `model` / `reasoning_effort`
+/// 对 flowix/gemini/openclaw 暂时未使用, 但 schema 上保留以避免类型重复
+/// 与 future-proof。serde wire 兼容: 前端原本不写的字段现在也只是 None。
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimePathConfig {
     pub cwd: Option<String>,
     #[serde(default)]
     pub workspace_paths: Vec<String>,
+    /// Sandbox / 权限档位 ── "read-only" / "workspace-write" /
+    /// "danger-full-access" / "inherit"。 各 CLI 自行 normalize。
+    pub permission_mode: Option<String>,
     /// LLM model id(若该 provider 支持可配置)。
     /// 通用 metadata 协议字段 ── `StreamStart` chunk 通过 `model_for_runtime` 取值。
     pub model: Option<String>,
@@ -392,48 +401,12 @@ pub struct RuntimePathConfig {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct CodexRuntimeConfig {
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub workspace_paths: Vec<String>,
-    pub permission_mode: Option<String>,
-    /// 通用 metadata 协议字段 ── `StreamStart` chunk 通过 `model_for_runtime` 取值。
-    pub model: Option<String>,
-    pub reasoning_effort: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ClaudeRuntimeConfig {
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub workspace_paths: Vec<String>,
-    pub permission_mode: Option<String>,
-    /// 通用 metadata 协议字段 ── `StreamStart` chunk 通过 `model_for_runtime` 取值。
-    pub model: Option<String>,
-    pub reasoning_effort: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct HermesRuntimeConfig {
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub workspace_paths: Vec<String>,
-    pub permission_mode: Option<String>,
-    /// 通用 metadata 协议字段 ── `StreamStart` chunk 通过 `model_for_runtime` 取值。
-    pub model: Option<String>,
-    pub reasoning_effort: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentRuntimeConfig {
     pub flowix: Option<RuntimePathConfig>,
-    pub codex: Option<CodexRuntimeConfig>,
-    pub claude: Option<ClaudeRuntimeConfig>,
+    pub codex: Option<RuntimePathConfig>,
+    pub claude: Option<RuntimePathConfig>,
     pub gemini: Option<RuntimePathConfig>,
-    pub hermes: Option<HermesRuntimeConfig>,
+    pub hermes: Option<RuntimePathConfig>,
     pub openclaw: Option<RuntimePathConfig>,
 }
 
@@ -454,263 +427,64 @@ pub struct AgentUserMessage {
     pub codex_reasoning_effort: Option<String>,
     pub agent_role_memo_id: Option<String>,
     pub agent_role_name: Option<String>,
-    /// Per-thread 配置快照（JSON 字符串，前端懒写）。
-    /// 发消息时由前端把当前生效的 [`crate::threads::RuntimeConfig`] 序列化为
-    /// JSON 字符串塞进来；后端 `chat_stream_inner` 入口 upsert 到
-    /// `threads.runtime_config` 列，然后读出来作为本次 chat 的生效配置。
-    ///
-    /// 与顶层 `permission_mode / codex_model / codex_reasoning_effort` 不同，
-    /// 本字段表达"per-thread 锁定"语义——不是用户当下的临时选择。
-    /// 空字符串视同 None（前端没改控件时不携带）。
-    #[serde(default)]
-    pub thread_runtime_config: Option<String>,
-}
-
-/// 把 thread-scoped permission_mode 写到 `AgentRuntimeConfig` 对应 runtime slot。
-/// flowix / gemini / openclaw 不支持 permission_mode 字段（沙箱由
-/// tool scope 单独管）── 调用方按需过滤，这里仍按 runtime key 静默写入
-/// 不会污染其他 slot。
-fn set_runtime_permission_mode(rc: &mut AgentRuntimeConfig, runtime: &str, sandbox: &str) {
-    match runtime {
-        "codex" => {
-            rc.codex
-                .get_or_insert_with(CodexRuntimeConfig::default)
-                .permission_mode = Some(sandbox.to_string())
-        }
-        "claude" => {
-            rc.claude
-                .get_or_insert_with(ClaudeRuntimeConfig::default)
-                .permission_mode = Some(sandbox.to_string())
-        }
-        "hermes" => {
-            rc.hermes
-                .get_or_insert_with(HermesRuntimeConfig::default)
-                .permission_mode = Some(sandbox.to_string())
-        }
-        _ => {}
-    }
-}
-
-/// 把 thread-scoped workspace_paths 写到 `AgentRuntimeConfig` 对应 runtime slot。
-/// 4 种 runtime config struct 都有 `workspace_paths: Vec<String>` 字段，
-/// 但 struct 名不同 → 用 match 分发。
-fn set_runtime_workspace_paths(rc: &mut AgentRuntimeConfig, runtime: &str, paths: Vec<String>) {
-    match runtime {
-        "flowix" | "gemini" | "openclaw" => {
-            rc.flowix
-                .get_or_insert_with(RuntimePathConfig::default)
-                .workspace_paths = paths;
-        }
-        "codex" => {
-            rc.codex
-                .get_or_insert_with(CodexRuntimeConfig::default)
-                .workspace_paths = paths;
-        }
-        "claude" => {
-            rc.claude
-                .get_or_insert_with(ClaudeRuntimeConfig::default)
-                .workspace_paths = paths;
-        }
-        "hermes" => {
-            rc.hermes
-                .get_or_insert_with(HermesRuntimeConfig::default)
-                .workspace_paths = paths;
-        }
-        _ => {}
-    }
 }
 
 impl AgentUserMessage {
-    pub fn cwd_for_runtime(&self, runtime: &str) -> Option<&str> {
-        let configured = match runtime {
-            "flowix" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.flowix.as_ref())
-                .and_then(|config| config.cwd.as_deref()),
-            "codex" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.codex.as_ref())
-                .and_then(|config| config.cwd.as_deref()),
-            "claude" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.claude.as_ref())
-                .and_then(|config| config.cwd.as_deref()),
-            "gemini" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.gemini.as_ref())
-                .and_then(|config| config.cwd.as_deref()),
-            "hermes" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.hermes.as_ref())
-                .and_then(|config| config.cwd.as_deref()),
-            "openclaw" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.openclaw.as_ref())
-                .and_then(|config| config.cwd.as_deref()),
+    /// 共享 accessor ── 所有 dispatch 方法都从这里取该 runtime 的配置。
+    /// 早期实现是 7 个方法各自 match typeKey, 现在统一一处。
+    fn runtime_config_for(&self, runtime: &str) -> Option<&RuntimePathConfig> {
+        let config = self.runtime_config.as_ref()?;
+        match runtime {
+            "flowix" => config.flowix.as_ref(),
+            "codex" => config.codex.as_ref(),
+            "claude" => config.claude.as_ref(),
+            "gemini" => config.gemini.as_ref(),
+            "hermes" => config.hermes.as_ref(),
+            "openclaw" => config.openclaw.as_ref(),
             _ => None,
-        };
-        configured.or(self.system_reminder_directory.as_deref())
+        }
+    }
+
+    pub fn cwd_for_runtime(&self, runtime: &str) -> Option<&str> {
+        self.runtime_config_for(runtime)
+            .and_then(|config| config.cwd.as_deref())
+            .or(self.system_reminder_directory.as_deref())
     }
 
     pub fn permission_mode_for_runtime(&self, runtime: &str) -> Option<&str> {
-        match runtime {
-            "codex" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.codex.as_ref())
-                .and_then(|config| config.permission_mode.as_deref())
-                .or(self.permission_mode.as_deref()),
-            "claude" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.claude.as_ref())
-                .and_then(|config| config.permission_mode.as_deref())
-                .or(self.permission_mode.as_deref()),
-            "hermes" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.hermes.as_ref())
-                .and_then(|config| config.permission_mode.as_deref())
-                .or(self.permission_mode.as_deref()),
-            _ => None,
-        }
+        self.runtime_config_for(runtime)
+            .and_then(|config| config.permission_mode.as_deref())
+            .or(self.permission_mode.as_deref())
     }
 
     pub fn workspace_paths_for_runtime(&self, runtime: &str) -> Vec<String> {
-        match runtime {
-            "flowix" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.flowix.as_ref())
-                .map(|config| config.workspace_paths.clone()),
-            "codex" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.codex.as_ref())
-                .map(|config| config.workspace_paths.clone()),
-            "claude" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.claude.as_ref())
-                .map(|config| config.workspace_paths.clone()),
-            "gemini" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.gemini.as_ref())
-                .map(|config| config.workspace_paths.clone()),
-            "hermes" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.hermes.as_ref())
-                .map(|config| config.workspace_paths.clone()),
-            "openclaw" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|config| config.openclaw.as_ref())
-                .map(|config| config.workspace_paths.clone()),
-            _ => None,
-        }
-        .unwrap_or_default()
+        self.runtime_config_for(runtime)
+            .map(|config| config.workspace_paths.clone())
+            .unwrap_or_default()
     }
 
     pub fn codex_model_for_runtime(&self) -> Option<&str> {
-        self.runtime_config
-            .as_ref()
-            .and_then(|config| config.codex.as_ref())
-            .and_then(|config| config.model.as_deref())
-            .or(self.codex_model.as_deref())
+        self.model_for_runtime("codex")
     }
 
     pub fn codex_reasoning_effort_for_runtime(&self) -> Option<&str> {
-        self.runtime_config
-            .as_ref()
-            .and_then(|config| config.codex.as_ref())
-            .and_then(|config| config.reasoning_effort.as_deref())
-            .or(self.codex_reasoning_effort.as_deref())
+        self.reasoning_effort_for_runtime("codex")
     }
 
     /// 通用: 任意 provider 的 model 字段(由 StreamStart chunk 使用)。
     /// 优先从 `runtime_config.{type}.model` 取, fallback 到顶层 `codex_model` 字段
     /// (兼容老版本: 前端可能只填顶层 codex_model)。
     pub fn model_for_runtime(&self, runtime: &str) -> Option<&str> {
-        let from_runtime_config = match runtime {
-            "flowix" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.flowix.as_ref())
-                .and_then(|c| c.model.as_deref()),
-            "codex" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.codex.as_ref())
-                .and_then(|c| c.model.as_deref()),
-            "claude" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.claude.as_ref())
-                .and_then(|c| c.model.as_deref()),
-            "gemini" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.gemini.as_ref())
-                .and_then(|c| c.model.as_deref()),
-            "hermes" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.hermes.as_ref())
-                .and_then(|c| c.model.as_deref()),
-            "openclaw" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.openclaw.as_ref())
-                .and_then(|c| c.model.as_deref()),
-            _ => None,
-        };
-        from_runtime_config.or(self.codex_model.as_deref())
+        self.runtime_config_for(runtime)
+            .and_then(|config| config.model.as_deref())
+            .or(self.codex_model.as_deref())
     }
 
     /// 通用: 任意 provider 的 reasoning effort。
     pub fn reasoning_effort_for_runtime(&self, runtime: &str) -> Option<&str> {
-        let from_runtime_config = match runtime {
-            "codex" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.codex.as_ref())
-                .and_then(|c| c.reasoning_effort.as_deref()),
-            "claude" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.claude.as_ref())
-                .and_then(|c| c.reasoning_effort.as_deref()),
-            "hermes" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.hermes.as_ref())
-                .and_then(|c| c.reasoning_effort.as_deref()),
-            "flowix" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.flowix.as_ref())
-                .and_then(|c| c.reasoning_effort.as_deref()),
-            "gemini" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.gemini.as_ref())
-                .and_then(|c| c.reasoning_effort.as_deref()),
-            "openclaw" => self
-                .runtime_config
-                .as_ref()
-                .and_then(|c| c.openclaw.as_ref())
-                .and_then(|c| c.reasoning_effort.as_deref()),
-            _ => None,
-        };
-        from_runtime_config.or(self.codex_reasoning_effort.as_deref())
+        self.runtime_config_for(runtime)
+            .and_then(|config| config.reasoning_effort.as_deref())
+            .or(self.codex_reasoning_effort.as_deref())
     }
 }
 
@@ -737,7 +511,7 @@ pub struct RunInfo {
     pub run_id: Option<String>,
     /// Registry key used when the process was started. External CLIs may later
     /// resolve a provider-native session id; keeping this lets stop/reconcile
-    /// distinguish the pending launch id from the canonical session id.
+    /// distinguish the local launch id from the canonical session id.
     pub pending_thread_id: Option<String>,
     /// Provider-native session id once reported by the external CLI.
     pub session_id: Option<String>,
@@ -1822,83 +1596,18 @@ impl AgentManager {
     async fn chat_stream_inner(
         &self,
         thread_id: &str,
-        mut message: AgentUserMessage,
+        message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
         cancel: &Arc<AtomicBool>,
         run_id: String,
     ) -> Result<String, AgentError> {
-        // ── Phase 2: per-thread runtime_config 懒写 + 读取 ───────────────
-        // 1) 前端在 UI 改控件后未立即发消息时, 配置只是 in-memory 的临时态;
-        //    发消息这一刻前端把当前生效的 RuntimeConfig 序列化为 JSON 字符串
-        //    塞进 `message.thread_runtime_config` 字段, 我们在这里 upsert 落盘。
-        if let Some(json) = message.thread_runtime_config.as_deref() {
-            let trimmed = json.trim();
-            if !trimmed.is_empty() {
-                let manager = self.thread_manager.read().await;
-                manager.upsert_runtime_config(thread_id, trimmed).await?;
-            }
-        }
-        // 2) 读取 thread 持久态作为本次 chat 的生效配置源。
-        //    解析失败时静默回退 None ── 旧数据或前端发畸形 JSON 时不阻断 chat。
-        let thread_cfg: Option<crate::threads::RuntimeConfig> = {
-            let manager = self.thread_manager.read().await;
-            manager
-                .get_runtime_config(thread_id)
-                .await?
-                .as_deref()
-                .and_then(|s| serde_json::from_str::<crate::threads::RuntimeConfig>(s).ok())
-        };
-
-        // 3) 把 thread 锁定的字段覆盖到 ai_config / message 上 ── 后续代码
-        //    一律读 ai_config 和 message.runtime_config, 不需要再回头看 thread_cfg。
         let mut ai_config = self.user_config.get_ai_config().model;
-        if let Some(cfg) = thread_cfg.as_ref() {
-            // 3a) model → 直接覆盖 ai_config.model, provider cache 命中条件
-            //     是整份 AiModelConfig 字符串相等, model 改了 → 自动 miss。
-            if let Some(model) = cfg.model.as_ref() {
-                if !model.key.trim().is_empty() {
-                    ai_config.model = model.key.clone();
-                }
-            }
-            // 3b) access + files → 写入 message.runtime_config.{type}.*,
-            //     后续 helper (cwd_for_runtime / permission_mode_for_runtime /
-            //     workspace_paths_for_runtime) 已经会读这些字段。
-            let needs_rc = cfg.access.is_some() || cfg.files.is_some();
-            if needs_rc {
-                let runtime = message.agent_type.as_deref().unwrap_or("flowix");
-                let rc = message
-                    .runtime_config
-                    .get_or_insert_with(AgentRuntimeConfig::default);
-
-                if let Some(access) = cfg.access.as_ref() {
-                    set_runtime_permission_mode(rc, runtime, &access.sandbox);
-                }
-                if let Some(files) = cfg.files.as_ref() {
-                    // files.workspace → 覆盖 system_reminder_directory (cwd 真源)
-                    if let Some(ws) = files.workspace.as_ref() {
-                        message.system_reminder_directory = Some(ws.clone());
-                    }
-                    // files.folders + files.notebooks 合并成 workspace_paths
-                    let combined: Vec<String> = files
-                        .folders
-                        .iter()
-                        .chain(files.notebooks.iter())
-                        .cloned()
-                        .collect();
-                    if !combined.is_empty() {
-                        set_runtime_workspace_paths(rc, runtime, combined);
-                    }
-                }
-            }
-            // 3c) reasoning_effort → 顶层 message.codex_reasoning_effort,
-            //     `codex_reasoning_effort_for_runtime` helper 已经会读。
-            if let Some(effort) = cfg.reasoning_effort.as_ref() {
-                if !effort.trim().is_empty() {
-                    message.codex_reasoning_effort = Some(effort.clone());
-                }
+        let agent_type = message.agent_type.as_deref().unwrap_or("flowix");
+        if let Some(model) = message.model_for_runtime(agent_type) {
+            if !model.trim().is_empty() {
+                ai_config.model = model.to_string();
             }
         }
-        // ─────────────────────────────────────────────────────────────────
         let instance = if let Some(role_section) = self.agent_role_system_section(&message) {
             // Runtime Agent Role takes the role slot — base_system_prompt
             // omits the default static role section in this branch, keeping
@@ -3583,13 +3292,57 @@ mod tests {
     #[test]
     fn agent_chunk_session_resolved_serializes_with_snake_case_tag() {
         let chunk = AgentChunk::SessionResolved {
-            thread_id: "codex-pending-1".to_string(),
+            thread_id: "codex-local-agent-inst-1".to_string(),
             session_id: "019f0000-0000-7000-8000-000000000000".to_string(),
         };
         let v: serde_json::Value = serde_json::to_value(&chunk).unwrap();
         assert_eq!(v["kind"], "session_resolved");
-        assert_eq!(v["thread_id"], "codex-pending-1");
+        assert_eq!(v["thread_id"], "codex-local-agent-inst-1");
         assert_eq!(v["session_id"], "019f0000-0000-7000-8000-000000000000");
+    }
+
+    #[tokio::test]
+    async fn runtime_config_applies_for_non_persisted_local_thread() {
+        let message = AgentUserMessage {
+            content: "hello".to_string(),
+            llm_content: None,
+            run_id: None,
+            system_reminder_directory: None,
+            agent_type: Some("claude".to_string()),
+            runtime_config: Some(AgentRuntimeConfig {
+                claude: Some(RuntimePathConfig {
+                    cwd: Some("/tmp/work".to_string()),
+                    workspace_paths: vec!["/tmp/work".to_string(), "memo-1".to_string()],
+                    permission_mode: Some("workspace-write".to_string()),
+                    model: Some("claude-sonnet-5".to_string()),
+                    reasoning_effort: Some("high".to_string()),
+                }),
+                ..AgentRuntimeConfig::default()
+            }),
+            permission_mode: None,
+            codex_model: None,
+            codex_reasoning_effort: None,
+            agent_role_memo_id: None,
+            agent_role_name: None,
+        };
+
+        assert_eq!(message.model_for_runtime("claude"), Some("claude-sonnet-5"));
+        assert_eq!(message.reasoning_effort_for_runtime("claude"), Some("high"));
+        assert_eq!(message.cwd_for_runtime("claude"), Some("/tmp/work"));
+        let claude = message
+            .runtime_config
+            .as_ref()
+            .and_then(|cfg| cfg.claude.as_ref())
+            .expect("claude runtime config should be populated");
+        assert_eq!(claude.cwd.as_deref(), Some("/tmp/work"));
+        assert_eq!(
+            claude.permission_mode.as_deref(),
+            Some("workspace-write")
+        );
+        assert_eq!(
+            claude.workspace_paths,
+            vec!["/tmp/work".to_string(), "memo-1".to_string()]
+        );
     }
 
     #[test]
@@ -3602,7 +3355,7 @@ mod tests {
             current_tool: Some("read".to_string()),
             agent_type: Some("codex".to_string()),
             run_id: Some("run-1".to_string()),
-            pending_thread_id: Some("pending-1".to_string()),
+            pending_thread_id: Some("codex-local-agent-inst-1".to_string()),
             session_id: Some("session-1".to_string()),
         };
         let v: serde_json::Value = serde_json::to_value(&info).unwrap();
@@ -3610,7 +3363,7 @@ mod tests {
         assert_eq!(v["currentTool"], "read");
         assert_eq!(v["agentType"], "codex");
         assert_eq!(v["runId"], "run-1");
-        assert_eq!(v["pendingThreadId"], "pending-1");
+        assert_eq!(v["pendingThreadId"], "codex-local-agent-inst-1");
         assert_eq!(v["sessionId"], "session-1");
 
         let none_info = RunInfo {

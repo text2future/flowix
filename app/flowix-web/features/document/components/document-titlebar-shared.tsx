@@ -45,6 +45,7 @@ import {
 import { memos as memosClient, type MemoVersionMeta } from '@platform/tauri/client';
 import { toast } from '@/lib/toast';
 import {
+  selectIsAgentConversationRunning,
   useAgentConversationStore,
   type AgentConversationInstance,
 } from '@features/agent/store/agent-conversation-store';
@@ -371,7 +372,7 @@ function getAgentThreadTitlebarItemsFromConversations(
         type: instance.agentType || DEFAULT_AGENT_TYPE_KEY,
         threadId: instance.threadId,
         element,
-        isRunning: instance.run?.status === 'running',
+        isRunning: selectIsAgentConversationRunning(instance),
         updatedAt: instance.updatedAt,
         createdAt: instance.createdAt,
       };

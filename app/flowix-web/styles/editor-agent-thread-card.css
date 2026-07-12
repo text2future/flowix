@@ -1731,7 +1731,7 @@
 }
 
 /* 滚动容器 ── 装整个可滚动内容: notebook section、folder section、
- * 末尾的"添加资料夹"按钮。 max-height 由 JS 动态计算 (= 可用空间)。
+ * 末尾的"添加文件夹"按钮。 max-height 由 JS 动态计算 (= 可用空间)。
  * 内容超出时整体滚动, 不再有 sticky footer ── 按钮作为列表最后一项
  * 跟随内容滚动, 长列表下滚到底才能看到, 避免按钮在视觉上"凭空"出现
  * 在分隔很远的列表底部, 维持"按钮属于 folder 区域"的归属感。 */
@@ -1739,10 +1739,10 @@
   overflow-y: auto;
 }
 
-/* "添加资料夹"按钮容器 ── 挂在 Custom folders 列表末尾
- * (folderEntries 非空时), 或 scrollWrap 末尾 (folderEntries 为空
- * 时的 fallback)。 视觉上是 folder section 的自然延伸, 不是独立的
- * 全局操作 ── 用户打开弹窗扫到 folder 列表就能立刻看到"加一个"。
+/* "添加文件夹"按钮容器 ── 挂在 folder 列表末尾 (folderEntries 非空
+ * 时), 或作为空态时唯一的引导 (folderEntries 空时)。 视觉上是 folder
+ * section 的自然延伸, 不是独立的全局操作 ── 用户打开弹窗扫到 folder
+ * 列表就能立刻看到"加一个"。
  *
  * 仅 margin-top: 4px 给一个柔和的呼吸空间, 不加 border-top 或 padding-
  * top, 让按钮与 folder row 视觉连续。 长列表下跟随内容滚动, 不再被钉
@@ -1753,8 +1753,9 @@
  *   - 顶部 actions: 用户先看到按钮再看列表, 视觉重音错位。
  *   - 底部 sticky footer: 列表滚动时按钮被钉在弹窗底部固定可见, 长列
  *     表下按钮与列表末尾分隔很远, 与 folder 语义割裂。
- *   - 现在: 紧贴 folder 列表末尾, 翻到 notebook 之前就能看到, 按钮
- *     与 folder section 视觉归属一致。 */
+ *   - 现在: 紧贴 folder 列表末尾, notebook section 之前, 按钮与 folder
+ *     section 视觉归属一致 ── 用户读完 folder 列表, 续上"加一个"再
+ *     去翻 notebook, 路径自然。 */
 .agent-thread-card__access-popover-footer {
   margin-top: 4px;
 }
@@ -1862,12 +1863,15 @@
   min-height: 36px;
   border-radius: 6px;
   padding: 6px 8px;
-  cursor: pointer;
   transition: background-color 120ms ease;
 }
 
+/* row 整体不再 clickable ── 改用 cursor: default 让用户视觉上知道这块不是
+ * 按钮。 真正的交互入口只有 checkbox / star / remove, 鼠标移上去会自然
+ * 触发对应 button 的 hover 高亮 (CSS 已经处理)。 这里不再让整行 hover
+ * 也染色, 避免"整行像 button 但点了没反应"的误判。 */
 .agent-thread-card__access-row:hover {
-  background: var(--muted);
+  background: transparent;
 }
 
 .agent-thread-card__access-row--disabled {
@@ -1981,30 +1985,59 @@
   height: 14px;
 }
 
-/* Workspace row 视觉 ── 之前的 `.access-workspace` 是 row 右侧的 home
- * 图标按钮 (手动切主空间), 现在 UI 不再提供手动切换入口 ── home
- * 图标按钮的整套样式 (`.access-workspace` / `:hover` / `--checked` /
- * `:disabled`) 全部移除。 仅保留 `__access-workspace-icon` 用于
- * workspace folder 的 avatar 内 LaptopIcon 渲染。
- *
- * workspace row 不再加背景或左边框, 只通过 avatar Laptop 图标和 badge 标记。 */
+/* Workspace row 视觉 ── workspace entry (folder 或 notebook) 的 avatar 渲染
+ * 原图标 + 右下角三角蒙块 (.access-workspace-mark) 作为 "主空间" 标记
+ * (workspace 全局唯一), 不可点击。 非 workspace + 非 missing 的 entry
+ * (folder 或 notebook) 整个 avatar 就是一个 button, 点击直接 setWorkspace ──
+ * 不再 hover 出 star 按钮覆盖, 交互入口即图标本身。 */
+
+/* workspace avatar 不做特殊背景/颜色覆盖 ── 直接走基类 `.agent-thread-card__access-avatar`
+ * (背景 `var(--muted)` + 颜色 `var(--secondary-foreground)`); folder 图标走
+ * `.access-row-icon` 的 `var(--muted-foreground)`, notebook 图标走
+ * `.access-avatar--icon` ── 与同 kind 的普通 entry 视觉重量完全一致, "workspace"
+ * 这个角色标记只靠右下角三角蒙块体现, 不靠图标形状或颜色暗示。 avatar 设
+ * position/overflow, 让三角蒙块能贴右下角, 并被 6px 圆角自然裁圆。 (不再用
+ * `--workspace svg` 统一 14px ── 那会误把 notebook 的 20px 图标也缩小;
+ * folder 图标尺寸由 `.access-row-icon` 自带, notebook 由 `--icon svg` 自带。) */
 
 .agent-thread-card__access-avatar--workspace {
-  background: color-mix(in oklch, var(--primary) 12%, var(--muted));
-  color: var(--primary);
+  position: relative;
+  overflow: hidden;
+  /* 已是主空间的 avatar 虽不可点击 (没有 set-workspace 入口), 也用 hand cursor ──
+   * 与同列其它 avatar 视觉一致, 避免 "选中后变箭头" 的突兀感。 */
+  cursor: pointer;
 }
 
-.agent-thread-card__access-avatar--workspace svg {
-  display: block;
-  width: 16px;
-  height: 16px;
+/* workspace 三角蒙块 ── 贴 avatar 右下角的直角三角形 (直角在右下), 用
+ * var(--primary) 实色填充, 作为 "主空间" 的角标。 12×12 既能一眼识别又不
+ * 喧宾夺主; avatar 的 overflow:hidden + 6px 圆角会把三角的右下顶点裁成
+ * 与 avatar 一致的圆角, 视觉上是 "角上贴了一块"。 pointer-events:none
+ * 让蒙块不挡 avatar 上的点击。 */
+.agent-thread-card__access-workspace-mark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  background: var(--primary);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  pointer-events: none;
 }
 
-.agent-thread-card__access-workspace-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  color: currentColor;
+/* 可点击 avatar ── 非 workspace + 非 missing 的 entry (folder 或 notebook)
+ * avatar 本身是 <button>, 点击 setWorkspace。 不再有 star 按钮覆盖层: hover
+ * 只给一层 primary 薄底提示 "这个图标可点", 视觉重量与普通 avatar 一致。
+ * button 重置 (border/padding) 走这里; 背景/颜色/尺寸/圆角都复用基类
+ * `.agent-thread-card__access-avatar`。 */
+.agent-thread-card__access-avatar--set-workspace {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.agent-thread-card__access-avatar--set-workspace:hover {
+  background: color-mix(in oklch, var(--primary) 14%, var(--muted));
 }
 
 .agent-thread-card__access-checkbox {

@@ -97,10 +97,9 @@ pub fn get_sub_agent_tools() -> Vec<Tool> {
 pub struct ToolScope {
     allowed_roots: Vec<PathBuf>,
     /// Canonical default notebook path (e.g. `~/Documents/flowix` on macOS).
-    /// Held separately so the read / scope tools can hint the *correct*
-    /// path when the LLM tries one that's outside the registered scope —
-    /// typically a stale `~/Documents/woop notebook` from before the
-    /// 2026/06 brand rename. See `MemoFile::get_default_notebook_path`.
+    /// Held separately so the read / scope tools can hint the correct path
+    /// when the LLM tries one that's outside the registered scope. See
+    /// `MemoFile::get_default_notebook_path`.
     _default_root: PathBuf,
     security_bookmarks: Option<Arc<SecurityBookmarkStore>>,
 }

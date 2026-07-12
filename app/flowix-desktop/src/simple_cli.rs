@@ -102,9 +102,11 @@ impl SimpleCliManager {
         tokio::spawn(async move {
             // 通用 metadata 协议 ── StreamStart 携带该 run 锁定的
             // model / reasoning_effort, 前端 hover card 等组件可读。
-            let model = message.model_for_runtime("flowix").map(str::to_string);
+            // 按 manager 自身 kind 取, 避免 Gemini/OpenClaw 误读 flowix 段。
+            let metadata_key = manager.kind.key();
+            let model = message.model_for_runtime(metadata_key).map(str::to_string);
             let reasoning_effort = message
-                .reasoning_effort_for_runtime("flowix")
+                .reasoning_effort_for_runtime(metadata_key)
                 .map(str::to_string);
             emit_chunk_with_run_id(
                 &app_handle,
