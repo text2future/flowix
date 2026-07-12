@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::agent_access::AgentAccessStore;
-use crate::security_bookmark::SecurityBookmarkStore;
+use crate::config::AgentAccessStore;
+use crate::config::SecurityBookmarkStore;
 use crate::skills::SkillStore;
 
 mod filesystem;
@@ -134,7 +134,7 @@ impl ToolScope {
             // kind=Notebook: 必须仍然存在于 notebook 注册表 (防止 access
             // 列表里有 "幽灵 notebook id" 把 `~/etc/` 这种路径放行)。
             // kind=Folder: 直接信任。
-            if entry.kind == crate::agent_access::AgentAccessKind::Notebook {
+            if entry.kind == crate::config::AgentAccessKind::Notebook {
                 let still_registered = registered.iter().any(|c| c.id == entry.id);
                 if !still_registered {
                     continue;
@@ -158,7 +158,7 @@ impl ToolScope {
     pub fn is_allowed(&self, path: &Path) -> bool {
         self.allowed_roots
             .iter()
-            .any(|root| crate::path_scope::path_is_inside(path, root))
+            .any(|root| crate::config::path_is_inside(path, root))
     }
 
     /// Canonical default notebook path. Use this to construct error

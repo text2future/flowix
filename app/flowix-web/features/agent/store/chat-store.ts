@@ -32,6 +32,7 @@ import {
   prepareUserMessage,
 } from "@features/agent/store/user-message";
 import { dispatchChatStream } from "@features/agent/store/chat-stream";
+import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import {
   filterRenderableHistoryMessages,
   findHistoryThreadInfo,
@@ -670,6 +671,10 @@ function ensureConversationInstanceForThread(
     title: nextTitle,
     threadId,
     source: { kind: "thread-card" },
+    // reconcileRunningRunsFromSnapshot 走的是 "后端 running 列表 → 前端 instance"
+    // 这条路径, 启动 race 时这条会先跑, 此时若不写 runtimeConfig, 后续
+    // cwd 兜底链在 selectedNotebook 还没 hydrate 时全断. 同其它三处一致.
+    runtimeConfig: buildInitialInstanceRuntimeConfig(),
   });
 }
 

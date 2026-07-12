@@ -9,6 +9,7 @@ import type {
 import {
   CODEX_MODEL_OPTIONS,
   CODEX_REASONING_OPTIONS,
+  formatModelDisplayLabel,
 } from "@features/agent/config/codex-options";
 import {
   getAgentAccessOptions,
@@ -242,7 +243,12 @@ export class ExternalAgentSettingsController {
             seen.add(model);
             return true;
           })
-          .map((model) => ({ id: model, label: model }));
+          .map((model) => ({
+            id: model,
+            // 后端拉取的 model key 同样按展示规则美化 label;
+            // 不匹配规则的 key (例如 "inherit") 原样返回。
+            label: formatModelDisplayLabel(model),
+          }));
         this.refreshEmptySettings();
         if (this.open && this.kind === "model") {
           this.renderPopover();
@@ -495,15 +501,21 @@ export class ExternalAgentSettingsController {
     if (this.getTypeKey() === "claude") return this.t("agent.permission.default");
     return this.codexDefaultModel
       ? translate(this.getLanguage(), "agent.codexModel.defaultWith", {
-          model: this.codexDefaultModel,
+          model: formatModelDisplayLabel(this.codexDefaultModel),
         })
       : "";
   }
 
   private getExternalModelFallbackOptions(): AgentModelOption[] {
+    // 仅改 label: id (真实 model key) 保持不变, 不影响提交到后端的 payload。
+    const mapLabel = (options: AgentModelOption[]): AgentModelOption[] =>
+      options.map((option) => ({
+        id: option.id,
+        label: formatModelDisplayLabel(option.id),
+      }));
     return this.getTypeKey() === "claude"
-      ? CLAUDE_MODEL_OPTIONS
-      : CODEX_MODEL_OPTIONS;
+      ? mapLabel(CLAUDE_MODEL_OPTIONS)
+      : mapLabel(CODEX_MODEL_OPTIONS);
   }
 
   private getExternalModelOptions(): AgentModelOption[] {
@@ -525,7 +537,12 @@ export class ExternalAgentSettingsController {
       currentModel !== "inherit" &&
       !options.some((option) => option.id === currentModel)
     ) {
-      options.push({ id: currentModel, label: currentModel });
+      // 拉取到的 model id 不在 fallback 列表时, 按展示规则美化 label,
+      // id 仍为原始字符串, 后端取值不受影响。
+      options.push({
+        id: currentModel,
+        label: formatModelDisplayLabel(currentModel),
+      });
     }
     return options;
   }
@@ -569,23 +586,82 @@ export class ExternalAgentSettingsController {
       ? useAgentConversationStore.getState().instances[instanceId]
           ?.runtimeConfig?.files
       : undefined;
-    const selectedPath =
-      instanceFiles?.workspace ??
-      instanceFiles?.folders[0] ??
-      instanceFiles?.notebooks[0] ??
-      null;
-    const workspaceEntry = selectedPath
-      ? accessEntries.find((entry) => entry.path === selectedPath && !entry.missing)
-      : accessEntries.find((entry) => entry.workspace && !entry.missing);
-    if (!workspaceEntry) {
-      const selectedFallback = selectedPath?.split(/[\\/]+/).filter(Boolean).pop()?.trim();
-      return selectedFallback || this.t("agent.access.empty.empty");
+
+    // 兜底链 ── 与下拉展示的"主空间"对齐: 下拉标三角的是 `entry.workspace=true`
+    // (用户点 avatar 设的全局主空间)。 默认态先看这条 entry, 不再用
+    // `instanceFiles.folders[0]` 兜底 ── 之前会让 per-thread 路径与全局
+    // workspace 不一致时默认态显示 Y、下拉标 X, 看起来"工作空间文件夹"对不上。
+    //
+    //   1. `entry.workspace=true` ── 与下拉三角同步, 视觉一致
+    //   2. `instanceFiles.workspace` ── 用户在弹窗显式设的 per-thread workspace
+    //   3. `instanceFiles.folders[0]` / `notebooks[0]` ── 用户在本卡勾选的
+    //   4. 全局第一个 enabled folder
+    //   5. 空态文案
+    const labelFor = (entry: { name?: string; path: string }): string => {
+      const explicitName = entry.name?.trim();
+      if (explicitName) return explicitName;
+      const segments = entry.path.split(/[\\/]+/).filter(Boolean);
+      const folderName = segments[segments.length - 1]?.trim();
+      return folderName ? folderName : this.t("agent.access.empty.empty");
+    };
+    const findByPath = (path: string) =>
+      accessEntries.find(
+        (entry) => entry.path === path && !entry.missing,
+      );
+
+    // 1. 全局主空间 ── 与下拉标三角的 entry 保持同步。
+    const globalWorkspace = accessEntries.find(
+      (entry) => entry.workspace && !entry.missing,
+    );
+    if (globalWorkspace) return labelFor(globalWorkspace);
+
+    // 2. per-thread workspace ── 可能在全局标志被清掉之后残留, 这里仍按
+    // path 找匹配的 entry, 找不到就用 cwd 兜底 (last segment)。
+    if (instanceFiles?.workspace) {
+      const matched = findByPath(instanceFiles.workspace);
+      if (matched) return labelFor(matched);
+      const fallback = instanceFiles.workspace
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .pop()
+        ?.trim();
+      if (fallback) return fallback;
     }
-    const explicitName = workspaceEntry.name?.trim();
-    if (explicitName) return explicitName;
-    const segments = workspaceEntry.path.split(/[\\/]+/).filter(Boolean);
-    const folderName = segments[segments.length - 1]?.trim();
-    return folderName ? folderName : this.t("agent.access.empty.empty");
+
+    // 3. per-thread folders[0] ── 用户在本卡勾选的第一个 folder。
+    if (instanceFiles?.folders[0]) {
+      const matched = findByPath(instanceFiles.folders[0]);
+      if (matched) return labelFor(matched);
+      const fallback = instanceFiles.folders[0]
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .pop()
+        ?.trim();
+      if (fallback) return fallback;
+    }
+
+    // 4. per-thread notebooks[0] ── 同上, notebook 维度。
+    if (instanceFiles?.notebooks[0]) {
+      const matched = findByPath(instanceFiles.notebooks[0]);
+      if (matched) return labelFor(matched);
+      const fallback = instanceFiles.notebooks[0]
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .pop()
+        ?.trim();
+      if (fallback) return fallback;
+    }
+
+    // 5. 全局第一个 enabled folder ── entry.workspace 已在上方兜底, 这里
+    // 只兜 entry.workspace=false 但 enabled=true 的 folder (用户在偏好里
+    // 设的 enabled 但没升主空间的目录)。
+    const firstEnabled = accessEntries.find(
+      (entry) => entry.enabled && !entry.missing,
+    );
+    if (firstEnabled) return labelFor(firstEnabled);
+
+    // 6. 都没有 ── 显示空态文案。
+    return this.t("agent.access.empty.empty");
   }
 
   private supportsRuntimeSetting(kind: AgentRuntimeSettingKind): boolean {

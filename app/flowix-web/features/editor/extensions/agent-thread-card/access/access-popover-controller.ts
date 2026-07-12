@@ -15,10 +15,13 @@ import { attachAccessPopoverScrollbar } from "@features/editor/extensions/agent-
 
 const ACCESS_POPOVER_OFFSET_ABOVE_PX = 15;
 const ACCESS_POPOVER_OFFSET_BELOW_PX = 2;
-const ACCESS_POPOVER_VIEWPORT_PADDING_PX = 8;
+const ACCESS_POPOVER_HORIZONTAL_PADDING_PX = 8;
+const ACCESS_POPOVER_VERTICAL_PADDING_PX = 26;
 const ACCESS_POPOVER_WIDTH_PX = 208;
 const ACCESS_POPOVER_MAX_HEIGHT_PX = 320;
 const ACCESS_POPOVER_MIN_HEIGHT_PX = 96;
+// 默认仍向下；底部空间低于两倍最小可用高度时提前翻转到上方。
+const ACCESS_POPOVER_FLIP_THRESHOLD_PX = ACCESS_POPOVER_MIN_HEIGHT_PX * 2;
 
 export interface AccessPopoverControllerOptions {
   button: HTMLButtonElement;
@@ -45,7 +48,7 @@ export class AccessPopoverController {
   private readonly getInstanceId?: () => string | undefined;
 
   private anchor: HTMLElement | null = null;
-  private preferBelow = false;
+  private preferBelow = true;
   private open = false;
   private resizeObserver: ResizeObserver | null = null;
   private positionFrame: number | null = null;
@@ -234,7 +237,7 @@ export class AccessPopoverController {
   setOpen(
     open: boolean,
     anchor: HTMLElement | null = null,
-    preferBelow = false,
+    preferBelow = true,
   ): void {
     if (this.open === open) return;
     this.open = open;
@@ -563,16 +566,18 @@ export class AccessPopoverController {
     const anchorRect = anchor.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const padding = ACCESS_POPOVER_VIEWPORT_PADDING_PX;
+    const horizontalPadding = ACCESS_POPOVER_HORIZONTAL_PADDING_PX;
+    const verticalPadding = ACCESS_POPOVER_VERTICAL_PADDING_PX;
     const spaceAbove =
-      anchorRect.top - padding - ACCESS_POPOVER_OFFSET_ABOVE_PX;
+      anchorRect.top - verticalPadding - ACCESS_POPOVER_OFFSET_ABOVE_PX;
     const spaceBelow =
       viewportHeight -
       anchorRect.bottom -
-      padding -
+      verticalPadding -
       ACCESS_POPOVER_OFFSET_BELOW_PX;
     const placeAbove = this.preferBelow
-      ? spaceBelow < ACCESS_POPOVER_MIN_HEIGHT_PX && spaceAbove > spaceBelow
+      ? spaceBelow < ACCESS_POPOVER_FLIP_THRESHOLD_PX &&
+        spaceAbove > spaceBelow
       : spaceAbove >= 160 || spaceAbove >= spaceBelow;
     const availableHeight = Math.max(
       ACCESS_POPOVER_MIN_HEIGHT_PX,
@@ -586,7 +591,16 @@ export class AccessPopoverController {
       ".agent-thread-card__access-popover-scroll",
     );
     if (scrollEl) {
-      scrollEl.style.maxHeight = `${availableHeight}px`;
+      // availableHeight 是整个 popover 外框可占的高度。滚动区之外还有
+      // border + vertical padding；若直接把 availableHeight 全给 scroll，
+      // 外框会再多出这段 chrome，实际底边便会侵入 26px 安全间距。
+      const popoverRectBeforeResize = this.popover.getBoundingClientRect();
+      const scrollRectBeforeResize = scrollEl.getBoundingClientRect();
+      const chromeHeight = Math.max(
+        0,
+        popoverRectBeforeResize.height - scrollRectBeforeResize.height,
+      );
+      scrollEl.style.maxHeight = `${Math.max(0, availableHeight - chromeHeight)}px`;
     }
 
     const popoverRect = this.popover.getBoundingClientRect();
@@ -595,9 +609,12 @@ export class AccessPopoverController {
       popoverRect.height || availableHeight,
       availableHeight,
     );
-    const maxLeft = Math.max(padding, viewportWidth - padding - popoverWidth);
+    const maxLeft = Math.max(
+      horizontalPadding,
+      viewportWidth - horizontalPadding - popoverWidth,
+    );
     const left = Math.min(
-      Math.max(anchorRect.right - popoverWidth, padding),
+      Math.max(anchorRect.right - popoverWidth, horizontalPadding),
       maxLeft,
     );
     const offset = placeAbove
@@ -606,8 +623,11 @@ export class AccessPopoverController {
     const rawTop = placeAbove
       ? anchorRect.top - offset - popoverHeight
       : anchorRect.bottom + offset;
-    const maxTop = Math.max(padding, viewportHeight - padding - popoverHeight);
-    const top = Math.min(Math.max(rawTop, padding), maxTop);
+    const maxTop = Math.max(
+      verticalPadding,
+      viewportHeight - verticalPadding - popoverHeight,
+    );
+    const top = Math.min(Math.max(rawTop, verticalPadding), maxTop);
 
     this.popover.style.left = `${left}px`;
     this.popover.style.top = `${top}px`;

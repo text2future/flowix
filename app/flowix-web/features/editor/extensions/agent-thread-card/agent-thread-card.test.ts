@@ -424,6 +424,79 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(messagesAfter[1]?.textContent).toContain("Hello incremental patch");
   });
 
+  it("renders oversized assistant messages as a display-budgeted preview", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { ASSISTANT_MESSAGE_DISPLAY_MAX_CHARS } = await import(
+      "@features/agent/message/display-limits"
+    );
+    const threadId = "thread-card-assistant-display-budget";
+    const host = document.createElement("div");
+    document.body.append(host);
+    const tail = "FULL_MESSAGE_TAIL";
+    const content = `${"A".repeat(ASSISTANT_MESSAGE_DISPLAY_MAX_CHARS + 20)}${tail}`;
+
+    useChatStore.setState((state) => ({
+      threadTypes: { ...state.threadTypes, [threadId]: "flowix" },
+      threadStates: {
+        ...state.threadStates,
+        [threadId]: {
+          messages: [],
+          isLoading: false,
+          activeRunId: null,
+          runs: {},
+          pendingAssistantId: null,
+          pendingReasoningId: null,
+          oldestSequence: null,
+          hasMoreHistory: false,
+          loadingMore: false,
+        },
+      },
+    }));
+    await seedRenderableMessages("flowix", threadId, [
+      {
+        id: "assistant-large",
+        role: "assistant",
+        content,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              threadId,
+              title: "Display Budget",
+              typeKey: "flowix",
+              collapsed: false,
+            },
+          },
+        ],
+      },
+    });
+    await flushAnimationFrame();
+
+    const message = host.querySelector<HTMLElement>(
+      ".agent-thread-card__message--assistant",
+    )!;
+    expect(message.textContent).not.toContain(tail);
+    const toggle = message.querySelector<HTMLButtonElement>(
+      ".agent-thread-card__message-display-toggle",
+    )!;
+    expect(toggle.textContent).toBe("展开全文");
+
+    toggle.click();
+    expect(message.textContent).toContain(tail);
+    expect(toggle.textContent).toBe("收起全文");
+  });
+
   it("does not select the Thread Card when clicking messages while editing the title", async () => {
     const { AgentThreadCard } =
       await import("@features/editor/extensions/agent-thread-card");

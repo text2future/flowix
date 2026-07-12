@@ -6,6 +6,11 @@ import {
   createAgentToolDisplay,
   normalizeToolInput,
 } from "@features/agent/tool-display";
+import {
+  TOOL_RESULT_OUTPUT_PREVIEW_MAX_CHARS,
+  truncateToolResultForDisplay,
+  truncateToolResultOutputPreview,
+} from "@features/agent/message/display-limits";
 
 /**
  * tool_call chunk ── 插入一条 `role: "tool"` 的消息, `isLoading=true` 等
@@ -53,7 +58,7 @@ export function applyToolCallChunk(
  * tool_result chunk ── 找到对应 tool_call 行, 收尾 (isLoading=false) +
  * 注入 result 内容与摘要。 摘要来自 summarizeToolResult, 对 command-style
  * 结果做字段裁剪 (command / exit_code / status / output preview), 其他
- * 类型直接 stringify。 单条超 4096 字符截断 + 标 truncation。
+ * 类型直接 stringify。所有展示文本超限截断 + 标 truncation。
  */
 export function applyToolResultChunk(
   st: ThreadState,
@@ -101,7 +106,8 @@ function summarizeToolResult(result: unknown): string {
     !("command" in record)
   ) {
     const isError = record.is_error === true;
-    return isError ? `[error] ${record.content}` : record.content;
+    const content = truncateToolResultForDisplay(record.content);
+    return isError ? `[error] ${content}` : content;
   }
 
   const summary: Record<string, unknown> = {};
@@ -115,19 +121,27 @@ function summarizeToolResult(result: unknown): string {
     if (key in record) summary[key] = record[key];
   }
   if (typeof record.output === "string") {
-    summary.output_preview = record.output.slice(0, 2000);
-    if (record.output.length > 2000) summary.output_preview_truncated = true;
+    summary.output_preview = truncateToolResultOutputPreview(record.output);
+    if (Array.from(record.output).length > TOOL_RESULT_OUTPUT_PREVIEW_MAX_CHARS) {
+      summary.output_preview_truncated = true;
+    }
   }
   if (typeof record.output_preview === "string") {
-    summary.output_preview = record.output_preview.slice(0, 2000);
-    if (record.output_preview.length > 2000)
+    summary.output_preview = truncateToolResultOutputPreview(
+      record.output_preview,
+    );
+    if (
+      Array.from(record.output_preview).length >
+      TOOL_RESULT_OUTPUT_PREVIEW_MAX_CHARS
+    ) {
       summary.output_preview_truncated = true;
+    }
   }
   return stringifyToolResult(Object.keys(summary).length > 0 ? summary : result);
 }
 
 /**
- * JSON.stringify 的薄壳, 单条超 4096 字符截断并加 `[truncated]` 标记。
+ * JSON.stringify 的薄壳, 单条超限截断并加 `[truncated]` 标记。
  * 用于 summarizeToolResult 兜底路径 ── 把任意 unknown 序列化进 tool_data。
  */
 function stringifyToolResult(result: unknown): string {
@@ -137,5 +151,5 @@ function stringifyToolResult(result: unknown): string {
   } catch {
     text = String(result ?? {});
   }
-  return text.length > 4096 ? `${text.slice(0, 4096)}\n...[truncated]` : text;
+  return truncateToolResultForDisplay(text);
 }

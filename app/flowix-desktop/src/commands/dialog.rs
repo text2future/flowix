@@ -50,7 +50,7 @@ fn sanitize_attachment_file_name(name: &str) -> String {
 }
 
 fn unique_attachment_path(attachments_dir: &Path, requested_name: &str) -> Result<PathBuf, String> {
-    use crate::path_scope::path_is_inside;
+    use crate::config::path_is_inside;
 
     let safe_name = sanitize_attachment_file_name(requested_name);
     let candidate = attachments_dir.join(&safe_name);
@@ -128,7 +128,7 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
         let state_handle = handle.clone();
         handle
             .run_on_main_thread(move || {
-                let result = crate::security_bookmark::pick_directory_with_bookmark(
+                let result = crate::config::pick_directory_with_bookmark(
                     "选择笔记本文件夹",
                 )
                 .map(|(path, bookmark)| {
@@ -310,7 +310,7 @@ pub async fn copy_attachment_file(
     target_path: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    use crate::path_scope::path_is_inside;
+    use crate::config::path_is_inside;
 
     let attachments_dir = read_lock(&state.memo_file, "memo_file")
         .get_memo_base()

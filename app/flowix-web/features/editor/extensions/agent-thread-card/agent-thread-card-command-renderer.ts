@@ -1,4 +1,5 @@
 import { translate, type AppLanguage } from "@features/i18n";
+import { truncateToolMessageForDisplay } from "@features/agent/message/display-limits";
 import {
   basenameCommandNameForDisplay,
   type AgentCommandItem,
@@ -51,8 +52,9 @@ function createAgentThreadCardCommandLine(
   if (inlineArgs.length > 0) {
     const argText = document.createElement("span");
     argText.className = "agent-thread-card__command-args-inline";
-    argText.textContent = inlineArgs.join(" ");
-    argText.title = inlineArgs.join(" ");
+    const argsText = inlineArgs.join(" ");
+    argText.textContent = truncateToolMessageForDisplay(argsText);
+    argText.title = argText.textContent;
     line.append(argText);
   }
 

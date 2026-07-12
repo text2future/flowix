@@ -32,15 +32,16 @@
 use std::sync::{Arc, RwLock};
 
 use crate::agent::AgentManager;
-use crate::agent_access::AgentAccessStore;
-use crate::claude_cli::ClaudeCliManager;
-use crate::codex_cli::CodexCliManager;
+use crate::config::AgentAccessStore;
 use crate::commands::cli::SidecarHandle;
-use crate::hermes_cli::HermesCliManager;
-use crate::security_bookmark::SecurityBookmarkStore;
+use crate::external_runtime::claude::ClaudeCliManager;
+use crate::external_runtime::codex::CodexCliManager;
+use crate::external_runtime::hermes::HermesCliManager;
+use crate::external_runtime::simple_cli;
+use crate::config::SecurityBookmarkStore;
 use crate::system_data::SystemData;
-use crate::threads::ThreadManager;
-use crate::user_config::UserConfigStore;
+use crate::session::ThreadManager;
+use crate::config::UserConfigStore;
 use flowix_core::memo_file::MemoFile;
 use flowix_core::search::MemoIndex;
 
@@ -66,9 +67,9 @@ pub struct AppState {
     pub agent_manager: Arc<AgentManager>,
     pub codex_cli_manager: Arc<CodexCliManager>,
     pub claude_cli_manager: Arc<ClaudeCliManager>,
-    pub gemini_cli_manager: Arc<crate::simple_cli::SimpleCliManager>,
+    pub gemini_cli_manager: Arc<simple_cli::SimpleCliManager>,
     pub hermes_cli_manager: Arc<HermesCliManager>,
-    pub openclaw_cli_manager: Arc<crate::simple_cli::SimpleCliManager>,
+    pub openclaw_cli_manager: Arc<simple_cli::SimpleCliManager>,
     pub thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
     /// Agent 可访问目录 (notebook + 用户自添加 folder), 持久化在
     /// `~/.flowix/agent-access.json`。 驱动 [`crate::providers::tools::ToolScope`]

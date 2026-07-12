@@ -10,7 +10,7 @@ use std::path::Path;
 use crate::watcher::dispatcher;
 use tauri::{AppHandle, State};
 
-use crate::agent_access::{AgentAccessConfig, AgentAccessEntry, AgentAccessKind};
+use crate::config::{AgentAccessConfig, AgentAccessEntry, AgentAccessKind};
 
 use super::AppState;
 

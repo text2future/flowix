@@ -22,6 +22,7 @@ import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-lin
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
 import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
 import type { AgentRuntimeSettingKind } from "@features/agent/runtime/agent-runtime-spec";
+import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import {
   stopExternalAgentThreadCardRun,
 } from "@features/agent/services/external-agent-runtime-service";
@@ -323,7 +324,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       t: (key) => this.t(key),
       isDestroyed: () => this.isDestroyed,
       isAccessPopoverOpen: () => this.accessPopoverController.isOpen,
-      setAccessPopoverOpen: (open, anchor = null, preferBelow = false) => {
+      setAccessPopoverOpen: (open, anchor = null, preferBelow = true) => {
         this.setAccessPopoverOpen(open, anchor, preferBelow);
       },
       consumeOutsidePointer: consumeEditorPopoverDismissPointer,
@@ -511,6 +512,10 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         memoId: this.agentRoleMemoId,
         name: this.agentRoleName,
       },
+      // 把 cwd / folders 快照写进 instance, 不再只靠前端 runtimeConfig
+      // 兜底链 (启动 race 窗口内 selectedNotebook / agent-access 还没
+      // hydrate 时, 兜底链可能全断导致 Claude Code CLI exit 1).
+      runtimeConfig: buildInitialInstanceRuntimeConfig(),
     });
     this.updateAttrs({
       instanceId: instance.instanceId,
@@ -581,7 +586,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private setAccessPopoverOpen(
     open: boolean,
     anchor: HTMLElement | null = null,
-    preferBelow = false,
+    preferBelow = true,
   ): void {
     this.accessPopoverController.setOpen(open, anchor, preferBelow);
   }

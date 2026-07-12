@@ -1,12 +1,12 @@
 //! 偏好 / AI 配置 IPC — `~/.flowix/boot/preference.json` + `~/.flowix/agent-config.toml`。
 //!
-//! 两个 JSON 文件由 `crate::user_config::UserConfigStore` 管理 (原子写, 0o600)。
+//! 两个 JSON 文件由 `crate::config::UserConfigStore` 管理 (原子写, 0o600)。
 //! 写入成功后 emit `user-config-changed` 事件, 让多窗口 React 树重新 load。
 
 use crate::watcher::dispatcher;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::user_config::{AiConfigFile, PreferenceFile};
+use crate::config::{AiConfigFile, PreferenceFile};
 
 use super::AppState;
 

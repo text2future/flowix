@@ -1,6 +1,7 @@
 import type { AgentTypeKey } from "@/types/agent";
 import type { AgentConversationSource } from "@features/agent/store/agent-conversation-store";
 import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
+import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import { useChatStore } from "@features/agent/store/chat-store";
 import { ensureAgentThreadCardThread } from "@features/editor/extensions/agent-thread-card/agent-thread-card-submit";
 import { upsertAgentThreadCardConversationInstance } from "@features/editor/extensions/agent-thread-card/runtime/thread-card-conversation";
@@ -45,6 +46,10 @@ export async function submitAgentThreadCardConversation(
       threadId: nextThreadId,
       source: input.source,
       role: input.role,
+      // 与 ensureInstanceBinding / insertAgentThreadCard 同: instance
+      // 创建瞬间把 runtime_config 快照写进 DB, 不再让 cwd 兜底链依赖
+      // 启动 race 窗口内的 selectedNotebook / agent-access store.
+      runtimeConfig: buildInitialInstanceRuntimeConfig(),
     });
     nextInstanceId = instance.instanceId;
   }

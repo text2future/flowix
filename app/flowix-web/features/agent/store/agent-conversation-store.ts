@@ -13,6 +13,7 @@ import type {
 } from "@platform/tauri/client";
 import { stripSystemBlock } from "@features/agent/message";
 import { agentClient } from "@features/agent/store/agent-client";
+import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import {
   filterRenderableHistoryMessages,
   getHistoryPage,
@@ -233,6 +234,45 @@ function normalizeConversationTitle(title: string | null | undefined): string {
 const instanceWriteQueues = new Map<string, Promise<void>>();
 const RUN_PERSIST_DEBOUNCE_MS = 2000;
 
+/**
+ * hydrate 后扫一遍, 给 runtime_config 是空 / 不全的 instance 写一份
+ * 当前 global store 的快照. 同一 instance 后续 sendMessageToThread
+ * 拿到 `conversation.instance.runtimeConfig` 时, cwd 已经有值, 不再
+ * 依赖 buildAgentRuntimeConfig 的兜底链.
+ *
+ * 注意: 仅在 files 为空 OR files.workspace 为空时 backfill. 若用户
+ * 已经在 settings popover 里手动改过 runtime_config (cwd/files 不
+ * 是空), 不动它, 避免覆盖用户配置.
+ */
+function backfillMissingRuntimeConfig(
+  backendInstances: BackendAgentConversationInstance[],
+): void {
+  let initial: ReturnType<typeof buildInitialInstanceRuntimeConfig> | null =
+    null;
+  const tryBackfill = () => {
+    if (!initial) {
+      initial = buildInitialInstanceRuntimeConfig();
+    }
+    return initial;
+  };
+  for (const backend of backendInstances) {
+    const parsed = parseRuntimeConfigSnapshot(backend.runtimeConfig);
+    const filesEmpty =
+      !parsed?.files ||
+      (!parsed.files.workspace &&
+        (!parsed.files.folders || parsed.files.folders.length === 0) &&
+        (!parsed.files.notebooks || parsed.files.notebooks.length === 0));
+    const cwdMissing = !parsed?.cwd;
+    if (!filesEmpty && !cwdMissing) continue;
+    const seed = tryBackfill();
+    // 至少要把 cwd 写到顶层, 这样 resetRuntimeConfig(null) + 后续 set 可以救回.
+    useAgentConversationStore.getState().setRuntimeConfig(
+      backend.instanceId,
+      seed,
+    );
+  }
+}
+
 type PendingRunWrite = {
   timer: ReturnType<typeof setTimeout>;
   run: AgentConversationRun;
@@ -351,6 +391,12 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
             }
             return { instances: next };
           });
+          // Backfill 老 instance 的 runtime_config ── 之前 createInstance
+          // 没填, DB 里这些行 runtime_config = NULL, 重启后 chat-stream.ts
+          // 的 buildAgentRuntimeConfig 兜底链可能全断 (selectedNotebook /
+          // agent-access 启动 race 窗口). 用当前 global store 的真值同步
+          // 回填一次, 然后落 SQLite, 之后 cwd 不再依赖 store hydrate 时序.
+          backfillMissingRuntimeConfig(instances);
         } catch (err) {
           console.error("[AgentConversation] Failed to hydrate instances:", err);
         }

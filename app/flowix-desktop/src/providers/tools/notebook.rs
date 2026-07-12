@@ -1,7 +1,7 @@
 use rllm::chat::Tool;
 
-use crate::agent_access::AgentAccessKind;
-use crate::agent_access::AgentAccessStore;
+use crate::config::AgentAccessKind;
+use crate::config::AgentAccessStore;
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::NotebookConfig;
 

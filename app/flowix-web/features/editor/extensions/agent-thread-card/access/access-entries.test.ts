@@ -65,10 +65,11 @@ describe("createAccessEntryRow", () => {
     );
     expect(remove?.dataset.action).toBe(ACCESS_ACTION.REMOVE);
     expect(remove?.dataset.entryId).toBe("folder-1");
+    expect(row.lastElementChild).toBe(checkbox);
   });
 
   it("does not render the set-workspace button when entry is already workspace", () => {
-    // workspace folder 的 avatar 是 folder + 右下角三角蒙块, 没有"再设一次"的入口。
+    // workspace folder 的 avatar 是 folder + 左上角三角蒙块, 没有"再设一次"的入口。
     const entry = makeEntry({ id: "folder-1", workspace: true });
     const row = createAccessEntryRow({ entry, notebooks: [], t });
 
@@ -78,8 +79,8 @@ describe("createAccessEntryRow", () => {
     expect(setBtn).toBeNull();
   });
 
-  it("renders a bottom-right triangle mark for workspace folders", () => {
-    // workspace 的视觉标记改为 folder 图标右下角的三角蒙块 ── 图标本身仍是
+  it("renders a top-left triangle mark for workspace folders", () => {
+    // workspace 的视觉标记改为 folder 图标左上角的三角蒙块 ── 图标本身仍是
     // 普通 folder (不再用 folder-star 图标)。
     const entry = makeEntry({ id: "folder-1", workspace: true });
     const row = createAccessEntryRow({ entry, notebooks: [], t });
@@ -93,7 +94,7 @@ describe("createAccessEntryRow", () => {
   });
 
   it("renders the workspace mark for a workspace notebook", () => {
-    // notebook 被设为主空间时, 与 folder 一样在 avatar 右下角叠三角蒙块。
+    // notebook 被设为主空间时, 与 folder 一样在 avatar 左上角叠三角蒙块。
     const entry = makeEntry({ id: "nb-1", kind: "notebook", workspace: true });
     const row = createAccessEntryRow({ entry, notebooks: [], t });
 
@@ -123,6 +124,9 @@ describe("createAccessEntryRow", () => {
     expect(
       row.querySelector(".agent-thread-card__access-remove"),
     ).toBeNull();
+    expect(row.lastElementChild).toBe(
+      row.querySelector(".agent-thread-card__access-checkbox"),
+    );
   });
 });
 

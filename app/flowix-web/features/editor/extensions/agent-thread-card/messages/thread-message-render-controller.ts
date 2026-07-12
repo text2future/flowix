@@ -48,6 +48,7 @@ export class ThreadMessageRenderController {
   private renderedMessagesList: HTMLDivElement | null = null;
   private renderedMessageRefs: ThreadState["messages"] = [];
   private reasoningCollapsedOverrides = new Map<string, boolean>();
+  private displayExpandedOverrides = new Map<string, boolean>();
 
   constructor(options: ThreadMessageRenderControllerOptions) {
     this.body = options.body;
@@ -74,6 +75,7 @@ export class ThreadMessageRenderController {
     }
 
     this.pruneReasoningCollapsedOverrides(input.messages);
+    this.pruneDisplayExpandedOverrides(input.messages);
 
     if (this.canReuseRenderedMessages(input.messages)) {
       recordMessageRenderPlan("noop", input.messages.length);
@@ -195,10 +197,28 @@ export class ThreadMessageRenderController {
     }
   }
 
+  private pruneDisplayExpandedOverrides(
+    messages: ThreadState["messages"],
+  ): void {
+    if (this.displayExpandedOverrides.size === 0) return;
+
+    const visibleIds = new Set(messages.map((message) => message.id));
+
+    for (const id of this.displayExpandedOverrides.keys()) {
+      if (!visibleIds.has(id)) {
+        this.displayExpandedOverrides.delete(id);
+      }
+    }
+  }
+
   private getReasoningCollapsed(message: AgentMessage): boolean {
     return (
       this.reasoningCollapsedOverrides.get(message.id) ?? !!message.isCompleted
     );
+  }
+
+  private getDisplayExpanded(message: AgentMessage): boolean {
+    return this.displayExpandedOverrides.get(message.id) ?? false;
   }
 
   private createMessageRenderContext(): AgentThreadCardMessageRenderContext {
@@ -207,6 +227,11 @@ export class ThreadMessageRenderController {
       getReasoningCollapsed: (message) => this.getReasoningCollapsed(message),
       setReasoningCollapsed: (messageId, collapsed) => {
         this.reasoningCollapsedOverrides.set(messageId, collapsed);
+      },
+      getDisplayExpanded: (message) => this.getDisplayExpanded(message),
+      setDisplayExpanded: (messageId, expanded) => {
+        if (expanded) this.displayExpandedOverrides.set(messageId, true);
+        else this.displayExpandedOverrides.delete(messageId);
       },
     };
   }

@@ -5,10 +5,9 @@ import {
   shouldRenderAgentMessage,
 } from "@features/agent/message";
 import {
-  fillWithAgentThreadCardMarkdownHtml,
-  renderAgentThreadCardMarkdownToHtml,
-} from "@features/editor/extensions/agent-thread-card/agent-thread-card-markdown";
-import { createAgentThreadCardMessageElement } from "@features/editor/extensions/agent-thread-card/messages/message-item-renderer";
+  createAgentThreadCardMessageElement,
+  renderAgentThreadCardBudgetedMarkdown,
+} from "@features/editor/extensions/agent-thread-card/messages/message-item-renderer";
 
 export function getRenderedAgentMessages(
   messages: ThreadState["messages"],
@@ -27,6 +26,8 @@ export interface AgentThreadCardMessageRenderContext {
   language: AppLanguage;
   getReasoningCollapsed: (message: AgentMessage) => boolean;
   setReasoningCollapsed: (messageId: string, collapsed: boolean) => void;
+  getDisplayExpanded: (message: AgentMessage) => boolean;
+  setDisplayExpanded: (messageId: string, expanded: boolean) => void;
 }
 
 export interface AgentThreadCardMessagePatchOptions {
@@ -76,10 +77,14 @@ export function patchLastRenderedAgentMessage(
       ".agent-thread-card__message-content",
     );
     if (!content) return null;
-    fillWithAgentThreadCardMarkdownHtml(
+    renderAgentThreadCardBudgetedMarkdown({
+      message: nextLast,
+      role: nextLast.role,
+      visibleContent: messageView.visibleContent,
       content,
-      renderAgentThreadCardMarkdownToHtml(messageView.visibleContent),
-    );
+      toggleParent: item,
+      context,
+    });
   } else if (nextLast.role === "reasoning") {
     const label = item.querySelector<HTMLSpanElement>(
       ".agent-thread-card__message-reasoning-header span",
@@ -93,10 +98,18 @@ export function patchLastRenderedAgentMessage(
       "agent-thread-card__message--reasoning-collapsed",
       context.getReasoningCollapsed(nextLast),
     );
-    fillWithAgentThreadCardMarkdownHtml(
-      content,
-      renderAgentThreadCardMarkdownToHtml(messageView.visibleContent),
+    const body = item.querySelector<HTMLElement>(
+      ".agent-thread-card__message-reasoning-body",
     );
+    if (!body) return null;
+    renderAgentThreadCardBudgetedMarkdown({
+      message: nextLast,
+      role: "reasoning",
+      visibleContent: messageView.visibleContent,
+      content,
+      toggleParent: body,
+      context,
+    });
   } else if (nextLast.role === "end") {
     const content = item.querySelector<HTMLElement>(
       ".agent-thread-card__message-content",
@@ -137,6 +150,8 @@ export function appendRenderedAgentMessagesToTail(
       language: context.language,
       getReasoningCollapsed: context.getReasoningCollapsed,
       setReasoningCollapsed: context.setReasoningCollapsed,
+      getDisplayExpanded: context.getDisplayExpanded,
+      setDisplayExpanded: context.setDisplayExpanded,
     });
     if (!rendered) continue;
     list.append(rendered.element);
@@ -165,6 +180,8 @@ export function createRenderedAgentMessageList(
       language: context.language,
       getReasoningCollapsed: context.getReasoningCollapsed,
       setReasoningCollapsed: context.setReasoningCollapsed,
+      getDisplayExpanded: context.getDisplayExpanded,
+      setDisplayExpanded: context.setDisplayExpanded,
     });
     if (!rendered) continue;
     if (rendered.shouldRemember) rememberedMessages.push(message);

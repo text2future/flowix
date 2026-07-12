@@ -14,37 +14,84 @@ import {
   createAgentThreadCardMessageFallback,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-command-renderer";
 import {
+  applyMessageDisplayBudget,
+  truncateToolMessageForDisplay,
+  type MessageDisplayBudgetRole,
+} from "@features/agent/message/display-limits";
+import {
   createChevronIcon,
   createToolIcon,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-icons";
 
 type AgentMessage = ThreadState["messages"][number];
 
-// User 消息正文最大展示字符数 ── 超过截断并在末尾加省略号。
-//
-// 临时为以下场景做防护: Claude Code CLI 在 user-event 里会把加载到的
-// skill 文档全文注入到 `tool_result` 之前的 text block, 后端
-// `claude_history::value_to_chat_messages` 当前会把这种 text 累积成一
-// 条 `role: "user"` 的历史消息, 重新加载 thread 时就会被当作用户输入
-// 长文本铺满整个 Agent Thread Card。 这里先做展示层限长, 后续在 history
-// 解析层应该正经修。
-const USER_MESSAGE_PREVIEW_MAX_CHARS = 1000;
-const USER_MESSAGE_PREVIEW_ELLIPSIS = "…";
-
-function truncateUserMessagePreview(text: string): string {
-  // 用 Array.from 按 code point 切, 避免 surrogate pair / CJK 字符被
-  // 截在中间, 也避免单纯 .length 把 emoji 算成 2 个单位。
-  const chars = Array.from(text);
-  if (chars.length <= USER_MESSAGE_PREVIEW_MAX_CHARS) return text;
-  return (
-    chars.slice(0, USER_MESSAGE_PREVIEW_MAX_CHARS).join("") +
-    USER_MESSAGE_PREVIEW_ELLIPSIS
-  );
-}
-
 export interface AgentThreadCardMessageElementResult {
   element: HTMLElement;
   shouldRemember: boolean;
+}
+
+export interface AgentThreadCardMessageDisplayContext {
+  language: AppLanguage;
+  getDisplayExpanded: (message: AgentMessage) => boolean;
+  setDisplayExpanded: (messageId: string, expanded: boolean) => void;
+}
+
+function getDisplayToggleLabel(
+  language: AppLanguage,
+  expanded: boolean,
+): string {
+  if (language === "zh-CN") return expanded ? "收起全文" : "展开全文";
+  return expanded ? "Collapse" : "Show full message";
+}
+
+function directChildDisplayToggle(parent: HTMLElement): HTMLButtonElement | null {
+  for (const child of Array.from(parent.children)) {
+    if (child.classList.contains("agent-thread-card__message-display-toggle")) {
+      return child as HTMLButtonElement;
+    }
+  }
+  return null;
+}
+
+export function renderAgentThreadCardBudgetedMarkdown(options: {
+  message: AgentMessage;
+  role: MessageDisplayBudgetRole;
+  visibleContent: string;
+  content: HTMLElement;
+  toggleParent: HTMLElement;
+  context: AgentThreadCardMessageDisplayContext;
+}): void {
+  const { message, role, visibleContent, content, toggleParent, context } =
+    options;
+  const expanded = context.getDisplayExpanded(message);
+  const display = applyMessageDisplayBudget(role, visibleContent, expanded);
+
+  fillWithAgentThreadCardMarkdownHtml(
+    content,
+    renderAgentThreadCardMarkdownToHtml(display.text),
+  );
+
+  let toggle = directChildDisplayToggle(toggleParent);
+  if (!display.isOverBudget) {
+    toggle?.remove();
+    return;
+  }
+
+  if (!toggle) {
+    toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "agent-thread-card__message-display-toggle";
+    toggleParent.append(toggle);
+  }
+  toggle.textContent = getDisplayToggleLabel(context.language, expanded);
+  toggle.onclick = (event) => {
+    event.stopPropagation();
+    context.setDisplayExpanded(message.id, !expanded);
+    renderAgentThreadCardBudgetedMarkdown(options);
+  };
+  toggle.onmousedown = (event) => {
+    event.stopPropagation();
+  };
 }
 
 export function createAgentThreadCardMessageElement(options: {
@@ -52,9 +99,22 @@ export function createAgentThreadCardMessageElement(options: {
   language: AppLanguage;
   getReasoningCollapsed: (message: AgentMessage) => boolean;
   setReasoningCollapsed: (messageId: string, collapsed: boolean) => void;
+  getDisplayExpanded: (message: AgentMessage) => boolean;
+  setDisplayExpanded: (messageId: string, expanded: boolean) => void;
 }): AgentThreadCardMessageElementResult | null {
-  const { message, language, getReasoningCollapsed, setReasoningCollapsed } =
-    options;
+  const {
+    message,
+    language,
+    getReasoningCollapsed,
+    setReasoningCollapsed,
+    getDisplayExpanded,
+    setDisplayExpanded,
+  } = options;
+  const displayContext: AgentThreadCardMessageDisplayContext = {
+    language,
+    getDisplayExpanded,
+    setDisplayExpanded,
+  };
 
   if (!shouldRenderAgentMessage(message)) {
     return null;
@@ -94,7 +154,9 @@ export function createAgentThreadCardMessageElement(options: {
         item.append(icon, name);
         const summary = document.createElement("span");
         summary.className = "agent-thread-card__message-tool-summary";
-        summary.textContent = messageView.toolSummary;
+        summary.textContent = truncateToolMessageForDisplay(
+          messageView.toolSummary,
+        );
         item.append(summary);
       }
     } else if (message.role === "end") {
@@ -106,13 +168,15 @@ export function createAgentThreadCardMessageElement(options: {
       const content = document.createElement("div");
       content.className =
         "agent-thread-card__message-content agent-thread-card__message-content--user-preview";
-      fillWithAgentThreadCardMarkdownHtml(
-        content,
-        renderAgentThreadCardMarkdownToHtml(
-          truncateUserMessagePreview(messageView.visibleContent),
-        ),
-      );
       item.append(content);
+      renderAgentThreadCardBudgetedMarkdown({
+        message,
+        role: "user",
+        visibleContent: messageView.visibleContent,
+        content,
+        toggleParent: item,
+        context: displayContext,
+      });
     } else if (message.role === "reasoning") {
       const header = document.createElement("button");
       header.type = "button";
@@ -126,11 +190,15 @@ export function createAgentThreadCardMessageElement(options: {
       body.className = "agent-thread-card__message-reasoning-body";
       const content = document.createElement("div");
       content.className = "agent-thread-card__message-content";
-      fillWithAgentThreadCardMarkdownHtml(
-        content,
-        renderAgentThreadCardMarkdownToHtml(messageView.visibleContent),
-      );
       body.append(content);
+      renderAgentThreadCardBudgetedMarkdown({
+        message,
+        role: "reasoning",
+        visibleContent: messageView.visibleContent,
+        content,
+        toggleParent: body,
+        context: displayContext,
+      });
 
       const apply = (collapsed: boolean): void => {
         item.classList.toggle(
@@ -155,11 +223,15 @@ export function createAgentThreadCardMessageElement(options: {
     } else {
       const content = document.createElement("div");
       content.className = "agent-thread-card__message-content";
-      fillWithAgentThreadCardMarkdownHtml(
-        content,
-        renderAgentThreadCardMarkdownToHtml(messageView.visibleContent),
-      );
       item.append(content);
+      renderAgentThreadCardBudgetedMarkdown({
+        message,
+        role: "assistant",
+        visibleContent: messageView.visibleContent,
+        content,
+        toggleParent: item,
+        context: displayContext,
+      });
     }
 
     return { element: item, shouldRemember: true };

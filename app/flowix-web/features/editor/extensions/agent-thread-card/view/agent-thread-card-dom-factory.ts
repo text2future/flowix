@@ -231,7 +231,12 @@ export function createAgentThreadCardDom(
   const sendButtonMount = document.createElement("span");
   sendButtonMount.className = "agent-thread-card__send-tooltip";
 
-  composer.append(composerRoleIcon, input, accessButton, sendButtonMount);
+  composer.append(
+    composerRoleIcon,
+    input,
+    // accessButton, // “指令”入口暂时隐藏，保留节点与控制器以便后续恢复。
+    sendButtonMount,
+  );
   composer.addEventListener("mousedown", options.onComposerMouseDown);
   dom.append(container);
   container.append(header, body, errorEl, composer);

@@ -11,10 +11,10 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::agent::{AgentChatResponse, AgentManager, AgentUserMessage, RunInfo};
-use crate::claude_cli::ClaudeCliManager;
-use crate::codex_cli::CodexCliManager;
-use crate::hermes_cli::HermesCliManager;
-use crate::simple_cli::SimpleCliManager;
+use crate::external_runtime::claude::ClaudeCliManager;
+use crate::external_runtime::codex::CodexCliManager;
+use crate::external_runtime::hermes::HermesCliManager;
+use crate::external_runtime::simple_cli::SimpleCliManager;
 
 use super::AppState;
 
@@ -193,18 +193,20 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     let ai_config = state.user_config.get_ai_config().model;
     let flowix_available = !ai_config.model.trim().is_empty();
 
-    let codex_binary = crate::codex_cli::resolve_codex_binary();
+    let codex_binary = crate::external_runtime::codex::cli::resolve_codex_binary();
     let codex_available = executable_available(&codex_binary);
 
-    let claude_binary = crate::claude_cli::resolve_claude_binary();
+    let claude_binary = crate::external_runtime::claude::cli::resolve_claude_binary();
     let claude_available = executable_available(&claude_binary);
-    let gemini_binary =
-        crate::simple_cli::resolve_simple_cli_binary(crate::simple_cli::SimpleCliKind::Gemini);
+    let gemini_binary = crate::external_runtime::simple_cli::resolve_simple_cli_binary(
+        crate::external_runtime::simple_cli::SimpleCliKind::Gemini,
+    );
     let gemini_available = executable_available(&gemini_binary);
-    let hermes_binary = crate::hermes_cli::resolve_hermes_binary();
+    let hermes_binary = crate::external_runtime::hermes::cli::resolve_hermes_binary();
     let hermes_available = executable_available(&hermes_binary);
-    let openclaw_binary =
-        crate::simple_cli::resolve_simple_cli_binary(crate::simple_cli::SimpleCliKind::OpenClaw);
+    let openclaw_binary = crate::external_runtime::simple_cli::resolve_simple_cli_binary(
+        crate::external_runtime::simple_cli::SimpleCliKind::OpenClaw,
+    );
     let openclaw_available = executable_available(&openclaw_binary);
 
     AgentRuntimeStatus {
@@ -493,7 +495,7 @@ pub async fn agent_supported_models(agent_type: String) -> Result<Vec<String>, S
 }
 
 async fn query_codex_models() -> Result<Vec<String>, String> {
-    let mut cmd = tokio::process::Command::new(crate::codex_cli::resolve_codex_binary());
+    let mut cmd = tokio::process::Command::new(crate::external_runtime::codex::cli::resolve_codex_binary());
     crate::process_window::hide_command_window(&mut cmd);
     let output = cmd
         .args(["debug", "models"])

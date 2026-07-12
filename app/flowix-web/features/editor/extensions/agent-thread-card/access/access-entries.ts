@@ -117,12 +117,11 @@ export function createAccessEntryRow({
     mark.setAttribute("aria-hidden", "true");
     checkbox.append(mark);
   }
-  row.append(checkbox);
 
   // avatar 本身就是点击入口: 可设为 workspace 的 entry (非 workspace + 非 missing)
   // 渲染成 <button>, 点 avatar 直接 setWorkspace ── 不再 hover 出 star 按钮覆盖,
   // 交互入口即图标本身 (folder 与 notebook 同此设计)。 workspace entry 渲染原图标
-  // + 右下角三角蒙块, 不可点击 (已是主空间)。 missing entry 不可点击 (路径不存在,
+  // + 左上角三角蒙块, 不可点击 (已是主空间)。 missing entry 不可点击 (路径不存在,
   // setWorkspace 会被 store 因 missing 拒绝)。
   const canSetWorkspace = !isWorkspace && !entry.missing;
   const avatar: HTMLElement = canSetWorkspace
@@ -154,7 +153,7 @@ export function createAccessEntryRow({
   }
 
   if (isWorkspace) {
-    // workspace entry (folder 或 notebook) 右下角叠三角蒙块作为 "主空间" 角标。
+    // workspace entry (folder 或 notebook) 左上角叠三角蒙块作为 "主空间" 角标。
     const workspaceMark = document.createElement("span");
     workspaceMark.className = "agent-thread-card__access-workspace-mark";
     workspaceMark.setAttribute("aria-hidden", "true");
@@ -183,6 +182,10 @@ export function createAccessEntryRow({
     remove.append(createTrashIcon());
     row.append(remove);
   }
+
+  // 勾选状态是列表的最终决策入口，固定放在行尾；folder 的删除按钮仍紧邻
+  // 内容区，notebook 没有删除按钮，两种 row 都由 checkbox 统一收尾。
+  row.append(checkbox);
 
   return row;
 }

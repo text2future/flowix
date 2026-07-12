@@ -40,7 +40,7 @@ export interface AgentRuntimeSpec {
 
 const HERMES_ACCESS_OPTIONS: readonly AgentAccessOption[] = [
   { id: "inherit", label: "Default" },
-  { id: "danger-full-access", label: "Full access" },
+  { id: "danger-full-access", label: "Full Access" },
 ];
 
 const NO_ACCESS_OPTIONS: readonly AgentAccessOption[] = [];

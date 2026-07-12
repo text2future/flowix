@@ -8,6 +8,12 @@ import {
   applyToolCallChunk,
   applyToolResultChunk,
 } from "@features/agent/store/apply-chunk";
+import {
+  TOOL_RESULT_DISPLAY_MAX_CHARS,
+  TOOL_RESULT_OUTPUT_PREVIEW_MAX_CHARS,
+  USER_MESSAGE_DISPLAY_MAX_CHARS,
+  truncateUserMessageForDisplay,
+} from "@features/agent/message/display-limits";
 
 function emptyThreadState(): ThreadState {
   return {
@@ -140,6 +146,66 @@ describe("apply chunks regression net", () => {
 
     expect(next.pendingAssistantId).toBe("assistant-stale");
     expect(next.pendingReasoningId).toBe("reasoning-stale");
+  });
+
+  it("applyToolResultChunk truncates plain content results before display storage", () => {
+    const st: ThreadState = {
+      ...emptyThreadState(),
+      messages: [
+        {
+          id: "tool-call-1",
+          role: "tool",
+          content: "",
+          timestamp: "2026-07-06T00:00:00Z",
+          toolCallId: "call-1",
+          toolName: "read",
+          isLoading: true,
+        },
+      ],
+    };
+    const huge = "x".repeat(TOOL_RESULT_DISPLAY_MAX_CHARS + 50);
+    const next = applyToolResultChunk(st, "call-1", "read", {
+      content: huge,
+    });
+
+    expect(next.messages[0].content.length).toBeLessThan(huge.length);
+    expect(next.messages[0].content).toContain("...[truncated]");
+    expect(next.messages[0].toolData).toBe(next.messages[0].content);
+  });
+
+  it("applyToolResultChunk truncates command output previews", () => {
+    const st: ThreadState = {
+      ...emptyThreadState(),
+      messages: [
+        {
+          id: "tool-call-1",
+          role: "tool",
+          content: "",
+          timestamp: "2026-07-06T00:00:00Z",
+          toolCallId: "call-1",
+          toolName: "shell",
+          isLoading: true,
+        },
+      ],
+    };
+    const huge = "x".repeat(TOOL_RESULT_OUTPUT_PREVIEW_MAX_CHARS + 50);
+    const next = applyToolResultChunk(st, "call-1", "shell", {
+      command: "npm test",
+      output: huge,
+    });
+
+    expect(next.messages[0].toolData).toContain("...[truncated]");
+    expect(next.messages[0].toolData).toContain(
+      '"output_preview_truncated": true',
+    );
+  });
+
+  it("truncateUserMessageForDisplay limits user text by code point", () => {
+    const content = "你".repeat(USER_MESSAGE_DISPLAY_MAX_CHARS) + "🙂";
+    const truncated = truncateUserMessageForDisplay(content);
+
+    expect(truncated).toBe("你".repeat(USER_MESSAGE_DISPLAY_MAX_CHARS) + "…");
+    expect(truncated).not.toContain("🙂");
   });
 
   it("applyReasoningChunk keeps pendingAssistantId untouched", () => {

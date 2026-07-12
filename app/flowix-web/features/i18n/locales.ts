@@ -404,7 +404,7 @@ export const messages = {
     // agent
     "agent.permission.default": "默认",
     "agent.permission.readOnly": "可读",
-    "agent.permission.workspaceWrite": "Workspace write",
+    "agent.permission.workspaceWrite": "Workspace Write",
     "agent.permission.dangerFullAccess": "完全访问",
     "agent.permissionMode.menu": "权限模式",
     "agent.permissionMode.title": "权限模式",
@@ -1304,9 +1304,9 @@ export const messages = {
 
     // agent
     "agent.permission.default": "Default",
-    "agent.permission.readOnly": "Read-only",
-    "agent.permission.workspaceWrite": "Workspace write",
-    "agent.permission.dangerFullAccess": "Full access",
+    "agent.permission.readOnly": "Read Only",
+    "agent.permission.workspaceWrite": "Workspace Write",
+    "agent.permission.dangerFullAccess": "Full Access",
     "agent.permissionMode.menu": "Access level",
     "agent.permissionMode.title": "Access level",
     "agent.codexModel.default": "Codex default",

@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::fs_watcher::MemoWatcher;
 use crate::lock_utils::{read_lock, write_lock};
-use crate::path_scope::path_is_inside;
+use crate::config::path_is_inside;
 
 use super::AppState;
 

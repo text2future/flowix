@@ -46,6 +46,8 @@ nanoid = { workspace = true }
 tempfile = { workspace = true }
 dunce = { workspace = true }
 uuid = { workspace = true }
+hostname = "0.4"
+machine-uid = "0.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }

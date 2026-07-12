@@ -11,7 +11,7 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
-use crate::path_scope::path_is_inside;
+use crate::config::path_is_inside;
 
 use super::helpers::{
     can_access_scoped_file, is_registered_notebook_path, start_security_bookmark_access,

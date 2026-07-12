@@ -8,6 +8,7 @@ import {
 } from "@/lib/agent-types";
 import { useChatStore } from "@features/agent/store/chat-store";
 import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
+import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import {
   DEFAULT_AGENT_THREAD_CARD_TITLE as DEFAULT_TITLE,
   parseAgentThreadCardMarkdown,
@@ -154,6 +155,9 @@ export const AgentThreadCard = Node.create({
             threadId: null,
             source: getCurrentThreadCardSource(),
             role: undefined,
+            // 让 instance 自己持有 cwd / folders 快照, 而不是每次
+            // send 时再依赖全局 store 兜底链 → 修 启动 race 下 cwd 缺失
+            runtimeConfig: buildInitialInstanceRuntimeConfig(),
           });
           const node = nodeType.create({
             threadId: null,

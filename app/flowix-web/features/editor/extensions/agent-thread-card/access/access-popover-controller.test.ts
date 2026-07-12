@@ -785,6 +785,106 @@ describe("AccessPopoverController handleClick delegation", () => {
     controller.dispose();
   });
 
+  it("opens below by default and keeps 26px clear of the viewport bottom", async () => {
+    const { AccessPopoverController } = await import(
+      "@features/editor/extensions/agent-thread-card/access/access-popover-controller"
+    );
+    const { useAgentAccessStore } = await import(
+      "@features/agent/store/agent-access-store"
+    );
+    useAgentAccessStore.setState({
+      config: { version: 1, entries: agentAccessMock.config.entries },
+      isLoading: false,
+    });
+
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(800);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+    vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
+
+    const button = document.createElement("button");
+    const popover = document.createElement("div");
+    popover.className = "agent-thread-card__access-popover";
+    popover.hidden = true;
+    document.body.append(button, popover);
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(500, 280, 100, 20),
+    );
+    vi.spyOn(popover, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 208, 320),
+    );
+
+    const controller = new AccessPopoverController({
+      button,
+      popover,
+      t: t as never,
+      isDestroyed: () => false,
+      isInsideRelatedTarget: () => false,
+      consumeOutsidePointer: () => {},
+    });
+    controller.setOpen(true);
+    const scrollWrap = popover.querySelector<HTMLDivElement>(
+      ".agent-thread-card__access-popover-scroll",
+    )!;
+    vi.spyOn(scrollWrap, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 208, 308),
+    );
+    (
+      controller as unknown as { positionPopover: () => void }
+    ).positionPopover();
+
+    expect(scrollWrap.style.maxHeight).toBe("260px");
+    expect(popover.style.top).toBe("302px");
+    expect(600 - (Number.parseFloat(popover.style.top) + 272)).toBe(26);
+
+    controller.dispose();
+  });
+
+  it("opens above when the usable space below is under 192px and above has more room", async () => {
+    const { AccessPopoverController } = await import(
+      "@features/editor/extensions/agent-thread-card/access/access-popover-controller"
+    );
+    const { useAgentAccessStore } = await import(
+      "@features/agent/store/agent-access-store"
+    );
+    useAgentAccessStore.setState({
+      config: { version: 1, entries: agentAccessMock.config.entries },
+      isLoading: false,
+    });
+
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(800);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+    vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
+
+    const button = document.createElement("button");
+    const popover = document.createElement("div");
+    popover.className = "agent-thread-card__access-popover";
+    popover.hidden = true;
+    document.body.append(button, popover);
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(500, 361, 100, 20),
+    );
+    vi.spyOn(popover, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 208, 320),
+    );
+
+    const controller = new AccessPopoverController({
+      button,
+      popover,
+      t: t as never,
+      isDestroyed: () => false,
+      isInsideRelatedTarget: () => false,
+      consumeOutsidePointer: () => {},
+    });
+    controller.setOpen(true);
+    (
+      controller as unknown as { positionPopover: () => void }
+    ).positionPopover();
+
+    expect(popover.style.top).toBe("26px");
+
+    controller.dispose();
+  });
+
   it("keeps the popover open when its anchor element is disconnected mid-flight", async () => {
     // 回归 ── anchor (external settings 的 files 按钮) 在 toggle checkbox
     // 触发的 renderThreadState -> renderEmptyState 路径里被 body.replaceChildren
