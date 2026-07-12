@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentTypeKey, RunInfo } from "@/types/agent";
+import type { RunInfo } from "@/types/agent";
 import {
   emptyThreadState,
   type ThreadState,

@@ -57,7 +57,7 @@ describe("thread-runtime-state helpers", () => {
       ...t,
       isLoading: true,
       activeRunId: "run-1",
-      runs: { "run-1": { runId: "run-1", agentType: "flowix", threadId: "t1", startedAt: 1, status: "running" as const } },
+      runs: { "run-1": { runId: "run-1", agentType: "flowix" as const, threadId: "t1", startedAt: 1, status: "running" as const } },
     };
     expect(isThreadRunActive(running)).toBe(true);
 
@@ -118,7 +118,7 @@ describe("thread-runtime-state helpers", () => {
       runs: {
         "run-existing": {
           runId: "run-existing",
-          agentType: "flowix",
+          agentType: "flowix" as const,
           threadId: "t1",
           startedAt: 1000,
           status: "running" as const,

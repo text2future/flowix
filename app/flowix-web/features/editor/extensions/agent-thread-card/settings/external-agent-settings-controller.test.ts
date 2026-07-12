@@ -127,7 +127,7 @@ function makeControllerArgs(instanceId?: string) {
     popover,
     getTypeKey: () => "codex" as const,
     getInstanceId: () => instanceId,
-    getLanguage: () => "zh" as const,
+    getLanguage: () => "zh-CN" as const,
     t: (key: string) => key,
     isDestroyed: () => false,
     isAccessPopoverOpen: () => false,

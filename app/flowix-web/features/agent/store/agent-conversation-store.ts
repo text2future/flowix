@@ -95,6 +95,7 @@ export interface AgentConversationStore {
     patch: Partial<Omit<AgentConversationInstance, "instanceId" | "createdAt">>,
   ) => AgentConversationInstance;
   setRuntimeConfig: (instanceId: string, patch: RuntimeConfigPatch) => void;
+  lockInstanceFileSeed: (instanceId: string) => AgentConversationInstance | null;
   getInstance: (instanceId: string | null | undefined) => AgentConversationInstance | null;
   updateThread: (
     instanceId: string,

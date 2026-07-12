@@ -188,9 +188,9 @@ export function buildAgentRuntimeConfig({
     globalEntries: useAgentAccessStore.getState().config.entries,
     cwd,
   });
-  // empty 时不强行编一个 cwd ── 上层 dispatch 判断是否要拦截而不是闷头
-  // invoke CLI (`agent-runtime-spec.test.ts` 用例 1 显式断言这点)。
-  const primaryWorkspace = resolvedPrimary.path || undefined;
+  // empty 变体无 path ── 收窄后取, 否则 undefined (上层 dispatch 据此判断是否拦截)。
+  const primaryWorkspace =
+    resolvedPrimary.kind === "empty" ? undefined : resolvedPrimary.path;
   const effectivePermissionMode =
     instanceRuntimeConfig?.access?.sandbox ?? permissionMode;
   const effectiveModel =

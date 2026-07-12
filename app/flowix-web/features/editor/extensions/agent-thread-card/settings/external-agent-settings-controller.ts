@@ -602,7 +602,6 @@ export class ExternalAgentSettingsController {
       cwd,
     });
 
-    this.lastFilesControlSource = resolved.kind;
     return this.renderLabelFromResolved(resolved);
   }
 

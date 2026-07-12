@@ -54,17 +54,17 @@ describe("external-session helpers", () => {
   it("applyExternalSessionResolved merges local runtime into the canonical session", () => {
     const fromState = {
       messages: [
-        { id: "m1", role: "assistant", content: "hello", timestamp: "2026-01-01T00:00:00.000Z" },
+        { id: "m1", role: "assistant" as const, content: "hello", timestamp: "2026-01-01T00:00:00.000Z" },
       ],
       isLoading: true,
       activeRunId: "run-1",
       runs: {
         "run-1": {
           runId: "run-1",
-          agentType: "codex",
+          agentType: "codex" as const,
           threadId: "thread-local",
           startedAt: 1000,
-          status: "running",
+          status: "running" as const,
         },
       },
       pendingAssistantId: null,
@@ -114,10 +114,10 @@ describe("external-session helpers", () => {
     const existingSessionRuns = {
       "run-existing": {
         runId: "run-existing",
-        agentType: "codex",
+        agentType: "codex" as const,
         threadId: "session-A",
         startedAt: 500,
-        status: "completed",
+        status: "completed" as const,
       },
     };
     const result = applyExternalSessionResolved(
