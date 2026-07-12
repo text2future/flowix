@@ -2302,6 +2302,70 @@
   white-space: nowrap;
 }
 
+/* ── 常用语 (quick phrases) ────────────────────────────────────────────
+ * 视觉与角色项完全同源: 直接复用 .agent-thread-card__composer-role-item*,
+ * 不另写一份菜单项样式 ── 空状态、filter 无命中、条目都共用同一套类。
+ *
+ * 这里只定义两块独特的视觉:
+ *   1. 搜索框 (无边框 / 无背景 / 打开自动聚焦)
+ *   2. 列表容器 (只承担 layout 间距, 不渲染视觉) */
+
+/* 搜索框 ── 无边框 / 无背景 / 无搜索 icon, 仅保留底部 1px divider
+ *  跟 popover 视觉节奏一致, 字号跟角色项一致。 */
+.agent-thread-card__composer-quick-phrase-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  margin: 0 0 4px 0;
+  border: 0;
+  border-bottom: 1px solid var(--divider);
+  border-radius: 0;
+  background: transparent;
+  color: var(--agent-foreground);
+  font: inherit;
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.2;
+  outline: none;
+}
+
+.agent-thread-card__composer-quick-phrase-search::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.85;
+}
+.agent-thread-card__composer-quick-phrase-search:focus::placeholder {
+  opacity: 0.6;
+}
+
+/* 列表容器 — 仅承担垂直 padding, 不画外框; 水平方向不加 padding,
+ * 让 item 自身的 6px 8px padding 与角色项完全对齐 (角色项无外层容器)。 */
+.agent-thread-card__composer-quick-phrase-list {
+  display: block;
+  padding: 2px 0 4px 0;
+}
+/* 容器内 group header 之间的分隔线 ── 把常用语与角色明确分组 */
+.agent-thread-card__composer-quick-phrase-list
+  > .agent-thread-card__composer-role-popover-header
+  + .agent-thread-card__composer-role-item,
+.agent-thread-card__composer-quick-phrase-list
+  > .agent-thread-card__composer-role-popover-header
+  + .agent-thread-card__composer-quick-phrase-empty {
+  margin-top: 0;
+}
+/* 第一组 header 与搜索框 divider 衔接; 第二组 header 顶部分割线 */
+.agent-thread-card__composer-quick-phrase-list
+  > .agent-thread-card__composer-role-popover-header {
+  border-top: 1px solid var(--divider);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.agent-thread-card__composer-quick-phrase-list
+  > .agent-thread-card__composer-role-popover-header:first-child {
+  border-top: 0;
+  padding-top: 0.15rem;
+  margin-top: 0;
+}
+
 .markdown-editor .agent-thread-card__send {
   display: inline-flex;
   align-items: center;

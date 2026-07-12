@@ -47,6 +47,10 @@ const chatStoreMock = vi.hoisted(() => ({
   setAgentPermissionMode: vi.fn(),
 }));
 
+const memoStoreMock = vi.hoisted(() => ({
+  selectedNotebook: null as null | { path?: string; id?: string } | unknown,
+}));
+
 vi.mock("@features/agent/store/agent-access-store", () => ({
   useAgentAccessStore: {
     getState: () => agentAccessMock,
@@ -65,6 +69,12 @@ vi.mock("@features/agent/store/chat-store", () => ({
   },
 }));
 
+vi.mock("@features/memo/store/memo-store", () => ({
+  useMemoStore: {
+    getState: () => ({ selectedNotebook: memoStoreMock.selectedNotebook }),
+  },
+}));
+
 vi.mock("@platform/tauri/client", () => ({
   agent: {
     getCodexDefaultModel: vi.fn(async () => ""),
@@ -75,10 +85,6 @@ vi.mock("@platform/tauri/client", () => ({
 vi.mock("@features/editor/extensions/agent-thread-card/popover/popover-position", () => ({
   applyPopoverPosition: vi.fn(),
   calculateAnchoredPopoverPosition: vi.fn(() => ({ left: 0, top: 0 })),
-}));
-
-vi.mock("@features/i18n", () => ({
-  translate: (_lang: string, key: string) => key,
 }));
 
 vi.mock("@features/agent/config/codex-options", () => ({
@@ -141,11 +147,15 @@ describe("ExternalAgentSettingsController.getFilesControlLabel", () => {
     document.body.innerHTML = "";
   });
 
-  it("默认态优先展示全局 entry.workspace=true, 与下拉三角同步", async () => {
+  it("默认态 - 全局无 instance 时显示全局 entry.workspace=true", async () => {
     // 模拟用户场景:
     //   - 全局 workspace 设在了 flowix (下拉标三角)
-    //   - per-thread 配置 folders[0] = 菜谱 (与全局 workspace 不同)
-    // 修复前会显示"菜谱", 修复后应该显示"flowix" ── 与下拉三角对齐。
+    //   - per-thread 也配了 workspace = 菜谱 (用户在弹窗里改的)
+    // 新语义: instance 优先 ── 用户已显式改过 per-thread workspace, 它压过
+    // 全局 entry.workspace=true。 旧版是"全局压 per-thread", 与用户预期不符
+    // (用户在 thread 里改的东西被无视)。 全局 flowix 只在 per-thread 完全
+    // 没设时, 作为"默认未配置时"的兜底生效。
+    // 本 case 验证: thread 里已显式设了 workspace=菜谱, 它压过全局 flowix。
     agentAccessMock.config = {
       version: 1,
       entries: [
@@ -182,7 +192,7 @@ describe("ExternalAgentSettingsController.getFilesControlLabel", () => {
     const valueEl = empty.querySelector<HTMLElement>(
       ".agent-thread-card__empty-control-value",
     );
-    expect(valueEl?.textContent).toBe("flowix");
+    expect(valueEl?.textContent).toBe("菜谱");
     controller.dispose();
   });
 
@@ -218,6 +228,51 @@ describe("ExternalAgentSettingsController.getFilesControlLabel", () => {
       ".agent-thread-card__empty-control-value",
     );
     expect(valueEl?.textContent).toBe("菜谱");
+    controller.dispose();
+  });
+
+  it("默认态 - per-thread 没设时, 退化到全局 entry.workspace=true", async () => {
+    // 模拟用户从未在弹窗里改过 per-thread, 完全依赖全局默认:
+    //   - 全局 workspace 设在了 flowix
+    //   - thread 上 files 全空 (没 instance.workspace, 没 folders, 没 notebooks)
+    // 应当显示 flowix, 因为全局主空间作为"默认未配置时"的兜底生效。
+    agentAccessMock.config = {
+      version: 1,
+      entries: [
+        makeEntry({
+          id: "flowix",
+          path: "/Users/rop/Documents/flowix/",
+          name: "flowix",
+          workspace: true,
+        }),
+        makeEntry({
+          id: "caipu",
+          path: "/Users/rop/Desktop/Notes/菜谱/",
+          name: "菜谱",
+          workspace: false,
+        }),
+      ],
+    };
+    conversationStoreMock.instances = {
+      "inst-1": {
+        runtimeConfig: {
+          files: {
+            workspace: undefined,
+            folders: [],
+            notebooks: [],
+          },
+        },
+      },
+    };
+
+    const Controller = await loadController();
+    const args = makeControllerArgs("inst-1");
+    const controller = new Controller(args);
+    const empty = controller.createEmptySettings();
+    const valueEl = empty.querySelector<HTMLElement>(
+      ".agent-thread-card__empty-control-value",
+    );
+    expect(valueEl?.textContent).toBe("flowix");
     controller.dispose();
   });
 

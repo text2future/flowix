@@ -296,13 +296,32 @@ pub async fn hermes_thread_session_id(
 }
 
 #[tauri::command]
-pub async fn thread_delete(thread_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+pub async fn thread_delete(
+    thread_id: String,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<bool, String> {
     let flowix_stopped = state.agent_manager.stop_chat(&thread_id, None).await;
-    let codex_stopped = state.codex_cli_manager.stop_chat(&thread_id, None).await;
-    let claude_stopped = state.claude_cli_manager.stop_chat(&thread_id, None).await;
-    let gemini_stopped = state.gemini_cli_manager.stop_chat(&thread_id, None).await;
-    let hermes_stopped = state.hermes_cli_manager.stop_chat(&thread_id, None).await;
-    let openclaw_stopped = state.openclaw_cli_manager.stop_chat(&thread_id, None).await;
+    let codex_stopped = state
+        .codex_cli_manager
+        .stop_chat(&thread_id, None, &app_handle)
+        .await;
+    let claude_stopped = state
+        .claude_cli_manager
+        .stop_chat(&thread_id, None, &app_handle)
+        .await;
+    let gemini_stopped = state
+        .gemini_cli_manager
+        .stop_chat(&thread_id, None, &app_handle)
+        .await;
+    let hermes_stopped = state
+        .hermes_cli_manager
+        .stop_chat(&thread_id, None, &app_handle)
+        .await;
+    let openclaw_stopped = state
+        .openclaw_cli_manager
+        .stop_chat(&thread_id, None, &app_handle)
+        .await;
     if flowix_stopped
         || codex_stopped
         || claude_stopped

@@ -78,7 +78,12 @@ trait ChatRuntime {
         message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
     ) -> Result<String, String>;
-    async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool;
+    async fn stop_chat(
+        &self,
+        thread_id: &str,
+        run_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> bool;
     async fn running_threads(&self) -> HashMap<String, RunInfo>;
 }
 
@@ -103,14 +108,21 @@ impl ChatRuntime for RuntimeHandle<'_> {
         }
     }
 
-    async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+    async fn stop_chat(
+        &self,
+        thread_id: &str,
+        run_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> bool {
         match self {
+            // Flowix 内部 agent 自带 cancel token + select!, stop 信号能被流式
+            // 任务即时响应, 不需要这里补发 StreamEnd, 故不传 app_handle。
             Self::Flowix(manager) => manager.stop_chat(thread_id, run_id).await,
-            Self::Codex(manager) => manager.stop_chat(thread_id, run_id).await,
-            Self::Claude(manager) => manager.stop_chat(thread_id, run_id).await,
-            Self::Gemini(manager) => manager.stop_chat(thread_id, run_id).await,
-            Self::Hermes(manager) => manager.stop_chat(thread_id, run_id).await,
-            Self::OpenClaw(manager) => manager.stop_chat(thread_id, run_id).await,
+            Self::Codex(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
+            Self::Claude(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
+            Self::Gemini(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
+            Self::Hermes(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
+            Self::OpenClaw(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
         }
     }
 
@@ -148,10 +160,14 @@ fn all_runtime_handles(state: &AppState) -> [RuntimeHandle<'_>; 6] {
     ]
 }
 
-async fn stop_any_runtime_chat(thread_id: &str, state: &AppState) -> bool {
+async fn stop_any_runtime_chat(
+    thread_id: &str,
+    state: &AppState,
+    app_handle: &tauri::AppHandle,
+) -> bool {
     let mut signalled = false;
     for runtime in all_runtime_handles(state) {
-        signalled |= runtime.stop_chat(thread_id, None).await;
+        signalled |= runtime.stop_chat(thread_id, None, app_handle).await;
     }
     signalled
 }
@@ -407,6 +423,7 @@ pub async fn stop_agent_stream(
     agentType: Option<String>,
     runId: Option<String>,
     state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<bool, String> {
     let runtime = agentType
         .as_deref()
@@ -420,10 +437,10 @@ pub async fn stop_agent_stream(
     let signalled = match runtime {
         Some(runtime) => {
             runtime_handle(&state, runtime)
-                .stop_chat(&threadId, run_id_for_kill(runId.as_deref()))
+                .stop_chat(&threadId, run_id_for_kill(runId.as_deref()), &app_handle)
                 .await
         }
-        None => stop_any_runtime_chat(&threadId, &state).await,
+        None => stop_any_runtime_chat(&threadId, &state, &app_handle).await,
     };
     tracing::info!(
         "[Command] stop_agent_stream result: {} (chat was {}running)",

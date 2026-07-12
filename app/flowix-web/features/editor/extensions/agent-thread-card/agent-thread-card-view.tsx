@@ -15,8 +15,10 @@ import {
 import { selectRenderableThreadMessages } from "@features/agent/store/thread-render-messages";
 import { translate, type AppLanguage, type I18nKey } from "@features/i18n";
 import type { AgentTypeKey } from "@/types/agent";
+import type { QuickPhrase } from "@/lib/constants";
 import { stripSystemBlock } from "@features/agent/message";
 import { openNoteByDeepLink } from "@platform/open-target";
+import { windows } from "@platform/tauri/client";
 import { isWindowsPlatform } from "@features/shortcuts";
 import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-link";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
@@ -145,6 +147,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private isCreating = false;
   private isDestroyed = false;
   private isFullscreen = false;
+  /** 偏好设置中 quickPhrases 数组引用变化时的 unsubscribe ── 弹窗打开时实时刷新。 */
+  private unsubscribeQuickPhrases: (() => void) | null = null;
   private boundHandleBodyScroll = (): void => {
     this.messages.handleScroll();
     this.scheduleAccessPopoverPosition();
@@ -340,6 +344,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       getMessageCount: () => this.currentMessages().length,
       updateRole: (role) => this.updateAgentRole(role),
       consumeOutsidePointer: consumeEditorPopoverDismissPointer,
+      injectPrompt: (text) => this.injectQuickPhrasePrompt(text),
+      openPreferences: () => this.openPreferencesForQuickPhrases(),
     });
     this.accessPopoverController = new AccessPopoverController({
       button: this.accessButton,
@@ -461,6 +467,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.observeThreadCacheVisibility();
     this.requestThreadMessagesIfNeeded();
     this.runInitialPromptIfNeeded();
+    this.subscribeQuickPhrases();
     queueMicrotask(() => this.ensureInstanceBinding());
   }
 
@@ -638,6 +645,33 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
   private refreshComposerRoleIcon(): void {
     this.agentRolePicker.refreshIcon();
+  }
+
+  /** 订阅常用语列表变化 ── 弹窗打开时如果用户在偏好设置改了列表, 这里实时刷新。 */
+  private subscribeQuickPhrases(): void {
+    if (this.unsubscribeQuickPhrases) return;
+    const readPhrases = (): QuickPhrase[] =>
+      useUserSettingsStore.getState().settings.agents?.quickPhrases ?? [];
+    let lastPhrases = readPhrases();
+    this.unsubscribeQuickPhrases = useUserSettingsStore.subscribe((state) => {
+      const next = state.settings.agents?.quickPhrases ?? [];
+      if (next === lastPhrases) return;
+      lastPhrases = next;
+      this.agentRolePicker.refresh();
+    });
+  }
+
+  /** 常用语 → composer 注入 prompt: 覆盖输入框 + 持久化 draft + 重置历史游标。 */
+  private injectQuickPhrasePrompt(text: string): void {
+    this.composerController.setHistoryValue(text, { persistDraft: true });
+    this.composerController.resetHistoryNavigation();
+    this.composerController.updateMultiLineState();
+    this.input.focus();
+  }
+
+  /** 打开偏好设置, 跳到「工具」tab ── 弹窗内「添加常用语」按钮使用。 */
+  private openPreferencesForQuickPhrases(): void | Promise<void> {
+    return windows.openPreferences("tools");
   }
 
   private scheduleAccessPopoverPosition(): void {
@@ -1156,6 +1190,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     );
     this.setAccessPopoverOpen(false);
     this.setCodexSettingsPopoverOpen(false);
+    this.unsubscribeQuickPhrases?.();
+    this.unsubscribeQuickPhrases = null;
     this.dom.removeEventListener("mousedown", this.boundHandleCardMouseDown);
     this.chrome.dispose();
     document.removeEventListener(

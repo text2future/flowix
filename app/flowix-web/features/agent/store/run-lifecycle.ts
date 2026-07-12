@@ -1,6 +1,14 @@
 import type { AgentEvent, AgentRunState, StatusInfo, UsageInfo } from '@/types/agent';
 import type { LastRunSnapshot } from '@/types/agent';
 
+/**
+ * Reason string the backend attaches to `StreamEnd` when `stop_chat` ends a
+ * run (see `external_runtime::shared::USER_STOPPED_REASON`). Must map to
+ * `cancelled` ── a user-initiated stop is never `failed` or `completed`.
+ * Kept in sync with the Rust literal by name + value.
+ */
+export const USER_STOPPED_REASON = 'user_stopped';
+
 export interface RunLifecycleThreadState {
   isLoading: boolean;
   activeRunId: string | null;
@@ -240,11 +248,13 @@ export function applyRunEnded<T extends RunLifecycleThreadState>(
   // 之前用 `existingStatus === 'cancelled' ? 'cancelled' : 'failed'` 把
   // 成功 run 也写成 `'failed'`,导致 `lastRun.status` 与 `instance.run.status`
   // 在成功路径上发散。BadgeHoverCard / 状态栏读 lastRun 时永远看到 'failed'。
-  const status: AgentRunState['status'] = existingStatus === 'cancelled'
-    ? 'cancelled'
-    : event.reason
-      ? 'failed'
-      : 'completed';
+  const isUserStop = event.reason === USER_STOPPED_REASON;
+  const status: AgentRunState['status'] =
+    existingStatus === 'cancelled' || isUserStop
+      ? 'cancelled'
+      : event.reason
+        ? 'failed'
+        : 'completed';
   // 通用 metadata 协议 ── 准备最终 lastRun 快照。
   // - 优先用 runs[runId](保留 usage / model 等累加结果)
   // - 找不到时用上一轮 lastRun 兜底(stream_end 早于 run 创建等边角场景)

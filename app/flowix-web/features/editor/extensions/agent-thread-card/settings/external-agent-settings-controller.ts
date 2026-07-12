@@ -19,6 +19,8 @@ import {
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
 import { useChatStore } from "@features/agent/store/chat-store";
+import { useMemoStore } from "@features/memo/store/memo-store";
+import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 import { agent } from "@platform/tauri/client";
 import {
   applyPopoverPosition,
@@ -580,88 +582,52 @@ export class ExternalAgentSettingsController {
   }
 
   private getFilesControlLabel(): string {
-    const accessEntries = useAgentAccessStore.getState().config.entries;
+    // label 与运行时 cwd 用同一段 cascade ── 见 primary-workspace.ts 的
+    // `resolvePrimaryWorkspace`。 这条 cascade 把"用户在本 thread 显式配
+    // 的值"放在最前面 (instance.*), 全局信息只作为"默认不配置时"的兜底。
     const instanceId = this.getInstanceId();
     const instanceFiles = instanceId
       ? useAgentConversationStore.getState().instances[instanceId]
           ?.runtimeConfig?.files
       : undefined;
+    const accessEntries = useAgentAccessStore.getState().config.entries;
+    const cwd = (useMemoStore.getState().selectedNotebook as
+      | { path?: string }
+      | null
+      | undefined)?.path;
 
-    // 兜底链 ── 与下拉展示的"主空间"对齐: 下拉标三角的是 `entry.workspace=true`
-    // (用户点 avatar 设的全局主空间)。 默认态先看这条 entry, 不再用
-    // `instanceFiles.folders[0]` 兜底 ── 之前会让 per-thread 路径与全局
-    // workspace 不一致时默认态显示 Y、下拉标 X, 看起来"工作空间文件夹"对不上。
-    //
-    //   1. `entry.workspace=true` ── 与下拉三角同步, 视觉一致
-    //   2. `instanceFiles.workspace` ── 用户在弹窗显式设的 per-thread workspace
-    //   3. `instanceFiles.folders[0]` / `notebooks[0]` ── 用户在本卡勾选的
-    //   4. 全局第一个 enabled folder
-    //   5. 空态文案
-    const labelFor = (entry: { name?: string; path: string }): string => {
-      const explicitName = entry.name?.trim();
+    const resolved = resolvePrimaryWorkspace({
+      instanceFiles: instanceFiles ?? undefined,
+      globalEntries: accessEntries,
+      cwd,
+    });
+
+    this.lastFilesControlSource = resolved.kind;
+    return this.renderLabelFromResolved(resolved);
+  }
+
+  /**
+   * 把 resolvePrimaryWorkspace 的 source 翻译成按钮文案。
+   * path 优先匹配全局 entry.name, 找不到就拿 last segment, 最后才
+   * 落到空态文案。
+   */
+  private renderLabelFromResolved(
+    resolved: ReturnType<typeof resolvePrimaryWorkspace>,
+  ): string {
+    if (resolved.kind === "empty") {
+      return this.t("agent.access.empty.empty");
+    }
+    const accessEntries = useAgentAccessStore.getState().config.entries;
+    const matched = accessEntries.find(
+      (entry) => entry.path === resolved.path && !entry.missing,
+    );
+    if (matched) {
+      const explicitName = matched.name?.trim();
       if (explicitName) return explicitName;
-      const segments = entry.path.split(/[\\/]+/).filter(Boolean);
-      const folderName = segments[segments.length - 1]?.trim();
-      return folderName ? folderName : this.t("agent.access.empty.empty");
-    };
-    const findByPath = (path: string) =>
-      accessEntries.find(
-        (entry) => entry.path === path && !entry.missing,
-      );
-
-    // 1. 全局主空间 ── 与下拉标三角的 entry 保持同步。
-    const globalWorkspace = accessEntries.find(
-      (entry) => entry.workspace && !entry.missing,
-    );
-    if (globalWorkspace) return labelFor(globalWorkspace);
-
-    // 2. per-thread workspace ── 可能在全局标志被清掉之后残留, 这里仍按
-    // path 找匹配的 entry, 找不到就用 cwd 兜底 (last segment)。
-    if (instanceFiles?.workspace) {
-      const matched = findByPath(instanceFiles.workspace);
-      if (matched) return labelFor(matched);
-      const fallback = instanceFiles.workspace
-        .split(/[\\/]+/)
-        .filter(Boolean)
-        .pop()
-        ?.trim();
-      if (fallback) return fallback;
     }
-
-    // 3. per-thread folders[0] ── 用户在本卡勾选的第一个 folder。
-    if (instanceFiles?.folders[0]) {
-      const matched = findByPath(instanceFiles.folders[0]);
-      if (matched) return labelFor(matched);
-      const fallback = instanceFiles.folders[0]
-        .split(/[\\/]+/)
-        .filter(Boolean)
-        .pop()
-        ?.trim();
-      if (fallback) return fallback;
-    }
-
-    // 4. per-thread notebooks[0] ── 同上, notebook 维度。
-    if (instanceFiles?.notebooks[0]) {
-      const matched = findByPath(instanceFiles.notebooks[0]);
-      if (matched) return labelFor(matched);
-      const fallback = instanceFiles.notebooks[0]
-        .split(/[\\/]+/)
-        .filter(Boolean)
-        .pop()
-        ?.trim();
-      if (fallback) return fallback;
-    }
-
-    // 5. 全局第一个 enabled folder ── entry.workspace 已在上方兜底, 这里
-    // 只兜 entry.workspace=false 但 enabled=true 的 folder (用户在偏好里
-    // 设的 enabled 但没升主空间的目录)。
-    const firstEnabled = accessEntries.find(
-      (entry) => entry.enabled && !entry.missing,
-    );
-    if (firstEnabled) return labelFor(firstEnabled);
-
-    // 6. 都没有 ── 显示空态文案。
-    return this.t("agent.access.empty.empty");
+    const segments = resolved.path.split(/[\\/]+/).filter(Boolean);
+    const last = segments[segments.length - 1]?.trim();
+    return last || this.t("agent.access.empty.empty");
   }
 
   private supportsRuntimeSetting(kind: AgentRuntimeSettingKind): boolean {

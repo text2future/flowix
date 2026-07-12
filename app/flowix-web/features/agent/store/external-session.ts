@@ -1,6 +1,9 @@
-import type { AgentChunk, ChatMessage } from '@/types/agent';
+import type { AgentChunk } from '@/types/agent';
 import type { AgentTypeKey } from '@/types/agent';
-import type { ThreadState } from '@features/agent/store/chat-store';
+import {
+  emptyThreadState,
+  type ThreadState,
+} from '@features/agent/store/thread-runtime-state';
 
 export type ExternalSessionThreadStates = Record<string, ThreadState>;
 
@@ -33,19 +36,22 @@ export function resolveExternalChunkAgentType(
   return chunk.agent_type ?? threadTypes[sourceThreadId] ?? threadTypes[targetThreadId];
 }
 
+/**
+ * Runtime-only session migration ── chat-store.threadStates 层面的
+ * local → canonical session id 合并: threadTypes / externalSessionResolutions
+ * 都同步更新, 但 messages 走 conversation store. 这条 helper 是 chat-store
+ * 唯一允许把 runtime 状态从 local id 合并到 session id 的入口 ── 同时被
+ * session_resolved chunk / backend snapshot / Thread Card cache resolve
+ * 三条路径共享, 避免重复实现。
+ */
 export function applyExternalSessionResolved(
   state: ExternalSessionStateInput,
   localThreadId: string,
   sessionId: string,
   agentType: AgentTypeKey,
-  mergeMessages: (existing: ChatMessage[], incoming: ChatMessage[]) => ChatMessage[],
-  emptyThreadState: () => ThreadState
 ): ExternalSessionResolvedState {
   const fromState = state.threadStates[localThreadId] ?? emptyThreadState();
   const toState = state.threadStates[sessionId] ?? emptyThreadState();
-  const messages = fromState.messages.length > 0
-    ? mergeMessages(toState.messages, fromState.messages)
-    : toState.messages;
 
   return {
     threadTypes: {
@@ -61,12 +67,9 @@ export function applyExternalSessionResolved(
       ...state.threadStates,
       [sessionId]: {
         ...toState,
-        messages,
         isLoading: toState.isLoading || fromState.isLoading,
         activeRunId: toState.activeRunId ?? fromState.activeRunId,
         runs: { ...toState.runs, ...fromState.runs },
-        pendingAssistantId: toState.pendingAssistantId ?? fromState.pendingAssistantId,
-        pendingReasoningId: toState.pendingReasoningId ?? fromState.pendingReasoningId,
         oldestSequence: toState.oldestSequence ?? fromState.oldestSequence,
         hasMoreHistory: toState.hasMoreHistory || fromState.hasMoreHistory,
         loadingMore: toState.loadingMore || fromState.loadingMore,

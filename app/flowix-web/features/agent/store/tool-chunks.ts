@@ -1,7 +1,9 @@
 import type { ChatMessage } from "@/types";
 import type { AgentTypeKey } from "@/types/agent";
-import type { ThreadState } from "@features/agent/store/chat-store";
-import type { ApplyResult } from "@features/agent/store/chunk-result";
+import type {
+  ApplyResult,
+  LiveMessageState,
+} from "@features/agent/store/chunk-result";
 import {
   createAgentToolDisplay,
   normalizeToolInput,
@@ -21,7 +23,7 @@ import {
  * 否则用 createAgentToolDisplay(...) 兜底。
  */
 export function applyToolCallChunk(
-  st: ThreadState,
+  st: LiveMessageState,
   id: string,
   name: string,
   input: unknown,
@@ -61,7 +63,7 @@ export function applyToolCallChunk(
  * 类型直接 stringify。所有展示文本超限截断 + 标 truncation。
  */
 export function applyToolResultChunk(
-  st: ThreadState,
+  st: LiveMessageState,
   id: string,
   name: string,
   result: unknown,

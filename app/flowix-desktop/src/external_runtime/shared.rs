@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -21,7 +22,6 @@ pub struct ExternalRunRegistry {
     agent_type: &'static str,
     current_tool: &'static str,
     children: Arc<Mutex<HashMap<String, ExternalRunningChild>>>,
-    watchdog_finalized: Arc<Mutex<HashSet<String>>>,
 }
 
 pub struct ExternalRunningChild {
@@ -30,6 +30,16 @@ pub struct ExternalRunningChild {
     pub last_event_at: i64,
     pub run_id: Option<String>,
     pub session_id: Option<String>,
+    /// Shared one-shot flag between the streaming task that spawned this child
+    /// and anyone that may end the run out-of-band (`stop_chat`, the idle
+    /// watchdog). Whoever wins the `compare_exchange(false → true)` race is
+    /// the sole emitter of `AgentChunk::StreamEnd`; every other path sees the
+    /// flag set and skips. This is the *only* "StreamEnd already emitted"
+    /// mechanism ── there is no parallel bool. It lets `stop_chat` /
+    /// watchdog converge the UI immediately instead of waiting on the
+    /// streaming task to notice the child died (which can hang when
+    /// grandchildren still hold the stdout write end).
+    pub stream_end_emitted: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug)]
@@ -45,11 +55,16 @@ impl ExternalRunRegistry {
             agent_type,
             current_tool,
             children: Arc::new(Mutex::new(HashMap::new())),
-            watchdog_finalized: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
-    pub async fn insert(&self, thread_id: String, child: Child, run_id: Option<String>) {
+    pub async fn insert(
+        &self,
+        thread_id: String,
+        child: Child,
+        run_id: Option<String>,
+        stream_end_emitted: Arc<AtomicBool>,
+    ) {
         let mut children = self.children.lock().await;
         let now = chrono::Utc::now().timestamp_millis();
         children.insert(
@@ -60,6 +75,7 @@ impl ExternalRunRegistry {
                 last_event_at: now,
                 run_id,
                 session_id: None,
+                stream_end_emitted,
             },
         );
     }
@@ -69,6 +85,7 @@ impl ExternalRunRegistry {
         thread_id: String,
         child: Child,
         run_id: Option<String>,
+        stream_end_emitted: Arc<AtomicBool>,
     ) -> Result<(), Child> {
         let mut children = self.children.lock().await;
         if children.contains_key(&thread_id) {
@@ -83,6 +100,7 @@ impl ExternalRunRegistry {
                 last_event_at: now,
                 run_id,
                 session_id: None,
+                stream_end_emitted,
             },
         );
         Ok(())
@@ -114,13 +132,6 @@ impl ExternalRunRegistry {
         }
         running.session_id = Some(session_id);
         running.last_event_at = chrono::Utc::now().timestamp_millis();
-    }
-
-    pub async fn take_watchdog_finalized(&self, thread_id: &str, run_id: Option<&str>) -> bool {
-        self.watchdog_finalized
-            .lock()
-            .await
-            .remove(&watchdog_key(thread_id, run_id))
     }
 
     pub async fn remove(&self, thread_id: &str) -> Option<ExternalRunningChild> {
@@ -263,6 +274,15 @@ impl ExternalRunRegistry {
                     Decision::Keep | Decision::Missing => {}
                     Decision::Exited(success, status) => {
                         if let Some(running) = children.remove(&thread_id) {
+                            // 在锁内、kill 之前抢 StreamEnd slot ── 若 tail /
+                            // stop_chat 已先发过 (Exited: child 已死, tail 可能已
+                            // 观察到 EOF 并 CAS), 跳过本 run, 不双发也不覆盖。
+                            // Idle: child 还活着, tail 必然还阻塞在 read, 这里
+                            // 确定性赢, 避免杀进程后 tail 抢赢导致 idle-timeout
+                            // reason + persist 丢失。
+                            if !claim_stream_end_once(&running.stream_end_emitted) {
+                                continue;
+                            }
                             let reason = (!success).then(|| format!("process_exited: {status}"));
                             finalized.push(ExternalWatchdogFinalizedRun {
                                 thread_id,
@@ -273,6 +293,9 @@ impl ExternalRunRegistry {
                     }
                     Decision::InspectFailed(err) => {
                         if let Some(running) = children.remove(&thread_id) {
+                            if !claim_stream_end_once(&running.stream_end_emitted) {
+                                continue;
+                            }
                             finalized.push(ExternalWatchdogFinalizedRun {
                                 thread_id,
                                 run_id: running.run_id,
@@ -282,6 +305,9 @@ impl ExternalRunRegistry {
                     }
                     Decision::Idle => {
                         if let Some(running) = children.remove(&thread_id) {
+                            if !claim_stream_end_once(&running.stream_end_emitted) {
+                                continue;
+                            }
                             idle_children.push((thread_id, running));
                         }
                     }
@@ -296,13 +322,6 @@ impl ExternalRunRegistry {
                 run_id: running.run_id,
                 reason: Some(format!("watchdog_idle_timeout_ms={idle_timeout_ms}")),
             });
-        }
-
-        if !finalized.is_empty() {
-            let mut finalized_keys = self.watchdog_finalized.lock().await;
-            for run in &finalized {
-                finalized_keys.insert(watchdog_key(&run.thread_id, run.run_id.as_deref()));
-            }
         }
 
         finalized
@@ -330,13 +349,6 @@ impl ExternalRunRegistry {
                 )
             })
             .collect()
-    }
-}
-
-fn watchdog_key(thread_id: &str, run_id: Option<&str>) -> String {
-    match run_id {
-        Some(run_id) => format!("{thread_id}\0{run_id}"),
-        None => format!("{thread_id}\0"),
     }
 }
 
@@ -417,6 +429,59 @@ pub fn emit_chunk_with_run_id(
             agent_type = agent_type,
             "emit agent-chunk failed"
         );
+    }
+}
+
+/// Reason string `stop_chat` attaches to its `StreamEnd`. The frontend
+/// (`run-lifecycle::USER_STOPPED_REASON`) maps this to `cancelled` status ──
+/// a user-initiated stop is never `failed` / `completed`. Kept in sync by name
+/// + value; changing one side without the other breaks the status mapping.
+pub const USER_STOPPED_REASON: &str = "user_stopped";
+
+/// Atomically claim the "StreamEnd has been emitted" slot for a run. First
+/// caller wins (`true`); everyone else (`stop_chat`, streaming tail, watchdog)
+/// gets `false` and must skip. This is the single chokepoint that prevents
+/// double `StreamEnd` ── there is no parallel "already emitted" bool.
+pub fn claim_stream_end_once(stream_end_emitted: &Arc<AtomicBool>) -> bool {
+    stream_end_emitted
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
+
+/// Claim the slot via [`claim_stream_end_once`] and, on a win, emit
+/// `AgentChunk::StreamEnd`. Returns whether this caller emitted.
+///
+/// Callers:
+///   * `*CliManager::stop_chat` ── reason `Some(USER_STOPPED_REASON)`
+///   * the streaming `tokio::spawn` tail ── reason `None` (clean) or the run error
+///
+/// The idle watchdog does NOT use this ── it must emit an `Error` chunk
+/// *before* `StreamEnd`, and it must claim *before* killing the child (else
+/// the tail can race ahead and emit a bare `completed`). So `reap_inactive`
+/// calls [`claim_stream_end_once`] directly under the children lock (before
+/// `kill_child_tree`), and `reap_inactive_runs` then emits `Error` +
+/// `StreamEnd` + persist for the runs that won the claim.
+pub fn emit_stream_end_once(
+    app_handle: &tauri::AppHandle,
+    thread_id: &str,
+    run_id: &str,
+    agent_type: &'static str,
+    reason: Option<String>,
+    stream_end_emitted: &Arc<AtomicBool>,
+) -> bool {
+    if claim_stream_end_once(stream_end_emitted) {
+        emit_chunk_with_run_id(
+            app_handle,
+            &AgentChunk::StreamEnd {
+                thread_id: thread_id.to_string(),
+                reason,
+            },
+            agent_type,
+            run_id,
+        );
+        true
+    } else {
+        false
     }
 }
 
@@ -587,6 +652,53 @@ mod tests {
         assert_eq!(registry.current_tool, "codex");
     }
 
+    /// `stream_end_emitted` 是 `stop_chat` / 流式任务 tail / watchdog 三方共享
+    /// 的"StreamEnd 已发"哨兵 ── 各持一份 Arc clone, 谁先 CAS(false -> true) 谁负责
+    /// 发, 另两方 CAS 失败而 skip。这条测试钉死该不变量: 注册时塞进去的 flag
+    /// 与调用方手里那份是同一个 AtomicBool, 且只有一次 CAS 能赢。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stream_end_emitted_flag_is_shared_and_oneshot() {
+        use std::sync::atomic::Ordering;
+
+        let registry = ExternalRunRegistry::new("codex", "codex");
+        let stream_end_emitted = Arc::new(AtomicBool::new(false));
+        let caller_clone = stream_end_emitted.clone();
+
+        let child = tokio::process::Command::new("true")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn `true`");
+        registry
+            .insert(
+                "t".to_string(),
+                child,
+                Some("run-1".to_string()),
+                stream_end_emitted,
+            )
+            .await;
+
+        // stop_chat 路径: 从 registry 抢出 entry, 用 entry 里的 flag CAS。
+        let running = registry.remove("t").await.expect("running entry exists");
+        let stop_won = running
+            .stream_end_emitted
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
+
+        // 流式任务 tail 路径: 用调用方手里的 clone 再 CAS, 必须失败。
+        let tail_won = caller_clone
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
+
+        assert!(stop_won, "stop_chat should win the CAS");
+        assert!(!tail_won, "streaming tail must skip after stop_chat won");
+        assert!(
+            caller_clone.load(Ordering::SeqCst),
+            "flag must be visible as true to the tail clone"
+        );
+    }
+
     #[test]
     fn resolve_run_id_prefers_frontend_run_id() {
         assert_eq!(
@@ -639,7 +751,12 @@ mod tests {
             .spawn()
             .expect("spawn `true`");
         registry
-            .insert("t".to_string(), child, Some("run-1".to_string()))
+            .insert(
+                "t".to_string(),
+                child,
+                Some("run-1".to_string()),
+                Arc::new(AtomicBool::new(false)),
+            )
             .await;
         // Give the kernel a moment to actually reap the process. Without
         // this, try_wait can still return Ok(None) on slow runners.

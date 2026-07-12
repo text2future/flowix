@@ -99,6 +99,16 @@ export interface FilesConfig {
   folders: string[];
   /** 笔记本路径列表 (path 数组, 与 agent-access-store 同语义) */
   notebooks: string[];
+  /**
+   * 标记 "此 instance 已经发出过首条消息" 的内嵌位 ── 烧录成功后由
+   * `agent-conversation-store.lockInstanceFileSeed()` 设置为 true, 之后
+   * `buildInitialInstanceRuntimeConfig()` 不会再用冻结前的暂存或全局
+   * 兜底链覆盖这个 instance 的 files, "上次设的偏好" 已经转成只读真值。
+   *
+   * 字段仅在 JS 层用, 序列化到 backend snapshot 时跟着 files 一起落 SQLite
+   * (`runtimeConfig` 走 JSON.stringify), 不需要 backend schema 升级。
+   */
+  _frozen?: boolean;
 }
 
 export interface RuntimeConfig {

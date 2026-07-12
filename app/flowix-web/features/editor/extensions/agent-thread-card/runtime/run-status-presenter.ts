@@ -33,53 +33,59 @@ export function computeAgentThreadCardBadgeData(options: {
   let usage: UsageInfo | undefined;
   let statusInfo: StatusInfo | undefined;
 
+  if (conversationRun) {
+    if (conversationRun.model) model = conversationRun.model;
+    if (conversationRun.usage?.total_tokens != null) {
+      totalTokens = conversationRun.usage.total_tokens;
+    }
+    if (conversationRun.usage) usage = conversationRun.usage;
+    if (conversationRun.statusInfo) statusInfo = conversationRun.statusInfo;
+    lastRunAt = getConversationRunLastRunAt(conversationRun);
+  }
+
   const snapshot = threadState?.lastRun;
-  if (snapshot) {
-    if (snapshot.model) model = snapshot.model;
-    if (snapshot.status !== "running" && snapshot.usage) {
+  if (!conversationRun && snapshot) {
+    if (!model && snapshot.model) model = snapshot.model;
+    if (totalTokens === undefined && snapshot.status !== "running" && snapshot.usage) {
       totalTokens = snapshot.usage.total_tokens ?? undefined;
+    }
+    if (!usage && snapshot.status !== "running" && snapshot.usage) {
       usage = snapshot.usage;
     }
-    if (snapshot.statusInfo) statusInfo = snapshot.statusInfo;
-    lastRunAt = snapshot.lastRunAt ?? snapshot.endedAt ?? snapshot.startedAt;
-  }
-
-  if (!snapshot && threadState?.activeRunId && threadState.runs[threadState.activeRunId]) {
-    const run = threadState.runs[threadState.activeRunId];
-    if (run.model) model = run.model;
-    if (run.status !== "running" && run.usage) {
-      totalTokens = run.usage.total_tokens ?? undefined;
-      usage = run.usage;
+    if (!statusInfo && snapshot.statusInfo) statusInfo = snapshot.statusInfo;
+    if (lastRunAt === undefined) {
+      lastRunAt = snapshot.lastRunAt ?? snapshot.endedAt ?? snapshot.startedAt;
     }
-    if (run.statusInfo) statusInfo = run.statusInfo;
-    lastRunAt = run.lastRunAt ?? run.endedAt ?? run.startedAt;
   }
 
-  if (!snapshot && lastRunAt === undefined) {
+  if (!conversationRun && !snapshot && threadState?.activeRunId && threadState.runs[threadState.activeRunId]) {
+    const run = threadState.runs[threadState.activeRunId];
+    if (!model && run.model) model = run.model;
+    if (totalTokens === undefined && run.status !== "running" && run.usage) {
+      totalTokens = run.usage.total_tokens ?? undefined;
+    }
+    if (!usage && run.status !== "running" && run.usage) usage = run.usage;
+    if (!statusInfo && run.statusInfo) statusInfo = run.statusInfo;
+    if (lastRunAt === undefined) {
+      lastRunAt = run.lastRunAt ?? run.endedAt ?? run.startedAt;
+    }
+  }
+
+  if (!conversationRun && !snapshot && lastRunAt === undefined) {
     const runs = Object.values(threadState?.runs ?? {});
     if (runs.length > 0) {
       const latest = runs.reduce((acc, run) =>
         run.startedAt > acc.startedAt ? run : acc,
       );
-      if (latest.model) model = latest.model;
-      if (latest.status !== "running" && latest.usage) {
+      if (!model && latest.model) model = latest.model;
+      if (totalTokens === undefined && latest.status !== "running" && latest.usage) {
         totalTokens = latest.usage.total_tokens ?? undefined;
-        usage = latest.usage;
       }
-      if (latest.statusInfo) statusInfo = latest.statusInfo;
-      lastRunAt = latest.lastRunAt ?? latest.endedAt ?? latest.startedAt;
-    }
-  }
-
-  if (conversationRun) {
-    if (!model && conversationRun.model) model = conversationRun.model;
-    if (totalTokens === undefined && conversationRun.usage?.total_tokens != null) {
-      totalTokens = conversationRun.usage.total_tokens;
-    }
-    if (!usage && conversationRun.usage) usage = conversationRun.usage;
-    if (!statusInfo && conversationRun.statusInfo) statusInfo = conversationRun.statusInfo;
-    if (lastRunAt === undefined) {
-      lastRunAt = getConversationRunLastRunAt(conversationRun);
+      if (!usage && latest.status !== "running" && latest.usage) usage = latest.usage;
+      if (!statusInfo && latest.statusInfo) statusInfo = latest.statusInfo;
+      if (lastRunAt === undefined) {
+        lastRunAt = latest.lastRunAt ?? latest.endedAt ?? latest.startedAt;
+      }
     }
   }
 

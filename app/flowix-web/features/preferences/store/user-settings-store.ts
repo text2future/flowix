@@ -4,11 +4,14 @@ import {
   DEFAULT_USER_SETTINGS,
   type AgentsConfig,
   FONT_FAMILY_OPTIONS,
+  MAX_QUICK_PHRASE_PROMPT_LENGTH,
+  MAX_QUICK_PHRASE_TITLE_LENGTH,
   type PersonalizeConfig,
   type FormatConfig,
   type MemoCardVariant,
   type ProductUpdatesConfig,
   type PropertiesConfig,
+  type QuickPhrase,
   type UserSettings,
 } from '@/lib/constants';
 import { sanitizeTheme, type ThemeId } from '@features/theme';
@@ -116,6 +119,9 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
         ...base.agents.enabledByType,
         ...(updates.agents?.enabledByType ?? {}),
       },
+      // quickPhrases 整体替换 —— 与 properties.fields 同款, 避免外部传入时
+      // 仅 patch 部分项导致 sanitize 后顺序错乱。
+      quickPhrases: updates.agents?.quickPhrases ?? base.agents.quickPhrases,
     },
     productUpdates: {
       ...base.productUpdates,
@@ -152,10 +158,24 @@ function sanitizeAgentsConfig(agents: AgentsConfig | undefined): AgentsConfig {
     agents?.enabledByType && typeof agents.enabledByType === 'object'
       ? agents.enabledByType
       : {};
+  const rawPhrases = Array.isArray(agents?.quickPhrases) ? agents!.quickPhrases : [];
+  const seen = new Set<string>();
+  const quickPhrases: QuickPhrase[] = [];
+  for (const item of rawPhrases) {
+    const id = typeof item?.id === 'string' && item.id ? item.id : crypto.randomUUID();
+    const title = String(item?.title ?? '').trim().slice(0, MAX_QUICK_PHRASE_TITLE_LENGTH);
+    const prompt = String(item?.prompt ?? '').trim().slice(0, MAX_QUICK_PHRASE_PROMPT_LENGTH);
+    // 双字段必须都配齐 → 整条丢弃, 不让「半成品」污染弹窗。
+    if (!title || !prompt) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    quickPhrases.push({ id, title, prompt });
+  }
   return {
     enabledByType: Object.fromEntries(
       Object.entries(enabledByType).filter(([, value]) => typeof value === 'boolean'),
     ),
+    quickPhrases,
   };
 }
 

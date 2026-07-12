@@ -3,6 +3,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 import type { ChatMessage } from "@/types";
 import type {
   AgentTypeKey,
+  FilesConfig,
   RuntimeConfig,
   RuntimeConfigPatch,
   StatusInfo,
@@ -13,6 +14,7 @@ import type {
 } from "@platform/tauri/client";
 import { stripSystemBlock } from "@features/agent/message";
 import { agentClient } from "@features/agent/store/agent-client";
+import type { LiveMessageState } from "@features/agent/store/chunk-result";
 import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import {
   filterRenderableHistoryMessages,
@@ -65,8 +67,7 @@ export interface AgentConversationInstance {
   updatedAt: number;
 }
 
-export interface AgentConversationMessageState {
-  messages: ChatMessage[];
+export interface AgentConversationMessageState extends LiveMessageState {
   oldestSequence: number | null;
   hasMoreHistory: boolean;
   loadingInitial: boolean;
@@ -146,6 +147,11 @@ export interface AgentConversationStore {
     threadId: string,
     messages: ChatMessage[],
   ) => void;
+  syncLiveMessageState: (
+    agentType: AgentTypeKey,
+    threadId: string,
+    liveState: LiveMessageState,
+  ) => void;
   loadMessages: (agentType: AgentTypeKey, threadId: string) => Promise<void>;
   loadMoreMessages: (agentType: AgentTypeKey, threadId: string) => Promise<void>;
 }
@@ -168,6 +174,8 @@ function matchesThread(instance: AgentConversationInstance, threadId: string): b
 function emptyMessageState(): AgentConversationMessageState {
   return {
     messages: [],
+    pendingAssistantId: null,
+    pendingReasoningId: null,
     oldestSequence: null,
     hasMoreHistory: false,
     loadingInitial: false,
@@ -464,9 +472,21 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
         set((state) => {
           const existing = state.instances[instanceId];
           if (!existing) return state;
+          const mergedConfig = mergeRuntimeConfig(
+            existing.runtimeConfig,
+            patch,
+          );
+          // _frozen 是内部冻结标记, 不能被外部 patch 误删 ── 仅在 lockInstanceFileSeed
+          // 显式调用时设 true, 其它路径保持 sticky。
+          if (existing.runtimeConfig?.files?._frozen) {
+            mergedConfig.files = {
+              ...(mergedConfig.files ?? { folders: [], notebooks: [] }),
+              _frozen: true,
+            };
+          }
           nextInstance = touch({
             ...existing,
-            runtimeConfig: mergeRuntimeConfig(existing.runtimeConfig, patch),
+            runtimeConfig: mergedConfig,
           });
           return {
             instances: {
@@ -476,6 +496,37 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           };
         });
         if (nextInstance) persistInstance(nextInstance);
+      },
+
+      lockInstanceFileSeed: (instanceId) => {
+        let nextInstance: AgentConversationInstance | null = null;
+        set((state) => {
+          const existing = state.instances[instanceId];
+          if (!existing) return state;
+          const files = existing.runtimeConfig?.files;
+          if (!files) return state;
+          // 已经冻结过就不要无意义重写 ── 同一 thread 在 retry 路径下可能
+          // 第二次进 sendMessageToThread, 这里幂等。
+          if (files._frozen) return state;
+          nextInstance = touch({
+            ...existing,
+            runtimeConfig: {
+              ...existing.runtimeConfig,
+              files: {
+                ...files,
+                _frozen: true,
+              },
+            },
+          });
+          return {
+            instances: {
+              ...state.instances,
+              [instanceId]: nextInstance!,
+            },
+          };
+        });
+        if (nextInstance) persistInstance(nextInstance);
+        return nextInstance;
       },
 
       getInstance: (instanceId) =>
@@ -691,11 +742,12 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
 
       resolveSessionByThreadId: (localThreadId, sessionId, agentType) => {
         const instance = get().findByThreadId(localThreadId);
-        if (!instance) return null;
-        get().updateThread(instance.instanceId, {
-          agentType,
-          threadId: sessionId,
-        });
+        if (instance) {
+          get().updateThread(instance.instanceId, {
+            agentType,
+            threadId: sessionId,
+          });
+        }
         set((state) => {
           const localMessages = state.messageStates[localThreadId];
           if (!localMessages) return state;
@@ -711,6 +763,10 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
                   localMessages.messages,
                   agentType,
                 ),
+                pendingAssistantId:
+                  existing.pendingAssistantId ?? localMessages.pendingAssistantId,
+                pendingReasoningId:
+                  existing.pendingReasoningId ?? localMessages.pendingReasoningId,
                 oldestSequence: existing.oldestSequence ?? localMessages.oldestSequence,
                 hasMoreHistory:
                   existing.hasMoreHistory || localMessages.hasMoreHistory,
@@ -721,7 +777,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
             },
           };
         });
-        return instance.instanceId;
+        return instance?.instanceId ?? null;
       },
 
       findByThreadId: (threadId) =>
@@ -777,6 +833,39 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
               [threadId]: {
                 ...current,
                 messages: merged,
+              },
+            },
+          };
+        });
+      },
+
+      syncLiveMessageState: (agentType, threadId, liveState) => {
+        const renderable = filterRenderableHistoryMessages(liveState.messages);
+        set((state) => {
+          const current = state.messageStates[threadId] ?? emptyMessageState();
+          const merged =
+            renderable.length > 0
+              ? mergeLiveMessagesIntoRenderableMessages(
+                  current.messages,
+                  renderable,
+                  agentType,
+                )
+              : current.messages;
+          if (
+            merged === current.messages &&
+            current.pendingAssistantId === liveState.pendingAssistantId &&
+            current.pendingReasoningId === liveState.pendingReasoningId
+          ) {
+            return state;
+          }
+          return {
+            messageStates: {
+              ...state.messageStates,
+              [threadId]: {
+                ...current,
+                messages: merged,
+                pendingAssistantId: liveState.pendingAssistantId,
+                pendingReasoningId: liveState.pendingReasoningId,
               },
             },
           };
@@ -945,4 +1034,42 @@ export function selectRunningAgentConversationThreadIds(
     if (instance.threadId) threadIds.add(instance.threadId);
   }
   return Array.from(threadIds);
+}
+
+/**
+ * "上次设过的偏好" 快照 ── 新建 instance 时 `buildInitialInstanceRuntimeConfig`
+ * 同步读它作为 workspace 种子的来源:
+ *   - 找最近一个 `runtimeConfig.files._frozen === true` 的 instance (按 updatedAt 倒序)
+ *   - 只挑出 files.workspace / .folders / .notebooks 这三个字段, 不掺杂
+ *     model / access / reasoning 等其它字段
+ *   - 找不到冻结 instance 时返回 null, 上游 cascade 退到 selectedNotebook +
+ *     agent-access-store firstEnabledFolder 兜底
+ *
+ * 意图: 用户在 instance A 上调整主空间/folder 列表后, 还没发消息之前这些值
+ * 不能落到全局 `useAgentAccessStore`, 但下一条 instance B 应当能感知到 --
+ * 否则 B 重新走 buildInitialInstanceRuntimeConfig 就只能用 cascade 兜底
+ * (很可能拿到 selectedNotebook 这种"全局"值), 与 A 用户的本意不一致。
+ */
+export function selectLatestFrozenFileSeed(
+  state: Pick<AgentConversationStore, "instances">,
+): FilesConfig | null {
+  let best: AgentConversationInstance | null = null;
+  for (const id of Object.keys(state.instances)) {
+    const instance = state.instances[id];
+    if (!instance) continue;
+    if (!instance.runtimeConfig?.files?._frozen) continue;
+    if (best === null || instance.updatedAt > best.updatedAt) {
+      best = instance;
+    }
+  }
+  if (!best) return null;
+  const files = best.runtimeConfig?.files;
+  if (!files) return null;
+  // 剥出 cwd 决策必需的三个字段, _frozen 标记本身不再传递 ── 接收端新建
+  // instance 时不应该是 frozen 状态, 必须由首条 send 时再次 lock。
+  return {
+    workspace: files.workspace,
+    folders: files.folders,
+    notebooks: files.notebooks,
+  };
 }

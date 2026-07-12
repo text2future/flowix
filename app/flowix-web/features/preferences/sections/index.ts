@@ -10,6 +10,7 @@ export { TemplatesSection } from '@features/preferences/sections/templates';
 export { DocumentPropertiesSection } from '@features/preferences/sections/document-properties';
 export { AgentSection } from '@features/preferences/sections/agent';
 export { AgentsSection } from '@features/preferences/sections/agents';
+export { QuickPhrasesSection } from '@features/preferences/sections/quick-phrases';
 export { ShortcutsSection } from '@features/preferences/sections/shortcuts';
 export { CliSection } from '@features/preferences/sections/cli';
 export { ConnectionsSection } from '@features/preferences/sections/connections';

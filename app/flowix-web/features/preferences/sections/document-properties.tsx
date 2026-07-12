@@ -218,6 +218,7 @@ export function DocumentPropertiesSection() {
                         tooltip={t('preferences.documentProperties.edit')}
                         aria-label={`${t('preferences.documentProperties.edit')} ${field.name}`}
                         onClick={() => startEdit(field)}
+                        className="rounded-lg"
                       >
                         <Pencil />
                       </Button>
@@ -228,7 +229,7 @@ export function DocumentPropertiesSection() {
                         tooltip={t('preferences.documentProperties.delete')}
                         aria-label={`${t('preferences.documentProperties.delete')} ${field.name}`}
                         onClick={() => void deleteField(field)}
-                        className="text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                        className="rounded-lg text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
                       >
                         <Trash2 />
                       </Button>

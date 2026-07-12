@@ -1,15 +1,17 @@
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::agent::{AgentChunk, AgentUserMessage};
 use crate::external_runtime::{
-    emit_chunk_with_run_id, kill_child_tree, persist_watchdog_finalized_run_state,
-    read_capped_line, resolve_run_id, select_external_session_for_runtime,
-    ExternalRunRegistry, MAX_STDOUT_LINE_BYTES,
+    emit_chunk_with_run_id, emit_stream_end_once, kill_child_tree,
+    persist_watchdog_finalized_run_state, read_capped_line, resolve_run_id,
+    select_external_session_for_runtime, ExternalRunRegistry, USER_STOPPED_REASON,
+    MAX_STDOUT_LINE_BYTES,
 };
 use crate::runtime_log;
 use crate::session::ThreadManager;
@@ -40,6 +42,8 @@ impl ClaudeCliManager {
         let app_handle = app_handle.clone();
         let manager = self.clone();
         let run_id = resolve_run_id(&thread_id, message.run_id.as_deref());
+        // 共享的"StreamEnd 已经 emit 出去没"标志 ── 见 CodexCliManager 同名注释。
+        let stream_end_emitted = Arc::new(AtomicBool::new(false));
 
         // Reap any zombie child (kill/oom/broken pipe leaves the registry
         // entry behind until the watchdog sweeps it) and refuse overlapping
@@ -67,11 +71,11 @@ impl ClaudeCliManager {
                 &run_id,
             );
 
-            let (reason, stream_end_emitted) = match manager
-                .run_claude(&thread_id, &run_id, message, &app_handle)
+            let reason = match manager
+                .run_claude(&thread_id, &run_id, message, &app_handle, stream_end_emitted.clone())
                 .await
             {
-                Ok(stream_end_emitted) => (None, stream_end_emitted),
+                Ok(()) => None,
                 Err(err) => {
                     emit_chunk_with_run_id(
                         &app_handle,
@@ -82,24 +86,31 @@ impl ClaudeCliManager {
                         AGENT_TYPE,
                         &run_id,
                     );
-                    (Some(err), false)
+                    Some(err)
                 }
             };
 
-            if !stream_end_emitted {
-                emit_chunk_with_run_id(
-                    &app_handle,
-                    &AgentChunk::StreamEnd { thread_id, reason },
-                    AGENT_TYPE,
-                    &run_id,
-                );
-            }
+            // 兜底 emit: 若 stop_chat / watchdog 还没替我们发过 StreamEnd,
+            // 由本路径补发; 否则 CAS 失败, 跳过避免重复。
+            emit_stream_end_once(
+                &app_handle,
+                &thread_id,
+                &run_id,
+                AGENT_TYPE,
+                reason,
+                &stream_end_emitted,
+            );
         });
 
         Ok(String::new())
     }
 
-    pub async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+    pub async fn stop_chat(
+        &self,
+        thread_id: &str,
+        run_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> bool {
         let mut running = match run_id {
             Some(rid) => self.runs.remove_if_run_id(thread_id, Some(rid)).await,
             None => self.runs.remove(thread_id).await,
@@ -130,6 +141,20 @@ impl ClaudeCliManager {
             return false;
         };
         kill_child_tree(&mut running.child, "ClaudeCli", thread_id).await;
+
+        let run_id_for_chunk = running
+            .run_id
+            .as_deref()
+            .unwrap_or(thread_id)
+            .to_string();
+        emit_stream_end_once(
+            app_handle,
+            thread_id,
+            &run_id_for_chunk,
+            AGENT_TYPE,
+            Some(USER_STOPPED_REASON.to_string()),
+            &running.stream_end_emitted,
+        );
         true
     }
 
@@ -148,6 +173,8 @@ impl ClaudeCliManager {
     ) -> usize {
         let finalized = self.runs.reap_inactive(idle_timeout_ms, "ClaudeCli").await;
         for run in &finalized {
+            // CAS 已在 `reap_inactive` 锁内抢过 ── 这里的 run 都是 watchdog 赢得
+            // slot 的, 直接发 Error + StreamEnd + persist, 不会双发。
             let run_id = run.run_id.as_deref().unwrap_or(run.thread_id.as_str());
             if let Some(reason) = run.reason.clone() {
                 emit_chunk_with_run_id(
@@ -180,7 +207,8 @@ impl ClaudeCliManager {
         run_id: &str,
         message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
-    ) -> Result<bool, String> {
+        stream_end_emitted: Arc<AtomicBool>,
+    ) -> Result<(), String> {
         let mapped_session_id = {
             let manager = self.thread_manager.read().await;
             manager
@@ -269,7 +297,12 @@ impl ClaudeCliManager {
 
         if let Err(mut duplicate_child) = self
             .runs
-            .try_insert(thread_id.to_string(), child, Some(run_id.to_string()))
+            .try_insert(
+                thread_id.to_string(),
+                child,
+                Some(run_id.to_string()),
+                stream_end_emitted,
+            )
             .await
         {
             let _ = duplicate_child.kill().await;
@@ -296,18 +329,13 @@ impl ClaudeCliManager {
         let status = if let Some(running) = child.as_mut() {
             running.child.wait().await.map_err(|e| e.to_string())?
         } else {
-            if self
-                .runs
-                .take_watchdog_finalized(thread_id, Some(run_id))
-                .await
-            {
-                return Ok(true);
-            }
+            // child 已被 stop_chat 或 watchdog 移走 ── 二者都已 CAS 抢发过
+            // StreamEnd, 这里直接返回, tail 的 CAS 会失败而 skip, 不双发。
             runtime_log::record_agent_event(
                 "warn",
                 "claude_process",
                 "claude.child_missing_after_run",
-                "Claude child was removed before wait; likely stopped by user",
+                "Claude child was removed before wait; likely stopped by user or watchdog",
                 Some(thread_id),
                 Some(AGENT_TYPE),
                 Some(serde_json::json!({
@@ -315,7 +343,7 @@ impl ClaudeCliManager {
                     "child_pid": child_pid,
                 })),
             );
-            return Ok(false);
+            return Ok(());
         };
 
         stdout_result?;
@@ -347,7 +375,7 @@ impl ClaudeCliManager {
         if !stderr_text.trim().is_empty() {
             tracing::info!("[ClaudeCli] stderr: {}", stderr_text.trim());
         }
-        Ok(false)
+        Ok(())
     }
 }
 

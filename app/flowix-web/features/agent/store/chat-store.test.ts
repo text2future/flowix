@@ -172,6 +172,10 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       role: "assistant",
       content: "Hello",
     });
+    expect(
+      useAgentConversationStore.getState().messageStates[threadId]
+        ?.pendingAssistantId,
+    ).toBe(threadState.pendingAssistantId);
 
     store.dispatchAgentChunk({
       kind: "stream_end",
@@ -190,6 +194,10 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       role: "assistant",
       content: "Hello",
     });
+    expect(
+      useAgentConversationStore.getState().messageStates[threadId]
+        ?.pendingAssistantId,
+    ).toBeNull();
   });
 
   it("syncs optimistic user messages into the render message state before chunks arrive", async () => {
@@ -250,6 +258,101 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(payload.llmContent).not.toContain(CONTEXT_PROMPT_MARKER);
   });
 
+  it("applies low-frequency chunks against conversation live messages", async () => {
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const threadId = "thread-low-frequency-conversation-live";
+    const toolCallId = "tool-live-state";
+
+    useChatStore.getState().bindThreadType(threadId, "flowix");
+    useAgentConversationStore.getState().syncLiveMessageState("flowix", threadId, {
+      messages: [
+        {
+          id: `tool-${toolCallId}`,
+          role: "tool",
+          content: "",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          toolCallId,
+          toolName: "Read",
+          isLoading: true,
+        },
+      ],
+      pendingAssistantId: null,
+      pendingReasoningId: null,
+    });
+
+    useChatStore.getState().dispatchAgentChunk({
+      kind: "tool_result",
+      thread_id: threadId,
+      run_id: "run-low-frequency-live",
+      id: toolCallId,
+      name: "Read",
+      result: { content: "file contents from conversation state" },
+      agent_type: "flowix",
+    });
+
+    const message =
+      useAgentConversationStore.getState().messageStates[threadId].messages[0];
+    expect(message).toMatchObject({
+      role: "tool",
+      toolCallId,
+      content: "file contents from conversation state",
+      isLoading: false,
+    });
+    expect(
+      useChatStore.getState().threadStates[threadId].messages[0],
+    ).toMatchObject({
+      content: "file contents from conversation state",
+      isLoading: false,
+    });
+  });
+
+  it("applies buffered text chunks against conversation live messages", async () => {
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const threadId = "thread-buffered-conversation-live";
+
+    useChatStore.getState().bindThreadType(threadId, "flowix");
+    useAgentConversationStore.getState().syncLiveMessageState("flowix", threadId, {
+      messages: [
+        {
+          id: "assistant-live",
+          role: "assistant",
+          content: "Hello ",
+          timestamp: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      pendingAssistantId: "assistant-live",
+      pendingReasoningId: null,
+    });
+
+    useChatStore.getState().dispatchAgentChunk({
+      kind: "text",
+      thread_id: threadId,
+      run_id: "run-buffered-live",
+      text: "world",
+      agent_type: "flowix",
+    });
+
+    await flushAnimationFrame();
+
+    const conversationState =
+      useAgentConversationStore.getState().messageStates[threadId];
+    expect(conversationState.messages).toHaveLength(1);
+    expect(conversationState.messages[0]).toMatchObject({
+      id: "assistant-live",
+      content: "Hello world",
+    });
+    expect(conversationState.pendingAssistantId).toBe("assistant-live");
+    expect(useChatStore.getState().threadStates[threadId].messages).toEqual(
+      conversationState.messages,
+    );
+  });
+
   it("restores running state from non-terminal chunks when stream_start was missed", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/chat-store"
@@ -299,6 +402,65 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(threadState.activeRunId).toBe("run-snapshot");
     expect(threadState.runs["run-snapshot"]?.currentTool).toBe("shell");
     expect(state.lastRunningRunsReconciledAt).toEqual(expect.any(Number));
+  });
+
+  it("migrates conversation messages when backend snapshot resolves a pending thread", async () => {
+    const { useChatStore } = await import(
+      "@features/agent/store/chat-store"
+    );
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const localThreadId = "codex-local-snapshot-pending";
+    const sessionId = "codex-session-snapshot-pending";
+
+    useAgentConversationStore.getState().syncLiveMessageState(
+      "codex",
+      localThreadId,
+      {
+        messages: [
+          {
+            id: "assistant-snapshot-pending",
+            role: "assistant",
+            content: "snapshot restored pending message",
+            timestamp: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        pendingAssistantId: "assistant-snapshot-pending",
+        pendingReasoningId: null,
+      },
+    );
+    useChatStore.getState().bindThreadType(localThreadId, "codex");
+
+    useChatStore.getState().reconcileRunningRunsFromSnapshot({
+      [sessionId]: {
+        runId: "run-snapshot-pending",
+        agentType: "codex",
+        pendingThreadId: localThreadId,
+        sessionId,
+        startedAt: 1234,
+        currentTool: "shell",
+      },
+    });
+
+    const chatState = useChatStore.getState();
+    expect(chatState.externalSessionResolutions[localThreadId]).toBe(sessionId);
+    expect(chatState.threadStates[sessionId]).toMatchObject({
+      isLoading: true,
+      activeRunId: "run-snapshot-pending",
+    });
+    expect(chatState.threadStates[sessionId].messages).toEqual([]);
+
+    const messageState =
+      useAgentConversationStore.getState().messageStates[sessionId];
+    expect(messageState.messages[0]).toMatchObject({
+      id: "assistant-snapshot-pending",
+      content: "snapshot restored pending message",
+    });
+    expect(messageState.pendingAssistantId).toBe("assistant-snapshot-pending");
+    expect(
+      useAgentConversationStore.getState().messageStates[localThreadId],
+    ).toBeUndefined();
   });
 
   it("reconciles Agent conversation instances from backend running snapshot", async () => {
@@ -382,7 +544,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     ).toBe("Analyze agent thread card title");
   });
 
-  it("syncs usage totals into Agent conversation run after stream_end", async () => {
+  it("syncs usage totals into Agent conversation run when usage arrives", async () => {
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const { useAgentConversationStore } = await import(
       "@features/agent/store/agent-conversation-store"
@@ -426,7 +588,16 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const runningInstance = useAgentConversationStore
       .getState()
       .getInstance(instance.instanceId);
-    expect(runningInstance?.run?.usage).toBeUndefined();
+    expect(runningInstance?.run).toMatchObject({
+      runId,
+      usage: {
+        input_tokens: 30,
+        cached_input_tokens: 10,
+        output_tokens: 12,
+        reasoning_output_tokens: 0,
+        total_tokens: 42,
+      },
+    });
 
     useChatStore.getState().dispatchAgentChunk({
       kind: "stream_end",
@@ -956,9 +1127,14 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.threadTypes[sessionId]).toBe("codex");
     expect(state.threadStates[sessionId].isLoading).toBe(true);
     expect(state.threadStates[sessionId].activeRunId).toBe("run-local-1");
-    expect(state.threadStates[sessionId].messages[0]?.content).toBe(
-      "Codex answer before session id",
-    );
+    expect(state.threadStates[sessionId].messages).toEqual([]);
+    expect(
+      useAgentConversationStore.getState().messageStates[sessionId].messages[0]
+        ?.content,
+    ).toBe("Codex answer before session id");
+    expect(
+      useAgentConversationStore.getState().messageStates[localThreadId],
+    ).toBeUndefined();
     const resolvedInstance = useAgentConversationStore
       .getState()
       .getInstance(instance.instanceId);
@@ -990,6 +1166,125 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const endedState = useChatStore.getState();
     expect(endedState.threadStates[sessionId].isLoading).toBe(false);
     expect(endedState.threadStates[sessionId].activeRunId).toBeNull();
+  });
+
+  it("migrates conversation messages on session resolution without requiring an instance", async () => {
+    const { useChatStore } = await import(
+      "@features/agent/store/chat-store"
+    );
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const localThreadId = "codex-local-without-instance";
+    const sessionId = "codex-session-without-instance";
+
+    useAgentConversationStore.getState().syncLiveMessageState(
+      "codex",
+      localThreadId,
+      {
+        messages: [
+          {
+            id: "assistant-local",
+            role: "assistant",
+            content: "message before instance exists",
+            timestamp: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        pendingAssistantId: "assistant-local",
+        pendingReasoningId: null,
+      },
+    );
+
+    useChatStore.getState().bindThreadType(localThreadId, "codex");
+    useChatStore.getState().dispatchAgentChunk({
+      kind: "session_resolved",
+      thread_id: localThreadId,
+      session_id: sessionId,
+      run_id: "run-without-instance",
+      agent_type: "codex",
+    });
+
+    const messageState =
+      useAgentConversationStore.getState().messageStates[sessionId];
+    expect(messageState.messages[0]).toMatchObject({
+      id: "assistant-local",
+      content: "message before instance exists",
+    });
+    expect(messageState.pendingAssistantId).toBe("assistant-local");
+    expect(
+      useAgentConversationStore.getState().messageStates[localThreadId],
+    ).toBeUndefined();
+    expect(
+      useChatStore.getState().externalSessionResolutions[localThreadId],
+    ).toBe(sessionId);
+  });
+
+  it("migrates external session cache resolution through conversation messages", async () => {
+    const { useChatStore } = await import(
+      "@features/agent/store/chat-store"
+    );
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const { applyResolvedExternalSession, getResolvedExternalSessionId } =
+      await import(
+        "@features/agent/services/external-agent-runtime-service"
+      );
+    const localThreadId = "codex-local-cache-resolved";
+    const sessionId = "codex-session-cache-resolved";
+
+    useAgentConversationStore.getState().syncLiveMessageState(
+      "codex",
+      localThreadId,
+      {
+        messages: [
+          {
+            id: "assistant-cache-resolved",
+            role: "assistant",
+            content: "cache resolved message",
+            timestamp: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        pendingAssistantId: "assistant-cache-resolved",
+        pendingReasoningId: null,
+      },
+    );
+    useChatStore.getState().bindThreadType(localThreadId, "codex");
+    useChatStore.getState().dispatchAgentChunk({
+      kind: "stream_start",
+      thread_id: localThreadId,
+      run_id: "run-cache-resolved",
+      agent_type: "codex",
+    });
+
+    expect(
+      applyResolvedExternalSession(
+        "external-agent-card-cache-resolved",
+        localThreadId,
+        sessionId,
+        "codex",
+      ),
+    ).toBe(true);
+
+    const chatState = useChatStore.getState();
+    expect(chatState.externalSessionResolutions[localThreadId]).toBe(sessionId);
+    expect(getResolvedExternalSessionId(localThreadId)).toBe(sessionId);
+    expect(chatState.threadStates[sessionId]).toMatchObject({
+      isLoading: true,
+      activeRunId: "run-cache-resolved",
+    });
+    expect(chatState.threadStates[sessionId].messages).toEqual([]);
+
+    const messageState =
+      useAgentConversationStore.getState().messageStates[sessionId];
+    expect(messageState.messages[0]).toMatchObject({
+      id: "assistant-cache-resolved",
+      content: "cache resolved message",
+    });
+    expect(messageState.pendingAssistantId).toBe("assistant-cache-resolved");
+    expect(
+      useAgentConversationStore.getState().messageStates[localThreadId],
+    ).toBeUndefined();
   });
 
   it("keeps parallel Thread Card streams isolated by thread id", async () => {
@@ -1035,6 +1330,9 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   it("loads Codex history through paged IPC", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
     const threadId = "codex-history-page";
 
     (
@@ -1069,15 +1367,22 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       expect.any(Number),
     );
     expect(agent.getCodexThread).not.toHaveBeenCalled();
-    const threadState = useChatStore.getState().threadStates[threadId];
-    expect(threadState.messages[0]?.content).toBe("recent codex answer");
-    expect(threadState.oldestSequence).toBe(42);
-    expect(threadState.hasMoreHistory).toBe(true);
+    const messageState =
+      useAgentConversationStore.getState().messageStates[threadId];
+    expect(messageState.messages[0]?.content).toBe("recent codex answer");
+    expect(messageState.oldestSequence).toBe(42);
+    expect(messageState.hasMoreHistory).toBe(true);
+    expect(useChatStore.getState().threadStates[threadId].messages).toEqual(
+      [],
+    );
   });
 
   it("hydrates tool display when loading Codex history", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
     const threadId = "codex-history-web-search";
 
     (
@@ -1114,7 +1419,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
     await useChatStore.getState().loadCodexThread(threadId);
 
-    const message = useChatStore.getState().threadStates[threadId].messages[0];
+    const message =
+      useAgentConversationStore.getState().messageStates[threadId].messages[0];
     expect(message).toMatchObject({
       role: "tool",
       toolName: "web_search",
@@ -1129,6 +1435,9 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   it("merges Claude history tool rows by toolCallId without appending duplicates", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
     const store = useChatStore.getState();
     const threadId = "claude-history-tool-merge";
 
@@ -1182,7 +1491,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
     await store.loadClaudeThread(threadId);
 
-    const messages = useChatStore.getState().threadStates[threadId].messages;
+    const messages =
+      useAgentConversationStore.getState().messageStates[threadId].messages;
     expect(messages.map((message) => message.id)).toEqual([
       "tool-toolu_1",
       "history-user",

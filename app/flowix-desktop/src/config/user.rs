@@ -77,6 +77,25 @@ pub struct PropertiesConfig {
 pub struct AgentsConfig {
     #[serde(default)]
     pub enabled_by_type: HashMap<String, bool>,
+    /// 常用语列表 ── 用户在偏好设置 → 工具 tab 里维护,
+    /// 在角色选择弹窗作为快捷输入片段注入 composer。
+    /// 老 preference.json 没有此字段时由 #[serde(default)] 兜底为空数组。
+    #[serde(default)]
+    pub quick_phrases: Vec<QuickPhrase>,
+}
+
+/// 单条常用语 ── 标题 + 提示词。 镜像前端 `QuickPhrase` 接口。
+/// 后端不做内容校验 (长度 / 字段必填), 由前端 sanitizeSettings 兜底;
+/// 后端只负责持久化, 保证序列化字段完整。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickPhrase {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub prompt: String,
 }
 
 fn default_product_updates_enabled() -> bool {

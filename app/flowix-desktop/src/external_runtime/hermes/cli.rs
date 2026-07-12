@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -7,8 +8,8 @@ use uuid::Uuid;
 
 use crate::agent::{AgentChunk, AgentId, AgentUserMessage};
 use crate::external_runtime::{
-    emit_chunk_with_run_id, kill_child_tree, resolve_run_id,
-    select_external_session_for_runtime, ExternalRunRegistry,
+    emit_chunk_with_run_id, emit_stream_end_once, kill_child_tree, resolve_run_id,
+    select_external_session_for_runtime, ExternalRunRegistry, USER_STOPPED_REASON,
 };
 use crate::runtime_log;
 use crate::session::{ChatMessage as ThreadChatMessage, ThreadManager};
@@ -45,6 +46,8 @@ impl HermesCliManager {
         let app_handle = app_handle.clone();
         let manager = self.clone();
         let run_id = resolve_run_id(&thread_id, message.run_id.as_deref());
+        // 共享的"StreamEnd 已经 emit 出去没"标志 ── 见 CodexCliManager 同名注释。
+        let stream_end_emitted = Arc::new(AtomicBool::new(false));
 
         // Reap any zombie child (kill/oom/broken pipe leaves the registry
         // entry behind until the watchdog sweeps it) and refuse overlapping
@@ -73,7 +76,7 @@ impl HermesCliManager {
             );
 
             let reason = match manager
-                .run_hermes(&thread_id, &run_id, message, &app_handle)
+                .run_hermes(&thread_id, &run_id, message, &app_handle, stream_end_emitted.clone())
                 .await
             {
                 Ok(()) => None,
@@ -91,18 +94,27 @@ impl HermesCliManager {
                 }
             };
 
-            emit_chunk_with_run_id(
+            // 兜底 emit: 若 stop_chat 还没替我们发过 StreamEnd, 由本路径补发;
+            // 否则 CAS 失败, 跳过避免重复。详见 `shared::emit_stream_end_once`。
+            emit_stream_end_once(
                 &app_handle,
-                &AgentChunk::StreamEnd { thread_id, reason },
-                AGENT_TYPE,
+                &thread_id,
                 &run_id,
+                AGENT_TYPE,
+                reason,
+                &stream_end_emitted,
             );
         });
 
         Ok(String::new())
     }
 
-    pub async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+    pub async fn stop_chat(
+        &self,
+        thread_id: &str,
+        run_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> bool {
         let running = match run_id {
             Some(rid) => self.runs.remove_if_run_id(thread_id, Some(rid)).await,
             None => self.runs.remove(thread_id).await,
@@ -111,6 +123,20 @@ impl HermesCliManager {
             return false;
         };
         kill_child_tree(&mut running.child, DISPLAY_NAME, thread_id).await;
+
+        let run_id_for_chunk = running
+            .run_id
+            .as_deref()
+            .unwrap_or(thread_id)
+            .to_string();
+        emit_stream_end_once(
+            app_handle,
+            thread_id,
+            &run_id_for_chunk,
+            AGENT_TYPE,
+            Some(USER_STOPPED_REASON.to_string()),
+            &running.stream_end_emitted,
+        );
         true
     }
 
@@ -128,6 +154,7 @@ impl HermesCliManager {
         run_id: &str,
         message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
+        stream_end_emitted: Arc<AtomicBool>,
     ) -> Result<(), String> {
         let mapped_session_id = {
             let manager = self.thread_manager.read().await;
@@ -223,7 +250,12 @@ impl HermesCliManager {
                 return Err(format!("{DISPLAY_NAME} is already running for this thread"));
             }
             self.runs
-                .insert(thread_id.to_string(), child, Some(run_id.to_string()))
+                .insert(
+                    thread_id.to_string(),
+                    child,
+                    Some(run_id.to_string()),
+                    stream_end_emitted,
+                )
                 .await;
 
             let stdout_task = read_stdout_as_text(

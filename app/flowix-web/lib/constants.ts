@@ -86,9 +86,28 @@ export interface PropertiesConfig {
 
 export type MemoCardVariant = 'detailed' | 'compact';
 
+export interface QuickPhrase {
+  /** 稳定 id，由前端 crypto.randomUUID() 生成；用作 React key 与 patch 引用。 */
+  id: string;
+  /** 弹窗列表显示名，trim 后非空。 */
+  title: string;
+  /** 注入到 composer 输入框的内容，trim 后非空且不超过 MAX_QUICK_PHRASE_PROMPT_LENGTH。 */
+  prompt: string;
+}
+
 export interface AgentsConfig {
   enabledByType: Partial<Record<AgentTypeKey, boolean>>;
+  /** 用户在偏好设置里手工维护的常用语列表；空数组表示未配置。 */
+  quickPhrases: QuickPhrase[];
 }
+
+/** 单条常用语提示词字符上限 — 100 字内（含中英文标点）。
+ *  约束理由：常用语作为弹窗内一键插入的快捷片段，设计上希望简短直白；
+ *  长内容更适合走 slash-menu / 模板 / 笔记引用，不在本功能职责内。 */
+export const MAX_QUICK_PHRASE_PROMPT_LENGTH = 100;
+
+/** 标题最大长度 — 比提示词更短，仅作列表显示名。 */
+export const MAX_QUICK_PHRASE_TITLE_LENGTH = 40;
 
 export interface ProductUpdatesConfig {
   enabled: boolean;
@@ -240,6 +259,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   },
   agents: {
     enabledByType: {},
+    quickPhrases: [],
   },
   productUpdates: {
     enabled: true,

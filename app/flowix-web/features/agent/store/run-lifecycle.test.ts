@@ -123,6 +123,27 @@ describe('run lifecycle reducer', () => {
     });
   });
 
+  it('maps a user_stopped stream_end to cancelled even without a prior applyRunStopped', () => {
+    // 后端 stop_chat 发的 StreamEnd reason='user_stopped' 必须钉成 cancelled,
+    // 不能因 reason 非空误判 failed ── 覆盖前端未追踪该 run (走不到
+    // applyRunStopped) 的窄缝: 单凭后端 StreamEnd 也要拿到 cancelled。
+    const running = applyRunStarted(emptyState(), startEvent('run-1'));
+    const ended = applyRunEnded(running, {
+      ...endEvent('run-1'),
+      timestamp: 200,
+      reason: 'user_stopped',
+    });
+
+    expect(ended.isLoading).toBe(false);
+    expect(ended.activeRunId).toBeNull();
+    expect(ended.lastRun).toMatchObject({
+      runId: 'run-1',
+      status: 'cancelled',
+      reason: 'user_stopped',
+      endedAt: 200,
+    });
+  });
+
   it('drops terminated sibling runs when a new run ends (long-session accumulation guard)', () => {
     // 修复 #5: 之前 `idleRuns` 只清当前 event.runId, 其它 terminated run
     // (failed / cancelled / 已被 idleRuns 路径移走的 completed) 全部留在 runs

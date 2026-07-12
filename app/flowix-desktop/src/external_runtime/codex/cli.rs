@@ -1,14 +1,15 @@
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::agent::{AgentChunk, AgentUserMessage};
 use crate::external_runtime::{
-    kill_child_tree, persist_watchdog_finalized_run_state, select_external_session_for_runtime,
-    ExternalRunRegistry,
+    emit_stream_end_once, kill_child_tree, persist_watchdog_finalized_run_state,
+    select_external_session_for_runtime, ExternalRunRegistry, USER_STOPPED_REASON,
 };
 use crate::runtime_log;
 use crate::session::ThreadManager;
@@ -41,6 +42,10 @@ impl CodexCliManager {
         let app_handle = app_handle.clone();
         let manager = self.clone();
         let run_id = resolve_run_id(&thread_id, message.run_id.as_deref());
+        // 共享的"StreamEnd 已经 emit 出去没"标志 ── `stop_chat` 和流式任务
+        // 都持有一份 Arc, 谁先 CAS(false→true) 谁负责发; 另一个分支看到
+        // 标志为 true 直接 skip, 保证前端只收一条 StreamEnd。
+        let stream_end_emitted = Arc::new(AtomicBool::new(false));
 
         // Reap any zombie child (kill/oom/broken pipe leaves the registry
         // entry behind until the watchdog sweeps it) and refuse overlapping
@@ -68,11 +73,11 @@ impl CodexCliManager {
                 &run_id,
             );
 
-            let (reason, stream_end_emitted) = match manager
-                .run_codex(&thread_id, &run_id, message, &app_handle)
+            let reason = match manager
+                .run_codex(&thread_id, &run_id, message, &app_handle, stream_end_emitted.clone())
                 .await
             {
-                Ok(stream_end_emitted) => (None, stream_end_emitted),
+                Ok(()) => None,
                 Err(err) => {
                     emit_chunk_with_run_id(
                         &app_handle,
@@ -83,24 +88,32 @@ impl CodexCliManager {
                         AGENT_TYPE,
                         &run_id,
                     );
-                    (Some(err), false)
+                    Some(err)
                 }
             };
 
-            if !stream_end_emitted {
-                emit_chunk_with_run_id(
-                    &app_handle,
-                    &AgentChunk::StreamEnd { thread_id, reason },
-                    AGENT_TYPE,
-                    &run_id,
-                );
-            }
+            // 兜底 emit: 若 stop_chat / watchdog 还没替我们发过 StreamEnd,
+            // 由本路径补发; 否则 CAS 失败, 跳过避免重复。详见
+            // `shared::emit_stream_end_once`。
+            emit_stream_end_once(
+                &app_handle,
+                &thread_id,
+                &run_id,
+                AGENT_TYPE,
+                reason,
+                &stream_end_emitted,
+            );
         });
 
         Ok(String::new())
     }
 
-    pub async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+    pub async fn stop_chat(
+        &self,
+        thread_id: &str,
+        run_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> bool {
         let mut running = match run_id {
             Some(rid) => self.runs.remove_if_run_id(thread_id, Some(rid)).await,
             None => self.runs.remove(thread_id).await,
@@ -131,6 +144,22 @@ impl CodexCliManager {
             return false;
         };
         kill_child_tree(&mut running.child, "CodexCli", thread_id).await;
+
+        // 不等流式任务自己醒来 ── 用户停止后立刻发 StreamEnd。共享 flag 让
+        // task body 末尾的兜底 emit 自动跳过 (避免重复事件)。
+        let run_id_for_chunk = running
+            .run_id
+            .as_deref()
+            .unwrap_or(thread_id)
+            .to_string();
+        emit_stream_end_once(
+            app_handle,
+            thread_id,
+            &run_id_for_chunk,
+            AGENT_TYPE,
+            Some(USER_STOPPED_REASON.to_string()),
+            &running.stream_end_emitted,
+        );
         true
     }
 
@@ -149,6 +178,8 @@ impl CodexCliManager {
     ) -> usize {
         let finalized = self.runs.reap_inactive(idle_timeout_ms, "CodexCli").await;
         for run in &finalized {
+            // CAS 已在 `reap_inactive` 锁内抢过 ── 这里的 run 都是 watchdog 赢得
+            // slot 的, 直接发 Error + StreamEnd + persist, 不会双发。
             let run_id = run.run_id.as_deref().unwrap_or(run.thread_id.as_str());
             if let Some(reason) = run.reason.clone() {
                 emit_chunk_with_run_id(
@@ -181,7 +212,8 @@ impl CodexCliManager {
         run_id: &str,
         message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
-    ) -> Result<bool, String> {
+        stream_end_emitted: Arc<AtomicBool>,
+    ) -> Result<(), String> {
         let mapped_session_id = {
             let manager = self.thread_manager.read().await;
             manager
@@ -291,7 +323,12 @@ impl CodexCliManager {
 
         if let Err(mut duplicate_child) = self
             .runs
-            .try_insert(thread_id.to_string(), child, Some(run_id.to_string()))
+            .try_insert(
+                thread_id.to_string(),
+                child,
+                Some(run_id.to_string()),
+                stream_end_emitted,
+            )
             .await
         {
             let _ = duplicate_child.kill().await;
@@ -314,29 +351,27 @@ impl CodexCliManager {
         );
 
         let (stdout_result, stderr_text) = tokio::join!(stdout_task, stderr_task);
-        let stream_end_emitted = stdout_result?;
+        // read_codex_stdout 只传播读取错误 ── Codex 的 task_complete 仅标记 terminal
+        // turn, StreamEnd 统一由 tail / stop_chat / watchdog 经 `stream_end_emitted`
+        // CAS 发, 不再从读取路径返回"已发"信号。
+        stdout_result?;
 
         let mut child = self.runs.remove_if_run_id(thread_id, Some(run_id)).await;
         let status = if let Some(running) = child.as_mut() {
             running.child.wait().await.map_err(|e| e.to_string())?
         } else {
-            if self
-                .runs
-                .take_watchdog_finalized(thread_id, Some(run_id))
-                .await
-            {
-                return Ok(true);
-            }
+            // child 已被 stop_chat 或 watchdog 移走 ── 二者都已 CAS 抢发过
+            // StreamEnd, 这里直接返回, tail 的 CAS 会失败而 skip, 不双发。
             runtime_log::record_agent_event(
                 "warn",
                 "codex_process",
                 "codex.child_missing_after_run",
-                "Codex child was removed before wait; likely stopped by user",
+                "Codex child was removed before wait; likely stopped by user or watchdog",
                 Some(thread_id),
                 Some(AGENT_TYPE),
                 Some(serde_json::json!({ "child_pid": child_pid })),
             );
-            return Ok(stream_end_emitted);
+            return Ok(());
         };
 
         let stderr_text = stderr_text.unwrap_or_default();
@@ -357,22 +392,6 @@ impl CodexCliManager {
         );
         if !status.success() {
             let detail = stderr_text.trim();
-            if stream_end_emitted {
-                runtime_log::record_agent_event(
-                    "warn",
-                    "codex_process",
-                    "codex.exit_after_task_complete",
-                    "Codex exited unsuccessfully after task_complete had already ended the stream",
-                    Some(thread_id),
-                    Some(AGENT_TYPE),
-                    Some(serde_json::json!({
-                        "child_pid": child_pid,
-                        "status": status.to_string(),
-                        "stderr_preview": truncate_for_log(detail),
-                    })),
-                );
-                return Ok(true);
-            }
             return Err(if detail.is_empty() {
                 format!("Codex CLI exited with status {status}")
             } else {
@@ -382,7 +401,7 @@ impl CodexCliManager {
         if !stderr_text.trim().is_empty() {
             tracing::info!("[CodexCli] stderr: {}", stderr_text.trim());
         }
-        Ok(stream_end_emitted)
+        Ok(())
     }
 }
 
@@ -775,7 +794,7 @@ async fn read_codex_stdout<R>(
     thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
     runs: ExternalRunRegistry,
     reader: BufReader<R>,
-) -> Result<bool, String>
+) -> Result<(), String>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -885,7 +904,7 @@ where
             Some(serde_json::json!({ "run_id": run_id })),
         );
     }
-    Ok(false)
+    Ok(())
 }
 
 async fn read_stderr_to_string<R>(

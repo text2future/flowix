@@ -1,5 +1,11 @@
 import type { ChatMessage } from "@/types";
 
+export interface LiveMessageState {
+  messages: ChatMessage[];
+  pendingAssistantId: string | null;
+  pendingReasoningId: string | null;
+}
+
 /**
  * `applyXxxChunk` 系列函数的返回值, 描述"把这条 chunk 落到 thread state 后":
  * - `messages`: 重写后整段 messages
@@ -12,8 +18,4 @@ import type { ChatMessage } from "@/types";
  * `pendingAssistantId`, 因为 tool 调用是流中断点, 之后第一条 text chunk
  * 必须开新 assistant 行。
  */
-export interface ApplyResult {
-  messages: ChatMessage[];
-  pendingAssistantId: string | null;
-  pendingReasoningId: string | null;
-}
+export interface ApplyResult extends LiveMessageState {}

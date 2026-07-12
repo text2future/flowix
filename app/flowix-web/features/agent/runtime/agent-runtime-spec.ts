@@ -9,6 +9,7 @@ import type {
 import { CODEX_ACCESS_OPTIONS } from "@features/agent/config/codex-options";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { normalizeContextValue } from "@features/agent/store/context-block";
+import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 
 export type AgentRuntimeSettingKind = "model" | "reasoning" | "permission";
 
@@ -56,29 +57,6 @@ function getEnabledAgentWorkspacePaths(): string[] {
     .map((entry) => normalizeWorkspacePath(entry.path))
     .filter(Boolean);
   return Array.from(new Set(paths));
-}
-
-function getPrimaryAgentWorkspacePath(): string | undefined {
-  // workspace 可由用户点 avatar 显式设在 folder 或 notebook 上 ── 这里只看
-  // workspace 标志, 不再限制 kind, notebook 被设为主空间时其 path 同样作为 cwd。
-  const entry = useAgentAccessStore
-    .getState()
-    .config.entries.find(
-      (item) =>
-        item.workspace &&
-        item.enabled &&
-        !item.missing,
-    );
-  return normalizeWorkspacePath(entry?.path) || undefined;
-}
-
-function getFirstEnabledAgentFolderPath(): string | undefined {
-  const entry = useAgentAccessStore
-    .getState()
-    .config.entries.find(
-      (item) => item.kind === "folder" && item.enabled && !item.missing,
-    );
-  return normalizeWorkspacePath(entry?.path) || undefined;
 }
 
 export function normalizeCodexPermissionMode(
@@ -202,13 +180,17 @@ export function buildAgentRuntimeConfig({
   const effectiveWorkspacePaths = hasPerThreadChoice
     ? Array.from(new Set(instanceWorkspacePaths))
     : globalWorkspacePaths;
-  const primaryWorkspace =
-    normalizeWorkspacePath(instanceFiles?.workspace) ||
-    (hasPerThreadChoice ? effectiveWorkspacePaths[0] : undefined) ||
-    getPrimaryAgentWorkspacePath() ||
-    getFirstEnabledAgentFolderPath() ||
-    normalizeWorkspacePath(cwd) ||
-    undefined;
+  // primaryWorkspace 与 settings controller 的 `getFilesControlLabel` 共用
+  // 同一段 cascade (primary-workspace.resolvePrimaryWorkspace)。 instance 优
+  // 先, 全局信息只作为"默认未配置时"的兜底, 最后落到 systemReminderDirectory。
+  const resolvedPrimary = resolvePrimaryWorkspace({
+    instanceFiles,
+    globalEntries: useAgentAccessStore.getState().config.entries,
+    cwd,
+  });
+  // empty 时不强行编一个 cwd ── 上层 dispatch 判断是否要拦截而不是闷头
+  // invoke CLI (`agent-runtime-spec.test.ts` 用例 1 显式断言这点)。
+  const primaryWorkspace = resolvedPrimary.path || undefined;
   const effectivePermissionMode =
     instanceRuntimeConfig?.access?.sandbox ?? permissionMode;
   const effectiveModel =

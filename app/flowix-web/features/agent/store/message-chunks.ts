@@ -1,5 +1,7 @@
-import type { ThreadState } from "@features/agent/store/chat-store";
-import type { ApplyResult } from "@features/agent/store/chunk-result";
+import type {
+  ApplyResult,
+  LiveMessageState,
+} from "@features/agent/store/chunk-result";
 
 /**
  * 文本 chunk ── assistant 出文字。 流式断点 ↔ `pendingAssistantId`:
@@ -9,7 +11,7 @@ import type { ApplyResult } from "@features/agent/store/chunk-result";
  * 同时把上一条未完成的 reasoning 行 `isCompleted=true` 收尾 ── assistant
  * 接 reasoning 是常规 Pattern, 不收尾会留着"思考中"视觉残留。
  */
-export function applyTextChunk(st: ThreadState, text: string): ApplyResult {
+export function applyTextChunk(st: LiveMessageState, text: string): ApplyResult {
   const closedMessages = st.pendingReasoningId
     ? st.messages.map((m) =>
         m.id === st.pendingReasoningId ? { ...m, isCompleted: true } : m,
@@ -46,7 +48,7 @@ export function applyTextChunk(st: ThreadState, text: string): ApplyResult {
  * 收尾 ── 由 `applyTextChunk` 显式 close, 这里保持原状。
  */
 export function applyReasoningChunk(
-  st: ThreadState,
+  st: LiveMessageState,
   text: string,
 ): ApplyResult {
   if (!st.pendingReasoningId) {
@@ -86,7 +88,7 @@ export function applyReasoningChunk(
  * 关闭靠"pendingAssistantId 切 null" + 下次 text chunk 走 create-new 路径。
  */
 export function applyErrorChunk(
-  st: ThreadState,
+  st: LiveMessageState,
   message: string,
 ): ApplyResult {
   const closedMessages = st.pendingReasoningId

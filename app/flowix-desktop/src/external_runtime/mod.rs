@@ -24,7 +24,8 @@ pub mod simple_cli;
 // `shared`. Per-runtime APIs (ClaudeCliManager etc.) live on the
 // submodules.
 pub use shared::{
-    emit_chunk_with_run_id, kill_child_tree, persist_watchdog_finalized_run_state,
-    read_capped_line, resolve_run_id, select_external_session_for_runtime, ExternalRunRegistry,
+    emit_chunk_with_run_id, emit_stream_end_once, kill_child_tree,
+    persist_watchdog_finalized_run_state, read_capped_line, resolve_run_id,
+    select_external_session_for_runtime, ExternalRunRegistry, USER_STOPPED_REASON,
     MAX_STDOUT_LINE_BYTES,
 };

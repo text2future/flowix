@@ -120,6 +120,7 @@ vi.mock("@features/preferences/store/user-settings-store", () => ({
     getState: () => ({
       settings: { language: "zh-CN" },
     }),
+    subscribe: () => () => undefined,
   },
 }));
 

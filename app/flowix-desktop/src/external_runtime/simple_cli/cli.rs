@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::process::Command;
@@ -7,7 +8,8 @@ use uuid::Uuid;
 
 use crate::agent::{AgentChunk, AgentId, AgentUserMessage};
 use crate::external_runtime::{
-    emit_chunk_with_run_id, kill_child_tree, resolve_run_id, ExternalRunRegistry,
+    emit_chunk_with_run_id, emit_stream_end_once, kill_child_tree, resolve_run_id,
+    ExternalRunRegistry, USER_STOPPED_REASON,
 };
 use crate::runtime_log;
 use crate::session::{ChatMessage as ThreadChatMessage, ThreadManager};
@@ -98,6 +100,7 @@ impl SimpleCliManager {
         let app_handle = app_handle.clone();
         let manager = self.clone();
         let run_id = resolve_run_id(&thread_id, message.run_id.as_deref());
+        let stream_end_emitted = Arc::new(AtomicBool::new(false));
 
         tokio::spawn(async move {
             // 通用 metadata 协议 ── StreamStart 携带该 run 锁定的
@@ -120,7 +123,7 @@ impl SimpleCliManager {
             );
 
             let reason = match manager
-                .run_cli(&thread_id, &run_id, message, &app_handle)
+                .run_cli(&thread_id, &run_id, message, &app_handle, stream_end_emitted.clone())
                 .await
             {
                 Ok(()) => None,
@@ -138,18 +141,27 @@ impl SimpleCliManager {
                 }
             };
 
-            emit_chunk_with_run_id(
+            // 兜底 emit: 若 stop_chat 还没替我们发过 StreamEnd, 由本路径补发;
+            // 否则 CAS 失败, 跳过避免重复。详见 `shared::emit_stream_end_once`。
+            emit_stream_end_once(
                 &app_handle,
-                &AgentChunk::StreamEnd { thread_id, reason },
-                manager.kind.key(),
+                &thread_id,
                 &run_id,
+                manager.kind.key(),
+                reason,
+                &stream_end_emitted,
             );
         });
 
         Ok(String::new())
     }
 
-    pub async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+    pub async fn stop_chat(
+        &self,
+        thread_id: &str,
+        run_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> bool {
         let running = match run_id {
             Some(rid) => self.runs.remove_if_run_id(thread_id, Some(rid)).await,
             None => self.runs.remove(thread_id).await,
@@ -158,6 +170,20 @@ impl SimpleCliManager {
             return false;
         };
         kill_child_tree(&mut running.child, self.kind.display_name(), thread_id).await;
+
+        let run_id_for_chunk = running
+            .run_id
+            .as_deref()
+            .unwrap_or(thread_id)
+            .to_string();
+        emit_stream_end_once(
+            app_handle,
+            thread_id,
+            &run_id_for_chunk,
+            self.kind.key(),
+            Some(USER_STOPPED_REASON.to_string()),
+            &running.stream_end_emitted,
+        );
         true
     }
 
@@ -175,6 +201,7 @@ impl SimpleCliManager {
         run_id: &str,
         message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
+        stream_end_emitted: Arc<AtomicBool>,
     ) -> Result<(), String> {
         let cwd = message
             .cwd_for_runtime(self.kind.key())
@@ -249,7 +276,12 @@ impl SimpleCliManager {
                     ));
                 }
                 self.runs
-                    .insert(thread_id.to_string(), child, Some(run_id.to_string()))
+                    .insert(
+                        thread_id.to_string(),
+                        child,
+                        Some(run_id.to_string()),
+                        stream_end_emitted,
+                    )
                     .await;
 
                 let stdout_task = read_stdout_as_text(
