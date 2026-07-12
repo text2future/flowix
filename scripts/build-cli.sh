@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../app" && pwd)"
 BINARIES_DIR="$APP_DIR/flowix-desktop/binaries"
-CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/.flowix-build/cargo-target}"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/.build/cargo-target}"
 export CARGO_TARGET_DIR
 
 PROFILE="release"

@@ -1,7 +1,6 @@
 ﻿'use client';
 
 import { useState, useEffect, useRef, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
-import { MenuBoard } from '@features/shell/components/menu-board';
 import { DocumentContainer } from '@features/document/components/document-container';
 import { DocumentTitlebarWin } from '@features/document/components/document-titlebar-win';
 import { DocumentTitlebarMac } from '@features/document/components/document-titlebar-mac';
@@ -152,7 +151,6 @@ export function MainLayout() {
   const canNavigateForward = useDocumentHistoryStore((s) => (
     s.forwardStack.some((entry) => isDifferentHistoryTarget(entry, activeMemoSession))
   ));
-  const [isMenuBoardOpen, setIsMenuBoardOpen] = useState(false);
   const [notebookPopupOpen, setNotebookPopupOpen] = useState(false);
   const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null);
   const { request } = useTauriRpc();
@@ -490,7 +488,6 @@ export function MainLayout() {
     <div className="flex h-screen w-screen overflow-hidden" style={{ backgroundColor: 'var(--document-bg)' }}>
       <WindowsTitlebarControls />
       <FullscreenDragOverlay visible={isDraggingFiles} />
-      <MenuBoard open={isMenuBoardOpen} onOpenChange={setIsMenuBoardOpen} />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className="flex flex-1 h-full overflow-hidden">

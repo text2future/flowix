@@ -7,8 +7,7 @@ use crate::runtime_log;
 
 const DEFAULT_UPDATE_NOTICE_ENDPOINT: &str =
     "https://fqvruyesgivjlwhojyya.supabase.co/functions/v1/product-update-notices";
-const DEFAULT_SUPABASE_ANON_KEY: &str =
-    "sb_publishable_l6AmH0K0Uq8_roThQHSnnQ_2xxxl0o1";
+const DEFAULT_SUPABASE_ANON_KEY: &str = "sb_publishable_l6AmH0K0Uq8_roThQHSnnQ_2xxxl0o1";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

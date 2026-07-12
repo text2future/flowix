@@ -18,11 +18,6 @@ export function getPlatform(): Platform {
   return cachedPlatform;
 }
 
-/** 仅在测试或 HMR 重置时使用, 业务代码无需调用。 */
-export function _resetPlatformCache(): void {
-  cachedPlatform = null;
-}
-
 function detectPlatform(): Platform {
   // 1) Tauri 注入的全局 — Tauri 2 在生产/开发都注入 window.__TAURI__
   try {

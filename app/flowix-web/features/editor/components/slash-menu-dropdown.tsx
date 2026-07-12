@@ -49,7 +49,7 @@ export type AgentThreadSlashMenuItemId = Extract<SlashMenuItemId, `agent-thread-
 
 // Agent 类型项用图片资源展示角色图标（与 agent-types.ts 集中管理的图标同源）；
 // 其它项用 Phosphor 图标组件。两种渲染分支在 SlashMenuDropdown 内分发。
-export type SlashMenuIcon = PhosphorIcon | string;
+type SlashMenuIcon = PhosphorIcon | string;
 
 export interface SlashMenuItem {
   id: SlashMenuItemId;

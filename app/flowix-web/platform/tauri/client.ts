@@ -13,6 +13,8 @@ import type {
   AgentTypeKey,
   ChatMessage,
   RunInfo,
+  StatusInfo,
+  UsageInfo,
 } from '@/types/agent';
 import type { AgentAccessConfig, AgentAccessEntry } from '@/lib/types/agent-access';
 import type { MemoColor } from '@features/memo';
@@ -71,7 +73,6 @@ export interface CachedFontResult {
 export const fontCache = {
   getStatus: () => invoke<FontCacheStatus[]>('get_font_cache_status'),
   ensureCached: (fontId: string) => invoke<CachedFontResult>('ensure_font_cached', { fontId }),
-  removeCached: (fontId: string) => invoke<void>('remove_cached_font', { fontId }),
   toAssetUrl: (path: string) => convertFileSrc(path),
 };
 
@@ -132,8 +133,6 @@ export const system = {
     invoke<NotebookTagSystemMetadata>('get_tag_system_metadata', { notebookId }),
   setTagLayout: (notebookId: string, layout: SystemTagLayoutItem[]) =>
     invoke<void>('set_tag_system_layout', { notebookId, layout }),
-  setTagHidden: (notebookId: string, hidden: string[]) =>
-    invoke<void>('set_tag_system_hidden', { notebookId, hidden }),
 };
 
 // Memos
@@ -167,7 +166,7 @@ export interface MentionNoteSearchItem {
   originalPath: string | null;
 }
 
-export type MemoVersionSource = 'auto' | 'manual' | 'restore_backup';
+type MemoVersionSource = 'auto' | 'manual' | 'restore_backup';
 
 export interface MemoVersionMeta {
   id: string;
@@ -251,18 +250,12 @@ export const memos = {
     invoke<boolean>('set_memo_colors', { id, colors }),
   listVersions: (id: string) =>
     invoke<MemoVersionMeta[]>('list_memo_versions', { id }),
-  readVersion: (id: string, versionId: string) =>
-    invoke<string | null>('read_memo_version', { id, versionId }),
-  createVersion: (id: string, source?: MemoVersionSource) =>
-    invoke<MemoVersionMeta | null>('create_memo_version', { id, source }),
   restoreVersion: (id: string, versionId: string, expectedContent?: string) =>
     invoke<{ path: string; content: string } | null>('restore_memo_version', {
       id,
       versionId,
       expectedContent,
     }),
-  deleteVersion: (id: string, versionId: string) =>
-    invoke<boolean>('delete_memo_version', { id, versionId }),
   search: (notebookId: string | null, query: string, limit?: number) =>
     invoke<{ hits: MemoSearchHit[]; indexReady: boolean }>('search_memos', {
       notebookId,
@@ -354,8 +347,6 @@ export const dialogs = {
     }),
   writeExportFile: (filePath: string, content: string) =>
     invoke<boolean>('write_export_file', { filePath, content }),
-  saveAttachment: (sourcePath: string, notebookId?: string) =>
-    invoke<string | null>('save_attachment', { sourcePath, notebookId }),
   copyAttachmentFile: (sourcePath: string, targetPath: string) =>
     invoke<boolean>('copy_attachment_file', { sourcePath, targetPath }),
 };
@@ -396,7 +387,6 @@ export interface ProductUpdateNotice {
 
 export const product = {
   getInfo: () => invoke<ProductInfo>('get_product_info'),
-  getDiagnostics: () => invoke<string>('get_diagnostics'),
   checkUpdateNotice: (language?: string, region?: string) =>
     invoke<ProductUpdateNotice | null>('check_product_update_notice', { language, region }),
   openLogDir: () => invoke<void>('open_log_dir'),
@@ -436,6 +426,15 @@ interface AgentUserMessage {
   codexReasoningEffort?: AgentCodexReasoningEffort;
   agentRoleMemoId?: string;
   agentRoleName?: string;
+  /**
+   * Per-thread 配置快照（懒写）。
+   * 发消息时由前端把 `chat-store.threadRuntimeConfig[tid]` 序列化为 JSON
+   * 字符串塞进来；后端 `chat_stream_inner` 入口 upsert 到
+   * `threads.runtime_config` 列，然后读出来覆盖 ai_config / runtime_config。
+   *
+   * 空字符串视同 None（控件未改动时不携带）。
+   */
+  threadRuntimeConfig?: string;
 }
 
 export interface ThreadInfo {
@@ -443,6 +442,13 @@ export interface ThreadInfo {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Per-thread 配置快照（JSON 字符串）。
+   * 与后端 `ThreadInfo.runtime_config` 字段镜像 ── 前端在 list / get 时拿到,
+   * 可直接解析为 RuntimeConfig 用作 UI 控件初值。
+   * null = 未持久化（走全局 fallback）。
+   */
+  runtimeConfig?: string | null;
 }
 
 export type AgentConversationSource = {
@@ -465,17 +471,12 @@ export interface AgentConversationRun {
   model?: string | null;
   modelId?: string | null;
   reasoningEffort?: string | null;
-  inputTokens?: number | null;
-  cachedInputTokens?: number | null;
-  outputTokens?: number | null;
-  reasoningOutputTokens?: number | null;
-  totalTokens?: number | null;
-  modelContextWindow?: number | null;
-  codexPlanType?: string | null;
-  codexUsedPercent?: number | null;
-  codexResetsAt?: number | null;
   lastRunAt?: number | null;
   reason?: string | null;
+  /** Nested token usage — mirrors Rust `UsageInfo` stored as JSON. */
+  usage?: UsageInfo | null;
+  /** Provider-specific status snapshot — mirrors Rust `StatusInfo`. */
+  statusInfo?: StatusInfo | null;
 }
 
 export interface AgentConversationInstance {
@@ -531,6 +532,15 @@ export const agent = {
     invoke<ThreadInfo>('thread_create', { title }),
   getThread: (threadId: string) =>
     invoke<{ messages: ChatMessage[] }>('thread_get', { threadId }),
+  /**
+   * 拉取 thread 的 runtime_config 快照（JSON 字符串）── 后端 `thread_get_runtime_config` IPC。
+   * UI 首次打开卡片 / 切 thread 时调用, 作为控件初值; null 表示未持久化。
+   *
+   * 注意：`thread_list` 已经把 runtimeConfig 带回, 但 list 里不含消息; 切到
+   * 已有 thread 但前端 store 缺该 tid 的 cached config 时, 这个 IPC 兜底。
+   */
+  getThreadRuntimeConfig: (threadId: string) =>
+    invoke<string | null>('thread_get_runtime_config', { threadId }),
   /**
    * Layer 4: 鍒嗛〉鍔犺浇 thread 鍘嗗彶. 杩斿洖 { messages (ASC), oldestSequence, hasMore }.
    *  - beforeSequence = null/undefined 鈫?鍙栨渶杩?limit 鏉?   *  - beforeSequence = N 鈫?鍙?sequence < N 鐨勬渶杩?limit 鏉?(鍚戜笂缈婚〉)
@@ -623,7 +633,7 @@ export const agent = {
 //
 // Module-level singleton listener — only ONE registration is allowed. The
 // whole app shares a single subscription. `useAgentEvents` mounts once at
-// the App.tsx root and dispatches each chunk to chat-store's
+// the app.tsx root and dispatches each chunk to chat-store's
 // `dispatchAgentChunk` action; multiple components (main / preferences
 // window) no longer register their own listeners — preventing the same chunk
 // from being processed by multiple handlers.

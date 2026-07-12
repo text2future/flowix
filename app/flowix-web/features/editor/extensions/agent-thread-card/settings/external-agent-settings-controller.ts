@@ -2,6 +2,7 @@ import type { AppLanguage, I18nKey } from "@features/i18n";
 import { translate } from "@features/i18n";
 import type {
   AgentCodexModel,
+  AgentCodexReasoningEffort,
   AgentPermissionMode,
   AgentTypeKey,
 } from "@/types/agent";
@@ -47,6 +48,13 @@ const CLAUDE_MODEL_OPTIONS: AgentModelOption[] = [
 export interface ExternalAgentSettingsControllerOptions {
   popover: HTMLDivElement;
   getTypeKey: () => AgentTypeKey;
+  /**
+   * Phase 3: 返回当前卡片绑定的 threadId ── 用于把 model/permission/reasoning
+   * 控件读写路由到 per-thread 的 `chat-store.threadRuntimeConfig[tid]`,
+   * 实现"不同 Agent Thread Card 不共享配置"。如果 undefined (如编辑器临时预览),
+   * 则退化为全局 useChatStore 行为, 不影响现有 fallback 路径。
+   */
+  getThreadId: () => string | undefined;
   getLanguage: () => AppLanguage;
   t: (key: I18nKey) => string;
   isDestroyed: () => boolean;
@@ -62,6 +70,7 @@ export interface ExternalAgentSettingsControllerOptions {
 export class ExternalAgentSettingsController {
   private readonly popover: HTMLDivElement;
   private readonly getTypeKey: () => AgentTypeKey;
+  private readonly getThreadId: () => string | undefined;
   private readonly getLanguage: () => AppLanguage;
   private readonly t: (key: I18nKey) => string;
   private readonly isDestroyed: () => boolean;
@@ -94,12 +103,89 @@ export class ExternalAgentSettingsController {
   constructor(options: ExternalAgentSettingsControllerOptions) {
     this.popover = options.popover;
     this.getTypeKey = options.getTypeKey;
+    this.getThreadId = options.getThreadId;
     this.getLanguage = options.getLanguage;
     this.t = options.t;
     this.isDestroyed = options.isDestroyed;
     this.isAccessPopoverOpen = options.isAccessPopoverOpen;
     this.setAccessPopoverOpen = options.setAccessPopoverOpen;
     this.consumeOutsidePointer = options.consumeOutsidePointer;
+  }
+
+  /**
+   * 读 model/permission/reasoning 控件的当前值 ── Phase 3 优先 per-thread。
+   *  - threadId 存在 + threadRuntimeConfig[tid] 对应字段非空 → 用 thread 值
+   *  - 否则 → fallback 到全局 useChatStore 对应字段
+   *
+   * 注意：fallback 不写回 threadRuntimeConfig ── 仅"显示"，不修改 in-memory
+   * 缓冲。发消息时若 thread 没显式设置, 后端读 thread.runtime_config=null
+   * 也会 fallback, 行为一致。
+   */
+  private readRuntimeSetting<K extends "model" | "permission" | "reasoning">(
+    kind: K,
+  ): string | undefined {
+    const tid = this.getThreadId();
+    const state = useChatStore.getState();
+    if (tid) {
+      const threadCfg = state.threadRuntimeConfig[tid];
+      if (threadCfg) {
+        if (kind === "model" && threadCfg.model?.key) {
+          return threadCfg.model.key;
+        }
+        if (kind === "permission" && threadCfg.access?.sandbox) {
+          return threadCfg.access.sandbox;
+        }
+        if (kind === "reasoning" && threadCfg.reasoningEffort) {
+          return threadCfg.reasoningEffort;
+        }
+      }
+    }
+    if (kind === "model") return state.agentCodexModel;
+    if (kind === "permission") return state.agentPermissionMode;
+    if (kind === "reasoning") return state.agentCodexReasoningEffort;
+    return undefined;
+  }
+
+  /**
+   * 写 model/permission/reasoning 控件 → Phase 3 路由到 threadRuntimeConfig[tid]。
+   * tid 不存在（编辑器临时态）时退化为全局 setAgent*, 保持现有 fallback 行为。
+   */
+  private writeRuntimeSetting(
+    kind: "model" | "permission" | "reasoning",
+    value: string,
+  ): void {
+    const tid = this.getThreadId();
+    const state = useChatStore.getState();
+    if (tid) {
+      if (kind === "model") {
+        state.setThreadRuntimeConfig(tid, {
+          model: { key: value },
+        });
+        return;
+      }
+      if (kind === "permission") {
+        state.setThreadRuntimeConfig(tid, {
+          access: { sandbox: value as AgentPermissionMode },
+        });
+        return;
+      }
+      // reasoning effort: 现在进 threadRuntimeConfig.reasoningEffort,
+      // 与 model / permission 同维度 (per-thread 锁定)。
+      state.setThreadRuntimeConfig(tid, {
+        reasoningEffort: value as AgentCodexReasoningEffort,
+      });
+      return;
+    }
+    // 无 tid (编辑器临时态) ── 退化到全局, 保留兼容。
+    if (kind === "model") {
+      state.setAgentCodexModel(value as AgentCodexModel);
+      return;
+    }
+    if (kind === "permission") {
+      state.setAgentPermissionMode(value as AgentPermissionMode);
+      return;
+    }
+    state.setAgentCodexReasoningEffort(value as AgentCodexReasoningEffort);
   }
 
   get isOpen(): boolean {
@@ -370,9 +456,14 @@ export class ExternalAgentSettingsController {
   }
 
   private getExternalAgentModel(): AgentCodexModel {
-    return this.getTypeKey() === "claude"
-      ? this.claudeSelectedModel
-      : useChatStore.getState().agentCodexModel;
+    // Phase 3: claude 仍走 local state (per-controller); codex/claude-other
+    // 改为走 threadRuntimeConfig 优先, fallback 全局 agentCodexModel.
+    if (this.getTypeKey() === "claude") {
+      return this.claudeSelectedModel;
+    }
+    const fromThread = this.readRuntimeSetting("model");
+    if (fromThread) return fromThread as AgentCodexModel;
+    return useChatStore.getState().agentCodexModel;
   }
 
   private setExternalAgentModel(model: AgentCodexModel): void {
@@ -381,7 +472,7 @@ export class ExternalAgentSettingsController {
       this.refreshEmptySettings();
       return;
     }
-    useChatStore.getState().setAgentCodexModel(model);
+    this.writeRuntimeSetting("model", model);
   }
 
   // Returns empty string when there is no real default model id to display.
@@ -504,11 +595,13 @@ export class ExternalAgentSettingsController {
   }
 
   private renderReasoningOptions(): void {
-    const current = useChatStore.getState().agentCodexReasoningEffort;
+    const current =
+      this.readRuntimeSetting("reasoning") ??
+      useChatStore.getState().agentCodexReasoningEffort;
     CODEX_REASONING_OPTIONS.forEach((option) => {
       this.popover.append(
         createCodexSettingsItem(option.label, option.id === current, () => {
-          useChatStore.getState().setAgentCodexReasoningEffort(option.id);
+          this.writeRuntimeSetting("reasoning", option.id);
           this.setSettingsPopoverOpen(false);
         }),
       );
@@ -516,11 +609,13 @@ export class ExternalAgentSettingsController {
   }
 
   private renderPermissionSettings(): void {
-    const current = useChatStore.getState().agentPermissionMode;
+    const current =
+      this.readRuntimeSetting("permission") ??
+      useChatStore.getState().agentPermissionMode;
     this.getAccessOptionsForType().forEach((option) => {
       this.popover.append(
         createCodexSettingsItem(option.label, option.id === current, () => {
-          useChatStore.getState().setAgentPermissionMode(option.id);
+          this.writeRuntimeSetting("permission", option.id);
           this.setSettingsPopoverOpen(false);
         }),
       );

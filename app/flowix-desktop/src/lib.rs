@@ -52,6 +52,8 @@ pub const USER_CONFIG_DIR_NAME: &str = ".flowix";
 /// `~/Library/Application Support/<NAME>/`)。 旧 WoopMemo 时代叫
 /// `woopmemo`, 现统一为 `flowix`。
 pub const APP_DATA_DIR_NAME: &str = "flowix";
+const EXTERNAL_AGENT_WATCHDOG_INTERVAL_MS: u64 = 5_000;
+const EXTERNAL_AGENT_DEFAULT_IDLE_TIMEOUT_MS: i64 = 30 * 60 * 1_000;
 
 pub fn get_app_data_path() -> PathBuf {
     dirs::data_dir()
@@ -80,6 +82,41 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn external_agent_watchdog_idle_timeout_ms() -> i64 {
+    std::env::var("FLOWIX_EXTERNAL_AGENT_IDLE_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(EXTERNAL_AGENT_DEFAULT_IDLE_TIMEOUT_MS)
+}
+
+fn spawn_external_agent_watchdog(
+    app_handle: tauri::AppHandle,
+    codex_cli_manager: Arc<CodexCliManager>,
+    claude_cli_manager: Arc<ClaudeCliManager>,
+) {
+    let idle_timeout_ms = external_agent_watchdog_idle_timeout_ms();
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(
+            EXTERNAL_AGENT_WATCHDOG_INTERVAL_MS,
+        ));
+        loop {
+            interval.tick().await;
+            let codex = codex_cli_manager
+                .reap_inactive_runs(&app_handle, idle_timeout_ms)
+                .await;
+            let claude = claude_cli_manager
+                .reap_inactive_runs(&app_handle, idle_timeout_ms)
+                .await;
+            if codex + claude > 0 {
+                tracing::warn!(
+                    "external agent watchdog finalized runs: codex={codex}, claude={claude}, idle_timeout_ms={idle_timeout_ms}"
+                );
+            }
+        }
+    });
 }
 
 /// 把 WoopMemo 时代的用户数据目录一次性搬到 Flowix 位置。 两个目标:
@@ -447,6 +484,11 @@ pub fn run() {
                 flowix_cli: Arc::new(tokio::sync::RwLock::new(None)),
             };
             app.manage(app_state);
+            spawn_external_agent_watchdog(
+                app.handle().clone(),
+                codex_cli_manager.clone(),
+                claude_cli_manager.clone(),
+            );
 
             if let Some(window) = app.get_webview_window("main") {
                 crate::window_chrome::apply_window_border_color(&window);
@@ -748,6 +790,7 @@ pub fn run() {
             commands::thread::hermes_thread_session_id,
             commands::thread::thread_delete,
             commands::thread::thread_update_title,
+            commands::thread::thread_get_runtime_config,
             // window
             commands::window::open_preferences_window,
             commands::window::open_note_window,
@@ -775,6 +818,19 @@ pub fn run() {
                             .await;
                     }
                 });
+                let state = app_handle.state::<commands::AppState>();
+                tauri::async_runtime::block_on(async {
+                    let codex = state.codex_cli_manager.stop_all().await;
+                    let claude = state.claude_cli_manager.stop_all().await;
+                    let gemini = state.gemini_cli_manager.stop_all().await;
+                    let hermes = state.hermes_cli_manager.stop_all().await;
+                    let openclaw = state.openclaw_cli_manager.stop_all().await;
+                    if codex + claude + gemini + hermes + openclaw > 0 {
+                        tracing::info!(
+                            "stopped external agent children on exit: codex={codex}, claude={claude}, gemini={gemini}, hermes={hermes}, openclaw={openclaw}"
+                        );
+                    }
+                });
             }
             // 兜底: 任何进程退出路径都把 child 杀掉, 避免僵尸。
             tauri::RunEvent::Exit => {
@@ -784,6 +840,19 @@ pub fn run() {
                     let guard = cli_lock.read().await;
                     if let Some(cli) = guard.as_ref() {
                         cli.kill().await;
+                    }
+                });
+                let state = app_handle.state::<commands::AppState>();
+                tauri::async_runtime::block_on(async {
+                    let codex = state.codex_cli_manager.stop_all().await;
+                    let claude = state.claude_cli_manager.stop_all().await;
+                    let gemini = state.gemini_cli_manager.stop_all().await;
+                    let hermes = state.hermes_cli_manager.stop_all().await;
+                    let openclaw = state.openclaw_cli_manager.stop_all().await;
+                    if codex + claude + gemini + hermes + openclaw > 0 {
+                        tracing::info!(
+                            "stopped external agent children on final exit: codex={codex}, claude={claude}, gemini={gemini}, hermes={hermes}, openclaw={openclaw}"
+                        );
                     }
                 });
             }

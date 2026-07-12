@@ -8,9 +8,10 @@ use tokio::process::Command;
 use crate::agent::{AgentChunk, AgentUserMessage};
 use crate::claude_history::is_claude_session_id;
 use crate::external_run::{
-    emit_chunk_with_run_id, external_runtime_key, kill_child_tree, read_capped_line,
-    resolve_run_id, select_external_session_for_runtime, ExternalRunRegistry,
-    ExternalSessionManager, MAX_STDOUT_LINE_BYTES,
+    emit_chunk_with_run_id, external_runtime_key, kill_child_tree,
+    persist_watchdog_finalized_run_state, read_capped_line, resolve_run_id,
+    select_external_session_for_runtime, ExternalRunRegistry, ExternalSessionManager,
+    MAX_STDOUT_LINE_BYTES,
 };
 use crate::runtime_log;
 use crate::threads::ThreadManager;
@@ -61,11 +62,11 @@ impl ClaudeCliManager {
                 &run_id,
             );
 
-            let reason = match manager
+            let (reason, stream_end_emitted) = match manager
                 .run_claude(&thread_id, &run_id, message, &app_handle)
                 .await
             {
-                Ok(()) => None,
+                Ok(stream_end_emitted) => (None, stream_end_emitted),
                 Err(err) => {
                     emit_chunk_with_run_id(
                         &app_handle,
@@ -76,26 +77,50 @@ impl ClaudeCliManager {
                         AGENT_TYPE,
                         &run_id,
                     );
-                    Some(err)
+                    (Some(err), false)
                 }
             };
 
-            emit_chunk_with_run_id(
-                &app_handle,
-                &AgentChunk::StreamEnd { thread_id, reason },
-                AGENT_TYPE,
-                &run_id,
-            );
+            if !stream_end_emitted {
+                emit_chunk_with_run_id(
+                    &app_handle,
+                    &AgentChunk::StreamEnd { thread_id, reason },
+                    AGENT_TYPE,
+                    &run_id,
+                );
+            }
         });
 
         Ok(String::new())
     }
 
     pub async fn stop_chat(&self, thread_id: &str, run_id: Option<&str>) -> bool {
-        let running = match run_id {
+        let mut running = match run_id {
             Some(rid) => self.runs.remove_if_run_id(thread_id, Some(rid)).await,
             None => self.runs.remove(thread_id).await,
         };
+        if running.is_none() {
+            let mapped_thread_id = {
+                let manager = self.thread_manager.read().await;
+                manager
+                    .find_thread_by_external_session(thread_id, AGENT_TYPE)
+                    .await
+                    .ok()
+                    .flatten()
+            };
+            if let Some(mapped_thread_id) = mapped_thread_id {
+                if mapped_thread_id != thread_id {
+                    running = match run_id {
+                        Some(rid) => {
+                            self.runs
+                                .remove_if_run_id(&mapped_thread_id, Some(rid))
+                                .await
+                        }
+                        None => self.runs.remove(&mapped_thread_id).await,
+                    };
+                }
+            }
+        }
         let Some(mut running) = running else {
             return false;
         };
@@ -107,13 +132,50 @@ impl ClaudeCliManager {
         self.runs.running_threads().await
     }
 
+    pub async fn stop_all(&self) -> usize {
+        self.runs.kill_all("ClaudeCli").await
+    }
+
+    pub async fn reap_inactive_runs(
+        &self,
+        app_handle: &tauri::AppHandle,
+        idle_timeout_ms: i64,
+    ) -> usize {
+        let finalized = self.runs.reap_inactive(idle_timeout_ms, "ClaudeCli").await;
+        for run in &finalized {
+            let run_id = run.run_id.as_deref().unwrap_or(run.thread_id.as_str());
+            if let Some(reason) = run.reason.clone() {
+                emit_chunk_with_run_id(
+                    app_handle,
+                    &AgentChunk::Error {
+                        thread_id: run.thread_id.clone(),
+                        message: reason.clone(),
+                    },
+                    AGENT_TYPE,
+                    run_id,
+                );
+            }
+            emit_chunk_with_run_id(
+                app_handle,
+                &AgentChunk::StreamEnd {
+                    thread_id: run.thread_id.clone(),
+                    reason: run.reason.clone(),
+                },
+                AGENT_TYPE,
+                run_id,
+            );
+            persist_watchdog_finalized_run_state(&self.thread_manager, run, "ClaudeCli").await;
+        }
+        finalized.len()
+    }
+
     async fn run_claude(
         &self,
         thread_id: &str,
         run_id: &str,
         message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let mapped_session_id = {
             let manager = self.thread_manager.read().await;
             manager
@@ -152,6 +214,9 @@ impl ClaudeCliManager {
             .map(str::to_string);
         let model = message.model_for_runtime(AGENT_TYPE).map(str::to_string);
         let prompt = message.llm_content.unwrap_or(message.content);
+        if self.runs.contains(thread_id).await {
+            return Err("Claude Code CLI is already running for this thread".to_string());
+        }
 
         runtime_log::record_agent_event(
             "info",
@@ -220,9 +285,14 @@ impl ClaudeCliManager {
             .take()
             .ok_or_else(|| "failed to capture Claude Code stderr".to_string())?;
 
-        self.runs
-            .insert(thread_id.to_string(), child, Some(run_id.to_string()))
-            .await;
+        if let Err(mut duplicate_child) = self
+            .runs
+            .try_insert(thread_id.to_string(), child, Some(run_id.to_string()))
+            .await
+        {
+            let _ = duplicate_child.kill().await;
+            return Err("Claude Code CLI is already running for this thread".to_string());
+        }
         if let Some(runtime_key) = claude_runtime_key.clone() {
             self.sessions
                 .record_runtime_key(thread_id, runtime_key)
@@ -234,15 +304,28 @@ impl ClaudeCliManager {
             run_id.to_string(),
             app_handle.clone(),
             self.thread_manager.clone(),
+            self.runs.clone(),
             BufReader::new(stdout),
         );
-        let stderr_task = read_to_string(BufReader::new(stderr));
+        let stderr_task = read_stderr_to_string(
+            thread_id.to_string(),
+            run_id.to_string(),
+            self.runs.clone(),
+            BufReader::new(stderr),
+        );
         let (stdout_result, stderr_text) = tokio::join!(stdout_task, stderr_task);
 
         let mut child = { self.runs.remove(thread_id).await };
         let status = if let Some(running) = child.as_mut() {
             running.child.wait().await.map_err(|e| e.to_string())?
         } else {
+            if self
+                .runs
+                .take_watchdog_finalized(thread_id, Some(run_id))
+                .await
+            {
+                return Ok(true);
+            }
             runtime_log::record_agent_event(
                 "warn",
                 "claude_process",
@@ -255,7 +338,7 @@ impl ClaudeCliManager {
                     "child_pid": child_pid,
                 })),
             );
-            return Ok(());
+            return Ok(false);
         };
 
         stdout_result?;
@@ -287,7 +370,7 @@ impl ClaudeCliManager {
         if !stderr_text.trim().is_empty() {
             tracing::info!("[ClaudeCli] stderr: {}", stderr_text.trim());
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -583,6 +666,7 @@ async fn read_claude_stdout<R>(
     run_id: String,
     app_handle: tauri::AppHandle,
     thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
+    runs: ExternalRunRegistry,
     reader: BufReader<R>,
 ) -> Result<(), String>
 where
@@ -612,6 +696,7 @@ where
         if line.is_empty() {
             continue;
         }
+        runs.touch(&thread_id, Some(&run_id)).await;
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -698,6 +783,8 @@ where
                     AGENT_TYPE,
                     &run_id,
                 );
+                runs.set_session_id(&thread_id, Some(&run_id), session_id.clone())
+                    .await;
             }
         }
 
@@ -745,13 +832,19 @@ fn parse_claude_stdout_line(thread_id: &str, line: &str) -> ParsedClaudeStdoutLi
     }
 }
 
-async fn read_to_string<R>(reader: BufReader<R>) -> Result<String, String>
+async fn read_stderr_to_string<R>(
+    thread_id: String,
+    run_id: String,
+    runs: ExternalRunRegistry,
+    reader: BufReader<R>,
+) -> Result<String, String>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
     let mut lines = reader.lines();
     let mut out = String::new();
     while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        runs.touch(&thread_id, Some(&run_id)).await;
         out.push_str(&line);
         out.push('\n');
     }
@@ -764,7 +857,7 @@ fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> {
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    if event_type == "assistant" || event_type == "user" {
+    if event_type == "assistant" {
         let mut chunks = Vec::new();
         if let Some(content) = value
             .get("message")
@@ -819,22 +912,36 @@ fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> {
                             input: block.get("input").cloned().unwrap_or(Value::Null),
                         });
                     }
-                    "tool_result" => {
-                        let id = block
-                            .get("tool_use_id")
-                            .or_else(|| block.get("id"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("claude_tool")
-                            .to_string();
-                        chunks.push(AgentChunk::ToolResult {
-                            thread_id: thread_id.to_string(),
-                            id,
-                            name: String::new(),
-                            result: claude_tool_result_value(block),
-                        });
-                    }
                     _ => {}
                 }
+            }
+        }
+        return chunks;
+    }
+
+    if event_type == "user" {
+        let mut chunks = Vec::new();
+        if let Some(content) = value
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(Value::as_array)
+        {
+            for block in content {
+                if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                    continue;
+                }
+                let id = block
+                    .get("tool_use_id")
+                    .or_else(|| block.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("claude_tool")
+                    .to_string();
+                chunks.push(AgentChunk::ToolResult {
+                    thread_id: thread_id.to_string(),
+                    id,
+                    name: String::new(),
+                    result: claude_tool_result_value(block),
+                });
             }
         }
         return chunks;
@@ -1113,6 +1220,33 @@ mod tests {
             chunks.as_slice(),
             [AgentChunk::ToolResult { id, name, result, .. }]
                 if id == "toolu_1" && name.is_empty() && result["content"] == "file contents"
+        ));
+    }
+
+    #[test]
+    fn ignores_claude_user_text_blocks_while_streaming() {
+        let value = serde_json::json!({
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Base directory for this skill: /tmp/verify\n\nskill body"
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": "loaded"
+                    }
+                ]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, result, .. }]
+                if id == "toolu_1" && result["content"] == "loaded"
         ));
     }
 

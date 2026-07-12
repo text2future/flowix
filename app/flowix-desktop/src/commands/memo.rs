@@ -20,8 +20,8 @@ use flowix_core::memo_file::{
 use flowix_core::search::MemoSearchHit;
 
 use super::helpers::{
-    force_rebuild_index, mark_self_write_for, rebuild_index_in_background, synthesize_minimal_memo,
-    start_security_bookmark_access, try_index_remove, try_index_upsert,
+    force_rebuild_index, mark_self_write_for, rebuild_index_in_background,
+    start_security_bookmark_access, synthesize_minimal_memo, try_index_remove, try_index_upsert,
 };
 use super::AppState;
 

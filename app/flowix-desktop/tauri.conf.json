@@ -8,7 +8,7 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../../.flowix-build/web-dist"
+    "frontendDist": "../../.build/web-dist"
   },
   "app": {
     "windows": [

@@ -10,7 +10,7 @@ export type MemoHistoryEntry = {
   openedAt: number;
 };
 
-export type ExternalHistoryEntry = {
+type ExternalHistoryEntry = {
   kind: 'external';
   path: string;
   openedAt: number;

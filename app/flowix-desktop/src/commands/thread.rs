@@ -13,6 +13,23 @@ use crate::threads::{
     UpsertAgentConversationInstance,
 };
 
+/// 拉取 thread 的 runtime_config 快照（JSON 字符串）。
+/// 前端切 thread / 重启 / 第一次打开卡片时调，作为 UI 控件的初值。
+///
+/// 返回 `None` 时表示 thread 尚未持久化任何 config → UI 应回退到全局默认。
+/// 写入侧由 chat_stream 入口自动完成（懒写），不暴露独立 update IPC。
+#[tauri::command]
+pub async fn thread_get_runtime_config(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let manager = state.thread_manager.read().await;
+    manager
+        .get_runtime_config(&thread_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 use super::AppState;
 
 #[derive(Serialize)]

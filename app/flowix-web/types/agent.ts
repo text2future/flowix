@@ -75,6 +75,65 @@ export interface AgentRuntimeConfig {
   flowix?: FlowixRuntimeConfig;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Per-thread runtime config 快照 ── 后端 `threads.runtime_config` 列
+// (JSON 字符串) 的反序列化目标。Phase 3 引入, 用于让 Agent Thread Card
+// 各自锁定 model / permission / files 配置, 互不污染。
+//
+// 字段语义对齐后端 `app/flowix-desktop/src/threads.rs::RuntimeConfig`。
+// 序列化 / 反序列化与后端保持 camelCase 命名一致。
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ModelConfig {
+  key: string;
+  /** 预留：speed / capability 标签, 当前 UI 未展示 */
+  speed?: string;
+}
+
+export interface AccessConfig {
+  sandbox: AgentPermissionMode;
+}
+
+export interface FilesConfig {
+  /** 主工作目录 (path 单值) ── 映射到 message.systemReminderDirectory */
+  workspace?: string;
+  /** 启用目录列表 (path 数组) */
+  folders: string[];
+  /** 笔记本路径列表 (path 数组, 与 agent-access-store 同语义) */
+  notebooks: string[];
+}
+
+export interface RuntimeConfig {
+  model?: ModelConfig;
+  access?: AccessConfig;
+  files?: FilesConfig;
+  /**
+   * 推理 effort (Codex 用) ── 与后端 `RuntimeConfig::reasoning_effort` 字段镜像。
+   * 三态语义同 model / access：缺失或 null = 走全局；非空 = 锁定。
+   */
+  reasoningEffort?: AgentCodexReasoningEffort;
+  /** 预留：工具白名单 */
+  tools?: string[];
+  /** 预留：cwd 显式覆盖 (当前 files.workspace 优先) */
+  cwd?: string;
+}
+
+/**
+ * `RuntimeConfig` 的 partial patch ── setThreadRuntimeConfig 用。
+ *
+ * 三态语义（与 chat-store 实际 merge 行为一致）：
+ *   - 字段缺失 / `undefined` → 不动
+ *   - 字段为 `null` → 显式清空（merge 后该 key 值为 null,
+ *     序列化为 JSON 字符串 → 后端反序列化为 None → 走全局 fallback）
+ *   - 字段为有值对象 → 锁定为该值
+ *
+ * 因此字段值类型展开为 `T | null | undefined` ── `undefined` 跳过,
+ * `null` 清空, 其他覆盖。
+ */
+export type RuntimeConfigPatch = {
+  [K in keyof RuntimeConfig]?: RuntimeConfig[K] | null;
+};
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool" | "reasoning" | "end";
@@ -192,26 +251,58 @@ export interface AgentChunkStreamEnd {
 }
 
 /**
- * 閫氱敤 metadata 鍗忚瀛楁 鈹€鈹€ 涓€娆?token 鐢ㄩ噺澧為噺,涓€娆?run 鍐呭彲琚?emit 澶氭銆? * `prompt_tokens` / `completion_tokens` 鍦ㄩ儴鍒?provider / 鍗忚涓嬩负 null
- * (缃戝叧鏈崟鐙姤鍛?;`total_tokens` 鏄繀椤婚」,浣滀负绱姞鍜屽睍绀哄厹搴曘€? * 鍓嶇鎸?run 绱姞鍒?`AgentRunState.tokenUsage`銆? */
+ * Token usage breakdown — nested object emitted on `usage` field of the
+ * `AgentChunk::Usage` wire variant. Mirrors Rust
+ * [`crate::agent::UsageInfo`]. Fields are all optional so providers that
+ * only report `total_tokens` can still send a chunk without zero-filling.
+ *
+ * `total_tokens` is the sum used by the Rust `token_budget` cross-cycle
+ * breaker. `input_tokens` / `output_tokens` are new-protocol fields;
+ * `cached_input_tokens` is the cache-hit portion;
+ * `reasoning_output_tokens` is o-series style internal consumption;
+ * `model_context_window` is the provider-reported context window for UI.
+ *
+ * Compatibility: prompt/completion fields intentionally omitted — older
+ * providers that only report them are mapped to input/output at SSE-parse
+ * time so the wire shape stays clean.
+ */
+export interface UsageInfo {
+  input_tokens?: number | null;
+  cached_input_tokens?: number | null;
+  output_tokens?: number | null;
+  reasoning_output_tokens?: number | null;
+  total_tokens?: number | null;
+  model_context_window?: number | null;
+}
+
+/**
+ * Provider-specific status snapshot — nested object emitted on the
+ * `status_info` field of `AgentChunk::Usage`. Mirrors Rust
+ * [`crate::agent::StatusInfo`]. Fields use `codex_` / `claude_` /
+ * `hermes_` prefixes for flat namespace; no nested `codex: CodexStatus`
+ * sub-struct. Latest-snapshot semantics, not accumulated.
+ */
+export interface StatusInfo {
+  codex_plan_type?: string | null;
+  codex_used_percent?: number | null;
+  codex_resets_at?: number | null;
+}
+
+/**
+ * Wire-protocol `usage` chunk variant. Top-level metadata
+ * (`model_id` / `last_run_at`) is preserved at the top level;
+ * token breakdown lives under `usage`; provider status snapshot lives
+ * under `status_info`. See [`UsageInfo`] and [`StatusInfo`].
+ */
 export interface AgentChunkUsage {
   kind: "usage";
   thread_id: string;
   agent_type?: AgentTypeKey;
   run_id?: string;
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
-  input_tokens?: number | null;
-  cached_input_tokens?: number | null;
-  output_tokens?: number | null;
-  reasoning_output_tokens?: number | null;
-  model_context_window?: number | null;
   model_id?: string | null;
-  codex_plan_type?: string | null;
-  codex_used_percent?: number | null;
-  codex_resets_at?: number | null;
   last_run_at?: number | null;
-  total_tokens: number;
+  usage?: UsageInfo | null;
+  status_info?: StatusInfo | null;
 }
 
 export interface AgentChunkSessionResolved {
@@ -247,21 +338,14 @@ export interface AgentRunState {
   lastRunAt?: number;
   /** 璇?run 閿佸畾鐨?reasoning effort,鍚姩鏃跺啓鍏?*/
   reasoningEffort?: string;
-  modelContextWindow?: number;
-  codexPlanType?: string;
-  codexUsedPercent?: number;
-  codexResetsAt?: number;
   /**
-   * 绱姞鐨?token 鐢ㄩ噺 鈹€鈹€ 鐢卞娆?Usage chunk 绱姞銆?   * 瀛楁鍏ㄩ儴鍙€? 缃戝叧鍙粰 total 涓嶇粰 prompt/completion 鏃?鍚庝袱鑰呬负 undefined銆?   */
-  tokenUsage?: {
-    prompt?: number;
-    completion?: number;
-    input?: number;
-    cachedInput?: number;
-    output?: number;
-    reasoningOutput?: number;
-    total: number;
-  };
+   * Accumulated token usage — fed by multiple Usage chunks during the run.
+   */
+  usage?: UsageInfo;
+  /**
+   * Provider-specific status snapshot — overwritten on every chunk.
+   */
+  statusInfo?: StatusInfo;
 }
 
 export type AgentToolDisplayKind =
@@ -318,22 +402,13 @@ export type AgentEvent =
   | (AgentEventBase & { kind: "session_resolved"; sessionId: string })
   | (AgentEventBase & {
       kind: "usage";
-      /**
-       * 閫氱敤 metadata 鍗忚 鈹€鈹€ 涓€娆?token 鐢ㄩ噺澧為噺銆?       * `promptTokens` / `completionTokens` 鍦ㄩ儴鍒?provider / 鍗忚涓嬩负 null
-       * (缃戝叧鏈崟鐙姤鍛?;`totalTokens` 鏄繀椤婚」,浣滀负绱姞鍜屽睍绀哄厹搴曘€?       * 鍓嶇鎸?runId 绱姞鍒?`AgentRunState.tokenUsage`銆?       */
-      promptTokens?: number | null;
-      completionTokens?: number | null;
-      inputTokens?: number | null;
-      cachedInputTokens?: number | null;
-      outputTokens?: number | null;
-      reasoningOutputTokens?: number | null;
-      modelContextWindow?: number | null;
+      /** Top-level metadata preserved from the wire chunk. */
       modelId?: string | null;
-      codexPlanType?: string | null;
-      codexUsedPercent?: number | null;
-      codexResetsAt?: number | null;
       lastRunAt?: number | null;
-      totalTokens: number;
+      /** Nested token usage breakdown — see [`UsageInfo`]. */
+      usage?: UsageInfo | null;
+      /** Provider-specific status snapshot — see [`StatusInfo`]. */
+      statusInfo?: StatusInfo | null;
     });
 
 // `agent_running_threads` IPC 杩斿洖鍊?鈹€鈹€ camelCase, 璧?IPC command 杩斿洖
@@ -343,6 +418,8 @@ export interface RunInfo {
   currentTool: string | null;
   agentType?: AgentTypeKey;
   runId?: string;
+  pendingThreadId?: string | null;
+  sessionId?: string | null;
 }
 
 /**
@@ -359,20 +436,11 @@ export interface LastRunSnapshot {
   model?: string;
   modelId?: string;
   lastRunAt?: number;
-  modelContextWindow?: number;
-  codexPlanType?: string;
-  codexUsedPercent?: number;
-  codexResetsAt?: number;
-  /** 绱姞鐨?token 鐢ㄩ噺,run 鏈熼棿鐢?Usage chunk 鎸佺画绱姞,run 缁撴潫淇濈暀鏈€缁堝€笺€?*/
-  tokenUsage?: {
-    prompt?: number;
-    completion?: number;
-    input?: number;
-    cachedInput?: number;
-    output?: number;
-    reasoningOutput?: number;
-    total: number;
-  };
+  /** Accumulated token usage — preserved after run ends so badges can still
+   * read totals. See [`UsageInfo`]. */
+  usage?: UsageInfo;
+  /** Provider-specific status snapshot — see [`StatusInfo`]. */
+  statusInfo?: StatusInfo;
   /** 鏈€缁堢姸鎬?鈹€鈹€ 姝ｅ父瀹屾垚 / 澶辫触 / 鍙栨秷銆?*/
   status: AgentRunStatus;
   /** 澶辫触 / 鍙栨秷鍘熷洜;姝ｅ父瀹屾垚鏃朵负 undefined銆?*/

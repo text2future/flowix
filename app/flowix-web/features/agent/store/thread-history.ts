@@ -45,12 +45,6 @@ export async function getInitialThreadHistory(
   return getAgentHistoryAdapter(type).getInitialHistory(threadId, limit);
 }
 
-export async function getThreadCacheHistory(
-  threadId: string,
-): Promise<ChatMessage[]> {
-  return getAgentHistoryAdapter("flowix").getFullHistory(threadId);
-}
-
 export function filterRenderableHistoryMessages(
   messages: ChatMessage[],
 ): ChatMessage[] {

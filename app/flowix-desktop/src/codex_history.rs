@@ -95,6 +95,7 @@ fn list_codex_sessions() -> Result<Vec<ThreadInfo>, String> {
                     .unwrap_or_else(|| "Codex Session".to_string()),
                 created_at,
                 updated_at: draft.updated_at.unwrap_or(created_at),
+                runtime_config: None,
             }
         })
         .collect::<Vec<_>>();

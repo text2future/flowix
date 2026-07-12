@@ -78,7 +78,7 @@ function normalizeMemoCardVariant(value: unknown): MemoCardVariant {
  * 偏好设置全局单例 store。
  *
  * 为什么不用 useState: 同一个 React 树里 useUserSettings 被多次调用
- * (App.tsx 顶层 + PreferencesView + AccountSection 等), 每个 hook 调用
+ * (app.tsx 顶层 + PreferencesView + AccountSection 等), 每个 hook 调用
  * 都是独立的 useState, updateSettings 只更新本实例的 state, 其他实例
  * 看不到 — 导致"刚改的值在另一处读不到、刷新后丢失"的诡异 bug。
  *

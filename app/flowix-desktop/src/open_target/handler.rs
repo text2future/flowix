@@ -45,7 +45,7 @@ pub fn open_memo_by_target(
     };
 
     // 推前端: 主窗口 + 偏好窗口都能收到, 由前端 listener 自行判断是否处理。
-    // 主窗口 prefs 窗口都挂了 listener (顶层 App.tsx), 主窗口负责真正打开,
+    // 主窗口 prefs 窗口都挂了 listener (顶层 app.tsx), 主窗口负责真正打开,
     // 偏好窗口收到后直接忽略。
     // emit_to 返回 bool 用于诊断, 错误跟 agent.rs::emit_chunk 一致留追踪。
     if emit_event.unwrap_or(true) && !dispatcher::emit_to(&app, "flowix:open-target", &resolved) {

@@ -3,12 +3,9 @@ import type { Node as PMNode } from 'prosemirror-model'
 import { NodeSelection } from 'prosemirror-state'
 
 /**
- * Pure ProseMirror-native helpers for resolving the "block" the cursor
- * (or a NodeSelection) is currently on, and for setting a real editor
- * selection covering that block's content.
- *
- * Both functions are deterministic given editor state — no React, no DOM
- * mutation, no class manipulation. They are the data layer the
+ * Pure ProseMirror-native helper for resolving the "block" the cursor
+ * (or a NodeSelection) is currently on. Deterministic given editor state —
+ * no React, no DOM mutation, no class manipulation. It is the data layer the
  * drag-context-menu component sits on top of.
  *
  * Naming: `pos` is the open-token position of the node; `nodeSize` is
@@ -34,14 +31,6 @@ export interface CurrentBlockInfo {
    */
   dom: HTMLElement
 }
-
-const WRAPPING_BLOCK_TYPES = new Set([
-  'blockquote',
-  'table',
-  'bulletList',
-  'orderedList',
-  'taskList',
-])
 
 const LIST_BLOCK_TYPES = new Set([
   'bulletList',
@@ -106,70 +95,5 @@ function getTargetBlockDepth($from: { depth: number; node: (depth: number) => PM
     }
   }
 
-  for (let depth = $from.depth; depth >= 1; depth--) {
-    if (WRAPPING_BLOCK_TYPES.has($from.node(depth).type.name)) {
-      return depth
-    }
-  }
   return $from.depth
-}
-
-/**
- * Set a real editor selection covering the current block's content. This
- * anchors the visual selection to the editor's native ::selection (and
- * ProseMirror-selectednode for atoms) — the most stable "this block is
- * selected" signal because it survives transient DOM mutations, React
- * effect re-runs, and external class-stripping code.
- *
- * - Text-bearing block (paragraph, heading, listItem, blockquote, codeBlock,
- *   tableCell, ...): TextSelection from `pos + 1` (just inside open) to
- *   `pos + nodeSize - 1` (just before close). Empty blocks (from === to)
- *   fall through to a cursor — no visual selection, but no error.
- * - Leaf / atom block (image, videoAttachment, fileAttachment,
- *   etc.): NodeSelection on the whole node, matching the convention those
- *   node types use for keyboard delete.
- */
-export function selectBlockContent(editor: Editor): void {
-  const info = getCurrentBlockInfo(editor)
-  if (!info) return
-
-  if (info.node.isLeaf) {
-    editor.chain().focus().setNodeSelection(info.pos).run()
-    return
-  }
-
-  const textblockSelection = getFirstTextblockSelection(info)
-  if (textblockSelection) {
-    editor.chain().focus().setTextSelection(textblockSelection).run()
-    return
-  }
-
-  if (NodeSelection.isSelectable(info.node)) {
-    editor.chain().focus().setNodeSelection(info.pos).run()
-  }
-}
-
-function getFirstTextblockSelection(info: CurrentBlockInfo): { from: number; to: number } | null {
-  if (!isWrappingBlock(info)) {
-    return getNodeTextSelection(info.pos, info.node)
-  }
-
-  let selection: { from: number; to: number } | null = null
-  info.node.descendants((node, relativePos) => {
-    if (!node.isTextblock) return true
-    selection = getNodeTextSelection(info.pos + 1 + relativePos, node)
-    return false
-  })
-  return selection
-}
-
-function getNodeTextSelection(pos: number, node: PMNode): { from: number; to: number } | null {
-  if (!node.isTextblock) return null
-  const from = pos + 1
-  const to = pos + node.nodeSize - 1
-  return { from, to }
-}
-
-function isWrappingBlock(info: CurrentBlockInfo): boolean {
-  return WRAPPING_BLOCK_TYPES.has(info.typeName)
 }

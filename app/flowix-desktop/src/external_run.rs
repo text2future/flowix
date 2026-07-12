@@ -1,13 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::agent::{AgentChunk, RunInfo};
 use crate::runtime_log;
+use crate::threads::{AgentConversationRun, ThreadManager};
 use crate::watcher::dispatcher;
 
 /// One live external-agent child process per `thread_id`.
@@ -15,16 +17,27 @@ use crate::watcher::dispatcher;
 /// Codex / Claude Code / `simple_cli` all fall under this shape: a long-lived
 /// process whose stdout is line-streamed as JSON events. Consolidating the
 /// state here makes run-id / kill / stdout-cap semantics single-sourced.
+#[derive(Clone)]
 pub struct ExternalRunRegistry {
     agent_type: &'static str,
     current_tool: &'static str,
-    children: Mutex<HashMap<String, ExternalRunningChild>>,
+    children: Arc<Mutex<HashMap<String, ExternalRunningChild>>>,
+    watchdog_finalized: Arc<Mutex<HashSet<String>>>,
 }
 
 pub struct ExternalRunningChild {
     pub child: Child,
     pub started_at: i64,
+    pub last_event_at: i64,
     pub run_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExternalWatchdogFinalizedRun {
+    pub thread_id: String,
+    pub run_id: Option<String>,
+    pub reason: Option<String>,
 }
 
 impl ExternalRunRegistry {
@@ -32,20 +45,83 @@ impl ExternalRunRegistry {
         Self {
             agent_type,
             current_tool,
-            children: Mutex::new(HashMap::new()),
+            children: Arc::new(Mutex::new(HashMap::new())),
+            watchdog_finalized: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
     pub async fn insert(&self, thread_id: String, child: Child, run_id: Option<String>) {
         let mut children = self.children.lock().await;
+        let now = chrono::Utc::now().timestamp_millis();
         children.insert(
             thread_id,
             ExternalRunningChild {
                 child,
-                started_at: chrono::Utc::now().timestamp_millis(),
+                started_at: now,
+                last_event_at: now,
                 run_id,
+                session_id: None,
             },
         );
+    }
+
+    pub async fn try_insert(
+        &self,
+        thread_id: String,
+        child: Child,
+        run_id: Option<String>,
+    ) -> Result<(), Child> {
+        let mut children = self.children.lock().await;
+        if children.contains_key(&thread_id) {
+            return Err(child);
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        children.insert(
+            thread_id,
+            ExternalRunningChild {
+                child,
+                started_at: now,
+                last_event_at: now,
+                run_id,
+                session_id: None,
+            },
+        );
+        Ok(())
+    }
+
+    pub async fn touch(&self, thread_id: &str, expected_run_id: Option<&str>) {
+        let mut children = self.children.lock().await;
+        let Some(running) = children.get_mut(thread_id) else {
+            return;
+        };
+        if expected_run_id.is_some() && running.run_id.as_deref() != expected_run_id {
+            return;
+        }
+        running.last_event_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    pub async fn set_session_id(
+        &self,
+        thread_id: &str,
+        expected_run_id: Option<&str>,
+        session_id: String,
+    ) {
+        let mut children = self.children.lock().await;
+        let Some(running) = children.get_mut(thread_id) else {
+            return;
+        };
+        if expected_run_id.is_some() && running.run_id.as_deref() != expected_run_id {
+            return;
+        }
+        running.session_id = Some(session_id);
+        running.last_event_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    pub async fn take_watchdog_finalized(&self, thread_id: &str, run_id: Option<&str>) -> bool {
+        self.watchdog_finalized
+            .lock()
+            .await
+            .remove(&watchdog_key(thread_id, run_id))
     }
 
     pub async fn remove(&self, thread_id: &str) -> Option<ExternalRunningChild> {
@@ -76,22 +152,136 @@ impl ExternalRunRegistry {
         children.remove(thread_id)
     }
 
+    pub async fn kill_all(&self, label: &str) -> usize {
+        let running = {
+            let mut children = self.children.lock().await;
+            children.drain().collect::<Vec<_>>()
+        };
+        let count = running.len();
+        for (thread_id, mut running) in running {
+            kill_child_tree(&mut running.child, label, &thread_id).await;
+        }
+        count
+    }
+
+    pub async fn reap_inactive(
+        &self,
+        idle_timeout_ms: i64,
+        label: &str,
+    ) -> Vec<ExternalWatchdogFinalizedRun> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut finalized = Vec::new();
+        let mut idle_children = Vec::new();
+
+        {
+            let mut children = self.children.lock().await;
+            let thread_ids = children.keys().cloned().collect::<Vec<_>>();
+            for thread_id in thread_ids {
+                enum Decision {
+                    Keep,
+                    Exited(bool, String),
+                    InspectFailed(String),
+                    Idle,
+                    Missing,
+                }
+
+                let decision = match children.get_mut(&thread_id) {
+                    Some(running) => {
+                        let is_idle = idle_timeout_ms > 0
+                            && now.saturating_sub(running.last_event_at) >= idle_timeout_ms;
+                        if !is_idle {
+                            Decision::Keep
+                        } else {
+                            match running.child.try_wait() {
+                                Ok(Some(status)) => {
+                                    Decision::Exited(status.success(), status.to_string())
+                                }
+                                Ok(None) => Decision::Idle,
+                                Err(err) => Decision::InspectFailed(err.to_string()),
+                            }
+                        }
+                    }
+                    None => Decision::Missing,
+                };
+
+                match decision {
+                    Decision::Keep | Decision::Missing => {}
+                    Decision::Exited(success, status) => {
+                        if let Some(running) = children.remove(&thread_id) {
+                            let reason = (!success).then(|| format!("process_exited: {status}"));
+                            finalized.push(ExternalWatchdogFinalizedRun {
+                                thread_id,
+                                run_id: running.run_id,
+                                reason,
+                            });
+                        }
+                    }
+                    Decision::InspectFailed(err) => {
+                        if let Some(running) = children.remove(&thread_id) {
+                            finalized.push(ExternalWatchdogFinalizedRun {
+                                thread_id,
+                                run_id: running.run_id,
+                                reason: Some(format!("process_watchdog_failed: {err}")),
+                            });
+                        }
+                    }
+                    Decision::Idle => {
+                        if let Some(running) = children.remove(&thread_id) {
+                            idle_children.push((thread_id, running));
+                        }
+                    }
+                }
+            }
+        }
+
+        for (thread_id, mut running) in idle_children {
+            kill_child_tree(&mut running.child, label, &thread_id).await;
+            finalized.push(ExternalWatchdogFinalizedRun {
+                thread_id,
+                run_id: running.run_id,
+                reason: Some(format!("watchdog_idle_timeout_ms={idle_timeout_ms}")),
+            });
+        }
+
+        if !finalized.is_empty() {
+            let mut finalized_keys = self.watchdog_finalized.lock().await;
+            for run in &finalized {
+                finalized_keys.insert(watchdog_key(&run.thread_id, run.run_id.as_deref()));
+            }
+        }
+
+        finalized
+    }
+
     pub async fn running_threads(&self) -> HashMap<String, RunInfo> {
         let children = self.children.lock().await;
         children
             .iter()
             .map(|(thread_id, running)| {
+                let canonical_thread_id = running
+                    .session_id
+                    .clone()
+                    .unwrap_or_else(|| thread_id.clone());
                 (
-                    thread_id.clone(),
-                    RunInfo {
-                        started_at: running.started_at,
-                        current_tool: Some(self.current_tool.to_string()),
-                        agent_type: Some(self.agent_type.to_string()),
-                        run_id: running.run_id.clone(),
-                    },
+                    canonical_thread_id,
+                    RunInfo::active(
+                        running.started_at,
+                        Some(self.current_tool),
+                        Some(self.agent_type),
+                        running.run_id.clone(),
+                        Some(thread_id.clone()),
+                        running.session_id.clone(),
+                    ),
                 )
             })
             .collect()
+    }
+}
+
+fn watchdog_key(thread_id: &str, run_id: Option<&str>) -> String {
+    match run_id {
+        Some(run_id) => format!("{thread_id}\0{run_id}"),
+        None => format!("{thread_id}\0"),
     }
 }
 
@@ -172,6 +362,60 @@ pub fn emit_chunk_with_run_id(
             agent_type = agent_type,
             "emit agent-chunk failed"
         );
+    }
+}
+
+pub async fn persist_watchdog_finalized_run_state(
+    thread_manager: &Arc<RwLock<ThreadManager>>,
+    run: &ExternalWatchdogFinalizedRun,
+    log_label: &str,
+) {
+    let Some(run_id) = run.run_id.as_deref() else {
+        return;
+    };
+
+    let ended_at = chrono::Utc::now().timestamp_millis();
+    let status = if run.reason.is_some() {
+        "failed"
+    } else {
+        "completed"
+    };
+
+    let manager = thread_manager.read().await;
+    let instance = match manager.find_agent_conversation_by_run_id(run_id).await {
+        Ok(Some(instance)) => instance,
+        Ok(None) => return,
+        Err(err) => {
+            tracing::warn!(
+                "[{log_label}] failed to find run state for watchdog finalization: {err}"
+            );
+            return;
+        }
+    };
+
+    let existing_run = instance.run.as_ref();
+    let run_state = AgentConversationRun {
+        run_id: run_id.to_string(),
+        status: status.to_string(),
+        started_at: existing_run
+            .map(|existing| existing.started_at)
+            .unwrap_or(ended_at),
+        ended_at: Some(ended_at),
+        current_tool: None,
+        model: existing_run.and_then(|existing| existing.model.clone()),
+        model_id: existing_run.and_then(|existing| existing.model_id.clone()),
+        reasoning_effort: existing_run.and_then(|existing| existing.reasoning_effort.clone()),
+        last_run_at: Some(ended_at),
+        reason: run.reason.clone(),
+        usage: existing_run.and_then(|existing| existing.usage.clone()),
+        status_info: existing_run.and_then(|existing| existing.status_info.clone()),
+    };
+
+    if let Err(err) = manager
+        .upsert_agent_conversation_run_state(&instance.instance_id, run_state)
+        .await
+    {
+        tracing::warn!("[{log_label}] failed to persist watchdog run state: {err}");
     }
 }
 

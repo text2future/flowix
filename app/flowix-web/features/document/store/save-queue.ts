@@ -120,25 +120,6 @@ export function scheduleSave(ctx: SaveContext, content: string): Promise<boolean
   return promise;
 }
 
-/**
- * Wait for all in-flight and pending saves for the given path to settle.
- * Used by sessionCloser and finalizeMemoRename to ensure no save is
- * dropped when the user navigates away.
- *
- * Note: this waits for the chain to finish, not for the editor to
- * unmount. Callers that need the editor-mount guarantee should still
- * coordinate with React lifecycle (e.g. via the document store's
- * session transition).
- */
-export async function flushSave(path: string): Promise<void> {
-  while (true) {
-    const entry = queue.get(path);
-    if (!entry || !entry.inFlight) return;
-    await entry.inFlight;
-    // The chain may have spawned a new inFlight for the pending. Loop.
-  }
-}
-
 async function runChain(ctx: SaveContext): Promise<boolean> {
   const entry = queue.get(ctx.queueKey);
   if (!entry) return true;

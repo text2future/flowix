@@ -14,7 +14,6 @@ import {
   normalizeCode,
   normalizeKey,
   tryParseChord,
-  type ShortcutOverrides,
 } from '@features/shortcuts';
 import { getAction } from '@features/shortcuts/registry';
 import { RotateCcw } from 'lucide-react';
@@ -236,6 +235,3 @@ export function ShortcutRecorder({
     </Dialog>
   );
 }
-
-// 抑制未使用导入警告 (ShortcutOverrides 在外部可能用到)
-export type { ShortcutOverrides };

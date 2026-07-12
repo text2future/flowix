@@ -56,19 +56,6 @@ export interface Notebook {
   missing?: boolean;
 }
 
-export interface TodoItem {
-  content: string;
-  status: 'pending' | 'completed';
-}
-
-export interface MemoMeta {
-  type: string;
-  agent_name?: string;
-  agent_description?: string;
-}
-
-export type SortOption = 'createdAt' | 'updatedAt' | 'title';
-
 function compareMemoItems(sort: SortType) {
   return (a: MemoItem, b: MemoItem) => {
     // 置顶优先于任何 sort 维度: pinned memo 始终靠前.

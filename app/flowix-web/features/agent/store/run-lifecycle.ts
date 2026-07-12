@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentRunState } from '@/types/agent';
+import type { AgentEvent, AgentRunState, StatusInfo, UsageInfo } from '@/types/agent';
 import type { LastRunSnapshot } from '@/types/agent';
 
 export interface RunLifecycleThreadState {
@@ -57,11 +57,8 @@ function snapshotFromRun(
     model: run.model,
     modelId: run.modelId,
     lastRunAt: run.lastRunAt,
-    modelContextWindow: run.modelContextWindow,
-    codexPlanType: run.codexPlanType,
-    codexUsedPercent: run.codexUsedPercent,
-    codexResetsAt: run.codexResetsAt,
-    tokenUsage: run.tokenUsage,
+    usage: run.usage,
+    statusInfo: run.statusInfo,
     status,
     reason,
   };
@@ -81,11 +78,11 @@ export function applyRunStarted<T extends RunLifecycleThreadState>(
     activeRunId: event.runId,
     runs: nextRuns,
     // 通用 metadata 协议 ── 新 run 启动时初始化 lastRun
-    // (model/startedAt 即时可用,tokenUsage 由后续 Usage chunk 累加,
+    // (model/startedAt 即时可用,usage 由后续 Usage chunk 累加,
     //  endedAt 由 stream_end 写入)。
     lastRun: {
       ...lastRun,
-      tokenUsage: lastRun.tokenUsage ?? st.lastRun?.tokenUsage,
+      usage: lastRun.usage ?? st.lastRun?.usage,
     },
   };
 }
@@ -164,10 +161,15 @@ export function applyRunStopped<T extends RunLifecycleThreadState>(
 }
 
 /**
- * 通用 metadata 协议 ── 累加 token 用量到 run.tokenUsage。
- * 多次 Usage chunk 按 runId 累加(同一 runId 的 prompt/completion 累加,
- * total 累加)。新 runId 的 Usage 走新 run 的累加(若 runId 不在 runs 里,
- * 不创建 run,直接丢弃 ── 流式 chunk 必须先有 StreamStart 建 run)。
+ * Accumulate Usage chunk onto the run's nested `usage` object.
+ *
+ * Token counts (`input_tokens` / `cached_input_tokens` / `output_tokens` /
+ * `reasoning_output_tokens` / `total_tokens`) are summed across chunks.
+ * `model_context_window` is overwritten per chunk (latest value wins, not
+ * accumulated). `statusInfo` is also overwritten (latest snapshot).
+ *
+ * If `runId` is not in `runs`, the chunk is dropped — stream chunks must
+ * follow a `StreamStart` to create the run.
  */
 export function applyRunUsage<T extends RunLifecycleThreadState>(
   st: T,
@@ -175,39 +177,28 @@ export function applyRunUsage<T extends RunLifecycleThreadState>(
 ): T {
   const existing = st.runs[event.runId];
   if (!existing) return st;
-  const prev = existing.tokenUsage ?? { total: 0 };
-  const next = {
-    prompt:
-      (prev.prompt ?? 0) +
-      (event.promptTokens ?? 0),
-    completion:
-      (prev.completion ?? 0) +
-      (event.completionTokens ?? 0),
-    input:
-      (prev.input ?? 0) +
-      (event.inputTokens ?? event.promptTokens ?? 0),
-    cachedInput:
-      (prev.cachedInput ?? 0) +
-      (event.cachedInputTokens ?? 0),
-    output:
-      (prev.output ?? 0) +
-      (event.outputTokens ?? event.completionTokens ?? 0),
-    reasoningOutput:
-      (prev.reasoningOutput ?? 0) +
-      (event.reasoningOutputTokens ?? 0),
-    total: prev.total + event.totalTokens,
+  const evUsage: UsageInfo = event.usage ?? {};
+  const prevUsage: UsageInfo = existing.usage ?? {};
+  const nextUsage: UsageInfo = {
+    input_tokens: (prevUsage.input_tokens ?? 0) + (evUsage.input_tokens ?? 0),
+    cached_input_tokens: (prevUsage.cached_input_tokens ?? 0) + (evUsage.cached_input_tokens ?? 0),
+    output_tokens: (prevUsage.output_tokens ?? 0) + (evUsage.output_tokens ?? 0),
+    reasoning_output_tokens: (prevUsage.reasoning_output_tokens ?? 0) + (evUsage.reasoning_output_tokens ?? 0),
+    total_tokens: (prevUsage.total_tokens ?? 0) + (evUsage.total_tokens ?? 0),
+    // model_context_window is overwrite, not accumulated
+    model_context_window: evUsage.model_context_window ?? prevUsage.model_context_window,
   };
+  const nextStatusInfo: StatusInfo | undefined =
+    event.statusInfo ?? existing.statusInfo;
+
   const updatedRun: AgentRunState = {
     ...existing,
-    tokenUsage: next,
-    modelContextWindow: event.modelContextWindow ?? existing.modelContextWindow,
+    usage: nextUsage,
+    statusInfo: nextStatusInfo,
     modelId: event.modelId ?? existing.modelId,
     lastRunAt: event.lastRunAt ?? existing.lastRunAt ?? event.timestamp,
-    codexPlanType: event.codexPlanType ?? existing.codexPlanType,
-    codexUsedPercent: event.codexUsedPercent ?? existing.codexUsedPercent,
-    codexResetsAt: event.codexResetsAt ?? existing.codexResetsAt,
   };
-  // 通用 metadata 协议 ── 同步 lastRun.tokenUsage;只有 lastRun.runId === current
+  // 通用 metadata 协议 ── 同步 lastRun.usage;只有 lastRun.runId === current
   // 才覆盖(避免 Usage chunk 来自某次旧 run 时污染新的 lastRun)。
   const shouldUpdateLastRun = st.lastRun?.runId === event.runId;
   return {
@@ -219,14 +210,10 @@ export function applyRunUsage<T extends RunLifecycleThreadState>(
     lastRun: shouldUpdateLastRun
       ? {
         ...st.lastRun,
-        tokenUsage: next,
-        modelContextWindow:
-          event.modelContextWindow ?? st.lastRun?.modelContextWindow,
+        usage: nextUsage,
+        statusInfo: nextStatusInfo,
         modelId: event.modelId ?? st.lastRun?.modelId,
         lastRunAt: event.lastRunAt ?? st.lastRun?.lastRunAt ?? event.timestamp,
-        codexPlanType: event.codexPlanType ?? st.lastRun?.codexPlanType,
-        codexUsedPercent: event.codexUsedPercent ?? st.lastRun?.codexUsedPercent,
-        codexResetsAt: event.codexResetsAt ?? st.lastRun?.codexResetsAt,
       }
       : st.lastRun,
   };
@@ -259,7 +246,7 @@ export function applyRunEnded<T extends RunLifecycleThreadState>(
       ? 'failed'
       : 'completed';
   // 通用 metadata 协议 ── 准备最终 lastRun 快照。
-  // - 优先用 runs[runId](保留 tokenUsage / model 等累加结果)
+  // - 优先用 runs[runId](保留 usage / model 等累加结果)
   // - 找不到时用上一轮 lastRun 兜底(stream_end 早于 run 创建等边角场景)
   //   此时 status 由上方三元决定,正常是 'completed',仅 cancelled/failed
   //   时才反映为对应值。
@@ -273,11 +260,8 @@ export function applyRunEnded<T extends RunLifecycleThreadState>(
     model: st.lastRun?.model,
     modelId: st.lastRun?.modelId,
     lastRunAt: st.lastRun?.lastRunAt ?? event.timestamp,
-    modelContextWindow: st.lastRun?.modelContextWindow,
-    codexPlanType: st.lastRun?.codexPlanType,
-    codexUsedPercent: st.lastRun?.codexUsedPercent,
-    codexResetsAt: st.lastRun?.codexResetsAt,
-    tokenUsage: st.lastRun?.tokenUsage,
+    usage: st.lastRun?.usage,
+    statusInfo: st.lastRun?.statusInfo,
   };
   const finalRun: AgentRunState = {
     ...baseRun,
@@ -309,7 +293,7 @@ export function applyRunEnded<T extends RunLifecycleThreadState>(
       : idleRuns,
     // 通用 metadata 协议 ── stream_end 时无条件写 lastRun。
     // 关键修复:即便 runs[event.runId] 被从 map 中清理(idleRuns 路径),
-    // 展示层仍可从 lastRun 读到 model / tokenUsage / startedAt / endedAt。
+    // 展示层仍可从 lastRun 读到 model / usage / startedAt / endedAt。
     lastRun: snapshotFromRun(finalRun, event, status, event.reason),
     pendingAssistantId: null,
     pendingReasoningId: null,

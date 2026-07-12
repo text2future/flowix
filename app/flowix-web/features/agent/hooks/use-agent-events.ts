@@ -1,4 +1,4 @@
-// 后端 `agent-chunk` 事件总线的前端单订阅者 — 挂在 App.tsx 顶层, 让主
+// 后端 `agent-chunk` 事件总线的前端单订阅者 — 挂在 app.tsx 顶层, 让主
 // 窗口和偏好设置窗口都同步 (与 `useMemoEvents` 同形)。 事件按
 // `thread_id` 派发到 chat-store 的 `dispatchAgentChunk` action, store
 // 负责按 thread_id 写入 `threadStates[tid]`, 不在这里做任何业务判断。

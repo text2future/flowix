@@ -163,6 +163,10 @@ impl SimpleCliManager {
         self.runs.running_threads().await
     }
 
+    pub async fn stop_all(&self) -> usize {
+        self.runs.kill_all(self.kind.display_name()).await
+    }
+
     async fn run_cli(
         &self,
         thread_id: &str,

@@ -9,7 +9,6 @@ export {
   getNotebookIconOption,
   type NotebookIconOption,
 } from '@features/memo/components/notebook-icon';
-export { openMemoSession as openMemoSessionFromComponent } from '@features/memo/components/open-memo-session';
 export { openMemoSession } from '@features/memo/use-cases/open-memo-session';
 export * from '@features/memo/hooks';
 export * from '@features/memo/store';

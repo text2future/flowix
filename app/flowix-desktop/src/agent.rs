@@ -251,14 +251,24 @@ impl AgentChatProvider {
                         }));
                     }
                     if let Some(usage) = response.usage() {
+                        // rllm::chat::Usage only exposes prompt/completion/total plus
+                        // nested prompt/completion_tokens_details; fold old-protocol
+                        // fields into new-protocol fields here so downstream code
+                        // never sees prompt_tokens / completion_tokens.
+                        let cached_input = usage
+                            .prompt_tokens_details
+                            .as_ref()
+                            .and_then(|d| d.cached_tokens);
+                        let reasoning_output = usage
+                            .completion_tokens_details
+                            .as_ref()
+                            .and_then(|d| d.reasoning_tokens);
                         items.push(Ok(OpenAICompatibleStreamItem::Usage {
                             total_tokens: usage.total_tokens,
-                            prompt_tokens: Some(usage.prompt_tokens),
-                            completion_tokens: Some(usage.completion_tokens),
                             input_tokens: Some(usage.prompt_tokens),
-                            cached_input_tokens: None,
+                            cached_input_tokens: cached_input,
                             output_tokens: Some(usage.completion_tokens),
-                            reasoning_output_tokens: None,
+                            reasoning_output_tokens: reasoning_output,
                             model_context_window: None,
                         }));
                     }
@@ -444,6 +454,70 @@ pub struct AgentUserMessage {
     pub codex_reasoning_effort: Option<String>,
     pub agent_role_memo_id: Option<String>,
     pub agent_role_name: Option<String>,
+    /// Per-thread 配置快照（JSON 字符串，前端懒写）。
+    /// 发消息时由前端把当前生效的 [`crate::threads::RuntimeConfig`] 序列化为
+    /// JSON 字符串塞进来；后端 `chat_stream_inner` 入口 upsert 到
+    /// `threads.runtime_config` 列，然后读出来作为本次 chat 的生效配置。
+    ///
+    /// 与顶层 `permission_mode / codex_model / codex_reasoning_effort` 不同，
+    /// 本字段表达"per-thread 锁定"语义——不是用户当下的临时选择。
+    /// 空字符串视同 None（前端没改控件时不携带）。
+    #[serde(default)]
+    pub thread_runtime_config: Option<String>,
+}
+
+/// 把 thread-scoped permission_mode 写到 `AgentRuntimeConfig` 对应 runtime slot。
+/// flowix / gemini / openclaw 不支持 permission_mode 字段（沙箱由
+/// tool scope 单独管）── 调用方按需过滤，这里仍按 runtime key 静默写入
+/// 不会污染其他 slot。
+fn set_runtime_permission_mode(rc: &mut AgentRuntimeConfig, runtime: &str, sandbox: &str) {
+    match runtime {
+        "codex" => {
+            rc.codex
+                .get_or_insert_with(CodexRuntimeConfig::default)
+                .permission_mode = Some(sandbox.to_string())
+        }
+        "claude" => {
+            rc.claude
+                .get_or_insert_with(ClaudeRuntimeConfig::default)
+                .permission_mode = Some(sandbox.to_string())
+        }
+        "hermes" => {
+            rc.hermes
+                .get_or_insert_with(HermesRuntimeConfig::default)
+                .permission_mode = Some(sandbox.to_string())
+        }
+        _ => {}
+    }
+}
+
+/// 把 thread-scoped workspace_paths 写到 `AgentRuntimeConfig` 对应 runtime slot。
+/// 4 种 runtime config struct 都有 `workspace_paths: Vec<String>` 字段，
+/// 但 struct 名不同 → 用 match 分发。
+fn set_runtime_workspace_paths(rc: &mut AgentRuntimeConfig, runtime: &str, paths: Vec<String>) {
+    match runtime {
+        "flowix" | "gemini" | "openclaw" => {
+            rc.flowix
+                .get_or_insert_with(RuntimePathConfig::default)
+                .workspace_paths = paths;
+        }
+        "codex" => {
+            rc.codex
+                .get_or_insert_with(CodexRuntimeConfig::default)
+                .workspace_paths = paths;
+        }
+        "claude" => {
+            rc.claude
+                .get_or_insert_with(ClaudeRuntimeConfig::default)
+                .workspace_paths = paths;
+        }
+        "hermes" => {
+            rc.hermes
+                .get_or_insert_with(HermesRuntimeConfig::default)
+                .workspace_paths = paths;
+        }
+        _ => {}
+    }
 }
 
 impl AgentUserMessage {
@@ -661,6 +735,73 @@ pub struct RunInfo {
     pub current_tool: Option<String>,
     pub agent_type: Option<String>,
     pub run_id: Option<String>,
+    /// Registry key used when the process was started. External CLIs may later
+    /// resolve a provider-native session id; keeping this lets stop/reconcile
+    /// distinguish the pending launch id from the canonical session id.
+    pub pending_thread_id: Option<String>,
+    /// Provider-native session id once reported by the external CLI.
+    pub session_id: Option<String>,
+}
+
+impl RunInfo {
+    pub fn active(
+        started_at: i64,
+        current_tool: Option<&str>,
+        agent_type: Option<&str>,
+        run_id: Option<String>,
+        pending_thread_id: Option<String>,
+        session_id: Option<String>,
+    ) -> Self {
+        Self {
+            started_at,
+            current_tool: current_tool.map(str::to_string),
+            agent_type: agent_type.map(str::to_string),
+            run_id,
+            pending_thread_id,
+            session_id,
+        }
+    }
+}
+
+/// Token usage breakdown emitted as a nested object on the `usage` field of
+/// [`AgentChunk::Usage`]. Fields are all `Option` so that providers which do
+/// not report a particular breakdown (e.g. only `total_tokens` is reported)
+/// can still send the chunk without zero-filling every field.
+///
+/// `total_tokens` is used by the Rust `token_budget` cross-cycle breaker
+/// (`AgentManager::chat_stream_inner`). `input_tokens` / `output_tokens` are
+/// the new-protocol fields; `cached_input_tokens` is the cache-hit portion;
+/// `reasoning_output_tokens` is o-series style internal consumption;
+/// `model_context_window` is the provider-reported context window for UI.
+///
+/// Compatibility fields `prompt_tokens` / `completion_tokens` are intentionally
+/// not part of this struct — old providers that only report them are mapped
+/// to `input_tokens` / `output_tokens` at SSE-parse time
+/// ([`crate::providers::openai_compatible`]), so the wire shape stays clean.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct UsageInfo {
+    pub input_tokens: Option<u32>,
+    pub cached_input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub reasoning_output_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    pub model_context_window: Option<u32>,
+}
+
+/// Provider-specific status snapshot emitted as a nested object on the
+/// `status_info` field of [`AgentChunk::Usage`]. Fields use `codex_` /
+/// `claude_` / `hermes_` prefixes to keep namespaces flat — we deliberately
+/// do **not** nest a `codex: CodexStatus { ... }` sub-struct, because that
+/// adds a layer that buys no real abstraction.
+///
+/// Fields are overwritten on every chunk (latest snapshot, not accumulated).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct StatusInfo {
+    pub codex_plan_type: Option<String>,
+    pub codex_used_percent: Option<f64>,
+    pub codex_resets_at: Option<i64>,
 }
 
 /// agent 流式协议 — emit 到 `agent-chunk` 事件, 前端 `client.ts:listenToAgentStream`
@@ -736,26 +877,20 @@ pub enum AgentChunk {
         thread_id: String,
         reason: Option<String>,
     },
-    /// Token 用量增量 ── 一次 run 内可能被 emit 多次(每 turn / 每 chunk
-    /// 末尾)。`prompt_tokens` / `completion_tokens` 为 None 表示该 provider
-    /// 未单独报告(此时 `total_tokens` 仍可作为兜底使用)。
-    /// 前端累加到 `AgentRunState.tokenUsage` / thread 累计字段。
-    /// 通用协议: 所有 provider 通过 emit Usage chunk 上报;不识别时直接不 emit。
+    /// Token usage increment — emitted multiple times per run (per turn /
+    /// per stream tail). Token counts are accumulated by the frontend into
+    /// `AgentRunState.usage`. `model_id` and `last_run_at` are top-level
+    /// metadata, not nested under `usage`. `usage` is the nested token
+    /// breakdown (see [`UsageInfo`]). `status_info` is the provider-specific
+    /// status snapshot (see [`StatusInfo`]). Compatibility fields
+    /// `prompt_tokens` / `completion_tokens` are no longer part of the wire —
+    /// SSE parse layer maps them to `input_tokens` / `output_tokens` first.
     Usage {
         thread_id: String,
-        prompt_tokens: Option<u32>,
-        completion_tokens: Option<u32>,
-        input_tokens: Option<u32>,
-        cached_input_tokens: Option<u32>,
-        output_tokens: Option<u32>,
-        reasoning_output_tokens: Option<u32>,
-        model_context_window: Option<u32>,
         model_id: Option<String>,
-        codex_plan_type: Option<String>,
-        codex_used_percent: Option<f64>,
-        codex_resets_at: Option<i64>,
         last_run_at: Option<i64>,
-        total_tokens: u32,
+        usage: Option<UsageInfo>,
+        status_info: Option<StatusInfo>,
     },
     /// External CLI runtime resolved a temporary frontend thread id to the
     /// durable provider session id. The frontend uses this to canonicalize
@@ -1400,12 +1535,14 @@ impl AgentManager {
             .map(|(tid, run)| {
                 (
                     tid.clone(),
-                    RunInfo {
-                        started_at: run.started_at,
-                        current_tool: None,
-                        agent_type: Some("flowix".to_string()),
-                        run_id: Some(run.run_id.clone()),
-                    },
+                    RunInfo::active(
+                        run.started_at,
+                        None,
+                        Some("flowix"),
+                        Some(run.run_id.clone()),
+                        Some(tid.clone()),
+                        None,
+                    ),
                 )
             })
             .collect()
@@ -1685,12 +1822,83 @@ impl AgentManager {
     async fn chat_stream_inner(
         &self,
         thread_id: &str,
-        message: AgentUserMessage,
+        mut message: AgentUserMessage,
         app_handle: &tauri::AppHandle,
         cancel: &Arc<AtomicBool>,
         run_id: String,
     ) -> Result<String, AgentError> {
-        let ai_config = self.user_config.get_ai_config().model;
+        // ── Phase 2: per-thread runtime_config 懒写 + 读取 ───────────────
+        // 1) 前端在 UI 改控件后未立即发消息时, 配置只是 in-memory 的临时态;
+        //    发消息这一刻前端把当前生效的 RuntimeConfig 序列化为 JSON 字符串
+        //    塞进 `message.thread_runtime_config` 字段, 我们在这里 upsert 落盘。
+        if let Some(json) = message.thread_runtime_config.as_deref() {
+            let trimmed = json.trim();
+            if !trimmed.is_empty() {
+                let manager = self.thread_manager.read().await;
+                manager.upsert_runtime_config(thread_id, trimmed).await?;
+            }
+        }
+        // 2) 读取 thread 持久态作为本次 chat 的生效配置源。
+        //    解析失败时静默回退 None ── 旧数据或前端发畸形 JSON 时不阻断 chat。
+        let thread_cfg: Option<crate::threads::RuntimeConfig> = {
+            let manager = self.thread_manager.read().await;
+            manager
+                .get_runtime_config(thread_id)
+                .await?
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<crate::threads::RuntimeConfig>(s).ok())
+        };
+
+        // 3) 把 thread 锁定的字段覆盖到 ai_config / message 上 ── 后续代码
+        //    一律读 ai_config 和 message.runtime_config, 不需要再回头看 thread_cfg。
+        let mut ai_config = self.user_config.get_ai_config().model;
+        if let Some(cfg) = thread_cfg.as_ref() {
+            // 3a) model → 直接覆盖 ai_config.model, provider cache 命中条件
+            //     是整份 AiModelConfig 字符串相等, model 改了 → 自动 miss。
+            if let Some(model) = cfg.model.as_ref() {
+                if !model.key.trim().is_empty() {
+                    ai_config.model = model.key.clone();
+                }
+            }
+            // 3b) access + files → 写入 message.runtime_config.{type}.*,
+            //     后续 helper (cwd_for_runtime / permission_mode_for_runtime /
+            //     workspace_paths_for_runtime) 已经会读这些字段。
+            let needs_rc = cfg.access.is_some() || cfg.files.is_some();
+            if needs_rc {
+                let runtime = message.agent_type.as_deref().unwrap_or("flowix");
+                let rc = message
+                    .runtime_config
+                    .get_or_insert_with(AgentRuntimeConfig::default);
+
+                if let Some(access) = cfg.access.as_ref() {
+                    set_runtime_permission_mode(rc, runtime, &access.sandbox);
+                }
+                if let Some(files) = cfg.files.as_ref() {
+                    // files.workspace → 覆盖 system_reminder_directory (cwd 真源)
+                    if let Some(ws) = files.workspace.as_ref() {
+                        message.system_reminder_directory = Some(ws.clone());
+                    }
+                    // files.folders + files.notebooks 合并成 workspace_paths
+                    let combined: Vec<String> = files
+                        .folders
+                        .iter()
+                        .chain(files.notebooks.iter())
+                        .cloned()
+                        .collect();
+                    if !combined.is_empty() {
+                        set_runtime_workspace_paths(rc, runtime, combined);
+                    }
+                }
+            }
+            // 3c) reasoning_effort → 顶层 message.codex_reasoning_effort,
+            //     `codex_reasoning_effort_for_runtime` helper 已经会读。
+            if let Some(effort) = cfg.reasoning_effort.as_ref() {
+                if !effort.trim().is_empty() {
+                    message.codex_reasoning_effort = Some(effort.clone());
+                }
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
         let instance = if let Some(role_section) = self.agent_role_system_section(&message) {
             // Runtime Agent Role takes the role slot — base_system_prompt
             // omits the default static role section in this branch, keeping
@@ -1897,8 +2105,6 @@ impl AgentManager {
                         match item {
                             OpenAICompatibleStreamItem::Usage {
                                 total_tokens,
-                                prompt_tokens,
-                                completion_tokens,
                                 input_tokens,
                                 cached_input_tokens,
                                 output_tokens,
@@ -1906,26 +2112,25 @@ impl AgentManager {
                                 model_context_window,
                             } => {
                                 // 通用 metadata 协议 ── 把 usage 推给前端,
-                                // 前端累加到 `AgentRunState.tokenUsage` / thread 累计。
+                                // 前端累加到 `AgentRunState.usage` / thread 累计。
                                 // 不论是否触发 budget 熔断, 都 emit 一次,
                                 // 让前端能看到每 turn 的 token 增量。
+                                let usage = UsageInfo {
+                                    input_tokens,
+                                    cached_input_tokens,
+                                    output_tokens,
+                                    reasoning_output_tokens,
+                                    total_tokens: Some(total_tokens),
+                                    model_context_window,
+                                };
                                 emit_chunk_with_run_id(
                                     app_handle,
                                     &AgentChunk::Usage {
                                         thread_id: thread_id.to_string(),
-                                        prompt_tokens,
-                                        completion_tokens,
-                                        input_tokens,
-                                        cached_input_tokens,
-                                        output_tokens,
-                                        reasoning_output_tokens,
-                                        model_context_window,
                                         model_id: None,
-                                        codex_plan_type: None,
-                                        codex_used_percent: None,
-                                        codex_resets_at: None,
                                         last_run_at: None,
-                                        total_tokens,
+                                        usage: Some(usage),
+                                        status_info: None,
                                     },
                                     FLOWIX_AGENT_TYPE,
                                     &run_id,
@@ -3314,36 +3519,38 @@ mod tests {
     fn agent_chunk_usage_serializes_with_snake_case_tag() {
         let chunk = AgentChunk::Usage {
             thread_id: "thread_1".to_string(),
-            prompt_tokens: Some(100),
-            completion_tokens: Some(50),
-            input_tokens: Some(100),
-            cached_input_tokens: Some(25),
-            output_tokens: Some(50),
-            reasoning_output_tokens: Some(10),
-            model_context_window: Some(200_000),
             model_id: Some("gpt-5.5".to_string()),
-            codex_plan_type: Some("pro".to_string()),
-            codex_used_percent: Some(22.0),
-            codex_resets_at: Some(1_777_777_777),
             last_run_at: Some(1_777_777_000_000),
-            total_tokens: 150,
+            usage: Some(UsageInfo {
+                input_tokens: Some(100),
+                cached_input_tokens: Some(25),
+                output_tokens: Some(50),
+                reasoning_output_tokens: Some(10),
+                total_tokens: Some(150),
+                model_context_window: Some(200_000),
+            }),
+            status_info: Some(StatusInfo {
+                codex_plan_type: Some("pro".to_string()),
+                codex_used_percent: Some(22.0),
+                codex_resets_at: Some(1_777_777_777),
+            }),
         };
         let v: serde_json::Value = serde_json::to_value(&chunk).unwrap();
         assert_eq!(v["kind"], "usage");
         assert_eq!(v["thread_id"], "thread_1");
-        assert_eq!(v["prompt_tokens"], 100);
-        assert_eq!(v["completion_tokens"], 50);
-        assert_eq!(v["input_tokens"], 100);
-        assert_eq!(v["cached_input_tokens"], 25);
-        assert_eq!(v["output_tokens"], 50);
-        assert_eq!(v["reasoning_output_tokens"], 10);
-        assert_eq!(v["model_context_window"], 200_000);
         assert_eq!(v["model_id"], "gpt-5.5");
-        assert_eq!(v["codex_plan_type"], "pro");
-        assert_eq!(v["codex_used_percent"], 22.0);
-        assert_eq!(v["codex_resets_at"], 1_777_777_777);
         assert_eq!(v["last_run_at"], 1_777_777_000_000i64);
-        assert_eq!(v["total_tokens"], 150);
+        let usage = &v["usage"];
+        assert_eq!(usage["input_tokens"], 100);
+        assert_eq!(usage["cached_input_tokens"], 25);
+        assert_eq!(usage["output_tokens"], 50);
+        assert_eq!(usage["reasoning_output_tokens"], 10);
+        assert_eq!(usage["total_tokens"], 150);
+        assert_eq!(usage["model_context_window"], 200_000);
+        let status_info = &v["status_info"];
+        assert_eq!(status_info["codex_plan_type"], "pro");
+        assert_eq!(status_info["codex_used_percent"], 22.0);
+        assert_eq!(status_info["codex_resets_at"], 1_777_777_777);
     }
 
     #[test]
@@ -3395,18 +3602,24 @@ mod tests {
             current_tool: Some("read".to_string()),
             agent_type: Some("codex".to_string()),
             run_id: Some("run-1".to_string()),
+            pending_thread_id: Some("pending-1".to_string()),
+            session_id: Some("session-1".to_string()),
         };
         let v: serde_json::Value = serde_json::to_value(&info).unwrap();
         assert_eq!(v["startedAt"], 1_700_000_000_000_i64);
         assert_eq!(v["currentTool"], "read");
         assert_eq!(v["agentType"], "codex");
         assert_eq!(v["runId"], "run-1");
+        assert_eq!(v["pendingThreadId"], "pending-1");
+        assert_eq!(v["sessionId"], "session-1");
 
         let none_info = RunInfo {
             started_at: 0,
             current_tool: None,
             agent_type: None,
             run_id: None,
+            pending_thread_id: None,
+            session_id: None,
         };
         let v2: serde_json::Value = serde_json::to_value(&none_info).unwrap();
         assert!(v2["currentTool"].is_null());

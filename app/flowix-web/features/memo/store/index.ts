@@ -5,8 +5,6 @@ export {
   MEMO_COLOR_HEX,
   type MemoStore,
   type Notebook,
-  type MemoMeta,
-  type TodoItem,
   type ColorFilterValue,
   type ExtendedFilterType,
 } from '@features/memo/store/memo-store';

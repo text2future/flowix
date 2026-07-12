@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::agent::AgentChunk;
+use crate::agent::{AgentChunk, StatusInfo, UsageInfo};
 
 use super::{truncate_chars, MAX_UI_OUTPUT_PREVIEW_CHARS};
 
@@ -15,7 +15,7 @@ use super::{truncate_chars, MAX_UI_OUTPUT_PREVIEW_CHARS};
 //   - item.started/item.completed + item.type=function_call/custom_tool_call -> ToolCall
 //   - item.started/item.completed + item.type=function_call_output/custom_tool_call_output -> ToolResult
 //   - turn.completed.usage -> Usage
-//   - turn.failed/error -> Error
+//   - turn.failed/error -> Error, except transient reconnect/progress events
 // - Legacy/internal schema:
 //   - event_msg:agent_message -> Text
 //   - event_msg:token_count -> Usage
@@ -59,10 +59,17 @@ enum CodexEvent {
 }
 
 /// Token usage snapshot emitted by Codex `event_msg:token_count`.
+/// Internal representation that aggregates `event_msg:token_count`,
+/// `turn.completed.usage`, and `turn_context` payload — used to build the
+/// wire-format [`UsageInfo`] + [`StatusInfo`] + top-level metadata chunks.
+///
+/// `prompt_tokens` / `completion_tokens` are kept here as parse-time helpers
+/// but never reach the wire: they are folded into `input_tokens` /
+/// `output_tokens` at construction time (Codex already reports new-protocol
+/// fields, so the fold is a no-op in practice; the fields stay for parity
+/// with the parse helpers and to absorb legacy/internal Codex payloads).
 #[derive(Debug, Clone)]
 struct UsageSnapshot {
-    prompt_tokens: Option<u32>,
-    completion_tokens: Option<u32>,
     input_tokens: Option<u32>,
     cached_input_tokens: Option<u32>,
     output_tokens: Option<u32>,
@@ -81,21 +88,25 @@ pub fn codex_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> 
         CodexEvent::Lifecycle { usage: None } | CodexEvent::Unknown => Vec::new(),
         CodexEvent::Lifecycle { usage: Some(usage) } => {
             // 通用 metadata 协议 ── 透传给前端, 累加到 run / thread。
+            // token 字段走嵌套 `UsageInfo`,codex plan 信息走嵌套 `StatusInfo`,
+            // model_id / last_run_at 留在顶层。
             vec![AgentChunk::Usage {
                 thread_id: thread_id.to_string(),
-                prompt_tokens: usage.prompt_tokens,
-                completion_tokens: usage.completion_tokens,
-                input_tokens: usage.input_tokens,
-                cached_input_tokens: usage.cached_input_tokens,
-                output_tokens: usage.output_tokens,
-                reasoning_output_tokens: usage.reasoning_output_tokens,
-                model_context_window: usage.model_context_window,
                 model_id: usage.model_id,
-                codex_plan_type: usage.codex_plan_type,
-                codex_used_percent: usage.codex_used_percent,
-                codex_resets_at: usage.codex_resets_at,
                 last_run_at: usage.last_run_at,
-                total_tokens: usage.total_tokens,
+                usage: Some(UsageInfo {
+                    input_tokens: usage.input_tokens,
+                    cached_input_tokens: usage.cached_input_tokens,
+                    output_tokens: usage.output_tokens,
+                    reasoning_output_tokens: usage.reasoning_output_tokens,
+                    total_tokens: Some(usage.total_tokens),
+                    model_context_window: usage.model_context_window,
+                }),
+                status_info: Some(StatusInfo {
+                    codex_plan_type: usage.codex_plan_type,
+                    codex_used_percent: usage.codex_used_percent,
+                    codex_resets_at: usage.codex_resets_at,
+                }),
             }]
         }
         CodexEvent::Reasoning { text } => vec![AgentChunk::Reasoning {
@@ -137,6 +148,7 @@ fn parse_codex_event(value: &Value) -> CodexEvent {
         "event_msg" => parse_codex_event_msg(value),
         "error" => first_string(value, &["message", "error"])
             .filter(|message| !message.trim().is_empty())
+            .filter(|message| !is_transient_codex_status_message(message))
             .map(|message| CodexEvent::Error { message })
             .unwrap_or(CodexEvent::Unknown),
         "turn.failed" => parse_turn_failed(value),
@@ -145,8 +157,6 @@ fn parse_codex_event(value: &Value) -> CodexEvent {
             let payload = event_payload(value);
             CodexEvent::Lifecycle {
                 usage: Some(UsageSnapshot {
-                    prompt_tokens: None,
-                    completion_tokens: None,
                     input_tokens: None,
                     cached_input_tokens: None,
                     output_tokens: None,
@@ -285,8 +295,35 @@ fn parse_turn_failed(value: &Value) -> CodexEvent {
     first_string(payload, &["message", "error"])
         .or_else(|| first_string(value, &["message", "error"]))
         .filter(|message| !message.trim().is_empty())
+        .filter(|message| !is_transient_codex_status_message(message))
         .map(|message| CodexEvent::Error { message })
         .unwrap_or(CodexEvent::Unknown)
+}
+
+pub fn is_transient_codex_reconnect_event(value: &Value) -> bool {
+    let event_type = value
+        .get("type")
+        .or_else(|| value.get("kind"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(event_type.as_str(), "turn.failed" | "error" | "event_msg") {
+        return false;
+    }
+    let payload = event_payload(value);
+    first_string(payload, &["message", "error", "text", "content"])
+        .or_else(|| first_string(value, &["message", "error", "text", "content"]))
+        .as_deref()
+        .map(is_transient_codex_status_message)
+        .unwrap_or(false)
+}
+
+fn is_transient_codex_status_message(message: &str) -> bool {
+    let normalized = message.trim().to_ascii_lowercase();
+    normalized.contains("reconnecting")
+        || normalized.contains("reconnect")
+        || normalized.contains("retrying")
+        || normalized.contains("temporarily unavailable")
 }
 
 fn message_text(payload: &Value) -> Option<String> {
@@ -338,8 +375,6 @@ fn usage_from_token_count(value: &Value, payload: &Value) -> UsageSnapshot {
         .unwrap_or(0);
 
     UsageSnapshot {
-        prompt_tokens: input,
-        completion_tokens: output,
         input_tokens: input,
         cached_input_tokens: number_u32(payload, &["cached_input_tokens", "cached_tokens"]),
         output_tokens: output,
@@ -622,11 +657,14 @@ mod tests {
         assert!(matches!(
             chunks.as_slice(),
             [AgentChunk::Usage {
-                input_tokens: Some(24763),
-                cached_input_tokens: Some(24448),
-                output_tokens: Some(122),
-                reasoning_output_tokens: Some(0),
-                total_tokens: 24885,
+                usage: Some(crate::agent::UsageInfo {
+                    input_tokens: Some(24763),
+                    cached_input_tokens: Some(24448),
+                    output_tokens: Some(122),
+                    reasoning_output_tokens: Some(0),
+                    total_tokens: Some(24885),
+                    ..
+                }),
                 ..
             }]
         ));
@@ -665,21 +703,43 @@ mod tests {
         assert!(matches!(
             &chunks[2],
             AgentChunk::Usage {
-                input_tokens: Some(24763),
-                cached_input_tokens: Some(24448),
-                output_tokens: Some(122),
-                reasoning_output_tokens: Some(0),
-                total_tokens: 24885,
+                usage: Some(crate::agent::UsageInfo {
+                    input_tokens: Some(24763),
+                    cached_input_tokens: Some(24448),
+                    output_tokens: Some(122),
+                    reasoning_output_tokens: Some(0),
+                    total_tokens: Some(24885),
+                    ..
+                }),
                 ..
             }
         ));
     }
 
     #[test]
-    fn maps_new_codex_error_events_to_error_chunks() {
+    fn skips_transient_codex_reconnect_errors() {
         let error = serde_json::json!({
             "type": "error",
             "message": "Reconnecting..."
+        });
+        let failed = serde_json::json!({
+            "type": "turn.failed",
+            "error": {
+                "message": "stream disconnected before completion; retrying"
+            }
+        });
+
+        assert!(is_transient_codex_reconnect_event(&error));
+        assert!(codex_event_to_chunks("thread_1", &error).is_empty());
+        assert!(is_transient_codex_reconnect_event(&failed));
+        assert!(codex_event_to_chunks("thread_1", &failed).is_empty());
+    }
+
+    #[test]
+    fn maps_new_codex_error_events_to_error_chunks() {
+        let error = serde_json::json!({
+            "type": "error",
+            "message": "fatal transport error"
         });
         let failed = serde_json::json!({
             "type": "turn.failed",
@@ -691,7 +751,7 @@ mod tests {
         let error_chunks = codex_event_to_chunks("thread_1", &error);
         assert!(matches!(
             error_chunks.as_slice(),
-            [AgentChunk::Error { message, .. }] if message.contains("Reconnecting")
+            [AgentChunk::Error { message, .. }] if message.contains("fatal transport")
         ));
 
         let failed_chunks = codex_event_to_chunks("thread_1", &failed);
@@ -723,16 +783,22 @@ mod tests {
         assert!(matches!(
             chunks.as_slice(),
             [AgentChunk::Usage {
-                input_tokens: Some(100),
-                cached_input_tokens: Some(40),
-                output_tokens: Some(20),
-                reasoning_output_tokens: Some(5),
-                model_context_window: Some(400000),
-                codex_plan_type,
-                codex_used_percent,
-                codex_resets_at: Some(1_756_555_200),
+                usage: Some(crate::agent::UsageInfo {
+                    input_tokens: Some(100),
+                    cached_input_tokens: Some(40),
+                    output_tokens: Some(20),
+                    reasoning_output_tokens: Some(5),
+                    total_tokens: Some(125),
+                    model_context_window: Some(400000),
+                    ..
+                }),
+                status_info: Some(crate::agent::StatusInfo {
+                    codex_plan_type,
+                    codex_used_percent,
+                    codex_resets_at: Some(1_756_555_200),
+                    ..
+                }),
                 last_run_at: Some(1_756_468_800_000),
-                total_tokens: 125,
                 ..
             }] if codex_plan_type.as_deref() == Some("pro")
                 && codex_used_percent == &Some(22.0)

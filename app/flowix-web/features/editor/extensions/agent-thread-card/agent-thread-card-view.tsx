@@ -58,15 +58,6 @@ import {
   type ScrollSnapshot,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-dom";
 
-/** Schema default 用的静态字面量 ── Tiptap schema 不依赖语言, 这里
- * 写死空串; 用户创建卡片后 title 会由 buildTitle() 用 prompt 覆盖,
- * prompt 为空时也走空串兜底, 不再渲染 "AI 对话" 等默认文案。
- * 运行期 title getter 用 `this.t('editor.threadCard.title')` 走 i18n (目前为空)。 */
-// DEFAULT_TITLE_KEY ── 卡片标题为空时的回落 i18n key, 实际取值在每处
-// 取数前 translate(language, DEFAULT_TITLE_KEY)。 在 schema default 里
-// 也直接用静态 fallback (空串), 因为 schema 不依赖语言 ── 用户
-// 创建卡片后这个 default 立即会被 buildTitle() 覆盖, 不会被长时间展示。
-
 // OS 顶部控件区高度 ── AgentThreadCard 全屏时把卡片向上探出这条带状区
 // 高度, 覆盖到 webview 顶端 (而不是停在文档区顶边)。
 //
@@ -92,44 +83,15 @@ const AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT =
 const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
   "flowix:agent-thread-card-request-fullscreen";
 const AGENT_THREAD_CARD_INPUT_DRAFT_MAX_CHARS = 500;
-// inputDraft 落盘 debounce ── 1s 静默期后把本地草稿写入 ProseMirror attrs。
-// 见 AgentThreadCardView.scheduleDraftPersist 注释。 必须 flush 的时机:
-// submit / destroy / input blur / 窗口 hidden ── 否则会丢稿 (ProseMirror
-// attr 是 input 重新挂载时回填 input.value 的唯一来源)。
-const AGENT_THREAD_CARD_DRAFT_PERSIST_DEBOUNCE_MS = 1000;
-
-// 注: 二级弹窗走纯 CSS 定位 (right: 100% / top: 0), 不需要 JS
-// 计算坐标所需的 viewport padding / offset / hide-delay 常量。
+// inputDraft 落盘 debounce: typing 停 2s 后写入 ProseMirror attrs。
+// submit / destroy / blur 会主动 flush, 避免卡片重挂载时用旧 attr 回填。
+const AGENT_THREAD_CARD_DRAFT_PERSIST_DEBOUNCE_MS = 2000;
 
 function buildTitle(prompt: string, fallback: string = ""): string {
   const title = stripSystemBlock(prompt).replace(/\s+/g, " ").trim();
   return title ? title.slice(0, 28) : fallback;
 }
 
-// 工具摘要: 解析" ```lang\ncode\n``` "围栏 / 行内 `code` / 优先取 language-x
-// 类, 把 fenced code 渲染成与面板等效的 <pre><code class="lang-x">。
-// marked 17 默认开启 GFM, 不用再注册 remark-gfm。
-//
-// 安全性: marked.parse() 直接走 HTML 输出, 对不可信输入要先 sanitize。
-// 当前 ChatMessage.content 来源是后端 rllm agent 输出 (受控), 但仍
-// 走一道最小过滤 ── 移除 <script> / on* 属性 / javascript: href。
-// user 消息里的隐藏上下文由 messageView.visibleContent 提前剥离。
-// 提取编辑器全文档作为'技能'上下文 ── ProseMirror doc 遍历, 跳过
-// agentThreadCard 节点 (避免把卡片自身的内容 / metadata 当成笔记内容
-// 喂给 LLM, 也避免 LLM 看到自己的 prompt 历史造成循环)。
-//
-// 实现要点:
-//   - 用 view.state.doc.descendants 递归遍历, 在 callback 里
-//     跳过 type.name === 'agentThreadCard' 的节点 (返回 false 不下钻)
-//   - 收集每个 block 节点的 textContent, 用 '\n\n' 拼成 markdown-like 文本
-//   - 保留原始块结构, 文本顺序与编辑器视觉顺序一致
-//   - 空文档 / 全部是 card 的文档返回空字符串
-//
-// 简化: 不区分 heading / paragraph / list 等 markdown 语义, 全部按
-// textContent 拼接 ── LLM 拿到的是'纯文本 + 双换行分块', 足够作为
-// '当前笔记的技能/上下文'使用。markdown 完美序列化需要走 Tiptap 的
-// renderMarkdown, 但那会把 agent card 也序列化 (前面讨论过), 改起来
-// 工作量不成比例; 当前实现是 LLM 友好 + 维护简单的折中。
 const AGENT_THREAD_CARD_HEADER_DRAG_THRESHOLD_PX = 4;
 
 export class AgentThreadCardView implements ProseMirrorNodeView {
@@ -254,13 +216,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     return translate(this.language, key);
   }
 
-  /** 在语言切换后把卡片上的静态文案重新渲染 ── 状态/事件 (placeholder,
-   *  aria-label, title, textContent 等) 需要手动同步。 默认 no-op, 子
-   *  类按需覆盖 (这里是该方法的主要宿主, 因为它持有大量 DOM 元素)。 */
-  protected syncLocalizedText(): void {
-    // 子类按需覆盖
-  }
-
   constructor(
     node: ProseMirrorNode,
     view: EditorView,
@@ -360,6 +315,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.externalAgentSettings = new ExternalAgentSettingsController({
       popover: codexSettingsPopover,
       getTypeKey: () => this.typeKey,
+      // Per-thread runtime settings are keyed by threadId; unbound cards
+      // fall back to global defaults inside the settings controller.
+      getThreadId: () => this.threadId ?? undefined,
       getLanguage: () => this.language,
       t: (key) => this.t(key),
       isDestroyed: () => this.isDestroyed,
@@ -392,6 +350,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
           this.composerRoleIcon.contains(target)
       ),
       consumeOutsidePointer: consumeEditorPopoverDismissPointer,
+      // File access settings are per-thread when the card is bound.
+      // Unbound cards keep using the global access-store fallback.
+      getThreadId: () => this.threadId ?? undefined,
     });
     this.fullscreenLayout = new FullscreenLayoutController({
       dom: this.dom,
@@ -485,6 +446,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
     this.refreshAttrs();
     this.renderThreadState();
+    // Load persisted per-thread runtime config before the settings popovers
+    // need it. The store internally de-duplicates repeated loads.
+    this.maybeLoadThreadRuntimeConfig();
     window.addEventListener(
       AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT,
       this.boundHandleRequestFullscreen,
@@ -729,22 +693,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       // Oversized drafts are intentionally not persisted, but the user should
       // still be able to keep typing and send the current in-DOM value.
     }
-    // 其它任何情形下, 都不在此处覆写 input.value ── 该 textarea 的内容
-    // 由用户当下行为决定, 应当作 DOM 真值。 attr (inputDraft) 仅作持久化
-    // 层, 由 scheduleDraftPersist / flushPendingDraft / submit 三条路径
-    // 显式写出, 那三处已自行保证写 attr 那一刻 input.value 与新 attr 一致。
-    //
-    // 旧版此处有 `else if` 分支会在 guard 全部通过时把 input.value 复位
-    // 到 inputDraft ── 在 oversized paste 后, 第一分支"恰好相等"的保护
-    // 极窄, 任何微任务错位 (例如中间输入事件重设了 oversized draft guard,
-    // pending snapshot 仍是 null, 且外部 updateAttrs 在 1s 窗口内到来)
-    // 都会让这条分支静默吞掉用户粘贴内容。 删掉后:
-    //   - 构造器已经 `this.input.value = this.inputDraft` (line 884)
-    //     处理首次挂载同步;
-    //   - submit / runInitialPromptIfNeeded / setComposerHistoryValue 三处
-    //     显式改写 input.value 后, 都自行更新 pending draft 或 running state;
-    //   - 任何 refreshAttrs 调用对 input.value 都是 no-op, 用户的 paste
-    //     / typing / IME 都不会被吞。
+    // Do not rewrite input.value from attrs during refresh. The textarea is
+    // the live editing source; inputDraft is only the persisted remount value.
+    // submit / initial prompt / history navigation update the DOM explicitly.
     this.renderCollapseState();
     this.renderFullscreenState();
   }
@@ -766,9 +717,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     );
   }
 
-  // 切换折叠态: 走 updateAttrs 走 ProseMirror 事务, 状态持久化到 node.attrs,
-  // 触发 update() 重渲染整个 NodeView (但本 NodeView 的 update() 只 refresh,
-  // 所以这里手动 refreshAttrs + renderCollapseState)。
+  // 折叠态持久化到 node attrs, 后续由 ProseMirror update() 刷新视图。
   private toggleCollapsed(): void {
     this.updateAttrs({ collapsed: !this.collapsed });
   }
@@ -1044,7 +993,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 保留在 this.input.value, 不调 persistInputDraft("") / input.value=""
     // 清空; 用户可在运行结束后再次按 Enter 投递同一段草稿。
     //
-    // 注: 输入框不再设 disabled ── 见 renderThreadState 注释。
+    // 输入框不 disabled; busy 时只阻止发送, 用户仍可继续编辑草稿。
     const isBusy =
       !!this.currentThreadState()?.isLoading || this.isCreating;
     if (isBusy) return;
@@ -1056,7 +1005,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
     this.input.value = "";
     this.composerController.resetHistoryNavigation();
-    // 清空草稿是"已知终态", 不必走 1s debounce ── 直接 updateAttrs 同步
+    // 清空草稿是"已知终态", 不必走 debounce ── 直接 updateAttrs 同步
     // 落 ProseMirror attr, 避免后续 reload / 跨卡片挂载时拿到旧 draft。
     // 同时把 pending draft 清掉 (若之前有未触发的 debounce), 防止空 input
     // 被旧 snapshot 误保护。
@@ -1119,6 +1068,10 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.node = node;
     const isCollapsed = this.collapsed;
     this.refreshAttrs();
+    // threadId 变化时拉新 thread 的持久态；store 会跳过已加载配置。
+    if (oldAttrs.threadId !== node.attrs.threadId) {
+      this.maybeLoadThreadRuntimeConfig();
+    }
     // requestThreadMessagesIfNeeded 始终调用 ── shouldLoadThreadMessages
     // 自己会短路 (折叠态不加载, 已加载过不重复), 但"折叠→展开"这种
     // lite 路径下不能漏, 否则消息永远不被加载。
@@ -1162,6 +1115,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
   ignoreMutation(): boolean {
     return true;
+  }
+
+  /** Load persisted runtime settings for the bound thread, if any. */
+  private maybeLoadThreadRuntimeConfig(): void {
+    const tid = this.threadId;
+    if (!tid) return;
+    void useChatStore.getState().ensureThreadRuntimeConfigLoaded(tid);
   }
 
   destroy(): void {

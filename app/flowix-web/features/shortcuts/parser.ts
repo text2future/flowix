@@ -195,20 +195,6 @@ export function parseChord(input: string): KeyChord {
 }
 
 /**
- * 把结构化 KeyChord 还原为标准字符串 — 顺序固定: Mod > Ctrl > Alt > Shift > key。
- * 用于 stringify 后再 parse 的 round-trip 测试, 以及 UI 展示前的"标准化显示"。
- */
-export function stringifyChord(chord: KeyChord): string {
-  const parts: string[] = [];
-  if (chord.mod) parts.push('Mod');
-  if (chord.ctrl) parts.push('Ctrl');
-  if (chord.alt) parts.push('Alt');
-  if (chord.shift) parts.push('Shift');
-  parts.push(chord.key);
-  return parts.join('+');
-}
-
-/**
  * 安全解析 — 失败返回 null 不抛错, 给"用户编辑/读取覆盖层"等容错场景用。
  */
 export function tryParseChord(input: string): KeyChord | null {

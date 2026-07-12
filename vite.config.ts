@@ -16,7 +16,7 @@ export default defineConfig(async () => ({
   root: frontendRoot,
   publicDir: resolve(frontendRoot, "public"),
   build: {
-    outDir: resolve(__dirname, ".flowix-build/web-dist"),
+    outDir: resolve(__dirname, ".build/web-dist"),
     emptyOutDir: true,
   },
 

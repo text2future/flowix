@@ -28,6 +28,7 @@ export const agentClient = {
   getHermesThreadPage: agent.getHermesThreadPage,
   deleteThread: agent.deleteThread,
   updateThreadTitle: agent.updateThreadTitle,
+  getThreadRuntimeConfig: agent.getThreadRuntimeConfig,
 };
 
 export function listenToAgentChunks(

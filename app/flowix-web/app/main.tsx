@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import "sonner/dist/styles.css";
 import "@/styles/index.css";
-import App from "@app/App";
+import App from "@app/app";
 
 // Initialize Tauri RPC
 import { initTauriClient } from "@platform/tauri/client";

@@ -1,4 +1,1 @@
-export {
-  useUserSettingsStore,
-  type UserSettingsUpdate,
-} from '@features/preferences/store/user-settings-store';
+export { useUserSettingsStore } from '@features/preferences/store/user-settings-store';

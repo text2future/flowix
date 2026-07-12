@@ -37,15 +37,6 @@ export function listActions(): ActionDefinition[] {
   return Array.from(registry.values());
 }
 
-export function hasAction(id: string): boolean {
-  return registry.has(id);
-}
-
-/** 仅测试 / HMR 使用 — 业务代码不要清空。 */
-export function _clearRegistry(): void {
-  registry.clear();
-}
-
 /**
  * 把 actionId + 用户覆盖层解析到当前平台实际生效的 chord。
  *

@@ -1,6 +1,6 @@
 'use client';
 
-import { useUserSettingsStore, type UserSettingsUpdate } from '@features/preferences/store/user-settings-store';
+import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
 
 /**
  * 偏好设置 hook — 薄包装层, 委托给全局 zustand store。
@@ -8,7 +8,7 @@ import { useUserSettingsStore, type UserSettingsUpdate } from '@features/prefere
  * 真实状态在 lib/store/user-settings-store.ts: 全进程单例, 多个调用方
  * 共享同一份 settings。任何 updateSettings 调用立即通知所有订阅者。
  *
- * 启动加载 (loadInitial) 需在 App.tsx 顶层显式调一次, 见 App.tsx。
+ * 启动加载 (loadInitial) 需在 app.tsx 顶层显式调一次, 见 app.tsx。
  */
 export function useUserSettings() {
   const settings = useUserSettingsStore((s) => s.settings);
@@ -26,5 +26,3 @@ export function useUserSettings() {
     resetAllShortcutOverrides,
   };
 }
-
-export type { UserSettingsUpdate };

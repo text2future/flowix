@@ -5,7 +5,7 @@
  *
  * 写操作 (`toggle` / `addFolder` / `removeFolder`) 走乐观更新: 本地先
  * 改 `entries` 再 `await agentAccess.set` 整份, 失败时 `loadInitial`
- * 回滚到磁盘真值。 跨窗口同步靠 App.tsx 顶层挂的 `listenToAgentAccessChanges`,
+ * 回滚到磁盘真值。 跨窗口同步靠 app.tsx 顶层挂的 `listenToAgentAccessChanges`,
  * 收到事件后从磁盘拉整份覆盖内存。
  */
 

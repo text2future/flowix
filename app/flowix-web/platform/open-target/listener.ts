@@ -1,5 +1,5 @@
 /**
- * 跨窗口单订阅者 — 监听后端 `flowix:open-target` 事件, 由 App.tsx 顶层挂。
+ * 跨窗口单订阅者 — 监听后端 `flowix:open-target` 事件, 由 app.tsx 顶层挂。
  *
  * 设计:
  *   - 单 listener, 模块级 singleton unlisten (跟 `listenToAgentStream` /
@@ -17,9 +17,9 @@ import { subscribe, type UnlistenFn } from '@platform/tauri/event-bus';
 import { openNoteByTarget } from '@platform/open-target/opener';
 import { FLOWIX_OPEN_TARGET_EVENT, type ResolvedOpenTarget } from '@platform/open-target/types';
 
-// 单 listener 起着作用 — App.tsx 顶层调 mount, 窗口卸载调 unmount。
+// 单 listener 起着作用 — app.tsx 顶层调 mount, 窗口卸载调 unmount。
 // 严格说应该以单个 UnlistenFn 走 useEffect cleanup (同 useMemoEvents),
-// 但为了少动 App.tsx, 保留现有 mount/unmount 类 API。 同一窗口
+// 但为了少动 app.tsx, 保留现有 mount/unmount 类 API。 同一窗口
 // 多次 mount 会让旧 UnlistenFn 走 unmount, 随后重挂 (同原 listen + unlisten
 // 模式)。
 let currentUnlisten: UnlistenFn | null = null;
@@ -33,7 +33,7 @@ function isMainWindow(): boolean {
 }
 
 /**
- * App.tsx 顶层调用。 挂全局单订阅者 (event-bus 里同一事件
+ * app.tsx 顶层调用。 挂全局单订阅者 (event-bus 里同一事件
  * 只挂一份 Tauri listener, 不会堆积)。 HMR / StrictMode 双挂场景下,
 // 重复挂载会先 unlisten 旧的再重挂。
  */

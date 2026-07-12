@@ -16,22 +16,6 @@ export function countTextUnits(content: string): number {
   return chineseChars + englishWords;
 }
 
-export function upsertFilenameFrontmatter(content: string, filename: string): string {
-  const filenameLine = `filename: ${JSON.stringify(filename)}`;
-  const match = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n?)/);
-
-  if (!match) {
-    return `---\n${filenameLine}\n---\n${content}`;
-  }
-
-  const bodyStart = match[0].length;
-  const frontmatter = /^filename\s*:/m.test(match[2])
-    ? match[2].replace(/^filename\s*:.*$/m, filenameLine)
-    : `${filenameLine}\n${match[2]}`;
-
-  return `${match[1]}${frontmatter}${match[3]}${content.slice(bodyStart)}`;
-}
-
 export function joinPath(basePath: string, filePath: string): string {
   if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/') || filePath.startsWith('\\')) {
     return filePath;

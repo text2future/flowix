@@ -61,6 +61,7 @@ vi.mock("@platform/tauri/client", () => ({
     upsertConversationRunState: vi.fn(async () => undefined),
     deleteConversationInstance: vi.fn(async () => undefined),
     deleteConversationInstancesForThread: vi.fn(async () => undefined),
+    getThreadRuntimeConfig: vi.fn(async () => null),
   },
   listenToAgentStream: vi.fn(),
 }));
@@ -402,21 +403,23 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       thread_id: threadId,
       run_id: runId,
       agent_type: "codex",
-      input_tokens: 30,
-      cached_input_tokens: 10,
-      output_tokens: 12,
-      reasoning_output_tokens: 0,
-      total_tokens: 42,
+      usage: {
+        input_tokens: 30,
+        cached_input_tokens: 10,
+        output_tokens: 12,
+        reasoning_output_tokens: 0,
+        total_tokens: 42,
+      },
     });
 
     const threadState = useChatStore.getState().threadStates[threadId];
-    expect(threadState.lastRun?.tokenUsage?.total).toBe(42);
-    expect(threadState.runs[runId]?.tokenUsage?.total).toBe(42);
+    expect(threadState.lastRun?.usage?.total_tokens).toBe(42);
+    expect(threadState.runs[runId]?.usage?.total_tokens).toBe(42);
 
     const runningInstance = useAgentConversationStore
       .getState()
       .getInstance(instance.instanceId);
-    expect(runningInstance?.run?.totalTokens).toBeUndefined();
+    expect(runningInstance?.run?.usage).toBeUndefined();
 
     useChatStore.getState().dispatchAgentChunk({
       kind: "stream_end",
@@ -431,11 +434,13 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       .getInstance(instance.instanceId);
     expect(updatedInstance?.run).toMatchObject({
       runId,
-      totalTokens: 42,
-      inputTokens: 30,
-      cachedInputTokens: 10,
-      outputTokens: 12,
-      reasoningOutputTokens: 0,
+      usage: {
+        input_tokens: 30,
+        cached_input_tokens: 10,
+        output_tokens: 12,
+        reasoning_output_tokens: 0,
+        total_tokens: 42,
+      },
     });
   });
 
@@ -476,6 +481,11 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(threadState.isLoading).toBe(false);
     expect(threadState.activeRunId).toBeNull();
     expect(Object.values(threadState.runs)).toHaveLength(0);
+    expect(threadState.lastRun).toMatchObject({
+      runId: "run-stale",
+      status: "failed",
+      reason: "missing_from_snapshot",
+    });
   });
 
   it("marks Agent conversation instances idle when backend snapshot no longer reports them", async () => {
@@ -508,7 +518,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       .getInstance(instance.instanceId);
     expect(updated?.run).toMatchObject({
       runId: "run-snapshot-instance",
-      status: "completed",
+      status: "failed",
       reason: "missing_from_snapshot",
     });
     expect(
@@ -549,7 +559,15 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
       instanceStore.updateRun(instanceId, { currentTool: "read" });
       instanceStore.updateRun(instanceId, { currentTool: "write" });
-      instanceStore.updateRun(instanceId, { totalTokens: 42 });
+      instanceStore.updateRun(instanceId, {
+        usage: {
+          input_tokens: 30,
+          cached_input_tokens: 10,
+          output_tokens: 12,
+          reasoning_output_tokens: 0,
+          total_tokens: 42,
+        },
+      });
 
       await vi.advanceTimersByTimeAsync(1999);
       await flushPromises();
@@ -562,7 +580,13 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         instanceId,
         expect.objectContaining({
           currentTool: "write",
-          totalTokens: 42,
+          usage: {
+            input_tokens: 30,
+            cached_input_tokens: 10,
+            output_tokens: 12,
+            reasoning_output_tokens: 0,
+            total_tokens: 42,
+          },
           status: "running",
         }),
       );
@@ -602,7 +626,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
       instanceStore.updateRun(instanceId, {
         currentTool: "final-tool",
-        totalTokens: 100,
+        usage: { total_tokens: 100 },
       });
       instanceStore.markRunEnded(instanceId, "completed", 2000);
       await flushPromises();
@@ -613,7 +637,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         instanceId,
         expect.objectContaining({
           currentTool: "final-tool",
-          totalTokens: 100,
+          usage: { total_tokens: 100 },
           status: "running",
         }),
       );
@@ -622,7 +646,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         instanceId,
         expect.objectContaining({
           currentTool: "final-tool",
-          totalTokens: 100,
+          usage: { total_tokens: 100 },
           status: "completed",
           endedAt: 2000,
         }),
@@ -661,7 +685,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       });
       vi.mocked(agent.upsertConversationRunState).mockClear();
 
-      instanceStore.updateRun(instanceId, { totalTokens: 55 });
+      instanceStore.updateRun(instanceId, { usage: { total_tokens: 55 } });
       instanceStore.removeInstance(instanceId);
       await vi.advanceTimersByTimeAsync(2000);
       await flushPromises();
@@ -1336,11 +1360,25 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   it("passes the thread agent type when stopping a run", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
     const store = useChatStore.getState();
     const threadId = "thread-card-stop-codex";
+    const instance = useAgentConversationStore.getState().createInstance({
+      agentType: "codex",
+      title: "Stop Codex",
+      threadId,
+      source: { kind: "thread-card" },
+    });
 
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
+    store.dispatchAgentChunk({
+      kind: "stream_start",
+      thread_id: threadId,
+      run_id: "run-stop-codex",
+      agent_type: "codex",
+    });
 
     await useChatStore.getState().stopThreadRun(threadId);
 
@@ -1354,6 +1392,28 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(threadState.runs[threadState.activeRunId ?? ""]?.status).toBe(
       "cancelled",
     );
+    expect(
+      useAgentConversationStore.getState().getInstance(instance.instanceId)?.run,
+    ).toMatchObject({
+      runId: "run-stop-codex",
+      status: "cancelled",
+      reason: "cancelled",
+    });
+
+    store.dispatchAgentChunk({
+      kind: "stream_end",
+      thread_id: threadId,
+      run_id: "run-stop-codex",
+      agent_type: "codex",
+      reason: null,
+    });
+
+    expect(
+      useAgentConversationStore.getState().getInstance(instance.instanceId)?.run,
+    ).toMatchObject({
+      runId: "run-stop-codex",
+      status: "cancelled",
+    });
   });
 
   it("setActiveThreadId / setActiveCodexThreadId do not change activeAgentTypeKey", async () => {
@@ -1658,4 +1718,122 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     );
   });
 
+});
+
+// ── Phase 3+4 修复: per-thread runtime_config 三态语义 + 懒加载 + GC ──
+
+describe("chat-store per-thread runtime_config", () => {
+  beforeEach(async () => {
+    const { agent } = await import("@platform/tauri/client");
+    vi.mocked(agent.getThreadRuntimeConfig).mockReset();
+    vi.mocked(agent.getThreadRuntimeConfig).mockResolvedValue(null);
+  });
+
+  it("setThreadRuntimeConfig 三态: undefined 跳过 / null 清空 / 有值覆盖", async () => {
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const store = useChatStore.getState();
+
+    store.setThreadRuntimeConfig("tid-A", { model: { key: "M1" } });
+    expect(useChatStore.getState().threadRuntimeConfig["tid-A"]).toEqual({
+      model: { key: "M1" },
+    });
+
+    // undefined 字段跳过 ── 不动 model, 写入 access
+    store.setThreadRuntimeConfig("tid-A", {
+      model: undefined,
+      access: { sandbox: "workspace-write" },
+    });
+    const after1 = useChatStore.getState().threadRuntimeConfig["tid-A"];
+    expect(after1.model).toEqual({ key: "M1" });
+    expect(after1.access).toEqual({ sandbox: "workspace-write" });
+
+    // null = 显式清空 ── merged.model = null (后端反序列化为 None)
+    store.setThreadRuntimeConfig("tid-A", { model: null });
+    const after2 = useChatStore.getState().threadRuntimeConfig["tid-A"];
+    expect(after2.model).toBeNull();
+    expect(after2.access).toEqual({ sandbox: "workspace-write" });
+  });
+
+  it("clearThreadRuntimeConfig: 不存在的 tid 是 no-op", async () => {
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const before = useChatStore.getState().threadRuntimeConfig;
+    useChatStore.getState().clearThreadRuntimeConfig("ghost-tid");
+    expect(useChatStore.getState().threadRuntimeConfig).toBe(before);
+  });
+
+  it("clearThreadRuntimeConfig: 存在的 tid 删 entry", async () => {
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    useChatStore.getState().setThreadRuntimeConfig("tid-C", {
+      model: { key: "M" },
+    });
+    expect(
+      useChatStore.getState().threadRuntimeConfig["tid-C"],
+    ).toBeDefined();
+    useChatStore.getState().clearThreadRuntimeConfig("tid-C");
+    expect(
+      useChatStore.getState().threadRuntimeConfig["tid-C"],
+    ).toBeUndefined();
+  });
+
+  it("ensureThreadRuntimeConfigLoaded: 空 entry (Object.keys=0) 不阻塞重新拉取", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+
+    const fakeJson = JSON.stringify({ model: { key: "LOADED" } });
+    vi.mocked(agent.getThreadRuntimeConfig).mockResolvedValueOnce(fakeJson);
+
+    // P1#3 修复场景: 先写空 patch (entry = {})
+    useChatStore.getState().setThreadRuntimeConfig("tid-D", {});
+    expect(
+      Object.keys(useChatStore.getState().threadRuntimeConfig["tid-D"]).length,
+    ).toBe(0);
+
+    await useChatStore.getState().ensureThreadRuntimeConfigLoaded("tid-D");
+    expect(vi.mocked(agent.getThreadRuntimeConfig)).toHaveBeenCalledWith(
+      "tid-D",
+    );
+    expect(useChatStore.getState().threadRuntimeConfig["tid-D"]).toEqual({
+      model: { key: "LOADED" },
+    });
+  });
+
+  it("ensureThreadRuntimeConfigLoaded: 非空 entry 缓存命中跳过 IPC", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+
+    useChatStore.getState().setThreadRuntimeConfig("tid-E", {
+      model: { key: "M" },
+    });
+
+    await useChatStore.getState().ensureThreadRuntimeConfigLoaded("tid-E");
+    expect(vi.mocked(agent.getThreadRuntimeConfig)).not.toHaveBeenCalled();
+  });
+
+  it("ensureThreadRuntimeConfigLoaded: 后端返回 null 不写入", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+
+    vi.mocked(agent.getThreadRuntimeConfig).mockResolvedValueOnce(null);
+    await useChatStore.getState().ensureThreadRuntimeConfigLoaded("tid-F");
+    expect(
+      useChatStore.getState().threadRuntimeConfig["tid-F"],
+    ).toBeUndefined();
+  });
+
+  it("deleteThread: GC 掉 threadRuntimeConfig[tid] 镜像", async () => {
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+
+    // deleteThread IPC 返回 void ── 不显式 mock, 默认 undefined 即可。
+    useChatStore.getState().setThreadRuntimeConfig("tid-G", {
+      model: { key: "X" },
+    });
+    expect(
+      useChatStore.getState().threadRuntimeConfig["tid-G"],
+    ).toBeDefined();
+
+    await useChatStore.getState().deleteThread("tid-G");
+    expect(
+      useChatStore.getState().threadRuntimeConfig["tid-G"],
+    ).toBeUndefined();
+  });
 });

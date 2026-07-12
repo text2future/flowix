@@ -40,7 +40,7 @@ const PreferencesView = lazy(() =>
 );
 
 const FixedNoteWindow = lazy(() =>
-  import("./FixedNoteWindow").then((module) => ({ default: module.FixedNoteWindow }))
+  import("./fixed-note-window").then((module) => ({ default: module.FixedNoteWindow }))
 );
 
 function AppToaster() {

@@ -5,7 +5,7 @@
  * `memoDispatcher.subscribe(...)` 在模块加载时一次性执行, 把后端
  * `memo-event` Tauri 通道和应用层 4 个 handler (3 个 memo-store +
  * 1 个 reload) 串联起来。 业务代码不需要直接调本模块, 只需要在
- * App 启动时 import 一次触发注册即可 (见 App.tsx 的 `useMemoEvents`)。
+ * App 启动时 import 一次触发注册即可 (见 app.tsx 的 `useMemoEvents`)。
  *
  * 跟 `lib/event-dispatcher.ts` 的关系:
  * - `event-bus.ts` (Tauri 适配层)  → `memoDispatcher.dispatch`
@@ -15,7 +15,7 @@
  *
  * 单一订阅点保证:
  * - 同一 webview 内只有一个 memoDispatcher 实例 (模块级单例)
- * - 即使 App.tsx 在 StrictMode 双挂 / HMR 重载, 也只挂 1 个 Tauri listener
+ * - 即使 app.tsx 在 StrictMode 双挂 / HMR 重载, 也只挂 1 个 Tauri listener
  *   (event-bus 自动去重) + 1 个 dispatch 桥接
  *
  * Phase 1: filter-based 派发。 每个 handler 显式声明 filter, 不再

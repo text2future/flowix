@@ -40,10 +40,6 @@ export function getCurrentIdentity(): DocumentIdentity | null {
   return currentIdentity;
 }
 
-export function getCurrentBuffer(): DocumentBuffer {
-  return currentBuffer;
-}
-
 export function getBuffer(identity: DocumentIdentity): DocumentBuffer | undefined {
   const normalized = normalizeDocumentIdentity(identity);
   return normalized.kind === 'memo'
@@ -56,10 +52,6 @@ export function getOrCreateBuffer(identity: DocumentIdentity): DocumentBuffer {
   return normalized.kind === 'memo'
     ? bumpLru(memoBuffers, normalized.id, emptyDocumentBuffer)
     : bumpLru(externalBuffers, normalized.path, emptyDocumentBuffer);
-}
-
-export function getBufferByMemoId(memoId: string): DocumentBuffer | undefined {
-  return memoBuffers.get(memoId);
 }
 
 export function setCurrentDocument(identity: DocumentIdentity | null, path: string | null): void {
@@ -111,21 +103,6 @@ export function applyLoadedContent(
     buf.pendingContent = null;
   }
   return buf;
-}
-
-export function dropBuffer(identity: DocumentIdentity): void {
-  const normalized = normalizeDocumentIdentity(identity);
-  if (normalized.kind === 'memo') {
-    memoBuffers.delete(normalized.id);
-  } else {
-    externalBuffers.delete(normalized.path);
-  }
-
-  if (currentIdentity && documentIdentityKey(currentIdentity) === documentIdentityKey(normalized)) {
-    currentPath = null;
-    currentIdentity = null;
-    currentBuffer = emptyDocumentBuffer();
-  }
 }
 
 export interface FlushCallbacks {

@@ -24,7 +24,7 @@ import {
  *   --app-line-height
  *   --app-document-width
  *
- * 调用方: App.tsx (主窗口 + 偏好设置窗口都会挂载, 因此跨窗口都会立即响应)。
+ * 调用方: app.tsx (主窗口 + 偏好设置窗口都会挂载, 因此跨窗口都会立即响应)。
  */
 export function useApplyFontSettings(format: FormatConfig | undefined) {
   useEffect(() => {

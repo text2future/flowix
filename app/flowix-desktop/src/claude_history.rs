@@ -70,6 +70,7 @@ fn list_claude_sessions() -> Result<Vec<ThreadInfo>, String> {
                     .unwrap_or_else(|| "Claude Code Session".to_string()),
                 created_at,
                 updated_at: draft.updated_at.unwrap_or(created_at),
+                runtime_config: None,
             }
         })
         .collect::<Vec<_>>();
@@ -179,8 +180,10 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
     if let Some(content) = message_content(value) {
         if let Some(parts) = content.as_array() {
             let mut text = String::new();
+            let skip_user_text_blocks = should_skip_user_text_blocks(role, parts);
             for (part_idx, part) in parts.iter().enumerate() {
-                match part.get("type").and_then(Value::as_str).unwrap_or_default() {
+                let part_type = part.get("type").and_then(Value::as_str).unwrap_or_default();
+                match part_type {
                     "tool_use" => {
                         if !text.trim().is_empty() {
                             messages.push(base_message(
@@ -195,7 +198,7 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
                         ));
                     }
                     "tool_result" => {
-                        if !text.trim().is_empty() {
+                        if !skip_user_text_blocks && !text.trim().is_empty() {
                             messages.push(base_message(
                                 format!("{session_id}-{idx}-{role}-text-{}", messages.len()),
                                 role,
@@ -208,6 +211,9 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
                         ));
                     }
                     _ => {
+                        if skip_user_text_blocks && part_type == "text" {
+                            continue;
+                        }
                         if let Some(part_text) = part
                             .get("text")
                             .or_else(|| part.get("content"))
@@ -242,6 +248,17 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
         content,
         timestamp,
     )]
+}
+
+fn should_skip_user_text_blocks(role: &str, parts: &[Value]) -> bool {
+    role == "user"
+        && !parts.is_empty()
+        && parts.iter().all(|part| {
+            matches!(
+                part.get("type").and_then(Value::as_str).unwrap_or_default(),
+                "text" | "tool_result"
+            )
+        })
 }
 
 fn message_content_to_text(value: &Value) -> Option<String> {
@@ -611,5 +628,80 @@ mod tests {
         assert!(messages[0].content.contains("file contents"));
         assert!(messages[0].content.contains("is_error"));
         assert_eq!(messages[0].is_loading, Some(false));
+    }
+
+    #[test]
+    fn skips_user_text_only_skill_injection_messages() {
+        let user = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-06-29T01:00:01Z",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "Base directory for this skill: /tmp/verify\n\nskill body"
+                }]
+            }
+        });
+
+        let messages = value_to_chat_messages("session_1", 1, &user);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn skips_user_text_when_mixed_only_with_tool_result() {
+        let user = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-06-29T01:00:01Z",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Base directory for this skill: /tmp/verify\n\nskill body"
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": "loaded"
+                    }
+                ]
+            }
+        });
+
+        let messages = value_to_chat_messages("session_1", 1, &user);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "tool");
+        assert_eq!(messages[0].tool_call_id.as_deref(), Some("toolu_1"));
+        assert!(messages[0].content.contains("loaded"));
+        assert!(!messages[0]
+            .content
+            .contains("Base directory for this skill"));
+    }
+
+    #[test]
+    fn keeps_user_array_text_when_other_block_types_are_present() {
+        let user = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-06-29T01:00:01Z",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "real user text"
+                    },
+                    {
+                        "type": "image",
+                        "source": { "type": "base64", "media_type": "image/png", "data": "abc" }
+                    }
+                ]
+            }
+        });
+
+        let messages = value_to_chat_messages("session_1", 1, &user);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, "real user text");
     }
 }

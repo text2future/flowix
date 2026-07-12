@@ -26,6 +26,74 @@ pub struct ThreadInfo {
     pub title: String,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Per-thread 配置快照（JSON 字符串）。None = 未设置走全局 fallback；
+    /// Some(json) = 锁定。后端只在 chat_stream 入口 upsert（懒写），
+    /// UI 改控件不直接触发写盘，发消息时由前端把当前生效 config 随 IPC payload
+    /// 一并送达 → 后端写入本字段。
+    ///
+    /// schema: [`RuntimeConfig`] 的序列化形式。serde 解析失败时静默回退 None。
+    #[serde(default)]
+    pub runtime_config: Option<String>,
+}
+
+/// Per-thread 配置快照。所有字段都是 `Option`，区分三态：
+///   - 字段缺失 / `None` → 未设置，走全局 fallback
+///   - `Some(None)` → 显式清空（保留字段，但回到全局）
+///   - `Some(Some(v))` → 锁定为 v
+///
+/// 读侧 chat_stream 入口会用 [`RuntimeConfig::effective_*`] 方法解析 JSON
+/// 字符串并合成最终生效配置（thread 优先，缺失则用 user_payload / 全局 ai_config）。
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<AccessConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<FilesConfig>,
+    /// 推理 effort("low" / "medium" / "high" / "xhigh") ── 与后端
+    /// `AgentUserMessage.codex_reasoning_effort` 对应, chat_stream 入口
+    /// 把它写到 message.codex_reasoning_effort 让 `codex_reasoning_effort_for_runtime`
+    /// 读到。tool 三态同 model / access: None = 走全局。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// 工具白名单预留
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+    /// 主工作目录预留
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelConfig {
+    pub key: String,
+    /// 预留：speed / capability 标签，前端展示用
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessConfig {
+    /// 沙箱模式：full-access / workspace-write / read-only
+    pub sandbox: String,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesConfig {
+    /// 主工作目录（path，单值）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    /// 启用目录列表（path 数组）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<String>,
+    /// 笔记本路径列表（path 数组，与 agent-access-store AgentAccessEntry.path 同语义）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notebooks: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -85,17 +153,15 @@ pub struct AgentConversationRun {
     pub model: Option<String>,
     pub model_id: Option<String>,
     pub reasoning_effort: Option<String>,
-    pub input_tokens: Option<u32>,
-    pub cached_input_tokens: Option<u32>,
-    pub output_tokens: Option<u32>,
-    pub reasoning_output_tokens: Option<u32>,
-    pub total_tokens: Option<u32>,
-    pub model_context_window: Option<u32>,
-    pub codex_plan_type: Option<String>,
-    pub codex_used_percent: Option<f64>,
-    pub codex_resets_at: Option<i64>,
     pub last_run_at: Option<i64>,
     pub reason: Option<String>,
+    /// Nested token usage breakdown — see [`crate::agent::UsageInfo`].
+    /// Stored as JSON in SQLite (`usage_json` column) so future fields can be
+    /// added without a schema migration.
+    pub usage: Option<crate::agent::UsageInfo>,
+    /// Provider-specific status snapshot — see [`crate::agent::StatusInfo`].
+    /// Stored as JSON in SQLite (`status_info_json` column).
+    pub status_info: Option<crate::agent::StatusInfo>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -177,7 +243,8 @@ impl ThreadManager {
                 agent_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
+                updated_at INTEGER NOT NULL,
+                runtime_config TEXT
             );
 
             CREATE TABLE IF NOT EXISTS thread_messages (
@@ -242,17 +309,10 @@ impl ThreadManager {
                 model TEXT,
                 model_id TEXT,
                 reasoning_effort TEXT,
-                input_tokens INTEGER,
-                cached_input_tokens INTEGER,
-                output_tokens INTEGER,
-                reasoning_output_tokens INTEGER,
-                total_tokens INTEGER,
-                model_context_window INTEGER,
-                codex_plan_type TEXT,
-                codex_used_percent REAL,
-                codex_resets_at INTEGER,
                 last_run_at INTEGER,
                 reason TEXT,
+                usage_json TEXT,
+                status_info_json TEXT,
                 updated_at INTEGER NOT NULL,
                 FOREIGN KEY(instance_id)
                     REFERENCES agent_conversation_instances(instance_id)
@@ -265,6 +325,11 @@ impl ThreadManager {
         // "duplicate column name", 鍚炴帀鍗冲彲銆?
         if let Err(e) = conn.execute("ALTER TABLE thread_messages ADD COLUMN tool_calls TEXT", []) {
             tracing::debug!("[ThreadManager] tool_calls migration: {}", e);
+        }
+        // threads.runtime_config: per-thread 配置快照 JSON 字符串。nullable,
+        // 旧行自动 None → 走全局 fallback，零迁移风险。
+        if let Err(e) = conn.execute("ALTER TABLE threads ADD COLUMN runtime_config TEXT", []) {
+            tracing::debug!("[ThreadManager] runtime_config migration: {e}");
         }
         for column in [
             "input_tokens INTEGER",
@@ -286,8 +351,133 @@ impl ThreadManager {
                 tracing::debug!("[ThreadManager] run usage migration {column}: {}", e);
             }
         }
+        // New nested-JSON columns for v1.x usage / status_info consolidation.
+        // Backfill from legacy columns happens in [`Self::backfill_agent_conversation_run_state_json`]
+        // after schema migration — old rows still have token values in the
+        // legacy INTEGER/TEXT columns which we read once and squash into JSON.
+        for column in ["usage_json TEXT", "status_info_json TEXT"] {
+            if let Err(e) = conn.execute(
+                &format!("ALTER TABLE agent_conversation_run_state ADD COLUMN {column}"),
+                [],
+            ) {
+                tracing::debug!("[ThreadManager] run json migration {column}: {}", e);
+            }
+        }
+        Self::backfill_agent_conversation_run_state_json(&conn);
 
         Ok(())
+    }
+
+    /// One-time migration: read legacy per-column values from
+    /// `agent_conversation_run_state` and squash them into the new
+    /// `usage_json` / `status_info_json` columns. Idempotent — only fills
+    /// rows where `usage_json IS NULL` so re-running after partial failure
+    /// doesn't overwrite fresher data.
+    fn backfill_agent_conversation_run_state_json(conn: &Connection) {
+        let mut stmt = match conn.prepare(
+            "SELECT instance_id, input_tokens, cached_input_tokens, output_tokens,
+                    reasoning_output_tokens, total_tokens, model_context_window,
+                    codex_plan_type, codex_used_percent, codex_resets_at
+             FROM agent_conversation_run_state
+             WHERE usage_json IS NULL",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                tracing::debug!("[ThreadManager] backfill prepare: {e}");
+                return;
+            }
+        };
+
+        let rows: Vec<(
+            String,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
+            Option<f64>,
+            Option<i64>,
+        )> = match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<i64>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<f64>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+            ))
+        }) {
+            Ok(rows) => rows.filter_map(Result::ok).collect(),
+            Err(e) => {
+                tracing::debug!("[ThreadManager] backfill query: {e}");
+                return;
+            }
+        };
+
+        for (
+            instance_id,
+            input,
+            cached,
+            output,
+            reasoning,
+            total,
+            ctx_window,
+            plan_type,
+            used_pct,
+            resets_at,
+        ) in rows
+        {
+            let usage = crate::agent::UsageInfo {
+                input_tokens: input.and_then(|v| u32::try_from(v).ok()),
+                cached_input_tokens: cached.and_then(|v| u32::try_from(v).ok()),
+                output_tokens: output.and_then(|v| u32::try_from(v).ok()),
+                reasoning_output_tokens: reasoning.and_then(|v| u32::try_from(v).ok()),
+                total_tokens: total.and_then(|v| u32::try_from(v).ok()),
+                model_context_window: ctx_window.and_then(|v| u32::try_from(v).ok()),
+            };
+            let status_info = crate::agent::StatusInfo {
+                codex_plan_type: plan_type,
+                codex_used_percent: used_pct,
+                codex_resets_at: resets_at,
+            };
+
+            // Only write usage_json if at least one token field has a value.
+            let usage_json = if usage.input_tokens.is_some()
+                || usage.cached_input_tokens.is_some()
+                || usage.output_tokens.is_some()
+                || usage.reasoning_output_tokens.is_some()
+                || usage.total_tokens.is_some()
+                || usage.model_context_window.is_some()
+            {
+                serde_json::to_string(&usage).ok()
+            } else {
+                None
+            };
+
+            let status_info_json = if status_info.codex_plan_type.is_some()
+                || status_info.codex_used_percent.is_some()
+                || status_info.codex_resets_at.is_some()
+            {
+                serde_json::to_string(&status_info).ok()
+            } else {
+                None
+            };
+
+            if let Err(e) = conn.execute(
+                "UPDATE agent_conversation_run_state
+                 SET usage_json = ?1, status_info_json = ?2
+                 WHERE instance_id = ?3",
+                params![usage_json, status_info_json, instance_id],
+            ) {
+                tracing::debug!("[ThreadManager] backfill write: {e}");
+            }
+        }
     }
 
     /// 鍔犻攣鍔╂墜 鈹€鈹€ 閿佷腑姣?(panic held it) 鏃朵粛杩斿洖 guard, 涓嶈鍗曠偣 panic
@@ -304,7 +494,7 @@ impl ThreadManager {
     pub async fn list_threads(&self) -> Result<Vec<ThreadInfo>, ThreadError> {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT thread_id, agent_id, title, created_at, updated_at
+            "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
              FROM threads
              WHERE agent_id = 'default'
              ORDER BY updated_at DESC",
@@ -320,7 +510,7 @@ impl ThreadManager {
     ) -> Result<Vec<ThreadInfo>, ThreadError> {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT thread_id, agent_id, title, created_at, updated_at
+            "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
              FROM threads
              WHERE agent_id = ?1
              ORDER BY updated_at DESC",
@@ -344,18 +534,20 @@ impl ThreadManager {
             title,
             created_at: now,
             updated_at: now,
+            runtime_config: None,
         };
 
         let conn = self.lock_conn();
         conn.execute(
-            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at, runtime_config)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 info.thread_id,
                 info.agent_id.0,
                 info.title,
                 info.created_at,
-                info.updated_at
+                info.updated_at,
+                info.runtime_config
             ],
         )?;
 
@@ -379,18 +571,20 @@ impl ThreadManager {
             title,
             created_at: now,
             updated_at: now,
+            runtime_config: None,
         };
 
         let conn = self.lock_conn();
         conn.execute(
-            "INSERT OR IGNORE INTO threads (thread_id, agent_id, title, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT OR IGNORE INTO threads (thread_id, agent_id, title, created_at, updated_at, runtime_config)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 info.thread_id,
                 info.agent_id.0,
                 info.title,
                 info.created_at,
-                info.updated_at
+                info.updated_at,
+                info.runtime_config
             ],
         )?;
 
@@ -403,7 +597,7 @@ impl ThreadManager {
         let conn = self.lock_conn();
         let info = conn
             .query_row(
-                "SELECT thread_id, agent_id, title, created_at, updated_at
+                "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
                  FROM threads
                  WHERE thread_id = ?1",
                 [thread_id],
@@ -414,6 +608,7 @@ impl ThreadManager {
                         title: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
+                        runtime_config: row.get::<_, Option<String>>(5)?,
                     })
                 },
             )
@@ -725,10 +920,8 @@ impl ThreadManager {
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort, r.input_tokens, r.cached_input_tokens,
-                r.output_tokens, r.reasoning_output_tokens, r.total_tokens,
-                r.model_context_window, r.codex_plan_type, r.codex_used_percent, r.codex_resets_at,
-                r.last_run_at, r.reason
+                r.model, r.model_id, r.reasoning_effort,
+                r.last_run_at, r.reason, r.usage_json, r.status_info_json
              FROM agent_conversation_instances i
              LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              ORDER BY i.updated_at DESC",
@@ -748,10 +941,8 @@ impl ThreadManager {
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort, r.input_tokens, r.cached_input_tokens,
-                r.output_tokens, r.reasoning_output_tokens, r.total_tokens,
-                r.model_context_window, r.codex_plan_type, r.codex_used_percent, r.codex_resets_at,
-                r.last_run_at, r.reason
+                r.model, r.model_id, r.reasoning_effort,
+                r.last_run_at, r.reason, r.usage_json, r.status_info_json
              FROM agent_conversation_instances i
              LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              WHERE i.instance_id = ?1",
@@ -773,10 +964,8 @@ impl ThreadManager {
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort, r.input_tokens, r.cached_input_tokens,
-                r.output_tokens, r.reasoning_output_tokens, r.total_tokens,
-                r.model_context_window, r.codex_plan_type, r.codex_used_percent, r.codex_resets_at,
-                r.last_run_at, r.reason
+                r.model, r.model_id, r.reasoning_effort,
+                r.last_run_at, r.reason, r.usage_json, r.status_info_json
              FROM agent_conversation_instances i
              LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              WHERE i.thread_id = ?1
@@ -800,10 +989,8 @@ impl ThreadManager {
                 i.source_kind, i.source_document_path, i.source_memo_id,
                 i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                 r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort, r.input_tokens, r.cached_input_tokens,
-                r.output_tokens, r.reasoning_output_tokens, r.total_tokens,
-                r.model_context_window, r.codex_plan_type, r.codex_used_percent, r.codex_resets_at,
-                r.last_run_at, r.reason
+                r.model, r.model_id, r.reasoning_effort,
+                r.last_run_at, r.reason, r.usage_json, r.status_info_json
              FROM agent_conversation_instances i
              INNER JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              WHERE r.run_id = ?1
@@ -869,10 +1056,8 @@ impl ThreadManager {
                     i.source_kind, i.source_document_path, i.source_memo_id,
                     i.role_memo_id, i.role_name, i.created_at, i.updated_at,
                     r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                    r.model, r.model_id, r.reasoning_effort, r.input_tokens, r.cached_input_tokens,
-                    r.output_tokens, r.reasoning_output_tokens, r.total_tokens,
-                    r.model_context_window, r.codex_plan_type, r.codex_used_percent, r.codex_resets_at,
-                    r.last_run_at, r.reason
+                    r.model, r.model_id, r.reasoning_effort,
+                    r.last_run_at, r.reason, r.usage_json, r.status_info_json
                  FROM agent_conversation_instances i
                  LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
                  WHERE i.instance_id = ?1",
@@ -889,15 +1074,21 @@ impl ThreadManager {
         run: AgentConversationRun,
     ) -> Result<(), ThreadError> {
         let now = chrono::Utc::now().timestamp_millis();
+        let usage_json = run
+            .usage
+            .as_ref()
+            .and_then(|u| serde_json::to_string(u).ok());
+        let status_info_json = run
+            .status_info
+            .as_ref()
+            .and_then(|s| serde_json::to_string(s).ok());
         let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO agent_conversation_run_state (
                 instance_id, run_id, status, started_at, ended_at, current_tool,
-                model, model_id, reasoning_effort, input_tokens, cached_input_tokens,
-                output_tokens, reasoning_output_tokens, total_tokens,
-                model_context_window, codex_plan_type, codex_used_percent,
-                codex_resets_at, last_run_at, reason, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+                model, model_id, reasoning_effort,
+                last_run_at, reason, usage_json, status_info_json, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(instance_id) DO UPDATE SET
                 run_id = excluded.run_id,
                 status = excluded.status,
@@ -907,17 +1098,10 @@ impl ThreadManager {
                 model = excluded.model,
                 model_id = excluded.model_id,
                 reasoning_effort = excluded.reasoning_effort,
-                input_tokens = excluded.input_tokens,
-                cached_input_tokens = excluded.cached_input_tokens,
-                output_tokens = excluded.output_tokens,
-                reasoning_output_tokens = excluded.reasoning_output_tokens,
-                total_tokens = excluded.total_tokens,
-                model_context_window = excluded.model_context_window,
-                codex_plan_type = excluded.codex_plan_type,
-                codex_used_percent = excluded.codex_used_percent,
-                codex_resets_at = excluded.codex_resets_at,
                 last_run_at = excluded.last_run_at,
                 reason = excluded.reason,
+                usage_json = excluded.usage_json,
+                status_info_json = excluded.status_info_json,
                 updated_at = excluded.updated_at",
             params![
                 instance_id,
@@ -929,17 +1113,10 @@ impl ThreadManager {
                 run.model,
                 run.model_id,
                 run.reasoning_effort,
-                run.input_tokens,
-                run.cached_input_tokens,
-                run.output_tokens,
-                run.reasoning_output_tokens,
-                run.total_tokens,
-                run.model_context_window,
-                run.codex_plan_type,
-                run.codex_used_percent,
-                run.codex_resets_at,
                 run.last_run_at,
                 run.reason,
+                usage_json,
+                status_info_json,
                 now,
             ],
         )?;
@@ -1008,7 +1185,7 @@ impl ThreadManager {
         // 鐪熺殑 await, 绛惧悕淇濈暀 async 鏄负涓婂眰鎺ュ彛涓€鑷淬€?
         let info = conn
             .query_row(
-                "SELECT thread_id, agent_id, title, created_at, updated_at
+                "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
                  FROM threads
                  WHERE thread_id = ?1",
                 [thread_id],
@@ -1019,6 +1196,7 @@ impl ThreadManager {
                         title: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
+                        runtime_config: row.get::<_, Option<String>>(5)?,
                     })
                 },
             )
@@ -1039,6 +1217,51 @@ impl ThreadManager {
         Ok(())
     }
 
+    /// 写入/覆盖 thread 的 runtime_config 快照（JSON 字符串）。
+    ///
+    /// 写时机：仅 chat_stream 入口（懒写）；UI 改控件不调此方法。
+    /// 接收 raw JSON 字符串而非 `RuntimeConfig` 结构 → 避免双层序列化，
+    /// 也让前端可以传"半成品"（比如只改 model 不带 access）原样落盘。
+    ///
+    /// 若 thread 不存在返回 ThreadError::NotFound ── chat_stream 入口
+    /// 走 ensure_thread 先保证行存在再写。
+    pub async fn upsert_runtime_config(
+        &self,
+        thread_id: &str,
+        config_json: &str,
+    ) -> Result<(), ThreadError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.lock_conn();
+        let updated = conn.execute(
+            "UPDATE threads SET runtime_config = ?1, updated_at = ?2 WHERE thread_id = ?3",
+            params![config_json, now, thread_id],
+        )?;
+        if updated == 0 {
+            return Err(ThreadError::NotFound(thread_id.to_string()));
+        }
+        Ok(())
+    }
+
+    /// 读取 thread 的 runtime_config（JSON 字符串形式）。
+    /// 供前端启动 / 切 thread 时拉持久态作为 UI 控件初值。
+    pub async fn get_runtime_config(&self, thread_id: &str) -> Result<Option<String>, ThreadError> {
+        let conn = self.lock_conn();
+        // `optional()` 把 Result<Option<String>, _> 转成 Option<Result<_, _>>。
+        // 第一个 `?` 抛错后剩下 Option<Option<String>> ── None = 行不存在,
+        // Some(None) = 行存在但 runtime_config 列是 NULL。
+        let raw = conn
+            .query_row(
+                "SELECT runtime_config FROM threads WHERE thread_id = ?1",
+                [thread_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(ThreadError::from)?
+            .flatten();
+        // 规范化：空字符串视同 None（避免上游意外写入空 JSON）
+        Ok(raw.filter(|s| !s.is_empty()))
+    }
+
     fn get_thread_info_with_conn(
         &self,
         conn: &Connection,
@@ -1046,7 +1269,7 @@ impl ThreadManager {
     ) -> Result<Option<ThreadInfo>, ThreadError> {
         Ok(conn
             .query_row(
-                "SELECT thread_id, agent_id, title, created_at, updated_at
+                "SELECT thread_id, agent_id, title, created_at, updated_at, runtime_config
                  FROM threads
                  WHERE thread_id = ?1",
                 [thread_id],
@@ -1057,6 +1280,7 @@ impl ThreadManager {
                         title: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
+                        runtime_config: row.get::<_, Option<String>>(5)?,
                     })
                 },
             )
@@ -1092,6 +1316,8 @@ impl ThreadManager {
             title: row.get(2)?,
             created_at: row.get(3)?,
             updated_at: row.get(4)?,
+            // runtime_config 列 nullable ── 用 Option<String> 类型断言拿到 NULL。
+            runtime_config: row.get::<_, Option<String>>(5)?,
         })
     }
 
@@ -1117,6 +1343,8 @@ impl ThreadManager {
         };
         let run_id: Option<String> = row.get(11)?;
         let run = if let Some(run_id) = run_id {
+            let usage_json: Option<String> = row.get(20)?;
+            let status_info_json: Option<String> = row.get(21)?;
             Some(AgentConversationRun {
                 run_id,
                 status: row.get(12)?,
@@ -1126,17 +1354,10 @@ impl ThreadManager {
                 model: row.get(16)?,
                 model_id: row.get(17)?,
                 reasoning_effort: row.get(18)?,
-                input_tokens: row.get(19)?,
-                cached_input_tokens: row.get(20)?,
-                output_tokens: row.get(21)?,
-                reasoning_output_tokens: row.get(22)?,
-                total_tokens: row.get(23)?,
-                model_context_window: row.get(24)?,
-                codex_plan_type: row.get(25)?,
-                codex_used_percent: row.get(26)?,
-                codex_resets_at: row.get(27)?,
-                last_run_at: row.get(28)?,
-                reason: row.get(29)?,
+                last_run_at: row.get(19)?,
+                reason: row.get(22)?,
+                usage: usage_json.and_then(|s| serde_json::from_str(&s).ok()),
+                status_info: status_info_json.and_then(|s| serde_json::from_str(&s).ok()),
             })
         } else {
             None
@@ -1345,5 +1566,127 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(second.title, "first title");
+    }
+
+    // ── Phase 4: per-thread runtime_config 持久化测试 ──
+    // 覆盖: 写入 → 读回 → 跨 thread 隔离 → 缺 thread 时 NotFound
+
+    #[tokio::test]
+    async fn upsert_runtime_config_round_trip() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "cfg-t1", 0).await;
+
+        // 未写时读 → None
+        assert_eq!(
+            manager.get_runtime_config("cfg-t1").await.unwrap(),
+            None,
+            "fresh thread should not have runtime_config",
+        );
+
+        // 写入
+        let cfg_json = r#"{"model":{"key":"gpt-5.5"},"access":{"sandbox":"full-access"},"files":{"workspace":"/tmp/a","folders":["/tmp/a"],"notebooks":[]}}"#;
+        manager
+            .upsert_runtime_config("cfg-t1", cfg_json)
+            .await
+            .expect("upsert");
+
+        // 读回一致
+        let read_back = manager
+            .get_runtime_config("cfg-t1")
+            .await
+            .unwrap()
+            .expect("config should be present after upsert");
+        assert_eq!(read_back, cfg_json);
+
+        // 解析为 RuntimeConfig 校验字段
+        let parsed: RuntimeConfig = serde_json::from_str(&read_back).expect("parse RuntimeConfig");
+        assert_eq!(parsed.model.as_ref().unwrap().key, "gpt-5.5");
+        assert_eq!(parsed.access.as_ref().unwrap().sandbox, "full-access",);
+        assert_eq!(
+            parsed.files.as_ref().unwrap().workspace.as_deref(),
+            Some("/tmp/a"),
+        );
+        assert_eq!(parsed.files.as_ref().unwrap().folders, vec!["/tmp/a"]);
+    }
+
+    #[tokio::test]
+    async fn runtime_config_isolated_per_thread() {
+        let manager = ThreadManager::for_tests();
+        // 直接 INSERT OR REPLACE 跳过 seed_thread 的 create_thread ──
+        // 避免同毫秒 timestamp 撞 key。
+        {
+            let conn = manager.lock_conn();
+            for tid in ["iso-a", "iso-b"] {
+                conn.execute(
+                    "INSERT OR REPLACE INTO threads (thread_id, agent_id, title, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![tid, "test-agent", "iso test", 0_i64, 0_i64],
+                )
+                .unwrap();
+            }
+        }
+
+        manager
+            .upsert_runtime_config("iso-a", r#"{"model":{"key":"A"}}"#)
+            .await
+            .unwrap();
+        manager
+            .upsert_runtime_config("iso-b", r#"{"model":{"key":"B"}}"#)
+            .await
+            .unwrap();
+
+        let a = manager.get_runtime_config("iso-a").await.unwrap().unwrap();
+        let b = manager.get_runtime_config("iso-b").await.unwrap().unwrap();
+        assert!(a.contains(r#""key":"A""#));
+        assert!(b.contains(r#""key":"B""#));
+        assert!(!a.contains(r#""key":"B""#));
+        assert!(!b.contains(r#""key":"A""#));
+    }
+
+    #[tokio::test]
+    async fn upsert_runtime_config_unknown_thread_returns_not_found() {
+        let manager = ThreadManager::for_tests();
+        let err = manager
+            .upsert_runtime_config("ghost", r#"{"model":{"key":"X"}}"#)
+            .await
+            .expect_err("should fail");
+        match err {
+            ThreadError::NotFound(id) => assert_eq!(id, "ghost"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_runtime_config_treats_empty_string_as_none() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "empty-cfg", 0).await;
+        manager
+            .upsert_runtime_config("empty-cfg", "")
+            .await
+            .expect("upsert empty");
+
+        let read = manager.get_runtime_config("empty-cfg").await.unwrap();
+        // 空字符串视同 None ── `chat_stream` 入口对 message.thread_runtime_config
+        // 做 trim().is_empty() 过滤, 这里是 SQL 层 normalize, 防止上游意外写入空 JSON。
+        assert_eq!(read, None);
+    }
+
+    #[tokio::test]
+    async fn upsert_overrides_previous_config() {
+        let manager = ThreadManager::for_tests();
+        seed_thread(&manager, "ovr", 0).await;
+
+        manager
+            .upsert_runtime_config("ovr", r#"{"model":{"key":"OLD"}}"#)
+            .await
+            .unwrap();
+        manager
+            .upsert_runtime_config("ovr", r#"{"model":{"key":"NEW"}}"#)
+            .await
+            .unwrap();
+
+        let read = manager.get_runtime_config("ovr").await.unwrap().unwrap();
+        assert!(read.contains(r#""key":"NEW""#));
+        assert!(!read.contains(r#""key":"OLD""#));
     }
 }

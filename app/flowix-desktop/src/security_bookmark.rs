@@ -70,7 +70,10 @@ impl SecurityBookmarkStore {
             let bookmark = macos::bookmark_for_directory(path).ok_or_else(|| {
                 UserConfigError::Io(io::Error::new(
                     io::ErrorKind::Other,
-                    format!("failed to create security-scoped bookmark for {}", path.display()),
+                    format!(
+                        "failed to create security-scoped bookmark for {}",
+                        path.display()
+                    ),
                 ))
             })?;
             self.record_directory_bookmark(path, bookmark)?;

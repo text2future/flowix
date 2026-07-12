@@ -71,8 +71,3 @@ export function invokeHandler(actionId: string): boolean {
   }
   return result !== false;
 }
-
-/** 测试 / HMR 用 — 业务代码不要调。 */
-export function _clearHandlers(): void {
-  stacks.clear();
-}

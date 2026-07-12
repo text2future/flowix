@@ -471,6 +471,7 @@ mod tests {
             codex_reasoning_effort: None,
             agent_role_memo_id: None,
             agent_role_name: None,
+            thread_runtime_config: None,
         }
     }
 

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { ChatMessage } from "@/types";
-import type { AgentTypeKey } from "@/types/agent";
+import type { AgentTypeKey, StatusInfo, UsageInfo } from "@/types/agent";
 import { stripSystemBlock } from "@features/agent/message";
 import { agentClient } from "@features/agent/store/agent-client";
 import {
@@ -34,17 +34,12 @@ export interface AgentConversationRun {
   model?: string | null;
   modelId?: string | null;
   reasoningEffort?: string | null;
-  inputTokens?: number | null;
-  cachedInputTokens?: number | null;
-  outputTokens?: number | null;
-  reasoningOutputTokens?: number | null;
-  totalTokens?: number | null;
-  modelContextWindow?: number | null;
-  codexPlanType?: string | null;
-  codexUsedPercent?: number | null;
-  codexResetsAt?: number | null;
   lastRunAt?: number | null;
   reason?: string | null;
+  /** Nested token usage — see [`UsageInfo`] in `@/types/agent`. */
+  usage?: UsageInfo | null;
+  /** Provider-specific status snapshot — see [`StatusInfo`] in `@/types/agent`. */
+  statusInfo?: StatusInfo | null;
 }
 
 export interface AgentConversationInstance {
@@ -409,11 +404,8 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           const existing = state.instances[instanceId];
           if (!existing) return state;
           nextRun = {
-            inputTokens: existing.run?.inputTokens,
-            cachedInputTokens: existing.run?.cachedInputTokens,
-            outputTokens: existing.run?.outputTokens,
-            reasoningOutputTokens: existing.run?.reasoningOutputTokens,
-            totalTokens: existing.run?.totalTokens,
+            usage: existing.run?.usage,
+            statusInfo: existing.run?.statusInfo,
             ...run,
             status: "running",
           };
@@ -553,7 +545,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
                 ...instance,
                 run: {
                   ...instance.run,
-                  status: "completed",
+                  status: "failed",
                   endedAt,
                   reason: "missing_from_snapshot",
                 },

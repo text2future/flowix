@@ -63,7 +63,7 @@ function fetchNotebooks(): Promise<CacheEntry[]> {
 }
 
 /**
- * App.tsx 椤跺眰璋冪敤 鈥?璁?notebook 鍒楄〃鍦ㄩ甯у悗灏卞父椹诲唴瀛? 閬垮厤鐢ㄦ埛棣栨绮樿创
+ * app.tsx 椤跺眰璋冪敤 鈥?璁?notebook 鍒楄〃鍦ㄩ甯у悗灏卞父椹诲唴瀛? 閬垮厤鐢ㄦ埛棣栨绮樿创
  * 鐗╃悊璺緞鏃剁紦瀛樹负绌哄鑷?miss銆傚け璐ユ椂闈欓粯, 涓嬫绮樿创浼氬啀灏濊瘯鎷夊彇銆? */
 export function prewarmNotebookCache(): Promise<void> {
   if (cached) return Promise.resolve();
@@ -227,22 +227,6 @@ export function tryMatchPhysicalMemoPath(raw: string): NoteReferenceAttrs | null
 
 // 鈹€鈹€鈹€ Test hooks 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-/** 浠呬緵鍗曟祴鐢?鈥?鐩存帴鍠?notebook 鍒楄〃缁曡繃 IPC */
-export function __setCacheForTests(list: NotebookLite[] | null): void {
-  // 娴嬭瘯閽╁瓙: 璁╂祴璇曟柟鍙敞鍏?notebook, filename 绱㈠紩鐣欑┖ 鈹€鈹€ 娴嬭瘯渚?  // 璧?tryMatch 涔嬪墠鑷鍑嗗銆傜敓浜ц矾寰勮蛋 prewarmNotebookCache 鎷夊叏閲忋€?  cached = list?.map((nb) => ({ notebook: nb })) ?? null;
-  cachePromise = list ? Promise.resolve(cached!) : null;
-}
-
-/** Test-only path parser hook. */
-export function __normalizePhysicalPathForTests(raw: string): string | null {
-  return normalizePath(raw);
-}
-
-/** 浠呬緵鍗曟祴鐢?鈥?缁欐寚瀹?notebook 娉ㄥ叆 filename鈫抜d 鏄犲皠 */
-export function __setFilenameIndexForTests(
-  notebookId: string,
-  mapping: Record<string, string>,
-): void {
-  void notebookId;
-  void mapping;
-}
+// 三个测试桩 (__setCacheForTests / __normalizePhysicalPathForTests /
+// __setFilenameIndexForTests) 全部删除 ── memo-resolver.test.ts 已经
+// 不再存在, 这些函数没有调用方, 留下只是噪音。

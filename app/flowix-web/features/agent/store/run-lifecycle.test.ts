@@ -157,7 +157,7 @@ describe('run lifecycle reducer', () => {
     //
     // 关于 run-1 的处理: shouldKeepRun 在 reason 非空时为 true, 走 upsertRun
     // 把 event.runId 重新写一份 'failed' 进 runs ── 这是有意保留, 让
-    // chat-store 内部能读到 metadata (e.g. tokenUsage.last error).
+    // chat-store 内部能读到 metadata (e.g. usage.last error).
     // 这条副本在下一个 idleRuns 路径触发时 (新 run 的 success stream_end)
     // 才会被清掉 ── 由上一条测试覆盖。
     let st = applyRunStarted(emptyState(), startEvent('run-1'));
@@ -237,7 +237,7 @@ describe('run lifecycle reducer', () => {
   // ── 通用 metadata 协议: lastRun 快照 ──
   // Bug 修复: stream_end 后 runs[runId] 被清理, BadgeHoverCard 读不到 metadata。
   // 解决: 每次 stream_start / usage / stream_end / failed / stopped 都同步
-  //       写 lastRun, 让 run 结束后展示层仍可读 model / tokenUsage / elapsed。
+  //       写 lastRun, 让 run 结束后展示层仍可读 model / usage / elapsed。
   describe('lastRun snapshot', () => {
     it('initializes lastRun on stream_start with model and startedAt', () => {
       const next = applyRunStarted(
@@ -253,7 +253,7 @@ describe('run lifecycle reducer', () => {
         status: 'running',
         model: 'gpt-5',
       });
-      expect(next.lastRun?.tokenUsage).toBeUndefined();
+      expect(next.lastRun?.usage).toBeUndefined();
     });
 
     it('keeps lastRun visible after a normally completed run (runs map cleared)', () => {
@@ -268,10 +268,16 @@ describe('run lifecycle reducer', () => {
         threadId: 'thread-1',
         runId: 'run-1',
         timestamp: 200,
-        totalTokens: 42,
+        usage: {
+          input_tokens: 30,
+          cached_input_tokens: 10,
+          output_tokens: 12,
+          reasoning_output_tokens: 0,
+          total_tokens: 42,
+        },
       });
-      // 中间 lastRun.tokenUsage 应已累加
-      expect(withUsage.lastRun?.tokenUsage?.total).toBe(42);
+      // 中间 lastRun.usage 应已累加
+      expect(withUsage.lastRun?.usage?.total_tokens).toBe(42);
 
       const ended = applyRunEnded(withUsage, {
         ...endEvent('run-1'),
@@ -290,7 +296,7 @@ describe('run lifecycle reducer', () => {
         status: 'completed',
         reason: null,
       });
-      expect(ended.lastRun?.tokenUsage?.total).toBe(42);
+      expect(ended.lastRun?.usage?.total_tokens).toBe(42);
     });
 
     it('marks lastRun as failed when stream_end carries a reason', () => {
@@ -334,14 +340,14 @@ describe('run lifecycle reducer', () => {
         threadId: 'thread-1',
         runId: 'run-1',
         timestamp: 150,
-        totalTokens: 10,
+        usage: { total_tokens: 10 },
       });
-      expect(r1Used.lastRun?.tokenUsage?.total).toBe(10);
+      expect(r1Used.lastRun?.usage?.total_tokens).toBe(10);
 
       // 启动 run-2: lastRun 切换,但保留上一轮 token 快照,避免运行中展示闪空。
       const r2 = applyRunStarted(r1Used, startEvent('run-2'));
       expect(r2.lastRun?.runId).toBe('run-2');
-      expect(r2.lastRun?.tokenUsage?.total).toBe(10);
+      expect(r2.lastRun?.usage?.total_tokens).toBe(10);
 
       // run-1 迟到的 Usage chunk 不应污染 run-2 的 lastRun
       const r2AfterStale = applyRunUsage(r2, {
@@ -350,12 +356,12 @@ describe('run lifecycle reducer', () => {
         threadId: 'thread-1',
         runId: 'run-1',
         timestamp: 200,
-        totalTokens: 5,
+        usage: { total_tokens: 5 },
       });
       expect(r2AfterStale.lastRun?.runId).toBe('run-2');
-      expect(r2AfterStale.lastRun?.tokenUsage?.total).toBe(10);
+      expect(r2AfterStale.lastRun?.usage?.total_tokens).toBe(10);
       // runs[run-1] 仍累加 (供 chat-store 内部使用)
-      expect(r2AfterStale.runs['run-1']?.tokenUsage?.total).toBe(15);
+      expect(r2AfterStale.runs['run-1']?.usage?.total_tokens).toBe(15);
     });
 
     it('writes lastRun on applyRunStopped (cancel before stream_end)', () => {

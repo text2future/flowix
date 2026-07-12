@@ -37,7 +37,7 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────────────
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/.flowix-build/cargo-target}"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/.build/cargo-target}"
 export CARGO_TARGET_DIR
 BUNDLE_DIR="$CARGO_TARGET_DIR/release/bundle"
 RELEASE_OUT="$CARGO_TARGET_DIR/release/updater"

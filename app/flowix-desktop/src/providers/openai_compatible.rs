@@ -169,28 +169,17 @@ pub enum OpenAICompatibleStreamItem {
     /// LLM 发出工具调用, 已聚合完 (id/call_type/function{name,arguments} 齐全)
     ToolUseComplete { tool_call: LlmToolCall },
     /// 流末尾的 token 计数 (OpenAI 协议在最后一个 SSE chunk 的顶层 `usage` 字段
-    /// 单独送, 不混在 `choices` 里)。`prompt_tokens` / `completion_tokens` 为 None
-    /// 表示网关未单独报告 (例如 stream_options.include_usage 未开) ── 这种情况
-    /// 仍可凭 `total_tokens` 兜底。`total_tokens` 自身是 None 时整条 Usage 不 emit。
+    /// 单独送, 不混在 `choices` 里)。`total_tokens` 自身是 None 时整条 Usage 不 emit。
     ///
-    /// `prompt_tokens` / `completion_tokens` 今天只透传不消费 (agent 只读
-    /// `total_tokens` 做预算熔断) ── 留着是为将来 "显示本次对话用量" / 分项计费
-    /// 提示铺路, 避免 wire 形状来回改。
+    /// Compatibility: 旧 provider 只报 `prompt_tokens` / `completion_tokens`
+    /// 时, SSE 解析层会 fallback 到 input/output;这里只承载新协议字段,
+    /// wire 形状不再透传 prompt/completion。
     Usage {
         total_tokens: u32,
-        #[allow(dead_code)]
-        prompt_tokens: Option<u32>,
-        #[allow(dead_code)]
-        completion_tokens: Option<u32>,
-        #[allow(dead_code)]
         input_tokens: Option<u32>,
-        #[allow(dead_code)]
         cached_input_tokens: Option<u32>,
-        #[allow(dead_code)]
         output_tokens: Option<u32>,
-        #[allow(dead_code)]
         reasoning_output_tokens: Option<u32>,
-        #[allow(dead_code)]
         model_context_window: Option<u32>,
     },
     /// 流结束 (OpenAI `[DONE]` 或流自然断)
@@ -1446,12 +1435,15 @@ impl OpenAICompatibleProvider {
                         // 现在透传给 agent.rs 做跨 cycle 累加 + 预算熔断。
                         // total_tokens 为 None (网关没填) 时不 emit, 避免把
                         // `Some(Usage { total_tokens: 0, .. })` 当成 0 token 计入。
+                        //
+                        // Compatibility fallback: 旧 provider 只报
+                        // `prompt_tokens` / `completion_tokens` 时,在 SSE 解析层
+                        // 把它们 fallback 到 `input_tokens` / `output_tokens`,
+                        // 这样下游 chunk 协议不再携带 prompt/completion 字段。
                         if let Some(usage) = response.usage {
                             if let Some(total) = usage.total_tokens {
                                 queue.push_back(Ok(OpenAICompatibleStreamItem::Usage {
                                     total_tokens: total,
-                                    prompt_tokens: usage.prompt_tokens,
-                                    completion_tokens: usage.completion_tokens,
                                     input_tokens: usage.input_tokens.or(usage.prompt_tokens),
                                     cached_input_tokens: usage.cached_input_tokens.or_else(|| {
                                         usage

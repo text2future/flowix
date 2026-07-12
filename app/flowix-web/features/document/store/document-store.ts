@@ -17,14 +17,14 @@ export interface MemoDocumentSession {
   transitionId: number;
 }
 
-export interface ExternalDocumentSession {
+interface ExternalDocumentSession {
   id: string;
   path: string;
   openedAt: number;
   transitionId: number;
 }
 
-export type ActiveDocumentSession = MemoDocumentSession | ExternalDocumentSession;
+type ActiveDocumentSession = MemoDocumentSession | ExternalDocumentSession;
 
 function sessionIdentity(session: ActiveDocumentSession): DocumentIdentity {
   return 'memoId' in session
@@ -32,7 +32,7 @@ function sessionIdentity(session: ActiveDocumentSession): DocumentIdentity {
     : { kind: 'external', path: session.path };
 }
 
-export interface DocumentStore {
+interface DocumentStore {
   currentDocumentPath: string | null;
   currentDocumentSource: DocumentSource | null;
   activeMemoSession: MemoDocumentSession | null;

@@ -1,4 +1,4 @@
-<a href="README.md">简体中文</a> / <a href="README.en.md">English</a> / <a href="https://flowix-memo.com/roadmap">Roadmap</a> / <a href="https://flowix-memo.com/updates">What's New</a>
+<a href="README.md">简体中文</a> / <a href="docs/README.en.md">English</a> / <a href="https://flowix-memo.com/roadmap">Roadmap</a> / <a href="https://flowix-memo.com/updates">What's New</a>
 
 # Flowix Memo
 

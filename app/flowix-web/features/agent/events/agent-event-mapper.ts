@@ -101,22 +101,14 @@ export function mapAgentChunkToEvent(
       return { ...base, kind: "session_resolved", sessionId: chunk.session_id };
     case "usage":
       // 通用 metadata 协议 ── 透传 token 用量到 event,后续由 reducer 累加。
+      // 嵌套 usage / status_info 对象直接透传,reducer 做字段级累加。
       return {
         ...base,
         kind: "usage",
-        promptTokens: chunk.prompt_tokens,
-        completionTokens: chunk.completion_tokens,
-        inputTokens: chunk.input_tokens,
-        cachedInputTokens: chunk.cached_input_tokens,
-        outputTokens: chunk.output_tokens,
-        reasoningOutputTokens: chunk.reasoning_output_tokens,
-        modelContextWindow: chunk.model_context_window,
-        modelId: chunk.model_id,
-        codexPlanType: chunk.codex_plan_type,
-        codexUsedPercent: chunk.codex_used_percent,
-        codexResetsAt: chunk.codex_resets_at,
-        lastRunAt: chunk.last_run_at,
-        totalTokens: chunk.total_tokens,
+        modelId: chunk.model_id ?? null,
+        lastRunAt: chunk.last_run_at ?? null,
+        usage: chunk.usage ?? null,
+        statusInfo: chunk.status_info ?? null,
       };
   }
 }

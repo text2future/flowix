@@ -15,7 +15,7 @@
  *     走这个, 替代 `openNoteReference` 里 4 步手操 ── 后端权威解析 + emit
  *     走相同 pipeline, 行为统一。
  *
- *   - `mountOpenTargetListener` 是**单订阅者**, 挂在 App.tsx 顶层, 跨窗口
+ *   - `mountOpenTargetListener` 是**单订阅者**, 挂在 app.tsx 顶层, 跨窗口
  *     同步通过 Tauri 事件总线承担 (跟 `external-markdown-opened` 同形)。
  */
 

@@ -560,7 +560,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     const host = document.createElement("div");
     document.body.append(host);
 
-    // inputDraft 落盘走 1s debounce ── 用 fake timer 推进时间。
+    // inputDraft 落盘走 2s debounce ── 用 fake timer 推进时间。
     vi.useFakeTimers();
 
     editor = new Editor({
@@ -593,7 +593,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     // 立刻读还没落盘 ── debounce 期间 ProseMirror attr 保持旧值。
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft ?? null).toBeNull();
 
-    vi.advanceTimersByTime(1100);
+    vi.advanceTimersByTime(2100);
 
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBe(
       "unfinished message",
@@ -638,9 +638,9 @@ describe("AgentThreadCard NodeView streaming", () => {
     input!.value = "x".repeat(501);
     input!.dispatchEvent(new Event("input", { bubbles: true }));
 
-    // debounce 期间 attr 仍是 "short", 推进 1s 后才被空字符串覆盖。
+    // debounce 期间 attr 仍是 "short", 推进 2s 后才被空字符串覆盖。
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBe("short");
-    vi.advanceTimersByTime(1100);
+    vi.advanceTimersByTime(2100);
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBeNull();
     expect(input!.value).toHaveLength(501);
 
@@ -686,7 +686,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(sendButton).not.toBeNull();
 
     sendButton!.click();
-    // submit() 内部会 flushPendingDraft ── 立刻清空 attr, 不等 1s。
+    // submit() 内部会 flushPendingDraft ── 立刻清空 attr, 不等 debounce。
     vi.advanceTimersByTime(0);
 
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBeNull();
@@ -1988,14 +1988,14 @@ describe("AgentThreadCard input history navigation", () => {
     vi.useFakeTimers();
 
     typeText(input, "my latest draft");
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBe(
       "my latest draft",
     );
 
     dispatchKey(input, "ArrowUp");
     expect(input.value).toBe("newer");
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
     expect(input.value).toBe("newer");
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBe(
       "my latest draft",
@@ -2288,7 +2288,7 @@ describe("AgentThreadCard input history navigation", () => {
  * 输入卡顿修复 ── 三处优化:
  *   A. update(node) 区分"消息影响类 attrs" 与"UI-only attrs", 后者跳过
  *      body 全量重建。
- *   B. persistInputDraft 走 1s debounce, 避免每个按键触发 ProseMirror 事务。
+ *   B. persistInputDraft 走 2s debounce, 避免每个按键触发 ProseMirror 事务。
  *   C. updateAttrs 去掉手动 renderThreadState ── 之前与 ProseMirror 自己的
  *      update(node) 回调双调, 长对话下叠加 N 条消息重建, 肉眼可见输入卡顿。
  */
@@ -2313,7 +2313,7 @@ describe("AgentThreadCard input latency optimizations", () => {
       },
     );
     // requestIdleCallback stub ── 立刻同步调用, 避免默认 setTimeout(300)
-    // 在 1s debounce 触发前异步重建 body, 污染"lite 路径不重建"断言。
+    // 在 debounce 触发前异步重建 body, 污染"lite 路径不重建"断言。
     vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) => {
       callback({ didTimeout: false, timeRemaining: () => 50 });
       return 1;
@@ -2425,14 +2425,14 @@ describe("AgentThreadCard input latency optimizations", () => {
       ".agent-thread-card__composer textarea",
     )!;
 
-    // 用户开始打字 ── debounce 期间 (1s 内) inputDraft attr 不变, ProseMirror
+    // 用户开始打字 ── debounce 期间 inputDraft attr 不变, ProseMirror
     // 不会派发任何事务, update(node) 不会被调用 ── 这是 B 的效果。
     typeText(input, "typing…");
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft ?? null).toBeNull();
 
-    // 等真实 1s 让 debounce 触发 (testTimeout 默认 5s, 1.1s 安全)。
+    // 等真实 2s 让 debounce 触发 (testTimeout 默认 5s, 2.1s 安全)。
     await new Promise<void>((resolve) => {
-      setTimeout(resolve, 1100);
+      setTimeout(resolve, 2100);
     });
     expect(editor.getJSON().content?.[0]?.attrs?.inputDraft).toBe("typing…");
 

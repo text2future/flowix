@@ -10,6 +10,8 @@ import type {
   AgentRunState,
   AgentTypeKey,
   RunInfo,
+  RuntimeConfig,
+  RuntimeConfigPatch,
 } from "@/types/agent";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
@@ -110,6 +112,7 @@ import {
 } from "@/lib/agent-types";
 
 const RUNNING_RUN_OPTIMISTIC_GRACE_MS = 3000;
+const RUN_MISSING_FROM_SNAPSHOT_REASON = "missing_from_snapshot";
 
 function optimisticUntilFromStartedAt(startedAt: number): number {
   return startedAt + RUNNING_RUN_OPTIMISTIC_GRACE_MS;
@@ -229,7 +232,7 @@ export interface ThreadState {
   pendingReasoningId: string | null;
   /**
    * 通用 metadata 协议 ── 最新一次 run 的展示快照。
-   * runs[runId] 在正常完成时被清理,但 lastRun 仍保留 model / tokenUsage /
+   * runs[runId] 在正常完成时被清理,但 lastRun 仍保留 model / usage /
    * startedAt / endedAt 等关键 metadata,供 BadgeHoverCard 等"展示"层
    * 在 run 结束后仍可读。Provider-agnostic:对 Codex / Claude / Gemini /
    * Flowix / Hermes / OpenClaw 全部适用。
@@ -294,19 +297,16 @@ function conversationUsagePatchFromState(
 ): ConversationRunPatch | null {
   const run =
     st.runs[runId] ?? (st.lastRun?.runId === runId ? st.lastRun : undefined);
-  if (!run?.tokenUsage) return null;
+  if (!run?.usage && !run?.statusInfo && run.modelId == null && run.lastRunAt == null) {
+    return null;
+  }
 
+  // Nested `usage` and `statusInfo` objects are persisted as-is; flatten is
+  // no longer needed since both sides agree on the nested shape.
   return {
-    inputTokens: run.tokenUsage.input,
-    cachedInputTokens: run.tokenUsage.cachedInput,
-    outputTokens: run.tokenUsage.output,
-    reasoningOutputTokens: run.tokenUsage.reasoningOutput,
-    totalTokens: run.tokenUsage.total,
-    modelContextWindow: run.modelContextWindow,
+    usage: run.usage,
+    statusInfo: run.statusInfo,
     modelId: run.modelId,
-    codexPlanType: run.codexPlanType,
-    codexUsedPercent: run.codexUsedPercent,
-    codexResetsAt: run.codexResetsAt,
     lastRunAt: run.lastRunAt,
   };
 }
@@ -343,16 +343,28 @@ function syncConversationInstanceForEvent(
       });
       break;
     case "stream_end":
-      instanceStore.markRunEnded(
-        eventInstance.instanceId,
-        event.reason ? "failed" : "completed",
-        event.timestamp,
-        event.reason,
-      );
-      instanceStore.updateRun(eventInstance.instanceId, {
-        lastRunAt: event.timestamp,
-      });
-      break;
+      {
+        const status =
+          eventInstance.run?.status === "cancelled"
+            ? "cancelled"
+            : event.reason
+              ? "failed"
+              : "completed";
+        const reason =
+          status === "cancelled"
+            ? event.reason ?? eventInstance.run?.reason ?? "cancelled"
+            : event.reason;
+        instanceStore.markRunEnded(
+          eventInstance.instanceId,
+          status,
+          event.timestamp,
+          reason,
+        );
+        instanceStore.updateRun(eventInstance.instanceId, {
+          lastRunAt: event.timestamp,
+        });
+        break;
+      }
     case "tool_call":
       instanceStore.updateRun(eventInstance.instanceId, {
         currentTool: event.name,
@@ -394,6 +406,17 @@ export interface ChatStore {
   agentCodexReasoningEffort: AgentCodexReasoningEffort;
   threadLists: AgentTypeMap<ThreadListItem[]>;
   currentThreadTitles: AgentTypeMap<string | undefined>;
+  /**
+   * Per-thread 配置快照（in-memory）。前端 UI 控件改值时立即写这里（懒写，
+   * 不触发 IPC）；发消息时由 `dispatchChatStream` 把对应 entry 序列化为 JSON
+   * 塞进 `threadRuntimeConfig` IPC 字段, 后端 chat_stream 入口 upsert 到
+   * `threads.runtime_config` 列。
+   *
+   * 不进 zustand persist ── 真源在后端 SQLite, 这里只是临时缓冲。
+   * 切 thread / 重启时, 若 entry 不存在则调 `agent.getThreadRuntimeConfig`
+   * 拉持久态补上；仍无则视为未设置（控件显示全局默认）。
+   */
+  threadRuntimeConfig: Record<string, RuntimeConfig>;
 
   // ── actions ──
   setThreadList: (list: ThreadListItem[]) => void;
@@ -474,8 +497,22 @@ export interface ChatStore {
   stopStream: () => Promise<void>;
   stopThreadRun: (threadId: string, runId?: string) => Promise<void>;
   dispatchAgentEvent: (event: AgentEvent) => void;
+
+  // ── Phase 3: per-thread runtime config（懒写 in-memory 缓冲） ──
+  /** 合并 patch 到指定 thread 的 RuntimeConfig（仅本地，不触发 IPC） */
+  setThreadRuntimeConfig: (
+    threadId: string,
+    patch: RuntimeConfigPatch,
+  ) => void;
+  /** 清空指定 thread 的 RuntimeConfig（in-memory） */
+  clearThreadRuntimeConfig: (threadId: string) => void;
   /**
-   * 全局 `agent-chunk` 派发器 ── 由 `useAgentEvents` 在 App.tsx 顶层
+   * 拉取后端持久化 RuntimeConfig 并写入 store（首次打开卡片 / 切 thread）。
+   * 已有 in-memory entry 不覆盖；后端返回 null 不写入。
+   */
+  ensureThreadRuntimeConfigLoaded: (threadId: string) => Promise<void>;
+  /**
+   * 全局 `agent-chunk` 派发器 ── 由 `useAgentEvents` 在 app.tsx 顶层
    * 挂的 listener 调一次, 按 `chunk.thread_id` 路由到 `threadStates[tid]`。
    * 这是后台多 chat 并行的核心: 一个 listener, 多个 thread_state,
    * chunk 自带 thread_id 自然分流。
@@ -509,31 +546,58 @@ function reconcileThreadStatesFromRunningSnapshot(
   now: number,
 ): Pick<
   ChatStore,
-  "threadStates" | "threadTypes" | "lastRunningRunsReconciledAt"
+  | "threadStates"
+  | "threadTypes"
+  | "externalSessionResolutions"
+  | "lastRunningRunsReconciledAt"
 > {
   let nextThreadStates: ThreadsMap = { ...state.threadStates };
   let nextThreadTypes: Record<string, AgentTypeKey> = { ...state.threadTypes };
+  let nextExternalSessionResolutions = { ...state.externalSessionResolutions };
   const backendRunIds = new Set<string>();
 
   for (const [threadId, info] of Object.entries(running)) {
-    const existing = nextThreadStates[threadId] ?? emptyThreadState();
+    const pendingThreadId = info.pendingThreadId || threadId;
+    const canonicalThreadId = info.sessionId || threadId;
     const agentType = normalizeAgentTypeKey(
-      info.agentType ?? nextThreadTypes[threadId],
+      info.agentType ?? nextThreadTypes[canonicalThreadId] ?? nextThreadTypes[pendingThreadId],
     );
+    if (info.sessionId && pendingThreadId !== canonicalThreadId) {
+      const resolved = applyExternalSessionResolved(
+        {
+          threadStates: nextThreadStates,
+          threadTypes: nextThreadTypes,
+          externalSessionResolutions: nextExternalSessionResolutions,
+        },
+        pendingThreadId,
+        canonicalThreadId,
+        agentType,
+        (existing, incoming) => mergeHistoricalMessages(existing, incoming, agentType),
+        emptyThreadState,
+      );
+      nextThreadStates = resolved.threadStates;
+      nextThreadTypes = resolved.threadTypes;
+      nextExternalSessionResolutions = resolved.externalSessionResolutions;
+    }
+    const existing =
+      nextThreadStates[canonicalThreadId] ??
+      nextThreadStates[pendingThreadId] ??
+      emptyThreadState();
     const runId = info.runId ?? existing.activeRunId ?? createRunId(threadId);
     const startedAt = info.startedAt || now;
     const event: AgentEvent = {
       kind: "stream_start",
       agentType,
-      threadId,
+      threadId: canonicalThreadId,
       runId,
       timestamp: startedAt,
     };
-    nextThreadStates[threadId] = applyRunStarted(existing, event, {
+    nextThreadStates[canonicalThreadId] = applyRunStarted(existing, event, {
       startedAt,
       currentTool: info.currentTool ?? null,
     });
-    nextThreadTypes[threadId] = agentType;
+    nextThreadTypes[canonicalThreadId] = agentType;
+    nextThreadTypes[pendingThreadId] = agentType;
     backendRunIds.add(runId);
   }
 
@@ -546,6 +610,15 @@ function reconcileThreadStatesFromRunningSnapshot(
       continue;
     }
     const { [runId]: _removed, ...runs } = threadState.runs;
+    const failedRun = run
+      ? {
+          ...run,
+          status: "failed" as const,
+          endedAt: now,
+          reason: RUN_MISSING_FROM_SNAPSHOT_REASON,
+          currentTool: null,
+        }
+      : undefined;
     nextThreadStates[threadId] = {
       ...threadState,
       isLoading: false,
@@ -553,12 +626,14 @@ function reconcileThreadStatesFromRunningSnapshot(
       pendingAssistantId: null,
       pendingReasoningId: null,
       runs,
+      lastRun: failedRun ?? threadState.lastRun,
     };
   }
 
   return {
     threadStates: nextThreadStates,
     threadTypes: nextThreadTypes,
+    externalSessionResolutions: nextExternalSessionResolutions,
     lastRunningRunsReconciledAt: now,
   };
 }
@@ -639,6 +714,7 @@ export const useChatStore = create<ChatStore>()(
         agentCodexReasoningEffort: "medium",
         threadLists: {},
         currentThreadTitles: {},
+        threadRuntimeConfig: {},
 
         setThreadList: (list) => {          set((state) => threadListUpdate(state, "flowix", list));
         },
@@ -746,6 +822,78 @@ export const useChatStore = create<ChatStore>()(
         setAgentCodexModel: (model) => set({ agentCodexModel: model }),
         setAgentCodexReasoningEffort: (effort) =>
           set({ agentCodexReasoningEffort: effort }),
+
+        /**
+         * 合并 patch 到指定 thread 的 RuntimeConfig（懒写 ── 仅本地，不触发 IPC）。
+         * 三态语义（与后端 `Option<Option<T>>` 对齐）：
+         *   - patch 字段缺失 / `undefined` → 不动
+         *   - patch 字段为 `null` → 显式清空（merge 后该 key 值为 null,
+         *     序列化给后端 → cfg.x = None → 走全局 fallback）
+         *   - patch 字段为有值对象 → 锁定为该值
+         *
+         * UI 想把 model 从 M1 改回"未设置"时传 `{ model: null }`，
+         * 不是 `{ model: undefined }`。
+         */
+        setThreadRuntimeConfig: (threadId, patch: RuntimeConfigPatch) =>
+          set((state) => {
+            const current = state.threadRuntimeConfig[threadId] ?? {};
+            const merged: RuntimeConfig = { ...current };
+            for (const key of Object.keys(patch) as (keyof RuntimeConfig)[]) {
+              const value = patch[key];
+              if (value === undefined) continue;
+              // null 与有值都覆盖 ── 与 undefined 严格区分。
+              (merged as Record<string, unknown>)[key] = value;
+            }
+            return {
+              threadRuntimeConfig: {
+                ...state.threadRuntimeConfig,
+                [threadId]: merged,
+              },
+            };
+          }),
+
+        /**
+         * 清空指定 thread 的 RuntimeConfig（in-memory）。
+         * 调用方后续应改走全局默认 ── 这只是 in-memory 重置, 真源在后端。
+         * 删 thread 时由 deleteThread 副作用自动调用, 不需要 UI 显式触发。
+         */
+        clearThreadRuntimeConfig: (threadId) =>
+          set((state) => {
+            if (!(threadId in state.threadRuntimeConfig)) return state;
+            const next = { ...state.threadRuntimeConfig };
+            delete next[threadId];
+            return { threadRuntimeConfig: next };
+          }),
+
+        /**
+         * 拉取后端持久化的 RuntimeConfig 并写入 store（首次打开卡片 / 切 thread 时）。
+         *
+         * 缓存命中检查：in-memory 已有非空对象就跳过 ── 用户当前会话内的临时
+         * 改动优先。`{}` 空对象不算"已加载"，避免被先调
+         * `setThreadRuntimeConfig(tid, {})` 又想 ensureLoaded 时漏掉拉后端。
+         *
+         * 后端返回 null → 不写入（视为未设置, 控件显示全局默认）。
+         */
+        ensureThreadRuntimeConfigLoaded: async (threadId) => {
+          const cached = get().threadRuntimeConfig[threadId];
+          if (cached !== undefined && Object.keys(cached).length > 0) return;
+          try {
+            const json = await agentClient.getThreadRuntimeConfig(threadId);
+            if (!json) return;
+            const parsed = JSON.parse(json) as RuntimeConfig;
+            set((state) => ({
+              threadRuntimeConfig: {
+                ...state.threadRuntimeConfig,
+                [threadId]: parsed,
+              },
+            }));
+          } catch (err) {
+            console.error(
+              "[chat-store] ensureThreadRuntimeConfigLoaded failed:",
+              err,
+            );
+          }
+        },
 
         loadThreadList: async () => {
           try {
@@ -1196,11 +1344,16 @@ export const useChatStore = create<ChatStore>()(
                   ([_, resolved]) => resolved !== threadId,
                 ),
               );
+              // 同步 GC threadRuntimeConfig[threadId] ── 后端 SQLite 已经 CASCADE
+              // 清掉 runtime_config 列, 这里的 in-memory 镜像不能留孤儿 entry。
+              const nextThreadRuntimeConfig = { ...state.threadRuntimeConfig };
+              delete nextThreadRuntimeConfig[threadId];
               return {
                 ...threadListUpdate(state, deletedType, nextThreadList),
                 threadStates,
                 threadTypes: nextThreadTypes,
                 externalSessionResolutions: nextExternalSessionResolutions,
+                threadRuntimeConfig: nextThreadRuntimeConfig,
                 ...(getActiveThreadIdForType(state, deletedType) === threadId
                   ? {
                       ...activeThreadUpdate(state, deletedType, undefined),
@@ -1359,6 +1512,10 @@ export const useChatStore = create<ChatStore>()(
               codexReasoningEffort: get().agentCodexReasoningEffort,
               agentRoleMemoId: options?.agentRoleMemoId,
               agentRoleName: options?.agentRoleName,
+              // Phase 3 懒写：把 in-memory 的 threadRuntimeConfig 传给后端,
+              // chat_stream 入口 upsert 到 SQLite `threads.runtime_config` 列。
+              // 未改动控件 → entry 不存在或为空对象 → 后端不 upsert, 持久态保留。
+              threadRuntimeConfig: get().threadRuntimeConfig[threadId],
             });
           } catch (err) {
             console.error("Failed to dispatch thread card chat_stream:", err);
@@ -1408,24 +1565,40 @@ export const useChatStore = create<ChatStore>()(
           // emit StreamEnd 收敛 isLoading.
           streamingBuffer.flushSync();
           let targetRunId: string | undefined;
+          let stoppedAt: number | null = null;
           set((state) => {
             const st = state.threadStates[threadId];
             if (!st) return state;
             targetRunId = runId ?? st.activeRunId ?? undefined;
             if (!targetRunId || !st.runs[targetRunId]) return state;
+            stoppedAt = Date.now();
             const type = getAgentType(
               state.threadTypes[threadId] ?? state.activeAgentTypeKey,
             );
             const nextThreadState = applyRunStopped(
               st,
               targetRunId,
-              Date.now(),
+              stoppedAt,
             );
             recordAgentStopRequested(threadId, targetRunId, type.key);
             return {
               ...threadRunUpdate(state, threadId, nextThreadState),
             };
           });
+          if (targetRunId && stoppedAt !== null) {
+            const instanceStore = useAgentConversationStore.getState();
+            const instance =
+              instanceStore.findByRunId(targetRunId) ??
+              instanceStore.findByThreadId(threadId);
+            if (instance) {
+              instanceStore.markRunEnded(
+                instance.instanceId,
+                "cancelled",
+                stoppedAt,
+                "cancelled",
+              );
+            }
+          }
           // 修复 #9: 之前 `targetRunId` 早 return 后仍发 IPC, 后端走
           // thread-wide stop 兜底 ── 是浪费, 且本地 store 的 applyRunStopped
           // 在 set() 早 return 时没跑, 用户看不到"已停"的视觉反馈。
@@ -1612,7 +1785,7 @@ export const useChatStore = create<ChatStore>()(
                 };
               }
               case "usage": {
-                // 通用 metadata 协议 ── 累加 token 到 runs[runId].tokenUsage。
+                // 通用 metadata 协议 ── 累加 token 到 runs[runId].usage。
                 const nextThreadState = applyRunUsage(st, event);
                 return {
                   ...threadRunUpdate(state, tid, nextThreadState),
@@ -1715,17 +1888,23 @@ export const useChatStore = create<ChatStore>()(
           const state = get();
           const instanceStore = useAgentConversationStore.getState();
           for (const [threadId, info] of Object.entries(running)) {
+            const pendingThreadId = info.pendingThreadId || threadId;
+            const canonicalThreadId = info.sessionId || threadId;
             const type = getAgentType(
-              info.agentType ?? state.threadTypes[threadId] ?? state.activeAgentTypeKey,
+              info.agentType ??
+                state.threadTypes[canonicalThreadId] ??
+                state.threadTypes[pendingThreadId] ??
+                state.activeAgentTypeKey,
             );
             const runId =
               info.runId ??
-              state.threadStates[threadId]?.activeRunId ??
-              createRunId(threadId);
+              state.threadStates[canonicalThreadId]?.activeRunId ??
+              state.threadStates[pendingThreadId]?.activeRunId ??
+              createRunId(canonicalThreadId);
             const instance = ensureConversationInstanceForThread(
-              threadId,
+              canonicalThreadId,
               type.key,
-              getConversationTitleForThread(state, type.key, threadId),
+              getConversationTitleForThread(state, type.key, canonicalThreadId),
               info.runId,
             );
             instanceStore.markRunStarted(instance.instanceId, {
@@ -1767,6 +1946,10 @@ export const useChatStore = create<ChatStore>()(
         // 落到 `chunk.thread_id`, 如果 CLI 后续用的是 resolved session_id
         // (而非 pending local id), chunk 就会被错路由。
         externalSessionResolutions: state.externalSessionResolutions,
+        // threadRuntimeConfig 不进 zustand persist ── 真源在后端 SQLite
+        // `threads.runtime_config` 列, 进程重启时通过 `ensureThreadRuntimeConfigLoaded`
+        // 拉回来。这里只存 in-memory 的临时改动, 持久化反而会让"未发消息"改动
+        // 漏掉 upsert (重启后控件显示旧持久态, 用户改了等于没改)。
       }),
       merge: (persisted, current) => {
         const persistedState = persisted as Partial<ChatStore> | undefined;
@@ -1950,13 +2133,13 @@ function ensureRunActive(st: ThreadState, event: AgentEvent): ThreadState {
 }
 
 // ============================================================
-// 顶层 listener 注册 ── App.tsx 一次性挂载。
+// 顶层 listener 注册 ── app.tsx 一次性挂载。
 // ============================================================
 //
 // 这段 IIFE 模块加载时跑, 把 `dispatchAgentChunk` 桥接到 listenToAgentChunks:
 // - 两窗口 (主窗口 / 偏好窗口) 都 import 这个模块, 但 listenToAgentChunks
 //   内部用 `streamUnlisten` 短路, 第二个调用直接 return ── 不会重复挂载。
-// - `useAgentEvents` 在 App.tsx 顶层显式挂一次, 卸载时 unlisten。
+// - `useAgentEvents` 在 app.tsx 顶层显式挂一次, 卸载时 unlisten。
 // - `dispatchAgentChunk` 通过 zustand store 派发, 跨组件共享状态。
 //
 // 这里保留一段 `installAgentChunkBridge` 暴露, 给 `useAgentEvents` 调用;

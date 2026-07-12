@@ -1,6 +1,8 @@
 import type { I18nKey } from "@features/i18n";
 import { useMemoStore } from "@features/memo";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
+import { useChatStore } from "@features/agent/store/chat-store";
+import type { AgentAccessEntry } from "@/lib/types/agent-access";
 import { createPlusIcon } from "@features/editor/extensions/agent-thread-card/agent-thread-card-icons";
 import {
   createAccessDivider,
@@ -23,6 +25,12 @@ export interface AccessPopoverControllerOptions {
   isDestroyed: () => boolean;
   isInsideRelatedTarget: (target: globalThis.Node) => boolean;
   consumeOutsidePointer: (event: PointerEvent) => void;
+  /**
+   * Phase 4: 返回当前卡片绑定的 threadId ── 用于把"勾选 / 主工作目录"
+   * 路由到 per-thread 的 `chat-store.threadRuntimeConfig[tid].files`。
+   * undefined 时退化为全局 agent-access-store 行为, 兼容现有 fallback 路径。
+   */
+  getThreadId?: () => string | undefined;
 }
 
 export class AccessPopoverController {
@@ -32,6 +40,7 @@ export class AccessPopoverController {
   private readonly isDestroyed: () => boolean;
   private readonly isInsideRelatedTarget: (target: globalThis.Node) => boolean;
   private readonly consumeOutsidePointer: (event: PointerEvent) => void;
+  private readonly getThreadId?: () => string | undefined;
 
   private anchor: HTMLElement | null = null;
   private preferBelow = false;
@@ -47,7 +56,55 @@ export class AccessPopoverController {
     this.isDestroyed = options.isDestroyed;
     this.isInsideRelatedTarget = options.isInsideRelatedTarget;
     this.consumeOutsidePointer = options.consumeOutsidePointer;
+    this.getThreadId = options.getThreadId;
   }
+
+  /**
+   * Phase 4: 计算 entry 在当前 thread 的有效勾选状态 ── 优先读
+   * `threadRuntimeConfig[tid].files.folders / notebooks`, 没设置则 fallback
+   * 到全局 `entry.enabled` (向后兼容, 老 thread 不动行为)。
+   *
+   * 注意：entry list 仍由全局 `useAgentAccessStore` 提供 ── 用户新增/删除
+   * 的目录是全应用共享的元数据；只"勾选"是 per-thread。
+   */
+  private isEntryEnabledByThread(entry: AgentAccessEntry): boolean {
+    const tid = this.getThreadId?.();
+    if (!tid) return entry.enabled;
+    const files = useChatStore.getState().threadRuntimeConfig[tid]?.files;
+    if (!files) return entry.enabled;
+    const list = entry.kind === "notebook" ? files.notebooks : files.folders;
+    return list.includes(entry.path);
+  }
+
+  /**
+   * Phase 4: 勾选 entry → per-thread toggle。
+   * 把 entry.path 加入 / 移出 `threadRuntimeConfig[tid].files.{folders|notebooks}`。
+   * 没 threadId 时退化到全局 `useAgentAccessStore.toggle`。
+   */
+  private readonly toggleEntryByThread = async (
+    entry: AgentAccessEntry,
+  ): Promise<void> => {
+    const tid = this.getThreadId?.();
+    if (!tid) {
+      await useAgentAccessStore.getState().toggle(entry.id);
+      return;
+    }
+    const state = useChatStore.getState();
+    const current = state.threadRuntimeConfig[tid];
+    const files = current?.files ?? { folders: [], notebooks: [] };
+    const isNotebook = entry.kind === "notebook";
+    const list = isNotebook ? files.notebooks : files.folders;
+    const next = list.includes(entry.path)
+      ? list.filter((p) => p !== entry.path)
+      : [...list, entry.path];
+    state.setThreadRuntimeConfig(tid, {
+      files: {
+        workspace: files.workspace,
+        folders: isNotebook ? files.folders : next,
+        notebooks: isNotebook ? next : files.notebooks,
+      },
+    });
+  };
 
   get isOpen(): boolean {
     return this.open;
@@ -99,7 +156,7 @@ export class AccessPopoverController {
   }
 
   render(): void {
-    const { config, isLoading, toggle, addFolderFromPicker, removeFolder } =
+    const { config, isLoading, addFolderFromPicker, removeFolder } =
       useAgentAccessStore.getState();
     const { notebooks } = useMemoStore.getState();
     const notebookEntries = config.entries.filter(
@@ -108,6 +165,23 @@ export class AccessPopoverController {
     const folderEntries = config.entries.filter(
       (entry) => entry.kind === "folder",
     );
+
+    // Phase 4: 构造 effective entry 列表 ── 覆盖 `enabled` 字段为 thread 维度
+    // 的勾选状态。entry.id / entry.path / entry.kind 等元数据保持原样,
+    // 让 createAccessEntryRow 复用。
+    const overrideEnabled = (entry: AgentAccessEntry): AgentAccessEntry => ({
+      ...entry,
+      enabled: this.isEntryEnabledByThread(entry),
+    });
+    const effectiveFolderEntries = folderEntries.map(overrideEnabled);
+    const effectiveNotebookEntries = notebookEntries.map(overrideEnabled);
+
+    // Phase 4: per-thread toggle ── 包一层, 写入 threadRuntimeConfig.files。
+    const effectiveToggle = async (id: string): Promise<void> => {
+      const entry = config.entries.find((e) => e.id === id);
+      if (!entry) return;
+      await this.toggleEntryByThread(entry);
+    };
 
     this.popover.replaceChildren();
 
@@ -128,7 +202,10 @@ export class AccessPopoverController {
     const footerWrap = document.createElement("div");
     footerWrap.className = "agent-thread-card__access-popover-footer";
 
-    if (notebookEntries.length === 0 && folderEntries.length === 0) {
+    if (
+      effectiveNotebookEntries.length === 0 &&
+      effectiveFolderEntries.length === 0
+    ) {
       const empty = document.createElement("div");
       empty.className = "agent-thread-card__access-empty";
       empty.textContent = isLoading
@@ -136,42 +213,45 @@ export class AccessPopoverController {
         : this.t("agent.access.empty.empty");
       scrollWrap.append(empty, footerWrap);
     } else {
-      if (folderEntries.length > 0) {
+      if (effectiveFolderEntries.length > 0) {
         scrollWrap.append(
           createAccessSectionLabel(this.t("agent.access.sectionFolder")),
         );
-        folderEntries.forEach((entry) => {
+        effectiveFolderEntries.forEach((entry) => {
           scrollWrap.append(
             createAccessEntryRow({
               entry,
               notebooks,
               t: (key) => this.t(key as I18nKey),
-              toggle,
+              toggle: effectiveToggle,
               removeFolder,
             }),
           );
         });
         scrollWrap.append(footerWrap);
       }
-      if (notebookEntries.length > 0 && folderEntries.length > 0) {
+      if (
+        effectiveNotebookEntries.length > 0 &&
+        effectiveFolderEntries.length > 0
+      ) {
         scrollWrap.append(createAccessDivider());
       }
-      if (notebookEntries.length > 0) {
+      if (effectiveNotebookEntries.length > 0) {
         scrollWrap.append(
           createAccessSectionLabel(this.t("agent.access.sectionNotebook")),
         );
-        notebookEntries.forEach((entry) => {
+        effectiveNotebookEntries.forEach((entry) => {
           scrollWrap.append(
             createAccessEntryRow({
               entry,
               notebooks,
               t: (key) => this.t(key as I18nKey),
-              toggle,
+              toggle: effectiveToggle,
               removeFolder,
             }),
           );
         });
-        if (folderEntries.length === 0) {
+        if (effectiveFolderEntries.length === 0) {
           scrollWrap.append(footerWrap);
         }
       }
@@ -180,6 +260,13 @@ export class AccessPopoverController {
     const addButton = document.createElement("button");
     addButton.type = "button";
     addButton.className = "agent-thread-card__access-add";
+    // P2#5 提示: addFolder 是全局行为 (写 useAgentAccessStore), 不是 per-thread。
+    // 在按钮上加 title 提示, 避免用户误以为"加到本卡片"。
+    addButton.title = this.t("agent.access.addFolderHint");
+    addButton.setAttribute(
+      "aria-label",
+      this.t("agent.access.addFolderHint"),
+    );
     const addIconWrap = document.createElement("span");
     addIconWrap.className = "agent-thread-card__access-add-icon-wrap";
     addIconWrap.append(createPlusIcon());

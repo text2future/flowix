@@ -4,7 +4,7 @@ dist/
 .vite/
 
 # Project-local build staging
-.flowix-build/
+.build/
 
 # Rust / Cargo
 app/target/
@@ -39,14 +39,13 @@ supabase/.temp/
 # Build outputs
 *.tsbuildinfo
 
-# Local runtime / scratch files should live under .flowix-build/runtime/.
+# Local runtime / scratch files should live under .build/runtime/.
 # Keep legacy path ignores below so old tools cannot pollute the worktree.
 
 # Local Codex / coding-agent session logs (developer telemetry; never ship)
 test.json
 
 # Legacy local runtime / scratch paths
-app/flowix-desktop/index.db
 momo-yellow.png
 scratch-build.log
 verify-icon.ps1

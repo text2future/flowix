@@ -1,4 +1,4 @@
-import type { AgentTypeKey } from "@/types/agent";
+import type { AgentTypeKey, StatusInfo, UsageInfo } from "@/types/agent";
 import type { I18nKey } from "@features/i18n";
 import type { ThreadState } from "@features/agent/store/chat-store";
 import type { AgentConversationRun } from "@features/agent/store/agent-conversation-store";
@@ -8,6 +8,10 @@ export interface AgentThreadCardBadgeData {
   model: string | undefined;
   lastRunAt: number | undefined;
   totalTokens: number | undefined;
+  /** Full nested token usage breakdown — see [`UsageInfo`]. */
+  usage?: UsageInfo;
+  /** Provider-specific status snapshot — see [`StatusInfo`]. */
+  statusInfo?: StatusInfo;
 }
 
 export function getConversationRunLastRunAt(
@@ -26,22 +30,28 @@ export function computeAgentThreadCardBadgeData(options: {
   let model: string | undefined;
   let lastRunAt: number | undefined;
   let totalTokens: number | undefined;
+  let usage: UsageInfo | undefined;
+  let statusInfo: StatusInfo | undefined;
 
   const snapshot = threadState?.lastRun;
   if (snapshot) {
     if (snapshot.model) model = snapshot.model;
-    if (snapshot.status !== "running" && snapshot.tokenUsage) {
-      totalTokens = snapshot.tokenUsage.total;
+    if (snapshot.status !== "running" && snapshot.usage) {
+      totalTokens = snapshot.usage.total_tokens ?? undefined;
+      usage = snapshot.usage;
     }
+    if (snapshot.statusInfo) statusInfo = snapshot.statusInfo;
     lastRunAt = snapshot.lastRunAt ?? snapshot.endedAt ?? snapshot.startedAt;
   }
 
   if (!snapshot && threadState?.activeRunId && threadState.runs[threadState.activeRunId]) {
     const run = threadState.runs[threadState.activeRunId];
     if (run.model) model = run.model;
-    if (run.status !== "running" && run.tokenUsage) {
-      totalTokens = run.tokenUsage.total;
+    if (run.status !== "running" && run.usage) {
+      totalTokens = run.usage.total_tokens ?? undefined;
+      usage = run.usage;
     }
+    if (run.statusInfo) statusInfo = run.statusInfo;
     lastRunAt = run.lastRunAt ?? run.endedAt ?? run.startedAt;
   }
 
@@ -52,18 +62,22 @@ export function computeAgentThreadCardBadgeData(options: {
         run.startedAt > acc.startedAt ? run : acc,
       );
       if (latest.model) model = latest.model;
-      if (latest.status !== "running" && latest.tokenUsage) {
-        totalTokens = latest.tokenUsage.total;
+      if (latest.status !== "running" && latest.usage) {
+        totalTokens = latest.usage.total_tokens ?? undefined;
+        usage = latest.usage;
       }
+      if (latest.statusInfo) statusInfo = latest.statusInfo;
       lastRunAt = latest.lastRunAt ?? latest.endedAt ?? latest.startedAt;
     }
   }
 
   if (persistedRun) {
     if (!model && persistedRun.model) model = persistedRun.model;
-    if (totalTokens === undefined && typeof persistedRun.totalTokens === "number") {
-      totalTokens = persistedRun.totalTokens;
+    if (totalTokens === undefined && persistedRun.usage?.total_tokens != null) {
+      totalTokens = persistedRun.usage.total_tokens;
     }
+    if (!usage && persistedRun.usage) usage = persistedRun.usage;
+    if (!statusInfo && persistedRun.statusInfo) statusInfo = persistedRun.statusInfo;
     if (lastRunAt === undefined) {
       lastRunAt = getConversationRunLastRunAt(persistedRun);
     }
@@ -73,7 +87,7 @@ export function computeAgentThreadCardBadgeData(options: {
     model = codexModel;
   }
 
-  return { model, lastRunAt, totalTokens };
+  return { model, lastRunAt, totalTokens, usage, statusInfo };
 }
 
 export function renderAgentThreadCardMetaState(options: {

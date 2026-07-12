@@ -1,21 +1,15 @@
 export {
   useDocumentStore,
-  type DocumentStore,
   type MemoDocumentSession,
-  type ExternalDocumentSession,
-  type ActiveDocumentSession,
 } from '@features/document/store/document-store';
 export {
   useDocumentHistoryStore,
   type DocumentHistoryEntry,
   type MemoHistoryEntry,
-  type ExternalHistoryEntry,
 } from '@features/document/store/document-history-store';
 export {
   getActiveDocumentDraft,
   consumeSelfDocumentPathUpdate,
-  getCurrentIdentity,
-  getCurrentPath,
   isRecentSelfDocumentWrite,
   markSelfDocumentPathUpdate,
   markSelfDocumentWrite,
@@ -26,9 +20,6 @@ export {
   hasDocumentUnsavedChanges,
   applyLoadedDocumentContent,
   setActiveDocumentPath,
-  type DocumentDraftSnapshot,
-  type DocumentEditResult,
-  type SaveDocumentContentOptions,
 } from '@features/document/store/document-session-service';
 export {
   documentIdentityKey,

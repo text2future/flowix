@@ -112,6 +112,10 @@ impl HermesCliManager {
         self.runs.running_threads().await
     }
 
+    pub async fn stop_all(&self) -> usize {
+        self.runs.kill_all(DISPLAY_NAME).await
+    }
+
     async fn run_hermes(
         &self,
         thread_id: &str,

@@ -15,18 +15,18 @@ import type { DocumentIdentity } from '@features/document/store/document-identit
 import { canonicalPath } from '@/lib/path';
 
 
-export interface DocumentDraftSnapshot {
+interface DocumentDraftSnapshot {
   identity: DocumentIdentity;
   path: string;
   content: string;
 }
 
-export interface DocumentEditResult {
+interface DocumentEditResult {
   changed: boolean;
   buffer: DocumentBuffer;
 }
 
-export interface SaveDocumentContentOptions {
+interface SaveDocumentContentOptions {
   path: string;
   identity: DocumentIdentity;
   content: string;
@@ -155,12 +155,6 @@ export function getDocumentBuffer(identity: DocumentIdentity): DocumentBuffer {
 export function hasDocumentUnsavedChanges(identity?: DocumentIdentity): boolean {
   return hasUnsavedLocalChanges(identity);
 }
-
-// 暴露 buffer-registry 内部的 "current path" 读取给 store 之外的调用方
-// (例如 useDocumentAutosave 在 closure 落后于 currentPath 时需要兜底)。
-// 不暴露 setCurrentPath ── 状态切换仍走 store / hook 的副作用路径。
-export { getCurrentPath };
-export { getCurrentIdentity };
 
 export function applyLoadedDocumentContent(
   identity: DocumentIdentity,

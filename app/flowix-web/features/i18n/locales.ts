@@ -493,6 +493,7 @@ export const messages = {
     "agent.access.sectionNotebook": "笔记本",
     "agent.access.sectionFolder": "文件",
     "agent.access.addFolder": "添加资料夹",
+    "agent.access.addFolderHint": "添加到全局访问列表, 所有 Agent Thread Card 可见",
     "agent.access.alreadyTracked": "该目录已被跟踪",
     "agent.access.saveFailed": "保存失败",
     "agent.access.notSelected": "未选择目录",
@@ -1393,6 +1394,8 @@ export const messages = {
     "agent.access.sectionNotebook": "Notebooks",
     "agent.access.sectionFolder": "Files",
     "agent.access.addFolder": "Add folder",
+    "agent.access.addFolderHint":
+      "Adds to the global access list — visible to all Agent Thread Cards",
     "agent.access.alreadyTracked": "This folder is already tracked",
     "agent.access.saveFailed": "Failed to save",
     "agent.access.notSelected": "No directory selected",

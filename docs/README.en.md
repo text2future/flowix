@@ -1,6 +1,6 @@
 # Flowix Memo
 
-<a href="README.md">中文</a> · <a href="README.en.md">English</a> · <a href="https://flowix-memo.com/roadmap">Roadmap</a> · <a href="https://flowix-memo.com/updates">Updates</a>
+<a href="../README.md">中文</a> · <a href="./README.en.md">English</a> · <a href="https://flowix-memo.com/roadmap">Roadmap</a> · <a href="https://flowix-memo.com/updates">Updates</a>
 
 **Manage ideas and AI conversations with documents.**
 
@@ -9,7 +9,7 @@ A local-first desktop note app that brings notes, knowledge work, and AI convers
 [![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Windows-0078D4)](https://github.com/text2future/flowix/releases)
 [![Latest Release](https://img.shields.io/github/v/release/text2future/flowix)](https://github.com/text2future/flowix/releases)
 
-![Flowix](./docs/images/readme-banner.png)
+![Flowix](./images/readme-banner.png)
 
 </div>
 
@@ -98,7 +98,7 @@ not trapped in disposable chat threads.
 - **Documented output**: useful AI responses can be folded back into
   your notes, with no loss across restarts
 
-![AI Agent](./docs/images/readme-agent.png)
+![AI Agent](./images/readme-agent.png)
 
 **Typical AI workflows**:
 
