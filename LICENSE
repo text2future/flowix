@@ -1,43 +1,21 @@
-Flowix
-Copyright (c) 2026 aicollaborate
+MIT License
 
-This work is licensed under the Creative Commons Attribution-NonCommercial 4.0
-International License (CC BY-NC 4.0).
+Copyright (c) 2026 text2future
 
-You are free to:
-  - Share — copy and redistribute the material in any medium or format
-  - Adapt — remix, transform, and build upon the material
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Under the following terms:
-  - Attribution — You must give appropriate credit, provide a link to the
-    license, and indicate if changes were made. You may do so in any
-    reasonable manner, but not in any way that suggests the licensor
-    endorses you or your use.
-  - NonCommercial — You may not use the material for commercial purposes.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-A commercial purpose is one primarily intended for or directed toward
-commercial advantage or monetary compensation. For purposes of this
-license, "commercial purposes" includes but is not limited to:
-  - Selling the software, a derivative, or access to it (including via
-    SaaS, hosted services, or bundled products);
-  - Using the software internally in the course of providing paid
-    services or generating revenue;
-  - Distributing the software as part of a paid product or service.
-
-Uses that are NOT considered commercial include:
-  - Personal, educational, research, or non-profit use;
-  - Contributing changes back to this project;
-  - Evaluating or testing the software without generating revenue.
-
-Any additional permissions or restrictions regarding trademark, patent,
-or other rights not expressly granted above are reserved by the
-copyright holder.
-
-The full legal text of the license is available at:
-  https://creativecommons.org/licenses/by-nc/4.0/legalcode
-
-A human-readable summary is available at:
-  https://creativecommons.org/licenses/by-nc/4.0/
-
-For permissions beyond the scope of this license, please contact the
-copyright holder.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
