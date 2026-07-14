@@ -166,6 +166,58 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
+pub async fn select_agent_runtime_directory(app: tauri::AppHandle) -> Option<String> {
+    use std::sync::mpsc;
+    #[cfg(not(target_os = "macos"))]
+    use tauri_plugin_dialog::DialogExt;
+    #[cfg(not(target_os = "macos"))]
+    use tokio::task;
+
+    let (tx, rx) = mpsc::channel();
+
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        let state_handle = handle.clone();
+        handle
+            .run_on_main_thread(move || {
+                let result = crate::config::pick_directory_with_bookmark("选择 Agent 所在文件夹")
+                    .map(|(path, bookmark)| {
+                        let state = state_handle.state::<AppState>();
+                        if let Err(e) = state
+                            .security_bookmarks
+                            .record_directory_bookmark(Path::new(&path), bookmark)
+                        {
+                            tracing::warn!(
+                                "[select_agent_runtime_directory] failed to persist bookmark: {e}"
+                            );
+                        }
+                        path
+                    });
+                tx.send(result).ok();
+            })
+            .ok()?;
+        return rx.recv().ok().flatten();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let handle = app.clone();
+    #[cfg(not(target_os = "macos"))]
+    task::spawn_blocking(move || {
+        let result = handle
+            .dialog()
+            .file()
+            .set_title("Choose Agent folder")
+            .blocking_pick_folder()
+            .map(|p| p.to_string());
+        tx.send(result).ok();
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    rx.recv().ok().flatten()
+}
+
+#[tauri::command]
 pub async fn select_files(app: tauri::AppHandle) -> Option<Vec<String>> {
     use std::sync::mpsc;
     use tauri_plugin_dialog::DialogExt;

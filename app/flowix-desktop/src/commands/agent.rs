@@ -177,6 +177,8 @@ async fn stop_any_runtime_chat(
 pub struct AgentRuntimeAvailability {
     available: bool,
     reason: Option<String>,
+    binary_path: Option<String>,
+    custom_location: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -204,57 +206,57 @@ fn executable_available(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn external_runtime_availability(
+    agent_type: &str,
+    display_name: &str,
+    binary: &Path,
+) -> AgentRuntimeAvailability {
+    let available = executable_available(binary);
+    let custom_location = crate::external_runtime::binary::custom_location_enabled(agent_type);
+    let reason = (!available).then(|| {
+        if custom_location {
+            format!("Custom {display_name} location is invalid ({})", binary.display())
+        } else {
+            format!("{display_name} not found ({})", binary.display())
+        }
+    });
+    AgentRuntimeAvailability {
+        available,
+        reason,
+        binary_path: (!binary.as_os_str().is_empty())
+            .then(|| binary.to_string_lossy().into_owned()),
+        custom_location,
+    }
+}
+
 #[tauri::command]
 pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     let ai_config = state.user_config.get_ai_config().model;
     let flowix_available = !ai_config.model.trim().is_empty();
 
     let codex_binary = crate::external_runtime::codex::cli::resolve_codex_binary();
-    let codex_available = executable_available(&codex_binary);
 
     let claude_binary = crate::external_runtime::claude::cli::resolve_claude_binary();
-    let claude_available = executable_available(&claude_binary);
     let gemini_binary = crate::external_runtime::simple_cli::resolve_simple_cli_binary(
         crate::external_runtime::simple_cli::SimpleCliKind::Gemini,
     );
-    let gemini_available = executable_available(&gemini_binary);
     let hermes_binary = crate::external_runtime::hermes::cli::resolve_hermes_binary();
-    let hermes_available = executable_available(&hermes_binary);
     let openclaw_binary = crate::external_runtime::simple_cli::resolve_simple_cli_binary(
         crate::external_runtime::simple_cli::SimpleCliKind::OpenClaw,
     );
-    let openclaw_available = executable_available(&openclaw_binary);
 
     AgentRuntimeStatus {
         flowix: AgentRuntimeAvailability {
             available: flowix_available,
             reason: (!flowix_available).then(|| "Flowix model is not configured".to_string()),
+            binary_path: None,
+            custom_location: false,
         },
-        codex: AgentRuntimeAvailability {
-            available: codex_available,
-            reason: (!codex_available)
-                .then(|| format!("Codex CLI not found ({})", codex_binary.display())),
-        },
-        claude: AgentRuntimeAvailability {
-            available: claude_available,
-            reason: (!claude_available)
-                .then(|| format!("Claude Code CLI not found ({})", claude_binary.display())),
-        },
-        gemini: AgentRuntimeAvailability {
-            available: gemini_available,
-            reason: (!gemini_available)
-                .then(|| format!("Gemini CLI not found ({})", gemini_binary.display())),
-        },
-        hermes: AgentRuntimeAvailability {
-            available: hermes_available,
-            reason: (!hermes_available)
-                .then(|| format!("Hermes Agent CLI not found ({})", hermes_binary.display())),
-        },
-        openclaw: AgentRuntimeAvailability {
-            available: openclaw_available,
-            reason: (!openclaw_available)
-                .then(|| format!("OpenClaw CLI not found ({})", openclaw_binary.display())),
-        },
+        codex: external_runtime_availability("codex", "Codex CLI", &codex_binary),
+        claude: external_runtime_availability("claude", "Claude Code CLI", &claude_binary),
+        gemini: external_runtime_availability("gemini", "Gemini CLI", &gemini_binary),
+        hermes: external_runtime_availability("hermes", "Hermes Agent CLI", &hermes_binary),
+        openclaw: external_runtime_availability("openclaw", "OpenClaw CLI", &openclaw_binary),
     }
 }
 

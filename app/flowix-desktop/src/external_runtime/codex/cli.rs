@@ -724,6 +724,9 @@ fn normalized_permission_mode(mode: Option<&str>) -> Option<&'static str> {
 }
 
 pub(crate) fn resolve_codex_binary() -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary("codex", "codex") {
+        return path;
+    }
     if let Ok(path) = std::env::var("CODEX_CLI_PATH") {
         let path = PathBuf::from(path);
         if path.exists() {
@@ -1579,7 +1582,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_node_binary_falls_back_to_homebrew_path_when_path_empty() {
+    fn resolve_node_binary_falls_back_to_known_installation_when_path_empty() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // 只在 macOS / Linux 且文件确实存在的 CI 上验证；开发机一般命中
         #[cfg(unix)]
@@ -1600,15 +1603,10 @@ mod tests {
                 None => std::env::remove_var("CODEX_NODE_PATH"),
             }
 
-            // 命中 /opt/homebrew/bin/node 或 /usr/local/bin/node 或 /usr/bin/node 之一即可
+            // Homebrew / nvm / fnm / volta / asdf / n 等合法回退都应接受。
             if let Some(p) = &resolved {
-                assert!(
-                    p.starts_with("/opt/homebrew/bin/node")
-                        || p.starts_with("/usr/local/bin/node")
-                        || p.starts_with("/usr/bin/node"),
-                    "unexpected fallback path: {}",
-                    p.display()
-                );
+                assert!(p.is_file(), "fallback is not a file: {}", p.display());
+                assert_eq!(p.file_name().and_then(|name| name.to_str()), Some("node"));
             }
         }
         #[cfg(not(unix))]

@@ -28,10 +28,12 @@ pub fn set_preference(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
+    let agents = preference.agents.clone();
     state
         .user_config
         .set_preference(preference)
         .map(|_| {
+            crate::external_runtime::binary::configure_custom_agent_locations(&agents);
             dispatcher::emit_to(&app, USER_CONFIG_CHANGED_EVENT, "preference");
             Ok(())
         })

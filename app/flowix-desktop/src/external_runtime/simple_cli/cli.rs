@@ -480,6 +480,12 @@ fn command_args(kind: SimpleCliKind, prompt: &str) -> Vec<String> {
 }
 
 pub(crate) fn resolve_simple_cli_binary(kind: SimpleCliKind) -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary(
+        kind.key(),
+        kind.binary_name(),
+    ) {
+        return path;
+    }
     for env_var in std::iter::once(kind.env_var()).chain(kind.env_var_aliases().iter().copied()) {
         if let Ok(path) = std::env::var(env_var) {
             let path = PathBuf::from(path);

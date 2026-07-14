@@ -97,6 +97,8 @@ export interface QuickPhrase {
 
 export interface AgentsConfig {
   enabledByType: Partial<Record<AgentTypeKey, boolean>>;
+  customLocationEnabledByType: Partial<Record<AgentTypeKey, boolean>>;
+  customLocations: Partial<Record<AgentTypeKey, string>>;
   /** 用户在偏好设置里手工维护的常用语列表；空数组表示未配置。 */
   quickPhrases: QuickPhrase[];
 }
@@ -259,6 +261,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   },
   agents: {
     enabledByType: {},
+    customLocationEnabledByType: {},
+    customLocations: {},
     quickPhrases: [],
   },
   productUpdates: {

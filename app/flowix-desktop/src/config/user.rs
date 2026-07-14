@@ -77,6 +77,10 @@ pub struct PropertiesConfig {
 pub struct AgentsConfig {
     #[serde(default)]
     pub enabled_by_type: HashMap<String, bool>,
+    #[serde(default)]
+    pub custom_location_enabled_by_type: HashMap<String, bool>,
+    #[serde(default)]
+    pub custom_locations: HashMap<String, String>,
     /// 常用语列表 ── 用户在偏好设置 → 工具 tab 里维护,
     /// 在角色选择弹窗作为快捷输入片段注入 composer。
     /// 老 preference.json 没有此字段时由 #[serde(default)] 兜底为空数组。

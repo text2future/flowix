@@ -13,6 +13,7 @@
 //! 入口模块就两层: `shared` 是真正的 cross-runtime 工具, 其余每个 runtime
 //! 都是 `cli + history` (history 只在有磁盘 session 文件的 vendor 里有意义)。
 
+pub mod binary;
 pub mod claude;
 pub mod codex;
 pub mod hermes;

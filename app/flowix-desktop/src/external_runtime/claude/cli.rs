@@ -639,6 +639,9 @@ fn normalized_claude_permission_mode(mode: Option<&str>) -> Option<&'static str>
 }
 
 pub(crate) fn resolve_claude_binary() -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary("claude", "claude") {
+        return path;
+    }
     if let Ok(path) = std::env::var("CLAUDE_CODE_CLI_PATH") {
         let path = PathBuf::from(path);
         if path.exists() {

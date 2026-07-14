@@ -119,6 +119,14 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
         ...base.agents.enabledByType,
         ...(updates.agents?.enabledByType ?? {}),
       },
+      customLocationEnabledByType: {
+        ...base.agents.customLocationEnabledByType,
+        ...(updates.agents?.customLocationEnabledByType ?? {}),
+      },
+      customLocations: {
+        ...base.agents.customLocations,
+        ...(updates.agents?.customLocations ?? {}),
+      },
       // quickPhrases 整体替换 —— 与 properties.fields 同款, 避免外部传入时
       // 仅 patch 部分项导致 sanitize 后顺序错乱。
       quickPhrases: updates.agents?.quickPhrases ?? base.agents.quickPhrases,
@@ -159,6 +167,14 @@ function sanitizeAgentsConfig(agents: AgentsConfig | undefined): AgentsConfig {
       ? agents.enabledByType
       : {};
   const rawPhrases = Array.isArray(agents?.quickPhrases) ? agents!.quickPhrases : [];
+  const customLocationEnabledByType =
+    agents?.customLocationEnabledByType && typeof agents.customLocationEnabledByType === 'object'
+      ? agents.customLocationEnabledByType
+      : {};
+  const customLocations =
+    agents?.customLocations && typeof agents.customLocations === 'object'
+      ? agents.customLocations
+      : {};
   const seen = new Set<string>();
   const quickPhrases: QuickPhrase[] = [];
   for (const item of rawPhrases) {
@@ -174,6 +190,14 @@ function sanitizeAgentsConfig(agents: AgentsConfig | undefined): AgentsConfig {
   return {
     enabledByType: Object.fromEntries(
       Object.entries(enabledByType).filter(([, value]) => typeof value === 'boolean'),
+    ),
+    customLocationEnabledByType: Object.fromEntries(
+      Object.entries(customLocationEnabledByType).filter(([, value]) => typeof value === 'boolean'),
+    ),
+    customLocations: Object.fromEntries(
+      Object.entries(customLocations)
+        .filter(([, value]) => typeof value === 'string')
+        .map(([key, value]) => [key, value.trim()]),
     ),
     quickPhrases,
   };
