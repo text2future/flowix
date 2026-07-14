@@ -1,5 +1,7 @@
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+#[cfg(not(windows))]
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -753,25 +755,37 @@ pub(crate) fn resolve_codex_binary() -> PathBuf {
 
         // GUI 启动时 launchd 给的 PATH 极简（/usr/bin:/bin:/usr/sbin:/sbin），
         // shell 里的 PATH 一律拿不到。挨个查常见安装位置作为回退。
-        if let Some(home) = dirs::home_dir() {
-            let candidates = [
-                home.join(".npm-global/bin/codex"),
-                home.join(".npm/bin/codex"),
-                home.join(".local/bin/codex"),
-                home.join(".cargo/bin/codex"),
-                home.join(".bun/bin/codex"),
-                home.join(".volta/bin/codex"),
-                PathBuf::from("/opt/homebrew/bin/codex"),
-                PathBuf::from("/usr/local/bin/codex"),
-            ];
-            for candidate in candidates {
-                if candidate.is_file() {
-                    return candidate;
-                }
+        for candidate in codex_fallback_candidates(dirs::home_dir().as_deref()) {
+            if candidate.is_file() {
+                return candidate;
             }
         }
         PathBuf::from("codex")
     }
+}
+
+#[cfg(not(windows))]
+fn codex_fallback_candidates(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(home) = home {
+        candidates.extend([
+            home.join(".npm-global/bin/codex"),
+            home.join(".npm/bin/codex"),
+            home.join(".local/bin/codex"),
+            home.join(".cargo/bin/codex"),
+            home.join(".bun/bin/codex"),
+            home.join(".volta/bin/codex"),
+        ]);
+    }
+    candidates.extend([
+        PathBuf::from("/opt/homebrew/bin/codex"),
+        PathBuf::from("/usr/local/bin/codex"),
+    ]);
+    #[cfg(target_os = "macos")]
+    candidates.push(PathBuf::from(
+        "/Applications/ChatGPT.app/Contents/Resources/codex",
+    ));
+    candidates
 }
 
 /// 在当前 `PATH` 里找名为 `codex` 的可执行文件（仅普通文件，避开目录）。
@@ -1447,6 +1461,16 @@ mod tests {
             resolved,
             std::env::temp_dir().join("flowix-nonexistent-codex-cli-path")
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn codex_fallback_candidates_include_chatgpt_app_binary() {
+        let candidates = codex_fallback_candidates(None);
+
+        assert!(candidates.contains(&PathBuf::from(
+            "/Applications/ChatGPT.app/Contents/Resources/codex"
+        )));
     }
 
     #[test]
