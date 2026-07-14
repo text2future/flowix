@@ -1,0 +1,610 @@
+.document-markmap {
+  --markmap-branch-1: var(--brand);
+  --markmap-branch-2: color-mix(in oklch, var(--brand) 72%, var(--foreground));
+  --markmap-branch-3: color-mix(in oklch, var(--brand) 58%, var(--muted-foreground));
+  --markmap-branch-4: color-mix(in oklch, var(--foreground) 58%, var(--brand));
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.document-markmap__canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in oklch, var(--brand) 7%, transparent), transparent 42%),
+    radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 18%, transparent) 0.75px, transparent 0.85px);
+  background-size: auto, 18px 18px;
+  transition: width 220ms ease;
+}
+
+.document-markmap--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background-color: var(--background);
+}
+
+.document-markmap__svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  --markmap-font: 400 var(--app-font-size, 15px)/1.45 var(--app-font-family, var(--font-sans));
+  --markmap-text-color: var(--foreground);
+  --markmap-a-color: var(--brand);
+  --markmap-a-hover-color: color-mix(in oklch, var(--brand) 78%, var(--foreground));
+  --markmap-code-bg: var(--muted);
+  --markmap-code-color: var(--foreground);
+  --markmap-highlight-bg: color-mix(in oklch, var(--brand) 18%, transparent);
+  --markmap-circle-open-bg: var(--background);
+  --markmap-highlight-node-bg: color-mix(in oklch, var(--brand) 12%, transparent);
+}
+
+.document-markmap__svg .markmap-link {
+  opacity: 0.72;
+}
+
+.document-markmap__svg .markmap-node > circle {
+  transition: r 150ms ease, filter 150ms ease;
+}
+
+.document-markmap__svg .markmap-node:hover > circle {
+  filter: drop-shadow(0 0 5px color-mix(in oklch, var(--brand) 44%, transparent));
+}
+
+.document-markmap__svg .markmap-foreign > div > div {
+  padding: 3px 5px;
+  border-radius: 6px;
+  transition: background-color 150ms ease;
+}
+
+.document-markmap-heading-text {
+  display: inline-block;
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.document-markmap-node-content {
+  display: inline-flex;
+  width: clamp(250px, 23vw, 320px);
+  min-width: 250px;
+  max-width: 100%;
+  box-sizing: border-box;
+  align-items: flex-start;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.document-markmap-node-content--paragraph,
+.document-markmap-node-content--blockquote,
+.document-markmap-node-content--frontmatter,
+.document-markmap-node-content--html,
+.document-markmap-node-content--code,
+.document-markmap-node-content--mermaid,
+.document-markmap-node-content--agent {
+  width: clamp(280px, 26vw, 350px);
+  min-width: 280px;
+}
+
+.document-markmap-node-content:focus-visible,
+.document-markmap-heading-text:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.document-markmap__svg .markmap-foreign img {
+  max-width: 180px;
+  max-height: 110px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.document-markmap-node-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in oklch, currentColor 24%, transparent);
+  border-radius: 5px;
+  background: color-mix(in oklch, currentColor 9%, transparent);
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  flex: 0 0 auto;
+}
+
+.document-markmap-node-badge--mermaid {
+  color: color-mix(in oklch, #7c3aed 76%, var(--foreground));
+}
+
+.document-markmap-node-badge--agent {
+  color: var(--brand);
+}
+
+.document-markmap-node-badge--code,
+.document-markmap-node-badge--html {
+  color: color-mix(in oklch, #d97706 78%, var(--foreground));
+}
+
+.document-markmap-node-badge--blockquote {
+  color: color-mix(in oklch, #0f766e 74%, var(--foreground));
+}
+
+.document-markmap-node-badge--table,
+.document-markmap-node-badge--frontmatter {
+  color: color-mix(in oklch, #0369a1 72%, var(--foreground));
+}
+
+.document-markmap-node-text {
+  display: -webkit-box;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--foreground);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.document-markmap__svg .markmap-node:hover .markmap-foreign > div > div {
+  background: color-mix(in oklch, var(--accent) 66%, transparent);
+}
+
+.document-markmap__controls {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in oklch, var(--border) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--card) 86%, transparent);
+  box-shadow: 0 10px 30px color-mix(in oklch, var(--foreground) 10%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.document-markmap__control-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--border);
+}
+
+.document-markmap__hint {
+  position: absolute;
+  left: 18px;
+  bottom: 20px;
+  z-index: 3;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--background) 78%, transparent);
+  font-size: 11px;
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.document-markmap__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.document-markmap__empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 4px;
+  border-radius: 14px;
+  color: var(--brand);
+  background: color-mix(in oklch, var(--brand) 12%, transparent);
+}
+
+.document-markmap-inspector {
+  position: relative;
+  z-index: 8;
+  display: flex;
+  flex: 0 0 clamp(380px, 38vw, 540px);
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  border-left: 1px solid color-mix(in oklch, var(--border) 88%, transparent);
+  background: color-mix(in oklch, var(--card) 96%, transparent);
+  box-shadow: -18px 0 48px color-mix(in oklch, var(--foreground) 8%, transparent);
+  backdrop-filter: blur(22px);
+  animation: document-markmap-inspector-in 180ms ease-out;
+}
+
+.document-markmap-inspector__header {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.document-markmap-inspector__kind {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--muted-foreground);
+  background: var(--muted);
+}
+
+.document-markmap-inspector__kind--mermaid {
+  color: color-mix(in oklch, #7c3aed 76%, var(--foreground));
+  background: color-mix(in oklch, #7c3aed 11%, transparent);
+}
+
+.document-markmap-inspector__kind--agent {
+  color: var(--brand);
+  background: color-mix(in oklch, var(--brand) 11%, transparent);
+}
+
+.document-markmap-inspector__close {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.document-markmap-inspector__close:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.document-markmap-inspector__body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 18px;
+}
+
+.document-markmap-inspector__code {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--muted) 74%, transparent);
+  padding: 14px;
+  color: var(--foreground);
+  font-family: var(--agent-font);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.document-markmap-rich-text {
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+}
+
+.document-markmap-rich-text > :first-child {
+  margin-top: 0;
+}
+
+.document-markmap-rich-text > :last-child {
+  margin-bottom: 0;
+}
+
+.document-markmap-rich-text h1,
+.document-markmap-rich-text h2,
+.document-markmap-rich-text h3,
+.document-markmap-rich-text h4 {
+  margin: 1.1em 0 0.5em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.document-markmap-rich-text h1 { font-size: 1.35em; }
+.document-markmap-rich-text h2 { font-size: 1.2em; }
+.document-markmap-rich-text h3,
+.document-markmap-rich-text h4 { font-size: 1.05em; }
+
+.document-markmap-rich-text p,
+.document-markmap-rich-text ul,
+.document-markmap-rich-text ol,
+.document-markmap-rich-text blockquote,
+.document-markmap-rich-text table,
+.document-markmap-rich-text pre {
+  margin: 0.72em 0;
+}
+
+.document-markmap-rich-text ul,
+.document-markmap-rich-text ol {
+  padding-left: 1.4em;
+}
+
+.document-markmap-rich-text ul { list-style: disc; }
+.document-markmap-rich-text ol { list-style: decimal; }
+
+.document-markmap-rich-text blockquote {
+  border-left: 3px solid color-mix(in oklch, var(--brand) 52%, var(--border));
+  padding-left: 12px;
+  color: var(--muted-foreground);
+}
+
+.document-markmap-rich-text code {
+  border-radius: 5px;
+  background: var(--muted);
+  padding: 0.15em 0.35em;
+  font-family: var(--agent-font);
+  font-size: 0.92em;
+}
+
+.document-markmap-rich-text pre {
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--muted);
+  padding: 12px;
+}
+
+.document-markmap-rich-text pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.document-markmap-rich-text table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.document-markmap-rich-text th,
+.document-markmap-rich-text td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.document-markmap-rich-text th {
+  background: var(--muted);
+  font-weight: 650;
+}
+
+.document-markmap-rich-text a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.document-markmap-rich-text img {
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+.document-markmap-inspector__mermaid-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.document-markmap-inspector__mermaid {
+  display: flex;
+  min-height: 220px;
+  min-width: 300px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.document-markmap-inspector__mermaid svg {
+  width: 100%;
+  height: auto;
+  max-height: 540px;
+}
+
+.document-markmap-inspector__diagram-error {
+  display: grid;
+  gap: 10px;
+  color: var(--destructive);
+  font-size: 12px;
+}
+
+.document-markmap-inspector__diagram-error pre {
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--muted);
+  padding: 12px;
+  color: var(--foreground);
+  white-space: pre-wrap;
+}
+
+.document-markmap-agent-card {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--border) 86%, var(--brand));
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--card) 94%, var(--brand));
+}
+
+.document-markmap-agent-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--brand) 5%, transparent);
+}
+
+.document-markmap-agent-card__icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.document-markmap-agent-card__icon img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.document-markmap-agent-card__running {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--brand) 10%, transparent);
+  padding: 2px 6px;
+  color: var(--brand);
+}
+
+.document-markmap-agent-card__messages {
+  display: grid;
+  max-height: min(62vh, 560px);
+  gap: 10px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.document-markmap-agent-card__empty {
+  display: flex;
+  min-height: 92px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.document-markmap-agent-message {
+  max-width: 94%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  padding: 9px 10px;
+}
+
+.document-markmap-agent-message--user {
+  justify-self: end;
+  border-color: color-mix(in oklch, var(--brand) 22%, var(--border));
+  background: color-mix(in oklch, var(--brand) 8%, var(--background));
+}
+
+.document-markmap-agent-message__role {
+  margin-bottom: 4px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.document-markmap-agent-card__draft {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.document-markmap-agent-card__draft > span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+@keyframes document-markmap-inspector-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 720px) {
+  .document-markmap__hint {
+    display: none;
+  }
+
+  .document-markmap-inspector {
+    position: absolute;
+    inset: 10px 10px 10px auto;
+    width: min(390px, calc(100% - 20px));
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px color-mix(in oklch, var(--foreground) 18%, transparent);
+  }
+
+  .document-markmap-node-content,
+  .document-markmap-node-content--paragraph,
+  .document-markmap-node-content--blockquote,
+  .document-markmap-node-content--frontmatter,
+  .document-markmap-node-content--html,
+  .document-markmap-node-content--code,
+  .document-markmap-node-content--mermaid,
+  .document-markmap-node-content--agent {
+    width: 220px;
+    min-width: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-markmap__svg .markmap-node > circle,
+  .document-markmap__svg .markmap-foreign > div > div {
+    transition: none;
+  }
+
+  .document-markmap__canvas,
+  .document-markmap-inspector {
+    transition: none;
+    animation: none;
+  }
+}
