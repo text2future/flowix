@@ -1,0 +1,153 @@
+[data-theme="ember"] {
+	/* 整体方向 v2: "近白纸面 + 珊瑚橙焦点" ── 主色 #FB6A42 维持不变,
+	 * 把 v1 暖米纸面的暖意 chroma 普遍砍到 0.003–0.005 档, 让 UI chrome
+	 * (background / card / secondary / muted / border / agent-bg / 文档
+	 * 区) 整体推向近白, 整窗读作"白纸 + 单色锚"。 主色担当 button / focus
+	 * ring / link / tag 的唯一彩色锚点。
+	 *
+	 * v1 → v2 改动 (用户约束: 主色不动):
+	 * - 主色 / brand / ring: 不动 (--primary = oklch 0.58 0.180 32°,
+	 *   对比白字 ~4.7:1, 过 AA Normal)
+	 * - background:  0.972 0.014 → 0.985 0.005 (L +0.013, C −65%)
+	 * - foreground:  0.31  0.020 → 0.30  0.008 (略深, 降 chroma 保"中性墨")
+	 * - card:        0.992 0.010 → 0.996 0.003 (几乎纯白, 仅 ΔL=+0.011 vs bg)
+	 * - secondary:   0.945 0.012 → 0.978 0.004 (大幅抬升, 与 bg ΔL 仅 0.007)
+	 * - muted:       0.928 0.012 → 0.970 0.004 (ΔL vs bg = 0.015, 浅 hover)
+	 * - accent:      同 muted (维持视觉等价惯例)
+	 * - border:      0.876 0.012 → 0.945 0.005 (浅纸痕, ΔL vs bg = 0.040)
+	 * - document-bg: 0.992 0.008 → 0.997 0.003 (近纯白纸)
+	 * - memo-color-*: L 普遍 +0.04–0.06, C −0.020–0.045 ── 往 pastel 推
+	 * - 状态色: C 普遍 −0.020–0.045 (降饱和, 仍维持功能语义)
+	 *
+	 * 设计意图:
+	 * - v2 把 v1 "克制单色 + 单色锚" 哲学推至极致 ── "白纸 + 单色锚"。
+	 * - 整窗 UI chrome 几乎全白, 视觉信号完全交给:
+	 *   1) 深字 vs 白底 (ΔL ≈ 0.69, 对比 ~8:1 AAA)
+	 *   2) 珊瑚橙按钮 / focus ring / 链接 / tag (唯一彩色)
+	 *   3) 极轻浮 / 沉的 hover / 选中面 (ΔL < 0.02, 几乎不可见)
+	 * - memo 7 色褪到 pastel 档 (L 普遍 +0.04–0.06), hue 身份稳定 ── 在
+	 *   白底上读作"柔色块", 不抢主色焦点。
+	 * - 与 mist 的 "纯灰纸 + 蓝锚" 形成 "暖白 vs 冷白 + 暖锚 vs 冷锚" 双
+	 *   向对照; 与 light 的 "冷蓝紫整体染" 形成 "白纸 vs 染纸" 对照。 */
+
+	--neutral-hue: 50;
+	--brand-hue: 32;
+	--brand-chroma: 0.180;
+
+	/* 主色: 加深版珊瑚橙, L=0.58 + chroma 0.180 + hue 32 ── FB6A42
+	 * (oklch 0.677 0.196 32) 的加深版, hue/chroma 与 brand 同步, 公式与
+	 * light.css 同套路 (L 硬编码, C/hue 用 var 引用)。 v2 不动。
+	 *
+	 * 对比度 (vs 白字, 计算自 linear-sRGB luminance): 实际 ~4.7:1, 越过
+	 * WCAG AA Normal (4.5:1) 门槛 ── 按钮文字可放心用 14px 常规字重。 */
+	--primary: oklch(0.58 var(--brand-chroma) var(--brand-hue));
+	--primary-foreground: oklch(1 0 0);
+	--brand: oklch(0.58 var(--brand-chroma) var(--brand-hue));
+
+	/* 背景: L=0.985 + chroma 0.005 ── "近白暖纸", 比 v1 (0.972) 抬 0.013,
+	 * 比 mist (0.996 纯灰) 略沉一档, 留一丝日光暖意 (chroma 0.005 几乎不
+	 * 可见, 仅在并置时透出色温)。 */
+	--background: oklch(0.985 0.005 var(--neutral-hue));
+	/* 文字: L=0.30 + chroma 0.008 ── 比 v1 略深一档 + chroma 砍 60%,
+	 * 在白底上读作"中性墨"。 实际对比度 (vs bg): ΔL≈0.69, 算 ~8:1 AAA。 */
+	--foreground: oklch(0.30 0.008 var(--neutral-hue));
+	/* 卡片: L=0.996 + chroma 0.003 ── 几乎纯白, 比 bg 高 0.011, 形成
+	 * "飘渺浮起"层次, 比 v1 (ΔL=0.020) 更克制。 */
+	--card: oklch(0.996 0.003 var(--neutral-hue));
+
+	/* 浮层底: 纯白, v2 不变 ── 在近白底上 popover 仍是最白面 */
+	--popover: oklch(1 0 0);
+	--popover-foreground: var(--foreground);
+
+	/* 二级面: L=0.978 + chroma 0.004 ── ΔL vs bg = 0.007, 几乎贴底;
+	 * 在白底上读作"纸面微沉", 比 v1 (ΔL=0.027) 显著压缩。 */
+	--secondary: oklch(0.978 0.004 var(--neutral-hue));
+	--secondary-foreground: oklch(0.36 0.010 var(--neutral-hue));
+	/* muted / accent: L=0.945 + chroma 0.004 ── ΔL vs bg = 0.040, 在上次
+	 * ΔL=0.060 的基础上弱化 1/3, 保留可见层次但降低压迫感。 */
+	--muted: oklch(0.945 0.004 var(--neutral-hue));
+	--muted-foreground: oklch(0.62 0.008 var(--neutral-hue));
+	--accent: oklch(0.970 0.004 var(--neutral-hue));
+
+	/* 描边: L=0.945 + chroma 0.005 ── 比 mist (0.92) 浅, ΔL vs bg = 0.040;
+	 * 在白底上读作"几乎透明的纸痕", 仅元素相邻时感知。 */
+	--border: oklch(0.945 0.005 var(--neutral-hue));
+	--input: var(--border);
+	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
+	/* Keyboard focus ring follows the theme primary color. */
+	--ring: var(--primary);
+
+	/* 代理面板: L=0.982 + chroma 0.005 ── 比 bg 略沉一档, 与 titlebar
+	 * 同 L, 仅 chroma 微高 (0.005 vs 0.004) ── 在白底上读作"浅印面板"。 */
+	--agent-bg: oklch(0.982 0.005 var(--neutral-hue));
+	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
+
+	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));
+
+	/* 标题栏: 与 agent-bg 同 L, chroma 略低 ── 形成与 main 一致的顶边感。 */
+	--bg-titlebar: oklch(0.982 0.004 var(--neutral-hue));
+	/* 文档: 纯白纸面。 */
+	--document-bg: oklch(1 0 0);
+	--document-foreground: oklch(0.30 0.008 var(--neutral-hue));
+	/* 链接: 与 v1 同值, 不动 ── 链接需要饱和色, 在近白底上对比 ~5:1 AA。 */
+	--document-link: oklch(0.55 0.180 var(--brand-hue));
+	/* 高亮: hue 78 暖琥珀 + chroma 0.070 (从 v1 0.110 降) ── 在白底上读作
+	 * "日光奶油高亮", 比 v1 更克制不抢 brand 焦点。 */
+	--document-highlight-bg: oklch(0.94 0.070 78);
+	/* 标签: 中性浅灰, 不带 brand 色相。 */
+	--document-tag-bg: oklch(0.90 0 0);
+	/* 标签文字: 直接接 --foreground, 与正文同色 ── 让 tag 读作"被高亮背景
+	 * 托住的普通文字", 而非"一段彩色字"。五主题统一, 维持跨主题的 tag
+	 * 视觉语义。 */
+	--document-tag-foreground: var(--foreground);
+	--document-tag-hover-bg: oklch(0.86 0 0);
+
+	/* 文档颜色标签 — v2 推到 pastel 档: L 普遍 +0.04–0.06, C −0.020
+	 * ~−0.045, hue 不变 (跨主题身份识别稳定), 在白底上读作"柔色块"。 */
+	--memo-color-red:    oklch(64% 0.140 25);
+	--memo-color-orange: oklch(70% 0.130 42);
+	--memo-color-yellow: oklch(78% 0.115 85);
+	--memo-color-green:  oklch(66% 0.125 142);
+	--memo-color-cyan:   oklch(66% 0.085 215);
+	--memo-color-blue:   oklch(60% 0.150 258);
+	--memo-color-gray:   oklch(62% 0.008 50);
+
+	--code-bg: oklch(0.980 0.003 var(--neutral-hue));
+	/* editor-block-bg: v2.1 从 1.0 → 0.982 ── 参考 mist (0.982 纯灰)
+	 * 的 ΔL=0.018 "轻微沉底"语义: agent 卡片 / 代码块在白纸面上需要
+	 * 视觉锚点, 但不与 --accent (0.970) 冲突, 不与 --muted (0.945)
+	 * 抢 hover 层级。
+	 *
+	 * 1.0 的问题: 与 --document-bg (1 0 0) 完全同色, block 在文档里
+	 * "消失", 失去 agent 块应有的"被嵌入"边界感。
+	 *
+	 * 用 neutral-hue 50 暖意 + chroma 0.004 ── 与 ember 浅面色板
+	 * (card 0.003 / secondary 0.004 / muted 0.004 / accent 0.004 /
+	 * agent-bg 0.005) 保持一致, 不引入新色相; 在白底上读作"暖纸轻
+	 * 印", 与主色珊瑚橙焦点形成冷暖双层 ── 锚点色(橙) ≠ 块色(暖白)。 */
+	--editor-block-bg: oklch(0.982 0.004 var(--neutral-hue));
+
+	--floating-bg: oklch(0.32 0.014 var(--neutral-hue));
+	/* 浮层文字: 与 floating-bg 配对, 五主题统一柔和白, 避纯白在深底的眩光 */
+	--floating-foreground: oklch(0.95 0 0);
+
+	/* 反色面: 与当前主题背景形成强对比, 用于 tooltip、临时标记等小面积 UI */
+	--inverse-background: oklch(0.30 0.008 var(--neutral-hue));
+	--inverse-foreground: oklch(0.985 0.005 var(--neutral-hue));
+
+	--success: oklch(0.74 0.115 145);
+	/* 危险: 与 v1 同色系 (hue 28), L +0.07 / C −0.045 ── 仍维持"警示红",
+	 * 在白底上读作"柔和警示", 不抢主色焦点。 */
+	--destructive: oklch(0.62 0.165 28);
+	/* 警告: 与 v1 同色系 (hue 75), L +0.05 / C −0.035 ── 维持"暖琥珀"。 */
+	--warning: oklch(0.80 0.105 75);
+	/* 信息提示: 与 light 同值 ── 在 ember 暖白底上读作 "冷锚点", 跟珊瑚主
+	 * 色形成色温对位, 信息块不会被主焦点吞掉。 */
+	--info: oklch(0.62 0.165 235);
+	--info-foreground: oklch(1 0 0);
+
+	color-scheme: light;
+
+	/* 代码高亮: github-light 干净低饱和, 与近白主题一致 */
+	--shiki-theme: github-light;
+}

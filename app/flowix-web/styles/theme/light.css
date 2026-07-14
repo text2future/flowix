@@ -1,0 +1,140 @@
+:root {
+	/* Light: 冷蓝灰纸面 + 紫色 brand 锚点. 主色派生逻辑参考 rock —
+	 * "近白中性面 + 单色锚"结构:
+	 *   1. 所有中性面统一用 var(--neutral-hue) 派生, chroma 统一在
+	 *      0.003~0.012 档, 跨主题切换时跟随 neutral-hue 偏移.
+	 *   2. 消除写死的 hue/chroma (原 light 的 --popover 用 271.152,
+	 *      --code-bg 用 286, agent-bg/titlebar/floating-bg 等写死
+	 *      chroma=0), 这些 token 在切换主题时无法跟随 neutral-hue
+	 *      偏移, 形成"局部色温断层".
+	 *   3. document-tag-bg 改中性色, 不再染 brand 色 — 借鉴 rock 的
+	 *      "chip 用中性浅灰, brand 只承担 button/link/ring 焦点"
+	 *      套路.
+	 *   4. 状态色与 memo color 统一推到 rock 的 pastel 档 (chroma
+	 *      0.090~0.165), 在白底上读作"柔色块", 不抢 brand 焦点.
+	 *
+	 * 保留 light 识别度: primary 与 brand 仍用 brand-hue 紫色派生
+	 * (区别于 rock 的 primary=中性灰锚点). light 已建立"紫色 button"
+	 * 视觉信号, 不轻易切换.
+	 */
+	--neutral-hue: 255;
+	--brand-hue: 273;
+	--brand-chroma: 0.185;
+
+	/* 主色: 紫色 brand 锚点 (与原 light 一致). 与 brand 同值,
+	 * 用于 button / focus ring — 保留 light "紫色 button" 识别度. */
+	--primary: oklch(0.552 var(--brand-chroma) var(--brand-hue));
+	--primary-foreground: oklch(1 0 0);
+	--brand: oklch(0.552 var(--brand-chroma) var(--brand-hue));
+
+	/* 中性面统一 var(--neutral-hue) + chroma 0.003~0.012 档. */
+	--background: oklch(0.988 0.006 var(--neutral-hue));
+	/* foreground: L 从原 0.215 提到 0.300, chroma 从 0.038 降到 0.009
+	 * — 原值在白底上读作"被蓝灰染过的深字", 偏色相; 降 chroma 后
+	 * 读作"中性墨", 与 rock/mist 一致. */
+	--foreground: oklch(0.300 0.009 var(--neutral-hue));
+	--card: oklch(0.997 0.003 var(--neutral-hue));
+
+	/* 浮层底: 原 light 写死 98.212% 0.00011 271.152 — 既写死 hue 又
+	 * 几乎纯白, 跟 bg 差异极小. 改为纯白 (与 rock 一致), 与 bg
+	 * 形成 ΔL=+0.012 的"飘起"层次, 浮层始终是最白面. */
+	--popover: oklch(1 0 0);
+	--popover-foreground: var(--foreground);
+
+	--secondary: oklch(0.980 0.005 var(--neutral-hue));
+	/* secondary-foreground: 原 0.278 + chroma 0.030 — 太重且偏色相.
+	 * 改 0.36 + chroma 0.010 与 rock 一致, 读作中性墨. */
+	--secondary-foreground: oklch(0.36 0.010 var(--neutral-hue));
+	--muted: oklch(0.948 0.006 var(--neutral-hue));
+	/* muted-foreground: 原 0.613 + chroma 0.018 — 偏色相. 降到 0.009
+	 * 与 rock 一致. */
+	--muted-foreground: oklch(0.62 0.009 var(--neutral-hue));
+	--accent: oklch(0.972 0.006 var(--neutral-hue));
+
+	/* border: L 从原 0.928 提到 0.946 — 原值偏深, 在白底上读作
+	 * "深灰描边"; 与 rock 一致后, ΔL vs bg = 0.040, 读作"浅纸痕". */
+	--border: oklch(0.946 0.006 var(--neutral-hue));
+	--input: var(--border);
+	--divider: color-mix(in oklch, var(--background) 50%, var(--border));
+	/* Keyboard focus ring follows the theme primary color. */
+	--ring: var(--primary);
+
+	/* 代理面板: 原 light 写死 oklch(0.979 0 0) — chroma=0 写死,
+	 * 跨主题切换时不会跟随 neutral-hue 偏移. 改为 var(--neutral-hue)
+	 * 派生, 与 rock 一致, 读作"浅印面板". */
+	--agent-bg: oklch(0.984 0.006 var(--neutral-hue));
+	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
+
+	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));
+
+	/* titlebar: 原写死 chroma=0, 改为 var(--neutral-hue) 派生. */
+	--bg-titlebar: oklch(0.984 0.005 var(--neutral-hue));
+	/* 文档: 纯白纸面, 与 --popover 一致 (rock 模式). */
+	--document-bg: oklch(1 0 0);
+	/* document-foreground: 原写死 chroma=0, 改为 var(--neutral-hue) 派生. */
+	--document-foreground: oklch(0.300 0.009 var(--neutral-hue));
+	/* 链接: 仍用 brand-hue 派生, 保留紫色 brand 锚点. */
+	--document-link: oklch(0.45 0.18 var(--brand-hue));
+	/* 高亮: 原 light 用 hue 102 + chroma 0.124 — 在白底上"刺眼",
+	 * 抢 brand 焦点. 借鉴 rock 的"暖琥珀 + 降 chroma 至 0.060" 套路
+	 * (hue 84), 在白底上读作"日光奶油高亮", 不抢 brand 焦点. */
+	--document-highlight-bg: oklch(0.940 0.060 84);
+	/* 标签: 借鉴 rock 的"chip 用中性色, 不染 brand"套路 — 原 light 的
+	 * tag-bg/hover-bg 用 brand-hue 染色, 让 chip 与正文字形成色相差,
+	 * 视觉上"tag 像被框出的彩色字", 与"被高亮的正文"两种语义混在一起.
+	 * 改中性后, tag 文字永远跟正文同步 (--document-tag-foreground =
+	 * var(--foreground)), chip 的浅灰单独承担 tag 视觉信号. */
+	--document-tag-bg: oklch(0.90 0 0);
+	--document-tag-foreground: var(--foreground);
+	--document-tag-hover-bg: oklch(0.86 0 0);
+
+	/* memo color: 借鉴 rock/mist 的"pastel 档" (chroma 0.090~0.150),
+	 * 在白底上读作"柔色块", 不抢 brand 焦点. hue 身份稳定, 跨主题切换
+	 * 时色彩识别一致. gray 用 var(--neutral-hue) 派生, 与其他主题同步. */
+	--memo-color-red:    oklch(64% 0.140 25);
+	--memo-color-orange: oklch(70% 0.130 48);
+	--memo-color-yellow: oklch(78% 0.115 86);
+	--memo-color-green:  oklch(66% 0.125 145);
+	--memo-color-cyan:   oklch(66% 0.090 215);
+	--memo-color-blue:   oklch(60% 0.150 257);
+	--memo-color-gray:   oklch(62% 0.008 var(--neutral-hue));
+
+	/* 代码背景: 原 light 写死 hue 286 + L 0.938 — 既写死色相又偏深,
+	 * 在白底上读作"冷灰块". 改为 var(--neutral-hue) 派生 + L 0.982
+	 * (与 rock 一致), ΔL vs bg = 0.006, 形成极浅的"代码区纸印". */
+	--code-bg: oklch(0.982 0.005 var(--neutral-hue));
+	/* editor-block-bg: 原写死 oklch(1 0 0) — 与 --document-bg 完全同色,
+	 * block 在文档里"消失". 借鉴 ember 的"块色 = 暖纸轻印"模式, 改为
+	 * var(--neutral-hue) 派生 + L 0.982, 与 --code-bg 同 L, 形成 agent
+	 * 卡片 / 代码块在白纸面上的"被嵌入"边界感. */
+	--editor-block-bg: oklch(0.982 0.005 var(--neutral-hue));
+
+	/* 浮层: 原写死 chroma=0, 改为 var(--neutral-hue) + chroma 0.012 派生
+	 * (与 rock 一致), 跨主题切换时跟随 neutral-hue 偏移. */
+	--floating-bg: oklch(0.32 0.012 var(--neutral-hue));
+	/* 浮层文字: 五主题统一柔和白, 避纯白在深底的眩光 — 与 rock 一致. */
+	--floating-foreground: oklch(0.95 0 0);
+
+	/* 反色面: 与当前主题背景形成强对比, 用于 tooltip 等小面积 UI.
+	 * 原 light 用 chroma 0.038 — 与新的 --foreground (0.009) 不一致,
+	 * 形成"中性墨 vs 偏色相墨"两套. 统一到 0.009 与 rock 一致. */
+	--inverse-background: oklch(0.300 0.009 var(--neutral-hue));
+	/* inverse-foreground: 原写死 chroma=0, 改为 var(--neutral-hue) 派生. */
+	--inverse-foreground: oklch(0.985 0.006 var(--neutral-hue));
+
+	/* 状态色: 借鉴 rock 的"降 chroma 至 0.105~0.165 档"模式 — 原 light
+	 * 状态色 chroma 普遍 0.16~0.245, 在白底上"刺眼"; 降饱和后, 仍维持
+	 * 绿/红/黄的功能语义, 不抢 brand 焦点. */
+	--success: oklch(0.740 0.115 145);
+	--destructive: oklch(0.620 0.165 22);
+	--warning: oklch(0.800 0.105 75);
+	/* 信息提示: 标准天蓝, hue 235 — 与 destructive/warning 语义区分,
+	 * 用于 "新版本" 等可点击信息块. 五主题统一, 跨主题切换时信息块
+	 * 视觉一致. */
+	--info: oklch(0.62 0.165 235);
+	--info-foreground: oklch(1 0 0);
+
+	color-scheme: light;
+
+	--shiki-theme: github-light;
+}

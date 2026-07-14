@@ -1,0 +1,30 @@
+[package]
+name = "flowix-core"
+version.workspace = true
+description = "Flowix business core: notebook / memo storage, search, threads. Zero Tauri dependency."
+authors = ["you"]
+edition.workspace = true
+
+[lib]
+name = "flowix_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+walkdir = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+nanoid = { workspace = true }
+dunce = { workspace = true }
+sha2 = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

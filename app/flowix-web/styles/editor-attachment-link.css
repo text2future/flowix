@@ -1,0 +1,274 @@
+/* 编辑器附件 & 文档内链接样式
+ *
+ * 覆盖以下四类视觉, 它们共享 --document-link token 设计:
+ *   - 视频附件  (.editor-video-attachment)
+ *   - 文件附件  (.editor-file-attachment)
+ *   - 图片附件  (.editor-image-attachment)
+ *   - 正文链接  (.tiptap a, .tiptap a:hover)
+ */
+
+
+.markdown-editor .tiptap .editor-video-attachment {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 1rem;
+  overflow: hidden;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--muted) 92%, transparent),
+      color-mix(in oklch, var(--card) 96%, transparent)
+    );
+}
+
+.markdown-editor .tiptap .editor-video-attachment.is-selected {
+  outline: 1px solid var(--brand);
+  outline-offset: 0px;
+}
+
+.markdown-editor .tiptap .editor-video-attachment video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.markdown-editor .tiptap .editor-video-attachment video.is-loaded {
+  opacity: 1;
+}
+
+.markdown-editor .tiptap .editor-file-attachment {
+  display: inline;
+  /* caret 视觉位置由 NodeView 内部的零宽空格 spacer 接管,
+   * 见 nodes/file-attachment.ts createCard(). CSS 不再需要 margin-left. */
+}
+
+.markdown-editor .tiptap .editor-file-attachment__card {
+  /* inline 而非 inline-flex: 行盒允许在子节点之间换行,
+   * 长文件名换行后,图标不会被孤立——它属于第一段文字所在行.
+   * 注意: inline 不支持 gap, icon 与文件名的间距改由 icon 的 margin-right 提供. */
+  display: inline;
+  padding: 2px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.markdown-editor .tiptap .editor-file-attachment__card:hover {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.markdown-editor .tiptap .editor-file-attachment__card:hover,
+.markdown-editor .tiptap .editor-file-attachment__card:hover * {
+  cursor: pointer;
+}
+
+.markdown-editor .tiptap .editor-file-attachment__card:hover .editor-file-attachment__name {
+  /* 与正文链接 hover 走同一条派生公式 (color-mix --document-link × white 20%),
+   * 保证附件卡片的 "可点击" 视觉权重和正文 a:hover 完全一致. */
+  color: color-mix(in oklch, var(--document-link), white 20%);
+}
+
+.markdown-editor .tiptap .editor-file-attachment__card:hover .editor-file-attachment__icon {
+  color: color-mix(in oklch, var(--document-link), white 20%);
+}
+
+.markdown-editor .tiptap .editor-file-attachment__icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-bottom: 3px;
+  color: var(--document-link);
+  flex-shrink: 0;
+}
+
+.markdown-editor .tiptap .editor-file-attachment,
+.markdown-editor .tiptap .editor-file-attachment__card,
+.markdown-editor .tiptap .editor-file-attachment__card * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+.markdown-editor .tiptap .editor-file-attachment__name {
+  /* 附件名称文字颜色统一到 --document-link token, 与正文 <a> 同源:
+   * - 基色一致 → "这是链接" 的视觉信号强度统一
+   * - hover 派生公式一致 → 鼠标悬停时和正文链接同步提亮
+   * - 跨主题 → 随 --document-link 走, 三个主题都能融入
+   *   此前 #5262DC 在 dark/rock 主题下既不融入也不警示, 显得是"未主题化的孤儿色" */
+  color: var(--document-link);
+  font-weight: 500;
+  cursor: default;
+  /* 允许长文件名在任意字符处断行, 避免超出编辑器宽度;
+   * overflow-wrap 优先在词边界换行, 仅在单"词"超长时强制断字. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  transition: color 0.15s ease;
+}
+
+/* 节点被 NodeSelection 选中 — 与 .editor-note-reference.is-selected 同源
+ * 走 color-mix(--document-link × transparent) 派生公式, 跨主题自动适配.
+ * 浓度 10% 与 .editor-note-reference.is-selected 对齐, inline 卡片在文本
+ * 行内不应铺大色块喧宾夺主, 视觉权重对齐 hover 反馈。 */
+.markdown-editor .tiptap .editor-file-attachment.is-selected .editor-file-attachment__card {
+  background-color: color-mix(in oklch, var(--document-link) 10%, transparent);
+}
+
+.markdown-editor .tiptap .editor-image-attachment {
+  display: block;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto 1rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--muted) 92%, transparent),
+      color-mix(in oklch, var(--card) 96%, transparent)
+    );
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.markdown-editor .tiptap .editor-image-attachment.is-loaded {
+  aspect-ratio: auto;
+  background: transparent;
+}
+
+.markdown-editor .tiptap .editor-image-attachment.is-error {
+  border-style: dashed;
+}
+
+.markdown-editor .tiptap .editor-image-attachment.is-selected,
+.markdown-editor .tiptap .editor-image-attachment.ProseMirror-selectednode {
+  outline: 1px solid var(--brand);
+  outline-offset: 0;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__image.is-loaded {
+  height: auto;
+  object-fit: contain;
+  opacity: 1;
+}
+
+.markdown-editor .tiptap .editor-image-attachment.is-error .editor-image-attachment__image {
+  opacity: 0;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__fallback[hidden] {
+  display: none;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__resize-handle {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 10px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid color-mix(in oklch, var(--border) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--background) 82%, transparent);
+  cursor: ew-resize;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 50%;
+  width: 2px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 18%, transparent);
+  transform: translateX(-50%);
+}
+
+.markdown-editor .tiptap .editor-image-attachment__resize-handle--left {
+  left: 4px;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__resize-handle--right {
+  right: 4px;
+}
+
+.markdown-editor .tiptap .editor-image-attachment:hover .editor-image-attachment__resize-handle,
+.markdown-editor .tiptap .editor-image-attachment.is-resizing .editor-image-attachment__resize-handle {
+  opacity: 1;
+}
+
+.markdown-editor .tiptap .editor-image-attachment__resize-handle:focus-visible {
+  outline: none;
+}
+
+body.is-image-resizing {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.markdown-editor .tiptap a {
+  /* 链接文字: 改用 --document-link token 化, 颜色随主题切换:
+   * - light: 紫 (273) → 与品牌同色相
+   * - dark:  亮紫 → 高对比可读
+   * - rock:  熔岩橙 (22) → 适配岩灰底
+   * 此前硬编码 #5262DC (hue 240 indigo) 跟任何主题都脱节. */
+  color: var(--document-link);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.markdown-editor .tiptap a:hover {
+  /* hover 状态不单独维护 token, 直接基于 --document-link 与白色 20% 混色提亮:
+   * - 单一来源: --document-link 决定基色, hover 由派生公式统一管理
+   * - 跨主题一致: 三套主题共享同一公式, 不会有"某主题的 hover 没设计"的问题 */
+  color: color-mix(in oklch, var(--document-link), white 20%);
+}

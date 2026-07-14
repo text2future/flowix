@@ -1,0 +1,607 @@
+.code-block-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 1rem 0;
+  padding: 0.4rem 0.8rem 1.2rem;
+  background: var(--editor-block-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-family: inherit;
+  font-size: 0.85em;
+  line-height: var(--app-line-height, 1.6);
+}
+
+/*
+ * The NodeView chrome lives on .code-block-wrapper. Keep the actual editable
+ * subtree as a plain pre > code so browser selections cannot terminate on
+ * toolbar or preview DOM and be mapped to the end of the code block.
+ */
+.markdown-editor .tiptap .code-block-wrapper > .code-block-editor {
+  order: 2;
+  margin: 0;
+  padding: 0;
+  overflow-x: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown-editor .tiptap .code-block-wrapper > .code-block-editor > .code-block-content {
+  display: block;
+  min-height: 1lh;
+  white-space: inherit;
+  word-break: inherit;
+}
+
+.code-block-header {
+  order: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0rem;
+  border-radius: 0.5rem 0.5rem 0 0;
+  position: relative;
+  z-index: 10;
+  /* 防御层 ── JS 端已给 header / dropdown / 各 chrome 按钮挂
+   * contenteditable="false" + tabIndex=-1, 这里再加 user-select:none
+   * 兜底防鼠标拖选把按钮文字 (e.g. 语言名 "javascript") 误选进
+   * 选区。user-select 跟 contenteditable 是不同维度: 前者管鼠标
+   * drag 选中文字, 后者管键盘 caret 进入; 两者都设才能彻底断
+   * chrome 元素跟内容选区的所有交互通道。 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.code-block-language-dropdown {
+  order: 3;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.code-block-language-selector,
+.code-block-language-dropdown,
+.code-block-language-search,
+.code-block-language-status,
+.code-block-language-dropdown-item {
+  font-family: var(--app-font-family, 'Nunito Sans', 'Inter', -apple-system, 'Segoe UI', sans-serif, BlinkMacSystemFont);
+  font-feature-settings: normal;
+  font-variant-numeric: normal;
+}
+
+.code-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transform: translateX(0.4rem);
+}
+
+.code-block-language-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0 0.5rem;
+  background: transparent;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #666;
+  position: relative;
+}
+
+.code-block-language-selector:hover {
+  color: #949292;
+}
+
+.code-block-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0.38rem;
+  cursor: pointer;
+  color: #888;
+}
+
+.code-block-copy-btn:hover {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  color: var(--foreground);
+}
+
+.code-block-mode-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.code-block-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  line-height: 1;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.code-block-mode-tab:hover {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  color: var(--foreground);
+}
+
+.code-block-mode-tab.active {
+  background: color-mix(in oklch, var(--muted) 80%, transparent);
+  color: var(--foreground);
+}
+
+.code-block-mode-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.code-block-mode-tabs[hidden] {
+  display: none;
+}
+
+.code-block-language-dropdown {
+  position: absolute;
+  top: 36px !important;
+  left: 16px !important;
+  z-index: 100;
+  min-width: 220px;
+  max-height: 248px;
+  overflow: hidden;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem !important;
+  color: var(--popover-foreground);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 8px 20px color-mix(in oklch, var(--foreground) 12%, transparent);
+  padding: 0;
+}
+
+.code-block-language-search {
+  display: block;
+  width: calc(100% - 0.5rem);
+  height: 32px;
+  margin: 0.25rem;
+  padding: 0 0.625rem;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  line-height: 32px;
+  outline: none;
+  /* 父级 .code-block-language-dropdown 设了 user-select:none, 但 search
+   * input 是真正的文本输入控件 ── 用户在搜索框里要能选中文字 (filter
+   * 时经常全选再删掉重输), 这里显式恢复成 text, 覆盖父级 none。 */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.code-block-language-search:focus {
+  border-color: var(--ring);
+}
+
+.code-block-language-search::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.8;
+}
+
+.code-block-language-list {
+  max-height: 208px;
+  overflow-y: auto;
+  padding: 0 0.25rem 0.25rem;
+}
+
+.code-block-language-status {
+  padding: 0.5rem 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+.code-block-language-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 0.375rem 0.75rem;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--popover-foreground);
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 0.5rem !important;
+}
+
+.code-block-language-dropdown-item:hover {
+  background: var(--muted);
+}
+
+.code-block-language-dropdown-item.active {
+  background: var(--accent);
+  color: var(--brand);
+  font-weight: 500;
+}
+
+.code-block-copy-btn.copied {
+  color: #22c55e;
+  border-color: #22c55e;
+}
+
+.code-block-mermaid-preview {
+  order: 4;
+  display: none;
+  margin-top: 0.5rem;
+  padding: 1rem;
+  overflow: auto;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.code-block-mermaid-previewing .code-block-editor {
+  display: none;
+}
+
+.code-block-mermaid-previewing .code-block-mermaid-preview {
+  display: block;
+  min-height: 180px;
+  opacity: 1;
+}
+
+/* 非全屏 preview 的 SVG 尺寸约束 ── max-width: 100% 让 SVG 不超
+ * 容器宽, height: auto 保持 aspect ratio; 没有 max-height, 容器
+ * 自然被 SVG 撑高 (容器有 min-height: 180px 兜底)。SVG 内部
+ * 样式 (字号 / 对齐 / 主题) 统一在 editor-mermaid.css 通过
+ * .mermaid-surface 类管理, 这里只写"盒子长什么样"。 */
+.code-block-mermaid-preview > svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.code-block-mermaid-empty,
+.code-block-mermaid-error {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.code-block-mermaid-empty {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.code-block-mermaid-error {
+  white-space: pre-wrap;
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 10%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--destructive) 32%, var(--border));
+}
+
+.code-block-mermaid-parse-error {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 0;
+}
+
+/* ── Mermaid 全屏入口按钮 ────────────────────────────────────────
+ *
+ * 与 modeTabs / copy 视觉同源 (28×28 方形, 14×14 图标, hover
+ * var(--muted)), 但不写进 .code-block-mode-tabs 容器内 ──
+ * 入口按钮只在 mermaid 预览态下出现, 而 modeTabs 容器在非
+ * mermaid 块上是 hidden; 拆开避免互相干扰。hidden 属性是
+ * 渲染层完全从盒模型移除 ── 与 display: none 行为一致,
+ * 不会留下空白占位。 */
+.code-block-fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0.38rem;
+  color: #888;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.code-block-fullscreen-btn:hover {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  color: var(--foreground);
+}
+
+.code-block-fullscreen-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* ── Mermaid 全屏 backdrop (挂在 document.body) ─────────────────
+ *
+ * 外层背景 ── 包裹 .code-block-fullscreen-overlay, 整体上移 48px
+ * 且高度 +48px, 在 overlay 之上 / 之下各留出 48px 的"点击吸收带" ──
+ * 阻拦用户点在 overlay 边缘外 48px 内仍触发底层元素 (e.g. 状态栏
+ * 按钮 / 笔记列表 hover 区 / 文档内容 caret 落点)。
+ *
+ * 几何 ── 与 overlay 同一坐标系 (与 .agent-thread-card--fullscreen
+ * 的 --atc-fullscreen-* 同源, 由 NodeView 写入 --ccb-fullscreen-*):
+ *   - top:    var(--ccb-fullscreen-top) - 48px    ← 整体上移 48px
+ *   - left:   var(--ccb-fullscreen-left)           ← 与 overlay 对齐
+ *   - width:  var(--ccb-fullscreen-width)          ← 100% 宽 (等同 overlay)
+ *   - height: var(--ccb-fullscreen-height) + 48px  ← 高度 +48px
+ * 净效果 ── 顶部比 overlay 高 48px (48px 是上方的点击吸收带),
+ * 底部与 overlay 底边对齐 (因为高度 +48px + 顶部 -48px 抵消)。
+ * (注: 如果未来需要底部也加点击吸收带, 改 height 为 +96px 即可,
+ *  不动 top。)
+ *
+ * 背景色 ── var(--background) ── 与 .tiptap / body 的背景色同源
+ * (index.css 的 .tiptap 走 var(--background), body 也走 var(--background)),
+ * 让 backdrop 视觉融入编辑器背景, 用户感知不到 backdrop 自身 ──
+ * 只感知到"全屏 overlay 的点击区域比看起来更大"。
+ *
+ * z-index 7999 (低于 overlay 的 8000) ── backdrop 自身不参与视觉
+ * 堆叠, 仅作为"点击 + 背景"容器; 真正的可见内容 (overlay 卡片) 在
+ * 8000 层级, 保持 z-index 8000 继续盖在 backdrop 之上。
+ *
+ * pointer-events: auto (默认) ── 显式声明意图: 这层**就是要**拦
+ * 截点击, 不让事件穿透到底层元素。 */
+.code-block-fullscreen-backdrop {
+  position: fixed;
+  top: var(--ccb-fullscreen-top, 0px);
+  left: var(--ccb-fullscreen-left, 0px);
+  width: var(--ccb-fullscreen-width, 100vw);
+  height: var(--ccb-fullscreen-height, 100vh);
+  z-index: 7999;
+  background: var(--document-bg);
+  pointer-events: auto;
+}
+
+/* ── Mermaid 全屏 overlay ──────────────────────────────────────
+ *
+ * 独立 DOM 树 ── 跟原 code-block-wrapper 解耦, 避免与 wrapper
+ * 上的 .code-block-mermaid-previewing 互相影响 (之前一版让
+ * wrapper 自身变 position: fixed, 跟 ProseMirror contentEditable
+ * 选区处理打架, 出现"点击全屏后回退到代码视图"的视觉跳动)。
+ *
+ * 位置 ── 由 .code-block-fullscreen-backdrop 决定 (backdrop 用
+ * CSS vars 写入 --ccb-fullscreen-*, 沿 DOM 树向下继承给 overlay
+ * ── NodeView 把 vars 写到 backdrop 上, 不用再写 overlay 自己)。
+ * overlay 改为 `position: relative` + `margin: 0.6rem`, 边距语义
+ * 跟之前 calc(left + 0.6rem) / calc(width - 1.2rem) 等效 ── 在
+ * backdrop 内缩 0.6rem, 让用户视觉上能感知"overlay 是浮在文档之上
+ * 的卡片"而非"文档区域本身的扩展", 比紧贴边沿更有"模态"感。
+ * 0.6rem 而非更大的 1rem 是因为 overlay 已经有 1px border + 8px 圆角
+ * 自带视觉边界, 1rem 边距会显得"过分悬空"。
+ *
+ * 几何 ── 之前用 left + 0.6rem / width - 1.2rem 的 calc, 是因为
+ * overlay 自身是 `position: fixed`, 挂在 body 下, margin 会把元素
+ * 推出 body 边界。现在 overlay 嵌在 backdrop 内, 是 `position:
+ * relative`, margin 在 relative 元素上是收缩型 (margin 不外溢),
+ * 所以 `margin: 0.6rem` 直接生效 ── 比 calc(left + 0.6rem) 更可读。
+ *
+ * 位置 / 圆角 / 边框 / 背景:
+ *   - width/height: calc(100% - 1.2rem)  (相对 backdrop 减去 margin)
+ *   - border-radius: 8px                        ← 8px
+ *   - border: 1px solid var(--border)           ← 1px border (base 继承)
+ *   - background: var(--card)                   ← var(--card) (base 继承)
+ *   - margin: 0.6rem                            ← backdrop 内 0.6rem 边距
+ *   - z-index: 8000                             ← 8000 (在 backdrop 7999 之上)
+ *   - overflow: hidden                          ← hidden (base 继承)
+ *
+ * --ccb-fullscreen-* 由 NodeView 在 mountFullscreenOverlay 时
+ * 根据 .document-container 的 bounding rect 写入, 监听 window.resize
+ * + ResizeObserver 实时同步 ── 文档面板 resize / 切窗口大小时
+ * 全屏 overlay 跟着重定位, 不会跑到屏幕外。
+ *
+ * 不用浏览器原生 Fullscreen API ── 后者会把整个 Tauri 窗口最大化,
+ * 模糊了"在编辑器内查看 mermaid 大图"的产品语义。 */
+.code-block-fullscreen-overlay {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  z-index: 8000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+/* SVG 居中容器 ── flex 居中, 撑满 overlay 可用空间。overflow: hidden
+ * 避免 SVG 溢出 overlay 圆角边界。无 padding ── mermaid 大图全屏
+ * 的核心是"画布式"浏览, padding 会让滚轮缩放时边缘内容被截断,
+ * 用户体验打折。SVG 通过 preserveAspectRatio="xMidYMid meet" 自动
+ * 居中 (aspect ratio 保留, 内容居中显示)。100% 宽高对应父 overlay
+ * 减去 1px border 后的内容盒。 */
+.code-block-fullscreen-svg-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.code-block-fullscreen-svg-wrap:active {
+  cursor: grabbing;
+}
+
+/* 全屏 SVG 尺寸约束 ── 让 SVG 元素 box 撑满 svgWrap 内容盒, svg-pan-zoom
+ * 挂在 SVG 上的 wheel / mousedown 监听才能覆盖整个视口 (用户拖动 / 缩放
+ * 不会因 SVG 元素偏小而出现"边缘空白无法触发")。
+ *
+ * ── 为什么必须 `!important` ──
+ * mermaid 渲染输出会在 SVG 元素上挂内联 style="max-width: <图表宽>px"
+ * (e.g. 116px、747px), 把 SVG 实际渲染宽度硬卡在图表自身宽度 ── 哪怕
+ * 父容器是 600px, SVG 也只占 116px, 两侧 484px 空白区没监听器, 用户
+ * 在那里滚轮 / 拖拽都无响应 (这是用户报告的"区域无法拖动"根因)。
+ * 内联 style 特异性 (1,0,0,0) 高于普通 class (0,0,1,0), 必须 `!important`
+ * 才能压回去。同步覆盖 width/height 防 mermaid 未来再加内联 width。
+ *
+ * mermaid 还设了 viewBox="minX minY W H" (含负坐标做 padding) + 默认
+ * preserveAspectRatio="xMidYMid meet" ── 内容按 aspect 居中显示, 短边
+ * 留白。这是 SVG 矢量标准行为, 跟 svg-pan-zoom 的 fit 配合良好, 不用
+ * 干预。
+ *
+ * SVG 内部样式 (字号 / 对齐 / 主题) 统一在 editor-mermaid.css
+ * 通过 .mermaid-surface 类管理, 这里只写"盒子长什么样"。 */
+.code-block-fullscreen-svg-wrap > svg {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  cursor: inherit !important;
+}
+
+/* previewDOM 还没渲染时显示的占位文字 ── 切到 preview 的瞬间
+ * 用户立刻点全屏的 transient 状态, overlay 内克隆不到 SVG。
+ * 之后用户退出再进会重新 clone 最新 SVG, 这里只是兜底。 */
+.code-block-fullscreen-placeholder {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ── 退出全屏按钮 ──────────────────────────────────────────────
+ *
+ * 物理上是 overlay 内独立 DOM 节点 (在 mountFullscreenOverlay 时
+ * 创建), 走 position: absolute 定位在 overlay 右上角 (top/right
+ * 各 0.5rem)。
+ *
+ * 视觉与入口全屏按钮 (.code-block-fullscreen-btn) 完全同源 ──
+ * TS 端给该按钮同时挂 .code-block-fullscreen-btn +
+ * .code-block-fullscreen-exit 两个类, 本类只负责定位, 视觉
+ * 100% 来自 .code-block-fullscreen-btn。这样"全屏入口"和
+ * "全屏退出"两处按钮永远不会"看起来不一样" ── 改入口样式时
+ * 出口自动跟随, 不会出现"我改了入口, 出口忘了同步"的视觉漂移。
+ *
+ * 视觉共享 ──
+ *   - 28×28 方形 / 14×14 icon / 透明底 / 0.38rem 圆角
+ *   - 0 边框 / 0 阴影 (与入口一致, 不在 overlay 上额外加视觉重量)
+ *   - 默认色 #888, hover var(--muted) 60% + foreground
+ *
+ * 定位独立 ──
+ *   - 由父级 .code-block-fullscreen-actions 容器定位, 本按钮退化为
+ *     普通 flex 子项, 不再 absolute 浮在 overlay 上
+ *   - z-index 由父级容器统一提 (z-index: 2)
+ *
+ * 视觉 ── 不写任何 border / background / 圆角, 完全靠 .code-block-fullscreen-btn
+ * 提供的 28×28 透明按钮样式 (无边框, hover var(--muted)) ── 跟工具条
+ * 胶囊的"带边框"形成"缩放组 vs 操作组"的视觉区分, 退出按钮作为
+ * "离开当前视图"的操作按钮, 不应该跟"调整视图内部"的缩放工具
+ * 共用同一个胶囊边框。
+ *
+ * 类本身仅作为语义标记保留 (DevTools 看 className 能区分入口/退出
+ * 全屏按钮)。所有视觉由 .code-block-fullscreen-btn 提供。 */
+
+/* ── 全屏态顶部 actions 容器 ────────────────────────────────────
+ *
+ * 纯 flex 布局容器 ── 把 zoom 工具条 (3 个按钮, 带边框胶囊) + 退出
+ * 全屏按钮 (无边框单按钮) 收纳到同一行, 整体定位在 overlay 右上角。
+ * 容器本身不带边框 / 背景 / 圆角 (退化为布局壳), 让两组控件视觉上
+ * 各自独立 ── 工具条自己一个胶囊, 退出按钮自己一个透明按钮, 6px
+ * gap 把两组分开但不孤立, 用户一眼分得清"缩放组"和"操作组"。
+ *
+ * 之前这层带边框底色 ── 4 个按钮挤在一个胶囊里, 工具条跟退出按钮
+ * 视觉糊在一起, 退出按钮本来是带 corner 隐喻的"离开当前视图"操作,
+ * 跟"调整视图内部"的缩放工具混在一个胶囊里语义混乱。分两组后
+ * 退出按钮还原成单 icon 按钮 (跟全屏入口按钮同款), 视觉一致, 语义
+ * 清晰。z-index: 2 高于 SVG 内容, 保证缩放后盖到边缘时按钮仍可点。 */
+.code-block-fullscreen-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+/* ── 全屏态 pan/zoom 工具条 ─────────────────────────────────────
+ *
+ * 给全屏 mermaid 视图配"画布站"式浏览体验: 滚轮缩放围绕鼠标点、
+ * 拖拽平移、双击放大, 配合工具条按钮 (缩小 / 当前缩放% / 放大) 显式控制。
+ *
+ * 仅全屏态出现 ── 非全屏 previewDOM 在 ProseMirror 内, 任何 drag/wheel
+ * 监听都跟编辑器选区 / 光标打架, 故把 pan/zoom 限定在 detached overlay
+ * 才是 mermaid "看大图" 的唯一入口, 范围最干净。
+ *
+ * 视觉 ── 自带边框胶囊 (var(--card) 底 + var(--border) 边 + 0.625rem
+ * 圆角) 把 3 个按钮框成一组, 跟外侧退出按钮 (无边框单按钮) 视觉
+ * 区分开 ── "缩放组" vs "操作组"语义清晰。 */
+.code-block-fullscreen-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+}
+
+/* 中间"百分比 / 还原"按钮 ── 比两侧 +/- 按钮宽, 留给百分比文本足够
+ * 水平空间。视觉仍走 .code-block-fullscreen-btn 同源 (28×28 / 0.38rem
+ * 圆角 / #888 / hover var(--muted)), 区别仅在 width 拉长 ── 改其它
+ * 视觉 token 会自动跟随, 不会"看起来不一样"。
+ *
+ * 纯文本显示 ── 之前内嵌 fit 图标 + 百分比双段内容, 现在去掉左侧
+ * 图标, 按钮只显示百分比文字, 视觉重量更轻, 跟两侧 +/- 图标按钮
+ * 风格统一 (都是"小图标 / 小字"的轻量按钮, 不混搭)。
+ *
+ * min-width 2.75rem ≈ 4rem × 2/3 ── 4 位百分比 (e.g. "100%") 在
+ * 12px tabular-nums 字体下约 36px, 加 0.5rem × 2 = 16px padding,
+ * 总 52px ≈ 3.25rem ── 但产品要求"宽度减小 1/3", 折中取 2.75rem
+ * (44px) 留 8px 安全边, 字号再小一点就 30% / 100% / 500% 都装得下。 */
+.code-block-fullscreen-toolbar-label {
+  min-width: 2.75rem;
+  padding: 0 0.5rem;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  line-height: 1;
+}

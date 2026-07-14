@@ -1,0 +1,206 @@
+/*
+ * Mermaid SVG 渲染样式 ── 单一真源 (single source of truth)。
+ *
+ * 适用于编辑器内所有 mermaid SVG 渲染表面, 通过 .mermaid-surface
+ * 类统一作用域 ── 当前有两个调用点:
+ *   1. .code-block-mermaid-preview  (非全屏预览, 在 codeblock-shiki-view.ts)
+ *   2. .code-block-fullscreen-svg-wrap  (全屏 overlay, 同上)
+ *
+ * 为什么不写在 editor-code-block.css ──
+ *   code-block 文件已经有 500+ 行, 把 mermaid 的样式挤在里面
+ *   会让"code block 浮层"和"mermaid 渲染"两种关注点混在一起。
+ *   拆出来后:
+ *   - 改 mermaid 视觉 (e.g. 字号微调、颜色变量) 不用扫到 code-block 噪音
+ *   - 全屏 / 非全屏 永远是同一套规则, 不会出现"我改了非全屏, 忘了全屏"
+ *     的视觉漂移
+ *   - 未来如果 Agent 面板或别处也渲染 mermaid, 直接挂 .mermaid-surface
+ *     即可获得全套样式
+ *
+ * 不在这里写什么 ──
+ *   - 容器的 position / padding / size (非全屏和全屏的容器几何不一样)
+ *   - 容器边框 / 背景 / 圆角 (全屏 overlay 有 1px border + 8px radius,
+ *     非全屏没有 ── 这些走各自容器类的 .code-block-* 选择器)
+ *   - 容器内 SVG 的尺寸约束 (非全屏 max-width + height auto;
+ *     全屏 max-width + max-height ── 各自容器写)
+ *   本文件只写**"渲染好的 SVG 看起来长什么样"**, 不写"装 SVG 的盒子
+ *   长什么样"。
+ *
+ * 选择器策略 ──
+ *   全部以 .mermaid-surface 为根选择器, 用 descendant selector 走 SVG
+ *   子树。这样:
+ *   - 任何挂 .mermaid-surface 的 DOM 都能直接命中
+ *   - 改样式时, 视觉作用域清晰 (改 mermaid → 改这个文件)
+ */
+
+/* ── 基础 SVG 样式 ──────────────────────────────────────────────
+ *
+ * 适用于所有 .mermaid-surface 内的 SVG ── 颜色 / 字体 / 居中。
+ * 尺寸约束 (max-width / max-height) 由各自容器规则提供, 这里
+ * 只写"看起来长什么样"。 */
+.mermaid-surface > svg {
+  display: block;
+  margin: 0 auto;
+  color: var(--foreground);
+  font-family: var(--app-font-family), var(--font-sans), sans-serif !important;
+}
+
+/* SVG 全部后代字体统一 ── mermaid 默认走 SF / Helvetica, 这里
+ * 强制走应用字体, 让图表文字与编辑器正文视觉一致。 */
+.mermaid-surface svg,
+.mermaid-surface svg * {
+  font-family: var(--app-font-family), var(--font-sans), sans-serif !important;
+}
+
+/* ── 文字 / label 字号 ─────────────────────────────────────────
+ *
+ * 节点内的 label (nodeLabel / label / messageText / taskText /
+ * actor) 统一 12px, 边上的 label (edgeLabel) 11px ── 字号是
+ * mermaid 通用 readability baseline, 不区分全屏/非全屏。 */
+.mermaid-surface > svg .nodeLabel,
+.mermaid-surface > svg .nodeLabel p,
+.mermaid-surface > svg .label,
+.mermaid-surface > svg .label span,
+.mermaid-surface > svg .messageText,
+.mermaid-surface > svg text.actor,
+.mermaid-surface > svg .taskText {
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+}
+
+.mermaid-surface > svg .edgeLabel,
+.mermaid-surface > svg .edgeLabel p {
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+}
+
+/* ── 文字对齐 / 居中 ───────────────────────────────────────────
+ *
+ * mermaid 节点内的 label 走 foreignObject + div, 居中由 CSS flex
+ * 控制 (align-items + justify-content + text-align: center) ──
+ * 不靠 SVG 的 text-anchor, 因为 foreignObject 内的 HTML 不走
+ * SVG text 渲染模型。
+ *
+ * SVG 原生 text 节点走 text-anchor: middle + dominant-baseline:
+ * middle ── 覆盖 mermaid 默认的 text-anchor: start, 让 text 在
+ * 节点几何中心居中, 而非左侧。
+ *
+ * 漏掉这几条会导致全屏态下节点文字位置看起来跟非全屏不一样 ──
+ * 用户报告的"文字对齐不一致"就是这里。 */
+.mermaid-surface > svg .node foreignObject {
+  overflow: visible;
+}
+
+.mermaid-surface > svg .node foreignObject > div,
+.mermaid-surface > svg .node .nodeLabel {
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  text-align: center !important;
+}
+
+.mermaid-surface > svg .node .nodeLabel p,
+.mermaid-surface > svg .node .nodeLabel span {
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: center !important;
+}
+
+.mermaid-surface > svg .node text {
+  text-anchor: middle !important;
+  dominant-baseline: middle !important;
+}
+
+/* ── 主题色板覆盖 ──────────────────────────────────────────────
+ *
+ * mermaid 自带 theme (default / dark / forest / ...) 是硬编码色
+ * 板, 跟应用主题 (light / dark / rock) 不同源。这里把所有颜色
+ * 强制改写到 CSS vars, 让 mermaid 跟随应用主题 ── 不论是
+ * 切到 dark 还是 rock, 图表颜色都跟着变。
+ *
+ * 分组 ──
+ *   1. 文字 (text + label)   → 前景色
+ *   2. 节点 (rect/circle/...) → card 底 + border 边
+ *   3. 容器 (cluster/section) → muted 底 + border 边
+ *   4. 连线 (path/line/...)   → muted-foreground 半透
+ *   5. 标记 (marker path)     → 跟随连线
+ *   6. label 背景             → background
+ *   7. 强调 (today/done/active/crit) → brand
+ *   漏写 1-7 中任何一组, mermaid 都会在某种主题下露出原配色。 */
+.mermaid-surface > svg text,
+.mermaid-surface > svg .label,
+.mermaid-surface > svg .label span,
+.mermaid-surface > svg .nodeLabel,
+.mermaid-surface > svg .edgeLabel,
+.mermaid-surface > svg .messageText,
+.mermaid-surface > svg text.actor,
+.mermaid-surface > svg .taskText {
+  color: var(--foreground) !important;
+  fill: var(--foreground) !important;
+}
+
+.mermaid-surface > svg .node rect,
+.mermaid-surface > svg .node circle,
+.mermaid-surface > svg .node ellipse,
+.mermaid-surface > svg .node polygon,
+.mermaid-surface > svg .node path,
+.mermaid-surface > svg rect.actor,
+.mermaid-surface > svg .task,
+.mermaid-surface > svg rect.taskTextOutsideRight,
+.mermaid-surface > svg rect.taskTextOutsideLeft {
+  fill: var(--card) !important;
+  stroke: var(--border) !important;
+}
+
+.mermaid-surface > svg .cluster rect,
+.mermaid-surface > svg .section,
+.mermaid-surface > svg .note,
+.mermaid-surface > svg .loopLine,
+.mermaid-surface > svg .activation0,
+.mermaid-surface > svg .activation1,
+.mermaid-surface > svg .activation2 {
+  fill: var(--muted) !important;
+  stroke: var(--border) !important;
+}
+
+.mermaid-surface > svg .edgePath .path,
+.mermaid-surface > svg .flowchart-link,
+.mermaid-surface > svg .messageLine0,
+.mermaid-surface > svg .messageLine1,
+.mermaid-surface > svg line,
+.mermaid-surface > svg path.relation,
+.mermaid-surface > svg .tick line {
+  stroke: color-mix(in oklch, var(--muted-foreground) 82%, transparent) !important;
+}
+
+.mermaid-surface > svg marker path,
+.mermaid-surface > svg defs marker path {
+  fill: color-mix(in oklch, var(--muted-foreground) 82%, transparent) !important;
+  stroke: color-mix(in oklch, var(--muted-foreground) 82%, transparent) !important;
+}
+
+.mermaid-surface > svg .edgeLabel,
+.mermaid-surface > svg .edgeLabel p,
+.mermaid-surface > svg .labelBkg,
+.mermaid-surface > svg .labelBox {
+  background: var(--background) !important;
+  fill: var(--background) !important;
+}
+
+.mermaid-surface > svg .today {
+  stroke: var(--brand) !important;
+}
+
+.mermaid-surface > svg .done,
+.mermaid-surface > svg .active,
+.mermaid-surface > svg .crit {
+  stroke: var(--brand) !important;
+}
+
+.mermaid-surface > svg .active,
+.mermaid-surface > svg .crit {
+  fill: color-mix(in oklch, var(--brand) 14%, var(--card)) !important;
+}

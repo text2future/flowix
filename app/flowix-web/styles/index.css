@@ -1,0 +1,426 @@
+@import './fonts.css';
+
+/* Tiptap 编辑器相关样式集中收口:
+ *   - editor.css            容器/排版基础 (ProseMirror 排版 / 基础 markdown 节点)
+ *   - editor-agent-thread-card  AgentThreadCard NodeView
+ *   - editor-note-reference    笔记内引用样式
+ *   - editor-code-block        代码块浮层 (语言选择器 / 复制 / 全屏 overlay 容器)
+ *   - editor-mermaid           mermaid SVG 渲染样式 (字号 / 对齐 / 主题 ──
+ *                              全屏 / 非全屏统一管理, 通过 .mermaid-surface
+ *                              类共享)
+ *   - editor-link-tooltip      链接 hover tooltip (render to body)
+ *   - editor-bubble-menus      selection / table / link / slash 浮层
+ *   - editor-attachment-link   附件 (file/video/image) + 上传卡片 + 正文链接 */
+@import './editor.css';
+@import './editor-agent-thread-card.css';
+@import './editor-note-reference.css';
+@import './editor-code-block.css';
+@import './editor-mermaid.css';
+@import './editor-link-tooltip.css';
+@import './editor-bubble-menus.css';
+@import './editor-attachment-link.css';
+
+/* 自定义滚动条 ── 全局 webkit 滚动条 + .overlay-scrollbar-* 组件样式。
+ * 非 Mac 平台门控在文件内部, 详见 overlay-scrollbar.css 顶部注释。 */
+@import './overlay-scrollbar.css';
+
+/* 主题色板单一真源在 css/theme, JS 只通过 data-theme 切换;
+ * 5 个主题 import 在 @layer base 之外, 保证 [data-theme="..."]
+ * 选择器特异性优先于 tailwind base。 */
+@import './theme/light.css';
+@import './theme/dark.css';
+@import './theme/rock.css';
+@import './theme/mist.css';
+@import './theme/ember.css';
+
+@import "shadcn/tailwind.css";
+
+
+/* shadcn/ui variable convention: --[role]-[property]
+ * Roles: background, foreground, primary, secondary, muted, accent, border, ring */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--flowix-hand-check-mask: url("data:image/svg+xml,%3Csvg viewBox='-1 -1 16 13' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M1.15 5.9c.16-.22.44-.28.72-.16 1.32.56 2.42 1.2 3.36 2.06C6.72 5.38 9.12 2.86 12.35.88c.32-.2.72-.16.9.09.18.24.05.6-.26.84-3.45 2.76-5.56 5.4-7.1 8.23-.14.25-.41.4-.71.4-.28 0-.53-.13-.68-.35-.88-1.18-1.95-2.12-3.19-3.12-.29-.23-.38-.75-.16-1.07Z'/%3E%3C/svg%3E");
+}
+
+.flowix-hand-check {
+	display: inline-block;
+	width: 1rem;
+	height: 1rem;
+	background-color: currentColor;
+	mask: var(--flowix-hand-check-mask) center / contain no-repeat;
+}
+
+@layer base {
+	/* 颜色 token 全部由 css/theme/*.css 提供, 这里只放不参与主题的非颜色 token
+	 * (radius / font-* / app-font-*)。
+	 *
+	 * 注意: 绝不能在这里定义 --destructive / --warning 等会被 [data-theme="..."]
+	 * 覆盖的色 token —— 因为 Vite/esbuild 的 CSS 压缩会剥掉 @layer 包装,
+	 * 编译后所有规则都变成 unlayered, 同样 (0,1,0) 特异性下 :root 反而会因源码
+	 * 顺序在 [data-theme="..."] 之后而永远胜出. 主题色 token 一律进各自主题文件. */
+	:root {
+		--radius: 0.625rem;
+
+		--font-heading: var(--font-sans);
+		--font-sans: 'Nunito Sans', 'Inter', -apple-system, 'Segoe UI', sans-serif, BlinkMacSystemFont;
+		--font-nav: 'SF Mono';
+
+		/* User-configurable typography (Preferences → Format).
+		 * 这些变量只在 Tiptap 编辑器 (.markdown-editor .ProseMirror)
+		 * 内被消费 — 不再写到 body / html, 避免影响 MemoList、Agent 面板
+		 * 等其它 UI 文本。默认值需与 constants/index.ts 的
+		 * DEFAULT_USER_SETTINGS 保持同步。由 useApplyFontSettings 运行时
+		 * 覆盖。 */
+		--app-font-family: var(--font-sans);
+		--app-font-size: 15px;
+		--app-line-height: 1.6;
+		--app-document-width: 700px;
+
+		/* Agent 面板等宽字体 — 非颜色, 不参与主题 */
+		--agent-font: 'Anonymous Pro', 'PingFang SC', 'Microsoft YaHei', 'Inter', -apple-system, monospace;
+	}
+
+	/* Markdown viewer & Tiptap 编辑器: 跟随主题背景色,
+	 * 否则 dark/rock 下会出现白底与背景不同步。 */
+	.markdown-body {
+		background: var(--card) !important;
+		--bgColor-default: var(--card);
+		--bgColor-muted: var(--muted);
+	}
+
+	.tiptap {
+		background: var(--background) !important;
+		overflow: hidden;
+	}
+
+	input,
+	textarea,
+	[contenteditable] {
+		caret-color: var(--brand);
+	}
+
+	* {
+		border-color: var(--border);
+	}
+
+	body {
+		background: var(--background);
+		color: var(--foreground);
+	}
+	html, body {
+		overscroll-behavior: none;
+	}
+}
+
+@layer components {
+
+	/* 文本选区色统一收口到 var(--brand), 跟随 light / dark / rock 三主题
+	 * 自动取色 (在 .markdown-editor 内被 .ProseMirror ::selection 覆盖, 强
+	 * 度更高用于"块内文本被选中"场景)。这里保持 22% 透明度做非编辑器区
+	 * (侧边栏 / 命令面板 / 输入框) 的默认选区色。 */
+	::selection {
+		background: color-mix(in oklch, var(--brand) 22%, transparent) !important;
+		color: inherit !important;
+	}
+
+	/* Dialog pop + slide-up + fade (替代了 tw-animate-css v4 插件,
+	 * 该插件在 Tailwind v3 下不生成任何 class)。 */
+	@keyframes flowix-dialog-in {
+		from {
+			opacity: 0;
+			transform: translate3d(0, 16px, 0) scale(0.9);
+		}
+		to {
+			opacity: 1;
+			transform: translate3d(0, 0, 0) scale(1);
+		}
+	}
+
+	@keyframes flowix-dialog-out {
+		from {
+			opacity: 1;
+			transform: translate3d(0, 0, 0) scale(1);
+		}
+		to {
+			opacity: 0;
+			transform: translate3d(0, 16px, 0) scale(0.9);
+		}
+	}
+
+	@keyframes flowix-fade-in {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	@keyframes flowix-fade-out {
+		from { opacity: 1; }
+		to { opacity: 0; }
+	}
+
+	.flowix-dialog-enter {
+		animation: flowix-dialog-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.flowix-dialog-before-enter {
+		opacity: 0;
+		transform: translate3d(0, 16px, 0) scale(0.9);
+	}
+
+	.flowix-dialog-leave {
+		animation: flowix-dialog-out 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.flowix-fade-enter {
+		animation: flowix-fade-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.flowix-fade-before-enter {
+		opacity: 0;
+	}
+
+	.flowix-fade-leave {
+		animation: flowix-fade-out 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.icon-btn {
+		transition: background-color 150ms ease, transform 150ms ease;
+	}
+
+	.icon-btn:hover {
+		background: var(--muted);
+	}
+
+	.icon-btn:active {
+		transform: scale(0.98);
+	}
+
+	.tag-drop-target-inside {
+		background:
+			color-mix(in oklch, var(--brand) 10%, var(--muted));
+		box-shadow:
+			inset 0 0 0 1px color-mix(in oklch, var(--brand) 72%, var(--border)),
+			0 0 0 2px color-mix(in oklch, var(--brand) 12%, transparent);
+	}
+
+	/* 侧栏标签树节点 # 图标 + 右下角展开三角:
+	   - 默认: # 图标 60% 透明度, 三角 72% 透明度的 muted-foreground
+	   - hover: 加深到 100% (前景色)
+	   - :focus-visible (键盘 Tab, 非鼠标点击): 同样加深
+	   鼠标点击图标获得焦点不触发 (`:focus-visible` 只在键盘 focus 命中),
+	   移开鼠标后样式立即消失。三角本身 pointer-events: none,
+	   hover 事件走父级。无动画。 */
+	.tag-expand-indicator {
+		border-bottom-color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
+	}
+	[data-tag-icon]:hover,
+	[data-tag-icon]:focus-visible {
+		opacity: 1;
+	}
+	[data-tag-icon]:hover .tag-expand-indicator,
+	[data-tag-icon]:focus-visible .tag-expand-indicator {
+		border-bottom-color: var(--muted-foreground);
+	}
+}
+
+
+@layer utilities {
+
+	.scrollbar-hide {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+
+	[data-tauri-drag-region] {
+		-webkit-app-region: drag;
+		cursor: default;
+	}
+
+	/* 兜底: 任何直接调用 toast.custom() 的未样式化 toast 保持水平居中,
+	 * 配合 lib/toast.tsx 的居中修复, 防止再次出现 toast 偏左问题。 */
+	[data-sonner-toast][data-styled="false"] {
+		width: var(--width);
+		display: flex;
+		justify-content: center;
+	}
+}
+
+/* Global keyboard focus ring for native buttons and shared Button instances.
+ * Keep this unlayered and after Tailwind utilities so buttons that do not use
+ * shared/ui/Button still get the same system ring token when reached by Tab. */
+:where(button, [role="button"]):focus-visible:not(:disabled):not([aria-disabled="true"]) {
+	outline: none;
+	box-shadow: 0 0 0 1px var(--ring);
+}
+
+/* agent-* 元素的样式已合并到组件 className (Tailwind 工具类);
+ * 关键帧由 animate-[<name>_<duration>_<timing>] arbitrary value 引用,
+ * 必须保留 CSS。 */
+
+@keyframes agentThinkingDot {
+	0%, 100% {
+		opacity: 0.6;
+		transform: scale(0.9);
+	}
+	50% {
+		opacity: 0.95;
+		transform: scale(0.98);
+	}
+}
+
+/* 扫光: 延长入光 (10%→25%) 与离场 (75%→90%) 的渐入渐出避免硬切,
+   峰值 0.78 + 2.5px blur 让光带与字融合得更柔亮。 */
+@keyframes agentThinkingShine {
+	0% {
+		left: -60%;
+		opacity: 0;
+	}
+	10% {
+		opacity: 0.15;
+	}
+	25% {
+		opacity: 0.45;
+	}
+	50% {
+		opacity: 0.78;
+	}
+	75% {
+		opacity: 0.45;
+	}
+	90%, 100% {
+		left: 130%;
+		opacity: 0;
+	}
+}
+
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Sonner fallback: keep the toast layer out of document flow even if the
+ * package's runtime-injected styles fail in a Windows WebView2 environment. */
+.flowix-toaster[data-sonner-toaster] {
+	position: fixed !important;
+	z-index: 2147483647 !important;
+	width: var(--width, 356px) !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	list-style: none !important;
+	pointer-events: none !important;
+}
+
+.flowix-toaster[data-sonner-toaster][data-x-position="center"] {
+	left: 50% !important;
+	transform: translateX(-50%) !important;
+}
+
+.flowix-toaster[data-sonner-toaster][data-y-position="top"] {
+	top: var(--offset-top, 32px) !important;
+}
+
+.flowix-toaster[data-sonner-toaster][data-y-position="bottom"] {
+	bottom: var(--offset-bottom, 32px) !important;
+}
+
+.flowix-toaster[data-sonner-toaster] [data-sonner-toast] {
+	position: absolute !important;
+	box-sizing: border-box !important;
+	pointer-events: auto !important;
+}
+
+/* 状态栏 hover 二级菜单 — 对话列表中运行中实例的 agent icon 外框,
+ * 复用 editor-agent-thread-card.css 中的
+ * `agent-type-badge-running-border` keyframes,
+ * 视觉与 AgentThreadCard header 的 running icon 完全一致。
+ *
+ * 选择器不在 .markdown-editor 下, 因此 keyframes 必须能在全局范围
+ * 被找到 (editor-agent-thread-card.css 中 keyframes 定义本身没有
+ * 作用域, 这里放心复用)。 */
+.agent-runtime-submenu__icon--running {
+  animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
+}
+
+.agent-thread-navigator__icon--running {
+  animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
+}
+
+.agent-thread-navigator__trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: transparent;
+  flex: 0 0 auto;
+}
+
+.agent-thread-navigator__trigger-icon img {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  object-position: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-runtime-submenu__icon--running {
+    animation: none;
+    border-color: color-mix(in oklch, var(--brand) 50%, transparent);
+  }
+
+  .agent-thread-navigator__icon--running {
+    animation: none;
+    border-color: color-mix(in oklch, var(--brand) 50%, transparent);
+  }
+}
+
+.memo-card__running-agent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: transparent;
+  flex: 0 0 auto;
+  animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
+}
+
+.memo-card__running-agent-icon img {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  object-position: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memo-card__running-agent-icon {
+    animation: none;
+    border-color: color-mix(in oklch, var(--brand) 50%, transparent);
+  }
+}

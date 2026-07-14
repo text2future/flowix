@@ -1,0 +1,100 @@
+/* 自定义滚动条 ── 同时服务两类元素:
+ *   1. 全局 webkit 滚动条 (任何 overflow:auto 的元素, 比如 editor 主区)
+ *   2. .overlay-scrollbar-* 系列: frame/scroller/track/thumb 组合, 由
+ *      <OverlayScrollbar> 组件渲染, 用于 memo-list / 下拉浮层 等场景。
+ *
+ * 非 Mac 平台门控 `html[data-platform="non-mac"]` ── macOS 走系统原生
+ * 滚动条, 不应用下面这套。修改或扩展时务必保留这层门控。 */
+
+/* 全局滚动条样式 — 颜色用 --muted-foreground 派生, 3 套主题下都保持可见 */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
+	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar {
+	overflow: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: none;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame {
+	position: relative;
+	overflow: hidden;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar::-webkit-scrollbar {
+	width: 0;
+	height: 0;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-thumb {
+	position: absolute;
+	top: 0;
+	right: 0;
+	z-index: 2;
+	width: 9px;
+	height: var(--overlay-scrollbar-thumb-height, 24px);
+	border: 2px solid transparent;
+	border-radius: 999px;
+	background:
+		color-mix(in oklch, var(--muted-foreground) 34%, transparent)
+		content-box;
+	cursor: default;
+	opacity: 0;
+	pointer-events: auto;
+	touch-action: none;
+	transform: translateY(var(--overlay-scrollbar-thumb-top, 0));
+	transition: opacity 120ms ease, background-color 120ms ease;
+	user-select: none;
+}
+
+/* 滚动条区域 hover 命中层 ── frame 右侧 16px 宽的透明轨道。
+ * 落在 thumb 之外的部分也属于这一区域, 保证鼠标从 track 滑到 thumb 时不闪烁。 */
+html[data-platform="non-mac"] .overlay-scrollbar-track {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 16px;
+	z-index: 1;
+	background: transparent;
+}
+
+/* 滚动中, 或鼠标停在 track / thumb 区域时 ── thumb 淡入。 */
+html[data-platform="non-mac"] .overlay-scrollbar-track:hover ~ .overlay-scrollbar-thumb,
+html[data-platform="non-mac"] .overlay-scrollbar-thumb:hover,
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrolling="true"] .overlay-scrollbar-thumb {
+	opacity: 1;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-dragging="true"] .overlay-scrollbar-thumb {
+	background:
+		color-mix(in oklch, var(--muted-foreground) 68%, transparent)
+		content-box;
+	cursor: default;
+	opacity: 1;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrollable="false"] .overlay-scrollbar-thumb {
+	opacity: 0;
+	pointer-events: none;
+}

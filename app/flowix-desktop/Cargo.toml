@@ -1,0 +1,58 @@
+[package]
+name = "flowix-desktop"
+version.workspace = true
+description = "Flowix - AI Note Taking App"
+authors = ["you"]
+edition.workspace = true
+default-run = "flowix-desktop"
+
+[lib]
+name = "flowix_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+flowix-core = { workspace = true }
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-process = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }
+rusqlite = { workspace = true }
+notify = "6.0"
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+chrono = { workspace = true }
+dirs = { workspace = true }
+walkdir = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+thiserror = { workspace = true }
+rllm = "1.1"
+reqwest = { version = "0.12", features = ["json"] }
+async-trait = "0.1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+nanoid = { workspace = true }
+tempfile = { workspace = true }
+dunce = { workspace = true }
+uuid = { workspace = true }
+hostname = "0.4"
+machine-uid = "0.5"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"

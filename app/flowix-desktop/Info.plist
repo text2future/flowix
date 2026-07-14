@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS Info.plist overlay ── Tauri builds the full Info.plist 自动合上基础字段
+  (CFBundleIdentifier / CFBundleName / LSMinimumSystemVersion 等), 这里只
+  放 Flowix 特有的:
+    - CFBundleURLTypes: 注册 `flowix://` URL scheme, 让 OS 把浏览器 / 终端里
+      `flowix://memo/<id>` 链接路由到 Flowix (launchd / LaunchServices 机制)
+    - 老的 `markdown` 角色跟 .md fileAssociations 走, 不需要再声明
+
+  dev (`tauri dev`) 不读这个 plist (Tauri 走 binary plist at runtime)。 打包
+  后由 `tauri-build` 合并进 app bundle。 跟 `app/flowix-desktop/tauri.conf.json` 里的
+  `bundle.macOS.infoPlist` 路径对应。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.flowix.app.deeplink</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>flowix</string>
+			</array>
+			</dict>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>Flowix</string>
+	<key>CFBundleName</key>
+	<string>Flowix</string>
+</dict>
+</plist>
