@@ -490,6 +490,12 @@ fn command_args(kind: SimpleCliKind, prompt: &str) -> Vec<String> {
 }
 
 pub(crate) fn resolve_simple_cli_binary(kind: SimpleCliKind) -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary(
+        kind.key(),
+        kind.cli_spec().binary_name,
+    ) {
+        return path;
+    }
     resolve_external_cli(kind.cli_spec())
 }
 

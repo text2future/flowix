@@ -44,7 +44,12 @@ describe('user-settings-store · agents.quickPhrases sanitize', () => {
         memoCardVariant: 'detailed',
         shortcuts: {},
         properties: { fields: [] },
-        agents: { enabledByType: {}, quickPhrases: [] },
+        agents: {
+          enabledByType: {},
+          customLocationEnabledByType: {},
+          customLocations: {},
+          quickPhrases: [],
+        },
         productUpdates: { enabled: true, lastCheckedAt: 0 },
       },
       isLoading: false,
@@ -183,6 +188,22 @@ describe('user-settings-store · agents.quickPhrases sanitize', () => {
     expect(kept[0].id).toBe('keep');
   });
 
+  it('保存并清理第三方 Agent 自定义位置', async () => {
+    await useUserSettingsStore.getState().updateSettings({
+      agents: {
+        customLocationEnabledByType: { codex: true },
+        customLocations: { codex: '  /opt/custom/bin  ' },
+      },
+    });
+
+    expect(
+      useUserSettingsStore.getState().settings.agents.customLocationEnabledByType.codex,
+    ).toBe(true);
+    expect(useUserSettingsStore.getState().settings.agents.customLocations.codex).toBe(
+      '/opt/custom/bin',
+    );
+  });
+
   it('JSON 序列化往返不丢 quickPhrases ── 与后端 Rust schema 保持一致', async () => {
     const phrases: QuickPhrase[] = [
       { id: 'p1', title: '会议纪要', prompt: '整理这次讨论的要点' },
@@ -206,7 +227,6 @@ describe('user-settings-store · agents.quickPhrases sanitize', () => {
     );
   });
 });
-
 describe('user-settings-store 路 region loadInitial', () => {
   it('keeps persisted mainland region when loading settings', async () => {
     mockedPreferences.get.mockResolvedValueOnce({
@@ -235,7 +255,12 @@ describe('user-settings-store 路 region loadInitial', () => {
         memoCardVariant: 'detailed',
         shortcuts: {},
         properties: { fields: [] },
-        agents: { enabledByType: {}, quickPhrases: [] },
+        agents: {
+          enabledByType: {},
+          customLocationEnabledByType: {},
+          customLocations: {},
+          quickPhrases: [],
+        },
         productUpdates: { enabled: true, lastCheckedAt: 0 },
       },
       isLoading: true,

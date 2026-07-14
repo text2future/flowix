@@ -103,6 +103,9 @@ pub fn run() {
         }
     }
     let user_config_arc = user_config.clone();
+    crate::external_runtime::binary::configure_custom_agent_locations(
+        &user_config_arc.get_preference().agents,
+    );
 
     // Agent 可访问目录 store ── 必须在 notebook registry 与 `memo_file_arc`
     // 都就绪之后构造 (新 store 会读 notebook registry 播种 + 对账)。
@@ -453,6 +456,7 @@ pub fn run() {
             commands::web::parse_web_page,
             // dialog
             commands::dialog::select_directory,
+            commands::dialog::select_agent_runtime_directory,
             commands::dialog::select_files,
             commands::dialog::save_file_dialog,
             commands::dialog::write_export_file,

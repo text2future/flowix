@@ -352,6 +352,7 @@ export interface SaveFileFilter {
 
 export const dialogs = {
   selectDirectory: () => invoke<string | null>('select_directory'),
+  selectAgentRuntimeDirectory: () => invoke<string | null>('select_agent_runtime_directory'),
   selectFiles: () => invoke<any[] | null>('select_files'),
   saveFile: (suggestedName?: string, filters?: SaveFileFilter[]) =>
     invoke<string | null>('save_file_dialog', {
@@ -535,6 +536,8 @@ export interface AgentConversationInstance {
 export interface AgentRuntimeAvailability {
   available: boolean;
   reason?: string | null;
+  binaryPath?: string | null;
+  customLocation: boolean;
 }
 
 export interface AgentRuntimeStatus {

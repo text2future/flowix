@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use crate::external_runtime::cli_resolver::{resolve_external_cli, ExternalCliSpec};
 
 pub(crate) fn resolve_codex_binary() -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary("codex", "codex") {
+        return path;
+    }
     resolve_external_cli(&CODEX_CLI_SPEC)
 }
 
