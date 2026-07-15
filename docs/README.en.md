@@ -62,7 +62,7 @@ What that means in practice:
 - **Config is the config**: `~/.flowix/` is plain JSON, readable,
   editable, and scriptable
 - **No account, no cloud**: no signup, no user ID, no "log in first"
-- **Open and transparent**: code under [CC BY-NC 4.0](LICENSE)
+- **Open and transparent**: code under [MIT](LICENSE)
 - **Portable**: zip the data folder and take it to any machine
 
 > One line: **your notes are yours**, whether or not Flowix still exists.
