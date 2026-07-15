@@ -11,8 +11,8 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::agent_flowix::{AgentChunk, RunInfo};
 use crate::agent_session::{AgentConversationRun, ThreadManager};
-use crate::runtime_log;
 use crate::events as dispatcher;
+use crate::runtime_log;
 
 /// One live external-agent child process per `thread_id`.
 ///

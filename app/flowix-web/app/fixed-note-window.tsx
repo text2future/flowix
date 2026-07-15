@@ -204,6 +204,7 @@ export function FixedNoteWindow() {
           canNavigateForward={false}
           onNavigateBack={NOOP}
           onNavigateForward={NOOP}
+          showNavigationButtons={false}
           onOpenSearch={() => setIsSearchPanelOpen(true)}
           onCopyLink={handleCopyLink}
           onCopyFullText={handleCopyFullText}
@@ -224,6 +225,7 @@ export function FixedNoteWindow() {
           canNavigateForward={false}
           onNavigateBack={NOOP}
           onNavigateForward={NOOP}
+          showNavigationButtons={false}
           onOpenSearch={() => setIsSearchPanelOpen(true)}
           onCopyLink={handleCopyLink}
           onCopyFullText={handleCopyFullText}

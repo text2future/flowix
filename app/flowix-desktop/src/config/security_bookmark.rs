@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::user::{atomic_write_json, UserConfigError};
 
+const BOOT_DIR_NAME: &str = "boot";
 const BOOKMARKS_FILE_NAME: &str = "security-bookmarks.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,7 @@ fn normalize_path(path: &Path) -> String {
 }
 
 pub struct SecurityBookmarkStore {
+    /// User config root (`~/.flowix`). Bookmark JSON is stored under `boot/`.
     config_dir: PathBuf,
     inner: RwLock<BookmarkConfig>,
     #[cfg(target_os = "macos")]
@@ -54,6 +56,7 @@ impl SecurityBookmarkStore {
             .ok()
             .flatten()
             .unwrap_or_default();
+        migrate_legacy_bookmarks_if_needed(&config_dir, &config);
         let store = Self {
             config_dir,
             inner: RwLock::new(config),
@@ -193,14 +196,50 @@ impl SecurityBookmarkStore {
             },
         );
         let content = serde_json::to_string_pretty(&next)?;
-        atomic_write_json(&self.config_dir.join(BOOKMARKS_FILE_NAME), &content)?;
+        atomic_write_json(&bookmarks_file_path(&self.config_dir), &content)?;
         *self.inner.write().unwrap_or_else(|p| p.into_inner()) = next;
         Ok(())
     }
 }
 
+fn bookmarks_file_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(BOOT_DIR_NAME).join(BOOKMARKS_FILE_NAME)
+}
+
+fn legacy_bookmarks_file_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(BOOKMARKS_FILE_NAME)
+}
+
+fn migrate_legacy_bookmarks_if_needed(config_dir: &Path, config: &BookmarkConfig) {
+    let path = bookmarks_file_path(config_dir);
+    if path.exists() || !legacy_bookmarks_file_path(config_dir).exists() {
+        return;
+    }
+    match serde_json::to_string_pretty(config) {
+        Ok(content) => {
+            if let Err(e) = atomic_write_json(&path, &content) {
+                tracing::warn!(
+                    "[security_bookmark] failed to migrate bookmarks to {}: {e}",
+                    path.display()
+                );
+            }
+        }
+        Err(e) => tracing::warn!("[security_bookmark] failed to serialize bookmarks: {e}"),
+    }
+}
+
 fn read_from_disk(config_dir: &Path) -> std::io::Result<Option<BookmarkConfig>> {
-    let path = config_dir.join(BOOKMARKS_FILE_NAME);
+    let path = bookmarks_file_path(config_dir);
+    if !path.exists() {
+        let legacy_path = legacy_bookmarks_file_path(config_dir);
+        if legacy_path.exists() {
+            return read_bookmark_config_file(&legacy_path);
+        }
+    }
+    read_bookmark_config_file(&path)
+}
+
+fn read_bookmark_config_file(path: &Path) -> std::io::Result<Option<BookmarkConfig>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -302,6 +341,7 @@ pub fn pick_directory_with_bookmark(title: &str) -> Option<(String, String)> {
     let panel = NSOpenPanel::openPanel(mtm);
     panel.setCanChooseDirectories(true);
     panel.setCanChooseFiles(false);
+    panel.setCanCreateDirectories(true);
     panel.setAllowsMultipleSelection(false);
     let title = objc2_foundation::NSString::from_str(title);
     panel.setTitle(Some(&title));
@@ -313,4 +353,51 @@ pub fn pick_directory_with_bookmark(title: &str) -> Option<(String, String)> {
     let path = url.to_file_path()?;
     let bookmark = macos::bookmark_for_directory(&path)?;
     Some((path.to_string_lossy().to_string(), bookmark))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_config() -> BookmarkConfig {
+        let mut config = BookmarkConfig::default();
+        config.entries.insert(
+            "/tmp/flowix-bookmark-test".to_string(),
+            BookmarkEntry {
+                path: "/tmp/flowix-bookmark-test".to_string(),
+                bookmark: "bookmark-data".to_string(),
+                updated_at: 1,
+            },
+        );
+        config
+    }
+
+    #[test]
+    fn reads_bookmarks_from_boot_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = sample_config();
+        let content = serde_json::to_string_pretty(&config).unwrap();
+        atomic_write_json(&bookmarks_file_path(tmp.path()), &content).unwrap();
+
+        let loaded = read_from_disk(tmp.path()).unwrap().unwrap();
+
+        assert_eq!(loaded.entries.len(), 1);
+        assert!(loaded.entries.contains_key("/tmp/flowix-bookmark-test"));
+    }
+
+    #[test]
+    fn migrates_legacy_bookmarks_to_boot_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = sample_config();
+        let content = serde_json::to_string_pretty(&config).unwrap();
+        atomic_write_json(&legacy_bookmarks_file_path(tmp.path()), &content).unwrap();
+
+        migrate_legacy_bookmarks_if_needed(tmp.path(), &config);
+
+        assert!(bookmarks_file_path(tmp.path()).exists());
+        let migrated = read_bookmark_config_file(&bookmarks_file_path(tmp.path()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(migrated.entries.len(), 1);
+    }
 }

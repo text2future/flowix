@@ -1,8 +1,8 @@
 use tauri::{AppHandle, Manager};
 
 use crate::app::state::AppState;
-use crate::lock_utils::{read_lock, write_lock};
 use crate::events as dispatcher;
+use crate::lock_utils::{read_lock, write_lock};
 
 pub(crate) fn force_rebuild_index(state: &AppState, app: &AppHandle) {
     write_lock(&state.search, "search").mark_unloaded();

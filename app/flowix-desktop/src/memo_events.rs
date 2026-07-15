@@ -148,10 +148,7 @@ pub fn emit(app: &AppHandle, event: MemoEvent) {
 /// tag-event) 在 dispatcher 里增加, 业务调用点仍走 `emit()`。
 ///
 
-pub fn emit_via_dispatcher(
-    dispatcher: &crate::events::SharedDispatcher,
-    event: MemoEvent,
-) {
+pub fn emit_via_dispatcher(dispatcher: &crate::events::SharedDispatcher, event: MemoEvent) {
     let _ = event.memo_id();
     let payload = serde_json::to_value(&event).expect("MemoEvent serialization must not fail");
     dispatcher.publish(MEMO_EVENT, payload);

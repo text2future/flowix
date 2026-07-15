@@ -21,6 +21,7 @@ interface DocumentTitlebarWinProps {
   canNavigateForward: boolean;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
+  showNavigationButtons?: boolean;
   onOpenSearch: () => void;
   onCopyLink: () => void;
   onCopyFullText: () => void;
@@ -50,6 +51,7 @@ export function DocumentTitlebarWin({
   canNavigateForward,
   onNavigateBack,
   onNavigateForward,
+  showNavigationButtons = true,
   onOpenSearch,
   onCopyLink,
   onCopyFullText,
@@ -91,28 +93,32 @@ export function DocumentTitlebarWin({
             </button>
           </Tooltip>
         )}
-        <Tooltip content={t("document.titlebar.backTooltip")} shortcut="history.back">
-          <button
-            type="button"
-            onClick={onNavigateBack}
-            disabled={!canNavigateBack}
-            aria-label={t("document.titlebar.back")}
-            className={`${ICON_BTN} disabled:opacity-35`}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        </Tooltip>
-        <Tooltip content={t("document.titlebar.forwardTooltip")} shortcut="history.forward">
-          <button
-            type="button"
-            onClick={onNavigateForward}
-            disabled={!canNavigateForward}
-            aria-label={t("document.titlebar.forward")}
-            className={`${ICON_BTN} disabled:opacity-35`}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </Tooltip>
+        {showNavigationButtons && (
+          <>
+            <Tooltip content={t("document.titlebar.backTooltip")} shortcut="history.back">
+              <button
+                type="button"
+                onClick={onNavigateBack}
+                disabled={!canNavigateBack}
+                aria-label={t("document.titlebar.back")}
+                className={`${ICON_BTN} disabled:opacity-35`}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </Tooltip>
+            <Tooltip content={t("document.titlebar.forwardTooltip")} shortcut="history.forward">
+              <button
+                type="button"
+                onClick={onNavigateForward}
+                disabled={!canNavigateForward}
+                aria-label={t("document.titlebar.forward")}
+                className={`${ICON_BTN} disabled:opacity-35`}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          </>
+        )}
       </div>
 
       {documentState === 'external' && externalFilePath && (

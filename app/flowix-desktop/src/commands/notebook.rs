@@ -94,16 +94,18 @@ pub fn create_notebook(
     if trimmed_path.is_empty() {
         return Err("INVALID_PATH".to_string());
     }
-    state
+    let has_bookmark_access = state
         .security_bookmarks
-        .start_accessing_path(Path::new(trimmed_path));
+        .start_accessing_for_path(Path::new(trimmed_path));
     if !Path::new(trimmed_path).is_dir() {
         return Err("PATH_MISSING".to_string());
     }
-    state
-        .security_bookmarks
-        .record_directory(Path::new(trimmed_path))
-        .map_err(|e| format!("BOOKMARK_WRITE_FAILED: {e}"))?;
+    if !has_bookmark_access {
+        state
+            .security_bookmarks
+            .record_directory(Path::new(trimmed_path))
+            .map_err(|e| format!("BOOKMARK_WRITE_FAILED: {e}"))?;
+    }
 
     let normalized_path = normalize_notebook_path(trimmed_path);
     let comparable_path = comparable_notebook_path(&normalized_path);
@@ -141,31 +143,9 @@ pub fn create_notebook(
     if agent_access_added {
         dispatcher::emit_to(&app, AGENT_ACCESS_CHANGED_EVENT, ());
     }
-    refresh_watcher_roots(state.inner(), &app);
 
     if let Err(e) = switch_notebook_trusting_index(state.inner(), &app, Some(id.clone())) {
         tracing::warn!("[create_notebook] failed to select new notebook after registry write: {e}");
-    }
-
-    {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        match memo_file.seed_onboarding_docs() {
-            Ok(true) => tracing::info!("[create_notebook] seeded onboarding documents"),
-            Ok(false) => tracing::debug!(
-                "[create_notebook] onboarding documents skipped (notebook already has memos)"
-            ),
-            Err(e) => tracing::warn!("[create_notebook] failed to seed onboarding documents: {e}"),
-        }
-    }
-
-    // 空目录也写出空 memo index, 让"新建 notebook 已建立索引"这个状态可观察。
-    {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        if memo_file.read_index().is_none() {
-            if let Err(e) = memo_file.write_index(&MemoIndexFile::default()) {
-                tracing::warn!("[create_notebook] failed to initialize empty memo index: {e}");
-            }
-        }
     }
 
     let import_app = app.clone();
@@ -179,6 +159,29 @@ pub fn create_notebook(
                 import_notebook_id
             );
             return;
+        }
+
+        {
+            let memo_file = read_lock(&app_state.memo_file, "memo_file");
+            match memo_file.seed_onboarding_docs() {
+                Ok(true) => tracing::info!("[create_notebook] seeded onboarding documents"),
+                Ok(false) => tracing::debug!(
+                    "[create_notebook] onboarding documents skipped (notebook already has memos)"
+                ),
+                Err(e) => {
+                    tracing::warn!("[create_notebook] failed to seed onboarding documents: {e}")
+                }
+            }
+        }
+
+        // 空目录也写出空 memo index, 让"新建 notebook 已建立索引"这个状态可观察。
+        {
+            let memo_file = read_lock(&app_state.memo_file, "memo_file");
+            if memo_file.read_index().is_none() {
+                if let Err(e) = memo_file.write_index(&MemoIndexFile::default()) {
+                    tracing::warn!("[create_notebook] failed to initialize empty memo index: {e}");
+                }
+            }
         }
 
         if let Err(e) = switch_notebook_importing_disk_as_new(

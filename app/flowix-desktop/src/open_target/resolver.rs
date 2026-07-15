@@ -126,17 +126,13 @@ fn find_memo_by_path_in_notebooks(
         else {
             continue;
         };
-        if let Some(entry) = list
-            .memos
-            .into_iter()
-            .find(|entry| {
-                if entry.filename != filename {
-                    return false;
-                }
-                let expected = PathBuf::from(&cfg.path).join(&entry.filename);
-                normalize_for_compare(&expected) == target_norm
-            })
-        {
+        if let Some(entry) = list.memos.into_iter().find(|entry| {
+            if entry.filename != filename {
+                return false;
+            }
+            let expected = PathBuf::from(&cfg.path).join(&entry.filename);
+            normalize_for_compare(&expected) == target_norm
+        }) {
             return Some((
                 cfg.clone(),
                 flowix_core::memo_file::MemoFile::index_entry_to_memo(&entry),
