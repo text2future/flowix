@@ -8,7 +8,6 @@ import { MemoList } from '@features/memo/components/memo-list';
 import { MemoListTitlebarWin } from '@features/memo/components/memo-list-titlebar-win';
 import { MemoListTitlebarMac } from '@features/memo/components/memo-list-titlebar-mac';
 import { NoteNavigationPanel } from '@features/memo/components/note-navigation-panel';
-import { useTauriRpc } from '@platform/tauri/use-tauri-rpc';
 import { useDocumentHistoryStore, useDocumentStore, type DocumentHistoryEntry, type MemoDocumentSession } from '@features/document/store';
 import { useMemoStore, type MemoItem, type Notebook } from '@features/memo';
 import { useSettingsStore } from '@features/shell';
@@ -153,12 +152,12 @@ export function MainLayout() {
   ));
   const [notebookPopupOpen, setNotebookPopupOpen] = useState(false);
   const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null);
-  const { request } = useTauriRpc();
   const [isSearchPanelOpen, setIsSearchPanelOpen] = useState(false);
   const [charCount, setCharCount] = useState(0);
   const [noteNavigationPanelWidth, setNoteNavigationPanelWidth] = useState(NOTE_NAVIGATION_PANEL_WIDTH);
   const [isDraggingNoteNavigationDivider, setIsDraggingNoteNavigationDivider] = useState(false);
   const currentDocumentContentRef = useRef('');
+  const syncedNotebookIdRef = useRef<string | null | undefined>(undefined);
   const noteNavigationDividerStartRef = useRef({
     x: 0,
     width: NOTE_NAVIGATION_PANEL_WIDTH,
@@ -177,6 +176,17 @@ export function MainLayout() {
     memoListVisible,
     noteNavigationWidth: noteNavigationColumnWidth,
   });
+
+  useEffect(() => {
+    const notebookId = selectedNotebook?.id ?? null;
+    if (syncedNotebookIdRef.current === notebookId) return;
+    syncedNotebookIdRef.current = notebookId;
+
+    void notebooksClient.setCurrent(notebookId).catch((error) => {
+      console.warn('[MainLayout] Failed to sync current notebook:', error);
+      syncedNotebookIdRef.current = undefined;
+    });
+  }, [selectedNotebook?.id]);
 
   const getNoteNavigationPanelMaxWidth = useCallback(() => {
     const visibleDividerWidth =
@@ -404,11 +414,8 @@ export function MainLayout() {
       setSelectedMemo(null);
       clearDocument();
       triggerRefresh();
-      void request('set_current_notebook', { notebookId: notebook.id }).catch((error) => {
-        console.warn('[MainLayout] Failed to sync current notebook:', error);
-      });
     },
-    [clearDocument, request, selectedNotebook?.id, setSelectedMemo, setSelectedNotebook, triggerRefresh]
+    [clearDocument, selectedNotebook?.id, setSelectedMemo, setSelectedNotebook, triggerRefresh]
   );
 
   const handleEditNotebook = useCallback(
@@ -451,7 +458,6 @@ export function MainLayout() {
             setSelectedNotebook(nextNotebook);
             setSelectedMemo(null);
             clearDocument();
-            await notebooksClient.setCurrent(nextNotebook?.id ?? null);
             triggerRefresh();
           }
         }

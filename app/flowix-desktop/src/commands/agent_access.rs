@@ -7,12 +7,12 @@
 
 use std::path::Path;
 
-use crate::watcher::dispatcher;
+use crate::events as dispatcher;
 use tauri::{AppHandle, State};
 
 use crate::config::{AgentAccessConfig, AgentAccessEntry, AgentAccessKind};
 
-use super::AppState;
+use crate::app::state::AppState;
 
 /// 跨窗口同步事件 ── 任一窗口成功写入 agent-access.json 后 emit, 其它窗口
 /// 收到后从磁盘重新 load。 payload 是 `()` (无 payload), 监听者直接

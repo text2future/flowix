@@ -4,16 +4,15 @@
 //!
 //! ## URL scheme 设计
 //!
-//! - `flowix://memo/<6-char-id>`            — 主要场景
-//! - `flowix://memo/<6-char-id>?nb=<nid>`   — 跨 notebook hint (resolver 优先用)
+//! - `flowix://memo/<memo-id>`              — 主要场景
 //! - `flowix://open?path=<encoded-abs>`     — 物理路径 (内部抽 id)
 //! - `file://<abs>`                          — 物理路径的 URL 形式 (兼容 macOS Finder 复制)
 //! - 裸绝对路径 (以 `/` 开头)               — 物理路径直传
 //!
 //! ## memo id 格式约束
 //!
-//! memo id 格式: 6 字符 `[0-9a-z]{6}`。
-//! 6 位 × 36 种 = 21.7 亿唯一 id, 单实例内基本无碰撞。
+//! memo id 格式: 兼容旧 6 字符或当前 [`flowix_core::memo_file::MEMO_ID_LENGTH`]
+//! 字符, 字符集为 `[0-9a-z]`。
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -32,11 +31,10 @@ pub enum OpenTarget {
         path: String,
         memo_id: Option<String>,
     },
-    /// 深链 `flowix://...` — memo_id 是必填主键, notebook_hint 可选。
+    /// 深链 `flowix://...` — memo_id 是全局唯一主键。
     DeepLink {
         url: String,
         memo_id: Option<String>,
-        notebook_hint: Option<String>,
         /// `flowix://open?path=` 时携带
         physical_path: Option<String>,
     },
@@ -54,7 +52,7 @@ pub enum OpenTargetError {
     MissingPath,
 }
 
-/// memo id 6 字符 `[0-9a-z]{6}`。
+/// memo id: 旧 6 字符或当前 MEMO_ID_LENGTH 字符, 字符集 `[0-9a-z]`。
 pub fn is_valid_memo_id(s: &str) -> bool {
     matches!(s.len(), 6 | flowix_core::memo_file::MEMO_ID_LENGTH)
         && s.chars()
@@ -174,11 +172,9 @@ fn parse_deep_link(rest: &str, full: &str) -> Result<OpenTarget, OpenTargetError
             if !is_valid_memo_id(id) {
                 return Err(OpenTargetError::InvalidMemoId(id.to_string()));
             }
-            let notebook_hint = get_query(&query, "nb").map(str::to_string);
             Ok(OpenTarget::DeepLink {
                 url: full.to_string(),
                 memo_id: Some(id.to_string()),
-                notebook_hint,
                 physical_path: None,
             })
         }
@@ -191,7 +187,6 @@ fn parse_deep_link(rest: &str, full: &str) -> Result<OpenTarget, OpenTargetError
             Ok(OpenTarget::DeepLink {
                 url: full.to_string(),
                 memo_id: None,
-                notebook_hint: get_query(&query, "nb").map(str::to_string),
                 physical_path: Some(path_arg),
             })
         }
@@ -218,29 +213,11 @@ mod tests {
         match t {
             OpenTarget::DeepLink {
                 memo_id,
-                notebook_hint,
                 physical_path,
                 ..
             } => {
                 assert_eq!(memo_id.as_deref(), Some("abc12345"));
-                assert_eq!(notebook_hint, None);
                 assert_eq!(physical_path, None);
-            }
-            _ => panic!("expected DeepLink"),
-        }
-    }
-
-    #[test]
-    fn parses_deep_link_memo_with_notebook_hint() {
-        let t = parse_open_target("flowix://memo/abc12345?nb=nb_xyz").unwrap();
-        match t {
-            OpenTarget::DeepLink {
-                memo_id,
-                notebook_hint,
-                ..
-            } => {
-                assert_eq!(memo_id.as_deref(), Some("abc12345"));
-                assert_eq!(notebook_hint.as_deref(), Some("nb_xyz"));
             }
             _ => panic!("expected DeepLink"),
         }

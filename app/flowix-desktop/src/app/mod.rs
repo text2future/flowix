@@ -1,6 +1,8 @@
 pub mod bootstrap;
 pub mod panic;
 pub mod paths;
+pub mod search_index;
+pub mod state;
 pub mod watchdog;
 
 pub use bootstrap::run;

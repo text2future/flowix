@@ -1,22 +1,23 @@
-use crate::agent::AgentManager;
+use crate::agent_external::claude::ClaudeCliManager;
+use crate::agent_external::codex::CodexCliManager;
+use crate::agent_external::hermes::HermesCliManager;
+use crate::agent_external::simple_cli;
+use crate::agent_flowix::AgentManager;
+use crate::agent_session::ThreadManager;
 use crate::app::panic::install_panic_log_hook;
 use crate::app::paths::{get_app_data_path, get_user_config_dir};
+use crate::app::state::AppState;
 use crate::app::watchdog::spawn_external_agent_watchdog;
 use crate::cli_link;
 use crate::commands;
 use crate::config::user as user_config;
 use crate::config::AgentAccessStore;
 use crate::config::SecurityBookmarkStore;
-use crate::external_runtime::claude::ClaudeCliManager;
-use crate::external_runtime::codex::CodexCliManager;
-use crate::external_runtime::hermes::HermesCliManager;
-use crate::external_runtime::simple_cli;
-use crate::fs_watcher;
 use crate::open_target;
 use crate::runtime_log;
-use crate::session::ThreadManager;
 use crate::system_data::SystemData;
-use crate::watcher::dispatcher;
+use crate::events as dispatcher;
+use crate::watcher::MemoWatcher;
 use flowix_core::search::{BigramTokenizer, MemoIndex};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -132,9 +133,9 @@ pub fn run() {
 
     // Seed-once: bundled `resources/skills/.system/*` → `~/.flowix/skills/.system/*`.
     // 三个候选路径, 命中第一个可用的就停 ── 见
-    // `crate::skills::scanner::resolve_bundled_root`。
-    if let Some(bundled) = crate::skills::scanner::resolve_bundled_root() {
-        let report = crate::skills::seed_system_skills(&bundled, &skills_root);
+    // `crate::agent_flowix::skills::scanner::resolve_bundled_root`。
+    if let Some(bundled) = crate::agent_flowix::skills::scanner::resolve_bundled_root() {
+        let report = crate::agent_flowix::skills::seed_system_skills(&bundled, &skills_root);
         if !report.copied.is_empty() || !report.skipped.is_empty() {
             tracing::info!(
                 "[startup] skills seed: copied {}, skipped {} (already present)",
@@ -152,14 +153,14 @@ pub fn run() {
     // 任意 SKILL.md, 不必先调 `load_skill`。
     agent_access_arc.ensure_skill_folder(&skills_root);
 
-    let skill_store = Arc::new(crate::skills::SkillStore::load(&skills_root));
+    let skill_store = Arc::new(crate::agent_flowix::skills::SkillStore::load(&skills_root));
     tracing::info!(
         "[startup] loaded {} skill(s) from {}",
         skill_store.len(),
         skill_store.root().display()
     );
 
-    // PR2: 监听 user-config-changed 热更新 whitelist 时, 也需要 user_config_arc,
+    // 监听 user-config-changed 热更新 whitelist 时, 也需要 user_config_arc,
     // 单独 clone 一份 (后续会被 move 进 AgentManager::new)。
     let user_config_for_watcher = user_config_arc.clone();
 
@@ -203,9 +204,7 @@ pub fn run() {
     // 笔记本目录文件监听器 — 把外部编辑器 / 其他 AI 对任意已注册 notebook
     // 的磁盘变更转成 `memo-event` 推前端。`AppHandle` 在 `run()` 阶段拿不到,
     // 实际绑定在 .setup() 闭包里完成。
-    let memo_watcher = Arc::new(RwLock::new(fs_watcher::MemoWatcher::new(
-        memo_file_arc.clone(),
-    )));
+    let memo_watcher = Arc::new(RwLock::new(MemoWatcher::new(memo_file_arc.clone())));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -231,7 +230,7 @@ pub fn run() {
             // ── 1) 构造 AppState (placeholder 状态) 并 manage ──
             //    `flowix_cli` 字段是 `RwLock<Option<Arc<SidecarHandle>>>`,
             //    spawn 完 sidecar 后在末尾 `write().await = Some(handle)` 升级。
-            let app_state = commands::AppState {
+            let app_state = AppState {
                 user_config: user_config_for_state.clone(),
                 system_data,
                 memo_file: memo_file_for_state.clone(),
@@ -258,11 +257,10 @@ pub fn run() {
                 crate::window_chrome::apply_window_border_color(&window);
             }
 
-            // PR3: 在 setup 阶段 manage dispatcher, 因为
+            // 在 setup 阶段 manage dispatcher, 因为
             // TauriDispatcher::new 需要 AppHandle, builder chain 里拿不到。
-            let dispatcher: crate::watcher::dispatcher::SharedDispatcher = std::sync::Arc::new(
-                crate::watcher::dispatcher::TauriDispatcher::new(app.handle().clone()),
-            );
+            let dispatcher: crate::events::SharedDispatcher =
+                std::sync::Arc::new(crate::events::TauriDispatcher::new(app.handle().clone()));
             app.manage(dispatcher);
             // 启动时只监听当前 notebook。未选择 current notebook 时不绑定任何
             // 根目录, 避免后台 stat/watch macOS 受保护目录触发权限弹窗。
@@ -324,7 +322,7 @@ pub fn run() {
                 }
             }
 
-            // PR2: 启动时把 preference.json::watcher 应用到 MemoWatcher;
+            // 启动时把 preference.json::watcher 应用到 MemoWatcher;
             // 同时注册 user-config-changed 监听做热更新 (前端调
             // update_watcher_config IPC 走 settings::update_watcher_config
             // 写后 emit 该事件, 这里收到就 set_whitelist)。
@@ -497,6 +495,7 @@ pub fn run() {
             commands::thread::thread_delete,
             commands::thread::thread_update_title,
             // window
+            commands::window::show_main_window,
             commands::window::open_preferences_window,
             commands::window::open_note_window,
             commands::window::resolve_note_window_payload,
@@ -555,9 +554,9 @@ fn handle_cold_start_open_targets(app: &tauri::AppHandle) {
 }
 
 fn emit_open_target_if_resolved(app: &tauri::AppHandle, raw: &str) {
-    let state = app.state::<commands::AppState>();
+    let state = app.state::<AppState>();
     if let Ok(target) = open_target::parse_open_target(raw) {
-        if let Ok(resolved) = open_target::resolve_open_target(target, state.inner()) {
+        if let Ok(resolved) = open_target::resolve_open_target(target, state.memo_file.as_ref()) {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
                 let _ = window.unminimize();
@@ -568,7 +567,7 @@ fn emit_open_target_if_resolved(app: &tauri::AppHandle, raw: &str) {
 }
 
 fn spawn_cli_sidecar(app: &tauri::AppHandle) {
-    let cli_lock = app.state::<commands::AppState>().flowix_cli.clone();
+    let cli_lock = app.state::<AppState>().flowix_cli.clone();
     match tauri::async_runtime::block_on(commands::cli::SidecarHandle::spawn()) {
         Ok(handle) => {
             tracing::info!(
@@ -608,7 +607,7 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
 }
 
 fn stop_sidecar(app: &tauri::AppHandle, graceful: bool) {
-    let cli_lock = app.state::<commands::AppState>().flowix_cli.clone();
+    let cli_lock = app.state::<AppState>().flowix_cli.clone();
     tauri::async_runtime::block_on(async move {
         let guard = cli_lock.read().await;
         if let Some(cli) = guard.as_ref() {
@@ -624,7 +623,7 @@ fn stop_sidecar(app: &tauri::AppHandle, graceful: bool) {
 }
 
 fn stop_external_agent_children(app: &tauri::AppHandle, phase: &str) {
-    let state = app.state::<commands::AppState>();
+    let state = app.state::<AppState>();
     tauri::async_runtime::block_on(async {
         let codex = state.codex_cli_manager.stop_all().await;
         let claude = state.claude_cli_manager.stop_all().await;

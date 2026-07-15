@@ -3,10 +3,10 @@
 //!
 //! 设计要点:
 //! - 单一事件名 `MEMO_EVENT`, `#[serde(tag = "kind")]` 内部区分 `created` /
-//!   `updated` / `deleted`。复用 [`crate::agent::AgentChunk`] 的判别式 enum 模式。
+//!   `updated` / `deleted`。复用 [`crate::agent_flowix::AgentChunk`] 的判别式 enum 模式。
 //! - `MemoChangeSource` 是 informational, 不影响路由。前端不用它分支, 仅供
 //!   日志 / toast / 自写抑制的二次判断使用。
-//! - 旧事件 `agent-document-updated` 由 [`crate::agent`] 的 `edit` 工具触发,
+//! - 旧事件 `agent-document-updated` 由 [`crate::agent_flowix`] 的 `edit` 工具触发,
 //!   本次重构废弃, 改由本模块的 `Updated` 变体承载。
 
 use serde::Serialize;
@@ -18,7 +18,7 @@ pub const MEMO_EVENT: &str = "memo-event";
 
 /// 写者标识 — 仅 informational, 前端不用于分支路由。
 ///
-/// Plan B 后 Agent 不再手动 emit, fs_watcher 把 Agent / 外部工具的磁盘
+/// Plan B 后 Agent 不再手动 emit, watcher 把 Agent / 外部工具的磁盘
 /// 变更统一归到 `ExternalTool`。`AgentEdit` / `AgentWrite` 这两个变体
 /// 已删除 (历史 comment 提到「前端不用它分支」, 合并后语义一致)。
 #[derive(Serialize, Clone, Debug)]
@@ -131,25 +131,25 @@ impl MemoEvent {
 ///
 /// v3 改造后物理 rename 不再发生, 不再需要 id 二级兜底。
 pub fn emit(app: &AppHandle, event: MemoEvent) {
-    // PR3: 优先走 dispatcher (SharedDispatcher) 抽象, 拿不到退到直接 app.emit。
+    // 优先走 dispatcher (SharedDispatcher) 抽象, 拿不到退到直接 app.emit。
     // dispatcher 在 lib.rs::run 里 manage, 为未来多 channel (attachment /
     // tag / notebook) 提供统一入口。本函数是业务唯一调用点, 不
     // 需要动 agent.rs / commands/* 一行代码。
-    if let Some(dispatcher) = app.try_state::<crate::watcher::dispatcher::SharedDispatcher>() {
+    if let Some(dispatcher) = app.try_state::<crate::events::SharedDispatcher>() {
         emit_via_dispatcher(&dispatcher, event);
     } else {
         let _ = app.emit(MEMO_EVENT, &event);
     }
 }
 
-/// 通过 dispatcher 派发 — 走 `crate::watcher::dispatcher::EventDispatcher`
+/// 通过 dispatcher 派发 — 走 `crate::events::EventDispatcher`
 /// 抽象。 `emit()` 默认优先走这里 (从 `app.state` 拿 dispatcher 实例),
 /// 拿不到才退到 `app.emit` 直接发。 多 channel 扩展 (attachment-event /
 /// tag-event) 在 dispatcher 里增加, 业务调用点仍走 `emit()`。
 ///
 
 pub fn emit_via_dispatcher(
-    dispatcher: &crate::watcher::dispatcher::SharedDispatcher,
+    dispatcher: &crate::events::SharedDispatcher,
     event: MemoEvent,
 ) {
     let _ = event.memo_id();

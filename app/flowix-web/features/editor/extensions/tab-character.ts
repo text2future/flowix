@@ -5,6 +5,7 @@ import { Plugin, TextSelection } from '@tiptap/pm/state';
 import { DEFAULT_AGENT_TYPE_KEY } from '@/lib/agent-types';
 
 const TABLE_CELL_TYPES = new Set(['tableCell', 'tableHeader']);
+const LIST_ITEM_TYPES = new Set(['listItem', 'taskItem']);
 const DOUBLE_TAB_WINDOW_MS = 650;
 
 interface RunnableBlock {
@@ -27,6 +28,17 @@ function isInsideTableCell(selection: TextSelection): boolean {
     }
   }
   return false;
+}
+
+function getListItemType(selection: TextSelection): 'listItem' | 'taskItem' | null {
+  const { $from } = selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const typeName = $from.node(depth).type.name;
+    if (LIST_ITEM_TYPES.has(typeName)) {
+      return typeName as 'listItem' | 'taskItem';
+    }
+  }
+  return null;
 }
 
 function isSupportedTextBlock(typeName: string): boolean {
@@ -82,12 +94,26 @@ export const TabCharacter = Extension.create({
         props: {
           handleKeyDown(view, event) {
             if (event.key !== 'Tab') return false;
-            if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+            if (event.altKey || event.ctrlKey || event.metaKey) return false;
             if (event.isComposing || !editor.isEditable) return false;
 
             const { selection } = view.state;
             if (!(selection instanceof TextSelection)) return false;
             if (isInsideTableCell(selection)) return false;
+
+            const listItemType = getListItemType(selection);
+            if (listItemType) {
+              pendingTab = null;
+              event.preventDefault();
+              if (event.shiftKey) {
+                editor.commands.liftListItem(listItemType);
+              } else {
+                editor.commands.sinkListItem(listItemType);
+              }
+              return true;
+            }
+
+            if (event.shiftKey) return false;
 
             const now = Date.now();
             event.preventDefault();

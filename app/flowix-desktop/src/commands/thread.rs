@@ -6,13 +6,13 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::agent::default_agent_id;
-use crate::session::{
+use crate::agent_flowix::default_agent_id;
+use crate::agent_session::{
     AgentConversationInstance, AgentConversationRun, ChatMessage, ThreadInfo, ThreadMessagesPage,
     UpsertAgentConversationInstance,
 };
 
-use super::AppState;
+use crate::app::state::AppState;
 
 #[derive(Serialize)]
 pub struct GetThreadResponse {
@@ -197,12 +197,12 @@ pub async fn agent_conversation_delete_for_thread(
 
 #[tauri::command]
 pub async fn codex_thread_list() -> Result<Vec<ThreadInfo>, String> {
-    crate::external_runtime::codex::list_sessions().await
+    crate::agent_external::codex::list_sessions().await
 }
 
 #[tauri::command]
 pub async fn codex_thread_get(thread_id: String) -> Result<GetThreadResponse, String> {
-    let messages = crate::external_runtime::codex::get_session(&thread_id).await?;
+    let messages = crate::agent_external::codex::get_session(&thread_id).await?;
     Ok(GetThreadResponse { messages })
 }
 
@@ -212,7 +212,7 @@ pub async fn codex_thread_get_page(
     before_sequence: Option<i64>,
     limit: i64,
 ) -> Result<ThreadMessagesPage, String> {
-    crate::external_runtime::codex::get_session_page(&thread_id, before_sequence, limit).await
+    crate::agent_external::codex::get_session_page(&thread_id, before_sequence, limit).await
 }
 
 #[tauri::command]
@@ -220,7 +220,7 @@ pub async fn codex_thread_session_id(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    if crate::external_runtime::codex::is_codex_session_id(&thread_id) {
+    if crate::agent_external::codex::is_codex_session_id(&thread_id) {
         return Ok(Some(thread_id));
     }
 
@@ -233,12 +233,12 @@ pub async fn codex_thread_session_id(
 
 #[tauri::command]
 pub async fn claude_thread_list() -> Result<Vec<ThreadInfo>, String> {
-    crate::external_runtime::claude::list_sessions().await
+    crate::agent_external::claude::list_sessions().await
 }
 
 #[tauri::command]
 pub async fn claude_thread_get(thread_id: String) -> Result<GetThreadResponse, String> {
-    let messages = crate::external_runtime::claude::get_session(&thread_id).await?;
+    let messages = crate::agent_external::claude::get_session(&thread_id).await?;
     Ok(GetThreadResponse { messages })
 }
 
@@ -247,7 +247,7 @@ pub async fn claude_thread_session_id(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    if crate::external_runtime::claude::is_claude_session_id(&thread_id) {
+    if crate::agent_external::claude::is_claude_session_id(&thread_id) {
         return Ok(Some(thread_id));
     }
 
@@ -260,12 +260,12 @@ pub async fn claude_thread_session_id(
 
 #[tauri::command]
 pub async fn hermes_thread_list() -> Result<Vec<ThreadInfo>, String> {
-    crate::external_runtime::hermes::list_sessions().await
+    crate::agent_external::hermes::list_sessions().await
 }
 
 #[tauri::command]
 pub async fn hermes_thread_get(thread_id: String) -> Result<GetThreadResponse, String> {
-    let messages = crate::external_runtime::hermes::get_session(&thread_id).await?;
+    let messages = crate::agent_external::hermes::get_session(&thread_id).await?;
     Ok(GetThreadResponse { messages })
 }
 
@@ -275,7 +275,7 @@ pub async fn hermes_thread_get_page(
     before_sequence: Option<i64>,
     limit: i64,
 ) -> Result<ThreadMessagesPage, String> {
-    crate::external_runtime::hermes::get_session_page(&thread_id, before_sequence, limit).await
+    crate::agent_external::hermes::get_session_page(&thread_id, before_sequence, limit).await
 }
 
 #[tauri::command]
@@ -283,7 +283,7 @@ pub async fn hermes_thread_session_id(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    if crate::external_runtime::hermes::is_hermes_session_id(&thread_id) {
+    if crate::agent_external::hermes::is_hermes_session_id(&thread_id) {
         return Ok(Some(thread_id));
     }
 

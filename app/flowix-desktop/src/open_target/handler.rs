@@ -10,7 +10,7 @@
 //! - 解析失败 (`OpenTargetError`) / 解析后查不到 (`ResolveError`) 都映射到 `None`,
 //!   前端视为"用户粘贴了不存在的路径"或"memo 已被删", 静默 no-op。
 
-use crate::watcher::dispatcher;
+use crate::events as dispatcher;
 use tauri::{AppHandle, State};
 
 use super::parser::parse_open_target;
@@ -25,7 +25,7 @@ use super::ResolvedOpenTarget;
 pub fn open_memo_by_target(
     raw: String,
     emit_event: Option<bool>,
-    state: State<'_, crate::commands::AppState>,
+    state: State<'_, crate::app::state::AppState>,
     app: AppHandle,
 ) -> Option<ResolvedOpenTarget> {
     let parsed = match parse_open_target(&raw) {
@@ -36,7 +36,7 @@ pub fn open_memo_by_target(
         }
     };
 
-    let resolved = match resolve_open_target(parsed, state.inner()) {
+    let resolved = match resolve_open_target(parsed, state.memo_file.as_ref()) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("[open_target] resolve failed: {e}");

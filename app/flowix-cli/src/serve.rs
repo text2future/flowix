@@ -45,7 +45,7 @@
 //! 入口 `run_serve` 接 `R: BufRead, W: Write` 泛型, 单元测试用 `Cursor`
 //! 注入假 stdin / 捕获 stdout, 完整覆盖 happy path / 错误路径 / EOF。
 
-use crate::{errors::CliError, fmt, store};
+use crate::{errors::CliError, fmt, output, store};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::sync::Mutex;
@@ -145,14 +145,16 @@ fn dispatch(method: &str, params: Value) -> Result<Value, CliError> {
             let nb_key = require_str(&params, "notebook")?;
             let body = require_str(&params, "body")?;
             let (mut mf, nb) = store::open_in(nb_key)?;
-            store::create_note(&mut mf, &nb, body)
+            let created = store::create_note(&mut mf, &nb, body)?;
+            output::to_json_value(&created)
         }
 
         "memo.write" => {
             let id = require_str(&params, "id")?;
             let body = require_str(&params, "body")?;
             let (mut mf, full_id) = store::resolve_id(id)?;
-            store::write_note(&mut mf, &full_id, body)
+            let written = store::write_note(&mut mf, &full_id, body)?;
+            output::to_json_value(&written)
         }
 
         "memo.edit" => {
@@ -164,18 +166,20 @@ fn dispatch(method: &str, params: Value) -> Result<Value, CliError> {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
             let (mut mf, full_id) = store::resolve_id(id)?;
-            if dry_run {
+            let edited = if dry_run {
                 store::preview_edit_note(&mut mf, &full_id, old, new)
             } else {
                 store::edit_note(&mut mf, &full_id, old, new)
-            }
+            }?;
+            output::to_json_value(&edited)
         }
 
         "memo.delete" => {
             let id = require_str(&params, "id")?;
             let (mut mf, full_id) = store::resolve_id(id)?;
             let file_path = mf.find_memo_file_path(&full_id);
-            store::delete_note(&mut mf, &full_id, file_path.as_deref())
+            let deleted = store::delete_note(&mut mf, &full_id, file_path.as_deref())?;
+            output::to_json_value(&deleted)
         }
 
         "memo.search" => {
@@ -183,7 +187,8 @@ fn dispatch(method: &str, params: Value) -> Result<Value, CliError> {
             let nb_filter = params.get("notebook").and_then(|v| v.as_str());
             let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
             let results = store::search_hits(q, nb_filter, limit)?;
-            Ok(store::search_results_to_value(q, &results))
+            let search_output = store::search_results_to_value(q, &results);
+            output::to_json_value(&search_output)
         }
 
         other => Err(CliError::UnknownMethod(other.to_string())),

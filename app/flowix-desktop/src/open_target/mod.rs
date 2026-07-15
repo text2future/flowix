@@ -12,8 +12,7 @@
 //!
 //! ## URL scheme
 //!
-//! - `flowix://memo/<6-char-id>`            — 主要场景
-//! - `flowix://memo/<6-char-id>?nb=<nid>`   — 跨 notebook hint
+//! - `flowix://memo/<memo-id>`              — 主要场景
 //! - `flowix://open?path=<encoded-abs>`     — 物理路径 (内部走 id 抽)
 //!
 //! 后端 IPC 命令接收**任意**标识符形态 (URL / 物理路径), 内部经 [`parse_open_target`]

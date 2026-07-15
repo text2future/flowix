@@ -4,11 +4,20 @@
 //! M2: `cmd_list` / `cmd_show`
 //! M3: `cmd_create` (面向 AI, body 从 stdin 读)
 
-use crate::{errors::CliError, fmt, paths};
+use crate::{
+    errors::CliError,
+    fmt,
+    output::{
+        print_pretty_json, NoteCreated, NoteDeleted, NoteEdited, NoteWritten, SearchMatch,
+        SearchOutput,
+    },
+    paths,
+};
 use flowix_core::memo_file::{MemoFile, NotebookConfig};
 use std::{collections::HashMap, path::PathBuf};
 
 const MAX_SEARCH_LIMIT: usize = 200;
+
 
 /// 构造一个 `MemoFile`, 走 `paths::resolve()` 解析的数据目录。
 pub fn open() -> Result<MemoFile, CliError> {
@@ -248,25 +257,14 @@ pub fn cmd_create(notebook_key: &str, json: bool) -> Result<(), CliError> {
     let body = read_stdin()?;
     let payload = create_note(&mut mf, &nb, &body)?;
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&payload)
-                .map_err(|e| CliError::Other(format!("json serialize: {e}")))?
-        );
+        print_pretty_json(&payload)?;
     } else {
-        // human 模式: 重新拼 (create_note 已落盘, payload 里都有)
-        println!("created: {}", payload["id"].as_str().unwrap_or("?"));
-        println!("  key:      {}", payload["id"].as_str().unwrap_or("?"));
-        println!(
-            "  notebook: {}",
-            payload["notebook"].as_str().unwrap_or("?")
-        );
-        println!("  title:    {}", payload["title"].as_str().unwrap_or("?"));
-        println!(
-            "  filename: {}",
-            payload["filename"].as_str().unwrap_or("?")
-        );
-        println!("  file:     {}", payload["file"].as_str().unwrap_or("?"));
+        println!("created: {}", payload.id);
+        println!("  key:      {}", payload.id);
+        println!("  notebook: {}", payload.notebook);
+        println!("  title:    {}", payload.title);
+        println!("  filename: {}", payload.filename);
+        println!("  file:     {}", payload.file);
     }
     Ok(())
 }
@@ -280,7 +278,7 @@ pub(crate) fn create_note(
     mf: &mut MemoFile,
     notebook: &NotebookConfig,
     body: &str,
-) -> Result<serde_json::Value, CliError> {
+) -> Result<NoteCreated, CliError> {
     if body.trim().is_empty() {
         return Err(CliError::Other("empty body, note not created".into()));
     }
@@ -291,18 +289,19 @@ pub(crate) fn create_note(
         .map_err(|e| CliError::Other(format!("failed to create memo: {e}")))?;
     let file_path = mf.get_memo_base().join(&memo.filename);
     let id = memo.id.clone();
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "created",
-        "id": id.clone(),
-        "key": id,
-        "notebook": notebook.name,
-        "notebook_id": notebook.id,
-        "title": title,
-        "filename": memo.filename,
-        "file": file_path.display().to_string(),
-        "path": file_path.display().to_string(),
-    }))
+    let file = file_path.display().to_string();
+    Ok(NoteCreated {
+        ok: true,
+        action: "created",
+        id: id.clone(),
+        key: id,
+        notebook: notebook.name.clone(),
+        notebook_id: notebook.id.clone(),
+        title,
+        filename: memo.filename,
+        file: file.clone(),
+        path: file,
+    })
 }
 
 fn read_stdin() -> Result<String, CliError> {
@@ -336,24 +335,14 @@ pub fn cmd_delete(id_arg: &str, json: bool) -> Result<(), CliError> {
     let file_path = mf.find_memo_file_path(&full_id);
     let payload = delete_note(&mut mf, &full_id, file_path.as_deref())?;
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&payload)
-                .map_err(|e| CliError::Other(format!("json serialize: {e}")))?
-        );
+        print_pretty_json(&payload)?;
     } else {
         println!("deleted: {full_id}");
         println!(
             "  file:      {}",
-            file_path
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "(not on disk)".into())
+            payload.file.as_deref().unwrap_or("(not on disk)")
         );
-        println!(
-            "  removed:   {}",
-            payload["file_removed"].as_bool().unwrap_or(false)
-        );
+        println!("  removed:   {}", payload.file_removed);
     }
     Ok(())
 }
@@ -366,17 +355,18 @@ pub(crate) fn delete_note(
     mf: &mut MemoFile,
     full_id: &str,
     file_path: Option<&std::path::Path>,
-) -> Result<serde_json::Value, CliError> {
+) -> Result<NoteDeleted, CliError> {
     let removed = mf.delete_memo_result(full_id)?;
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "deleted",
-        "id": full_id,
-        "key": full_id,
-        "file": file_path.map(|p| p.display().to_string()),
-        "path": file_path.map(|p| p.display().to_string()),
-        "file_removed": removed,
-    }))
+    let file = file_path.map(|p| p.display().to_string());
+    Ok(NoteDeleted {
+        ok: true,
+        action: "deleted",
+        id: full_id.to_string(),
+        key: full_id.to_string(),
+        file: file.clone(),
+        path: file,
+        file_removed: removed,
+    })
 }
 
 /// `flowix-cli search <query> [--notebook <name|id>]` ── 跨 notebook 全文搜索。
@@ -390,11 +380,7 @@ pub fn cmd_search(
 
     if json {
         let payload = search_results_to_value(query, &results);
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&payload)
-                .map_err(|e| CliError::Other(format!("json serialize: {e}")))?
-        );
+        print_pretty_json(&payload)?;
     } else if results.hits.is_empty() {
         println!("(no matches for `{query}`)");
     } else {
@@ -451,29 +437,28 @@ pub(crate) fn search_hits(
 pub(crate) fn search_results_to_value(
     query: &str,
     results: &flowix_core::search::NotebookSearchResults,
-) -> serde_json::Value {
-    let matches: Vec<serde_json::Value> = results
+) -> SearchOutput {
+    let matches: Vec<SearchMatch> = results
         .hits
         .iter()
-        .map(|hit| {
-            serde_json::json!({
-                "notebook": hit.notebook_name,
-                "notebook_id": hit.notebook_id,
-                "id": hit.id,
-                "title": hit.filename,
-                "score": hit.score,
-                "snippet": hit.snippet,
-            })
+        .map(|hit| SearchMatch {
+            notebook: hit.notebook_name.clone(),
+            notebook_id: hit.notebook_id.clone(),
+            id: hit.id.clone(),
+            title: hit.filename.clone(),
+            score: hit.score,
+            snippet: hit.snippet.clone(),
         })
         .collect();
-    serde_json::json!({
-        "ok": true,
-        "action": "search",
-        "query": query,
-        "matches": matches,
-        "total": results.total,
-        "shown": matches.len(),
-    })
+    let shown = matches.len();
+    SearchOutput {
+        ok: true,
+        action: "search",
+        query: query.to_string(),
+        matches,
+        total: results.total,
+        shown,
+    }
 }
 
 /// `flowix-cli edit <id> --old <text> --new <text>` ── 精确字符串替换增量编辑。
@@ -537,18 +522,14 @@ pub fn cmd_edit(
 
     let payload = edit_note_impl(&mut mf, &full_id, &old, &new, dry_run)?;
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&payload)
-                .map_err(|e| CliError::Other(format!("json serialize: {e}")))?
-        );
+        print_pretty_json(&payload)?;
     } else {
         if dry_run {
-            println!("edit preview: {}", payload["id"].as_str().unwrap_or("?"));
+            println!("edit preview: {}", payload.id);
         } else {
-            println!("edited: {}", payload["id"].as_str().unwrap_or("?"));
+            println!("edited: {}", payload.id);
         }
-        println!("  file:      {}", payload["file"].as_str().unwrap_or("?"));
+        println!("  file:      {}", payload.file);
         println!("  replaced:  {} bytes -> {} bytes", old.len(), new.len());
         if dry_run {
             println!("  wrote:     false");
@@ -567,7 +548,7 @@ pub(crate) fn edit_note(
     full_id: &str,
     old: &str,
     new: &str,
-) -> Result<serde_json::Value, CliError> {
+) -> Result<NoteEdited, CliError> {
     edit_note_impl(mf, full_id, old, new, false)
 }
 
@@ -576,7 +557,7 @@ pub(crate) fn preview_edit_note(
     full_id: &str,
     old: &str,
     new: &str,
-) -> Result<serde_json::Value, CliError> {
+) -> Result<NoteEdited, CliError> {
     edit_note_impl(mf, full_id, old, new, true)
 }
 
@@ -586,7 +567,7 @@ fn edit_note_impl(
     old: &str,
     new: &str,
     dry_run: bool,
-) -> Result<serde_json::Value, CliError> {
+) -> Result<NoteEdited, CliError> {
     if old.is_empty() {
         return Err(CliError::Usage(
             "edit: --old cannot be empty (provides no anchor for replacement)".into(),
@@ -617,45 +598,50 @@ fn edit_note_impl(
     // 替换 + 写回 (title 联动)
     let body = current.replacen(old, new, 1);
     if dry_run {
-        return Ok(serde_json::json!({
-            "ok": true,
-            "action": "edit_preview",
-            "id": full_id,
-            "key": full_id,
-            "filename": file_path.file_name().and_then(|v| v.to_str()),
-            "file": file_path.display().to_string(),
-            "path": file_path.display().to_string(),
-            "old_bytes": old.len(),
-            "new_bytes": new.len(),
-            "dry_run": true,
-            "would_write": true,
-            "wrote": false,
-            "match_type": "exact",
-            "updated_at": serde_json::Value::Null,
-        }));
+        let file = file_path.display().to_string();
+        return Ok(NoteEdited {
+            ok: true,
+            action: "edit_preview",
+            id: full_id.to_string(),
+            key: full_id.to_string(),
+            filename: file_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(str::to_string),
+            file: file.clone(),
+            path: file,
+            old_bytes: old.len(),
+            new_bytes: new.len(),
+            dry_run: true,
+            would_write: true,
+            wrote: false,
+            match_type: "exact",
+            updated_at: None,
+        });
     }
     let memo = mf
         .write_memo_renaming_on_title_change(full_id, &body)
         .map_err(|e| CliError::Other(format!("failed to write memo: {e}")))?;
 
     let new_file_path = mf.get_memo_base().join(&memo.filename);
+    let file = new_file_path.display().to_string();
 
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "edited",
-        "id": full_id,
-        "key": full_id,
-        "filename": memo.filename,
-        "file": new_file_path.display().to_string(),
-        "path": new_file_path.display().to_string(),
-        "old_bytes": old.len(),
-        "new_bytes": new.len(),
-        "dry_run": false,
-        "would_write": true,
-        "wrote": true,
-        "match_type": "exact",
-        "updated_at": memo.updated_at,
-    }))
+    Ok(NoteEdited {
+        ok: true,
+        action: "edited",
+        id: full_id.to_string(),
+        key: full_id.to_string(),
+        filename: Some(memo.filename),
+        file: file.clone(),
+        path: file,
+        old_bytes: old.len(),
+        new_bytes: new.len(),
+        dry_run: false,
+        would_write: true,
+        wrote: true,
+        match_type: "exact",
+        updated_at: Some(memo.updated_at),
+    })
 }
 
 /// `flowix-cli write <id>` ── 从 stdin 读 body, 覆盖现有笔记内容。
@@ -678,14 +664,10 @@ pub fn cmd_write(id_arg: &str, json: bool) -> Result<(), CliError> {
     let body = read_stdin()?;
     let payload = write_note(&mut mf, &full_id, &body)?;
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&payload)
-                .map_err(|e| CliError::Other(format!("json serialize: {e}")))?
-        );
+        print_pretty_json(&payload)?;
     } else {
-        println!("written: {}", payload["id"].as_str().unwrap_or("?"));
-        println!("  file:     {}", payload["file"].as_str().unwrap_or("?"));
+        println!("written: {}", payload.id);
+        println!("  file:     {}", payload.file);
         println!("  bytes:    {}", body.len());
     }
     Ok(())
@@ -699,7 +681,7 @@ pub(crate) fn write_note(
     mf: &mut MemoFile,
     full_id: &str,
     body: &str,
-) -> Result<serde_json::Value, CliError> {
+) -> Result<NoteWritten, CliError> {
     if body.trim().is_empty() {
         return Err(CliError::Other("empty body, note not modified".into()));
     }
@@ -707,21 +689,22 @@ pub(crate) fn write_note(
         .write_memo_renaming_on_title_change(full_id, body)
         .map_err(|e| CliError::Other(format!("failed to write memo: {e}")))?;
     let file_path = mf.get_memo_base().join(&memo.filename);
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "written",
-        "id": full_id,
-        "key": full_id,
-        "filename": memo.filename,
-        "file": file_path.display().to_string(),
-        "path": file_path.display().to_string(),
-        "updated_at": memo.updated_at,
-    }))
+    let file = file_path.display().to_string();
+    Ok(NoteWritten {
+        ok: true,
+        action: "written",
+        id: full_id.to_string(),
+        key: full_id.to_string(),
+        filename: memo.filename,
+        file: file.clone(),
+        path: file,
+        updated_at: memo.updated_at,
+    })
 }
 
 /// `flowix-cli completion <shell>` ── 输出 shell 补全脚本到 stdout。
 pub fn cmd_completion(shell: &str) -> Result<(), CliError> {
-    let mut cmd = crate::cli_command();
+    let mut cmd = crate::cli::cli_command();
     let bin_name = "flowix";
     let mut stdout = std::io::stdout();
     match shell {
@@ -774,7 +757,7 @@ mod tests {
     }
 
     fn seed_notebook_config(
-        data_dir: &std::path::Path,
+        _data_dir: &std::path::Path,
         config_dir: &std::path::Path,
         nb_dir: &std::path::Path,
     ) {
@@ -820,11 +803,11 @@ mod tests {
         with_flowix_env(&config_dir, &data_dir, || {
             let (mut mf, nb) = open_in("work").unwrap();
             let created = create_note(&mut mf, &nb, "# Hello\nbody\n").unwrap();
-            let id = created["id"].as_str().unwrap().to_string();
+            let id = created.id.clone();
             let file_path = mf.find_memo_file_path(&id);
             let deleted = delete_note(&mut mf, &id, file_path.as_deref()).unwrap();
-            assert_eq!(deleted["ok"], true);
-            assert_eq!(deleted["file_removed"], true);
+            assert!(deleted.ok);
+            assert!(deleted.file_removed);
             assert!(mf.read_memo(&id).is_none());
         });
     }
@@ -845,8 +828,8 @@ mod tests {
                 "# flowix-cli-edit-write-test\nline A: original alpha\n",
             )
             .unwrap();
-            let id = created["id"].as_str().unwrap().to_string();
-            let file = created["file"].as_str().unwrap();
+            let id = created.id.clone();
+            let file = created.file.as_str();
             let content = std::fs::read_to_string(file).unwrap();
             let frontmatter_key =
                 flowix_core::memo_file::extract_frontmatter_key(&content).unwrap();
@@ -873,7 +856,7 @@ mod tests {
                 "line A: EDITED alpha",
             )
             .unwrap();
-            assert_eq!(edited["id"], id);
+            assert_eq!(edited.id, id);
 
             let after_edit = notes_list_entries("work")
                 .unwrap()
@@ -901,8 +884,8 @@ mod tests {
         with_flowix_env(&config_dir, &data_dir, || {
             let (mut mf, nb) = open_in("work").unwrap();
             let created = create_note(&mut mf, &nb, "# T\nalpha beta gamma").unwrap();
-            let id = created["id"].as_str().unwrap().to_string();
-            let file = created["file"].as_str().unwrap();
+            let id = created.id.clone();
+            let file = created.file.as_str();
 
             edit_note(&mut mf, &id, "gamma", "gammaXX").unwrap();
 
@@ -925,13 +908,19 @@ mod tests {
         with_flowix_env(&config_dir, &data_dir, || {
             let (mut mf, nb) = open_in("work").unwrap();
             let created = create_note(&mut mf, &nb, "# Alias Test\nalpha beta gamma").unwrap();
-            let id = created["id"].as_str().unwrap().to_string();
-            let file = created["file"].as_str().unwrap().to_string();
+            let id = created.id.clone();
+            let file = created.file.clone();
 
-            assert_eq!(created["key"].as_str(), Some(id.as_str()));
-            assert_eq!(created["path"].as_str(), Some(file.as_str()));
-            assert_eq!(created["notebook"].as_str(), Some("work"));
-            assert_eq!(created["notebook_id"].as_str(), Some(nb.id.as_str()));
+            assert_eq!(created.key, id);
+            assert_eq!(created.path, file);
+            assert_eq!(created.notebook, "work");
+            assert_eq!(created.notebook_id, nb.id.as_str());
+
+            let created_json = crate::output::to_json_value(&created).unwrap();
+            assert_eq!(created_json["key"].as_str(), Some(id.as_str()));
+            assert_eq!(created_json["path"].as_str(), Some(file.as_str()));
+            assert_eq!(created_json["notebook"].as_str(), Some("work"));
+            assert_eq!(created_json["notebook_id"].as_str(), Some(nb.id.as_str()));
 
             let shown = note_show_data(&id).unwrap().to_json();
             assert_eq!(shown["id"].as_str(), Some(id.as_str()));
@@ -942,22 +931,22 @@ mod tests {
 
             let before = std::fs::read_to_string(&file).unwrap();
             let preview = preview_edit_note(&mut mf, &id, "gamma", "gammaXX").unwrap();
-            assert_eq!(preview["action"].as_str(), Some("edit_preview"));
-            assert_eq!(preview["key"].as_str(), Some(id.as_str()));
-            assert_eq!(preview["path"].as_str(), Some(file.as_str()));
-            assert_eq!(preview["dry_run"].as_bool(), Some(true));
-            assert_eq!(preview["would_write"].as_bool(), Some(true));
-            assert_eq!(preview["wrote"].as_bool(), Some(false));
+            assert_eq!(preview.action, "edit_preview");
+            assert_eq!(preview.key, id);
+            assert_eq!(preview.path, file);
+            assert!(preview.dry_run);
+            assert!(preview.would_write);
+            assert!(!preview.wrote);
             assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
 
             let written = write_note(&mut mf, &id, "# Alias Test\nreplacement body").unwrap();
-            assert_eq!(written["key"].as_str(), Some(id.as_str()));
-            assert_eq!(written["path"].as_str(), written["file"].as_str());
+            assert_eq!(written.key, id);
+            assert_eq!(written.path, written.file);
 
             let deleted_file = mf.find_memo_file_path(&id);
             let deleted = delete_note(&mut mf, &id, deleted_file.as_deref()).unwrap();
-            assert_eq!(deleted["key"].as_str(), Some(id.as_str()));
-            assert_eq!(deleted["path"].as_str(), deleted["file"].as_str());
+            assert_eq!(deleted.key, id);
+            assert_eq!(deleted.path, deleted.file);
         });
     }
 }

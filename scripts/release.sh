@@ -64,6 +64,16 @@ if [ ! -f "$PUBKEY_PATH" ]; then
   exit 1
 fi
 
+# TAURI_SIGNING_PRIVATE_KEY is the *contents* of the minisign secret key (base64),
+# matching what `tauri-action@v0` consumes. minisign -s wants a *path* on disk, so
+# materialise it into a tempfile that the trap cleans up. TAURI_SIGNING_PRIVATE_KEY_PATH
+# is preserved as a developer escape hatch for local replay against an on-disk key,
+# but it must be explicit; we no longer fall back to $HOME/.tauri/keys/flowix-dev.key
+# because that path silently signed artifacts with whatever stale key lived there.
+MINISIGN_KEY_FILE="$(mktemp)"
+printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$MINISIGN_KEY_FILE"
+trap 'rm -rf "$RELEASE_OUT/.build.log" "$MINISIGN_KEY_FILE"' EXIT
+
 echo "==> building $VERSION (Flowix → bundle/)"
 cd "$REPO_ROOT"
 FLOWIX_ALLOW_UNSIGNED="${FLOWIX_ALLOW_UNSIGNED:-1}" \
@@ -81,6 +91,18 @@ fi
 
 PUBKEY="$(grep -v '^untrusted' "$PUBKEY_PATH" | tr -d '\n')"
 
+# Resolve the minisign secret-key path. Prefer the explicit path override when
+# set (local replay against an on-disk key); otherwise feed the contents from
+# TAURI_SIGNING_PRIVATE_KEY through the tempfile materialised in step 1.
+MINISIGN_KEY_PATH="$MINISIGN_KEY_FILE"
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+  if [ ! -f "$TAURI_SIGNING_PRIVATE_KEY_PATH" ]; then
+    echo "release.sh: TAURI_SIGNING_PRIVATE_KEY_PATH=$TAURI_SIGNING_PRIVATE_KEY_PATH does not exist" >&2
+    exit 1
+  fi
+  MINISIGN_KEY_PATH="$TAURI_SIGNING_PRIVATE_KEY_PATH"
+fi
+
 sign_artifact () {
   # sign_artifact <path> <output-name>
   local src="$1"
@@ -88,7 +110,7 @@ sign_artifact () {
   cp "$src" "$RELEASE_OUT/$out"
   echo "==> signing $out"
   if ! minisign -S \
-        -s "${TAURI_SIGNING_PRIVATE_KEY_PATH:-$HOME/.tauri/keys/flowix-dev.key}" \
+        -s "$MINISIGN_KEY_PATH" \
         -m "$RELEASE_OUT/$out" \
         -c "release ${VERSION}" </dev/null; then
     echo "release.sh: minisign failed for $out" >&2

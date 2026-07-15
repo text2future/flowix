@@ -32,7 +32,7 @@ cargo test --workspace --lib                         # 跑全部
 通过差异化 Tauri 配置，让 dev 版与已安装的生产版同时运行：
 
 - **dev**：`npm run tauri:dev` → `app/flowix-desktop/tauri.conf.dev.json` → bundle ID `com.flowix.app.dev` / `Flowix Dev`
-- **生产**：`npm run tauri:build:production` → 默认 `tauri.conf.json` + 签名覆盖层 `tauri.conf.production.local.json` → bundle ID `com.flowix.app` / `Flowix`
+- **生产**：`npm run tauri:build:production` → `tauri.conf.json` + 平台覆盖层 + 签名覆盖层 → 平台专用 `tauri.*.production.local.json` → bundle ID `com.flowix.app` / `Flowix`
 - **默认 build**：`npm run tauri:build` → 默认 `tauri.conf.json` → 生产身份（无签名，便于本地试装）
 
 `tauri:dev` 通过 `--config` 指向独立配置，**不要**改 `tauri.conf.json` 的 `identifier` / `productName` / `mainBinaryName` / `bundle.macOS.bundleName` —— 这四个字段是生产身份的锚点。`tauri.conf.production.json` 作为覆盖层被 `tauri build --config` 深合并在 `tauri.conf.json` 之上，因此 dev 配置改动不会污染生产链路。

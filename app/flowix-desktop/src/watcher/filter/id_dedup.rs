@@ -1,4 +1,4 @@
-//! Filter 段 (PR2 占位)。
+//! Id-level dedup 保留模块。
 //!
-//! 当前实现位于 [`super`] 内联; 本文件预留为下个 PR 拆出独立 impl + 单测。
-//! 已经通过 `super::*` 重导出对外保持 API 稳定。
+//! 当前 watcher 以路径自写抑制、防抖和 frontmatter-key 分流为主, 没有启用
+//! 独立 id 去重段。若后续恢复 id 级去重, 实现应放在这里。

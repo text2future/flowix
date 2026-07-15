@@ -16,7 +16,7 @@ use crate::config::path_is_inside;
 use super::helpers::{
     can_access_scoped_file, is_registered_notebook_path, start_security_bookmark_access,
 };
-use super::AppState;
+use crate::app::state::AppState;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

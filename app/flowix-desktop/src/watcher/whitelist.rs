@@ -12,7 +12,7 @@
 //! 热更新 (`MemoWatcher::set_whitelist` + `lib.rs::setup` 中的 `user-config-changed` 监听)。
 //! 未读到该字段时走 `Default::default()`。
 //!
-//! 与现有 `fs_watcher.rs` 硬编码的关系:
+//! 与旧 watcher 硬编码规则的关系:
 //! - 旧: `if path.components().any(|c| c.as_os_str() == ".metadata")`
 //! - 新: `whitelist.allows(path)?` 一行覆盖, 行为完全一致 (默认 skip_dirs
 //!   包含 `.metadata`)
@@ -52,7 +52,7 @@ impl Default for WhitelistConfig {
                 // 附件目录: 用户从附件选择器选了一个 .md 文件时, 后端
                 // save_attachment / save_attachment_content 会把文件复制
                 // 到 <notebook>/attachments/<name>.md. 该目录下的 .md 不
-                // 是 memo, 不应被 fs_watcher 解析为新笔记 (会污染列表,
+                // 是 memo, 不应被 watcher 解析为新笔记 (会污染列表,
                 // 产生"无法打开"的孤立记录). attachments-cache 同理.
                 "attachments".into(),
                 "attachments-cache".into(),

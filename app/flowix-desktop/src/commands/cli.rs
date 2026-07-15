@@ -56,20 +56,6 @@ pub struct SidecarHandle {
 }
 
 impl SidecarHandle {
-    /// 构造一个"占位"句柄 ── 在 `AppState` 构造时 (spawn 之前) 用,
-    /// 所有 `invoke` 立刻返 "sidecar not yet spawned" 错。
-    pub fn placeholder() -> Arc<Self> {
-        Arc::new(Self {
-            stdin: Arc::new(Mutex::new(None)),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            next_id: AtomicU64::new(1),
-            dead: Arc::new(RwLock::new(Some("not yet spawned".into()))),
-            child: Arc::new(Mutex::new(None)),
-            bin_path: PathBuf::new(),
-            _tasks: Vec::new(),
-        })
-    }
-
     /// 构造一个"已死"句柄 ── spawn 失败时塞进 `AppState`, 让 `invoke`
     /// 立刻返带具体原因的错, 而不是泛泛的 "not yet spawned"。
     pub fn dead(reason: String) -> Arc<Self> {
@@ -401,7 +387,7 @@ fn resolve_sidecar_path() -> Result<PathBuf, String> {
 /// 契约一致)。
 #[tauri::command]
 pub async fn cli_invoke(
-    state: tauri::State<'_, crate::commands::AppState>,
+    state: tauri::State<'_, crate::app::state::AppState>,
     method: String,
     params: Option<Value>,
 ) -> Result<Value, String> {
@@ -429,7 +415,7 @@ pub fn install_cli_path() -> Result<crate::cli_link::CliLinkStatus, String> {
 }
 
 async fn ensure_sidecar_handle(
-    state: &tauri::State<'_, crate::commands::AppState>,
+    state: &tauri::State<'_, crate::app::state::AppState>,
 ) -> Result<Arc<SidecarHandle>, String> {
     let existing = {
         let guard = state.flowix_cli.read().await;
@@ -442,7 +428,7 @@ async fn ensure_sidecar_handle(
 }
 
 async fn restart_sidecar_handle(
-    state: &tauri::State<'_, crate::commands::AppState>,
+    state: &tauri::State<'_, crate::app::state::AppState>,
 ) -> Result<Arc<SidecarHandle>, String> {
     let handle = SidecarHandle::spawn().await?;
     {

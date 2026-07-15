@@ -3,13 +3,13 @@
 //! 两个 JSON 文件由 `crate::config::UserConfigStore` 管理 (原子写, 0o600)。
 //! 写入成功后 emit `user-config-changed` 事件, 让多窗口 React 树重新 load。
 
-use crate::watcher::dispatcher;
-use tauri::{AppHandle, Emitter, State};
+use crate::events as dispatcher;
+use tauri::{AppHandle, State};
 
-use crate::agent::provider::{probe_chat, TestConnectionResult};
+use crate::agent_flowix::provider::{probe_chat, TestConnectionResult};
 use crate::config::{AiConfigFile, AiModelConfig, PreferenceFile};
 
-use super::AppState;
+use crate::app::state::AppState;
 
 /// 跨窗口同步事件 — 任一窗口成功写入偏好 / AI 配置后 emit, 其它窗口
 /// (主窗口 / 偏好窗口 / 未来的多窗口) 收到后从磁盘重新 load。

@@ -1,7 +1,7 @@
 {
   "name": "flowix",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,9 +16,9 @@
     "tauri:dev": "tauri dev --config app/flowix-desktop/tauri.conf.dev.json",
     "tauri:dev:win": "tauri dev --config app/flowix-desktop/tauri.windows.dev.conf.json",
     "tauri:build": "tauri build",
-    "tauri:build:win": "npm run cli:build && tauri build --config app/flowix-desktop/tauri.windows.conf.json",
-    "tauri:build:mac": "npm run cli:build && tauri build --config app/flowix-desktop/tauri.macos.conf.json",
-    "tauri:build:production": "npm run cli:build && node scripts/prepare-tauri-production-config.mjs && tauri build --config app/flowix-desktop/tauri.conf.production.local.json",
+    "tauri:build:win": "node scripts/build-tauri-production.mjs --platform win32",
+    "tauri:build:mac": "node scripts/build-tauri-production.mjs --platform darwin",
+    "tauri:build:production": "node scripts/build-tauri-production.mjs",
     "icons:phosphor:bold": "node scripts/extract-phosphor-bold-paths.mjs"
   },
   "dependencies": {

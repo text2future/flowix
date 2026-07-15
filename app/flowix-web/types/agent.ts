@@ -262,7 +262,7 @@ export interface AgentChunkStreamEnd {
 /**
  * Token usage breakdown — nested object emitted on `usage` field of the
  * `AgentChunk::Usage` wire variant. Mirrors Rust
- * [`crate::agent::UsageInfo`]. Fields are all optional so providers that
+ * [`crate::agent_flowix::UsageInfo`]. Fields are all optional so providers that
  * only report `total_tokens` can still send a chunk without zero-filling.
  *
  * `total_tokens` is the sum used by the Rust `token_budget` cross-cycle
@@ -287,7 +287,7 @@ export interface UsageInfo {
 /**
  * Provider-specific status snapshot — nested object emitted on the
  * `status_info` field of `AgentChunk::Usage`. Mirrors Rust
- * [`crate::agent::StatusInfo`]. Fields use `codex_` / `claude_` /
+ * [`crate::agent_flowix::StatusInfo`]. Fields use `codex_` / `claude_` /
  * `hermes_` prefixes for flat namespace; no nested `codex: CodexStatus`
  * sub-struct. Latest-snapshot semantics, not accumulated.
  */

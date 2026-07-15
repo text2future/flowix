@@ -4,10 +4,30 @@
 //! 各放一个 `#[cfg(target_os = ...)]` 分支。
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
-use crate::commands::AppState;
+use crate::app::state::AppState;
+use crate::config::Theme;
 use crate::lock_utils::read_lock;
+
+static MAIN_WINDOW_FOCUS_CONSUMED: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+pub fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    crate::window_chrome::apply_window_border_color(&window);
+    window.show().map_err(|e| e.to_string())?;
+
+    if !MAIN_WINDOW_FOCUS_CONSUMED.swap(true, Ordering::SeqCst) {
+        window.set_focus().ok();
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,13 +41,26 @@ pub struct NoteWindowPayload {
 #[tauri::command]
 pub async fn open_preferences_window(
     app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     tab: Option<String>,
 ) -> Result<(), String> {
     use tauri::WebviewWindowBuilder;
 
+    let boot_theme = match state.user_config.get_preference().theme {
+        Theme::System => None,
+        Theme::Light => Some("light"),
+        Theme::Dark => Some("dark"),
+        Theme::Rock => Some("rock"),
+        Theme::Mist => Some("mist"),
+        Theme::Ember => Some("ember"),
+    };
+    let base = match boot_theme {
+        Some(theme) => format!("index.html?bootTheme={theme}"),
+        None => "index.html".to_string(),
+    };
     let url = match tab {
-        Some(t) => format!("index.html#preferences/{}", t),
-        None => "index.html#preferences".to_string(),
+        Some(t) => format!("{base}#preferences/{}", t),
+        None => format!("{base}#preferences"),
     };
 
     // Check if window already exists

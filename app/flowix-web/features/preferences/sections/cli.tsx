@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Check, Download, Loader2 } from 'lucide-react';
 import { SectionHeader } from '@features/preferences/sections/primitives';
 import { useI18n, type I18nKey } from '@features/i18n';
-import { cli, type CliLinkStatus } from '@platform/tauri/client';
+import { useCliLinkStatusStore } from '@features/preferences/store';
 import { Button } from '@shared/ui/button';
 
 interface CliCommandItem {
@@ -72,38 +72,16 @@ const CLI_COMMANDS: CliCommandItem[] = [
 
 export function CliSection() {
   const { t } = useI18n();
-  const [status, setStatus] = useState<CliLinkStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const refreshStatus = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setStatus(await cli.linkStatus());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const status = useCliLinkStatusStore((s) => s.status);
+  const loading = useCliLinkStatusStore((s) => s.isChecking);
+  const installing = useCliLinkStatusStore((s) => s.isInstalling);
+  const error = useCliLinkStatusStore((s) => s.error);
+  const refreshIfStale = useCliLinkStatusStore((s) => s.refreshIfStale);
+  const installPath = useCliLinkStatusStore((s) => s.installPath);
 
   useEffect(() => {
-    void refreshStatus();
-  }, []);
-
-  const handleInstall = async () => {
-    setInstalling(true);
-    setError(null);
-    try {
-      setStatus(await cli.installPath());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setInstalling(false);
-    }
-  };
+    void refreshIfStale();
+  }, [refreshIfStale]);
 
   const statusText = loading
     ? t('preferences.cli.status.checking')
@@ -149,7 +127,7 @@ export function CliSection() {
             {status?.needsInstall && (
               <Button
                 className="px-3"
-                onClick={handleInstall}
+                onClick={() => void installPath()}
                 disabled={installing}
               >
                 {installing ? (

@@ -1,22 +1,24 @@
-//! 监听器模块 — `fs_watcher.rs` 的模块化重构入口。
+//! 笔记目录监听模块。
 //!
-//! 三段式架构:
-//! 1. `event` — `RawFsEvent` 跨平台统一抽象
-//! 2. `whitelist` — `WhitelistConfig` 可配置白/黑名单
-//! 3. 后续 PR: `filter/` + `dispatcher` + `processor`
-//!
-//! 当前 PR1 只引入 `event` + `whitelist` 类型, 在 `fs_watcher.rs` 顶部接入
-//! `WhitelistConfig::allows()` 做第一道闸; 业务处理 (register / reload /
-//! unregister) 仍在 `fs_watcher.rs::handle_notify_event` 内, 保持现有行为不变。
+//! 模块边界:
+//! - `manager` 持有 `notify::RecommendedWatcher` 生命周期, 采集原始文件事件。
+//! - `event` 提供跨平台 `RawFsEvent` / `FsEventKind` 抽象。
+//! - `filter` 负责 whitelist / self-write / debounce 三段过滤。
+//! - `processor` 把通过过滤的事件分流成 memo register / reload / unregister。
+//! - `runtime` 提供从 Tauri state 访问当前 watcher 的窄接口。
 
-pub mod dispatcher;
 pub mod event;
 pub mod filter;
+pub mod manager;
 pub mod path;
 pub mod processor;
+pub mod runtime;
+pub mod tombstone;
 pub mod whitelist;
 
 pub use event::{FsEventKind, RawFsEvent};
+pub use manager::MemoWatcher;
 pub use path::normalize_for_compare;
 pub use processor::{MemoEventProcessor, NotebookWatchContext};
+pub use runtime::current_watcher;
 pub use whitelist::WhitelistConfig;

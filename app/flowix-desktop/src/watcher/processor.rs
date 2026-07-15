@@ -1,12 +1,12 @@
 //! `MemoEventProcessor` — 把 `RawFsEvent` 转成 `MemoEvent` 并 emit。
 //!
-//! PR3 业务下沉: fs_watcher.rs 不再直接调 `MemoFile` 的 register / reload /
-//! unregister, 统一委派给本模块。pipeline 跑过之后, 把 `RawFsEvent` 喂给
+//! watcher manager 不直接调 `MemoFile` 的 register / reload / unregister,
+//! 统一委派给本模块。pipeline 跑过之后, 把 `RawFsEvent` 喂给
 //! `MemoEventProcessor::process`, 它看 event.kind 分派, 走 register_unnamed /
 //! reload / unregister, 最后 emit `MemoEvent` (走 dispatcher 抽象, 多 channel
 //! 后续在这里 extend)。
 //!
-//! `process` 是同步的, 跟 fs_watcher 现在的风格一致: 拿到事件 → 同步改
+//! `process` 是同步的: 拿到事件 → 同步改
 //! `MemoFile` (Arc<RwLock>) → 同步 emit → 返回。notify 回调线程不 await。
 
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ pub struct NotebookWatchContext {
 /// 业务处理器 — 状态由调用方注入 (memo_file / app)。
 ///
 /// 故意不做成 struct 持字段, 而是 stateless: `process` 接收所有依赖。原因:
-/// fs_watcher.rs 的 notify 回调闭包已经是 `move |res| { ... }`, 闭包捕获
+/// manager 的 notify 回调闭包已经是 `move |res| { ... }`, 闭包捕获
 /// Arc<MemoFile> / AppHandle 引用, 不需要 processor 内部再持一份。
 pub struct MemoEventProcessor;
 
@@ -277,19 +277,19 @@ fn wait_for_markdown_copy_to_settle(path: &Path) {
 }
 
 fn try_update_search_index(app: &AppHandle, id: &str) {
-    if let Some(state) = app.try_state::<crate::commands::AppState>() {
-        crate::commands::helpers::try_index_upsert(state.inner(), id);
+    if let Some(state) = app.try_state::<crate::app::state::AppState>() {
+        crate::app::search_index::try_index_upsert(state.inner(), id);
     }
 }
 
 fn try_remove_from_search_index(app: &AppHandle, id: &str) {
-    if let Some(state) = app.try_state::<crate::commands::AppState>() {
-        crate::commands::helpers::try_index_remove(state.inner(), id);
+    if let Some(state) = app.try_state::<crate::app::state::AppState>() {
+        crate::app::search_index::try_index_remove(state.inner(), id);
     }
 }
 
 impl MemoEventProcessor {
-    /// 入口 — pipeline 跑过之后调用, 事件已通过 4 段 filter。
+    /// 入口 — pipeline 跑过之后调用, 事件已通过 filter。
     ///
     /// 行为:
     /// - Create/Modify: 文件存在 → key-first 分流; 不存在 → unregister
@@ -345,7 +345,7 @@ impl MemoEventProcessor {
                         new_abs_path,
                     }) => {
                         tracing::info!("[MemoWatcher] registered: {}", new_abs_path.display(),);
-                        if let Some(w) = crate::commands::current_watcher(app) {
+                        if let Some(w) = crate::watcher::current_watcher(app) {
                             if let Ok(g) = w.read() {
                                 g.mark_self_write(&new_abs_path);
                             }

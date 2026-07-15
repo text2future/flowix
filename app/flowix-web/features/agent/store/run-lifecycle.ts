@@ -3,7 +3,7 @@ import type { LastRunSnapshot } from '@/types/agent';
 
 /**
  * Reason string the backend attaches to `StreamEnd` when `stop_chat` ends a
- * run (see `external_runtime::shared::USER_STOPPED_REASON`). Must map to
+ * run (see `agent_external::shared::USER_STOPPED_REASON`). Must map to
  * `cancelled` ── a user-initiated stop is never `failed` or `completed`.
  * Kept in sync with the Rust literal by name + value.
  */

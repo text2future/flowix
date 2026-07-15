@@ -7,7 +7,7 @@
 //! (`~/.flowix/agent-access.json`), 任何 entry 真改了之后 emit
 //! `agent-access-changed` 事件, 其它窗口 React 树收到后从磁盘重新 load。
 
-use crate::watcher::dispatcher;
+use crate::events as dispatcher;
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
@@ -18,7 +18,7 @@ use super::agent_access::AGENT_ACCESS_CHANGED_EVENT;
 use super::helpers::{
     refresh_watcher_roots, switch_notebook_importing_disk_as_new, switch_notebook_trusting_index,
 };
-use super::AppState;
+use crate::app::state::AppState;
 
 const NOTEBOOK_IMPORT_COMPLETE_EVENT: &str = "notebook-import-complete";
 

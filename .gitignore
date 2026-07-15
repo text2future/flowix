@@ -40,3 +40,4 @@ coverage/
 
 # Local artifacts
 test.json
+app/flowix-desktop/tauri*.production.local.json

@@ -1,7 +1,7 @@
-//! 跨 filter / fs_watcher 共享的路径归一工具。
+//! 跨 watcher manager / filter 共享的路径归一工具。
 //!
-//! 从 `fs_watcher.rs` 抽出来, 让 `SelfWriteSuppressor` / `Debouncer`
-//! 跟 `fs_watcher::mark_self_write` 走完全同口径的 key。
+//! `MemoWatcher::mark_self_write` 和 `SelfWriteSuppressor` / `Debouncer`
+//! 都用这里生成 HashMap key, 避免写盘端与 notify 端路径口径不一致。
 
 use std::path::{Path, PathBuf};
 

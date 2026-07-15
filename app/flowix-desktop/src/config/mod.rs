@@ -33,7 +33,5 @@ pub use path_scope::path_is_inside;
 pub use security_bookmark::pick_directory_with_bookmark;
 pub use security_bookmark::SecurityBookmarkStore;
 pub use user::{
-    AgentsConfig, AiConfigFile, AiModelConfig, FormatConfig, PersonalizeConfig, PreferenceFile,
-    ProductUpdatesConfig, PropertiesConfig, PropertyFieldConfig, Theme, UserConfigError,
-    UserConfigStore,
+    AiConfigFile, AiModelConfig, PreferenceFile, Theme, UserConfigError, UserConfigStore,
 };

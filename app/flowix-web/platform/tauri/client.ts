@@ -373,6 +373,7 @@ export interface NoteWindowPayload {
 }
 
 export const windows = {
+  showMain: () => invoke<void>('show_main_window'),
   openPreferences: (tab?: string) => invoke<void>('open_preferences_window', { tab }),
   openNoteWindow: (memoId: string) => invoke<void>('open_note_window', { memoId }),
   resolveNoteWindowPayload: (memoId: string) =>

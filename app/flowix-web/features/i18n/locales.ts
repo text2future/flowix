@@ -43,7 +43,7 @@ export const messages = {
     "preferences.tabs.agents": "Agents",
     "preferences.tabs.agent": "模型配置",
     "preferences.tabs.shortcuts": "快捷键",
-    "preferences.tabs.cli": "CLI",
+    "preferences.tabs.cli": "flowix CLI",
     "preferences.tabs.connections": "集成",
     "preferences.tabs.imageGeneration": "图片生成",
     "preferences.tabs.videoGeneration": "视频生成",

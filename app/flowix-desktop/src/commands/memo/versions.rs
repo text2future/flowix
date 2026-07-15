@@ -5,27 +5,17 @@
 // the live memo state.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 
-use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::lock_utils::{read_lock, write_lock};
-use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
-use crate::watcher::path::normalize_for_compare;
-use crate::USER_CONFIG_DIR_NAME;
-use flowix_core::memo_file::{
-    atomic_write_bytes, extract_body_content, Memo, MemoColor, MemoFile, MemoTodoEntry,
-    MemoVersionMeta, MemoVersionSource,
-};
-use flowix_core::search::MemoSearchHit;
+use crate::lock_utils::read_lock;
+use flowix_core::memo_file::{MemoVersionMeta, MemoVersionSource};
 
-use super::AppState;
-use crate::commands::helpers::{
-    force_rebuild_index, mark_self_write_for, rebuild_index_in_background,
-    start_security_bookmark_access, synthesize_minimal_memo, try_index_remove, try_index_upsert,
-};
+use crate::app::state::AppState;
+use crate::commands::helpers::start_security_bookmark_access;
+use crate::watcher::runtime::mark_self_write_for;
 
+use super::helpers::*;
 use super::*;
 
 #[tauri::command]

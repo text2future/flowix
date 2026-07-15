@@ -11,7 +11,7 @@ use tauri::State;
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::types::MoveTagReport;
 
-use super::AppState;
+use crate::app::state::AppState;
 
 #[derive(Serialize)]
 pub struct GetAllTagsResponse {

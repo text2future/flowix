@@ -102,7 +102,7 @@ pub fn ensure_cli_symlink() {
 pub fn cli_link_status() -> CliLinkStatus {
     #[cfg(windows)]
     {
-        return windows_cli_link_status();
+        return windows_cli_link_status(false);
     }
 
     let Some(home) = dirs::home_dir() else {
@@ -150,7 +150,7 @@ pub fn install_cli_path() -> Result<CliLinkStatus, String> {
     #[cfg(windows)]
     {
         ensure_windows_cli_shim()?;
-        return Ok(cli_link_status());
+        return Ok(windows_cli_link_status(true));
     }
 
     ensure_cli_symlink();
@@ -322,7 +322,7 @@ fn windows_cli_bin_dir() -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn windows_cli_link_status() -> CliLinkStatus {
+fn windows_cli_link_status(include_user_path: bool) -> CliLinkStatus {
     let Some(bin_dir) = windows_cli_bin_dir() else {
         return CliLinkStatus {
             target_path: None,
@@ -341,8 +341,8 @@ fn windows_cli_link_status() -> CliLinkStatus {
     let symlink_installed = target
         .as_ref()
         .is_some_and(|target| windows_shim_points_to(&command_path, target));
-    let path_configured =
-        path_contains_dir(&bin_dir) || windows_user_path_contains_dir(&bin_dir).unwrap_or(false);
+    let path_configured = path_contains_dir(&bin_dir)
+        || (include_user_path && windows_user_path_contains_dir(&bin_dir).unwrap_or(false));
     let available_in_path = command_resolves_to("flowix", None) || path_configured;
     let needs_install = !symlink_installed || !path_configured;
 
@@ -402,6 +402,16 @@ fn normalize_newlines(value: &str) -> String {
 
 #[cfg(windows)]
 fn windows_user_path_contains_dir(dir: &Path) -> Result<bool, String> {
+    match windows_user_path_registry_value() {
+        Ok(Some(value)) => return Ok(path_value_contains_dir(&value, dir)),
+        Ok(None) => return Ok(false),
+        Err(err) => {
+            tracing::warn!(
+                "[cli-link] registry read of HKCU\\Environment\\Path failed, falling back to PowerShell: {err}"
+            );
+        }
+    }
+
     let output = windows_hidden_command(
         "powershell.exe",
         &[
@@ -420,6 +430,15 @@ fn ensure_windows_user_path_config(dir: &Path) -> Result<(), String> {
     if windows_user_path_contains_dir(dir).unwrap_or(false) {
         return Ok(());
     }
+    match ensure_windows_user_path_config_registry(dir) {
+        Ok(()) => return Ok(()),
+        Err(err) => {
+            tracing::warn!(
+                "[cli-link] registry update of HKCU\\Environment\\Path failed, falling back to PowerShell: {err}"
+            );
+        }
+    }
+
     let dir = powershell_single_quoted(&dir.display().to_string());
     let script = format!(
         "$p=[Environment]::GetEnvironmentVariable('Path','User');\
@@ -437,6 +456,294 @@ fn ensure_windows_user_path_config(dir: &Path) -> Result<(), String> {
         ],
     )?;
     Ok(())
+}
+
+#[cfg(windows)]
+struct WindowsRegistryKey(windows::Win32::System::Registry::HKEY);
+
+#[cfg(windows)]
+impl Drop for WindowsRegistryKey {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows::Win32::System::Registry::RegCloseKey(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+struct RegistryStringType(windows::Win32::System::Registry::REG_VALUE_TYPE);
+
+#[cfg(windows)]
+impl RegistryStringType {
+    fn fallback() -> Self {
+        Self(windows::Win32::System::Registry::REG_EXPAND_SZ)
+    }
+
+    fn supported(self) -> bool {
+        use windows::Win32::System::Registry::{REG_EXPAND_SZ, REG_SZ};
+        self.0 == REG_SZ || self.0 == REG_EXPAND_SZ
+    }
+}
+
+#[cfg(windows)]
+fn open_windows_environment_key(
+    access: windows::Win32::System::Registry::REG_SAM_FLAGS,
+) -> Result<WindowsRegistryKey, String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::{RegOpenKeyExW, HKEY, HKEY_CURRENT_USER};
+
+    let subkey = wide_null("Environment");
+    let mut key = HKEY::default();
+    let status = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            None,
+            access,
+            &mut key,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!(
+            "RegOpenKeyExW(HKCU\\Environment) failed: {}",
+            status.0
+        ));
+    }
+    Ok(WindowsRegistryKey(key))
+}
+
+#[cfg(windows)]
+fn windows_user_path_registry_value() -> Result<Option<String>, String> {
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_SUCCESS};
+    use windows::Win32::System::Registry::{
+        RegQueryValueExW, KEY_READ, REG_EXPAND_SZ, REG_SZ, REG_VALUE_TYPE,
+    };
+
+    let key = open_windows_environment_key(KEY_READ)?;
+    let value_name = wide_null("Path");
+    let value_name = windows::core::PCWSTR(value_name.as_ptr());
+    let mut value_type = REG_VALUE_TYPE(0);
+    let mut byte_len = 0u32;
+    let status = unsafe {
+        RegQueryValueExW(
+            key.0,
+            value_name,
+            None,
+            Some(&mut value_type),
+            None,
+            Some(&mut byte_len),
+        )
+    };
+    if status == ERROR_FILE_NOT_FOUND {
+        return Ok(None);
+    }
+    if status != ERROR_SUCCESS && status != ERROR_MORE_DATA {
+        return Err(format!("RegQueryValueExW(Path size) failed: {}", status.0));
+    }
+    if value_type != REG_SZ && value_type != REG_EXPAND_SZ {
+        return Err(format!(
+            "HKCU\\Environment\\Path has unsupported registry type {}",
+            value_type.0
+        ));
+    }
+    if byte_len == 0 {
+        return Ok(Some(String::new()));
+    }
+
+    let mut bytes = vec![0u8; byte_len as usize];
+    let mut actual_type = REG_VALUE_TYPE(0);
+    let mut actual_byte_len = byte_len;
+    let status = unsafe {
+        RegQueryValueExW(
+            key.0,
+            value_name,
+            None,
+            Some(&mut actual_type),
+            Some(bytes.as_mut_ptr()),
+            Some(&mut actual_byte_len),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!("RegQueryValueExW(Path data) failed: {}", status.0));
+    }
+    if actual_type != REG_SZ && actual_type != REG_EXPAND_SZ {
+        return Err(format!(
+            "HKCU\\Environment\\Path has unsupported registry type {}",
+            actual_type.0
+        ));
+    }
+    bytes.truncate(actual_byte_len as usize);
+    Ok(Some(decode_registry_utf16_string(&bytes)))
+}
+
+#[cfg(windows)]
+fn ensure_windows_user_path_config_registry(dir: &Path) -> Result<(), String> {
+    use windows::Win32::System::Registry::{KEY_READ, KEY_SET_VALUE, REG_SAM_FLAGS};
+
+    let current = windows_user_path_registry_value_with_type()?;
+    let dir_text = dir.display().to_string();
+    let (current_path, value_type) = current
+        .map(|(value, value_type)| (value, value_type))
+        .unwrap_or_else(|| (String::new(), RegistryStringType::fallback()));
+
+    if path_value_contains_dir(&current_path, dir) {
+        return Ok(());
+    }
+
+    let next_path = if current_path.trim().is_empty() {
+        dir_text
+    } else {
+        format!("{};{}", current_path.trim_end_matches(';'), dir_text)
+    };
+
+    let access = REG_SAM_FLAGS(KEY_READ.0 | KEY_SET_VALUE.0);
+    let key = open_windows_environment_key(access)?;
+    set_windows_user_path_registry_value(&key, &next_path, value_type)?;
+    broadcast_windows_environment_change();
+    Ok(())
+}
+
+#[cfg(windows)]
+fn windows_user_path_registry_value_with_type(
+) -> Result<Option<(String, RegistryStringType)>, String> {
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_SUCCESS};
+    use windows::Win32::System::Registry::{RegQueryValueExW, KEY_READ, REG_VALUE_TYPE};
+
+    let key = open_windows_environment_key(KEY_READ)?;
+    let value_name = wide_null("Path");
+    let value_name = windows::core::PCWSTR(value_name.as_ptr());
+    let mut value_type = REG_VALUE_TYPE(0);
+    let mut byte_len = 0u32;
+    let status = unsafe {
+        RegQueryValueExW(
+            key.0,
+            value_name,
+            None,
+            Some(&mut value_type),
+            None,
+            Some(&mut byte_len),
+        )
+    };
+    if status == ERROR_FILE_NOT_FOUND {
+        return Ok(None);
+    }
+    if status != ERROR_SUCCESS && status != ERROR_MORE_DATA {
+        return Err(format!("RegQueryValueExW(Path size) failed: {}", status.0));
+    }
+
+    let value_type = RegistryStringType(value_type);
+    if !value_type.supported() {
+        return Err(format!(
+            "HKCU\\Environment\\Path has unsupported registry type {}",
+            value_type.0 .0
+        ));
+    }
+    if byte_len == 0 {
+        return Ok(Some((String::new(), value_type)));
+    }
+
+    let mut bytes = vec![0u8; byte_len as usize];
+    let mut actual_type = REG_VALUE_TYPE(0);
+    let mut actual_byte_len = byte_len;
+    let status = unsafe {
+        RegQueryValueExW(
+            key.0,
+            value_name,
+            None,
+            Some(&mut actual_type),
+            Some(bytes.as_mut_ptr()),
+            Some(&mut actual_byte_len),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!("RegQueryValueExW(Path data) failed: {}", status.0));
+    }
+    let actual_type = RegistryStringType(actual_type);
+    if !actual_type.supported() {
+        return Err(format!(
+            "HKCU\\Environment\\Path has unsupported registry type {}",
+            actual_type.0 .0
+        ));
+    }
+    bytes.truncate(actual_byte_len as usize);
+    Ok(Some((decode_registry_utf16_string(&bytes), actual_type)))
+}
+
+#[cfg(windows)]
+fn set_windows_user_path_registry_value(
+    key: &WindowsRegistryKey,
+    value: &str,
+    value_type: RegistryStringType,
+) -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::RegSetValueExW;
+
+    let value_name = wide_null("Path");
+    let encoded = wide_null(value);
+    let bytes = unsafe {
+        std::slice::from_raw_parts(
+            encoded.as_ptr().cast::<u8>(),
+            encoded.len() * std::mem::size_of::<u16>(),
+        )
+    };
+    let status = unsafe {
+        RegSetValueExW(
+            key.0,
+            PCWSTR(value_name.as_ptr()),
+            None,
+            value_type.0,
+            Some(bytes),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!("RegSetValueExW(Path) failed: {}", status.0));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn broadcast_windows_environment_change() {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
+    };
+
+    let environment = wide_null("Environment");
+    let mut result = 0usize;
+    let sent = unsafe {
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            WPARAM(0),
+            LPARAM(environment.as_ptr() as isize),
+            SMTO_ABORTIFHUNG,
+            5_000,
+            Some(&mut result),
+        )
+    };
+    if sent.0 == 0 {
+        tracing::warn!("[cli-link] WM_SETTINGCHANGE broadcast for Environment did not complete");
+    }
+}
+
+#[cfg(windows)]
+fn wide_null(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn decode_registry_utf16_string(bytes: &[u8]) -> String {
+    let mut units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect();
+    while units.last().copied() == Some(0) {
+        units.pop();
+    }
+    String::from_utf16_lossy(&units)
 }
 
 #[cfg(windows)]

@@ -10,13 +10,13 @@ use async_trait::async_trait;
 use serde::Serialize;
 use tauri::State;
 
-use crate::agent::{AgentChatResponse, AgentManager, AgentUserMessage, RunInfo};
-use crate::external_runtime::claude::ClaudeCliManager;
-use crate::external_runtime::codex::CodexCliManager;
-use crate::external_runtime::hermes::HermesCliManager;
-use crate::external_runtime::simple_cli::SimpleCliManager;
+use crate::agent_external::claude::ClaudeCliManager;
+use crate::agent_external::codex::CodexCliManager;
+use crate::agent_external::hermes::HermesCliManager;
+use crate::agent_external::simple_cli::SimpleCliManager;
+use crate::agent_flowix::{AgentChatResponse, AgentManager, AgentUserMessage, RunInfo};
 
-use super::AppState;
+use crate::app::state::AppState;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AgentRuntime {
@@ -209,19 +209,19 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     let ai_config = state.user_config.get_ai_config().model;
     let flowix_available = !ai_config.model.trim().is_empty();
 
-    let codex_binary = crate::external_runtime::codex::cli::resolve_codex_binary();
+    let codex_binary = crate::agent_external::codex::cli::resolve_codex_binary();
     let codex_available = executable_available(&codex_binary);
 
-    let claude_binary = crate::external_runtime::claude::cli::resolve_claude_binary();
+    let claude_binary = crate::agent_external::claude::cli::resolve_claude_binary();
     let claude_available = executable_available(&claude_binary);
-    let gemini_binary = crate::external_runtime::simple_cli::resolve_simple_cli_binary(
-        crate::external_runtime::simple_cli::SimpleCliKind::Gemini,
+    let gemini_binary = crate::agent_external::simple_cli::resolve_simple_cli_binary(
+        crate::agent_external::simple_cli::SimpleCliKind::Gemini,
     );
     let gemini_available = executable_available(&gemini_binary);
-    let hermes_binary = crate::external_runtime::hermes::cli::resolve_hermes_binary();
+    let hermes_binary = crate::agent_external::hermes::cli::resolve_hermes_binary();
     let hermes_available = executable_available(&hermes_binary);
-    let openclaw_binary = crate::external_runtime::simple_cli::resolve_simple_cli_binary(
-        crate::external_runtime::simple_cli::SimpleCliKind::OpenClaw,
+    let openclaw_binary = crate::agent_external::simple_cli::resolve_simple_cli_binary(
+        crate::agent_external::simple_cli::SimpleCliKind::OpenClaw,
     );
     let openclaw_available = executable_available(&openclaw_binary);
 
@@ -513,7 +513,7 @@ pub async fn agent_supported_models(agent_type: String) -> Result<Vec<String>, S
 
 async fn query_codex_models() -> Result<Vec<String>, String> {
     let mut cmd =
-        tokio::process::Command::new(crate::external_runtime::codex::cli::resolve_codex_binary());
+        tokio::process::Command::new(crate::agent_external::codex::cli::resolve_codex_binary());
     crate::process_window::hide_command_window(&mut cmd);
     let output = cmd
         .args(["debug", "models"])

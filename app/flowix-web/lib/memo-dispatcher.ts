@@ -36,6 +36,10 @@ import { useTodoCountStore } from '@features/memo/store/todo-count-store';
 import { createMemoDedupMiddleware } from '@/lib/memo-dispatcher-dedup';
 import type { MemoEvent } from '@/types/memo';
 
+// Current windowing model: the main window imports this dispatcher from
+// app/main-window-effects.tsx. The preferences window intentionally does not
+// import it during startup.
+
 /**
  * 全局 memoDispatcher 单例 (per-webview)。 各 webview (主窗口 / 偏好
  * 窗口) 各自持有一份独立实例, 通过 Tauri 事件总线收到的 payload

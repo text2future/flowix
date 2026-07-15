@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::system_data::{NotebookTagSystemData, TagLayoutItem};
 
-use super::AppState;
+use crate::app::state::AppState;
 
 #[tauri::command]
 pub fn get_tag_system_metadata(

@@ -1,31 +1,16 @@
-//! Cross-command helpers for notebook switching, search indexing, path scope,
-//! self-write suppression, and markdown parsing.
+//! Cross-command helpers for notebook switching, path scope, and markdown parsing.
 
-use crate::watcher::dispatcher;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
+use crate::app::search_index::rebuild_index_in_background;
 use crate::config::path_is_inside;
-use crate::fs_watcher::MemoWatcher;
 use crate::lock_utils::{read_lock, write_lock};
+use crate::watcher::runtime::current_watcher;
 
-use super::AppState;
-
-pub fn current_watcher(app: &AppHandle) -> Option<Arc<RwLock<MemoWatcher>>> {
-    app.try_state::<Arc<RwLock<MemoWatcher>>>()
-        .map(|s| s.inner().clone())
-}
-
-pub(crate) fn mark_self_write_for(app: &AppHandle, path: &Path) {
-    if let Some(w) = current_watcher(app) {
-        if let Ok(g) = w.read() {
-            g.mark_self_write(path);
-        }
-    }
-}
+use crate::app::state::AppState;
 
 pub(crate) fn start_security_bookmark_access(state: &AppState, path: &Path) {
     state.security_bookmarks.start_accessing_for_path(path);
@@ -137,39 +122,6 @@ fn switch_notebook(
     Ok(())
 }
 
-pub(crate) fn force_rebuild_index(state: &AppState, app: &AppHandle) {
-    write_lock(&state.search, "search").mark_unloaded();
-    rebuild_index_in_background(state, app);
-}
-
-pub(crate) fn rebuild_index_in_background(state: &AppState, app: &AppHandle) {
-    let app = app.clone();
-    let nb = state
-        .memo_file
-        .read()
-        .unwrap()
-        .current_notebook_id_value()
-        .unwrap_or_default();
-    std::thread::spawn(move || {
-        let st: tauri::State<AppState> = app.state();
-        let mf = read_lock(&st.memo_file, "memo_file");
-        let mut index = write_lock(&st.search, "search");
-        flowix_core::search::rebuild_index_from_store(&mut index, &mf, nb);
-        dispatcher::emit_to(&app, "search-index-ready", ());
-    });
-}
-
-pub(crate) fn try_index_upsert(state: &AppState, id: &str) {
-    let mf = read_lock(&state.memo_file, "memo_file");
-    let mut idx = write_lock(&state.search, "search");
-    let _ = flowix_core::search::upsert_index_from_store(&mut idx, &mf, id);
-}
-
-pub(crate) fn try_index_remove(state: &AppState, id: &str) {
-    let mut idx = write_lock(&state.search, "search");
-    let _ = flowix_core::search::remove_from_index(&mut idx, id);
-}
-
 pub(crate) fn is_markdown_file_path(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -189,43 +141,6 @@ pub fn markdown_paths_from_args(args: impl IntoIterator<Item = String>) -> Vec<S
             }
         })
         .collect()
-}
-
-pub(crate) fn strip_markdown_frontmatter(content: &str) -> &str {
-    let Some(rest) = content.strip_prefix("---") else {
-        return content;
-    };
-    let rest = rest
-        .strip_prefix("\r\n")
-        .or_else(|| rest.strip_prefix('\n'));
-    let Some(rest) = rest else {
-        return content;
-    };
-
-    if let Some(index) = rest.find("\r\n---\r\n") {
-        return &rest[index + "\r\n---\r\n".len()..];
-    }
-    if let Some(index) = rest.find("\n---\n") {
-        return &rest[index + "\n---\n".len()..];
-    }
-
-    content
-}
-
-pub(crate) fn title_from_markdown_content(content: &str, fallback: &str) -> String {
-    strip_markdown_frontmatter(content)
-        .lines()
-        .map(|line| line.trim())
-        .find(|line| !line.is_empty())
-        .map(|line| {
-            line.trim_start_matches('#')
-                .trim()
-                .trim_matches(|c| matches!(c, '*' | '_' | '`'))
-                .trim()
-                .to_string()
-        })
-        .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| fallback.to_string())
 }
 
 pub(crate) fn is_registered_notebook_path(path: &Path, state: &State<AppState>) -> bool {

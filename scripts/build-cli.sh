@@ -36,6 +36,13 @@ for arg in "$@"; do
   esac
 done
 
+# --debug + --all 是矛盾的: --all 强制走 release 链路, --debug 期望 debug 产物。
+# 显式拒绝, 避免调用者拿到一个跟意图不符的 binary。
+if [ "$BUILD_ALL" = "1" ] && [ "$PROFILE" = "debug" ]; then
+  echo "error: --debug and --all are mutually exclusive (--all pins release)" >&2
+  exit 2
+fi
+
 # ── helpers ──────────────────────────────────────────────────────────
 host_triple() {
   rustc -vV | sed -n 's|host: ||p'
@@ -60,6 +67,11 @@ copy_to_binaries() {
 # `cargo tauri dev` 时的 sidecar 源文件名 (没有就走 fallback 失败)。
 # 这里在 `binaries/flowix-cli-<host>` 旁建一个同名 symlink 指向它 ──
 # 只在单 host build 时跑, --all 模式跨平台, symlink 没法统一指向。
+#
+# Windows 上 Git Bash 在没开 Developer Mode 时建不出 symlink; 失败就
+# 退化成 cp -f。 dev 本地完全够用, 只是 dev 期改 src 后 CLI sidecar
+# 跟大 binary 同步更新反而更可控 (不会出现 symlink 指向陈旧 target 的
+# 视觉残留)。
 create_dev_symlink() {
   local host="$1"
   local ext=""
@@ -69,10 +81,14 @@ create_dev_symlink() {
   local target="flowix-cli-$host$ext"
   local link="$BINARIES_DIR/flowix-cli"
   [[ -n "$ext" ]] && link="${link}${ext}"
-  # 旧的 symlink 残留先清掉, ln -sf 跨平台会覆盖, 这里显式 rm 防止奇怪状态。
+  # 旧的 symlink / 文件残留先清掉, ln -sf 跨平台会覆盖, 这里显式 rm 防止奇怪状态。
   rm -f "$link"
-  ln -s "$target" "$link"
-  echo "  → dev symlink: $link -> $target"
+  if ln -s "$target" "$link" 2>/dev/null; then
+    echo "  → dev symlink: $link -> $target"
+  else
+    cp -f "$BINARIES_DIR/$target" "$link"
+    echo "  → dev copy (symlink unavailable): $link"
+  fi
 }
 
 # ── main ────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ use tauri::{Manager, State};
 use crate::lock_utils::{read_lock, write_lock};
 
 use super::helpers::start_security_bookmark_access;
-use super::AppState;
+use crate::app::state::AppState;
 
 // ==================== 域内 helper ====================
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::external_runtime::claude::ClaudeCliManager;
-use crate::external_runtime::codex::CodexCliManager;
+use crate::agent_external::claude::ClaudeCliManager;
+use crate::agent_external::codex::CodexCliManager;
 
 const EXTERNAL_AGENT_WATCHDOG_INTERVAL_MS: u64 = 5_000;
 const EXTERNAL_AGENT_DEFAULT_IDLE_TIMEOUT_MS: i64 = 30 * 60 * 1_000;

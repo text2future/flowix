@@ -2,33 +2,21 @@
 //
 // Helpers shared by every other section in this module. Marked
 // `pub(super)` so the sibling sections (`reads`, `creates`, `versions`,
-// `deletes`) can call them directly. They are re-exported via
-// `pub use helpers::*` in `mod.rs` so the `mod.rs` `use super::helpers::*`
-// for cross-section access keeps working without re-imports.
+// `deletes`) can call them directly without leaking them outside `memo`.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
-use crate::lock_utils::{read_lock, write_lock};
+use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
-use crate::watcher::path::normalize_for_compare;
-use crate::USER_CONFIG_DIR_NAME;
-use flowix_core::memo_file::{
-    atomic_write_bytes, extract_body_content, Memo, MemoColor, MemoFile, MemoTodoEntry,
-    MemoVersionMeta, MemoVersionSource,
-};
-use flowix_core::search::MemoSearchHit;
+use flowix_core::memo_file::{extract_body_content, Memo};
 
-use super::AppState;
-use crate::commands::helpers::{
-    force_rebuild_index, mark_self_write_for, rebuild_index_in_background,
-    start_security_bookmark_access, synthesize_minimal_memo, try_index_remove, try_index_upsert,
-};
+use crate::app::search_index::try_index_upsert;
+use crate::app::state::AppState;
+use crate::commands::helpers::synthesize_minimal_memo;
+use crate::watcher::runtime::mark_self_write_for;
 
-use super::*;
 pub(super) fn read_memo_or_none(state: &AppState, id: &str) -> Option<Memo> {
     read_lock(&state.memo_file, "memo_file").read_memo_global(id)
 }
