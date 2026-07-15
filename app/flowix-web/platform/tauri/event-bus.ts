@@ -46,6 +46,10 @@ function logHandlerError(event: string, err: unknown): void {
   console.warn(`[event-bus] handler for "${event}" threw:`, err);
 }
 
+function hasTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
 /**
  * 订阅后端事件 `event`。 返回 UnlistenFn, 调它从订阅集合里删除 handler;
  * 若该事件已无 handler, 同时 unlisten 底层 Tauri listener。
@@ -61,7 +65,7 @@ export function subscribe<T>(event: string, handler: (payload: T) => void): Unli
     set = new Set();
     handlers.set(event, set);
   }
-  if (!tauriUnlisten) {
+  if (!tauriUnlisten && hasTauriRuntime()) {
     // 首次挂: 注册 Tauri listener, payload 转成 unknown 再分发, 让每个
     // handler 各自断言。 这里我们无法 await listen (接口要求同步返回
     // UnlistenFn), 内部用 .then 接住真实 unlisten。
@@ -78,15 +82,20 @@ export function subscribe<T>(event: string, handler: (payload: T) => void): Unli
           logHandlerError(event, err);
         }
       }
-    }).then((unlisten) => {
-      // listen 期间若所有 handler 都被 unsub, 跳过挂载
-      if (!handlers.has(event)) {
-        unlisten();
+    })
+      .then((unlisten) => {
+        // listen 期间若所有 handler 都被 unsub, 跳过挂载
+        if (!handlers.has(event)) {
+          unlisten();
+          tauriUnlistens.delete(event);
+          return;
+        }
+        tauriUnlistens.set(event, unlisten);
+      })
+      .catch((err) => {
         tauriUnlistens.delete(event);
-        return;
-      }
-      tauriUnlistens.set(event, unlisten);
-    });
+        console.warn(`[event-bus] failed to listen for "${event}":`, err);
+      });
   }
 
   // 用 unknown 中转, 跟 Tauri 内部 typed listen<T> 走的是同一闭包。

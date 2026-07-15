@@ -5,6 +5,9 @@ use crate::external_runtime::cli_resolver::{
 };
 
 pub(crate) fn resolve_claude_binary() -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary("claude", "claude") {
+        return path;
+    }
     resolve_external_cli(&CLAUDE_CLI_SPEC)
 }
 

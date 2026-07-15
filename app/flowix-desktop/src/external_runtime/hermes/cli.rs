@@ -508,6 +508,9 @@ fn normalized_yolo_permission(permission_mode: Option<&str>) -> bool {
 }
 
 pub(crate) fn resolve_hermes_binary() -> PathBuf {
+    if let Some(path) = crate::external_runtime::binary::custom_agent_binary("hermes", "hermes") {
+        return path;
+    }
     resolve_external_cli(&HERMES_CLI_SPEC)
 }
 
