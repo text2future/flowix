@@ -36,6 +36,13 @@ let repositionHandler: (() => void) | null = null;
 let repositionFrame: number | null = null;
 let revealFrame: number | null = null;
 
+function disposePopupRoot(root: Root, container: HTMLDivElement) {
+  window.setTimeout(() => {
+    root.unmount();
+    container.remove();
+  }, 0);
+}
+
 function clearSelectionHighlight(editor: Editor) {
   editor.view.dispatch(editor.state.tr.setMeta(linkSelectionHighlightPluginKey, { clear: true }));
 }
@@ -159,15 +166,17 @@ function closePopup() {
     clickOutsideHandler = null;
   }
 
-  if (popupRoot) {
-    popupRoot.unmount();
-    popupRoot = null;
-  }
-  if (popupContainer) {
-    popupContainer.remove();
-    popupContainer = null;
-  }
+  const root = popupRoot;
+  const container = popupContainer;
+  popupRoot = null;
+  popupContainer = null;
   popupState = null;
+
+  if (root && container) {
+    disposePopupRoot(root, container);
+  } else {
+    container?.remove();
+  }
 }
 
 function handleSave() {

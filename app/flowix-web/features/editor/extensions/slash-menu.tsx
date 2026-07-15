@@ -40,6 +40,13 @@ let activeView: EditorView | null = null;
 let menuInstance: MenuInstance | null = null;
 let menuOpenId = 0;
 
+function disposeMenuRoot(root: Root, container: HTMLDivElement) {
+  window.setTimeout(() => {
+    root.unmount();
+    container.remove();
+  }, 0);
+}
+
 const AGENT_THREAD_TYPE_BY_SLASH_ID: Record<AgentThreadSlashMenuItemId, AgentTypeKey> = {
   'agent-thread-flowix': 'flowix',
   'agent-thread-codex': 'codex',
@@ -96,20 +103,21 @@ function closeMenu() {
   window.removeEventListener('resize', closeMenu);
   window.removeEventListener('scroll', handleScrollOutside, true);
 
-  if (menuRoot) {
-    menuRoot.unmount();
-    menuRoot = null;
-  }
-
-  if (menuContainer) {
-    menuContainer.remove();
-    menuContainer = null;
-  }
+  const root = menuRoot;
+  const container = menuContainer;
+  menuRoot = null;
+  menuContainer = null;
 
   menuState = null;
   activeEditor = null;
   activeView = null;
   menuInstance = null;
+
+  if (root && container) {
+    disposeMenuRoot(root, container);
+  } else {
+    container?.remove();
+  }
 }
 
 function isCurrentMenuView(view: EditorView, openId = menuOpenId): boolean {

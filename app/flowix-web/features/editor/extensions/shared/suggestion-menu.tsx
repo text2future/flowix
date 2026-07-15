@@ -81,6 +81,13 @@ let menuPlacement: 'above' | 'below' | null = null;
 let positionFrame = 0;
 let menuOpenId = 0;
 
+function disposeMenuRoot(root: Root, container: HTMLDivElement) {
+  window.setTimeout(() => {
+    root.unmount();
+    container.remove();
+  }, 0);
+}
+
 function isComposing(view: EditorView): boolean {
   return composing || Boolean((view as EditorView & { composing?: boolean }).composing);
 }
@@ -95,14 +102,10 @@ function closeMenu() {
     positionFrame = 0;
   }
 
-  if (menuRoot) {
-    menuRoot.unmount();
-    menuRoot = null;
-  }
-  if (menuContainer) {
-    menuContainer.remove();
-    menuContainer = null;
-  }
+  const root = menuRoot;
+  const container = menuContainer;
+  menuRoot = null;
+  menuContainer = null;
 
   menuState = null;
   menuInstance = null;
@@ -111,6 +114,12 @@ function closeMenu() {
   activeConfig = null;
   composing = false;
   menuPlacement = null;
+
+  if (root && container) {
+    disposeMenuRoot(root, container);
+  } else {
+    container?.remove();
+  }
 }
 
 function isCurrentMenuView(view: EditorView, openId = menuOpenId): boolean {
