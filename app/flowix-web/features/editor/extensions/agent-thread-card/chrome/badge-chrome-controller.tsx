@@ -32,6 +32,7 @@ export class AgentThreadCardBadgeChromeController {
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly isFullscreen: () => boolean;
   private hoverCardTimer: ReturnType<typeof setInterval> | null = null;
+  private disposed = false;
 
   constructor(options: AgentThreadCardBadgeChromeControllerOptions) {
     this.badgeEl = options.badgeEl;
@@ -69,6 +70,7 @@ export class AgentThreadCardBadgeChromeController {
   }
 
   renderHoverCard(): void {
+    if (this.disposed) return;
     if (!this.isFullscreen()) {
       this.stopHoverCardTimer();
       this.hoverCardRoot.render(null);
@@ -97,6 +99,8 @@ export class AgentThreadCardBadgeChromeController {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.stopHoverCardTimer();
     this.hoverCardRoot.unmount();
   }
@@ -116,6 +120,7 @@ export class AgentThreadCardBadgeChromeController {
   }
 
   private renderHoverCardContent(): void {
+    if (this.disposed) return;
     const { model, lastRunAt, totalTokens } =
       computeAgentThreadCardBadgeData({
         threadState: this.getThreadState(),

@@ -34,6 +34,7 @@ export class ComposerController {
   private isComposing = false;
   private historyCursor: number | null = null;
   private preNavDraft: string | null = null;
+  private disposed = false;
 
   constructor(options: ComposerControllerOptions) {
     this.input = options.input;
@@ -106,6 +107,7 @@ export class ComposerController {
   }
 
   setSendButtonState(inputValue: string = this.input.value.trim()): void {
+    if (this.disposed) return;
     const { wantStop, disabled } = selectAgentThreadCardSendButtonState({
       wantStop: this.getSendButtonWantsStop(),
       inputValue,
@@ -121,6 +123,8 @@ export class ComposerController {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.input.removeEventListener("keydown", this.handleKeydown);
     this.input.removeEventListener(
       "compositionstart",

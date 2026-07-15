@@ -79,12 +79,14 @@ let activeConfig: SuggestionMenuConfig<unknown> | null = null;
 let composing = false;
 let menuPlacement: 'above' | 'below' | null = null;
 let positionFrame = 0;
+let menuOpenId = 0;
 
 function isComposing(view: EditorView): boolean {
   return composing || Boolean((view as EditorView & { composing?: boolean }).composing);
 }
 
 function closeMenu() {
+  menuOpenId += 1;
   document.removeEventListener('mousedown', handlePointerDownOutside, true);
   window.removeEventListener('resize', handleWindowResize);
   window.removeEventListener('scroll', handleScrollOutside, true);
@@ -109,6 +111,15 @@ function closeMenu() {
   activeConfig = null;
   composing = false;
   menuPlacement = null;
+}
+
+function isCurrentMenuView(view: EditorView, openId = menuOpenId): boolean {
+  return (
+    openId === menuOpenId &&
+    activeView === view &&
+    !view.isDestroyed &&
+    Boolean(menuRoot && menuContainer && menuState && menuInstance && activeConfig)
+  );
 }
 
 function handlePointerDownOutside(event: MouseEvent) {
@@ -200,14 +211,18 @@ function scheduleUpdatePosition(view: EditorView, width: number) {
 }
 
 function renderMenu(view: EditorView) {
-  if (!menuRoot || !menuInstance || !activeConfig) return;
-  const visibleItems = menuInstance.allItems.slice(0, menuInstance.visibleCount);
+  if (!isCurrentMenuView(view)) return;
+  const root = menuRoot;
+  const instance = menuInstance;
+  const config = activeConfig;
+  if (!root || !instance || !config) return;
+  const visibleItems = instance.allItems.slice(0, instance.visibleCount);
 
-  menuRoot.render(activeConfig.render({
+  root.render(config.render({
     items: visibleItems as never,
-    selectedIndex: menuInstance.selectedIndex,
-    hasMore: menuInstance.visibleCount < menuInstance.allItems.length,
-    loading: menuInstance.loading,
+    selectedIndex: instance.selectedIndex,
+    hasMore: instance.visibleCount < instance.allItems.length,
+    loading: instance.loading,
     onSelect: (item) => {
       if (!activeEditor || !menuState || !activeConfig) return;
       activeConfig.onSelect({
@@ -234,43 +249,49 @@ function renderMenu(view: EditorView) {
     },
   }));
 
-  scheduleUpdatePosition(view, activeConfig.width);
+  scheduleUpdatePosition(view, config.width);
 }
 
 function applyQueryItems(view: EditorView, items: unknown[], resetPage: boolean) {
-  if (!menuInstance) return;
-  menuInstance.allItems = items;
-  menuInstance.loading = false;
+  if (!isCurrentMenuView(view)) return;
+  const instance = menuInstance;
+  if (!instance) return;
+  instance.allItems = items;
+  instance.loading = false;
   if (resetPage) {
-    menuInstance.visibleCount = PAGE_SIZE;
-    menuInstance.selectedIndex = 0;
+    instance.visibleCount = PAGE_SIZE;
+    instance.selectedIndex = 0;
   } else {
-    menuInstance.selectedIndex = Math.min(
-      menuInstance.selectedIndex,
-      Math.max(Math.min(menuInstance.visibleCount, menuInstance.allItems.length) - 1, 0),
+    instance.selectedIndex = Math.min(
+      instance.selectedIndex,
+      Math.max(Math.min(instance.visibleCount, instance.allItems.length) - 1, 0),
     );
   }
   renderMenu(view);
 }
 
 function requestQuery(view: EditorView, query: string, resetPage: boolean) {
-  if (!menuState || !menuInstance || !activeConfig) return;
+  if (!isCurrentMenuView(view)) return;
+  const state = menuState;
+  const instance = menuInstance;
   const config = activeConfig;
-  const requestId = ++menuState.requestId;
-  menuInstance.loading = true;
+  const openId = menuOpenId;
+  if (!state || !instance || !config) return;
+  const requestId = ++state.requestId;
+  instance.loading = true;
   if (resetPage) {
-    menuInstance.allItems = [];
-    menuInstance.visibleCount = PAGE_SIZE;
-    menuInstance.selectedIndex = 0;
+    instance.allItems = [];
+    instance.visibleCount = PAGE_SIZE;
+    instance.selectedIndex = 0;
   }
   renderMenu(view);
 
   config.fetchItems(query).then((items) => {
-    if (!menuState || !menuInstance || menuState.requestId !== requestId) return;
+    if (!isCurrentMenuView(view, openId) || menuState?.requestId !== requestId) return;
     applyQueryItems(view, items, resetPage);
   }).catch((err) => {
     config.onError?.(err);
-    if (!menuState || !menuInstance || menuState.requestId !== requestId) return;
+    if (!isCurrentMenuView(view, openId) || menuState?.requestId !== requestId) return;
     applyQueryItems(view, [], resetPage);
   });
 }
@@ -283,6 +304,7 @@ function openMenu(
 ) {
   closeMenu();
 
+  const openId = menuOpenId;
   menuState = { triggerFrom, trigger: config.trigger, query: '', requestId: 0 };
   activeEditor = editor;
   activeView = view;
@@ -308,7 +330,9 @@ function openMenu(
   window.addEventListener('resize', handleWindowResize);
   window.addEventListener('scroll', handleScrollOutside, true);
 
-  requestQuery(view, '', true);
+  if (isCurrentMenuView(view, openId)) {
+    requestQuery(view, '', true);
+  }
 }
 
 export function openSuggestionMenuFromEditor<TItem>(
@@ -331,17 +355,20 @@ export function openSuggestionMenuFromEditor<TItem>(
 }
 
 function refreshMenuFromEditor(view: EditorView) {
-  if (!menuState || !menuInstance || !activeConfig) return;
+  if (!isCurrentMenuView(view)) return;
+  const state = menuState;
+  const config = activeConfig;
+  if (!state || !config) return;
   if (isComposing(view)) return;
 
-  const query = activeConfig.parseQuery(view, menuState.triggerFrom, menuState.trigger);
+  const query = config.parseQuery(view, state.triggerFrom, state.trigger);
   if (query === null) {
     closeMenu();
     return;
   }
 
-  if (query !== menuState.query) {
-    menuState.query = query;
+  if (query !== state.query) {
+    state.query = query;
     requestQuery(view, query, true);
     return;
   }

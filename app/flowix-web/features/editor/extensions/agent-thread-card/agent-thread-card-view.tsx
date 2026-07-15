@@ -989,6 +989,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private renderThreadState(): void {
+    if (this.isDestroyed) return;
     const state = this.currentThreadState();
     const shouldRenderMessages = !this.collapsed || this.isFullscreen;
     const messages = shouldRenderMessages ? this.currentMessages() : [];
