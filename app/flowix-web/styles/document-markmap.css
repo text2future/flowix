@@ -231,7 +231,9 @@
 
 .document-markmap-inspector {
   position: relative;
-  z-index: 8;
+  /* Keep the shared preview header, especially its close button, above the
+     document-level editor/map switcher (z-30) anchored at the top right. */
+  z-index: 40;
   display: flex;
   flex: 0 0 clamp(380px, 38vw, 540px);
   min-width: 0;
