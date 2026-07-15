@@ -251,8 +251,15 @@
   min-height: 66px;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  /* The document-level editor/Markmap switcher is anchored over the top-right
+     of this view. Reserve its footprint so the shared preview close button
+     remains visible and clickable for text, diagrams, and Agent sessions. */
+  padding: 12px 164px 12px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.document-markmap--fullscreen .document-markmap-inspector__header {
+  padding-right: 14px;
 }
 
 .document-markmap-inspector__kind {
