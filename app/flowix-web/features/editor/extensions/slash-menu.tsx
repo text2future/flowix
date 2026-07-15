@@ -36,7 +36,9 @@ let menuState: SlashMenuState | null = null;
 let menuRoot: Root | null = null;
 let menuContainer: HTMLDivElement | null = null;
 let activeEditor: Editor | null = null;
+let activeView: EditorView | null = null;
 let menuInstance: MenuInstance | null = null;
+let menuOpenId = 0;
 
 const AGENT_THREAD_TYPE_BY_SLASH_ID: Record<AgentThreadSlashMenuItemId, AgentTypeKey> = {
   'agent-thread-flowix': 'flowix',
@@ -89,6 +91,7 @@ function filterItems(query: string): SlashMenuItem[] {
 }
 
 function closeMenu() {
+  menuOpenId += 1;
   document.removeEventListener('mousedown', handlePointerDownOutside, true);
   window.removeEventListener('resize', closeMenu);
   window.removeEventListener('scroll', handleScrollOutside, true);
@@ -105,7 +108,17 @@ function closeMenu() {
 
   menuState = null;
   activeEditor = null;
+  activeView = null;
   menuInstance = null;
+}
+
+function isCurrentMenuView(view: EditorView, openId = menuOpenId): boolean {
+  return (
+    openId === menuOpenId &&
+    activeView === view &&
+    !view.isDestroyed &&
+    Boolean(menuRoot && menuContainer && menuState && menuInstance)
+  );
 }
 
 function handlePointerDownOutside(event: MouseEvent) {
@@ -314,13 +327,16 @@ function updatePosition(view: EditorView) {
 }
 
 function renderMenu(view: EditorView) {
-  if (!menuRoot || !menuInstance) return;
+  if (!isCurrentMenuView(view)) return;
+  const root = menuRoot;
+  const instance = menuInstance;
+  if (!root || !instance) return;
 
-  menuRoot.render(
+  root.render(
     <SlashMenuDropdown
-      items={menuInstance.items}
-      selectedIndex={menuInstance.selectedIndex}
-      scrollSelectedItem={menuInstance.scrollSelectedItem}
+      items={instance.items}
+      selectedIndex={instance.selectedIndex}
+      scrollSelectedItem={instance.scrollSelectedItem}
       onHover={(index) => {
         if (!menuInstance) return;
         menuInstance.selectedIndex = index;
@@ -348,8 +364,10 @@ async function handleAddAgentClick(): Promise<void> {
 function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteFrom: number) {
   closeMenu();
 
+  const openId = menuOpenId;
   menuState = { triggerFrom, deleteFrom, query: '' };
   activeEditor = editor;
+  activeView = view;
   menuInstance = {
     selectedIndex: 0,
     scrollSelectedItem: true,
@@ -370,7 +388,7 @@ function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteF
 
   renderMenu(view);
   void useAgentRuntimeStore.getState().refreshIfStale().then(() => {
-    if (!menuState || activeEditor !== editor) return;
+    if (!isCurrentMenuView(view, openId) || activeEditor !== editor) return;
     refreshMenuFromEditor(view);
   });
 }
@@ -534,21 +552,24 @@ function handleSelect(item: SlashMenuItem): void {
 }
 
 function refreshMenuFromEditor(view: EditorView) {
-  if (!menuState || !menuInstance) return;
+  if (!isCurrentMenuView(view)) return;
+  const state = menuState;
+  const instance = menuInstance;
+  if (!state || !instance) return;
 
-  const query = getQuery(view, menuState.triggerFrom);
+  const query = getQuery(view, state.triggerFrom);
   if (query === null) {
     closeMenu();
     return;
   }
 
-  menuState.query = query;
-  menuInstance.items = filterItems(query);
-  menuInstance.selectedIndex = Math.min(
-    menuInstance.selectedIndex,
-    Math.max(menuInstance.items.length - 1, 0)
+  state.query = query;
+  instance.items = filterItems(query);
+  instance.selectedIndex = Math.min(
+    instance.selectedIndex,
+    Math.max(instance.items.length - 1, 0)
   );
-  menuInstance.scrollSelectedItem = true;
+  instance.scrollSelectedItem = true;
   renderMenu(view);
 }
 
