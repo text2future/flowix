@@ -74,15 +74,19 @@
 }
 
 .selection-bubble-menu {
+  z-index: 80;
   display: inline-flex;
   align-items: center;
-  background: var(--muted);
-  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
-  border-radius: 8px;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid color-mix(in oklch, var(--border) 86%, transparent);
+  border-radius: 11px;
+  background: color-mix(in oklch, var(--popover) 94%, transparent);
+  color: var(--popover-foreground);
   box-shadow:
-    0 4px 12px -4px rgba(15, 23, 42, 0.10),
-    0 1px 2px rgba(15, 23, 42, 0.04);
-  padding: 0;
+    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 10px 28px color-mix(in oklch, var(--foreground) 14%, transparent);
+  backdrop-filter: blur(18px);
   user-select: none;
   white-space: nowrap;
   -webkit-user-select: none;
@@ -90,19 +94,16 @@
 
 .selection-bubble-button {
   display: inline-flex;
+  width: 30px;
+  height: 30px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 7px 12px;
+  padding: 0;
   border: none;
-  background: var(--muted);
-  border-radius: 8px;
+  border-radius: 7px;
+  background: transparent;
   cursor: pointer;
-  color: var(--foreground);
-  font-size: 12px;
-  line-height: 1.3;
-  font-weight: 500;
-  white-space: nowrap;
+  color: var(--muted-foreground);
   transition:
     background-color 0.15s ease,
     color 0.15s ease,
@@ -110,22 +111,35 @@
 }
 
 .selection-bubble-button:hover {
-  background: color-mix(in oklch, var(--muted) 70%, var(--foreground) 8%);
+  background: var(--accent);
   color: var(--foreground);
 }
 
+.selection-bubble-button.is-active {
+  background: color-mix(in oklch, var(--brand) 16%, transparent);
+  color: color-mix(in oklch, var(--brand) 78%, var(--foreground));
+}
+
 .selection-bubble-button:active {
-  background: color-mix(in oklch, var(--muted) 50%, var(--foreground) 12%);
+  background: color-mix(in oklch, var(--accent) 76%, var(--foreground) 10%);
   transform: scale(0.98);
 }
 
-.selection-bubble-icon {
-  display: block;
-  flex-shrink: 0;
+.selection-bubble-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 
-.selection-bubble-label {
-  letter-spacing: 0.01em;
+.selection-bubble-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.selection-bubble-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--divider, var(--border));
 }
 
 @keyframes link-edit-popup-in {

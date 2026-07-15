@@ -14,6 +14,7 @@ import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { AttachmentLink } from '@features/editor/extensions/attachment-link';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
 import { EditorToolbar } from '@features/editor/components/editor-toolbar';
+import { SelectionBubbleMenu } from '@features/editor/components/selection-bubble-menu';
 import { DragContextMenu } from '@features/editor/components/drag-context-menu';
 import { attachLinkHoverTooltip } from '@features/editor/components/link-hover-tooltip';
 import { Tag } from '@features/editor/extensions/tag';
@@ -319,6 +320,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   resolvedPlaceholderRef.current = resolvedPlaceholder;
   const elementRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serializeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -566,6 +568,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     onBeforeCreate?.(editor);
     editorRef.current = editor;
+    setEditorInstance(editor);
     const editorDom = editor.view.dom;
     const handleCompositionStart = () => {
       isComposingRef.current = true;
@@ -622,6 +625,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         detachLinkHoverTooltip();
         editor.destroy();
         editorRef.current = null;
+        setEditorInstance(null);
       };
     }
 
@@ -632,6 +636,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       detachLinkHoverTooltip();
       editor.destroy();
       editorRef.current = null;
+      setEditorInstance(null);
     };
   }, [applyExternalContent, findScrollable, schedulePendingSerialization, serializePendingChanges]);
 
@@ -776,11 +781,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         onClose={() => onSearchPanelOpenChangeRef.current?.(false)}
       />
       <div ref={elementRef} className="editor-content">
-        {editorRef.current && editorRef.current.view && <DragContextMenu editor={editorRef.current} />}
-        {editorRef.current && !isScrolling && <TableBubbleMenu editor={editorRef.current} />}
+        {editorInstance && <DragContextMenu editor={editorInstance} />}
+        {editorInstance && !isScrolling && (
+          <>
+            <TableBubbleMenu editor={editorInstance} />
+            <SelectionBubbleMenu editor={editorInstance} />
+          </>
+        )}
       </div>
       <EditorToolbar
-        editor={editorRef.current}
+        editor={editorInstance}
         collapsed={toolbarCollapsed}
         onCollapsedChange={onToolbarCollapsedChange}
       />
