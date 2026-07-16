@@ -14,6 +14,7 @@ const MENU_FLIP_BELOW_THRESHOLD = 10 * 16;
 export interface SuggestionMenuRenderProps<TItem> {
   items: TItem[];
   selectedIndex: number;
+  scrollSelectedItem: boolean;
   hasMore: boolean;
   loading: boolean;
   onSelect: (item: TItem) => void;
@@ -61,6 +62,7 @@ interface MenuState {
 
 interface MenuInstance<TItem> {
   selectedIndex: number;
+  scrollSelectedItem: boolean;
   allItems: TItem[];
   visibleCount: number;
   loading: boolean;
@@ -230,6 +232,7 @@ function renderMenu(view: EditorView) {
   root.render(config.render({
     items: visibleItems as never,
     selectedIndex: instance.selectedIndex,
+    scrollSelectedItem: instance.scrollSelectedItem,
     hasMore: instance.visibleCount < instance.allItems.length,
     loading: instance.loading,
     onSelect: (item) => {
@@ -246,6 +249,7 @@ function renderMenu(view: EditorView) {
     onHover: (index) => {
       if (!menuInstance) return;
       menuInstance.selectedIndex = index;
+      menuInstance.scrollSelectedItem = false;
       renderMenu(view);
     },
     onLoadMore: () => {
@@ -270,11 +274,13 @@ function applyQueryItems(view: EditorView, items: unknown[], resetPage: boolean)
   if (resetPage) {
     instance.visibleCount = PAGE_SIZE;
     instance.selectedIndex = 0;
+    instance.scrollSelectedItem = true;
   } else {
     instance.selectedIndex = Math.min(
       instance.selectedIndex,
       Math.max(Math.min(instance.visibleCount, instance.allItems.length) - 1, 0),
     );
+    instance.scrollSelectedItem = true;
   }
   renderMenu(view);
 }
@@ -292,6 +298,7 @@ function requestQuery(view: EditorView, query: string, resetPage: boolean) {
     instance.allItems = [];
     instance.visibleCount = PAGE_SIZE;
     instance.selectedIndex = 0;
+    instance.scrollSelectedItem = true;
   }
   renderMenu(view);
 
@@ -321,6 +328,7 @@ function openMenu(
   menuPlacement = null;
   menuInstance = {
     selectedIndex: 0,
+    scrollSelectedItem: true,
     allItems: [],
     visibleCount: PAGE_SIZE,
     loading: true,
@@ -467,6 +475,7 @@ export function createSuggestionExtension<TItem>(config: SuggestionMenuConfig<TI
                 menuInstance.selectedIndex = menuInstance.selectedIndex > 0
                   ? menuInstance.selectedIndex - 1
                   : Math.max(visibleItems.length - 1, 0);
+                menuInstance.scrollSelectedItem = true;
                 renderMenu(view);
                 return true;
               }
@@ -487,6 +496,7 @@ export function createSuggestionExtension<TItem>(config: SuggestionMenuConfig<TI
                     ? menuInstance.selectedIndex + 1
                     : 0;
                 }
+                menuInstance.scrollSelectedItem = true;
                 renderMenu(view);
                 return true;
               }
@@ -519,6 +529,7 @@ export function createSuggestionExtension<TItem>(config: SuggestionMenuConfig<TI
                 const count = visibleItems.length;
                 if (count > 0) {
                   menuInstance.selectedIndex = (menuInstance.selectedIndex + direction + count) % count;
+                  menuInstance.scrollSelectedItem = true;
                   renderMenu(view);
                 }
                 return true;

@@ -8,6 +8,7 @@ import { useI18n } from '@features/i18n';
 export interface NoteMentionDropdownProps {
   items: MentionNoteItem[];
   selectedIndex: number;
+  scrollSelectedItem: boolean;
   hasMore: boolean;
   loading: boolean;
   onSelect: (item: MentionNoteItem) => void;
@@ -18,6 +19,7 @@ export interface NoteMentionDropdownProps {
 export function NoteMentionDropdown({
   items,
   selectedIndex,
+  scrollSelectedItem,
   hasMore,
   loading,
   onSelect,
@@ -28,6 +30,7 @@ export function NoteMentionDropdown({
   const { scrollerRef, itemRefs } = useSelectedItemScroll({
     items,
     selectedIndex,
+    scrollSelectedItem,
   });
   const handleItemMouseMove = (
     event: MouseEvent<HTMLButtonElement>,

@@ -45,10 +45,11 @@ export const TagMention = createSuggestionExtension<MentionTagItem>({
 
   fetchItems: (query) => queryMentionTags(query),
 
-  render: ({ items, selectedIndex, hasMore, loading, onSelect, onHover, onLoadMore }) => (
+  render: ({ items, selectedIndex, scrollSelectedItem, hasMore, loading, onSelect, onHover, onLoadMore }) => (
     <TagMentionDropdown
       items={items}
       selectedIndex={selectedIndex}
+      scrollSelectedItem={scrollSelectedItem}
       hasMore={hasMore}
       loading={loading}
       onSelect={onSelect}

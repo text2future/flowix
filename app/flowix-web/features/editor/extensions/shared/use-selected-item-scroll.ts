@@ -5,11 +5,13 @@ const SELECTED_ITEM_SCROLL_PADDING_TOP = 20;
 interface UseSelectedItemScrollOptions<Item> {
   items: Item[];
   selectedIndex: number;
+  scrollSelectedItem?: boolean;
 }
 
 export function useSelectedItemScroll<Item>({
   items,
   selectedIndex,
+  scrollSelectedItem = true,
 }: UseSelectedItemScrollOptions<Item>) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -19,6 +21,8 @@ export function useSelectedItemScroll<Item>({
   // items 也进依赖: 过滤导致列表换血时, 即使 selectedIndex 没变
   // 也需要重新评估 (新列表里 selectedIndex 可能对应不同位置的 item)。
   useLayoutEffect(() => {
+    if (!scrollSelectedItem) return;
+
     const item = itemRefs.current[selectedIndex];
     const scroller = scrollerRef.current;
     if (!item || !scroller) return;
@@ -35,7 +39,7 @@ export function useSelectedItemScroll<Item>({
     const targetTop = itemTop - SELECTED_ITEM_SCROLL_PADDING_TOP;
     const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     scroller.scrollTop = Math.max(0, Math.min(targetTop, maxScrollTop));
-  }, [selectedIndex, items]);
+  }, [selectedIndex, items, scrollSelectedItem]);
 
   return { scrollerRef, itemRefs };
 }

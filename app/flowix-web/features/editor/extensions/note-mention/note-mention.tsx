@@ -38,10 +38,11 @@ const noteMentionConfig: SuggestionMenuConfig<MentionNoteItem> = {
 
   fetchItems: (query) => queryMentionNotes(query),
 
-  render: ({ items, selectedIndex, hasMore, loading, onSelect, onHover, onLoadMore }) => (
+  render: ({ items, selectedIndex, scrollSelectedItem, hasMore, loading, onSelect, onHover, onLoadMore }) => (
     <NoteMentionDropdown
       items={items}
       selectedIndex={selectedIndex}
+      scrollSelectedItem={scrollSelectedItem}
       hasMore={hasMore}
       loading={loading}
       onSelect={onSelect}
