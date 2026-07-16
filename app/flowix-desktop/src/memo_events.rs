@@ -4,17 +4,18 @@
 //! 设计要点:
 //! - 单一事件名 `MEMO_EVENT`, `#[serde(tag = "kind")]` 内部区分 `created` /
 //!   `updated` / `deleted`。复用 [`crate::agent_flowix::AgentChunk`] 的判别式 enum 模式。
-//! - `MemoChangeSource` 是 informational, 不影响路由。前端不用它分支, 仅供
-//!   日志 / toast / 自写抑制的二次判断使用。
+//! - `MemoChangeSource` 区分外部工具与应用内写入。编辑器正文跨窗口同步走
+//!   独立的 `MEMO_CONTENT_UPDATED_EVENT`, 避免通用元数据事件承担窗口来源判定。
 //! - 旧事件 `agent-document-updated` 由 [`crate::agent_flowix`] 的 `edit` 工具触发,
 //!   本次重构废弃, 改由本模块的 `Updated` 变体承载。
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, EventTarget, Manager};
 
 use flowix_core::memo_file::Memo;
 
 pub const MEMO_EVENT: &str = "memo-event";
+pub const MEMO_CONTENT_UPDATED_EVENT: &str = "memo-content-updated";
 
 /// 写者标识 — 仅 informational, 前端不用于分支路由。
 ///
@@ -111,6 +112,38 @@ pub enum MemoEvent {
         #[serde(rename = "derivedChanged")]
         derived_changed: MemoDerivedChanged,
     },
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MemoContentUpdated {
+    pub id: String,
+    pub path: String,
+}
+
+fn is_sibling_window_target(target: &EventTarget, origin_window_label: &str) -> bool {
+    match target {
+        EventTarget::Window { label }
+        | EventTarget::Webview { label }
+        | EventTarget::WebviewWindow { label } => label != origin_window_label,
+        _ => false,
+    }
+}
+
+/// Notify every sibling Webview that an editor save has committed to disk.
+/// The originating window already owns the saved buffer and must not reload it.
+pub fn emit_content_updated_to_sibling_windows<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    origin_window_label: &str,
+    id: &str,
+    path: &str,
+) {
+    let payload = MemoContentUpdated {
+        id: id.to_string(),
+        path: path.to_string(),
+    };
+    let _ = app.emit_filter(MEMO_CONTENT_UPDATED_EVENT, payload, |target| {
+        is_sibling_window_target(target, origin_window_label)
+    });
 }
 
 impl MemoEvent {
@@ -220,6 +253,69 @@ mod tests {
         assert_eq!(v["id"], "m_abc");
         assert_eq!(v["path"], "/tmp/foo.md");
         assert_eq!(v["source"], "external_tool");
+    }
+
+    #[test]
+    fn content_update_targets_only_sibling_windows() {
+        assert!(!is_sibling_window_target(
+            &EventTarget::window("note-abc"),
+            "note-abc",
+        ));
+        assert!(is_sibling_window_target(
+            &EventTarget::window("main"),
+            "note-abc",
+        ));
+        assert!(!is_sibling_window_target(&EventTarget::any(), "note-abc",));
+    }
+
+    #[test]
+    fn content_update_reaches_the_other_webview_window_only() {
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+        use tauri::{Listener, WebviewWindowBuilder};
+
+        let app = tauri::test::mock_app();
+        let main = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let note = WebviewWindowBuilder::new(&app, "note-abc", Default::default())
+            .build()
+            .unwrap();
+        let (tx, rx) = channel();
+
+        for (label, window) in [("main", &main), ("note-abc", &note)] {
+            let tx = tx.clone();
+            window.listen(MEMO_CONTENT_UPDATED_EVENT, move |event| {
+                let payload: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+                tx.send((label, payload)).unwrap();
+            });
+        }
+
+        emit_content_updated_to_sibling_windows(
+            app.handle(),
+            note.label(),
+            "memo-1",
+            "/notes/memo-1.md",
+        );
+
+        let (recipient, payload) = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(recipient, "main");
+        assert_eq!(payload["id"], "memo-1");
+        assert_eq!(payload["path"], "/notes/memo-1.md");
+        assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        emit_content_updated_to_sibling_windows(
+            app.handle(),
+            main.label(),
+            "memo-1",
+            "/notes/memo-1-renamed.md",
+        );
+
+        let (recipient, payload) = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(recipient, "note-abc");
+        assert_eq!(payload["id"], "memo-1");
+        assert_eq!(payload["path"], "/notes/memo-1-renamed.md");
+        assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
     }
 
     #[test]
