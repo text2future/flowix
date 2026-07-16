@@ -11,7 +11,8 @@ import {
   TextStrikethroughIcon,
   TextUnderlineIcon,
 } from '@phosphor-icons/react';
-import { type ReactNode, useEffect, useReducer } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from 'react';
+import type { BubbleMenuProps } from '@tiptap/react/menus';
 import { openLinkEditPopup } from '@features/editor/components/link-edit-popup';
 import { hasFormattableTextSelection } from '@features/editor/components/selection-bubble-menu-state';
 import { useI18n } from '@features/i18n';
@@ -67,6 +68,30 @@ export function SelectionBubbleMenu({ editor }: SelectionBubbleMenuProps) {
     };
   }, [editor]);
 
+  // These props feed tiptap's internal "updateOptions" effect, whose deps
+  // include shouldShow / options / appendTo. Fresh identities each render would
+  // make that effect dispatch a transaction every render, which our
+  // transaction listener above turns back into a re-render → infinite loop
+  // ("Maximum update depth exceeded"). Memoize to keep identities stable.
+  const appendTo = useCallback((): HTMLElement => document.body, []);
+  const shouldShow = useCallback<NonNullable<BubbleMenuProps['shouldShow']>>(
+    ({ element, view }) =>
+      (view.hasFocus() || element.contains(document.activeElement)) &&
+      hasFormattableTextSelection(editor),
+    [editor],
+  );
+  const options = useMemo<BubbleMenuProps['options']>(
+    () => ({
+      strategy: 'fixed',
+      placement: 'top',
+      offset: 8,
+      flip: { padding: 8 },
+      shift: { padding: 8 },
+      inline: true,
+    }),
+    [],
+  );
+
   const linkHref = editor.isActive('link')
     ? String(editor.getAttributes('link').href ?? '')
     : '';
@@ -78,19 +103,9 @@ export function SelectionBubbleMenu({ editor }: SelectionBubbleMenuProps) {
       role="toolbar"
       aria-label={t('editor.bubble.formatting')}
       updateDelay={80}
-      appendTo={() => document.body}
-      shouldShow={({ element, view }) =>
-        (view.hasFocus() || element.contains(document.activeElement)) &&
-        hasFormattableTextSelection(editor)
-      }
-      options={{
-        strategy: 'fixed',
-        placement: 'top',
-        offset: 8,
-        flip: { padding: 8 },
-        shift: { padding: 8 },
-        inline: true,
-      }}
+      appendTo={appendTo}
+      shouldShow={shouldShow}
+      options={options}
     >
       <FormatButton
         active={editor.isActive('bold')}
