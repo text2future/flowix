@@ -14,7 +14,6 @@ export interface AgentRuntimeState {
   lastCheckedAt: number | null;
   refresh: (options?: { force?: boolean; type?: AgentTypeKey }) => Promise<void>;
   refreshIfStale: () => Promise<void>;
-  refreshFlowix: () => Promise<void>;
 }
 
 function isFresh(lastCheckedAt: number | null): boolean {
@@ -65,9 +64,5 @@ export const useAgentRuntimeStore = create<AgentRuntimeState>((set, get) => ({
 
   refreshIfStale: async () => {
     await get().refresh();
-  },
-
-  refreshFlowix: async () => {
-    await get().refresh({ force: true, type: 'flowix' });
   },
 }));

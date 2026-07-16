@@ -21,7 +21,6 @@ import { Field, SectionHeader, FIELD_INPUT_CLASS } from '@features/preferences/s
 import { Loader2, Check, XCircle } from 'lucide-react';
 import { useI18n } from '@features/i18n';
 import { useRegionStore } from '@features/i18n';
-import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import iconMinimax from '@/assets/icon-minimax.svg';
 import iconGlm from '@/assets/icon-glm.svg';
 import iconOpenai from '@/assets/icon-openai.svg';
@@ -230,7 +229,6 @@ const DEFAULT_CONFIG: AgentConfig = {
 
 export function AgentSection() {
 	const { t } = useI18n();
-	const refreshFlowixRuntime = useAgentRuntimeStore((s) => s.refreshFlowix);
 	// Provider 可见性: 按 PROVIDER_OPTIONS[*].region 字段过滤。
 	// region=1 的 (MiniMax/GLM) 大陆用户能看到, 海外看不到。
 	// 海外用户配置文件里如果还有 region=1 的 provider 值, 仍能正常使用
@@ -469,7 +467,6 @@ export function AgentSection() {
     try {
       await aiConfig.set(localConfig);
       setSavedConfig(localConfig);
-      void refreshFlowixRuntime();
       // If the user typed during the in-flight save, the form has moved
       // past `snapshot` — the saved-on-disk state no longer matches the
       // form, so we skip the "saved" celebration and go straight to

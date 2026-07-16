@@ -5,6 +5,7 @@ import { ErrorBoundary } from "@shared/error-boundary";
 import { Toaster } from "sonner";
 import { useUserSettings } from "@features/preferences/hooks/use-user-settings";
 import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
+import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
 import { useApplyFontSettings } from "@features/preferences/hooks/use-apply-font-settings";
 import { ThemeProvider } from "@features/theme";
 import { ShortcutsProvider } from "@features/shortcuts";
@@ -12,6 +13,7 @@ import { I18nProvider } from "@features/i18n";
 import { TooltipProvider } from "@shared/ui/tooltip";
 import "@features/shortcuts/actions";
 import { listenToUserConfigChanges, windows } from "@platform/tauri/client";
+import { syncUserConfigChange } from "./user-config-sync";
 
 const MainLayout = lazy(() =>
   import("@features/shell").then((module) => ({ default: module.MainLayout }))
@@ -55,6 +57,7 @@ function App() {
   const { settings } = useUserSettings();
   const loadInitial = useUserSettingsStore((s) => s.loadInitial);
   const flushPending = useUserSettingsStore((s) => s.flushPending);
+  const refreshAgentRuntime = useAgentRuntimeStore((s) => s.refresh);
   useApplyFontSettings(settings.format);
 
   useEffect(() => {
@@ -66,11 +69,12 @@ function App() {
 
   useEffect(() => {
     return listenToUserConfigChanges((kind) => {
-      if (kind === "preference") {
-        void loadInitial();
-      }
+      syncUserConfigChange(kind, {
+        reloadPreferences: loadInitial,
+        refreshAgentRuntime: () => refreshAgentRuntime({ force: true }),
+      });
     });
-  }, [loadInitial]);
+  }, [loadInitial, refreshAgentRuntime]);
 
   useEffect(() => {
     const loading = document.getElementById("app-loading");

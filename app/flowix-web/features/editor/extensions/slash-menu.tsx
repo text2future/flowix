@@ -39,6 +39,8 @@ let activeEditor: Editor | null = null;
 let activeView: EditorView | null = null;
 let menuInstance: MenuInstance | null = null;
 let menuOpenId = 0;
+let unsubscribeRuntimeStatus: (() => void) | null = null;
+let unsubscribeUserSettings: (() => void) | null = null;
 
 function disposeMenuRoot(root: Root, container: HTMLDivElement) {
   window.setTimeout(() => {
@@ -102,6 +104,10 @@ function closeMenu() {
   document.removeEventListener('mousedown', handlePointerDownOutside, true);
   window.removeEventListener('resize', closeMenu);
   window.removeEventListener('scroll', handleScrollOutside, true);
+  unsubscribeRuntimeStatus?.();
+  unsubscribeRuntimeStatus = null;
+  unsubscribeUserSettings?.();
+  unsubscribeUserSettings = null;
 
   const root = menuRoot;
   const container = menuContainer;
@@ -393,6 +399,21 @@ function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteF
   document.addEventListener('mousedown', handlePointerDownOutside, true);
   window.addEventListener('resize', closeMenu);
   window.addEventListener('scroll', handleScrollOutside, true);
+
+  // The slash extension renders through an imperative React root, so reading
+  // Zustand with getState() does not subscribe it to updates. Keep the open
+  // menu reactive while a cross-window config refresh is in flight: once the
+  // runtime result (or visibility preference) changes, recompute its items.
+  unsubscribeRuntimeStatus = useAgentRuntimeStore.subscribe((state, previous) => {
+    if (state.statusByType === previous.statusByType) return;
+    if (!isCurrentMenuView(view, openId) || activeEditor !== editor) return;
+    refreshMenuFromEditor(view);
+  });
+  unsubscribeUserSettings = useUserSettingsStore.subscribe((state, previous) => {
+    if (state.settings.agents === previous.settings.agents) return;
+    if (!isCurrentMenuView(view, openId) || activeEditor !== editor) return;
+    refreshMenuFromEditor(view);
+  });
 
   renderMenu(view);
   void useAgentRuntimeStore.getState().refreshIfStale().then(() => {
