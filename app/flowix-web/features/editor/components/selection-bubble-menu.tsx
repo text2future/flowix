@@ -49,6 +49,10 @@ function FormatButton({
           event.preventDefault();
           if (!disabled) onRun();
         }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
       >
         {icon}
       </button>

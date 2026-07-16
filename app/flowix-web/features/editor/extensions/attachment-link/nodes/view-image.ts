@@ -1,6 +1,7 @@
 ﻿import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView as ProseMirrorNodeView, EditorView, Decoration } from '@tiptap/pm/view';
 import { Node, InputRule, mergeAttributes } from '@tiptap/core';
+import { invoke } from '@tauri-apps/api/core';
 import { assetMarkdownUrl, assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
 import { translate, type I18nKey } from '@features/i18n';
 import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
@@ -88,6 +89,7 @@ class ImageView implements ProseMirrorNodeView {
         wrapper.className = 'editor-image-attachment';
         wrapper.contentEditable = 'false';
         wrapper.draggable = true;
+        wrapper.addEventListener('dblclick', (event) => this.openInSystemViewer(event));
         wrapper.appendChild(img);
         wrapper.appendChild(fallback);
         wrapper.appendChild(this.createResizeHandle('left'));
@@ -96,6 +98,7 @@ class ImageView implements ProseMirrorNodeView {
         this.dom = wrapper;
         this.applySizing(node.attrs as Record<string, any>);
         this.applySrc(img, { src, storageMode, storageKey });
+        this.applyOpenableState(node.attrs as Record<string, any>);
     }
 
     private createResizeHandle(side: 'left' | 'right'): HTMLButtonElement {
@@ -111,6 +114,34 @@ class ImageView implements ProseMirrorNodeView {
         return attrs.storageMode === 'attachment' && attrs.storageKey
             ? assetUrl(attrs.storageKey)
             : (attrs.src ?? '');
+    }
+
+    private getOpenablePath(attrs: Record<string, any>): string | null {
+        if (attrs.storageMode !== 'attachment' || typeof attrs.storageKey !== 'string') return null;
+        const storageKey = attrs.storageKey.trim();
+        return storageKey ? storageKey : null;
+    }
+
+    private applyOpenableState(attrs: Record<string, any>): void {
+        this.dom.toggleAttribute('data-openable', this.getOpenablePath(attrs) !== null);
+    }
+
+    private openInSystemViewer(event: MouseEvent): void {
+        event.preventDefault();
+        event.stopPropagation();
+        if (this.isResizing) return;
+        if (
+            event.target instanceof HTMLElement
+            && event.target.closest('.editor-image-attachment__resize-handle') !== null
+        ) {
+            return;
+        }
+
+        const path = this.getOpenablePath(this.node.attrs as Record<string, any>);
+        if (!path) return;
+        void invoke('open_attachment_file', { sourcePath: path }).catch((error) => {
+            console.error('[ImageAttachment] Failed to open image in system viewer:', error);
+        });
     }
 
     private scheduleImageLoad(img: HTMLImageElement, src: string): void {
@@ -277,6 +308,7 @@ class ImageView implements ProseMirrorNodeView {
             });
             this.applySizing(attributes);
             this.applySrc(img, attributes);
+            this.applyOpenableState(attributes);
         }
     }
 
@@ -294,6 +326,7 @@ class ImageView implements ProseMirrorNodeView {
         }
         this.applySizing(node.attrs as Record<string, any>);
         this.applySrc(img, node.attrs as Record<string, any>);
+        this.applyOpenableState(node.attrs as Record<string, any>);
         return true;
     }
 
@@ -309,6 +342,7 @@ class ImageView implements ProseMirrorNodeView {
 
     stopEvent(event: Event): boolean {
         if (this.dom.classList.contains('is-resizing')) return true;
+        if (event.type === 'dblclick') return true;
         return event.target instanceof HTMLElement
             && event.target.closest('.editor-image-attachment__resize-handle') !== null;
     }

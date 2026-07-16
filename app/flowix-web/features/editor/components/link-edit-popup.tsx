@@ -375,6 +375,14 @@ function openLinkEditPopup(editor: Editor, onClose: () => void, options: OpenLin
 
   // Handle click outside
   clickOutsideHandler = (e: MouseEvent) => {
+    const target = e.target;
+    if (
+      target instanceof Element &&
+      target.closest('.selection-bubble-menu')
+    ) {
+      return;
+    }
+
     if (popupContainer && !popupContainer.contains(e.target as Node)) {
       handleClose();
     }

@@ -15,7 +15,9 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
+use crate::config::path_is_inside;
 use crate::lock_utils::{read_lock, write_lock};
 
 use super::helpers::start_security_bookmark_access;
@@ -328,6 +330,30 @@ pub async fn copy_attachment_file(
     start_security_bookmark_access(&state, Path::new(&target_path));
     fs::copy(source, Path::new(&target_path)).map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn open_attachment_file(
+    app: tauri::AppHandle,
+    source_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let attachments_dir = read_lock(&state.memo_file, "memo_file")
+        .get_memo_base()
+        .join("attachments");
+    let source = Path::new(&source_path);
+
+    if !path_is_inside(source, &attachments_dir) {
+        return Err("Source is not an attachment".to_string());
+    }
+    if !source.is_file() {
+        return Err("Attachment does not exist".to_string());
+    }
+
+    start_security_bookmark_access(&state, source);
+    app.opener()
+        .open_path(source.display().to_string(), None::<String>)
+        .map_err(|e| e.to_string())
 }
 
 // ==================== IPC: 导出 ====================

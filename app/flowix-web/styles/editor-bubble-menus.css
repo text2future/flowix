@@ -1,6 +1,6 @@
 .table-bubble-menu-anchor {
   position: absolute;
-  z-index: 49;
+  z-index: 101;
   transform: translate(-50%, -100%);
 }
 
@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  padding: 3px;
   border: none;
   background: transparent;
   border-radius: 5px;
@@ -74,19 +74,20 @@
 }
 
 .selection-bubble-menu {
-  z-index: 80;
+  z-index: 101;
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 4px;
+  padding: 3px;
   border: 1px solid color-mix(in oklch, var(--border) 86%, transparent);
-  border-radius: 11px;
+  border-radius: 10px;
   background: color-mix(in oklch, var(--popover) 94%, transparent);
   color: var(--popover-foreground);
   box-shadow:
     0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
     0 10px 28px color-mix(in oklch, var(--foreground) 14%, transparent);
   backdrop-filter: blur(18px);
+  pointer-events: none;
   user-select: none;
   white-space: nowrap;
   -webkit-user-select: none;
@@ -94,8 +95,8 @@
 
 .selection-bubble-button {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -104,6 +105,7 @@
   background: transparent;
   cursor: pointer;
   color: var(--muted-foreground);
+  pointer-events: auto;
   transition:
     background-color 0.15s ease,
     color 0.15s ease,

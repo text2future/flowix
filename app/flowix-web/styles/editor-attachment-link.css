@@ -146,6 +146,7 @@
       color-mix(in oklch, var(--muted) 92%, transparent),
       color-mix(in oklch, var(--card) 96%, transparent)
     );
+  cursor: default;
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 

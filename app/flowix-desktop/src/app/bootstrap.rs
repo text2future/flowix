@@ -457,6 +457,7 @@ pub fn run() {
             commands::dialog::save_attachment,
             commands::dialog::save_attachment_content,
             commands::dialog::copy_attachment_file,
+            commands::dialog::open_attachment_file,
             commands::agent_access::add_agent_access_folder_from_picker,
             // agent
             commands::agent::agent_runtime_status,
