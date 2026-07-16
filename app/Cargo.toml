@@ -8,7 +8,7 @@ members = [
 
 # 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。
 [workspace.package]
-version = "1.0.7"
+version = "1.0.8"
 edition = "2021"
 
 # 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。
@@ -34,4 +34,3 @@ sha2 = "0.10"
 clap = { version = "4.5", features = ["std"] }
 clap_complete = "4.5"
 rusqlite = { version = "0.31", features = ["bundled"] }
-
