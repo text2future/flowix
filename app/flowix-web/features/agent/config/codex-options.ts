@@ -15,12 +15,14 @@ export const CODEX_MODEL_OPTIONS: Array<{
 ];
 
 export const CODEX_PERMISSION_IDS: AgentPermissionMode[] = [
+  "yolo",
   "danger-full-access",
   "workspace-write",
   "read-only",
 ];
 
 export const CODEX_ACCESS_OPTIONS: Array<{ id: AgentPermissionMode; label: string }> = [
+  { id: "yolo", label: "YOLO" },
   { id: "danger-full-access", label: "Full Access" },
   { id: "workspace-write", label: "Workspace Write" },
   { id: "read-only", label: "Read Only" },
@@ -87,5 +89,7 @@ export function getCodexPermissionLabel(
       return t("agent.permission.workspaceWrite");
     case "danger-full-access":
       return t("agent.permission.dangerFullAccess");
+    case "yolo":
+      return t("agent.permission.yolo");
   }
 }

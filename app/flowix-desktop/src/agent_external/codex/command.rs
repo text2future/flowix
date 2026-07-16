@@ -123,6 +123,10 @@ pub(crate) fn is_executable_file(path: &std::path::Path) -> bool {
 }
 
 fn append_permission_override(cmd: &mut Command, permission_mode: Option<&str>) {
+    if matches!(permission_mode.map(str::trim), Some("yolo")) {
+        cmd.arg("--yolo");
+        return;
+    }
     if let Some(mode) = normalized_permission_mode(permission_mode) {
         cmd.arg("--sandbox");
         cmd.arg(mode);
@@ -203,6 +207,7 @@ pub(crate) fn normalized_permission_mode(mode: Option<&str>) -> Option<&'static 
         Some("read-only") => Some("read-only"),
         Some("workspace-write") => Some("workspace-write"),
         Some("danger-full-access") => Some("danger-full-access"),
+        Some("yolo") => Some("yolo"),
         _ => None,
     }
 }

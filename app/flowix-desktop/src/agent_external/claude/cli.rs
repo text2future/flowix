@@ -456,6 +456,10 @@ mod tests {
             normalized_claude_permission_mode(Some("danger-full-access")),
             Some("bypassPermissions")
         );
+        assert_eq!(
+            normalized_claude_permission_mode(Some("yolo")),
+            Some("bypassPermissions")
+        );
         assert_eq!(normalized_claude_permission_mode(Some("inherit")), None);
     }
 
@@ -522,6 +526,23 @@ mod tests {
         );
 
         cleanup(&root);
+    }
+
+    #[test]
+    fn claude_command_maps_yolo_to_bypass_permissions() {
+        let cwd = std::env::temp_dir();
+        let workspace_paths = Vec::new();
+        let cmd = build_claude_command(None, &cwd, &workspace_paths, Some("yolo"), None);
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--permission-mode" && pair[1] == "bypassPermissions"));
+        assert!(!args.iter().any(|arg| arg == "--yolo"));
     }
 
     #[test]

@@ -26,9 +26,9 @@ import {
   type Notebook,
 } from '@features/memo';
 import { useTauriRpc } from '@platform/tauri/use-tauri-rpc';
-import { listenToNotebookImportComplete, windows as tauriWindows } from '@platform/tauri/client';
-import { notebookCreateErrorMessage } from '@platform/tauri/errors';
+import { windows as tauriWindows } from '@platform/tauri/client';
 import { useMemoInsertAnimation } from '@features/memo/hooks/use-memo-insert-animation';
+import { useCreateNotebookFlow } from '@features/memo/hooks/use-create-notebook-flow';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { Button } from '@shared/ui/button';
@@ -52,6 +52,10 @@ import {
 import { Kbd } from '@shared/ui/kbd';
 import { LazyGlobalSearchCommand } from '@features/memo/components/lazy-global-search-command';
 import { openMemoSession } from '@features/memo/components/open-memo-session';
+import {
+  getMemoListQueryKey,
+  shouldShowMemoListLoading,
+} from '@features/memo/components/memo-list-loading-state';
 import { memoRepository, notebookRepository } from '@features/memo/services/memo-repository';
 import { useI18n, type I18nParams } from '@features/i18n';
 import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
@@ -253,12 +257,6 @@ const HEADER_ICON_BTN_CLASS =
   'h-8 w-8 justify-center rounded-full p-0 border border-[var(--border)] ' +
   'hover:bg-[var(--muted)] hover:text-[var(--primary)] text-[var(--foreground)]';
 
-function waitForNextPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  });
-}
-
 function BlockingLoadingOverlay({ text }: { text: string }) {
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_82%,transparent)] backdrop-blur-[1px]">
@@ -328,26 +326,9 @@ function ListLoadingState({ text }: { text: string }) {
   );
 }
 
-function getMemoListQueryKey(
-  notebookId: string | undefined,
-  filter: string,
-  sort: string,
-  tagId: string | null,
-  colorFilter: ColorFilterValue
-): string {
-  return [
-    notebookId ?? '',
-    filter,
-    sort,
-    filter === 'tagged' ? tagId ?? '' : '',
-    filter === 'color' ? colorFilter : '',
-  ].join(':');
-}
-
 const MEMO_LIST_INITIAL_RENDER_COUNT = 120;
 const MEMO_LIST_RENDER_BATCH_SIZE = 80;
 const MEMO_LIST_LOAD_MORE_THRESHOLD_PX = 720;
-
 export function MemoList() {
   const { request } = useTauriRpc();
   const { t } = useI18n();
@@ -432,22 +413,19 @@ export function MemoList() {
   const [editNotebookName, setEditNotebookName] = useState('');
   const [editNotebookIcon, setEditNotebookIcon] = useState<string | null>(null);
   const [tagMap, setTagMap] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    return listenToNotebookImportComplete((notebookId) => {
-      if (useMemoStore.getState().selectedNotebook?.id === notebookId) {
-        triggerRefresh();
-      }
-    });
-  }, [triggerRefresh]);
   const [isMemoListLoading, setIsMemoListLoading] = useState(false);
   const [loadedMemoListQueryKey, setLoadedMemoListQueryKey] = useState<string | null>(null);
   const [visibleMemoCount, setVisibleMemoCount] = useState(MEMO_LIST_INITIAL_RENDER_COUNT);
-  const [blockingLoadingText, setBlockingLoadingText] = useState<string | null>(null);
   const loadDataSeqRef = useRef(0);
   const emptyNotebookPromptedRef = useRef(false);
   const activeDocumentMemoId = useDocumentStore((store) => store.activeMemoSession?.memoId ?? null);
   const currentDocumentSource = useDocumentStore((store) => store.currentDocumentSource);
+
+  const { blockingLoadingText, createNotebook } = useCreateNotebookFlow({
+    onMemoListReloadNeeded: triggerRefresh,
+    onMemoListQueryReset: () => setLoadedMemoListQueryKey(null),
+    onMemoListLoadingChange: setIsMemoListLoading,
+  });
 
   useEffect(() => {
     const { selectedMemo: latestSelectedMemo } = useMemoStore.getState();
@@ -672,7 +650,12 @@ export function MemoList() {
     activeTagId,
     colorFilter
   );
-  const showMemoListLoading = isMemoListLoading || currentMemoListQueryKey !== loadedMemoListQueryKey;
+  const showMemoListLoading = shouldShowMemoListLoading({
+    selectedNotebookId,
+    isMemoListLoading,
+    currentMemoListQueryKey,
+    loadedMemoListQueryKey,
+  });
   const memoListLoadingText = showMemoListLoading ? t('memo.list.loadingMemos') : null;
   const visibleLoadingText = blockingLoadingText;
 
@@ -894,47 +877,17 @@ export function MemoList() {
 
   const handleConfirmCreateNotebook = async () => {
     if (!newNotebookName.trim() || !newNotebookPath.trim()) return;
-    const notebookName = newNotebookName.trim();
-    const notebookPath = newNotebookPath.trim();
 
     setCreateNotebookOpen(false);
-    setBlockingLoadingText(t('memo.list.scanningLibrary'));
-    await waitForNextPaint();
-
-    try {
-      const created = await notebookRepository.create(
-        notebookName,
-        notebookPath,
-        newNotebookIcon
-      ) as Notebook | null;
-
-      if (!created) {
-        toast.error(t('memo.list.createFailed'));
-        return;
-      }
-
-      const notebooksResult = await notebookRepository.list();
-      const nextNotebooks = notebooksResult?.length ? notebooksResult as Notebook[] : [created];
-      const nextNotebook = nextNotebooks.find((notebook) => notebook.id === created.id) ?? created;
-
-      setNotebooks(nextNotebooks);
-      setSelectedNotebook(nextNotebook);
-      setSelectedMemo(null);
-      setMemos([]);
-      useDocumentStore.getState().clearDocument();
-      setSelectedTagId(null);
-      setLoadedMemoListQueryKey(null);
-      setIsMemoListLoading(true);
-
+    const created = await createNotebook({
+      name: newNotebookName,
+      path: newNotebookPath,
+      icon: newNotebookIcon,
+    });
+    if (created) {
       setNewNotebookName('');
       setNewNotebookPath('');
       setNewNotebookIcon(null);
-      triggerRefresh();
-    } catch (error) {
-      console.warn('[MemoList] Failed to create notebook:', error);
-      toast.error(notebookCreateErrorMessage(error));
-    } finally {
-      setBlockingLoadingText(null);
     }
   };
 

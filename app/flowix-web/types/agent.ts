@@ -39,7 +39,11 @@ export interface AgentRuntimeCapabilities {
 }
 
 export type AgentPermissionMode =
-  "inherit" | "read-only" | "workspace-write" | "danger-full-access";
+  | "inherit"
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access"
+  | "yolo";
 export type AgentCodexModel = "inherit" | string;
 export type AgentCodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
 

@@ -459,6 +459,7 @@ mod tests {
             normalized_permission_mode(Some("danger-full-access")),
             Some("danger-full-access")
         );
+        assert_eq!(normalized_permission_mode(Some("yolo")), Some("yolo"));
         assert_eq!(normalized_permission_mode(Some("inherit")), None);
         assert_eq!(normalized_permission_mode(Some("unknown")), None);
         assert_eq!(normalized_permission_mode(None), None);
@@ -682,6 +683,21 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--sandbox" && pair[1] == "workspace-write"));
+    }
+
+    #[test]
+    fn codex_command_uses_yolo_flag_for_yolo_permission_mode() {
+        let cwd = std::env::temp_dir();
+        let workspace_paths = Vec::new();
+        let cmd = build_codex_command(None, &cwd, &workspace_paths, Some("yolo"), None, None);
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(args.iter().any(|arg| arg == "--yolo"));
+        assert!(!args.iter().any(|arg| arg == "--sandbox"));
     }
 
     #[test]

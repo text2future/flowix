@@ -746,3 +746,17 @@ export function listenToNotebookImportComplete(
 ): UnlistenFn {
   return subscribe<string>('notebook-import-complete', handler);
 }
+
+export type NotebookImportStatusKind = 'started' | 'skipped' | 'completed' | 'failed';
+
+export interface NotebookImportStatus {
+  notebookId: string;
+  status: NotebookImportStatusKind;
+  message?: string | null;
+}
+
+export function listenToNotebookImportStatus(
+  handler: (status: NotebookImportStatus) => void,
+): UnlistenFn {
+  return subscribe<NotebookImportStatus>('notebook-import-status', handler);
+}

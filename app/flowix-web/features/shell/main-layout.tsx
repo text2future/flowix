@@ -285,18 +285,26 @@ export function MainLayout() {
     setNoteNavigationVisible(!noteNavigationVisible);
   }, [noteNavigationVisible, setNoteNavigationVisible]);
 
-  // memo-list 侧栏折叠只关自己, 不再级联收起笔记导航 ── 两者是独立的可见性,
-  // 与键盘 (⌘L, toggleMemoListVisible) 和手势 (resolvePanelSwipeTransition)
-  // 的「只关一个」语义保持一致。之前的级联让用户折叠侧栏时意外丢失笔记导航,
-  // 且折叠后无法单独恢复, 交互难用。
-  const handleCollapseMemoList = useCallback(() => {
+  // 关闭 memo-list 侧栏时同步收起笔记导航 ── 避免左侧两列同时打开占满
+  // 视口宽度。手势 (左滑) 走 resolvePanelSwipeTransition, 不经过此路径,
+  // 不会触发级联关闭, 与手势的「只关一个」语义保持一致。
+  const closeMemoListAndNoteNavigation = useCallback(() => {
     setMemoListVisible(false);
-  }, [setMemoListVisible]);
+    if (noteNavigationVisible) {
+      setNoteNavigationVisible(false);
+    }
+  }, [noteNavigationVisible, setMemoListVisible, setNoteNavigationVisible]);
 
-  // document 顶栏的侧栏 toggle: 纯粹开/关 memo-list, 不牵连笔记导航。
+  // document 顶栏的侧栏 toggle: 打开走纯开, 关闭走级联 (带笔记导航),
+  // 行为与 memo-list 顶栏的折叠按钮对齐 ── 任一入口关闭都同步收起左侧
+  // 两列。
   const handleToggleMemoList = useCallback(() => {
-    setMemoListVisible(!memoListVisible);
-  }, [memoListVisible, setMemoListVisible]);
+    if (memoListVisible) {
+      closeMemoListAndNoteNavigation();
+    } else {
+      setMemoListVisible(true);
+    }
+  }, [closeMemoListAndNoteNavigation, memoListVisible, setMemoListVisible]);
 
   const currentMemo = currentDocumentPath && currentDocumentSource === 'memo' && activeMemoSession
     ? memos.find((memo) => memo.id === activeMemoSession.memoId)
@@ -536,14 +544,14 @@ export function MainLayout() {
             >
               {isWindowsPlatform() ? (
                 <MemoListTitlebarWin
-                  onCollapseSidebar={handleCollapseMemoList}
+                  onCollapseSidebar={closeMemoListAndNoteNavigation}
                   onToggleNoteNavigation={handleToggleNoteNavigation}
                   onOpenPreferences={() => windows.openPreferences()}
                 />
               ) : (
                 <MemoListTitlebarMac
                   noteNavigationVisible={noteNavigationVisible}
-                  onCollapseSidebar={handleCollapseMemoList}
+                  onCollapseSidebar={closeMemoListAndNoteNavigation}
                   onToggleNoteNavigation={handleToggleNoteNavigation}
                   onOpenPreferences={() => windows.openPreferences()}
                 />

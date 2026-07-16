@@ -156,6 +156,7 @@ pub(crate) fn normalized_claude_permission_mode(mode: Option<&str>) -> Option<&'
         Some("read-only") => Some("plan"),
         Some("workspace-write") => Some("acceptEdits"),
         Some("danger-full-access") => Some("bypassPermissions"),
+        Some("yolo") => Some("bypassPermissions"),
         _ => None,
     }
 }

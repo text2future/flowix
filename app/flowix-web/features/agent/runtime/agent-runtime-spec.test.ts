@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildAgentRuntimeConfig,
+  getAgentAccessOptions,
+  normalizeCodexPermissionMode,
   supportsAgentEmptySettings,
 } from "@features/agent/runtime/agent-runtime-spec";
 import type {
@@ -265,5 +267,39 @@ describe("buildAgentRuntimeConfig primaryWorkspace cascade", () => {
 
   it("flowix supports empty-card runtime settings for files", () => {
     expect(supportsAgentEmptySettings("flowix")).toBe(true);
+  });
+
+  it("exposes yolo on Codex and Claude access options", () => {
+    expect(getAgentAccessOptions("codex").map((option) => option.id)).toContain(
+      "yolo",
+    );
+    expect(getAgentAccessOptions("claude").map((option) => option.id)).toContain(
+      "yolo",
+    );
+  });
+
+  it("passes yolo through Codex runtime config normalization", () => {
+    const result = buildAgentRuntimeConfig({
+      typeKey: "codex",
+      cwd: "/tmp/project",
+      permissionMode: "yolo",
+      codexModel: "inherit",
+      codexReasoningEffort: "medium",
+    });
+
+    expect(normalizeCodexPermissionMode("yolo")).toBe("yolo");
+    expect(result.codex?.permissionMode).toBe("yolo");
+  });
+
+  it("passes yolo through Claude runtime config", () => {
+    const result = buildAgentRuntimeConfig({
+      typeKey: "claude",
+      cwd: "/tmp/project",
+      permissionMode: "yolo",
+      codexModel: "inherit",
+      codexReasoningEffort: "medium",
+    });
+
+    expect(result.claude?.permissionMode).toBe("yolo");
   });
 });

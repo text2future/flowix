@@ -45,6 +45,13 @@ const HERMES_ACCESS_OPTIONS: readonly AgentAccessOption[] = [
   { id: "danger-full-access", label: "Full Access" },
 ];
 
+const CLAUDE_ACCESS_OPTIONS: readonly AgentAccessOption[] = [
+  { id: "yolo", label: "YOLO" },
+  { id: "danger-full-access", label: "Full Access" },
+  { id: "workspace-write", label: "Workspace Write" },
+  { id: "read-only", label: "Read Only" },
+];
+
 const NO_ACCESS_OPTIONS: readonly AgentAccessOption[] = [];
 
 function normalizeWorkspacePath(path: string | null | undefined): string {
@@ -65,7 +72,8 @@ export function normalizeCodexPermissionMode(
 ): AgentPermissionMode {
   return mode === "read-only" ||
     mode === "workspace-write" ||
-    mode === "danger-full-access"
+    mode === "danger-full-access" ||
+    mode === "yolo"
     ? mode
     : "danger-full-access";
 }
@@ -105,7 +113,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "claude",
     emptySettings: ["model", "permission"],
     supportsFilesSetting: true,
-    accessOptions: CODEX_ACCESS_OPTIONS,
+    accessOptions: CLAUDE_ACCESS_OPTIONS,
     buildRuntimeConfig: ({ cwd, workspacePaths, permissionMode, codexModel }) => ({
       claude: { cwd, workspacePaths, permissionMode, model: codexModel },
     }),
