@@ -39,7 +39,7 @@ interface DocumentTitlebarWinProps {
 }
 
 const ICON_BTN =
-  'w-7 h-7 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg transition-colors';
+  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg transition-colors';
 const SAVE_BTN =
   'inline-flex h-7 shrink-0 enabled:!cursor-pointer disabled:!cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-60';
 
