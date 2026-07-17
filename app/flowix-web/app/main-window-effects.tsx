@@ -2,13 +2,20 @@
 
 import { useEffect } from "react";
 import { useAgentEvents } from "@features/agent/hooks/use-agent-events";
-import { listenToAgentAccessChanges } from "@platform/tauri/client";
+import { listenToAgentAccessChanges, windows } from "@platform/tauri/client";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
 import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
+import { useDocumentStore } from "@features/document/store/document-store";
+import { useMemoStore } from "@features/memo/store/memo-store";
+import { useTagStore } from "@features/memo/store/tag-store";
+import { useTodoCountStore } from "@features/memo/store/todo-count-store";
 import { prewarmNotebookCache, invalidateNotebookCache } from "@features/editor/extensions/note-link";
 import { invalidateMentionNotes } from "@features/editor/extensions/note-mention";
 import { invalidateMentionTags } from "@features/editor/extensions/tag-mention";
+import { toast } from "@/lib/toast";
+import { handleMainWindowMemoEvent } from "./main-window-memo-event-handler";
+import type { MemoEvent } from "@/types/memo";
 import {
   mountOpenTargetListener,
   unmountOpenTargetListener,
@@ -35,9 +42,29 @@ export function MainWindowEffects() {
 
     void import("@/lib/memo-dispatcher").then(({ registerMemoEventHandler }) => {
       if (disposed) return;
-      unsubscribe = registerMemoEventHandler(() => {
-        invalidateMentionNotes();
-        invalidateMentionTags();
+      unsubscribe = registerMemoEventHandler((event) => {
+        handleMainWindowMemoEvent(event, {
+          getSelectedNotebookId: () => useMemoStore.getState().selectedNotebook?.id ?? null,
+          invalidateMentionCaches: () => {
+            invalidateMentionNotes();
+            invalidateMentionTags();
+          },
+          openNoteWindow: windows.openNoteWindow,
+          reportOpenFailure: (error) => {
+            console.warn("[MainWindowEffects] open created note window failed", error);
+            toast.error(error instanceof Error ? error.message : String(error));
+          },
+          handleMemoCreated: (memo) => useMemoStore.getState().handleMemoCreated(memo),
+          handleMemoUpdated: (memo) => useMemoStore.getState().handleMemoUpdated(memo),
+          handleMemoDeleted: (memoId) => useMemoStore.getState().handleMemoDeleted(memoId),
+          replaceActiveMemoPath: (memoId, path) => {
+            useDocumentStore.getState().replaceActiveMemoPath(memoId, path);
+          },
+          refreshSelectedNotebookMetadata,
+          refreshBackgroundTodoCount: (notebookId) => {
+            void useTodoCountStore.getState().loadTodoCount(notebookId);
+          },
+        });
       });
     });
 
@@ -71,4 +98,15 @@ export function MainWindowEffects() {
   }, []);
 
   return null;
+}
+
+function refreshSelectedNotebookMetadata(event: MemoEvent): void {
+  const { notebookId, derivedChanged } = event;
+  if (derivedChanged.tags || derivedChanged.agents || derivedChanged.todos) {
+    void useTagStore.getState().loadTags(notebookId);
+    useTagStore.getState().triggerMetadataRefresh();
+  }
+  if (derivedChanged.todos) {
+    void useTodoCountStore.getState().loadTodoCount(notebookId);
+  }
 }

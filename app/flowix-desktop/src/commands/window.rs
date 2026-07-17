@@ -4,7 +4,7 @@
 //! 各放一个 `#[cfg(target_os = ...)]` 分支。
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tauri::Manager;
 
 use crate::app::state::AppState;
@@ -12,6 +12,9 @@ use crate::config::Theme;
 use crate::lock_utils::read_lock;
 
 static MAIN_WINDOW_FOCUS_CONSUMED: AtomicBool = AtomicBool::new(false);
+static NOTE_WINDOW_CASCADE_INDEX: AtomicUsize = AtomicUsize::new(0);
+const NOTE_WINDOW_CASCADE_OFFSET: i32 = 32;
+const NOTE_WINDOW_CASCADE_SLOTS: usize = 8;
 
 #[tauri::command]
 pub fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -115,6 +118,75 @@ fn note_window_label(memo_id: &str) -> String {
     format!("note-{}", safe_id)
 }
 
+fn cascaded_note_window_position(
+    anchor: (i32, i32),
+    window_size: (u32, u32),
+    monitor_origin: (i32, i32),
+    monitor_size: (u32, u32),
+    cascade_index: usize,
+) -> (i32, i32) {
+    let monitor_width = monitor_size.0.min(i32::MAX as u32) as i32;
+    let monitor_height = monitor_size.1.min(i32::MAX as u32) as i32;
+    let window_width = window_size.0.min(i32::MAX as u32) as i32;
+    let window_height = window_size.1.min(i32::MAX as u32) as i32;
+    let max_x = monitor_origin
+        .0
+        .saturating_add(monitor_width)
+        .saturating_sub(window_width)
+        .max(monitor_origin.0);
+    let max_y = monitor_origin
+        .1
+        .saturating_add(monitor_height)
+        .saturating_sub(window_height)
+        .max(monitor_origin.1);
+    let base_x = anchor.0.saturating_add(64).clamp(monitor_origin.0, max_x);
+    let base_y = anchor.1.saturating_add(64).clamp(monitor_origin.1, max_y);
+    let cascade_offset = NOTE_WINDOW_CASCADE_OFFSET * cascade_index as i32;
+
+    let cascade_axis = |base: i32, min: i32, max: i32| {
+        let forward = base.saturating_add(cascade_offset);
+        if forward <= max {
+            forward
+        } else {
+            base.saturating_sub(cascade_offset).clamp(min, max)
+        }
+    };
+
+    (
+        cascade_axis(base_x, monitor_origin.0, max_x),
+        cascade_axis(base_y, monitor_origin.1, max_y),
+    )
+}
+
+fn cascade_note_window(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    let Some(main_window) = app.get_webview_window("main") else {
+        return;
+    };
+    let (Ok(anchor), Ok(window_size), Ok(Some(monitor))) = (
+        main_window.outer_position(),
+        window.outer_size(),
+        main_window.current_monitor(),
+    ) else {
+        return;
+    };
+    let index =
+        NOTE_WINDOW_CASCADE_INDEX.fetch_add(1, Ordering::Relaxed) % NOTE_WINDOW_CASCADE_SLOTS;
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let (x, y) = cascaded_note_window_position(
+        (anchor.x, anchor.y),
+        (window_size.width, window_size.height),
+        (monitor_position.x, monitor_position.y),
+        (monitor_size.width, monitor_size.height),
+        index,
+    );
+    window
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+            x, y,
+        )))
+        .ok();
+}
+
 fn resolve_note_window_payload_inner(
     memo_id: &str,
     state: &AppState,
@@ -186,6 +258,40 @@ pub async fn open_note_window(
 
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::window_chrome::apply_window_border_color(&window);
+    cascade_note_window(&app, &window);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cascaded_note_window_position;
+
+    #[test]
+    fn note_windows_cascade_from_the_main_window() {
+        assert_eq!(
+            cascaded_note_window_position((100, 80), (900, 680), (0, 0), (1920, 1080), 0),
+            (164, 144)
+        );
+        assert_eq!(
+            cascaded_note_window_position((100, 80), (900, 680), (0, 0), (1920, 1080), 2),
+            (228, 208)
+        );
+    }
+
+    #[test]
+    fn note_window_position_is_clamped_to_the_current_monitor() {
+        assert_eq!(
+            cascaded_note_window_position((1600, 900), (900, 680), (0, 0), (1920, 1080), 7,),
+            (796, 176)
+        );
+    }
+
+    #[test]
+    fn note_window_position_supports_negative_monitor_origins() {
+        assert_eq!(
+            cascaded_note_window_position((-1800, 100), (900, 680), (-1920, 0), (1920, 1080), 1,),
+            (-1704, 196)
+        );
+    }
 }

@@ -1,26 +1,22 @@
 /**
  * `MemoEvent` 应用层分发器 — 中央 router + filter-声明式订阅。
  *
- * 本模块是副作用模块: 顶层 `subscribe('memo-event', ...)` + 4 个
- * `memoDispatcher.subscribe(...)` 在模块加载时一次性执行, 把后端
- * `memo-event` Tauri 通道和应用层 4 个 handler (3 个 memo-store +
- * 1 个 reload) 串联起来。 业务代码不需要直接调本模块, 只需要在
- * App 启动时 import 一次触发注册即可 (见 app.tsx 的 `useMemoEvents`)。
+ * 本模块只负责把后端 `memo-event` Tauri 通道桥接到应用层 dispatcher，
+ * 不注册任何窗口专属业务 handler。主窗口列表同步由
+ * `app/main-window-effects.tsx` 注册，固定笔记窗口只注册自身 memo 的
+ * handler，因此不同 Webview 不会加载彼此的状态副作用。
  *
  * 跟 `lib/event-dispatcher.ts` 的关系:
  * - `event-bus.ts` (Tauri 适配层)  → `memoDispatcher.dispatch`
  *   - 监听 Tauri 'memo-event' 通道, 把 payload 转发给 dispatcher
- * - `memoDispatcher` (应用层)  → handler
- *   - 4 个 handler 按 filter 分发 (kind / source / 路径匹配)
+ * - `memoDispatcher` (应用层)  → 各窗口自行注册的 handler
  *
  * 单一订阅点保证:
  * - 同一 webview 内只有一个 memoDispatcher 实例 (模块级单例)
  * - 即使 app.tsx 在 StrictMode 双挂 / HMR 重载, 也只挂 1 个 Tauri listener
  *   (event-bus 自动去重) + 1 个 dispatch 桥接
  *
- * Phase 1: filter-based 派发。 每个 handler 显式声明 filter, 不再
- *          需要中央 switch。 4 个 handler 拆分到独立函数, 加新 handler
- *          只调 `memoDispatcher.subscribe(...)`。
+ * Phase 1: filter-based 派发。每个窗口的 handler 显式声明 filter。
  *
  * Phase 2: 上 dedup middleware (`createMemoDedupMiddleware`), 合并
  *          短窗口内同 id 的连续事件 (last-write-wins), 减少 rerender。
@@ -28,22 +24,16 @@
 
 import { subscribe } from '@platform/tauri/event-bus';
 import { EventDispatcher, type DispatcherMiddleware } from '@/lib/event-dispatcher';
-import { joinNotebookMemoPath } from '@/lib/path';
-import { useDocumentStore } from '@features/document/store/document-store';
-import { useMemoStore } from '@features/memo/store/memo-store';
-import { useTagStore } from '@features/memo/store/tag-store';
-import { useTodoCountStore } from '@features/memo/store/todo-count-store';
 import { createMemoDedupMiddleware } from '@/lib/memo-dispatcher-dedup';
 import type { MemoEvent } from '@/types/memo';
 
-// Current windowing model: the main window imports this dispatcher from
-// app/main-window-effects.tsx. The preferences window intentionally does not
-// import it during startup.
+// Current windowing model: the main window and each fixed-note window import
+// this bridge independently. The preferences window intentionally does not.
 
 /**
- * 全局 memoDispatcher 单例 (per-webview)。 各 webview (主窗口 / 偏好
- * 窗口) 各自持有一份独立实例, 通过 Tauri 事件总线收到的 payload
- * 各自独立 dispatch — 互不串台。
+ * 全局 memoDispatcher 单例 (per-webview)。主窗口 / 固定笔记窗口各自
+ * 持有一份独立实例，通过 Tauri 事件总线收到的 payload 各自独立
+ * dispatch，不共享订阅者。
  */
 export const memoDispatcher = new EventDispatcher<MemoEvent>();
 
@@ -90,87 +80,12 @@ function installMemoDedup(): void {
 }
 installMemoDedup();
 
-function refreshDerivedMetadata(event: MemoEvent): void {
-  const { notebookId, derivedChanged } = event;
-
-  if (derivedChanged.tags || derivedChanged.agents || derivedChanged.todos) {
-    void useTagStore.getState().loadTags(notebookId);
-    useTagStore.getState().triggerMetadataRefresh();
-  }
-
-  if (derivedChanged.todos) {
-    void useTodoCountStore.getState().loadTodoCount(notebookId);
-  }
-}
-
-function isEventForSelectedNotebook(event: MemoEvent): boolean {
-  const selectedNotebookId = useMemoStore.getState().selectedNotebook?.id;
-  return !selectedNotebookId || selectedNotebookId === event.notebookId;
-}
-
-// ---- 4 个 memo-store 派发 handler --------------------------------------------
-//
-// 每个 handler 用 filter 声明自己关心的 kind, 不再需要中央 switch。
-// 顺序无所谓 (filter 互斥), 注册顺序作为处理优先级保留供未来 middleware
-// (e.g. coalesce / collapse) 决定。
-
-memoDispatcher.subscribe(
-  (event) => {
-    if (event.kind !== 'created') return;
-    const memoStore = useMemoStore.getState();
-    if (!isEventForSelectedNotebook(event)) {
-      refreshDerivedMetadata(event);
-      return;
-    }
-    memoStore.handleMemoCreated(event.memo, { select: event.source === 'external_tool' });
-    refreshDerivedMetadata(event);
-    if (event.source === 'external_tool') {
-      const notebook = memoStore.selectedNotebook;
-      const path = notebook?.path ? joinNotebookMemoPath(notebook.path, event.memo.filename) : event.memo.filename;
-      void useDocumentStore.getState().openMemoDocument({
-        memoId: event.memo.id,
-        path,
-        notebookId: notebook?.id ?? null,
-        notebookPath: notebook?.path ?? null,
-      });
-    }
-  },
-  (event) => event.kind === 'created',
-);
-
-memoDispatcher.subscribe(
-  (event) => {
-    if (event.kind !== 'updated') return;
-    if (!isEventForSelectedNotebook(event)) {
-      refreshDerivedMetadata(event);
-      return;
-    }
-    useMemoStore.getState().handleMemoUpdated(event.memo);
-    useDocumentStore.getState().replaceActiveMemoPath(event.id, event.path);
-    refreshDerivedMetadata(event);
-  },
-  (event) => event.kind === 'updated',
-);
-
-memoDispatcher.subscribe(
-  (event) => {
-    if (event.kind !== 'deleted') return;
-    if (!isEventForSelectedNotebook(event)) {
-      refreshDerivedMetadata(event);
-      return;
-    }
-    useMemoStore.getState().handleMemoDeleted(event.id);
-    refreshDerivedMetadata(event);
-  },
-  (event) => event.kind === 'deleted',
-);
-
 // ---- 跨订阅者注册接口 -------------------------------------------------------
 //
 // 给 `useExternalDocumentChangeWatch` 等需要"按 kind + source + path
 // 自定义"的 hook 用: 它们走 `memoDispatcher.subscribe(...)` 注册自己
-// 的 handler, 不再直接监听 Tauri 通道, 跟 4 个 memo-store handler 共享
-// 同一份 dedup / filter / log 中间件。
+// 的 handler, 不再直接监听 Tauri 通道，并共享同一份 dedup / filter / log
+// 中间件。
 //
 // 这正是 Phase 1 的核心收益: 把双订阅从"event-bus 层并列"统一到
 // "memoDispatcher 层声明式 filter"。
