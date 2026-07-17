@@ -32,7 +32,7 @@ export function handleMainWindowMemoEvent(
   }
 
   const selectedNotebookId = actions.getSelectedNotebookId();
-  if (selectedNotebookId && selectedNotebookId !== event.notebookId) {
+  if (!selectedNotebookId || selectedNotebookId !== event.notebookId) {
     if (event.derivedChanged.todos) {
       actions.refreshBackgroundTodoCount(event.notebookId);
     }

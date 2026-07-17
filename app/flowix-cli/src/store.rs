@@ -213,7 +213,7 @@ pub(crate) fn create_note(
     notebook: &NotebookConfig,
     body: &str,
 ) -> Result<NoteCreated, CliError> {
-    let created = MemoService::new(mf).create_memo(&notebook.id, body)?;
+    let created = MemoService::new(mf).create_external_memo(&notebook.id, body)?;
     let memo = created.memo;
     let title = derive_title(body, None);
     let file_path = created.path;

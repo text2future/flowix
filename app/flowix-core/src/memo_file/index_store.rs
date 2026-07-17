@@ -14,6 +14,11 @@ use super::types::{
 };
 use super::MemoFile;
 
+// Pending markers only bridge a live Desktop watcher and a concurrent CLI/MCP
+// process. Expiry prevents an offline create from being mistaken for a create
+// when that document is edited much later.
+const EXTERNAL_CREATE_MARKER_TTL_MS: i64 = 60_000;
+
 fn color_to_str(color: MemoColor) -> &'static str {
     match color {
         MemoColor::Red => "red",
@@ -105,6 +110,11 @@ impl MemoFile {
                 ON memos(notebook_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_memos_notebook_updated
                 ON memos(notebook_id, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS pending_external_memo_creates (
+                memo_id TEXT PRIMARY KEY,
+                notebook_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS memo_tags (
                 memo_id TEXT NOT NULL,
                 tag TEXT NOT NULL,
@@ -153,6 +163,79 @@ impl MemoFile {
         let conn = self.open_index_db()?;
         self.ensure_memo_tables(&conn)?;
         Ok(conn)
+    }
+
+    /// Record an external-process create before its markdown file becomes visible.
+    /// The Desktop watcher consumes this marker when it observes the filesystem event.
+    pub fn mark_pending_external_memo_create(
+        &self,
+        memo_id: &str,
+        notebook_id: &str,
+    ) -> std::io::Result<()> {
+        let conn = self.open_memo_index_db()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        conn.execute(
+            "DELETE FROM pending_external_memo_creates WHERE created_at < ?1",
+            params![now - EXTERNAL_CREATE_MARKER_TTL_MS],
+        )
+        .map_err(sqlite_to_io)?;
+        conn.execute(
+            r#"
+            INSERT INTO pending_external_memo_creates (memo_id, notebook_id, created_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(memo_id) DO UPDATE SET
+                notebook_id = excluded.notebook_id,
+                created_at = excluded.created_at
+            "#,
+            params![memo_id, notebook_id, now],
+        )
+        .map_err(sqlite_to_io)?;
+        Ok(())
+    }
+
+    /// Atomically claim an external create marker. A marker can produce at most one
+    /// `Created` event even when the platform reports several filesystem events.
+    pub fn consume_pending_external_memo_create(
+        &self,
+        memo_id: &str,
+        notebook_id: &str,
+    ) -> std::io::Result<bool> {
+        let conn = self.open_memo_index_db()?;
+        let cutoff = chrono::Utc::now().timestamp_millis() - EXTERNAL_CREATE_MARKER_TTL_MS;
+        let changed = conn
+            .execute(
+                "DELETE FROM pending_external_memo_creates WHERE memo_id = ?1 AND notebook_id = ?2 AND created_at >= ?3",
+                params![memo_id, notebook_id, cutoff],
+            )
+            .map_err(sqlite_to_io)?;
+        Ok(changed > 0)
+    }
+
+    pub fn has_pending_external_memo_create(
+        &self,
+        memo_id: &str,
+        notebook_id: &str,
+    ) -> std::io::Result<bool> {
+        let conn = self.open_memo_index_db()?;
+        let cutoff = chrono::Utc::now().timestamp_millis() - EXTERNAL_CREATE_MARKER_TTL_MS;
+        conn.query_row(
+            "SELECT 1 FROM pending_external_memo_creates WHERE memo_id = ?1 AND notebook_id = ?2 AND created_at >= ?3",
+            params![memo_id, notebook_id, cutoff],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|row| row.is_some())
+        .map_err(sqlite_to_io)
+    }
+
+    pub fn clear_pending_external_memo_create(&self, memo_id: &str) -> std::io::Result<()> {
+        let conn = self.open_memo_index_db()?;
+        conn.execute(
+            "DELETE FROM pending_external_memo_creates WHERE memo_id = ?1",
+            params![memo_id],
+        )
+        .map_err(sqlite_to_io)?;
+        Ok(())
     }
 
     fn mark_index_state(

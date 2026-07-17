@@ -227,7 +227,7 @@ impl MemoFile {
 
     /// 创建一个 memo: 写 .md + 写 memo index。返回新建的 Memo (含 id / filename)。
     pub fn create_memo(&self, title: &str, body: &str, tag: Option<&str>) -> std::io::Result<Memo> {
-        self.create_memo_inner(None, title, body, tag)
+        self.create_memo_inner(None, title, body, tag, false)
     }
 
     /// Create in a registered notebook without changing the process-local current notebook.
@@ -238,7 +238,19 @@ impl MemoFile {
         body: &str,
         tag: Option<&str>,
     ) -> std::io::Result<Memo> {
-        self.create_memo_inner(Some(notebook_id), title, body, tag)
+        self.create_memo_inner(Some(notebook_id), title, body, tag, false)
+    }
+
+    /// Create from a separate CLI/MCP process and leave an explicit marker for
+    /// Desktop's filesystem watcher before the markdown file becomes visible.
+    pub fn create_external_memo_for_notebook_id(
+        &self,
+        notebook_id: &str,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+    ) -> std::io::Result<Memo> {
+        self.create_memo_inner(Some(notebook_id), title, body, tag, true)
     }
 
     fn create_memo_inner(
@@ -247,6 +259,7 @@ impl MemoFile {
         title: &str,
         body: &str,
         tag: Option<&str>,
+        mark_external_create: bool,
     ) -> std::io::Result<Memo> {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
         let (base, resolved_notebook_id) = if let Some(notebook_id) = notebook_id {
@@ -294,6 +307,9 @@ impl MemoFile {
         };
         let persisted_id =
             super::frontmatter::extract_frontmatter_key(&initial_content).unwrap_or(id);
+        if mark_external_create {
+            self.mark_pending_external_memo_create(&persisted_id, &resolved_notebook_id)?;
+        }
         let filename = loop {
             let filename = resolve_filename_conflict(&base, &candidate, &occupied);
             let path = base.join(&filename);
@@ -302,7 +318,12 @@ impl MemoFile {
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     occupied.push(filename);
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    if mark_external_create {
+                        let _ = self.clear_pending_external_memo_create(&persisted_id);
+                    }
+                    return Err(error);
+                }
             }
         };
 
@@ -333,6 +354,9 @@ impl MemoFile {
                 == Some(memo.id.as_str())
             {
                 let _ = fs::remove_file(path);
+            }
+            if mark_external_create {
+                let _ = self.clear_pending_external_memo_create(&memo.id);
             }
             return Err(error);
         }

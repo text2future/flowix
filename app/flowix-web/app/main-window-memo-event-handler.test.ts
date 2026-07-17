@@ -60,6 +60,16 @@ describe('handleMainWindowMemoEvent', () => {
     expect(actions.invalidateMentionCaches).toHaveBeenCalledOnce();
   });
 
+  it('opens an externally created note before notebook hydration without touching the list', () => {
+    const actions = createActions('');
+
+    handleMainWindowMemoEvent(createdEvent(), actions);
+
+    expect(actions.openNoteWindow).toHaveBeenCalledWith('memo-b');
+    expect(actions.handleMemoCreated).not.toHaveBeenCalled();
+    expect(actions.refreshSelectedNotebookMetadata).not.toHaveBeenCalled();
+  });
+
   it('refreshes only the notebook-keyed todo count for a background notebook', () => {
     const actions = createActions('notebook-a');
     const event = createdEvent({

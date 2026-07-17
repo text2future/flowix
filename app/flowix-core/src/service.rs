@@ -174,6 +174,35 @@ impl<'a> MemoService<'a> {
         self.create_memo_named(Some(notebook_key), &title, body)
     }
 
+    /// Create from CLI/MCP and mark the operation for Desktop's watcher before
+    /// the markdown file is published.
+    pub fn create_external_memo(
+        &mut self,
+        notebook_key: &str,
+        body: &str,
+    ) -> Result<CreatedMemo, FlowixError> {
+        if body.trim().is_empty() {
+            return Err(FlowixError::InvalidInput(
+                "empty body, note not created".into(),
+            ));
+        }
+        let title = derive_title(body);
+        let notebook = self.resolve_notebook(notebook_key)?;
+        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
+        let memo = self.memo_file.create_external_memo_for_notebook_id(
+            &notebook.id,
+            &title,
+            body,
+            None,
+        )?;
+        let path = PathBuf::from(&notebook.path).join(&memo.filename);
+        Ok(CreatedMemo {
+            memo,
+            notebook,
+            path,
+        })
+    }
+
     /// Create a memo with an explicit title while preserving Desktop's ability to
     /// create an empty document. When `notebook_key` is omitted, the store's current
     /// notebook/default fallback remains in effect.

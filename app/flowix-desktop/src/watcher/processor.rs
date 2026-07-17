@@ -34,7 +34,7 @@ pub struct MemoEventProcessor;
 
 /// 纯函数分流结果: dispatcher 决定要 emit 哪个事件 + 附带的副作用数据。
 #[derive(Debug)]
-enum DispatchOutcome {
+pub(crate) enum DispatchOutcome {
     /// 走 Updated 路径, 无副作用
     Updated(MemoEvent),
     /// 走 Created 路径, 需要 caller 调 mark_self_write(new_abs_path) 抑制
@@ -45,19 +45,30 @@ enum DispatchOutcome {
     },
 }
 
-// CLI/MCP runs in a separate process and writes both the markdown file and the
-// shared memo index before Desktop receives the filesystem event. On macOS an
-// atomic create arrives as temp-file Create followed by final-path Modify, so
-// both Create and Modify must participate. Keep the inference window narrow
-// and require untouched create/update timestamps so established notes continue
-// to be classified as Updated.
-const CROSS_PROCESS_CREATE_WINDOW_MS: i64 = 5_000;
+fn read_indexed_memo_after_external_marker(
+    memo_file: &MemoFile,
+    notebook_id: &str,
+    memo_id: &str,
+) -> Option<Memo> {
+    if let Some(memo) = memo_file.read_memo_for_notebook_id(notebook_id, memo_id) {
+        return Some(memo);
+    }
+    if !memo_file
+        .has_pending_external_memo_create(memo_id, notebook_id)
+        .unwrap_or(false)
+    {
+        return None;
+    }
 
-fn is_recent_cross_process_create(kind: FsEventKind, memo: &Memo, now_ms: i64) -> bool {
-    matches!(kind, FsEventKind::Create | FsEventKind::Modify)
-        && memo.created_at == memo.updated_at
-        && now_ms >= memo.created_at
-        && now_ms - memo.created_at <= CROSS_PROCESS_CREATE_WINDOW_MS
+    // The marker is committed before the markdown file is published. Give the
+    // creating process a short opportunity to commit the corresponding memo row.
+    for _ in 0..8 {
+        std::thread::sleep(Duration::from_millis(25));
+        if let Some(memo) = memo_file.read_memo_for_notebook_id(notebook_id, memo_id) {
+            return Some(memo);
+        }
+    }
+    None
 }
 
 fn emit_updated_for_context(
@@ -116,11 +127,11 @@ fn emit_created_for_context(
 ///
 /// 从 `process()` 抽出来好做单测 (process 本身依赖 AppHandle, 不易测);
 /// 分流规则只跟 MemoFile 状态有关, 跟 Tauri 解耦。
-fn dispatch_modify_event(
+pub(crate) fn dispatch_modify_event(
     memo_file: &MemoFile,
     ctx: &NotebookWatchContext,
     path: &Path,
-    event_kind: FsEventKind,
+    _event_kind: FsEventKind,
 ) -> Result<DispatchOutcome, String> {
     let filename = path
         .file_name()
@@ -135,15 +146,15 @@ fn dispatch_modify_event(
         .and_then(|c| extract_frontmatter_key(&c));
 
     match disk_key {
-        Some(id) => match memo_file.read_memo_for_notebook_id(&ctx.notebook_id, &id) {
+        Some(id) => match read_indexed_memo_after_external_marker(memo_file, &ctx.notebook_id, &id)
+        {
             Some(existing) if existing.filename == filename => {
-                if is_recent_cross_process_create(
-                    event_kind,
-                    &existing,
-                    chrono::Utc::now().timestamp_millis(),
-                ) {
+                if memo_file
+                    .has_pending_external_memo_create(&id, &ctx.notebook_id)
+                    .unwrap_or(false)
+                {
                     tracing::info!(
-                        "[MemoWatcher] cross-process create detected from prewritten index: id={} path={}",
+                        "[MemoWatcher] claimed external create marker: id={} path={}",
                         existing.id,
                         path.display(),
                     );
@@ -151,7 +162,14 @@ fn dispatch_modify_event(
                         &ctx.notebook_id,
                         &filename,
                     )?;
-                    Ok(emit_created_for_context(ctx, refreshed, path.to_path_buf()))
+                    if memo_file
+                        .consume_pending_external_memo_create(&id, &ctx.notebook_id)
+                        .unwrap_or(false)
+                    {
+                        Ok(emit_created_for_context(ctx, refreshed, path.to_path_buf()))
+                    } else {
+                        Ok(emit_updated_for_context(ctx, Some(&existing), refreshed))
+                    }
                 } else {
                     reload_existing_memo(memo_file, ctx, &filename)
                 }
@@ -636,7 +654,7 @@ mod tests {
         // MCP/CLI uses a separate MemoFile instance but performs this same
         // file + shared-index write before Desktop observes the fs event.
         let created = mf
-            .create_memo_for_notebook_id("nb_test", "MCP note", "# MCP note\n", None)
+            .create_external_memo_for_notebook_id("nb_test", "MCP note", "# MCP note\n", None)
             .expect("mcp-style create");
         let path = base.join(&created.filename);
 
@@ -663,32 +681,6 @@ mod tests {
     }
 
     #[test]
-    fn established_index_entry_is_not_created_for_a_modify_event() {
-        let now = chrono::Utc::now().timestamp_millis();
-        let memo = Memo {
-            id: "memo-1".to_string(),
-            filename: "Memo.md".to_string(),
-            preview: String::new(),
-            thumbnail: None,
-            tags: vec![],
-            todos: vec![],
-            agents: vec![],
-            created_at: now - CROSS_PROCESS_CREATE_WINDOW_MS - 1,
-            updated_at: now,
-            favorited: false,
-            icon: None,
-            colors: vec![],
-            properties: serde_json::json!({}),
-        };
-
-        assert!(!is_recent_cross_process_create(
-            FsEventKind::Modify,
-            &memo,
-            now,
-        ));
-    }
-
-    #[test]
     fn dispatch_modify_event_updated_preserves_id_across_external_edit() {
         // 关键不变量: 外部改 body 后, memo index 里这条 entry 的 id 不会变
         // (id 在 register_existing_file 时生成, 后续 reload 只动 preview/
@@ -696,17 +688,10 @@ mod tests {
         let (mf, base) = fresh_memo_file();
         let (_, path) = seed_registered_md(&mf, &base, "Note");
 
-        // A just-created indexed memo is normalized to Created even when
-        // macOS reports the final path as Modify.
-        let id1 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
-            .unwrap()
-        {
-            DispatchOutcome::Created {
-                event: MemoEvent::Created { memo, .. },
-                ..
-            } => memo.id,
-            _ => panic!("expected initial Created"),
-        };
+        let id1 = mf
+            .find_memo_by_filename_for_notebook_id("nb_test", "Note.md")
+            .expect("seeded memo")
+            .id;
 
         // 模拟第二次外部改
         fs::write(&path, "# Note\n\nsecond edit\n").unwrap();
@@ -722,6 +707,24 @@ mod tests {
         };
 
         assert_eq!(id1, id2, "id must be stable across external body edits");
+    }
+
+    #[test]
+    fn external_create_marker_is_consumed_once_without_reopening_on_quick_edit() {
+        let (mf, base) = fresh_memo_file();
+        let created = mf
+            .create_external_memo_for_notebook_id("nb_test", "MCP note", "# MCP note\n", None)
+            .expect("external create");
+        let path = base.join(&created.filename);
+
+        let first = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
+            .expect("first event");
+        assert!(matches!(first, DispatchOutcome::Created { .. }));
+
+        fs::write(&path, "# MCP note\n\nquick external edit\n").unwrap();
+        let second = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
+            .expect("second event");
+        assert!(matches!(second, DispatchOutcome::Updated(_)));
     }
 
     /// 回归: 物理删除时, `unregister_and_emit` 必须能从 memo index 查到真实 id

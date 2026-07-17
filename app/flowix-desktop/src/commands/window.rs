@@ -5,6 +5,7 @@
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
 
 use crate::app::state::AppState;
@@ -13,6 +14,7 @@ use crate::lock_utils::read_lock;
 
 static MAIN_WINDOW_FOCUS_CONSUMED: AtomicBool = AtomicBool::new(false);
 static NOTE_WINDOW_CASCADE_INDEX: AtomicUsize = AtomicUsize::new(0);
+static NOTE_WINDOW_OPEN_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 const NOTE_WINDOW_CASCADE_OFFSET: i32 = 32;
 const NOTE_WINDOW_CASCADE_SLOTS: usize = 8;
 
@@ -225,12 +227,20 @@ pub async fn open_note_window(
 ) -> Result<(), String> {
     use tauri::WebviewWindowBuilder;
 
+    // Serialize the check-and-build section. Without this lock, concurrent
+    // requests for the same memo can both observe a missing label and one build
+    // fails with a duplicate-label error instead of behaving idempotently.
+    let _open_guard = NOTE_WINDOW_OPEN_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "note window open lock poisoned".to_string())?;
+
     let payload = resolve_note_window_payload_inner(&memo_id, state.inner())?;
     let label = note_window_label(&payload.memo_id);
 
     if let Some(window) = app.get_webview_window(&label) {
-        window.set_focus().ok();
         window.unminimize().ok();
+        window.set_focus().ok();
         return Ok(());
     }
 

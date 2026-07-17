@@ -355,11 +355,16 @@ mod tests {
             .expect("write notebook config");
         memo_file.set_current_notebook(Some(notebook.id.clone()));
         let created = memo_file
-            .create_memo_for_notebook_id(&notebook.id, "MCP notify", "# MCP notify\n", None)
+            .create_external_memo_for_notebook_id(
+                &notebook.id,
+                "MCP notify",
+                "# MCP notify\n",
+                None,
+            )
             .expect("mcp-style create");
-        let expected_path = notes.join(created.filename);
+        let expected_file_path = notes.join(&created.filename);
 
-        let expected_path = normalize_for_compare(&expected_path);
+        let expected_path = normalize_for_compare(&expected_file_path);
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let mut observed = Vec::new();
         while std::time::Instant::now() < deadline {
@@ -376,6 +381,24 @@ mod tests {
             observed.push((kind, paths.clone()));
             if paths.iter().any(|path| path == &expected_path) {
                 if matches!(kind, FsEventKind::Create | FsEventKind::Modify) {
+                    let ctx = NotebookWatchContext {
+                        notebook_id: notebook.id.clone(),
+                        root: notes.clone(),
+                    };
+                    let outcome = crate::watcher::processor::dispatch_modify_event(
+                        &memo_file,
+                        &ctx,
+                        &expected_file_path,
+                        kind,
+                    )
+                    .expect("classify observed MCP event");
+                    assert!(matches!(
+                        outcome,
+                        crate::watcher::processor::DispatchOutcome::Created {
+                            event: crate::memo_events::MemoEvent::Created { memo, .. },
+                            ..
+                        } if memo.id == created.id
+                    ));
                     return;
                 }
             }

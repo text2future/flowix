@@ -52,14 +52,16 @@ function installMemoEventBridge(): void {
     // DEBUG: 打印后端 emit 到前端的所有 memo-event (dedup 之前的原始事件)。
     // 排查"外部修改"提示链路时, 用这个日志看 fs_watcher 是否真的发了
     // `updated` + `source=external_tool` 事件, 路径是否匹配当前文档。
-    // eslint-disable-next-line no-console
-    console.log('[memo-event] raw <- tauri', {
-      at: new Date().toISOString(),
-      kind: payload.kind,
-      source: payload.kind === 'deleted' ? null : payload.source,
-      id: payload.kind === 'deleted' ? payload.id : payload.memo.id,
-      path: payload.kind === 'created' ? payload.memo.filename : payload.path,
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[memo-event] raw <- tauri', {
+        at: new Date().toISOString(),
+        kind: payload.kind,
+        source: payload.kind === 'deleted' ? null : payload.source,
+        id: payload.kind === 'deleted' ? payload.id : payload.memo.id,
+        path: payload.kind === 'created' ? payload.memo.filename : payload.path,
+      });
+    }
     memoDispatcher.dispatch(payload);
   });
 }

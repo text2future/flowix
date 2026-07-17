@@ -28,6 +28,12 @@ interface UseExternalDocumentChangeWatchOptions {
 // debounce save), cooldown 收敛冲突警告避免 toast 风暴。
 const CONFLICT_WARNING_COOLDOWN_MS = 5000;
 
+function debugDocumentSync(message: string, details: Record<string, unknown>): void {
+  if (!import.meta.env.DEV) return;
+  // eslint-disable-next-line no-console
+  console.log(message, details);
+}
+
 export function useExternalDocumentChangeWatch({
   filePath,
   identity,
@@ -71,8 +77,7 @@ export function useExternalDocumentChangeWatch({
         const updatedPath = canonicalPath(event.path);
         const currentPath = canonicalPath(filePath);
         if (updatedPath !== currentPath) {
-          // eslint-disable-next-line no-console
-          console.log('[ext-watch] skip (path mismatch)', {
+          debugDocumentSync('[ext-watch] skip (path mismatch)', {
             at: new Date().toISOString(),
             source: event.source,
             id: event.id,
@@ -92,8 +97,7 @@ export function useExternalDocumentChangeWatch({
         if (hasDocumentUnsavedChanges(identity)) {
           // 用户在敲字, 外部并发改盘 ── 提示冲突但不覆盖 (避免丢字符),
           // 让用户决定下一步 (继续编辑 / 手动复制 / 切走再切回)。
-          // eslint-disable-next-line no-console
-          console.log('[ext-watch] conflict (local dirty) -> toast', {
+          debugDocumentSync('[ext-watch] conflict (local dirty) -> toast', {
             at: new Date().toISOString(),
             source: event.source,
             id: event.id,
@@ -103,8 +107,7 @@ export function useExternalDocumentChangeWatch({
           return;
         }
 
-        // eslint-disable-next-line no-console
-        console.log('[ext-watch] reload from disk', {
+        debugDocumentSync('[ext-watch] reload from disk', {
           at: new Date().toISOString(),
           source: event.source,
           id: event.id,
@@ -134,7 +137,7 @@ export function useExternalDocumentChangeWatch({
           reloadDocument,
         });
         if (result === 'reloaded') {
-          console.log('[memo-content-updated] reloaded from sibling window', {
+          debugDocumentSync('[memo-content-updated] reloaded from sibling window', {
             id: event.id,
             path: event.path,
           });
