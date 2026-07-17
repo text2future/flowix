@@ -46,14 +46,15 @@ enum DispatchOutcome {
 }
 
 // CLI/MCP runs in a separate process and writes both the markdown file and the
-// shared memo index before Desktop receives the filesystem Create event. The
-// index lookup therefore already succeeds even though this is a genuinely new
-// memo. Keep the inference window narrow so atomic saves of established notes
-// continue to be classified as Updated.
+// shared memo index before Desktop receives the filesystem event. On macOS an
+// atomic create arrives as temp-file Create followed by final-path Modify, so
+// both Create and Modify must participate. Keep the inference window narrow
+// and require untouched create/update timestamps so established notes continue
+// to be classified as Updated.
 const CROSS_PROCESS_CREATE_WINDOW_MS: i64 = 5_000;
 
 fn is_recent_cross_process_create(kind: FsEventKind, memo: &Memo, now_ms: i64) -> bool {
-    kind == FsEventKind::Create
+    matches!(kind, FsEventKind::Create | FsEventKind::Modify)
         && memo.created_at == memo.updated_at
         && now_ms >= memo.created_at
         && now_ms - memo.created_at <= CROSS_PROCESS_CREATE_WINDOW_MS
@@ -630,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_create_emits_created_when_mcp_already_wrote_the_shared_index() {
+    fn dispatch_modify_emits_created_when_mcp_already_wrote_the_shared_index() {
         let (mf, base) = fresh_memo_file();
         // MCP/CLI uses a separate MemoFile instance but performs this same
         // file + shared-index write before Desktop observes the fs event.
@@ -639,7 +640,9 @@ mod tests {
             .expect("mcp-style create");
         let path = base.join(&created.filename);
 
-        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Create)
+        // macOS FSEvents reports MemoFile's atomic temp-file rename at the
+        // final markdown path as Modify rather than Create.
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
             .expect("dispatch ok");
 
         match outcome {
@@ -660,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn recent_index_entry_is_not_created_for_a_modify_event() {
+    fn established_index_entry_is_not_created_for_a_modify_event() {
         let now = chrono::Utc::now().timestamp_millis();
         let memo = Memo {
             id: "memo-1".to_string(),
@@ -670,7 +673,7 @@ mod tests {
             tags: vec![],
             todos: vec![],
             agents: vec![],
-            created_at: now,
+            created_at: now - CROSS_PROCESS_CREATE_WINDOW_MS - 1,
             updated_at: now,
             favorited: false,
             icon: None,
@@ -693,16 +696,16 @@ mod tests {
         let (mf, base) = fresh_memo_file();
         let (_, path) = seed_registered_md(&mf, &base, "Note");
 
-        // 第一次 dispatch: 拿到 id
-        let e1 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
+        // A just-created indexed memo is normalized to Created even when
+        // macOS reports the final path as Modify.
+        let id1 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
             .unwrap()
         {
-            DispatchOutcome::Updated(e) => e,
-            _ => panic!("expected Updated"),
-        };
-        let id1 = match e1 {
-            MemoEvent::Updated { id, .. } => id,
-            _ => unreachable!(),
+            DispatchOutcome::Created {
+                event: MemoEvent::Created { memo, .. },
+                ..
+            } => memo.id,
+            _ => panic!("expected initial Created"),
         };
 
         // 模拟第二次外部改

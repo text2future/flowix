@@ -319,6 +319,71 @@ fn schedule_pending_remove(
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mcp_style_create_surfaces_a_final_path_event_on_macos() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let notes = tmp.path().join("notes");
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(&notes).expect("notes dir");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+            if let Ok(event) = result {
+                let _ = tx.send(event);
+            }
+        })
+        .expect("watcher");
+        watcher
+            .watch(&notes, RecursiveMode::Recursive)
+            .expect("watch notes");
+        // FSEvents installs its stream asynchronously after `watch()` returns.
+        std::thread::sleep(Duration::from_millis(300));
+
+        let mut memo_file = MemoFile::new(config_dir);
+        let notebook = NotebookConfig {
+            id: "nb_mcp".to_string(),
+            name: "MCP".to_string(),
+            icon: None,
+            path: notes.to_string_lossy().to_string(),
+            is_default: true,
+            created_at: 0,
+            updated_at: 0,
+        };
+        memo_file
+            .write_notebook_configs(std::slice::from_ref(&notebook))
+            .expect("write notebook config");
+        memo_file.set_current_notebook(Some(notebook.id.clone()));
+        let created = memo_file
+            .create_memo_for_notebook_id(&notebook.id, "MCP notify", "# MCP notify\n", None)
+            .expect("mcp-style create");
+        let expected_path = notes.join(created.filename);
+
+        let expected_path = normalize_for_compare(&expected_path);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut observed = Vec::new();
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok(event) = rx.recv_timeout(remaining.min(Duration::from_millis(250))) else {
+                continue;
+            };
+            let paths: Vec<PathBuf> = event
+                .paths
+                .iter()
+                .map(|path| normalize_for_compare(path))
+                .collect();
+            let kind = FsEventKind::from_notify(&event.kind);
+            observed.push((kind, paths.clone()));
+            if paths.iter().any(|path| path == &expected_path) {
+                if matches!(kind, FsEventKind::Create | FsEventKind::Modify) {
+                    return;
+                }
+            }
+        }
+
+        panic!("expected a final-path event for MCP-style creation, observed {observed:?}");
+    }
+
     #[test]
     fn normalize_for_compare_falls_back_when_path_missing() {
         // 写盘前 mark 的典型场景: 文件还没创建, canonicalize 必然失败。
