@@ -57,10 +57,9 @@ pub enum Cli {
     Completion {
         shell: String,
     },
-    /// JSON-RPC over stdio (line-delimited)。 给 Flowix desktop 做 sidecar 用 ──
-    /// 从 stdin 读 `{id, method, params}` 行, 向 stdout 写响应。 走 `serve::run_serve`。
-    /// 普通用户不直接调, 是内部协议。
-    Serve,
+    /// Model Context Protocol over stdio。向外部 Agent 暴露唯一工具
+    /// `flowix_memo`，工具参数采用受限的 Flowix CLI 语法。
+    Mcp,
 }
 
 /// 解析 argv。`Ok(None)` 表示"打印了 help 正常退出"。
@@ -141,7 +140,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Cli>, CliError> {
         Some(("completion", sub)) => Ok(Some(Cli::Completion {
             shell: required_string(sub, "shell")?,
         })),
-        Some(("serve", _)) => Ok(Some(Cli::Serve)),
+        Some(("mcp", _)) => Ok(Some(Cli::Mcp)),
         Some((other, _)) => Err(CliError::Usage(format!(
             "unknown command: `{other}`\n(run `{DISPLAY_BIN} --help` for usage)"
         ))),
@@ -210,7 +209,7 @@ pub(crate) fn cli_command() -> Command {
                 ),
         )
         .subcommand(Command::new("completion").arg(required_arg("shell")))
-        .subcommand(Command::new("serve"))
+        .subcommand(Command::new("mcp"))
 }
 
 fn required_arg(name: &'static str) -> Arg {
@@ -304,16 +303,16 @@ fn preflight_usage_errors(args: &[String]) -> Result<(), CliError> {
                 },
             )?;
         }
-        Some("serve") => {
+        Some("mcp") => {
             let extras = args
                 .iter()
                 .filter(|a| a.as_str() != "--json" && a.as_str() != "-j")
-                .skip_while(|a| a.as_str() != "serve")
+                .skip_while(|a| a.as_str() != "mcp")
                 .skip(1)
                 .count();
             if extras > 0 {
                 return Err(CliError::Usage(format!(
-                    "usage: {DISPLAY_BIN} serve  (no extra args; reads JSON-RPC from stdin)"
+                    "usage: {DISPLAY_BIN} mcp  (no extra args; MCP over stdio)"
                 )));
             }
         }
@@ -548,7 +547,7 @@ COMMANDS:
     search <query>     Full-text search                      [alias: q]
                        [--notebook|-b <nb>] [--limit|-l <n>]
     completion <sh>    Print shell completion (bash|zsh|fish)
-    serve             JSON-RPC over stdio (internal: Flowix desktop sidecar)
+    mcp               MCP over stdio (external Agent integration)
 
 ENVIRONMENT:
     FLOWIX_HOME        Override config dir (default: ~/.flowix; contains index.db)
@@ -1080,20 +1079,6 @@ mod tests {
     fn completion_missing_arg_errors() {
         let err = parse_args(&["completion"]).unwrap_err();
         assert_err_contains(&err, "usage:");
-        assert_eq!(err.exit_code(), 2);
-    }
-
-    // ===== Serve =====
-
-    #[test]
-    fn serve_basic() {
-        assert!(matches!(parse_args(&["serve"]), Ok(Some(Cli::Serve))));
-    }
-
-    #[test]
-    fn serve_rejects_extra_args() {
-        let err = parse_args(&["serve", "extra"]).unwrap_err();
-        assert_err_contains(&err, "no extra args");
         assert_eq!(err.exit_code(), 2);
     }
 

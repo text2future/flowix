@@ -21,3 +21,4 @@ tempfile = { workspace = true }
 nanoid = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+shell-words = { workspace = true }

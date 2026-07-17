@@ -679,10 +679,8 @@ export const agent = {
 // into this single dispatch path.
 type StreamCallback = (chunk: AgentChunk) => void;
 
-// CLI sidecar JSON-RPC 鈹€鈹€ 閫氳繃鍚庣 `cli_invoke` 鍛戒护璧?`flowix-cli serve` 瀛愯繘绋嬨€?// 鍚庣 spawn sidecar 杩涚▼, 缁存姢 stdin/stdout 鍙屽悜娴? 鎶?method + params 鍖呮垚
-// line-delimited JSON 鍙戣繃鍘? 绛夊搷搴斿洖鍓嶇銆?鍗忚灞傝 `app/flowix-cli/src/serve.rs`銆?//
-// 褰撳墠鐩存帴娑堣垂鑰? command palette (鏈潵), agent filesystem 宸ュ叿 (鏈潵)銆?
-// v1 鍙槸鍏堟毚闇插叆鍙? 瀹為檯璋冪敤鏂逛細鍦ㄥ悗缁伐鍗曢噷鎺ャ€?
+// Standalone CLI installation/status. Memo automation is exposed to external Agents
+// through `flowix mcp`; the desktop does not keep a CLI sidecar process alive.
 export interface CliLinkStatus {
   targetPath: string | null;
   binDir: string;
@@ -696,8 +694,6 @@ export interface CliLinkStatus {
 }
 
 export const cli = {
-  invoke: <T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> =>
-    invoke<T>('cli_invoke', { method, params: params ?? {} }),
   linkStatus: () => invoke<CliLinkStatus>('cli_link_status'),
   installPath: () => invoke<CliLinkStatus>('install_cli_path'),
 };

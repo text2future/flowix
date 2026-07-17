@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FileCog, Keyboard, Link2, History, SquareTerminal, SquareMousePointer, Type, Palette, Settings } from 'lucide-react';
+import { FileCog, Keyboard, Link2, History, Plug, SquareTerminal, SquareMousePointer, Type, Palette, Settings } from 'lucide-react';
 import { useUserSettings } from '@features/preferences/hooks/use-user-settings';
 import {
 	GeneralSection,
@@ -11,6 +11,7 @@ import {
 	AgentsSection,
 	ShortcutsSection,
 	CliSection,
+	McpSection,
 	ConnectionsSection,
 	HistorySection,
 	QuickPhrasesSection,
@@ -50,6 +51,7 @@ const TAB_GROUPS: { labelKey: I18nKey; tabs: PreferencesTabItem[] }[] = [
 			// 模型配置整段塞到 aiAgent 的 Flowix 卡片里, 不再独立成 tab。
 			{ id: 'aiAgent', labelKey: 'preferences.tabs.aiAgent', icon: <AgentIconStack /> },
 			{ id: 'cli', labelKey: 'preferences.tabs.cli', icon: <SquareTerminal className="w-4 h-4" /> },
+			{ id: 'mcp', labelKey: 'preferences.tabs.mcp', icon: <Plug className="w-4 h-4" /> },
 			{ id: 'connections', labelKey: 'preferences.tabs.connections', icon: <Link2 className="w-4 h-4" /> },
 			{ id: 'tools', labelKey: 'preferences.tabs.tools', icon: <SquareMousePointer className="w-4 h-4" /> },
 		],
@@ -162,6 +164,7 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 							{activeTab === 'aiAgent' && <AgentsSection />}
 							{activeTab === 'shortcuts' && <ShortcutsSection />}
 							{activeTab === 'cli' && <CliSection />}
+							{activeTab === 'mcp' && <McpSection />}
 							{activeTab === 'connections' && <ConnectionsSection />}
 							{activeTab === 'tools' && (
 								<div className="space-y-8">

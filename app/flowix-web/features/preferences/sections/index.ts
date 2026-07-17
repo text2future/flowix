@@ -13,6 +13,7 @@ export { AgentsSection } from '@features/preferences/sections/agents';
 export { QuickPhrasesSection } from '@features/preferences/sections/quick-phrases';
 export { ShortcutsSection } from '@features/preferences/sections/shortcuts';
 export { CliSection } from '@features/preferences/sections/cli';
+export { McpSection } from '@features/preferences/sections/mcp';
 export { ConnectionsSection } from '@features/preferences/sections/connections';
 export { HistorySection } from '@features/preferences/sections/history';
 

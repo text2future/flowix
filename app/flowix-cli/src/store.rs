@@ -14,10 +14,8 @@ use crate::{
     paths,
 };
 use flowix_core::memo_file::{MemoFile, NotebookConfig};
+use flowix_core::MemoService;
 use std::{collections::HashMap, path::PathBuf};
-
-const MAX_SEARCH_LIMIT: usize = 200;
-
 
 /// 构造一个 `MemoFile`, 走 `paths::resolve()` 解析的数据目录。
 pub fn open() -> Result<MemoFile, CliError> {
@@ -37,11 +35,12 @@ pub fn cmd_notebooks_json() -> Result<(), CliError> {
     Ok(())
 }
 
-/// `notebooks.list` JSON-RPC method 的数据源 ── 走 `MemoFile::read_notebook_configs`
-/// 拿原始 `NotebookConfig` 切片, serve 调 [`crate::fmt::notebooks_to_json`] 包装。
+/// notebook 列表的数据源，供 CLI 和 MCP 命令层复用。
 pub(crate) fn notebooks_list_configs() -> Result<Vec<NotebookConfig>, CliError> {
-    let mf = open()?;
-    read_notebook_configs_strict(&mf)
+    let mut mf = open()?;
+    MemoService::new(&mut mf)
+        .list_notebooks()
+        .map_err(Into::into)
 }
 
 /// `flowix-cli notebooks` ── 列出所有 notebook。
@@ -57,13 +56,9 @@ pub(crate) fn notebook_note_counts(
     configs: &[NotebookConfig],
 ) -> Result<HashMap<String, usize>, CliError> {
     let mut mf = open()?;
-    let mut counts = HashMap::new();
-    for config in configs {
-        mf.set_current_notebook(Some(config.id.clone()));
-        let count = mf.read_index_result()?.unwrap_or_default().memos.len();
-        counts.insert(config.id.clone(), count);
-    }
-    Ok(counts)
+    MemoService::new(&mut mf)
+        .notebook_note_counts(configs)
+        .map_err(Into::into)
 }
 
 /// 按 `name` 或 `id` 找 notebook。id 优先, 避免同名 notebook 歧义。
@@ -97,19 +92,20 @@ pub fn cmd_list_json(notebook_key: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-/// `memo.list` JSON-RPC method 的数据源 ── 读 notebook 的 `memo index` 拿 entries。
+/// memo 列表的数据源，读取 notebook 的 memo index。
 pub(crate) fn notes_list_entries(
     notebook_key: &str,
 ) -> Result<Vec<flowix_core::memo_file::MemoIndexEntry>, CliError> {
-    let (mf, _nb) = open_in(notebook_key)?;
-    Ok(mf.read_index_result()?.unwrap_or_default().memos)
+    let mut mf = open()?;
+    MemoService::new(&mut mf)
+        .list_memos(notebook_key)
+        .map_err(Into::into)
 }
 
 /// `flowix-cli list <notebook>` ── 列出某 notebook 下的笔记。
 pub fn cmd_list(notebook_key: &str) -> Result<(), CliError> {
-    let (mf, _nb) = open_in(notebook_key)?;
-    let list = mf.read_index_result()?.unwrap_or_default();
-    fmt::print_notes(&list.memos);
+    let entries = notes_list_entries(notebook_key)?;
+    fmt::print_notes(&entries);
     Ok(())
 }
 
@@ -128,62 +124,16 @@ pub(crate) fn resolve_id(id_arg: &str) -> Result<(MemoFile, String), CliError> {
 pub(crate) fn resolve_id_with_notebook(
     id_arg: &str,
 ) -> Result<(MemoFile, String, NotebookConfig), CliError> {
-    let root = open()?;
-    let configs = read_notebook_configs_strict(&root)?;
-
-    // 1. shortid 完全匹配
-    for nb in &configs {
-        let (mf, _) = open_in(&nb.id)?;
-        if let Some(list) = mf.read_index_result()? {
-            if list.memos.iter().any(|e| e.id == id_arg) {
-                return Ok((mf, id_arg.to_string(), nb.clone()));
-            }
-        }
-    }
-
-    // 2. filename 匹配 (含 .md, 因为 v3 后 entry.filename 始终带后缀)
-    //    同时支持用户给 "xxx.md" 或只给 "xxx" 两种写法。
-    let want_with_md = if id_arg.ends_with(".md") {
-        id_arg.to_string()
-    } else {
-        format!("{id_arg}.md")
-    };
-    for nb in &configs {
-        let (mf, _) = open_in(&nb.id)?;
-        if let Some(list) = mf.read_index_result()? {
-            for e in &list.memos {
-                if e.filename == want_with_md {
-                    return Ok((mf, e.id.clone(), nb.clone()));
-                }
-            }
-        }
-    }
-
-    Err(CliError::NotFound(format!(
-        "note `{id_arg}` not found (try `flowix list <notebook>` to see IDs)"
-    )))
+    let mut mf = open()?;
+    let resolved = MemoService::new(&mut mf).resolve_memo(id_arg)?;
+    mf.set_current_notebook(Some(resolved.notebook.id.clone()));
+    Ok((mf, resolved.id, resolved.notebook))
 }
 
 /// `flowix-cli show <id>` ── 读一条笔记到 stdout。
 pub fn cmd_show(id_arg: &str) -> Result<(), CliError> {
-    let (mf, id) = resolve_id(id_arg)?;
-    let list = mf
-        .read_index_result()?
-        .ok_or_else(|| CliError::NotFound("memo index not readable in target notebook".into()))?;
-    let entry = list
-        .memos
-        .iter()
-        .find(|e| e.id == id)
-        .cloned()
-        .ok_or_else(|| CliError::NotFound(format!("note `{id}` not in memo index")))?;
-
-    let file_path = mf
-        .find_memo_file_path(&id)
-        .ok_or_else(|| CliError::NotFound(format!("note `{id}` listed but no .md on disk")))?;
-    let body = std::fs::read_to_string(&file_path).map_err(|e| {
-        CliError::NotFound(format!("file not readable at {}: {e}", file_path.display()))
-    })?;
-    fmt::print_note(&entry, &body);
+    let shown = note_show_data(id_arg)?;
+    fmt::print_note(&shown.entry, &shown.body);
     Ok(())
 }
 
@@ -211,29 +161,15 @@ impl NoteShowData {
     }
 }
 
-/// `memo.show` JSON-RPC method 的数据源 ── 解析 id + 读 body, 跟 `cmd_show_json` 共用。
+/// memo 读取的数据源：解析 id 并读取 body，供 CLI 和 MCP 命令层复用。
 pub(crate) fn note_show_data(id_arg: &str) -> Result<NoteShowData, CliError> {
-    let (mf, id, notebook) = resolve_id_with_notebook(id_arg)?;
-    let list = mf
-        .read_index_result()?
-        .ok_or_else(|| CliError::NotFound("memo index missing".into()))?;
-    let entry = list
-        .memos
-        .iter()
-        .find(|e| e.id == id)
-        .cloned()
-        .ok_or_else(|| CliError::NotFound(format!("note `{id}` not in memo index")))?;
-
-    let file_path = mf
-        .find_memo_file_path(&id)
-        .ok_or_else(|| CliError::NotFound(format!("note `{id}` listed but no .md on disk")))?;
-    let body = std::fs::read_to_string(&file_path)
-        .map_err(|e| CliError::NotFound(format!("file missing: {e}")))?;
+    let mut mf = open()?;
+    let document = MemoService::new(&mut mf).get_memo(id_arg)?;
     Ok(NoteShowData {
-        entry,
-        body,
-        notebook,
-        file_path,
+        entry: document.entry,
+        body: document.body,
+        notebook: document.notebook,
+        file_path: document.path,
     })
 }
 
@@ -249,9 +185,8 @@ pub(crate) fn note_show_data(id_arg: &str) -> Result<NoteShowData, CliError> {
 ///
 /// 写盘走 `MemoFile::create_memo` ── 自动写 .md + 同步 memo index + 派生字段。
 ///
-/// 实际写盘逻辑在 [`create_note`] ── 本函数只是 `read_stdin() + create_note`
-/// 的薄壳。serve 模式 (见 `serve.rs`) 跳过 stdin, 直接把 JSON-RPC params 里的
-/// body 字段传 `create_note`, 避免把协议流排空。
+/// 实际写盘逻辑在 [`create_note`]；本函数只是 `read_stdin() + create_note`
+/// 的薄壳。MCP 命令层直接把工具输入传给 `create_note`。
 pub fn cmd_create(notebook_key: &str, json: bool) -> Result<(), CliError> {
     let (mut mf, nb) = open_in(notebook_key)?;
     let body = read_stdin()?;
@@ -271,23 +206,17 @@ pub fn cmd_create(notebook_key: &str, json: bool) -> Result<(), CliError> {
 
 /// 创建一条笔记的纯函数 ── 接受 `&str body` 不读 stdin。
 ///
-/// CLI 独立模式 (走 stdin) 和 serve 模式 (走 JSON-RPC params.body) 共用本函数。
-/// 返回 `serde_json::Value` 形态的 payload, `cmd_create` 负责 human 打印 / JSON 序列化,
-/// `serve.rs` 直接包成 JSON-RPC `result`。
+/// CLI 独立模式和 MCP 命令层共用本函数。
+/// `cmd_create` 负责 human 打印或 JSON 序列化。
 pub(crate) fn create_note(
     mf: &mut MemoFile,
     notebook: &NotebookConfig,
     body: &str,
 ) -> Result<NoteCreated, CliError> {
-    if body.trim().is_empty() {
-        return Err(CliError::Other("empty body, note not created".into()));
-    }
-
+    let created = MemoService::new(mf).create_memo(&notebook.id, body)?;
+    let memo = created.memo;
     let title = derive_title(body, None);
-    let memo = mf
-        .create_memo(&title, body, None)
-        .map_err(|e| CliError::Other(format!("failed to create memo: {e}")))?;
-    let file_path = mf.get_memo_base().join(&memo.filename);
+    let file_path = created.path;
     let id = memo.id.clone();
     let file = file_path.display().to_string();
     Ok(NoteCreated {
@@ -354,18 +283,18 @@ pub fn cmd_delete(id_arg: &str, json: bool) -> Result<(), CliError> {
 pub(crate) fn delete_note(
     mf: &mut MemoFile,
     full_id: &str,
-    file_path: Option<&std::path::Path>,
+    _file_path: Option<&std::path::Path>,
 ) -> Result<NoteDeleted, CliError> {
-    let removed = mf.delete_memo_result(full_id)?;
-    let file = file_path.map(|p| p.display().to_string());
+    let deleted = MemoService::new(mf).delete_memo(full_id)?;
+    let file = Some(deleted.path.display().to_string());
     Ok(NoteDeleted {
         ok: true,
         action: "deleted",
-        id: full_id.to_string(),
-        key: full_id.to_string(),
+        id: deleted.id.clone(),
+        key: deleted.id,
         file: file.clone(),
         path: file,
-        file_removed: removed,
+        file_removed: deleted.file_removed,
     })
 }
 
@@ -393,47 +322,20 @@ pub fn cmd_search(
     Ok(())
 }
 
-/// `memo.search` JSON-RPC method 的核心 ── 跑 `flowix_core::search::search_notebooks`
-/// 拿原始 `NotebookSearchResults`, 然后由 [`search_results_to_value`] 包成 JSON。
+/// memo 搜索的数据源，供 CLI 和 MCP 命令层复用。
 pub(crate) fn search_hits(
     query: &str,
     notebook_filter: Option<&str>,
     limit: usize,
 ) -> Result<flowix_core::search::NotebookSearchResults, CliError> {
-    if query.trim().is_empty() {
-        return Err(CliError::Usage("search query cannot be empty".into()));
-    }
-    if limit == 0 {
-        return Err(CliError::Usage(
-            "search limit must be greater than 0".into(),
-        ));
-    }
-    let limit = limit.min(MAX_SEARCH_LIMIT);
-
     let mut mf = open()?;
-    let configs = read_notebook_configs_strict(&mf)?;
-
-    let has_target = match notebook_filter {
-        Some(name) => configs.iter().any(|c| c.name == name || c.id == name),
-        None => !configs.is_empty(),
-    };
-    if !has_target {
-        return Err(CliError::NotFound(format!(
-            "no notebooks matched filter `{notebook_filter:?}`"
-        )));
-    }
-
-    Ok(flowix_core::search::search_notebooks(
-        &mut mf,
-        &configs,
-        notebook_filter,
-        query,
-        limit,
-    ))
+    MemoService::new(&mut mf)
+        .search_memos(query, notebook_filter, limit)
+        .map_err(Into::into)
 }
 
 /// 把 `NotebookSearchResults` 拍平成跟 CLI `--json` 输出一致的 `Value`。
-/// 协议契约 ── serve 和 `cmd_search --json` 共用同一份 shape。
+/// MCP 和 `cmd_search --json` 共用同一份输出 shape。
 pub(crate) fn search_results_to_value(
     query: &str,
     results: &flowix_core::search::NotebookSearchResults,
@@ -473,8 +375,8 @@ pub(crate) fn search_results_to_value(
 /// `--new` 可以走 stdin (用 `--new-stdin` 显式声明, 避免"stdin 到底给谁"歧义);
 /// `--old` 强制参数 (必须先 read body 校验唯一性, 不能 stdin)。
 ///
-/// 实际替换 + 写盘在 [`edit_note`] ── 本函数解析 argv / 处理 `--new-stdin`
-/// 后调它。serve 模式跳过 stdin, 直接把 `old` / `new` 传给 `edit_note`。
+/// 实际替换和写盘在 [`edit_note`]；本函数解析 argv / 处理 `--new-stdin`
+/// 后调用它，MCP 命令层则直接传入 `old` / `new`。
 pub fn cmd_edit(
     id_arg: &str,
     old: Option<&str>,
@@ -541,8 +443,7 @@ pub fn cmd_edit(
 /// 精确字符串替换的纯函数 ── 接受 `old: &str, new: &str`, 不读 stdin。
 ///
 /// 唯一性校验、`write_memo_renaming_on_title_change` 写回全在本函数内。
-/// 返回 `serde_json::Value` 形态的 payload, `cmd_edit` 负责 human / JSON 打印,
-/// `serve.rs` 直接包成 JSON-RPC `result`。
+/// `cmd_edit` 负责 human / JSON 打印，MCP 命令层复用返回结果。
 pub(crate) fn edit_note(
     mf: &mut MemoFile,
     full_id: &str,
@@ -568,43 +469,16 @@ fn edit_note_impl(
     new: &str,
     dry_run: bool,
 ) -> Result<NoteEdited, CliError> {
-    if old.is_empty() {
-        return Err(CliError::Usage(
-            "edit: --old cannot be empty (provides no anchor for replacement)".into(),
-        ));
-    }
-
-    // 读当前 body
-    let file_path = mf
-        .find_memo_file_path(full_id)
-        .ok_or_else(|| CliError::NotFound(format!("note `{full_id}` listed but no .md on disk")))?;
-    let current = std::fs::read_to_string(&file_path).map_err(|e| {
-        CliError::NotFound(format!("file not readable at {}: {e}", file_path.display()))
-    })?;
-
-    // 校验 old_string 唯一性 (跟 desktop AI 工具 edit 完全一致的语义)
-    let matches = current.matches(old).count();
-    if matches == 0 {
-        return Err(CliError::Other(format!(
-            "edit: old_string not found in `{full_id}` (whitespace, indentation, and line endings must match)"
-        )));
-    }
-    if matches > 1 {
-        return Err(CliError::Other(format!(
-            "edit: old_string matched {matches} times in `{full_id}`; provide more surrounding context to make it unique"
-        )));
-    }
-
-    // 替换 + 写回 (title 联动)
-    let body = current.replacen(old, new, 1);
-    if dry_run {
-        let file = file_path.display().to_string();
+    let edited = MemoService::new(mf).edit_memo_exact(full_id, old, new, dry_run)?;
+    if edited.dry_run {
+        let file = edited.path.display().to_string();
         return Ok(NoteEdited {
             ok: true,
             action: "edit_preview",
             id: full_id.to_string(),
             key: full_id.to_string(),
-            filename: file_path
+            filename: edited
+                .path
                 .file_name()
                 .and_then(|value| value.to_str())
                 .map(str::to_string),
@@ -619,12 +493,10 @@ fn edit_note_impl(
             updated_at: None,
         });
     }
-    let memo = mf
-        .write_memo_renaming_on_title_change(full_id, &body)
-        .map_err(|e| CliError::Other(format!("failed to write memo: {e}")))?;
-
-    let new_file_path = mf.get_memo_base().join(&memo.filename);
-    let file = new_file_path.display().to_string();
+    let memo = edited
+        .memo
+        .ok_or_else(|| CliError::Other("edit completed without memo metadata".into()))?;
+    let file = edited.path.display().to_string();
 
     Ok(NoteEdited {
         ok: true,
@@ -657,8 +529,8 @@ fn edit_note_impl(
 ///
 /// stdin 为空 → 报错, 不写盘 (避免误操作清空笔记)。
 ///
-/// 实际写盘在 [`write_note`] ── 本函数只是 `read_stdin() + write_note` 的薄壳。
-/// serve 模式跳过 stdin, 直接传 `params.body` 给 `write_note`。
+/// 实际写盘在 [`write_note`]；本函数只是 `read_stdin() + write_note` 的薄壳。
+/// MCP 命令层直接把工具输入传给 `write_note`。
 pub fn cmd_write(id_arg: &str, json: bool) -> Result<(), CliError> {
     let (mut mf, full_id) = resolve_id(id_arg)?;
     let body = read_stdin()?;
@@ -675,21 +547,17 @@ pub fn cmd_write(id_arg: &str, json: bool) -> Result<(), CliError> {
 
 /// 覆盖一条笔记的纯函数 ── 接受 `&str body` 不读 stdin。
 ///
-/// 返回 `serde_json::Value` 形态的 payload, `cmd_write` 负责 human / JSON 打印,
-/// `serve.rs` 直接包成 JSON-RPC `result`。
+/// `cmd_write` 负责 human / JSON 打印，MCP 命令层复用返回结果。
 pub(crate) fn write_note(
     mf: &mut MemoFile,
     full_id: &str,
     body: &str,
 ) -> Result<NoteWritten, CliError> {
-    if body.trim().is_empty() {
-        return Err(CliError::Other("empty body, note not modified".into()));
-    }
-    let memo = mf
-        .write_memo_renaming_on_title_change(full_id, body)
-        .map_err(|e| CliError::Other(format!("failed to write memo: {e}")))?;
-    let file_path = mf.get_memo_base().join(&memo.filename);
-    let file = file_path.display().to_string();
+    let edited = MemoService::new(mf).replace_memo(full_id, body)?;
+    let memo = edited
+        .memo
+        .ok_or_else(|| CliError::Other("write completed without memo metadata".into()))?;
+    let file = edited.path.display().to_string();
     Ok(NoteWritten {
         ok: true,
         action: "written",

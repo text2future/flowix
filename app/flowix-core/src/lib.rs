@@ -16,3 +16,6 @@
 pub mod memo_file;
 pub mod search;
 pub mod secret;
+pub mod service;
+
+pub use service::{FlowixError, MemoService};

@@ -44,6 +44,7 @@ export const messages = {
     "preferences.tabs.agent": "模型配置",
     "preferences.tabs.shortcuts": "快捷键",
     "preferences.tabs.cli": "flowix CLI",
+    "preferences.tabs.mcp": "MCP",
     "preferences.tabs.connections": "集成",
     "preferences.tabs.imageGeneration": "图片生成",
     "preferences.tabs.videoGeneration": "视频生成",
@@ -373,6 +374,12 @@ export const messages = {
     "preferences.cli.commands.search":
       "跨笔记全文搜索，可限制笔记本和结果数量。",
     "preferences.cli.commands.completion": "输出 shell 补全脚本。",
+
+    "preferences.mcp.title": "MCP",
+    "preferences.mcp.generic": "通用（stdio）",
+    "preferences.mcp.copy": "复制",
+    "preferences.mcp.copied": "已复制",
+    "preferences.mcp.copyFailed": "复制失败",
 
     "preferences.imageGeneration.title": "图片生成",
     "preferences.videoGeneration.title": "视频生成",
@@ -983,6 +990,7 @@ export const messages = {
     "preferences.tabs.agent": "Model settings",
     "preferences.tabs.shortcuts": "Shortcuts",
     "preferences.tabs.cli": "CLI",
+    "preferences.tabs.mcp": "MCP",
     "preferences.tabs.connections": "Integrations",
     "preferences.tabs.imageGeneration": "Image Generation",
     "preferences.tabs.videoGeneration": "Video Generation",
@@ -1331,6 +1339,12 @@ export const messages = {
     "preferences.cli.commands.search":
       "Search across notes, with optional notebook and result limits.",
     "preferences.cli.commands.completion": "Print shell completion scripts.",
+
+    "preferences.mcp.title": "MCP",
+    "preferences.mcp.generic": "Generic (stdio)",
+    "preferences.mcp.copy": "Copy",
+    "preferences.mcp.copied": "Copied",
+    "preferences.mcp.copyFailed": "Could not copy",
 
     "preferences.imageGeneration.title": "Image Generation",
     "preferences.videoGeneration.title": "Video Generation",

@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use rusqlite::{params, Connection};
 
@@ -52,8 +53,12 @@ impl MemoFile {
             fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(self.get_index_db_path()).map_err(sqlite_to_io)?;
+        conn.busy_timeout(Duration::from_secs(10))
+            .map_err(sqlite_to_io)?;
         conn.execute_batch(
             r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
             CREATE TABLE IF NOT EXISTS notebooks (
                 id TEXT PRIMARY KEY,
@@ -80,15 +85,6 @@ impl MemoFile {
 
     /// Read notebook configs from the global `index.db`.
     pub fn read_notebook_configs(&self) -> std::io::Result<Vec<NotebookConfig>> {
-        if let Some(cached) = self
-            .notebook_configs_cache
-            .read()
-            .expect("notebook_configs_cache poisoned")
-            .as_ref()
-        {
-            return Ok(cached.clone());
-        }
-
         let conn = self.open_index_db()?;
         let mut stmt = conn
             .prepare(

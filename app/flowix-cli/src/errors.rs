@@ -1,12 +1,10 @@
 //! CLI 统一错误类型。
 //!
-//! 5 个变体对应 4 个退出码 (见 `exit_code` 方法):
+//! 4 个变体对应 4 个退出码 (见 `exit_code` 方法):
 //! - `Usage`         -> 2  参数 / 用法错
 //! - `NotFound`      -> 3  notebook / id 找不到
 //! - `Io`            -> 5  磁盘 IO 失败 (业界惯例: io error → 5)
 //! - `Other`         -> 1  未分类
-//! - `UnknownMethod` -> 1  JSON-RPC method not found (serve 模式专用,
-//!                      跟 Other 共用 exit code, 但走不同的 JSON-RPC code)
 
 use thiserror::Error;
 
@@ -23,9 +21,21 @@ pub enum CliError {
 
     #[error("{0}")]
     Other(String),
+}
 
-    #[error("unknown method: {0}")]
-    UnknownMethod(String),
+impl From<flowix_core::FlowixError> for CliError {
+    fn from(error: flowix_core::FlowixError) -> Self {
+        use flowix_core::FlowixError;
+        match error {
+            FlowixError::InvalidInput(message) => Self::Usage(message),
+            FlowixError::NotFound(message) => Self::NotFound(message),
+            FlowixError::Io(error) => Self::Io(error),
+            FlowixError::Conflict(message)
+            | FlowixError::PermissionDenied(message)
+            | FlowixError::CorruptData(message)
+            | FlowixError::Internal(message) => Self::Other(message),
+        }
+    }
 }
 
 impl CliError {
@@ -36,7 +46,7 @@ impl CliError {
             CliError::Usage(_) => 2,
             CliError::NotFound(_) => 3,
             CliError::Io(_) => 5,
-            CliError::Other(_) | CliError::UnknownMethod(_) => 1,
+            CliError::Other(_) => 1,
         }
     }
 }

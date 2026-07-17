@@ -407,7 +407,7 @@ impl MemoIndex {
 /// 抽 snippet. title/tag 命中用 preview 替代; body 命中在 body_lower 里找首次出现位置,
 /// 用 `char_indices` 算 UTF-8 字符级偏移 (绝不能按字节切). 命中区间用 `\x01...\x02` 包裹.
 pub fn rebuild_index_from_store(index: &mut MemoIndex, memo_file: &MemoFile, notebook_id: String) {
-    let items = memo_file.read_all_memos_with_body();
+    let items = memo_file.read_all_memos_with_body_for_notebook_id(Some(&notebook_id));
     index.rebuild(notebook_id, items);
 }
 
@@ -438,7 +438,7 @@ pub fn remove_from_index(index: &mut MemoIndex, id: &str) -> bool {
 }
 
 pub fn search_notebooks(
-    memo_file: &mut MemoFile,
+    memo_file: &MemoFile,
     configs: &[NotebookConfig],
     notebook_filter: Option<&str>,
     query: &str,
@@ -461,7 +461,6 @@ pub fn search_notebooks(
             .map(|filter| config.id == filter || config.name == filter)
             .unwrap_or(true)
     }) {
-        memo_file.set_current_notebook(Some(notebook.id.clone()));
         let mut index = MemoIndex::new(tokenizer.clone());
         rebuild_index_from_store(&mut index, memo_file, notebook.id.clone());
 

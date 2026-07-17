@@ -30,7 +30,9 @@ uuid = { version = "1", features = ["v4"] }
 nanoid = "0.4"
 dunce = "1.0"
 tempfile = "3"
+fs2 = "0.4"
 sha2 = "0.10"
 clap = { version = "4.5", features = ["std"] }
 clap_complete = "4.5"
+shell-words = "1.1"
 rusqlite = { version = "0.31", features = ["bundled"] }

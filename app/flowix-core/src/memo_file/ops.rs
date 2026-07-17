@@ -141,6 +141,22 @@ pub fn atomic_write_bytes(final_path: &Path, content: &[u8]) -> std::io::Result<
     Ok(())
 }
 
+/// Atomically create a new file without replacing an entry created by another process.
+fn atomic_create_bytes(final_path: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let parent = final_path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "file path has no parent")
+    })?;
+    fs::create_dir_all(parent)?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.write_all(content)?;
+    temp.as_file().sync_all()?;
+    temp.persist_noclobber(final_path)
+        .map(|_| ())
+        .map_err(|error| error.error)
+}
+
 /// 跟 `flowix-desktop::fs_watcher::normalize_for_compare` 同口径的路径归一。
 fn normalize_for_compare(path: &Path) -> PathBuf {
     if let Ok(canon) = dunce::canonicalize(path) {
@@ -211,21 +227,53 @@ impl MemoFile {
 
     /// 创建一个 memo: 写 .md + 写 memo index。返回新建的 Memo (含 id / filename)。
     pub fn create_memo(&self, title: &str, body: &str, tag: Option<&str>) -> std::io::Result<Memo> {
-        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
-        self.ensure_dirs()?;
+        self.create_memo_inner(None, title, body, tag)
+    }
 
-        let id = self.generate_memo_id();
+    /// Create in a registered notebook without changing the process-local current notebook.
+    pub fn create_memo_for_notebook_id(
+        &self,
+        notebook_id: &str,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+    ) -> std::io::Result<Memo> {
+        self.create_memo_inner(Some(notebook_id), title, body, tag)
+    }
+
+    fn create_memo_inner(
+        &self,
+        notebook_id: Option<&str>,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+    ) -> std::io::Result<Memo> {
+        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
+        let (base, resolved_notebook_id) = if let Some(notebook_id) = notebook_id {
+            let base = self
+                .memo_base_for_notebook_id_result(notebook_id)
+                .map_err(|message| std::io::Error::new(std::io::ErrorKind::NotFound, message))?;
+            fs::create_dir_all(&base)?;
+            fs::create_dir_all(base.join("attachments"))?;
+            (base, notebook_id.to_string())
+        } else {
+            self.ensure_dirs()?;
+            (self.get_memo_base(), self.current_notebook_id_for_index())
+        };
+
+        let id = self.generate_global_memo_id();
         let now = chrono::Utc::now().timestamp_millis();
-        let base = self.get_memo_base();
         let candidate = base_filename(title);
         // 读 memo index 拿已占用 filenames ── 跟 `fs::exists` 双维度检测冲突,
         // 杜绝并发 create_memo 写到同一文件 (前一个 entry 已 memo index
         // 但磁盘文件被覆盖)。
-        let occupied: Vec<String> = self
-            .read_index()
-            .map(|l| l.memos.into_iter().map(|e| e.filename).collect())
-            .unwrap_or_default();
-        let filename = resolve_filename_conflict(&base, &candidate, &occupied);
+        let mut occupied: Vec<String> = self
+            .read_index_for_notebook_id(Some(&resolved_notebook_id))?
+            .unwrap_or_default()
+            .memos
+            .into_iter()
+            .map(|entry| entry.filename)
+            .collect();
 
         let final_body = match tag {
             Some(t) if !t.is_empty() => {
@@ -238,7 +286,6 @@ impl MemoFile {
             _ => body.to_string(),
         };
 
-        let path = base.join(&filename);
         let overrides: MergeOverrides = [("key".to_string(), id.clone())].into_iter().collect();
         let initial_content = if super::frontmatter::FRONTMATTER_RE.is_match(&final_body) {
             merge_frontmatter(&final_body, &overrides)
@@ -247,14 +294,17 @@ impl MemoFile {
         };
         let persisted_id =
             super::frontmatter::extract_frontmatter_key(&initial_content).unwrap_or(id);
-        if let Err(e) = (|| -> std::io::Result<()> {
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)?;
+        let filename = loop {
+            let filename = resolve_filename_conflict(&base, &candidate, &occupied);
+            let path = base.join(&filename);
+            match atomic_create_bytes(&path, initial_content.as_bytes()) {
+                Ok(()) => break filename,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    occupied.push(filename);
+                }
+                Err(error) => return Err(error),
             }
-            atomic_write_bytes(&path, initial_content.as_bytes())
-        })() {
-            return Err(e);
-        }
+        };
 
         let mut memo = Memo {
             id: persisted_id,
@@ -272,7 +322,20 @@ impl MemoFile {
             properties: serde_json::json!({}),
         };
         apply_derived_memo_fields(&mut memo, &initial_content);
-        MemoFile::sync_index_on_write_locked(self, &memo)?;
+        if let Err(error) =
+            MemoFile::sync_index_on_write_for_notebook_id_locked(self, &resolved_notebook_id, &memo)
+        {
+            let path = base.join(&memo.filename);
+            if fs::read_to_string(&path)
+                .ok()
+                .and_then(|content| super::frontmatter::extract_frontmatter_key(&content))
+                .as_deref()
+                == Some(memo.id.as_str())
+            {
+                let _ = fs::remove_file(path);
+            }
+            return Err(error);
+        }
         Ok(memo)
     }
 
@@ -336,6 +399,32 @@ impl MemoFile {
         let _guard = self.current_index_io.lock().expect("index_io poisoned");
         self.ensure_dirs()?;
         self.write_memo_inner_locked(id, body)
+    }
+
+    /// Write a globally resolved memo without renaming its file or switching notebooks.
+    pub fn write_memo_preserving_filename_global(
+        &self,
+        id: &str,
+        body: &str,
+    ) -> std::io::Result<Memo> {
+        let _guard = self.current_index_io.lock().expect("index_io poisoned");
+        let location = self.resolve_memo_location(id)?.ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, format!("memo {id} not found"))
+        })?;
+        let base = PathBuf::from(&location.notebook.path);
+        fs::create_dir_all(&base)?;
+        fs::create_dir_all(base.join("attachments"))?;
+
+        let mut memo = MemoFile::index_entry_to_memo(&location.memo);
+        let overrides: MergeOverrides =
+            [("key".to_string(), memo.id.clone())].into_iter().collect();
+        let merged = merge_frontmatter(body, &overrides);
+        atomic_write_bytes(&base.join(&memo.filename), merged.as_bytes())?;
+
+        memo.updated_at = chrono::Utc::now().timestamp_millis();
+        apply_derived_memo_fields(&mut memo, &merged);
+        MemoFile::sync_index_on_write_for_notebook_id_locked(self, &location.notebook.id, &memo)?;
+        Ok(memo)
     }
 
     /// 无锁版本的 [`Self::write_memo`]。调用方已持 `current_index_io` 锁。

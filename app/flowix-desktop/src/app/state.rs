@@ -6,7 +6,6 @@ use crate::agent_external::hermes::HermesCliManager;
 use crate::agent_external::simple_cli;
 use crate::agent_flowix::AgentManager;
 use crate::agent_session::ThreadManager;
-use crate::commands::cli::SidecarHandle;
 use crate::config::{AgentAccessStore, SecurityBookmarkStore, UserConfigStore};
 use crate::system_data::SystemData;
 use flowix_core::memo_file::MemoFile;
@@ -40,9 +39,4 @@ pub struct AppState {
     /// 的 `allowed_roots` 与 `available_dirs` 工具的过滤。
     pub agent_access: Arc<AgentAccessStore>,
     pub security_bookmarks: Arc<SecurityBookmarkStore>,
-    /// `flowix-cli serve` sidecar 句柄 ── 装在 `RwLock<Option<...>>` 里,
-    /// 启动时先 manage 一个 `None` (placeholder), `.setup()` 末尾 spawn 完再写
-    /// `Some(handle)`。通过 [`crate::commands::cli::cli_invoke`] 走 JSON-RPC
-    /// 让前端调用 CLI 业务方法。
-    pub flowix_cli: Arc<tokio::sync::RwLock<Option<Arc<SidecarHandle>>>>,
 }

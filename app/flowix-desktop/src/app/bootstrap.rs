@@ -164,9 +164,8 @@ pub fn run() {
     // 单独 clone 一份 (后续会被 move 进 AgentManager::new)。
     let user_config_for_watcher = user_config_arc.clone();
 
-    // AppState 在 `.setup()` 闭包里构造 ── 这样 spawn 完 sidecar 后能用
-    // 真实 handle 填进 `flowix_cli` 字段, 而不是塞 placeholder。Tauri 2 的
-    // `.manage(state)` 是"一次性"语义, 不能 mutate 已注册的状态。
+    // AppState 在 `.setup()` 闭包里构造。Tauri 2 的 `.manage(state)` 是
+    // "一次性"语义, 所以所有共享依赖都在进入闭包前准备好。
     //
     // 这里把构造 AppState 需要的子结构 clone 出来 (闭包 `move` 捕获),
     // 同时把另一份 clone 喂给 sub-component 构造函数。
@@ -227,9 +226,7 @@ pub fn run() {
             ));
             device_registry.clone().spawn_startup_registration();
 
-            // ── 1) 构造 AppState (placeholder 状态) 并 manage ──
-            //    `flowix_cli` 字段是 `RwLock<Option<Arc<SidecarHandle>>>`,
-            //    spawn 完 sidecar 后在末尾 `write().await = Some(handle)` 升级。
+            // ── 1) 构造 AppState 并 manage ──
             let app_state = AppState {
                 user_config: user_config_for_state.clone(),
                 system_data,
@@ -244,7 +241,6 @@ pub fn run() {
                 thread_manager: thread_manager_for_state.clone(),
                 agent_access: agent_access_for_state.clone(),
                 security_bookmarks: security_bookmarks_for_state.clone(),
-                flowix_cli: Arc::new(tokio::sync::RwLock::new(None)),
             };
             app.manage(app_state);
             spawn_external_agent_watchdog(
@@ -364,7 +360,6 @@ pub fn run() {
             // ── spawn flowix-cli sidecar ──
             // 必须放 setup 末尾, 此时 AppState 已经 manage, IPC 调用方可以
             // 拿到 (虽然还没填 handle ── 失败时返 "not yet spawned" 错)。
-            spawn_cli_sidecar(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -502,8 +497,6 @@ pub fn run() {
             commands::window::resolve_note_window_payload,
             // 全局"通过链接打开笔记"入口 ── 接收 URL / 物理路径, 解析 + emit
             open_target::handler::open_memo_by_target,
-            // CLI sidecar JSON-RPC ── 前端通过 invoke('cli_invoke', { method, params }) 调
-            commands::cli::cli_invoke,
             commands::cli::cli_link_status,
             commands::cli::install_cli_path,
         ])
@@ -567,60 +560,16 @@ fn emit_open_target_if_resolved(app: &tauri::AppHandle, raw: &str) {
     }
 }
 
-fn spawn_cli_sidecar(app: &tauri::AppHandle) {
-    let cli_lock = app.state::<AppState>().flowix_cli.clone();
-    match tauri::async_runtime::block_on(commands::cli::SidecarHandle::spawn()) {
-        Ok(handle) => {
-            tracing::info!(
-                "flowix-cli sidecar spawned at {}",
-                handle.bin_path().display()
-            );
-            tauri::async_runtime::block_on(async move {
-                *cli_lock.write().await = Some(handle);
-            });
-        }
-        Err(e) => {
-            tracing::warn!(
-                "flowix-cli sidecar spawn failed: {e} (CLI methods will be unavailable)"
-            );
-            // 让 cli_invoke 返清晰错误, 不静默吞掉。
-            tauri::async_runtime::block_on(async move {
-                *cli_lock.write().await = Some(commands::cli::SidecarHandle::dead(e.clone()));
-            });
-        }
-    }
-}
-
 fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     match event {
-        // 关窗时先发 graceful shutdown, 200ms 后兜底 kill ── 见 `SidecarHandle::try_shutdown`。
         tauri::RunEvent::ExitRequested { .. } => {
-            stop_sidecar(app, true);
             stop_external_agent_children(app, "exit");
         }
-        // 兜底: 任何进程退出路径都把 child 杀掉, 避免僵尸。
         tauri::RunEvent::Exit => {
-            stop_sidecar(app, false);
             stop_external_agent_children(app, "final exit");
         }
         _ => {}
     }
-}
-
-fn stop_sidecar(app: &tauri::AppHandle, graceful: bool) {
-    let cli_lock = app.state::<AppState>().flowix_cli.clone();
-    tauri::async_runtime::block_on(async move {
-        let guard = cli_lock.read().await;
-        if let Some(cli) = guard.as_ref() {
-            if graceful {
-                let _ = cli
-                    .try_shutdown(std::time::Duration::from_millis(200))
-                    .await;
-            } else {
-                cli.kill().await;
-            }
-        }
-    });
 }
 
 fn stop_external_agent_children(app: &tauri::AppHandle, phase: &str) {

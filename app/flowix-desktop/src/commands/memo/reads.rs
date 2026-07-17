@@ -9,6 +9,7 @@ use crate::lock_utils::read_lock;
 use crate::memo_events::{MemoChangeSource, MemoDerivedChanged};
 use crate::watcher::path::normalize_for_compare;
 use flowix_core::memo_file::{atomic_write_bytes, Memo, MemoTodoEntry};
+use flowix_core::MemoService;
 
 use crate::app::search_index::rebuild_index_in_background;
 use crate::app::state::AppState;
@@ -30,8 +31,7 @@ pub fn get_memos(
 ) -> GetMemosResponse {
     // Read the requested notebook directly. Do not switch current notebook here;
     // switching would rebind watcher/reconcile/search and slow down list loading.
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let memos = memo_file.read_all_memos_filtered_for_notebook_id(
+    let memos = MemoService::new(&read_lock(&state.memo_file, "memo_file")).list_memos_filtered(
         notebook_id.as_deref(),
         filter.as_deref().unwrap_or("all"),
         sort.as_deref().unwrap_or("createdAt"),
@@ -51,7 +51,8 @@ pub fn search_mention_notes(
 
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let previous_notebook_id = memo_file.current_notebook_id_value();
-    let notebooks = memo_file.read_notebook_configs().unwrap_or_default();
+    let mut service = MemoService::new(&memo_file);
+    let notebooks = service.list_notebooks().unwrap_or_default();
 
     let mut ordered_notebooks = notebooks.clone();
     if let Some(current_id) = previous_notebook_id.as_deref() {
@@ -64,12 +65,7 @@ pub fn search_mention_notes(
 
     let mut items = Vec::new();
     for notebook in ordered_notebooks {
-        for memo in memo_file.read_all_memos_filtered_for_notebook_id(
-            Some(&notebook.id),
-            "all",
-            "updatedAt",
-            None,
-        ) {
+        for memo in service.list_memos_filtered(Some(&notebook.id), "all", "updatedAt", None) {
             let title = note_title(&memo.filename);
             if !normalized_query.is_empty() && !title.to_lowercase().contains(&normalized_query) {
                 continue;
@@ -104,7 +100,8 @@ pub fn search_mention_notes(
 pub fn list_agent_role_memos(state: State<AppState>) -> Vec<AgentRoleMemoItem> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let previous_notebook_id = memo_file.current_notebook_id_value();
-    let notebooks = memo_file.read_notebook_configs().unwrap_or_default();
+    let mut service = MemoService::new(&memo_file);
+    let notebooks = service.list_notebooks().unwrap_or_default();
 
     let mut ordered_notebooks = notebooks.clone();
     if let Some(current_id) = previous_notebook_id.as_deref() {
@@ -117,7 +114,7 @@ pub fn list_agent_role_memos(state: State<AppState>) -> Vec<AgentRoleMemoItem> {
 
     let mut items = Vec::new();
     for notebook in ordered_notebooks {
-        for memo in memo_file.read_all_memos_for_notebook_id(Some(&notebook.id)) {
+        for memo in service.list_all_memos(Some(&notebook.id)) {
             let role_name = memo
                 .properties
                 .get("agent-role")
@@ -168,8 +165,8 @@ pub fn get_used_memo_tag_ids(
     state: State<AppState>,
 ) -> UsedMemoTagIdsResponse {
     let (used_tag_ids, tag_counts, total_memo_count, agent_memo_count, todo_memo_count) =
-        read_lock(&state.memo_file, "memo_file")
-            .read_tag_usage_summary_for_notebook_id(notebook_id.as_deref())
+        MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+            .tag_usage_summary(notebook_id.as_deref())
             .unwrap_or_default();
     UsedMemoTagIdsResponse {
         used_tag_ids,
@@ -189,8 +186,8 @@ pub fn get_memo_todo_metadata(
     sort: Option<String>,
     state: State<AppState>,
 ) -> Vec<MemoTodoEntry> {
-    read_lock(&state.memo_file, "memo_file")
-        .read_todo_metadata_entries_for_notebook_id(
+    MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .todo_metadata(
             notebook_id.as_deref(),
             sort.as_deref().unwrap_or("createdAt"),
         )
@@ -204,16 +201,21 @@ pub fn get_memo_todo_count(notebook_id: Option<String>, state: State<AppState>) 
 
 #[tauri::command]
 pub fn read_memo(id: String, state: State<AppState>) -> Option<Memo> {
-    let memo = read_lock(&state.memo_file, "memo_file").read_memo_global(&id)?;
+    let (memo, path) = {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let mut service = MemoService::new(&memo_file);
+        let memo = service.memo_metadata(&id).ok()?;
+        let path = service.resolve_memo(&id).ok()?.path;
+        (memo, path)
+    };
     // Keep stale index entries from opening an empty editor when the file is gone.
-    let path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&memo.id)?;
     start_security_bookmark_access(&state, &path);
     if !path.exists() {
         tracing::info!(
             "[read_memo] file gone, unregistering ghost: {}",
             path.display()
         );
-        let _ = read_lock(&state.memo_file, "memo_file").delete_memo_result_global(&memo.id);
+        let _ = MemoService::new(&read_lock(&state.memo_file, "memo_file")).delete_memo(&memo.id);
         return None;
     }
     Some(memo)
@@ -254,7 +256,8 @@ fn resolve_missing_document_path_from_notebook_index(
 ) -> Option<PathBuf> {
     let requested_norm = normalize_for_compare(requested_path);
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let configs = memo_file.read_notebook_configs().ok()?;
+    let mut service = MemoService::new(&memo_file);
+    let configs = service.list_notebooks().ok()?;
 
     let mut candidates = configs
         .into_iter()
@@ -268,15 +271,9 @@ fn resolve_missing_document_path_from_notebook_index(
     candidates.sort_by(|a, b| b.0.cmp(&a.0));
 
     for (_, cfg) in candidates {
-        let Some(list) = memo_file
-            .read_index_for_notebook_id(Some(&cfg.id))
-            .ok()
-            .flatten()
-        else {
-            continue;
-        };
-        if let Some(entry) = list
-            .memos
+        if let Some(entry) = service
+            .list_memos(&cfg.id)
+            .unwrap_or_default()
             .into_iter()
             .find(|entry| entry.filename == file_name)
         {
@@ -344,13 +341,14 @@ fn write_document_internal(
 
     // CAS: reject the write if the on-disk content has diverged from the caller.
     if let Some(expected) = expected_content {
-        let current_path = match read_lock(&state.memo_file, "memo_file").find_memo_file_path(key) {
-            Some(p) => p,
-            None => {
-                eprintln!("[write_document_internal] no file path for key={key}");
-                return None;
-            }
-        };
+        let current_path =
+            match MemoService::new(&read_lock(&state.memo_file, "memo_file")).resolve_memo(key) {
+                Ok(resolved) => resolved.path,
+                Err(_) => {
+                    eprintln!("[write_document_internal] no file path for key={key}");
+                    return None;
+                }
+            };
         start_security_bookmark_access(state.inner(), &current_path);
         match fs::read_to_string(&current_path) {
             Ok(current) if cas_content_matches(&current, expected, content) => {}
@@ -369,21 +367,23 @@ fn write_document_internal(
     }
 
     // Mark the target before writing so the watcher can suppress our own change.
-    if let Some(path) = read_lock(&state.memo_file, "memo_file").find_memo_file_path(key) {
+    if let Ok(resolved) =
+        MemoService::new(&read_lock(&state.memo_file, "memo_file")).resolve_memo(key)
+    {
+        let path = resolved.path;
         start_security_bookmark_access(state.inner(), &path);
         mark_self_write_for(app, &path);
     }
-    let result = read_lock(&state.memo_file, "memo_file")
-        .write_memo_renaming_on_title_change_global(key, content);
+    let result =
+        MemoService::new(&read_lock(&state.memo_file, "memo_file")).save_memo(key, content);
     match result {
-        Ok(updated) => {
+        Ok(edited) => {
+            let updated = edited.memo?;
             // Internal editor saves suppress their own watcher events, so this
             // path is responsible for notifying the UI with the final memo
             // metadata after preview/thumbnail/tags/todos derivation.
             // The write may rename the file, so resolve the final path after it succeeds.
-            let final_path = read_lock(&state.memo_file, "memo_file")
-                .find_memo_file_path(key)
-                .expect("just verified memo exists");
+            let final_path = edited.path;
             start_security_bookmark_access(state.inner(), &final_path);
             mark_self_write_for(app, &final_path);
             let final_content = match fs::read_to_string(&final_path) {
@@ -395,7 +395,7 @@ fn write_document_internal(
                     return None;
                 }
             };
-            if let Err(e) = read_lock(&state.memo_file, "memo_file")
+            if let Err(e) = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
                 .maybe_create_auto_memo_version(key, &final_content)
             {
                 eprintln!("[write_document_internal] auto version failed for {key}: {e}");

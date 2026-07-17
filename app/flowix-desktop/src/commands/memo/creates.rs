@@ -15,10 +15,11 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
 
-use crate::lock_utils::{read_lock, write_lock};
+use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
 use crate::USER_CONFIG_DIR_NAME;
 use flowix_core::memo_file::{atomic_write_bytes, extract_body_content, Memo, MemoColor, MemoFile};
+use flowix_core::MemoService;
 
 use crate::app::search_index::try_index_upsert;
 use crate::app::state::AppState;
@@ -34,11 +35,6 @@ pub fn add_document(
     state: State<AppState>,
     app: AppHandle,
 ) -> Memo {
-    // 1. Switch notebook context when requested.
-    if let Some(ref id) = notebook_id {
-        write_lock(&state.memo_file, "memo_file").set_current_notebook(Some(id.clone()));
-    }
-
     // Create a date-title memo, optionally seeded with a tag.
     let now = chrono::Utc::now().timestamp_millis();
     let title = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -48,12 +44,18 @@ pub fn add_document(
     };
 
     // Mark the expected path before create to suppress our own watcher event.
-    let abs = read_lock(&state.memo_file, "memo_file").file_path_for(&format!("{}.md", title));
+    let abs = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .preview_create_path(notebook_id.as_deref(), &title)
+        .unwrap_or_default();
     mark_self_write_for(&app, &abs);
 
     // Create the markdown file and memo index row.
-    let memo = match read_lock(&state.memo_file, "memo_file").create_memo(&title, &body, None) {
-        Ok(m) => m,
+    let memo = match MemoService::new(&read_lock(&state.memo_file, "memo_file")).create_memo_named(
+        notebook_id.as_deref(),
+        &title,
+        &body,
+    ) {
+        Ok(created) => created.memo,
         Err(e) => {
             eprintln!("[add_document] create_memo failed: {e}");
             // Return an empty memo so the IPC shape stays stable on failure.
@@ -77,9 +79,10 @@ pub fn add_document(
 
     try_index_upsert(state.inner(), &memo.id);
     // Mark the final path too, because create_memo may resolve a filename conflict.
-    let real_path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&memo.id);
-    if let Some(p) = real_path {
-        mark_self_write_for(&app, &p);
+    if let Ok(resolved) =
+        MemoService::new(&read_lock(&state.memo_file, "memo_file")).resolve_memo(&memo.id)
+    {
+        mark_self_write_for(&app, &resolved.path);
     }
     memo_events::emit(
         &app,
@@ -222,25 +225,25 @@ pub fn create_memo_from_template(
         return Err("template not found".to_string());
     }
 
-    if let Some(ref id) = notebook_id {
-        write_lock(&state.memo_file, "memo_file").set_current_notebook(Some(id.clone()));
-    }
-
     let content = fs::read_to_string(&path).map_err(|e| format!("read template failed: {e}"))?;
     let body = extract_body_content(&content).to_string();
     let title = template_name_from_path(&path);
 
-    let abs = read_lock(&state.memo_file, "memo_file").file_path_for(&format!("{}.md", title));
+    let abs = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .preview_create_path(notebook_id.as_deref(), &title)
+        .map_err(|e| format!("prepare memo from template failed: {e}"))?;
     mark_self_write_for(&app, &abs);
 
-    let memo = read_lock(&state.memo_file, "memo_file")
-        .create_memo(&title, &body, None)
-        .map_err(|e| format!("create memo from template failed: {e}"))?;
+    let memo = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .create_memo_named(notebook_id.as_deref(), &title, &body)
+        .map_err(|e| format!("create memo from template failed: {e}"))?
+        .memo;
 
     try_index_upsert(state.inner(), &memo.id);
-    if let Some(real_path) = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&memo.id)
+    if let Ok(resolved) =
+        MemoService::new(&read_lock(&state.memo_file, "memo_file")).resolve_memo(&memo.id)
     {
-        mark_self_write_for(&app, &real_path);
+        mark_self_write_for(&app, &resolved.path);
     }
     memo_events::emit(
         &app,
@@ -264,11 +267,6 @@ pub fn import_external_document_to_memo(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<Memo, String> {
-    // Switch notebook context when requested.
-    if let Some(ref id) = notebook_id {
-        write_lock(&state.memo_file, "memo_file").set_current_notebook(Some(id.clone()));
-    }
-
     let abs = std::path::PathBuf::from(&file_path);
 
     // Import by creating a normal memo from the external file stem and content.
@@ -284,22 +282,15 @@ pub fn import_external_document_to_memo(
     };
 
     // Mark the likely new path before writing.
-    let mf = read_lock(&state.memo_file, "memo_file");
-    let base = mf.get_memo_base();
-    let candidate = flowix_core::memo_file::base_filename(&title);
-    // Mirror create_memo's filename conflict rules before marking the path.
-    let occupied: Vec<String> = mf
-        .read_index()
-        .map(|l| l.memos.into_iter().map(|e| e.filename).collect())
-        .unwrap_or_default();
-    let filename = flowix_core::memo_file::resolve_filename_conflict(&base, &candidate, &occupied);
-    let abs_new = base.join(&filename);
+    let abs_new = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .preview_create_path(notebook_id.as_deref(), &title)
+        .map_err(|e| format!("prepare imported memo failed: {e}"))?;
     mark_self_write_for(&app, &abs_new);
 
-    let memo = mf
-        .create_memo(&title, &body, None)
-        .map_err(|e| format!("create_memo failed: {e}"))?;
-    drop(mf);
+    let memo = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .create_memo_named(notebook_id.as_deref(), &title, &body)
+        .map_err(|e| format!("create_memo failed: {e}"))?
+        .memo;
 
     try_index_upsert(state.inner(), &memo.id);
     let _ = abs;
@@ -329,7 +320,8 @@ pub fn update_memo_db(
     let defer_rename = defer_rename.unwrap_or(true);
 
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let Some(current) = memo_file.read_memo_global(&id) else {
+    let mut service = MemoService::new(&memo_file);
+    let Ok(current) = service.memo_metadata(&id) else {
         return false;
     };
 
@@ -348,7 +340,8 @@ pub fn update_memo_db(
             apply_derived_memo_fields(&mut updated, body);
         }
         updated.updated_at = chrono::Utc::now().timestamp_millis();
-        let ok = memo_file.sync_metadata_only_global(&updated).is_ok();
+        let ok = service.sync_memo_metadata(&updated).is_ok();
+        drop(service);
         drop(memo_file);
         if ok {
             let path = abs_path_for(state.inner(), &id);
@@ -369,16 +362,19 @@ pub fn update_memo_db(
     }
 
     // Non-deferred path renames the memo file by title.
+    drop(service);
     drop(memo_file);
     if let Some(new_title) = filename {
         let new_title = new_title.trim_end_matches(".md").to_string();
-        let mf = read_lock(&state.memo_file, "memo_file");
-        match mf.rename_memo(&id, &new_title) {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let mut service = MemoService::new(&memo_file);
+        match service.rename_memo(&id, &new_title) {
             Ok(_) => {
-                drop(mf);
                 if let Some(body) = content {
-                    let _ = read_lock(&state.memo_file, "memo_file").write_memo(&id, &body);
+                    let _ = service.save_memo_preserving_filename(&id, &body);
                 }
+                drop(service);
+                drop(memo_file);
                 emit_updated_after_write(state.inner(), &app, &id, Some(current));
                 return true;
             }
@@ -390,7 +386,9 @@ pub fn update_memo_db(
     }
     // 濞?content 闁哄洤鐡ㄩ弻?    if let Some(body) = content {
     if let Some(body) = content {
-        match read_lock(&state.memo_file, "memo_file").write_memo(&id, &body) {
+        match MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+            .save_memo_preserving_filename(&id, &body)
+        {
             Ok(_) => {
                 emit_updated_after_write(state.inner(), &app, &id, Some(current));
                 return true;
@@ -408,11 +406,8 @@ pub fn update_memo_db(
             updated.preview = p;
         }
         updated.updated_at = chrono::Utc::now().timestamp_millis();
-        return state
-            .memo_file
-            .read()
-            .unwrap()
-            .sync_metadata_only_global(&updated)
+        return MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+            .sync_memo_metadata(&updated)
             .is_ok();
     }
     false
@@ -433,8 +428,8 @@ pub fn favorite_memo(id: String, state: State<AppState>, app: AppHandle) -> bool
     let before = memo.clone();
     memo.favorited = true;
     memo.updated_at = chrono::Utc::now().timestamp_millis();
-    if read_lock(&state.memo_file, "memo_file")
-        .sync_metadata_only_global(&memo)
+    if MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .sync_memo_metadata(&memo)
         .is_err()
     {
         return false;
@@ -451,11 +446,8 @@ pub fn unfavorite_memo(id: String, state: State<AppState>, app: AppHandle) -> bo
     let before = memo.clone();
     memo.favorited = false;
     memo.updated_at = chrono::Utc::now().timestamp_millis();
-    if state
-        .memo_file
-        .read()
-        .unwrap()
-        .sync_metadata_only_global(&memo)
+    if MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .sync_memo_metadata(&memo)
         .is_err()
     {
         return false;
@@ -477,11 +469,8 @@ pub fn set_memo_colors(
     let before = memo.clone();
     memo.colors = colors;
     memo.updated_at = chrono::Utc::now().timestamp_millis();
-    if state
-        .memo_file
-        .read()
-        .unwrap()
-        .sync_metadata_only_global(&memo)
+    if MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .sync_memo_metadata(&memo)
         .is_err()
     {
         return false;

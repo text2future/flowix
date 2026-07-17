@@ -1492,6 +1492,86 @@ fn no_duplicate_ids_after_concurrent_creates() {
     assert_eq!(ids.len(), N, "all ids unique");
 }
 
+#[test]
+fn independent_instances_create_without_lost_rows_or_file_overwrites() {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let (first, base) = fresh_memo_file();
+    let config_dir = first
+        .get_index_db_path()
+        .parent()
+        .expect("config dir")
+        .to_path_buf();
+    let mut second = MemoFile::new(config_dir.clone());
+    second.set_current_notebook(Some("nb_test".to_string()));
+
+    const PER_INSTANCE: usize = 12;
+    let barrier = Arc::new(Barrier::new(2));
+    let handles = [first, second]
+        .into_iter()
+        .enumerate()
+        .map(|(instance, memo_file)| {
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                for index in 0..PER_INSTANCE {
+                    memo_file
+                        .create_memo(
+                            "Shared title",
+                            &format!("instance {instance}, memo {index}"),
+                            None,
+                        )
+                        .expect("cross-instance create");
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for handle in handles {
+        handle.join().expect("join");
+    }
+
+    let mut verifier = MemoFile::new(config_dir);
+    verifier.set_current_notebook(Some("nb_test".to_string()));
+    let list = verifier.read_index().expect("index exists");
+    assert_eq!(list.memos.len(), PER_INSTANCE * 2);
+
+    let filenames = list
+        .memos
+        .iter()
+        .map(|memo| memo.filename.clone())
+        .collect::<HashSet<_>>();
+    assert_eq!(filenames.len(), PER_INSTANCE * 2);
+    for memo in &list.memos {
+        let content = fs::read_to_string(base.join(&memo.filename)).expect("memo file exists");
+        assert_eq!(
+            super::frontmatter::extract_frontmatter_key(&content).as_deref(),
+            Some(memo.id.as_str())
+        );
+    }
+}
+
+#[test]
+fn independent_instance_writes_are_visible_after_local_cache_was_populated() {
+    let (first, _base) = fresh_memo_file();
+    let config_dir = first
+        .get_index_db_path()
+        .parent()
+        .expect("config dir")
+        .to_path_buf();
+    assert!(first.read_index().is_none());
+
+    let mut second = MemoFile::new(config_dir);
+    second.set_current_notebook(Some("nb_test".to_string()));
+    let created = second
+        .create_memo("From peer", "peer body", None)
+        .expect("peer create");
+
+    let refreshed = first.read_index().expect("peer row visible");
+    assert!(refreshed.memos.iter().any(|memo| memo.id == created.id));
+}
+
 // =====================================================================
 // helper trait
 // =====================================================================

@@ -193,11 +193,23 @@ impl MemoFile {
 
     /// Read metadata and full markdown body for all memos in the current notebook.
     pub fn read_all_memos_with_body(&self) -> Vec<(MemoIndexEntry, String)> {
-        let list = match self.read_index() {
-            Some(l) => l,
-            None => return Vec::new(),
+        let notebook_id = self.current_notebook_id_value();
+        self.read_all_memos_with_body_for_notebook_id(notebook_id.as_deref())
+    }
+
+    /// Read metadata and bodies for one notebook without changing current notebook state.
+    pub fn read_all_memos_with_body_for_notebook_id(
+        &self,
+        notebook_id: Option<&str>,
+    ) -> Vec<(MemoIndexEntry, String)> {
+        let list = match self.read_index_for_notebook_id(notebook_id) {
+            Ok(Some(list)) => list,
+            _ => return Vec::new(),
         };
-        let base = self.get_memo_base();
+        let base = notebook_id
+            .and_then(|id| self.get_notebook_config_by_id(id))
+            .map(|config| std::path::PathBuf::from(config.path))
+            .unwrap_or_else(|| self.get_memo_base());
         list.memos
             .into_iter()
             .filter(|e| !e.id.is_empty())

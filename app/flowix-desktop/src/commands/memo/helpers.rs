@@ -11,6 +11,7 @@ use tauri::AppHandle;
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
 use flowix_core::memo_file::{extract_body_content, Memo};
+use flowix_core::MemoService;
 
 use crate::app::search_index::try_index_upsert;
 use crate::app::state::AppState;
@@ -18,7 +19,8 @@ use crate::commands::helpers::synthesize_minimal_memo;
 use crate::watcher::runtime::mark_self_write_for;
 
 pub(super) fn read_memo_or_none(state: &AppState, id: &str) -> Option<Memo> {
-    read_lock(&state.memo_file, "memo_file").read_memo_global(id)
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    MemoService::new(&memo_file).memo_metadata(id).ok()
 }
 
 pub(super) fn current_notebook_id(state: &AppState) -> String {
@@ -28,19 +30,23 @@ pub(super) fn current_notebook_id(state: &AppState) -> String {
 }
 
 pub(super) fn notebook_id_for_memo(state: &AppState, id: &str) -> String {
-    read_lock(&state.memo_file, "memo_file")
-        .resolve_memo_location(id)
-        .ok()
-        .flatten()
-        .map(|location| location.notebook.id)
-        .unwrap_or_else(|| current_notebook_id(state))
+    let resolved_notebook_id = {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        MemoService::new(&memo_file)
+            .resolve_memo(id)
+            .ok()
+            .map(|resolved| resolved.notebook.id)
+    };
+    resolved_notebook_id.unwrap_or_else(|| current_notebook_id(state))
 }
 
 /// Resolve the physical file path for an event payload.
 pub(super) fn abs_path_for(state: &AppState, id: &str) -> String {
-    read_lock(&state.memo_file, "memo_file")
-        .find_memo_file_path(id)
-        .map(|p| p.display().to_string())
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    MemoService::new(&memo_file)
+        .resolve_memo(id)
+        .ok()
+        .map(|resolved| resolved.path.display().to_string())
         .unwrap_or_default()
 }
 

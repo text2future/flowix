@@ -30,6 +30,7 @@
 //!   `get_memo_base() + filename`。
 
 use std::path::PathBuf;
+use std::{fs::OpenOptions, io};
 
 /// memo id 随机段使用的字符集 — `[0-9a-z]` 36 个字符 (小写字母 + 数字)。
 ///
@@ -81,15 +82,15 @@ pub use versions::{
 ///   + todo metadata 都存放在 `<config_dir>/index.db` 关联的 SQLite 文件里
 ///   (分别走 [`MemoFile::get_index_db_path`] / `<notebook>/.metadata/` 派生)。
 /// - `current_notebook_id`: 当前活跃 notebook id, `None` 表示走默认。
-/// - `index_cache`: 当前 notebook memo index 的内存缓存。读路径
-///   ([`MemoFile::read_index`]) 命中时直接 clone 返回, 跳过 SQLite 查询。
+/// - `index_cache`: 当前 notebook memo index 的内存缓存。读路径先查询 SQLite
+///   `memo_index_state.last_updated`，只有版本一致才复用，保证其他进程写入可见。
 ///   写路径 ([`MemoFile::write_index`] / `_locked` 系列) 在 DB 写入成功后回填。
 ///   切 notebook 时由 [`Self::set_current_notebook`] 失效。
 ///   `std::sync::RwLock` 而非裸 `Option`, 因为读路径常在 `&self` 调用栈上
 ///   (写路径持外层 `RwLock<MemoFile>` 写锁, 读路径持外层读锁; 都需要绕过
 ///   借用检查写入 cache 字段)。
-/// - `notebook_configs_cache`: notebook registry 内存缓存。位置固定
-///   (不随 notebook 切换而变), 启动时由首次 `read_notebook_configs` 填充。
+/// - `notebook_configs_cache`: notebook registry 的最近读取镜像；registry 读取始终
+///   查询 SQLite，避免长驻 MCP 与 Desktop 之间出现过期 notebook 配置。
 pub struct MemoFile {
     config_dir: PathBuf,
     current_notebook_id: Option<String>,
@@ -99,10 +100,20 @@ pub struct MemoFile {
     /// "rename 物理文件 + 写 memo index" 全过程, 串行化 RMW。
     /// `std::sync::Mutex` 不可重入, 内部 _locked 变体跳过自拿锁。
     current_index_io: std::sync::Mutex<()>,
-    /// Memo index 内存缓存。`None` = 未加载 / 已失效。
+    /// Memo index 内存缓存。`None` = 未加载 / 已失效；命中前会校验 DB 版本。
     index_cache: std::sync::RwLock<Option<MemoIndexFile>>,
-    /// Notebook registry 内存缓存。`None` = 未加载。
+    /// Notebook registry 最近读取镜像。`None` = 未加载。
     notebook_configs_cache: std::sync::RwLock<Option<Vec<NotebookConfig>>>,
+}
+
+pub(crate) struct CrossProcessWriteGuard {
+    file: std::fs::File,
+}
+
+impl Drop for CrossProcessWriteGuard {
+    fn drop(&mut self) {
+        let _ = fs2::FileExt::unlock(&self.file);
+    }
 }
 
 impl Default for MemoFile {
@@ -127,6 +138,18 @@ impl MemoFile {
             notebook_configs_cache: std::sync::RwLock::new(None),
         }
     }
+
+    pub(crate) fn acquire_cross_process_write_lock(&self) -> io::Result<CrossProcessWriteGuard> {
+        std::fs::create_dir_all(&self.config_dir)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(self.config_dir.join(".memo-write.lock"))?;
+        fs2::FileExt::lock_exclusive(&file)?;
+        Ok(CrossProcessWriteGuard { file })
+    }
+
     pub fn set_current_notebook(&mut self, id: Option<String>) {
         // 切 notebook 时 DB 查询上下文会变, 旧 cache
         // 不再有效, 必须失效。 同 id 重复设置 (steady state) 时

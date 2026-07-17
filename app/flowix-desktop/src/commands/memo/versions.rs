@@ -10,6 +10,7 @@ use tauri::{AppHandle, State};
 
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{MemoVersionMeta, MemoVersionSource};
+use flowix_core::MemoService;
 
 use crate::app::state::AppState;
 use crate::commands::helpers::start_security_bookmark_access;
@@ -20,12 +21,12 @@ use super::*;
 
 #[tauri::command]
 pub fn list_memo_versions(id: String, state: State<AppState>) -> Vec<MemoVersionMeta> {
-    read_lock(&state.memo_file, "memo_file").list_memo_versions(&id)
+    MemoService::new(&read_lock(&state.memo_file, "memo_file")).list_memo_versions(&id)
 }
 
 #[tauri::command]
 pub fn read_memo_version(id: String, version_id: String, state: State<AppState>) -> Option<String> {
-    read_lock(&state.memo_file, "memo_file").read_memo_version(&id, &version_id)
+    MemoService::new(&read_lock(&state.memo_file, "memo_file")).read_memo_version(&id, &version_id)
 }
 
 #[tauri::command]
@@ -34,10 +35,13 @@ pub fn create_memo_version(
     source: Option<MemoVersionSource>,
     state: State<AppState>,
 ) -> Option<MemoVersionMeta> {
-    let path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id)?;
+    let path = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .resolve_memo(&id)
+        .ok()?
+        .path;
     start_security_bookmark_access(&state, &path);
     let content = fs::read_to_string(path).ok()?;
-    match read_lock(&state.memo_file, "memo_file").create_memo_version(
+    match MemoService::new(&read_lock(&state.memo_file, "memo_file")).create_memo_version(
         &id,
         &content,
         source.unwrap_or(MemoVersionSource::Manual),
@@ -59,10 +63,13 @@ pub fn restore_memo_version(
     state: State<AppState>,
     app: AppHandle,
 ) -> Option<WriteDocumentResult> {
-    let target_content =
-        read_lock(&state.memo_file, "memo_file").read_memo_version(&id, &version_id)?;
+    let target_content = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .read_memo_version(&id, &version_id)?;
     let before = read_memo_or_none(state.inner(), &id);
-    let current_path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id)?;
+    let current_path = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .resolve_memo(&id)
+        .ok()?
+        .path;
     start_security_bookmark_access(&state, &current_path);
     let current_content = fs::read_to_string(&current_path).ok()?;
 
@@ -76,7 +83,7 @@ pub fn restore_memo_version(
         }
     }
 
-    if let Err(e) = read_lock(&state.memo_file, "memo_file").create_memo_version(
+    if let Err(e) = MemoService::new(&read_lock(&state.memo_file, "memo_file")).create_memo_version(
         &id,
         &current_content,
         MemoVersionSource::RestoreBackup,
@@ -86,12 +93,15 @@ pub fn restore_memo_version(
     }
 
     mark_self_write_for(&app, &current_path);
-    match read_lock(&state.memo_file, "memo_file")
-        .write_memo_renaming_on_title_change_global(&id, &target_content)
+    match MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .save_memo(&id, &target_content)
     {
         Ok(_) => {
             emit_updated_after_write(state.inner(), &app, &id, before);
-            let final_path = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id)?;
+            let final_path = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+                .resolve_memo(&id)
+                .ok()?
+                .path;
             start_security_bookmark_access(&state, &final_path);
             let final_content = fs::read_to_string(&final_path).ok()?;
             Some(WriteDocumentResult {
@@ -108,5 +118,6 @@ pub fn restore_memo_version(
 
 #[tauri::command]
 pub fn delete_memo_version(id: String, version_id: String, state: State<AppState>) -> bool {
-    read_lock(&state.memo_file, "memo_file").delete_memo_version(&id, &version_id)
+    MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .delete_memo_version(&id, &version_id)
 }

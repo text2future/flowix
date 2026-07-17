@@ -10,6 +10,7 @@ use crate::memo_events::{self, MemoDerivedChanged, MemoEvent};
 use crate::app::search_index::{force_rebuild_index, try_index_remove};
 use crate::app::state::AppState;
 use crate::watcher::runtime::mark_self_write_for;
+use flowix_core::MemoService;
 
 use super::helpers::*;
 
@@ -23,8 +24,9 @@ pub fn delete_memo(id: String, state: State<AppState>, app: AppHandle) -> bool {
     if !abs_path.is_empty() {
         mark_self_write_for(&app, Path::new(&abs_path));
     }
-    let ok = read_lock(&state.memo_file, "memo_file")
-        .delete_memo_result_global(&id)
+    let ok = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .delete_memo(&id)
+        .map(|deleted| deleted.file_removed)
         .unwrap_or(false);
     if ok {
         let derived_changed = before
@@ -48,35 +50,27 @@ pub fn delete_memo(id: String, state: State<AppState>, app: AppHandle) -> bool {
 pub fn clear_memos(notebook_id: Option<String>, state: State<AppState>, app: AppHandle) -> bool {
     let mut deleted_paths: Vec<(String, String, String, MemoDerivedChanged)> = Vec::new();
     let success = {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        let memos = memo_file.read_all_memos_filtered_for_notebook_id(
-            notebook_id.as_deref(),
-            "all",
-            "createdAt",
-            None,
-        );
-        drop(memo_file);
+        let memos = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+            .list_memos_filtered(notebook_id.as_deref(), "all", "createdAt", None);
         let mut success = true;
         for memo in memos {
-            let abs_path = {
-                let mf = read_lock(&state.memo_file, "memo_file");
-                mf.find_memo_file_path(&memo.id)
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default()
-            };
+            let (abs_path, resolved_notebook_id) =
+                MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+                    .resolve_memo(&memo.id)
+                    .map(|resolved| (resolved.path.display().to_string(), resolved.notebook.id))
+                    .unwrap_or_default();
             if !abs_path.is_empty() {
                 mark_self_write_for(&app, Path::new(&abs_path));
             }
-            if !read_lock(&state.memo_file, "memo_file")
-                .delete_memo_result_global(&memo.id)
+            if !MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+                .delete_memo(&memo.id)
+                .map(|deleted| deleted.file_removed)
                 .unwrap_or(false)
             {
                 success = false;
                 continue;
             }
-            let deleted_notebook_id = notebook_id
-                .clone()
-                .unwrap_or_else(|| notebook_id_for_memo(state.inner(), &memo.id));
+            let deleted_notebook_id = notebook_id.clone().unwrap_or(resolved_notebook_id);
             let derived_changed = MemoDerivedChanged::from_deleted(&memo);
             deleted_paths.push((memo.id, abs_path, deleted_notebook_id, derived_changed));
         }

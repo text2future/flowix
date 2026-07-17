@@ -25,6 +25,5 @@ nanoid = { workspace = true }
 dunce = { workspace = true }
 sha2 = { workspace = true }
 rusqlite = { workspace = true }
-
-[dev-dependencies]
 tempfile = { workspace = true }
+fs2 = { workspace = true }

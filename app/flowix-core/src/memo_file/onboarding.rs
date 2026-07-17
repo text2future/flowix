@@ -11,9 +11,8 @@ struct OnboardingDoc {
 // 每条 memo 拿到的 createdAt 单调递增; 前端默认按 `createdAt` desc 排序
 // (最新在前). 因此"想展示在最上"的文档必须放在数组**末尾**, 才能拿到
 // 最大的 createdAt. 期望的展示顺序 (从上到下):
-//   1. Flowix Memo 产品介绍
-//   2. 如何快速上手
-//   3. 配置使用 AI Agent
+//   1. 欢迎文档
+//   2. Welcome
 const ONBOARDING_DOCS: &[OnboardingDoc] = &[
     OnboardingDoc {
         title: "配置使用 AI Agent",

@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use super::derivation::{extract_agent_threads_from_body, extract_thumbnail};
 use super::frontmatter::extract_frontmatter_properties;
@@ -168,8 +168,8 @@ impl MemoFile {
                 (notebook_id, version, last_updated, migrated_at)
             VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(notebook_id) DO UPDATE SET
-                version = excluded.version,
-                last_updated = excluded.last_updated
+                version = MAX(memo_index_state.version, excluded.version),
+                last_updated = MAX(memo_index_state.last_updated + 1, excluded.last_updated)
             "#,
             params![
                 notebook_id,
@@ -195,31 +195,51 @@ impl MemoFile {
         )
         .map_err(sqlite_to_io)?;
         for entry in &list.memos {
-            tx.execute(
-                r#"
-                INSERT INTO memos
-                    (id, notebook_id, filename, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties)
-                VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6, ?7, ?8, ?9, ?10)
-                "#,
-                params![
-                    entry.id,
-                    notebook_id,
-                    entry.filename,
-                    entry.preview,
-                    entry.thumbnail,
-                    entry.created_at,
-                    entry.updated_at,
-                    if entry.favorited { 1 } else { 0 },
-                    entry.icon,
-                    serde_json::to_string(&entry.properties).unwrap_or_else(|_| "{}".to_string()),
-                ],
-            )
-            .map_err(sqlite_to_io)?;
-            Self::replace_entry_children_in_tx(&tx, entry)?;
+            Self::upsert_entry_in_tx(&tx, notebook_id, entry)?;
         }
         self.mark_index_state(&tx, notebook_id, list.version, list.last_updated)?;
         tx.commit().map_err(sqlite_to_io)?;
         Ok(())
+    }
+
+    fn upsert_entry_in_tx(
+        tx: &rusqlite::Transaction<'_>,
+        notebook_id: &str,
+        entry: &MemoIndexEntry,
+    ) -> std::io::Result<()> {
+        tx.execute(
+            r#"
+            INSERT INTO memos
+                (id, notebook_id, filename, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties)
+            VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(id) DO UPDATE SET
+                notebook_id = excluded.notebook_id,
+                filename = excluded.filename,
+                preview = excluded.preview,
+                thumbnail = excluded.thumbnail,
+                thumbnail_checked = 1,
+                agents_checked = 1,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                favorited = excluded.favorited,
+                icon = excluded.icon,
+                properties = excluded.properties
+            "#,
+            params![
+                entry.id,
+                notebook_id,
+                entry.filename,
+                entry.preview,
+                entry.thumbnail,
+                entry.created_at,
+                entry.updated_at,
+                if entry.favorited { 1 } else { 0 },
+                entry.icon,
+                serde_json::to_string(&entry.properties).unwrap_or_else(|_| "{}".to_string()),
+            ],
+        )
+        .map_err(sqlite_to_io)?;
+        Self::replace_entry_children_in_tx(tx, entry)
     }
 
     fn replace_entry_children_in_tx(
@@ -372,7 +392,7 @@ impl MemoFile {
                 SELECT id, filename, preview, thumbnail, created_at, updated_at, favorited, icon, properties
                 FROM memos
                 WHERE notebook_id = ?1
-                ORDER BY created_at DESC
+                ORDER BY created_at ASC, rowid ASC
                 "#,
             )
             .map_err(sqlite_to_io)?;
@@ -417,6 +437,27 @@ impl MemoFile {
             last_updated,
             memos,
         }))
+    }
+
+    fn current_cached_index(&self, notebook_id: &str) -> std::io::Result<Option<MemoIndexFile>> {
+        let cached = self
+            .index_cache
+            .read()
+            .expect("index_cache poisoned")
+            .clone();
+        let Some(cached) = cached else {
+            return Ok(None);
+        };
+        let conn = self.open_memo_index_db()?;
+        let db_last_updated = conn
+            .query_row(
+                "SELECT last_updated FROM memo_index_state WHERE notebook_id = ?1",
+                params![notebook_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(sqlite_to_io)?;
+        Ok((db_last_updated == Some(cached.last_updated)).then_some(cached))
     }
 
     fn backfill_missing_properties(
@@ -637,16 +678,10 @@ impl MemoFile {
     }
 
     pub fn read_index(&self) -> Option<MemoIndexFile> {
-        if let Some(cached) = self
-            .index_cache
-            .read()
-            .expect("index_cache poisoned")
-            .as_ref()
-        {
-            return Some(cached.clone());
-        }
-
         let notebook_id = self.current_notebook_id_for_index();
+        if let Ok(Some(cached)) = self.current_cached_index(&notebook_id) {
+            return Some(cached);
+        }
         let conn = match self.open_memo_index_db() {
             Ok(conn) => conn,
             Err(e) => {
@@ -774,16 +809,10 @@ impl MemoFile {
     }
 
     pub fn read_index_result(&self) -> std::io::Result<Option<MemoIndexFile>> {
-        if let Some(cached) = self
-            .index_cache
-            .read()
-            .expect("index_cache poisoned")
-            .as_ref()
-        {
-            return Ok(Some(cached.clone()));
-        }
-
         let notebook_id = self.current_notebook_id_for_index();
+        if let Some(cached) = self.current_cached_index(&notebook_id)? {
+            return Ok(Some(cached));
+        }
         let conn = self.open_memo_index_db()?;
         let list = self.read_index_from_db(&conn, &notebook_id)?;
         if let Some(list) = &list {
@@ -861,17 +890,23 @@ impl MemoFile {
         notebook_id: &str,
         memo: &Memo,
     ) -> std::io::Result<()> {
-        let active_notebook_id = self.current_notebook_id_for_index();
-        let mut list = self.read_index().unwrap_or_default();
-        if active_notebook_id != notebook_id {
-            list = self
-                .read_index_for_notebook_id(Some(notebook_id))?
-                .unwrap_or_default();
+        let mut conn = self.open_memo_index_db()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_to_io)?;
+        Self::upsert_entry_in_tx(&tx, notebook_id, &Self::memo_to_index_entry(memo))?;
+        self.mark_index_state(
+            &tx,
+            notebook_id,
+            MemoIndexFile::default().version,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
+        tx.commit().map_err(sqlite_to_io)?;
+        if self.current_notebook_id_for_index() == notebook_id {
+            let refreshed = self.read_index_from_db(&conn, notebook_id)?;
+            *self.index_cache.write().expect("index_cache poisoned") = refreshed;
         }
-        list.memos.retain(|e| e.id != memo.id);
-        list.memos.push(Self::memo_to_index_entry(memo));
-        list.last_updated = chrono::Utc::now().timestamp_millis();
-        self.write_index_for_notebook_id(notebook_id, &list)
+        Ok(())
     }
 
     pub fn sync_to_index_only(&self, memo: &Memo) -> std::io::Result<()> {
@@ -893,12 +928,27 @@ impl MemoFile {
         notebook_id: &str,
         memo_id: &str,
     ) -> std::io::Result<()> {
-        let Some(mut list) = self.read_index_for_notebook_id(Some(notebook_id))? else {
-            return Ok(());
-        };
-        list.memos.retain(|e| e.id != memo_id);
-        list.last_updated = chrono::Utc::now().timestamp_millis();
-        self.write_index_for_notebook_id(notebook_id, &list)
+        let mut conn = self.open_memo_index_db()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_to_io)?;
+        tx.execute(
+            "DELETE FROM memos WHERE notebook_id = ?1 AND id = ?2",
+            params![notebook_id, memo_id],
+        )
+        .map_err(sqlite_to_io)?;
+        self.mark_index_state(
+            &tx,
+            notebook_id,
+            MemoIndexFile::default().version,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
+        tx.commit().map_err(sqlite_to_io)?;
+        if self.current_notebook_id_for_index() == notebook_id {
+            let refreshed = self.read_index_from_db(&conn, notebook_id)?;
+            *self.index_cache.write().expect("index_cache poisoned") = refreshed;
+        }
+        Ok(())
     }
 
     pub fn read_used_tag_ids(&self) -> std::io::Result<Vec<String>> {

@@ -14,6 +14,7 @@ export type SettingsTab =
   | 'noteSettings'
   | 'shortcuts'
   | 'cli'
+  | 'mcp'
   | 'connections'
   | 'tools'
   | 'history'
