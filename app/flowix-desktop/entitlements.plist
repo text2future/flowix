@@ -6,7 +6,7 @@
       macOS bundle entitlements for Flowix.
 
       用于 `tauri.conf.production.json` 的 `bundle.macOS.entitlements` 字段;
-      走 `codesign --options runtime --entitlements entitlements.plist ...`。
+      由 codesign 使用 runtime options 和本 entitlements 文件完成签名。
       见 `scripts/sign-cli.sh`。
 
       v3 rationale:
