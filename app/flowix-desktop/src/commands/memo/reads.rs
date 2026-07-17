@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 
 use crate::lock_utils::read_lock;
-use crate::memo_events::{MemoChangeSource, MemoDerivedChanged};
+use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged};
 use crate::watcher::path::normalize_for_compare;
 use flowix_core::memo_file::{atomic_write_bytes, Memo, MemoTodoEntry};
 use flowix_core::MemoService;
@@ -305,6 +305,7 @@ pub fn write_document(
     expectedContent: Option<String>,
     state: State<AppState>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
 ) -> Option<WriteDocumentResult> {
     match channel.as_str() {
         "internal" => write_document_internal(
@@ -313,6 +314,7 @@ pub fn write_document(
             expectedContent.as_deref(),
             &state,
             &app,
+            window.label(),
         ),
         "external" => {
             write_document_external(&file_path, &content, expectedContent.as_deref(), &state)
@@ -331,6 +333,7 @@ fn write_document_internal(
     expected_content: Option<&str>,
     state: &State<AppState>,
     app: &AppHandle,
+    origin_window_label: &str,
 ) -> Option<WriteDocumentResult> {
     let key = key?;
     let before = read_memo_or_none(state.inner(), key);
@@ -412,6 +415,12 @@ fn write_document_internal(
                 notebook_id,
                 derived_changed,
                 MemoChangeSource::UserEdit,
+            );
+            memo_events::emit_content_updated_to_sibling_windows(
+                app,
+                origin_window_label,
+                key,
+                &event_path,
             );
             Some(WriteDocumentResult {
                 path: event_path,

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import {
   hasDocumentUnsavedChanges,
@@ -11,6 +12,10 @@ import { toast } from '@/lib/toast';
 import { canonicalPath } from '@/lib/path';
 import { registerMemoEventHandler } from '@/lib/memo-dispatcher';
 import type { MemoEvent } from '@/types/memo';
+import {
+  handleSiblingWindowContentUpdate,
+  type MemoContentUpdatedEvent,
+} from '@features/document/components/session/sibling-window-document-sync';
 
 interface UseExternalDocumentChangeWatchOptions {
   filePath: string;
@@ -42,16 +47,15 @@ export function useExternalDocumentChangeWatch({
   useEffect(() => {
     if (!filePath) return;
 
-    // 后端 fs_watcher 是"磁盘已变"的唯一信号源。3s self-write window
-    // (useDocumentAutosave) + 后端 2s mark_self_write_for TTL + 150ms
-    // 防抖三道闸, 漏过的事件即为真外部变更, 不需要再 readDocument 验证。
+    // 外部工具更新继续走统一 memo-event + dedup；Flowix 编辑器保存另走
+    // memo-content-updated，后端只把后者发给发送窗口之外的 Webview。
     //
     // 走 `registerMemoEventHandler` (应用层 dispatcher) 而非直接
     // event-bus.subscribe — 跟 useMemoEvents 走同一份 memoDispatcher
     // 实例, 自动共享 dedup middleware (Phase 2) + 跨订阅者一致 filter
     // 语义。 此前直接 listen 'memo-event' 是 "双订阅绕过中央路由" 反
     // 模式, 已统一。
-    const unsubscribe = registerMemoEventHandler(
+    const unsubscribeMemoEvents = registerMemoEventHandler(
       async (event: MemoEvent) => {
         if (!filePath) return;
         if (event.kind !== 'updated') return;
@@ -112,15 +116,49 @@ export function useExternalDocumentChangeWatch({
         clearSaveTimer();
         await reloadDocument(filePath, { preservePending: false, showLoading: false });
       },
-      // filter 只声明 kind + source, path 比对放在 handler 内 (依赖 React 状态)。
       (event) => event.kind === 'updated' && event.source !== 'user_edit',
     );
 
-    return unsubscribe;
+    let disposed = false;
+    let unsubscribeContentUpdates: (() => void) | null = null;
+    void getCurrentWindow().listen<MemoContentUpdatedEvent>(
+      'memo-content-updated',
+      async ({ payload: event }) => {
+        if (disposed) return;
+        const result = await handleSiblingWindowContentUpdate({
+          event,
+          identity,
+          isDirty: hasDocumentUnsavedChanges(identity),
+          onConflict: maybeWarnAboutConflict,
+          clearSaveTimer,
+          reloadDocument,
+        });
+        if (result === 'reloaded') {
+          console.log('[memo-content-updated] reloaded from sibling window', {
+            id: event.id,
+            path: event.path,
+          });
+        }
+      },
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        unsubscribeContentUpdates = unlisten;
+      }
+    }).catch((error) => {
+      console.warn('[memo-content-updated] listen failed:', error);
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribeMemoEvents();
+      unsubscribeContentUpdates?.();
+    };
   }, [
     filePath,
     identity,
     reloadDocument,
     clearSaveTimer,
-    ]);
+  ]);
 }
