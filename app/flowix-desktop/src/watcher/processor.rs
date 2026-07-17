@@ -45,6 +45,20 @@ enum DispatchOutcome {
     },
 }
 
+// CLI/MCP runs in a separate process and writes both the markdown file and the
+// shared memo index before Desktop receives the filesystem Create event. The
+// index lookup therefore already succeeds even though this is a genuinely new
+// memo. Keep the inference window narrow so atomic saves of established notes
+// continue to be classified as Updated.
+const CROSS_PROCESS_CREATE_WINDOW_MS: i64 = 5_000;
+
+fn is_recent_cross_process_create(kind: FsEventKind, memo: &Memo, now_ms: i64) -> bool {
+    kind == FsEventKind::Create
+        && memo.created_at == memo.updated_at
+        && now_ms >= memo.created_at
+        && now_ms - memo.created_at <= CROSS_PROCESS_CREATE_WINDOW_MS
+}
+
 fn emit_updated_for_context(
     ctx: &NotebookWatchContext,
     before: Option<&Memo>,
@@ -105,6 +119,7 @@ fn dispatch_modify_event(
     memo_file: &MemoFile,
     ctx: &NotebookWatchContext,
     path: &Path,
+    event_kind: FsEventKind,
 ) -> Result<DispatchOutcome, String> {
     let filename = path
         .file_name()
@@ -121,7 +136,24 @@ fn dispatch_modify_event(
     match disk_key {
         Some(id) => match memo_file.read_memo_for_notebook_id(&ctx.notebook_id, &id) {
             Some(existing) if existing.filename == filename => {
-                reload_existing_memo(memo_file, ctx, &filename)
+                if is_recent_cross_process_create(
+                    event_kind,
+                    &existing,
+                    chrono::Utc::now().timestamp_millis(),
+                ) {
+                    tracing::info!(
+                        "[MemoWatcher] cross-process create detected from prewritten index: id={} path={}",
+                        existing.id,
+                        path.display(),
+                    );
+                    let refreshed = memo_file.reload_memo_from_disk_by_filename_for_notebook_id(
+                        &ctx.notebook_id,
+                        &filename,
+                    )?;
+                    Ok(emit_created_for_context(ctx, refreshed, path.to_path_buf()))
+                } else {
+                    reload_existing_memo(memo_file, ctx, &filename)
+                }
             }
             Some(existing) => {
                 // Rename handling must be idempotent. The internal save path can
@@ -330,7 +362,7 @@ impl MemoEventProcessor {
 
                 // Frontmatter-key-first 分流 ── 详情见 [`dispatch_modify_event`]。
                 let outcome = match memo_file.read() {
-                    Ok(mf) => dispatch_modify_event(&mf, ctx, path),
+                    Ok(mf) => dispatch_modify_event(&mf, ctx, path, event.kind),
                     Err(_) => return,
                 };
                 match outcome {
@@ -526,7 +558,8 @@ mod tests {
         fs::write(&path, format!("# Hello\n\nexternal edit content\n")).unwrap();
 
         // (3) 调 dispatch_modify_event, 期望 Updated
-        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path).expect("dispatch ok");
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
+            .expect("dispatch ok");
         let event = match outcome {
             DispatchOutcome::Updated(e) => e,
             DispatchOutcome::Created { .. } => panic!("expected Updated, got Created"),
@@ -570,7 +603,8 @@ mod tests {
         fs::write(&path, "# Stranger\n\nnew file content\n").unwrap();
 
         // (2) 调 dispatch_modify_event, 期望 Created + new_abs_path
-        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path).expect("dispatch ok");
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Create)
+            .expect("dispatch ok");
         let (event, new_abs_path) = match outcome {
             DispatchOutcome::Updated(_) => panic!("expected Created, got Updated"),
             DispatchOutcome::Created {
@@ -596,6 +630,62 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_create_emits_created_when_mcp_already_wrote_the_shared_index() {
+        let (mf, base) = fresh_memo_file();
+        // MCP/CLI uses a separate MemoFile instance but performs this same
+        // file + shared-index write before Desktop observes the fs event.
+        let created = mf
+            .create_memo_for_notebook_id("nb_test", "MCP note", "# MCP note\n", None)
+            .expect("mcp-style create");
+        let path = base.join(&created.filename);
+
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Create)
+            .expect("dispatch ok");
+
+        match outcome {
+            DispatchOutcome::Created {
+                event: MemoEvent::Created { memo, source, .. },
+                ..
+            } => {
+                assert_eq!(memo.id, created.id);
+                assert!(matches!(source, MemoChangeSource::ExternalTool));
+            }
+            DispatchOutcome::Updated(_) => {
+                panic!("MCP-created memo must stay a Created event")
+            }
+            DispatchOutcome::Created { event, .. } => {
+                panic!("expected Created memo event, got {event:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn recent_index_entry_is_not_created_for_a_modify_event() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let memo = Memo {
+            id: "memo-1".to_string(),
+            filename: "Memo.md".to_string(),
+            preview: String::new(),
+            thumbnail: None,
+            tags: vec![],
+            todos: vec![],
+            agents: vec![],
+            created_at: now,
+            updated_at: now,
+            favorited: false,
+            icon: None,
+            colors: vec![],
+            properties: serde_json::json!({}),
+        };
+
+        assert!(!is_recent_cross_process_create(
+            FsEventKind::Modify,
+            &memo,
+            now,
+        ));
+    }
+
+    #[test]
     fn dispatch_modify_event_updated_preserves_id_across_external_edit() {
         // 关键不变量: 外部改 body 后, memo index 里这条 entry 的 id 不会变
         // (id 在 register_existing_file 时生成, 后续 reload 只动 preview/
@@ -604,7 +694,9 @@ mod tests {
         let (_, path) = seed_registered_md(&mf, &base, "Note");
 
         // 第一次 dispatch: 拿到 id
-        let e1 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path).unwrap() {
+        let e1 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
+            .unwrap()
+        {
             DispatchOutcome::Updated(e) => e,
             _ => panic!("expected Updated"),
         };
@@ -615,7 +707,9 @@ mod tests {
 
         // 模拟第二次外部改
         fs::write(&path, "# Note\n\nsecond edit\n").unwrap();
-        let e2 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path).unwrap() {
+        let e2 = match dispatch_modify_event(&mf, &watch_ctx(&base), &path, FsEventKind::Modify)
+            .unwrap()
+        {
             DispatchOutcome::Updated(e) => e,
             _ => panic!("expected Updated on second dispatch"),
         };
@@ -718,8 +812,8 @@ mod tests {
         std::fs::rename(&old_path, &new_path).expect("physical rename must succeed");
 
         // 喂 To 事件形态: dispatch_modify_event 读磁盘 → 抽 key → 反查 entry
-        let outcome =
-            dispatch_modify_event(&mf, &watch_ctx(&base), &new_path).expect("dispatch ok");
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &new_path, FsEventKind::Create)
+            .expect("dispatch ok");
         let event = match outcome {
             DispatchOutcome::Updated(e) => e,
             DispatchOutcome::Created { .. } => {
@@ -802,7 +896,8 @@ mod tests {
         std::fs::copy(&original_path, &pasted_path).expect("copy should succeed");
 
         let outcome =
-            dispatch_modify_event(&mf, &watch_ctx(&base), &pasted_path).expect("dispatch ok");
+            dispatch_modify_event(&mf, &watch_ctx(&base), &pasted_path, FsEventKind::Create)
+                .expect("dispatch ok");
         let memo = match outcome {
             DispatchOutcome::Created {
                 event: MemoEvent::Created { memo, .. },
@@ -850,7 +945,8 @@ mod tests {
 
         // dispatch: 应创建新 memo, 不沿用磁盘旧 key
         let outcome =
-            dispatch_modify_event(&mf, &watch_ctx(&base), &orphan_path).expect("dispatch ok");
+            dispatch_modify_event(&mf, &watch_ctx(&base), &orphan_path, FsEventKind::Create)
+                .expect("dispatch ok");
         let memo = match outcome {
             DispatchOutcome::Created {
                 event: MemoEvent::Created { memo, .. },
@@ -962,8 +1058,8 @@ mod tests {
         );
 
         // ====== Step 4: processor dispatch_modify_event(NEW) ── 走 (a) 分支 ======
-        let outcome =
-            dispatch_modify_event(&mf, &watch_ctx(&base), &new_path).expect("dispatch ok");
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &new_path, FsEventKind::Create)
+            .expect("dispatch ok");
         let event = match outcome {
             DispatchOutcome::Updated(e) => e,
             DispatchOutcome::Created { .. } => {
@@ -1037,8 +1133,8 @@ mod tests {
             .expect("pre-sync should succeed");
         assert_eq!(synced.filename, new_filename);
 
-        let outcome =
-            dispatch_modify_event(&mf, &watch_ctx(&base), &new_path).expect("dispatch ok");
+        let outcome = dispatch_modify_event(&mf, &watch_ctx(&base), &new_path, FsEventKind::Create)
+            .expect("dispatch ok");
         let event = match outcome {
             DispatchOutcome::Updated(event) => event,
             DispatchOutcome::Created { .. } => {
