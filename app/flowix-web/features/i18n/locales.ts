@@ -43,7 +43,7 @@ export const messages = {
     "preferences.tabs.agents": "Agents",
     "preferences.tabs.agent": "模型配置",
     "preferences.tabs.shortcuts": "快捷键",
-    "preferences.tabs.cli": "flowix CLI",
+    "preferences.tabs.cli": "CLI",
     "preferences.tabs.mcp": "MCP",
     "preferences.tabs.connections": "集成",
     "preferences.tabs.imageGeneration": "图片生成",
@@ -356,7 +356,7 @@ export const messages = {
     "preferences.connections.googleDrive.description": "云端文档",
 
     "preferences.cli.title": "CLI 命令设置",
-    "preferences.cli.binary": "命令入口",
+    "preferences.cli.binary": "命令",
     "preferences.cli.install": "安装",
     "preferences.cli.installHint":
       "将 flowix 命令链接到用户 bin 目录，并把该目录加入 shell PATH。重新打开终端后生效。",
@@ -1323,7 +1323,7 @@ export const messages = {
     "preferences.connections.googleDrive.description": "Import cloud documents",
 
     "preferences.cli.title": "CLI command settings",
-    "preferences.cli.binary": "Command path",
+    "preferences.cli.binary": "Command",
     "preferences.cli.install": "Install",
     "preferences.cli.installHint":
       "Links the flowix command into your user bin directory and adds it to the shell PATH. Open a new terminal after installing.",

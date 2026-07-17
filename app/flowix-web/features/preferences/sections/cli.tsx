@@ -99,19 +99,19 @@ export function CliSection() {
               <div className="text-xs font-medium text-[var(--muted-foreground)]">
                 {t('preferences.cli.binary')}
               </div>
-              <code className="mt-1 block text-sm text-[var(--foreground)]">
-                flowix
-              </code>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                {!loading && !status?.needsInstall && (
-                  <Check className="size-3.5 text-[var(--success)]" />
-                )}
-                <span>{statusText}</span>
-                {status?.binDir && (
-                  <code className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[var(--foreground)]">
-                    {status.binDir}
-                  </code>
-                )}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <code className="text-sm text-[var(--foreground)]">flowix</code>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                  {!loading && !status?.needsInstall && (
+                    <Check className="size-3.5 text-[var(--success)]" />
+                  )}
+                  <span>{statusText}</span>
+                  {status?.binDir && (
+                    <code className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[var(--foreground)]">
+                      {status.binDir}
+                    </code>
+                  )}
+                </div>
               </div>
               {error && (
                 <p className="mt-1 text-xs text-[var(--destructive)]">

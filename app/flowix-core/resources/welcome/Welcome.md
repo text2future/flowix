@@ -92,7 +92,7 @@ When tags are not enough, use properties for more stable metadata, such as `stat
 
 ## Learn More
 
-Flowix Memo is an open-source project independently built by a China-based developer. The code is public, transparent, and available for learning and use. The community welcomes Vibe Coding and pull request contributions.
+Flowix Memo is an open-source project.
 
 - Website: [https://flowix-memo.com/](https://flowix-memo.com/)
 - Documentation: [https://flowix-memo.com/docs/](https://flowix-memo.com/docs/)
