@@ -23,7 +23,7 @@
  */
 import type { FilesConfig } from "@/types/agent";
 import type { AgentAccessEntry } from "@/lib/types/agent-access";
-import { normalizeContextValue } from "@features/agent/store/context-block";
+import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 
 export type PrimaryWorkspaceSource =
   | { kind: "instance.workspace"; path: string }
@@ -35,7 +35,10 @@ export type PrimaryWorkspaceSource =
   | { kind: "empty" };
 
 export interface ResolvePrimaryWorkspaceInput {
-  /** 当前 instance.runtimeConfig.files ── 存在优先 */
+  /**
+   * 当前 instance.runtimeConfig.files。非空选择优先；空且未冻结时继续走
+   * 全局默认，空且 `_frozen=true` 时保持历史快照语义。
+   */
   instanceFiles?: FilesConfig;
   /** 当前用户选中的 notebook 路径 ── cwd 兜底链最后一环 */
   cwd?: string;
@@ -53,10 +56,8 @@ export interface ResolvePrimaryWorkspaceInput {
 export function resolvePrimaryWorkspace(
   input: ResolvePrimaryWorkspaceInput,
 ): PrimaryWorkspaceSource {
-  const normalize = (path: string | null | undefined): string | undefined => {
-    const v = normalizeContextValue(path).replace(/[\\/]+$/, "");
-    return v || undefined;
-  };
+  const normalize = (path: string | null | undefined): string | undefined =>
+    normalizeWorkspacePath(path) || undefined;
 
   // 1. instance.workspace ─ 命中即返回, 不看 missing。
   const instanceWorkspace = normalize(input.instanceFiles?.workspace);
@@ -76,7 +77,10 @@ export function resolvePrimaryWorkspace(
     return { kind: "instance.notebooks[0]", path: instanceNotebook0 };
   }
 
-  if (input.instanceFiles) {
+  // A frozen instance is a historical snapshot and must not silently inherit
+  // later global changes. An unfrozen empty object means "not configured yet"
+  // and continues through the documented global fallback chain.
+  if (input.instanceFiles?._frozen) {
     const cwdPath = normalize(input.cwd);
     if (cwdPath) {
       return { kind: "cwd", path: cwdPath };

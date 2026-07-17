@@ -8,8 +8,8 @@ import type {
 } from "@/types/agent";
 import { CODEX_ACCESS_OPTIONS } from "@features/agent/config/codex-options";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
-import { normalizeContextValue } from "@features/agent/store/context-block";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
+import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 
 export type AgentRuntimeSettingKind = "model" | "reasoning" | "permission";
 
@@ -53,10 +53,6 @@ const CLAUDE_ACCESS_OPTIONS: readonly AgentAccessOption[] = [
 ];
 
 const NO_ACCESS_OPTIONS: readonly AgentAccessOption[] = [];
-
-function normalizeWorkspacePath(path: string | null | undefined): string {
-  return normalizeContextValue(path).replace(/[\\/]+$/, "");
-}
 
 function getEnabledAgentWorkspacePaths(): string[] {
   const paths = useAgentAccessStore

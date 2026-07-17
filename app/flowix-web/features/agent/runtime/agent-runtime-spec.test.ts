@@ -111,6 +111,7 @@ describe("buildAgentRuntimeConfig primaryWorkspace cascade", () => {
           workspace: undefined,
           folders: [],
           notebooks: [],
+          _frozen: true,
         },
       },
     });

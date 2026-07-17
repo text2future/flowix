@@ -35,16 +35,7 @@ import {
   useAgentConversationStore,
 } from "@features/agent/store/agent-conversation-store";
 import { useMemoStore } from "@features/memo/store/memo-store";
-
-/**
- * 与 `agent-runtime-spec::normalizeWorkspacePath` 同语义, 但作为模块级
- * 私有复制, 避免循环 import (`agent-runtime-spec` 也依赖 store)。
- * 注意: 任何逻辑变更需要同步两处, 这是临时折中, 后续要把这个函数
- * 抽到 `lib/path/normalize-workspace.ts` 一类的共享模块。
- */
-function normalizeWorkspacePath(path: string | null | undefined): string {
-  return (path ?? "").replace(/\r\n/g, "\n").trim().replace(/[\\/]+$/, "");
-}
+import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 
 /**
  * 同步读全局 store, 构造一份 "实例创建那一刻" 的 runtime_config 快照.

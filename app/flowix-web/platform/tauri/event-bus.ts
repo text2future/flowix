@@ -78,15 +78,26 @@ export function subscribe<T>(event: string, handler: (payload: T) => void): Unli
           logHandlerError(event, err);
         }
       }
-    }).then((unlisten) => {
-      // listen 期间若所有 handler 都被 unsub, 跳过挂载
-      if (!handlers.has(event)) {
-        unlisten();
-        tauriUnlistens.delete(event);
-        return;
-      }
-      tauriUnlistens.set(event, unlisten);
-    });
+    })
+      .then((unlisten) => {
+        // listen 期间若所有 handler 都被 unsub, 跳过挂载
+        if (!handlers.has(event)) {
+          unlisten();
+          tauriUnlistens.delete(event);
+          return;
+        }
+        tauriUnlistens.set(event, unlisten);
+      })
+      .catch((err: unknown) => {
+        // Registration can fail when the webview is shutting down or when this
+        // module is evaluated outside Tauri. Remove only our placeholder so a
+        // later subscribe can retry instead of getting stuck permanently.
+        if (tauriUnlistens.get(event) === PLACEHOLDER_UNLISTEN) {
+          tauriUnlistens.delete(event);
+        }
+        // eslint-disable-next-line no-console
+        console.warn(`[event-bus] failed to listen for "${event}":`, err);
+      });
   }
 
   // 用 unknown 中转, 跟 Tauri 内部 typed listen<T> 走的是同一闭包。

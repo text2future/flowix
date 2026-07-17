@@ -96,6 +96,23 @@ describe("resolvePrimaryWorkspace", () => {
     });
   });
 
+  it("已冻结的空 instance 保持历史快照, 不继承后续全局 workspace", () => {
+    expect(
+      resolvePrimaryWorkspace({
+        instanceFiles: {
+          folders: [],
+          notebooks: [],
+          workspace: undefined,
+          _frozen: true,
+        },
+        cwd: "D:\\current-notebook",
+        globalEntries: [
+          makeEntry({ path: "D:\\later-workspace", workspace: true }),
+        ],
+      }),
+    ).toEqual({ kind: "cwd", path: "D:\\current-notebook" });
+  });
+
   it("6. 全局空, 走 cwd (selectedNotebook / systemReminderDirectory)", () => {
     expect(
       resolvePrimaryWorkspace({ cwd: "D:\\current-notebook" }),

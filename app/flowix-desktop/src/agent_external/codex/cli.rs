@@ -415,8 +415,8 @@ mod tests {
     //! Tests in this module read or write process-global env vars
     //! (`PATH`, `CODEX_CLI_PATH`, `CODEX_NODE_PATH`, …). These
     //! mutations are process-wide and are visible to every other test
-    //! in the module, so the tests must hold the same [`ENV_LOCK`] for
-    //! the entire duration of the env access.
+    //! in the binary, so the tests must hold the shared external-agent
+    //! environment lock for the entire duration of the env access.
     //!
     //! **Convention:** any test that calls `std::env::var*` /
     //! `std::env::set_var` / `std::env::remove_var` (or transitively
@@ -429,21 +429,7 @@ mod tests {
     //! and hold `_guard` for the whole test body. Pure-function tests
     //! (e.g. parsers, sort helpers) don't need the lock.
     use super::*;
-
-    /// Process-global mutex serialising tests that mutate `std::env::*`.
-    /// Acquire via [`acquire_env_lock`]; never lock it directly outside
-    /// that helper so the convention remains greppable.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Acquire the test-environment lock. See the module-level docs.
-    ///
-    /// `unwrap_or_else(|e| e.into_inner())` lets a poisoned mutex recover
-    /// by handing back the inner value; tests that panicked partway
-    /// through env mutation shouldn't take down every later test in the
-    /// binary.
-    fn acquire_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
+    use crate::agent_external::acquire_test_env_lock as acquire_env_lock;
 
     #[test]
     fn normalizes_supported_permission_modes() {

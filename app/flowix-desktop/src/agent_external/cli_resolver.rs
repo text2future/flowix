@@ -207,13 +207,7 @@ fn first_executable_line(stdout: &[u8]) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, MutexGuard};
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn acquire_env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
+    use crate::agent_external::acquire_test_env_lock as acquire_env_lock;
 
     #[test]
     fn rejects_unsafe_binary_names_for_query() {

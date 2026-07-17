@@ -21,6 +21,22 @@ pub mod node;
 pub mod shared;
 pub mod simple_cli;
 
+/// Process-wide lock for tests that temporarily modify environment variables.
+///
+/// Rust tests in different modules run concurrently in one process. Keeping a
+/// mutex inside each module does not protect `PATH`, `SHELL`, or provider env
+/// vars from tests in sibling modules, so every external-agent test shares this
+/// single lock.
+#[cfg(test)]
+static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn acquire_test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
 // Re-export cross-runtime helpers at the crate root so callers can write
 // `crate::agent_external::ExternalRunRegistry` without dropping into
 // `shared`. Per-runtime APIs (ClaudeCliManager etc.) live on the
