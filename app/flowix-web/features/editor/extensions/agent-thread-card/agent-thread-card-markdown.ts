@@ -81,6 +81,7 @@ export function parseAgentThreadCardMarkdown(token: any) {
       agentRoleMemoId: attrs.agentRoleMemoId || null,
       agentRoleName: attrs.agentRoleName || null,
       collapsed: attrs.collapsed === "true",
+      fullscreen: attrs.fullscreen === "true",
       inputDraft: attrs.inputDraft
         ? decodeAgentThreadCardInputDraft(attrs.inputDraft)
         : null,
@@ -104,8 +105,9 @@ export function renderAgentThreadCardMarkdown(node: {
     node.attrs?.agentRoleName as string,
   );
   const collapsed = !!node.attrs?.collapsed;
+  const fullscreen = !!node.attrs?.fullscreen;
   const inputDraft = escapeAgentThreadCardAttr(
     encodeAgentThreadCardInputDraft(node.attrs?.inputDraft as string),
   );
-  return `::agent-thread-card{instanceId="${instanceId}" threadId="${threadId}" title="${title}" agentType="${typeKey}" agentRoleMemoId="${agentRoleMemoId}" agentRoleName="${agentRoleName}" collapsed="${collapsed}" inputDraft="${inputDraft}"}\n`;
+  return `::agent-thread-card{instanceId="${instanceId}" threadId="${threadId}" title="${title}" agentType="${typeKey}" agentRoleMemoId="${agentRoleMemoId}" agentRoleName="${agentRoleName}" collapsed="${collapsed}" fullscreen="${fullscreen}" inputDraft="${inputDraft}"}\n`;
 }

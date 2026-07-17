@@ -88,6 +88,8 @@ const AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT =
   "flowix:agent-thread-card-fullscreen-change";
 const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
   "flowix:agent-thread-card-request-fullscreen";
+const AGENT_THREAD_CARD_FULLSCREEN_RESTORE_CLASS =
+  "agent-thread-card--restoring-fullscreen";
 const AGENT_THREAD_CARD_INPUT_DRAFT_MAX_CHARS = 500;
 // inputDraft 落盘 debounce: typing 停 2s 后写入 ProseMirror attrs。
 // submit / destroy / blur 会主动 flush, 避免卡片重挂载时用旧 attr 回填。
@@ -147,6 +149,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private isCreating = false;
   private isDestroyed = false;
   private isFullscreen = false;
+  private fullscreenRestoreGeneration = 0;
+  private fullscreenRestorePending = false;
+  private fullscreenRestoreFrame: number | null = null;
   /** 偏好设置中 quickPhrases 数组引用变化时的 unsubscribe ── 弹窗打开时实时刷新。 */
   private unsubscribeQuickPhrases: (() => void) | null = null;
   private boundHandleBodyScroll = (): void => {
@@ -266,6 +271,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     });
 
     this.dom = domParts.dom;
+    if (this.persistedFullscreen) {
+      this.dom.classList.add(AGENT_THREAD_CARD_FULLSCREEN_RESTORE_CLASS);
+    }
     this.chrome = new AgentThreadCardChromeController({
       dom: this.dom,
       header: domParts.header,
@@ -463,6 +471,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.runInitialPromptIfNeeded();
     this.subscribeQuickPhrases();
     queueMicrotask(() => this.ensureInstanceBinding());
+    this.schedulePersistedFullscreenRestore();
   }
 
   private get threadId(): string | null {
@@ -545,6 +554,10 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
 
   private get collapsed(): boolean {
     return !!this.node.attrs.collapsed;
+  }
+
+  private get persistedFullscreen(): boolean {
+    return !!this.node.attrs.fullscreen;
   }
 
   private get inputDraft(): string {
@@ -727,6 +740,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.dom.dataset.agentRoleMemoId = this.agentRoleMemoId ?? "";
     this.dom.dataset.agentRoleName = this.agentRoleName ?? "";
     this.dom.dataset.collapsed = this.collapsed ? "true" : "false";
+    this.dom.dataset.fullscreen = this.persistedFullscreen ? "true" : "false";
     this.dom.dataset.inputDraft = this.inputDraft;
     // type.name 已被 badge 承担, title 只显示对话标题 ── 避免与 badge 重复。
     this.chrome.syncTitleText();
@@ -776,6 +790,109 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.setFullscreen(!this.isFullscreen);
   }
 
+  /**
+   * Markdown may contain more than one stale fullscreen marker (for example
+   * after a merge). Only the first marked card in document order is restored.
+   */
+  private schedulePersistedFullscreenRestore(): void {
+    const generation = ++this.fullscreenRestoreGeneration;
+    this.fullscreenRestorePending = true;
+    if (this.fullscreenRestoreFrame !== null) {
+      window.cancelAnimationFrame(this.fullscreenRestoreFrame);
+      this.fullscreenRestoreFrame = null;
+    }
+    if (this.persistedFullscreen) {
+      this.dom.classList.add(AGENT_THREAD_CARD_FULLSCREEN_RESTORE_CLASS);
+    }
+    queueMicrotask(() => this.restorePersistedFullscreenIfFirst(generation));
+  }
+
+  private cancelPersistedFullscreenRestore(): void {
+    this.fullscreenRestoreGeneration += 1;
+    this.fullscreenRestorePending = false;
+    if (this.fullscreenRestoreFrame !== null) {
+      window.cancelAnimationFrame(this.fullscreenRestoreFrame);
+      this.fullscreenRestoreFrame = null;
+    }
+    this.dom.classList.remove(AGENT_THREAD_CARD_FULLSCREEN_RESTORE_CLASS);
+  }
+
+  private finishPersistedFullscreenRestore(generation: number): void {
+    if (generation !== this.fullscreenRestoreGeneration) return;
+    this.fullscreenRestorePending = false;
+    this.fullscreenRestoreFrame = null;
+    this.dom.classList.remove(AGENT_THREAD_CARD_FULLSCREEN_RESTORE_CLASS);
+  }
+
+  private restorePersistedFullscreenIfFirst(generation: number): void {
+    if (generation !== this.fullscreenRestoreGeneration) return;
+    if (this.isDestroyed || this.isFullscreen || !this.persistedFullscreen) {
+      this.finishPersistedFullscreenRestore(generation);
+      return;
+    }
+
+    if (!this.isFirstPersistedFullscreenCard()) {
+      this.finishPersistedFullscreenRestore(generation);
+      return;
+    }
+    this.setFullscreen(true, { persist: false, fromRestore: true });
+    // Cached messages may already have rendered at the inline card height.
+    // Entering fullscreen then reuses the same message references and takes
+    // the renderer's noop path, so wait for the fullscreen layout before
+    // applying the document-entry default bottom position again.
+    this.fullscreenRestoreFrame = window.requestAnimationFrame(() => {
+      if (generation !== this.fullscreenRestoreGeneration) return;
+      if (!this.isDestroyed && this.isFullscreen) {
+        this.messages.scrollToBottom();
+      }
+      this.finishPersistedFullscreenRestore(generation);
+    });
+  }
+
+  private isFirstPersistedFullscreenCard(): boolean {
+    const currentPos = this.getPos?.();
+    if (currentPos === undefined) return false;
+
+    let firstPersistedPos: number | null = null;
+    this.view.state.doc.descendants((node, pos) => {
+      if (
+        firstPersistedPos === null &&
+        node.type.name === this.node.type.name &&
+        !!node.attrs.fullscreen
+      ) {
+        firstPersistedPos = pos;
+        return false;
+      }
+      return firstPersistedPos === null;
+    });
+
+    return firstPersistedPos === currentPos;
+  }
+
+  private persistFullscreenState(fullscreen: boolean): void {
+    if (!fullscreen) {
+      this.updateAttrs({ fullscreen: false });
+      return;
+    }
+
+    const currentPos = this.getPos?.();
+    if (currentPos === undefined) return;
+
+    let tr = this.view.state.tr;
+    this.view.state.doc.descendants((node, pos) => {
+      if (node.type.name !== this.node.type.name) return true;
+      const shouldPersist = pos === currentPos;
+      if (!!node.attrs.fullscreen !== shouldPersist) {
+        tr = tr.setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          fullscreen: shouldPersist,
+        });
+      }
+      return false;
+    });
+    if (tr.docChanged) this.view.dispatch(tr);
+  }
+
   private dispatchFullscreenChange(): void {
     window.dispatchEvent(
       new CustomEvent(AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT, {
@@ -788,7 +905,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     );
   }
 
-  private setFullscreen(fullscreen: boolean): void {
+  private setFullscreen(
+    fullscreen: boolean,
+    options: { persist?: boolean; fromRestore?: boolean } = {},
+  ): void {
+    if (!options.fromRestore) {
+      this.cancelPersistedFullscreenRestore();
+    }
     if (this.isFullscreen === fullscreen) return;
 
     if (fullscreen) {
@@ -798,6 +921,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     }
 
     this.isFullscreen = fullscreen;
+    if (options.persist !== false) {
+      this.persistFullscreenState(fullscreen);
+    }
     this.renderFullscreenState();
     this.dispatchFullscreenChange();
     this.chrome.renderBadgeHoverCard();
@@ -1120,6 +1246,16 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const oldAttrs = this.node.attrs;
     const wasCollapsed = !!oldAttrs.collapsed;
     this.node = node;
+    if (
+      this.isFullscreen &&
+      (!this.persistedFullscreen || !this.isFirstPersistedFullscreenCard())
+    ) {
+      this.setFullscreen(false, { persist: false });
+    } else if (!this.isFullscreen && this.persistedFullscreen) {
+      this.schedulePersistedFullscreenRestore();
+    } else if (!this.persistedFullscreen && this.fullscreenRestorePending) {
+      this.cancelPersistedFullscreenRestore();
+    }
     const isCollapsed = this.collapsed;
     this.refreshAttrs();
     // requestThreadMessagesIfNeeded 始终调用 ── shouldLoadThreadMessages
@@ -1172,7 +1308,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 写进 ProseMirror attrs, 否则下一个 mount 会用旧值回填, 看起来
     // "刚打的字凭空消失"。
     this.flushPendingDraft();
-    this.setFullscreen(false);
+    this.cancelPersistedFullscreenRestore();
+    this.setFullscreen(false, { persist: false, fromRestore: true });
     window.removeEventListener(
       AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT,
       this.boundHandleRequestFullscreen,

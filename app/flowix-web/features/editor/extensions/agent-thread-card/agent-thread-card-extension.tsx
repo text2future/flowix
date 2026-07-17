@@ -48,6 +48,7 @@ export const AgentThreadCard = Node.create({
       agentRoleMemoId: { default: null },
       agentRoleName: { default: null },
       collapsed: { default: false },
+      fullscreen: { default: false },
       initialPrompt: { default: null },
       autoSubmit: { default: false },
       inputDraft: { default: null },
@@ -71,6 +72,7 @@ export const AgentThreadCard = Node.create({
               element.getAttribute("data-agent-role-memo-id") || null,
             agentRoleName: element.getAttribute("data-agent-role-name") || null,
             collapsed: element.getAttribute("data-collapsed") === "true",
+            fullscreen: element.getAttribute("data-fullscreen") === "true",
             inputDraft: element.getAttribute("data-input-draft") || null,
           };
         },
@@ -87,6 +89,7 @@ export const AgentThreadCard = Node.create({
     const agentRoleMemoId = node.attrs.agentRoleMemoId || "";
     const agentRoleName = node.attrs.agentRoleName || "";
     const collapsed = !!node.attrs.collapsed;
+    const fullscreen = !!node.attrs.fullscreen;
     const inputDraft = node.attrs.inputDraft || "";
 
     return [
@@ -99,6 +102,7 @@ export const AgentThreadCard = Node.create({
         "data-agent-role-memo-id": agentRoleMemoId,
         "data-agent-role-name": agentRoleName,
         "data-collapsed": collapsed ? "true" : "false",
+        "data-fullscreen": fullscreen ? "true" : "false",
         "data-input-draft": inputDraft,
         class: collapsed
           ? "agent-thread-card agent-thread-card--collapsed"
@@ -167,6 +171,7 @@ export const AgentThreadCard = Node.create({
             agentRoleMemoId: null,
             agentRoleName: null,
             collapsed: false,
+            fullscreen: false,
             initialPrompt: options?.initialPrompt ?? null,
             autoSubmit: !!options?.autoSubmit,
             inputDraft: null,

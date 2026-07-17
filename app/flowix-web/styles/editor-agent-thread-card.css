@@ -177,6 +177,19 @@
   z-index: 1000;
 }
 
+/* 文档进入时的持久化全屏恢复在首个布局帧内完成。恢复期间先隐藏卡片并
+ * 关闭后代 transition，避免消息内容先按内联卡片宽度排版、再可见地扩展
+ * 到全屏宽度。下一帧边界与滚动位置稳定后移除此类，直接呈现最终布局。
+ * 手动全屏不挂此类，因此原有交互过渡保持不变。 */
+.markdown-editor .agent-thread-card--restoring-fullscreen {
+  visibility: hidden;
+  transition: none !important;
+}
+
+.markdown-editor .agent-thread-card--restoring-fullscreen * {
+  transition: none !important;
+}
+
 /* 全屏态: container 必须拉满根的 padding 内侧, 否则会因自己的
  * margin / max-height 在 fixed 容器里留出多余空隙 / 被高度上限
  * 截断。把 margin 与 max-height 全部归零, 让它按根的尺寸 1:1

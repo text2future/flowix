@@ -94,6 +94,10 @@ export class AgentThreadCardMessagesController {
     this.viewport.handleScroll();
   }
 
+  scrollToBottom(): void {
+    this.viewport.scrollToBottom();
+  }
+
   render(input: AgentThreadCardMessagesRenderInput): void {
     this.renderer.render({
       ...input,

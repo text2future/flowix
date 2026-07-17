@@ -151,7 +151,7 @@ async function seedRenderableMessages(
 describe("AgentThreadCard NodeView streaming", () => {
   let editor: Editor | null = null;
 
-  it("persists the card title in markdown for reload", async () => {
+  it("persists the card title and fullscreen state in markdown for reload", async () => {
     const {
       parseAgentThreadCardMarkdown,
       renderAgentThreadCardMarkdown,
@@ -166,13 +166,15 @@ describe("AgentThreadCard NodeView streaming", () => {
         title: "Investigate refresh regression",
         typeKey: "codex",
         collapsed: false,
+        fullscreen: true,
       },
     });
 
     expect(markdown).toContain('title="Investigate refresh regression"');
-    expect(parseAgentThreadCardMarkdown({ attrs: markdown }).attrs.title).toBe(
-      "Investigate refresh regression",
-    );
+    expect(markdown).toContain('fullscreen="true"');
+    const parsed = parseAgentThreadCardMarkdown({ attrs: markdown }).attrs;
+    expect(parsed.title).toBe("Investigate refresh regression");
+    expect(parsed.fullscreen).toBe(true);
   });
 
   beforeEach(async () => {
@@ -1447,6 +1449,340 @@ describe("AgentThreadCard NodeView streaming", () => {
     await flushAnimationFrame();
 
     expect(agent.getThreadPage).toHaveBeenCalledWith(threadId, null, 10);
+  });
+
+  it("persists fullscreen toggles in the Thread Card node attrs", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: "instance-fullscreen-persist",
+              threadId: "thread-fullscreen-persist",
+              title: "Fullscreen Persist",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: false,
+            },
+          },
+        ],
+      },
+    });
+
+    const button = host.querySelector<HTMLButtonElement>(
+      ".agent-thread-card__fullscreen",
+    );
+    button?.click();
+
+    expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(true);
+
+    button?.click();
+
+    expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(false);
+  });
+
+  it("restores only the first fullscreen-marked Thread Card on document entry", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: "instance-fullscreen-first",
+              threadId: "thread-fullscreen-first",
+              title: "First Fullscreen",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: true,
+            },
+          },
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: "instance-fullscreen-second",
+              threadId: "thread-fullscreen-second",
+              title: "Second Fullscreen",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: true,
+            },
+          },
+        ],
+      },
+    });
+
+    const pendingCards = host.querySelectorAll<HTMLElement>(
+      ".agent-thread-card--restoring-fullscreen",
+    );
+    expect(pendingCards).toHaveLength(2);
+
+    await flushPromises();
+    await flushAnimationFrame();
+
+    const cards = host.querySelectorAll<HTMLElement>(".agent-thread-card");
+    expect(cards[0]?.classList.contains("agent-thread-card--fullscreen")).toBe(
+      true,
+    );
+    expect(cards[1]?.classList.contains("agent-thread-card--fullscreen")).toBe(
+      false,
+    );
+    expect(
+      host.querySelector(".agent-thread-card--restoring-fullscreen"),
+    ).toBeNull();
+    expect(editor.state.doc.child(0).attrs.fullscreen).toBe(true);
+    expect(editor.state.doc.child(1).attrs.fullscreen).toBe(true);
+
+    cards[1]
+      ?.querySelector<HTMLButtonElement>(".agent-thread-card__fullscreen")
+      ?.click();
+
+    expect(cards[0]?.classList.contains("agent-thread-card--fullscreen")).toBe(
+      false,
+    );
+    expect(cards[1]?.classList.contains("agent-thread-card--fullscreen")).toBe(
+      true,
+    );
+    expect(editor.state.doc.child(0).attrs.fullscreen).toBe(false);
+    expect(editor.state.doc.child(1).attrs.fullscreen).toBe(true);
+  });
+
+  it("defaults cached messages to the bottom after restoring fullscreen", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const threadId = "thread-restored-fullscreen-bottom";
+    await seedRenderableMessages("flowix", threadId, [
+      {
+        id: "cached-assistant-message",
+        role: "assistant",
+        content: "cached response",
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: "instance-restored-fullscreen-bottom",
+              threadId,
+              title: "Restored Fullscreen Bottom",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: true,
+            },
+          },
+        ],
+      },
+    });
+
+    const body = host.querySelector<HTMLElement>(".agent-thread-card__body");
+    expect(body?.textContent).toContain("cached response");
+    Object.defineProperty(body, "scrollHeight", {
+      configurable: true,
+      value: 720,
+    });
+
+    await flushPromises();
+    await flushAnimationFrame();
+
+    expect(body?.scrollTop).toBe(720);
+  });
+
+  it("keeps a legacy card hidden until its deduplicated fullscreen restore frame", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              threadId: "thread-legacy-fullscreen-restore",
+              title: "Legacy Fullscreen Restore",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: true,
+            },
+          },
+        ],
+      },
+    });
+
+    await flushPromises();
+
+    const card = host.querySelector<HTMLElement>(".agent-thread-card");
+    expect(editor.state.doc.firstChild?.attrs.instanceId).toBeTruthy();
+    expect(card?.classList.contains("agent-thread-card--fullscreen")).toBe(true);
+    expect(
+      card?.classList.contains("agent-thread-card--restoring-fullscreen"),
+    ).toBe(true);
+
+    await flushAnimationFrame();
+
+    expect(
+      card?.classList.contains("agent-thread-card--restoring-fullscreen"),
+    ).toBe(false);
+  });
+
+  it("cancels a stale restore frame before a manual fullscreen cycle", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    let nextFrameId = 1;
+    const frameCallbacks = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = nextFrameId;
+      nextFrameId += 1;
+      frameCallbacks.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+      frameCallbacks.delete(id);
+    });
+
+    const threadId = "thread-stale-restore-frame";
+    await seedRenderableMessages("flowix", threadId, [
+      {
+        id: "stale-frame-message",
+        role: "assistant",
+        content: "keep manual reading position",
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    const host = document.createElement("div");
+    document.body.append(host);
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: "instance-stale-restore-frame",
+              threadId,
+              title: "Stale Restore Frame",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: true,
+            },
+          },
+        ],
+      },
+    });
+
+    await flushPromises();
+
+    const body = host.querySelector<HTMLElement>(".agent-thread-card__body");
+    const button = host.querySelector<HTMLButtonElement>(
+      ".agent-thread-card__fullscreen",
+    );
+    Object.defineProperty(body, "scrollHeight", {
+      configurable: true,
+      value: 720,
+    });
+    if (body) body.scrollTop = 123;
+
+    button?.click();
+    button?.click();
+
+    const pendingFrames = Array.from(frameCallbacks.entries());
+    frameCallbacks.clear();
+    pendingFrames.forEach(([, callback]) => callback(performance.now()));
+
+    expect(body?.scrollTop).toBe(123);
+    expect(
+      host.querySelector(".agent-thread-card--restoring-fullscreen"),
+    ).toBeNull();
+  });
+
+  it("restores fullscreen through the setContent document-switch path", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const host = document.createElement("div");
+    document.body.append(host);
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "agentThreadCard",
+            attrs: {
+              instanceId: "instance-before-document-switch",
+              threadId: "thread-before-document-switch",
+              title: "Before Document Switch",
+              typeKey: "flowix",
+              collapsed: false,
+              fullscreen: false,
+            },
+          },
+        ],
+      },
+    });
+    await flushPromises();
+
+    editor.commands.setContent({
+      type: "doc",
+      content: [
+        {
+          type: "agentThreadCard",
+          attrs: {
+            instanceId: "instance-after-document-switch",
+            threadId: "thread-after-document-switch",
+            title: "After Document Switch",
+            typeKey: "flowix",
+            collapsed: false,
+            fullscreen: true,
+          },
+        },
+      ],
+    });
+
+    const card = host.querySelector<HTMLElement>(".agent-thread-card");
+    expect(
+      card?.classList.contains("agent-thread-card--restoring-fullscreen"),
+    ).toBe(true);
+
+    await flushPromises();
+    await flushAnimationFrame();
+
+    expect(card?.dataset.threadId).toBe("thread-after-document-switch");
+    expect(card?.classList.contains("agent-thread-card--fullscreen")).toBe(true);
+    expect(
+      card?.classList.contains("agent-thread-card--restoring-fullscreen"),
+    ).toBe(false);
   });
 
   it("does not move the editor selection after entering or exiting fullscreen", async () => {
