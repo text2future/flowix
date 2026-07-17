@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { StarFourIcon } from '@phosphor-icons/react';
 import { FileCog, Keyboard, Link2, History, Plug, SquareTerminal, SquareMousePointer, Type, Palette, Settings } from 'lucide-react';
 import { useUserSettings } from '@features/preferences/hooks/use-user-settings';
 import {
@@ -24,7 +25,6 @@ import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { PreferencesTitlebarMac } from '@features/preferences/preferences-titlebar-mac';
 import { PreferencesTitlebarWin } from '@features/preferences/preferences-titlebar-win';
 import { useI18n, type I18nKey } from '@features/i18n';
-import { AgentIconStack } from '@features/agent/components/agent-icon-stack';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 function isWindowsPlatform(): boolean {
@@ -49,7 +49,7 @@ const TAB_GROUPS: { labelKey: I18nKey; tabs: PreferencesTabItem[] }[] = [
 		labelKey: 'preferences.groups.ai',
 		tabs: [
 			// 模型配置整段塞到 aiAgent 的 Flowix 卡片里, 不再独立成 tab。
-			{ id: 'aiAgent', labelKey: 'preferences.tabs.aiAgent', icon: <AgentIconStack /> },
+			{ id: 'aiAgent', labelKey: 'preferences.tabs.aiAgent', icon: <StarFourIcon className="w-4 h-4" weight="regular" /> },
 			{ id: 'cli', labelKey: 'preferences.tabs.cli', icon: <SquareTerminal className="w-4 h-4" /> },
 			{ id: 'mcp', labelKey: 'preferences.tabs.mcp', icon: <Plug className="w-4 h-4" /> },
 			{ id: 'connections', labelKey: 'preferences.tabs.connections', icon: <Link2 className="w-4 h-4" /> },

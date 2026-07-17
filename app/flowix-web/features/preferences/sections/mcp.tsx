@@ -31,11 +31,6 @@ export function buildMcpConfigSnippets(command: string, genericTitle: string): M
       content: JSON.stringify({ transport: 'stdio', ...sharedServer }, null, 2),
     },
     {
-      id: 'json',
-      title: 'Claude Desktop / Cursor',
-      content: JSON.stringify({ mcpServers: { flowix: sharedServer } }, null, 2),
-    },
-    {
       id: 'codex',
       title: 'Codex',
       content: `[mcp_servers.flowix]\ncommand = "${escapeTomlString(command)}"\nargs = ["mcp"]`,
@@ -48,6 +43,11 @@ export function buildMcpConfigSnippets(command: string, genericTitle: string): M
         null,
         2,
       ),
+    },
+    {
+      id: 'json',
+      title: 'Claude Desktop / Cursor',
+      content: JSON.stringify({ mcpServers: { flowix: sharedServer } }, null, 2),
     },
   ];
 }
@@ -106,7 +106,7 @@ export function McpSection() {
 
       <div className="space-y-6">
         {snippets.map((snippet) => (
-          <div key={snippet.id} className="overflow-hidden rounded-md border border-[var(--border)]">
+          <div key={snippet.id} className="overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)]">
             <div className="flex h-10 items-center justify-between gap-3 border-b border-[var(--divider)] px-3">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-[var(--foreground)]">{snippet.title}</div>
