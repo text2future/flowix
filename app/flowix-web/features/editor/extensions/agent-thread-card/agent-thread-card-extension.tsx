@@ -13,6 +13,8 @@ import {
   DEFAULT_AGENT_THREAD_CARD_TITLE as DEFAULT_TITLE,
   parseAgentThreadCardMarkdown,
   renderAgentThreadCardMarkdown,
+  encodeAgentThreadCardInputImages,
+  decodeAgentThreadCardInputImages,
 } from "@features/editor/extensions/agent-thread-card/agent-thread-card-markdown";
 import { focusAgentThreadCardInput } from "@features/editor/extensions/agent-thread-card/agent-thread-card-dom";
 import { AgentThreadCardView } from "@features/editor/extensions/agent-thread-card/agent-thread-card-view";
@@ -52,6 +54,7 @@ export const AgentThreadCard = Node.create({
       initialPrompt: { default: null },
       autoSubmit: { default: false },
       inputDraft: { default: null },
+      inputImages: { default: [] },
     };
   },
 
@@ -74,6 +77,9 @@ export const AgentThreadCard = Node.create({
             collapsed: element.getAttribute("data-collapsed") === "true",
             fullscreen: element.getAttribute("data-fullscreen") === "true",
             inputDraft: element.getAttribute("data-input-draft") || null,
+            inputImages: decodeAgentThreadCardInputImages(
+              element.getAttribute("data-input-images"),
+            ),
           };
         },
       },
@@ -91,6 +97,7 @@ export const AgentThreadCard = Node.create({
     const collapsed = !!node.attrs.collapsed;
     const fullscreen = !!node.attrs.fullscreen;
     const inputDraft = node.attrs.inputDraft || "";
+    const inputImages = encodeAgentThreadCardInputImages(node.attrs.inputImages);
 
     return [
       "section",
@@ -104,6 +111,7 @@ export const AgentThreadCard = Node.create({
         "data-collapsed": collapsed ? "true" : "false",
         "data-fullscreen": fullscreen ? "true" : "false",
         "data-input-draft": inputDraft,
+        "data-input-images": inputImages,
         class: collapsed
           ? "agent-thread-card agent-thread-card--collapsed"
           : "agent-thread-card",
@@ -175,6 +183,7 @@ export const AgentThreadCard = Node.create({
             initialPrompt: options?.initialPrompt ?? null,
             autoSubmit: !!options?.autoSubmit,
             inputDraft: null,
+            inputImages: [],
           });
           const from = options?.replaceRange?.from ?? state.selection.from;
           const to = options?.replaceRange?.to ?? from;

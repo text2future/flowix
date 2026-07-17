@@ -473,6 +473,7 @@ interface ChatResponse {
 interface AgentUserMessage {
   content: string;
   llmContent?: string;
+  imagePaths?: string[];
   runId?: string;
   systemReminderDirectory?: string;
   systemReminderDocumentPath?: string;
@@ -554,6 +555,12 @@ export const agent = {
     invoke<void>('open_codex_cli_install_terminal'),
   openCodexConfig: () =>
     invoke<void>('open_codex_config'),
+  cacheImage: (content: string, mimeType: string) =>
+    invoke<CachedAgentImage>('cache_agent_image', { content, mimeType }),
+  deleteCachedImage: (path: string) =>
+    invoke<boolean>('delete_cached_agent_image', { path }),
+  readCachedImage: (path: string) =>
+    invoke<string | null>('read_cached_agent_image', { path }),
   chatStream: (threadId: string, message: AgentUserMessage) =>
     invoke<ChatResponse>('chat_with_agent_stream', { threadId, message }),
   // 缁堟杩愯涓殑 chat_stream銆傚悗绔?AgentManager.stop_chat 缈昏浆 cancel flag,
@@ -661,6 +668,12 @@ export const agent = {
   updateThreadTitle: (threadId: string, title: string, agentType?: AgentTypeKey) =>
     invoke<ThreadInfo | null>('thread_update_title', { threadId, title, agentType }),
 };
+
+export interface CachedAgentImage {
+  path: string;
+  mimeType: string;
+  name: string;
+}
 
 // Stream event handling
 //

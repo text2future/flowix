@@ -723,6 +723,7 @@ async fn runtime_config_applies_for_non_persisted_local_thread() {
     let message = AgentUserMessage {
         content: "hello".to_string(),
         llm_content: None,
+        image_paths: vec![],
         run_id: None,
         system_reminder_directory: None,
         agent_type: Some("claude".to_string()),

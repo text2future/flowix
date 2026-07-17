@@ -123,5 +123,15 @@ describe('agent thread card selectors', () => {
       wantStop: true,
       inputValue: '',
     })).toEqual({ wantStop: true, disabled: false });
+    expect(selectAgentThreadCardSendButtonState({
+      wantStop: false,
+      inputValue: '',
+      hasAttachments: true,
+    })).toEqual({ wantStop: false, disabled: false });
+    expect(selectAgentThreadCardSendButtonState({
+      wantStop: false,
+      inputValue: 'hello',
+      hasPendingAttachments: true,
+    })).toEqual({ wantStop: false, disabled: true });
   });
 });

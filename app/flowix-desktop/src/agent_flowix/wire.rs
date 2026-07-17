@@ -42,6 +42,8 @@ pub struct AgentRuntimeConfig {
 pub struct AgentUserMessage {
     pub content: String,
     pub llm_content: Option<String>,
+    #[serde(default)]
+    pub image_paths: Vec<String>,
     pub run_id: Option<String>,
     pub system_reminder_directory: Option<String>,
     /// 选中 Agent 类型 ── `'flowix' | 'codex' | 'claude'` (JSON wire: `agentType`).

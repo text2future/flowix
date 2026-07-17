@@ -8,6 +8,7 @@ import { upsertAgentThreadCardConversationInstance } from "@features/editor/exte
 
 export interface SubmitAgentThreadCardConversationInput {
   prompt: string;
+  imagePaths?: string[];
   fallbackTitle: string;
   typeKey: AgentTypeKey;
   currentThreadId: string | null;
@@ -107,6 +108,7 @@ export async function submitAgentThreadCardConversation(
       isFirstMessage: input.isFirstMessage,
       agentRoleBody: roleBody,
       runtimeConfig,
+      imagePaths: input.imagePaths,
     });
 
   input.onThreadBound({

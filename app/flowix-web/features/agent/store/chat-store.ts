@@ -185,6 +185,7 @@ export interface ChatStore {
       agentRoleName?: string;
       isFirstMessage?: boolean;
       runtimeConfig?: RuntimeConfig | null;
+      imagePaths?: string[];
       /**
        * Role memo 的 markdown body ── caller (agent-thread-card 组件)
        * 已经在 await 路径里通过 memosClient.readMemo / read_document 拿到,
@@ -531,7 +532,7 @@ export const useChatStore = create<ChatStore>()(
 
         sendMessageToThread: async (threadId, content, typeKey, options) => {
           const trimmed = content.trim();
-          if (!threadId || !trimmed) return;
+          if (!threadId || (!trimmed && !options?.imagePaths?.length)) return;
           const type = getAgentType(
             typeKey ?? get().threadTypes[threadId] ?? get().activeAgentTypeKey,
           );
@@ -627,6 +628,7 @@ export const useChatStore = create<ChatStore>()(
               agentRoleMemoId: options?.agentRoleMemoId,
               agentRoleName: options?.agentRoleName,
               runtimeConfig: options?.runtimeConfig ?? undefined,
+              imagePaths: options?.imagePaths,
             });
           } catch (err) {
             console.error("Failed to dispatch thread card chat_stream:", err);

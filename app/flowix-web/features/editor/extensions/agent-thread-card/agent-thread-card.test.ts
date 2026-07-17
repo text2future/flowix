@@ -167,6 +167,11 @@ describe("AgentThreadCard NodeView streaming", () => {
         typeKey: "codex",
         collapsed: false,
         fullscreen: true,
+        inputImages: [{
+          path: "/tmp/pasted.png",
+          mimeType: "image/png",
+          name: "pasted.png",
+        }],
       },
     });
 
@@ -175,6 +180,11 @@ describe("AgentThreadCard NodeView streaming", () => {
     const parsed = parseAgentThreadCardMarkdown({ attrs: markdown }).attrs;
     expect(parsed.title).toBe("Investigate refresh regression");
     expect(parsed.fullscreen).toBe(true);
+    expect(parsed.inputImages).toEqual([{
+      path: "/tmp/pasted.png",
+      mimeType: "image/png",
+      name: "pasted.png",
+    }]);
   });
 
   beforeEach(async () => {

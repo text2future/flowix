@@ -9,6 +9,11 @@ export {
 } from "./composer-draft-controller";
 export { getPersistableInputDraft } from "./composer-draft";
 export {
+  ComposerImageController,
+  type AgentThreadCardInputImage,
+  type ComposerImageControllerOptions,
+} from "./composer-image-controller";
+export {
   getAgentThreadCardUserHistoryMessages,
   getAgentThreadCardUserHistoryMessagesFromMessages,
 } from "./composer-history";

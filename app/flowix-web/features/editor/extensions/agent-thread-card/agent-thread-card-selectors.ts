@@ -75,10 +75,12 @@ export function selectAgentThreadCardRuntimeView(input: {
 export function selectAgentThreadCardSendButtonState(input: {
   wantStop: boolean;
   inputValue: string;
+  hasAttachments?: boolean;
+  hasPendingAttachments?: boolean;
 }): { wantStop: boolean; disabled: boolean } {
-  const hasInput = !!input.inputValue.trim();
+  const hasInput = !!input.inputValue.trim() || !!input.hasAttachments;
   return {
     wantStop: input.wantStop,
-    disabled: !input.wantStop && !hasInput,
+    disabled: !input.wantStop && (!hasInput || !!input.hasPendingAttachments),
   };
 }

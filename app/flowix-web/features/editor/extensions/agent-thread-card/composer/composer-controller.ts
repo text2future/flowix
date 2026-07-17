@@ -14,6 +14,8 @@ export interface ComposerControllerOptions {
   getUserHistoryMessages: () => string[];
   getSendLabel: (wantStop: boolean) => string;
   getSendButtonWantsStop: () => boolean;
+  getHasAttachments: () => boolean;
+  getHasPendingAttachments: () => boolean;
   submit: () => void;
   stop: () => void;
 }
@@ -28,6 +30,8 @@ export class ComposerController {
   private readonly getUserHistoryMessages: () => string[];
   private readonly getSendLabel: (wantStop: boolean) => string;
   private readonly getSendButtonWantsStop: () => boolean;
+  private readonly getHasAttachments: () => boolean;
+  private readonly getHasPendingAttachments: () => boolean;
   private readonly submit: () => void;
   private readonly stop: () => void;
 
@@ -46,6 +50,8 @@ export class ComposerController {
     this.getUserHistoryMessages = options.getUserHistoryMessages;
     this.getSendLabel = options.getSendLabel;
     this.getSendButtonWantsStop = options.getSendButtonWantsStop;
+    this.getHasAttachments = options.getHasAttachments;
+    this.getHasPendingAttachments = options.getHasPendingAttachments;
     this.submit = options.submit;
     this.stop = options.stop;
 
@@ -111,6 +117,8 @@ export class ComposerController {
     const { wantStop, disabled } = selectAgentThreadCardSendButtonState({
       wantStop: this.getSendButtonWantsStop(),
       inputValue,
+      hasAttachments: this.getHasAttachments(),
+      hasPendingAttachments: this.getHasPendingAttachments(),
     });
     renderAgentThreadCardSendButton({
       root: this.sendButtonRoot,

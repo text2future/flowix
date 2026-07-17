@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-#[cfg(test)]
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -27,6 +26,25 @@ use crate::agent_external::{
 use crate::agent_flowix::{AgentChunk, AgentUserMessage};
 use crate::agent_session::ThreadManager;
 use crate::runtime_log;
+
+fn append_attached_image_context(mut prompt: String, image_paths: &[String]) -> String {
+    let paths: Vec<&str> = image_paths
+        .iter()
+        .map(String::as_str)
+        .filter(|path| PathBuf::from(path).is_file())
+        .collect();
+    if paths.is_empty() {
+        return prompt;
+    }
+    prompt.push_str("\n\n<attached_images>\n");
+    for path in paths {
+        prompt.push_str("- ");
+        prompt.push_str(path);
+        prompt.push('\n');
+    }
+    prompt.push_str("</attached_images>");
+    prompt
+}
 
 pub struct ClaudeCliManager {
     thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
@@ -231,13 +249,24 @@ impl ClaudeCliManager {
         let session_id = select_external_session_for_runtime(mapped_session_id, hint);
 
         let cwd = resolve_claude_cwd(&message, session_id.as_deref());
-        let workspace_paths = message.workspace_paths_for_runtime(AGENT_TYPE);
+        let mut workspace_paths = message.workspace_paths_for_runtime(AGENT_TYPE);
+        for image_path in &message.image_paths {
+            if let Some(parent) = std::path::Path::new(image_path).parent() {
+                let parent = parent.to_string_lossy().into_owned();
+                if !workspace_paths.contains(&parent) {
+                    workspace_paths.push(parent);
+                }
+            }
+        }
 
         let permission_mode = message
             .permission_mode_for_runtime(AGENT_TYPE)
             .map(str::to_string);
         let model = message.model_for_runtime(AGENT_TYPE).map(str::to_string);
-        let prompt = message.llm_content.unwrap_or(message.content);
+        let prompt = append_attached_image_context(
+            message.llm_content.unwrap_or(message.content),
+            &message.image_paths,
+        );
 
         runtime_log::record_agent_event(
             "info",
@@ -412,6 +441,22 @@ mod tests {
     use super::super::events::claude_event_to_chunks;
     use super::*;
     use crate::agent_external::acquire_test_env_lock as acquire_env_lock;
+
+    #[test]
+    fn appends_existing_images_as_claude_context() {
+        let root =
+            std::env::temp_dir().join(format!("flowix-claude-image-test-{}", std::process::id(),));
+        std::fs::create_dir_all(&root).expect("create image test dir");
+        let image = root.join("pasted.png");
+        std::fs::write(&image, b"png").expect("create image");
+        let prompt = append_attached_image_context(
+            "describe this".to_string(),
+            &[image.to_string_lossy().into_owned()],
+        );
+        assert!(prompt.contains("<attached_images>"));
+        assert!(prompt.contains(&image.to_string_lossy().to_string()));
+        cleanup(&root);
+    }
 
     #[test]
     fn maps_claude_assistant_text_to_chunk() {

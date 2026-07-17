@@ -1,5 +1,6 @@
 import { Marked } from "marked";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
+import type { AgentThreadCardInputImage } from "@features/editor/extensions/agent-thread-card/composer/composer-image-controller";
 
 export const DEFAULT_AGENT_THREAD_CARD_TITLE = "";
 
@@ -46,6 +47,31 @@ export function decodeAgentThreadCardInputDraft(
   }
 }
 
+export function encodeAgentThreadCardInputImages(
+  images: AgentThreadCardInputImage[] | null | undefined,
+): string {
+  return encodeURIComponent(JSON.stringify(images ?? []));
+}
+
+export function decodeAgentThreadCardInputImages(
+  value: string | null | undefined,
+): AgentThreadCardInputImage[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (image): image is AgentThreadCardInputImage =>
+        !!image &&
+        typeof image.path === "string" &&
+        typeof image.mimeType === "string" &&
+        typeof image.name === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
 const cardMarked = new Marked({
   async: false,
   gfm: true,
@@ -85,6 +111,7 @@ export function parseAgentThreadCardMarkdown(token: any) {
       inputDraft: attrs.inputDraft
         ? decodeAgentThreadCardInputDraft(attrs.inputDraft)
         : null,
+      inputImages: decodeAgentThreadCardInputImages(attrs.inputImages),
     },
   };
 }
@@ -109,5 +136,8 @@ export function renderAgentThreadCardMarkdown(node: {
   const inputDraft = escapeAgentThreadCardAttr(
     encodeAgentThreadCardInputDraft(node.attrs?.inputDraft as string),
   );
-  return `::agent-thread-card{instanceId="${instanceId}" threadId="${threadId}" title="${title}" agentType="${typeKey}" agentRoleMemoId="${agentRoleMemoId}" agentRoleName="${agentRoleName}" collapsed="${collapsed}" fullscreen="${fullscreen}" inputDraft="${inputDraft}"}\n`;
+  const inputImages = escapeAgentThreadCardAttr(
+    encodeAgentThreadCardInputImages(node.attrs?.inputImages as AgentThreadCardInputImage[]),
+  );
+  return `::agent-thread-card{instanceId="${instanceId}" threadId="${threadId}" title="${title}" agentType="${typeKey}" agentRoleMemoId="${agentRoleMemoId}" agentRoleName="${agentRoleName}" collapsed="${collapsed}" fullscreen="${fullscreen}" inputDraft="${inputDraft}" inputImages="${inputImages}"}\n`;
 }

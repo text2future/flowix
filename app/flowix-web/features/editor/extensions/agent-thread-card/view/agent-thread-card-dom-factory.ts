@@ -38,6 +38,7 @@ export interface AgentThreadCardDomParts {
   loadingIndicator: HTMLDivElement;
   errorEl: HTMLElement;
   composer: HTMLElement;
+  composerImages: HTMLDivElement;
   composerRoleIcon: HTMLButtonElement;
   input: HTMLTextAreaElement;
   accessButton: HTMLButtonElement;
@@ -184,6 +185,10 @@ export function createAgentThreadCardDom(
   input.placeholder = options.t("editor.threadCard.inputPlaceholder");
   input.value = options.inputDraft;
 
+  const composerImages = document.createElement("div");
+  composerImages.className = "agent-thread-card__composer-images";
+  composerImages.hidden = true;
+
   const accessButton = document.createElement("button");
   accessButton.type = "button";
   accessButton.className = "agent-thread-card__access-trigger";
@@ -232,6 +237,7 @@ export function createAgentThreadCardDom(
   sendButtonMount.className = "agent-thread-card__send-tooltip";
 
   composer.append(
+    composerImages,
     composerRoleIcon,
     input,
     // accessButton, // “指令”入口暂时隐藏，保留节点与控制器以便后续恢复。
@@ -260,6 +266,7 @@ export function createAgentThreadCardDom(
     loadingIndicator,
     errorEl,
     composer,
+    composerImages,
     composerRoleIcon,
     input,
     accessButton,

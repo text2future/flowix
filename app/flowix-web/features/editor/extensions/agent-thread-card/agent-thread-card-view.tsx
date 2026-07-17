@@ -17,6 +17,7 @@ import { translate, type AppLanguage, type I18nKey } from "@features/i18n";
 import type { AgentTypeKey } from "@/types/agent";
 import type { QuickPhrase } from "@/lib/constants";
 import { stripSystemBlock } from "@features/agent/message";
+import { toast } from "@/lib/toast";
 import { openNoteByDeepLink } from "@platform/open-target";
 import { windows } from "@platform/tauri/client";
 import { isWindowsPlatform } from "@features/shortcuts";
@@ -39,6 +40,8 @@ import { FullscreenLayoutController } from "@features/editor/extensions/agent-th
 import {
   ComposerController,
   ComposerDraftController,
+  ComposerImageController,
+  type AgentThreadCardInputImage,
   getAgentThreadCardUserHistoryMessagesFromMessages,
 } from "@features/editor/extensions/agent-thread-card/composer";
 import {
@@ -134,6 +137,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private fullscreenLayout: FullscreenLayoutController;
   private composerDraft: ComposerDraftController;
   private composerController: ComposerController;
+  private composerImages: ComposerImageController;
   private messages: AgentThreadCardMessagesController;
   private runtime: AgentThreadCardRuntimeController;
   // 全屏 / 删除按钮之间的竖向分割线 ── 非交互元素, aria-hidden 让屏幕
@@ -377,6 +381,23 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       persistDelayMs: AGENT_THREAD_CARD_DRAFT_PERSIST_DEBOUNCE_MS,
       persist: (draft) => this.updateAttrs({ inputDraft: draft }),
     });
+    this.composerImages = new ComposerImageController({
+      input: this.input,
+      container: domParts.composerImages,
+      initialImages: this.inputImages,
+      onChange: (images) => this.updateAttrs({ inputImages: images }),
+      onStateChange: () => this.composerController?.setSendButtonState(),
+      onError: (message) => this.setError(message),
+      onLimitExceeded: (kind) => {
+        toast.warning(
+          this.t(
+            kind === "size"
+              ? "editor.threadCard.imageSizeLimit"
+              : "editor.threadCard.imageCountLimit",
+          ),
+        );
+      },
+    });
     this.runtime = new AgentThreadCardRuntimeController({
       getCurrentThreadId: () => this.threadId,
       getStoredThreadId: () =>
@@ -444,6 +465,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
           : this.t("editor.threadCard.send"),
       getSendButtonWantsStop: () =>
         this.currentRuntimeView().sendButtonWantsStop,
+      getHasAttachments: () => this.composerImages.hasImages,
+      getHasPendingAttachments: () => this.composerImages.hasPending,
       submit: () => {
         void this.submit();
       },
@@ -563,6 +586,11 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private get inputDraft(): string {
     const value = this.node.attrs.inputDraft;
     return typeof value === "string" ? value : "";
+  }
+
+  private get inputImages(): AgentThreadCardInputImage[] {
+    const value = this.node.attrs.inputImages;
+    return Array.isArray(value) ? value : [];
   }
 
   private flushPendingDraft(): void {
@@ -1167,7 +1195,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 立刻写入 ProseMirror attr, 否则卡片重新挂载会丢稿。
     this.flushPendingDraft();
     const rawPrompt = this.input.value.trim();
-    if (!rawPrompt) return;
+    const imagePaths = this.composerImages.readyImages.map((image) => image.path);
+    if ((!rawPrompt && imagePaths.length === 0) || this.composerImages.hasPending) return;
 
     // 运行期 (thread state isLoading / 正在创建 thread) 阻止发送 ──
     // 输入框保持可用 (允许用户继续输入 / 改稿), 但 Enter 与 send 按钮
@@ -1190,7 +1219,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 同时把 pending draft 清掉 (若之前有未触发的 debounce), 防止空 input
     // 被旧 snapshot 误保护。
     this.composerController.clearDraft();
-    this.updateAttrs({ inputDraft: null });
+    this.composerImages.clearAfterSubmit();
+    this.updateAttrs({ inputDraft: null, inputImages: [] });
     this.composerController.updateMultiLineState();
     this.setError(null);
     this.renderThreadState();
@@ -1202,7 +1232,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         this.renderThreadState();
       }
       await submitAgentThreadCardConversation({
-        prompt: rawPrompt,
+        prompt: rawPrompt || "Analyze the attached image(s).",
+        imagePaths,
         fallbackTitle: this.t("editor.threadCard.title"),
         typeKey: this.typeKey,
         currentThreadId: this.threadId,
@@ -1335,5 +1366,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.agentRolePicker.dispose();
     this.fullscreenLayout.dispose();
     this.composerController.dispose();
+    this.composerImages.dispose();
   }
 }

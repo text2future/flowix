@@ -6,13 +6,13 @@ use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader};
 
 pub(crate) use super::binary::resolve_codex_binary;
-use super::command::{build_codex_command, preflight_codex, resolve_codex_cwd};
 #[cfg(test)]
 use super::command::{
-    is_executable_file, latest_versioned_subdir, normalized_codex_model,
+    build_codex_command, is_executable_file, latest_versioned_subdir, normalized_codex_model,
     normalized_permission_mode, normalized_reasoning_effort, parse_node_version,
     resolve_node_binary, which_codex,
 };
+use super::command::{build_codex_command_with_images, preflight_codex, resolve_codex_cwd};
 use super::history::is_codex_session_id;
 use super::runtime::{diagnostics_enabled, emit_chunk_with_run_id, resolve_run_id};
 use super::stream::read_codex_stdout;
@@ -241,6 +241,7 @@ impl CodexCliManager {
         let reasoning_effort = message
             .codex_reasoning_effort_for_runtime()
             .map(str::to_string);
+        let image_paths = message.image_paths.clone();
         let prompt = message.llm_content.unwrap_or(message.content);
         runtime_log::record_agent_event(
             "info",
@@ -257,6 +258,7 @@ impl CodexCliManager {
                 "permission_mode": permission_mode,
                 "codex_model": codex_model,
                 "reasoning_effort": reasoning_effort,
+                "image_count": image_paths.len(),
                 "prompt_chars": prompt.chars().count(),
             })),
         );
@@ -284,13 +286,14 @@ impl CodexCliManager {
 
         preflight_codex()?;
 
-        let mut child = build_codex_command(
+        let mut child = build_codex_command_with_images(
             session_id.as_deref(),
             &cwd,
             &workspace_paths,
             permission_mode.as_deref(),
             codex_model.as_deref(),
             reasoning_effort.as_deref(),
+            &image_paths,
         )
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -684,6 +687,30 @@ mod tests {
 
         assert!(args.iter().any(|arg| arg == "--yolo"));
         assert!(!args.iter().any(|arg| arg == "--sandbox"));
+    }
+
+    #[test]
+    fn codex_command_attaches_images_for_new_and_resumed_sessions() {
+        let root =
+            std::env::temp_dir().join(format!("flowix-codex-image-test-{}", std::process::id(),));
+        std::fs::create_dir_all(&root).expect("create image test dir");
+        let image = root.join("pasted.png");
+        std::fs::write(&image, b"png").expect("create image");
+        let images = vec![image.to_string_lossy().into_owned()];
+
+        for session_id in [None, Some("019f0000-0000-7000-8000-000000000000")] {
+            let cmd =
+                build_codex_command_with_images(session_id, &root, &[], None, None, None, &images);
+            let args: Vec<String> = cmd
+                .as_std()
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            assert!(args
+                .windows(2)
+                .any(|pair| pair[0] == "--image" && pair[1] == images[0]));
+        }
+        cleanup(&root);
     }
 
     #[test]

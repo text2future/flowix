@@ -34,6 +34,7 @@ pub(crate) fn resolve_codex_cwd(
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+#[cfg(test)]
 pub(crate) fn build_codex_command(
     session_id: Option<&str>,
     cwd: &PathBuf,
@@ -41,6 +42,26 @@ pub(crate) fn build_codex_command(
     permission_mode: Option<&str>,
     codex_model: Option<&str>,
     reasoning_effort: Option<&str>,
+) -> Command {
+    build_codex_command_with_images(
+        session_id,
+        cwd,
+        workspace_paths,
+        permission_mode,
+        codex_model,
+        reasoning_effort,
+        &[],
+    )
+}
+
+pub(crate) fn build_codex_command_with_images(
+    session_id: Option<&str>,
+    cwd: &PathBuf,
+    workspace_paths: &[String],
+    permission_mode: Option<&str>,
+    codex_model: Option<&str>,
+    reasoning_effort: Option<&str>,
+    image_paths: &[String],
 ) -> Command {
     let codex = resolve_codex_binary();
     let codex_real = std::fs::canonicalize(&codex).unwrap_or_else(|_| codex.clone());
@@ -64,6 +85,7 @@ pub(crate) fn build_codex_command(
             cmd.args(["exec", "resume"]);
             append_model_override(&mut cmd, codex_model);
             append_reasoning_effort_override(&mut cmd, reasoning_effort);
+            append_image_paths(&mut cmd, image_paths);
             cmd.args(["--json", "--skip-git-repo-check", session_id, "-"]);
         }
         _ => {
@@ -71,6 +93,7 @@ pub(crate) fn build_codex_command(
             append_permission_override(&mut cmd, permission_mode);
             append_model_override(&mut cmd, codex_model);
             append_reasoning_effort_override(&mut cmd, reasoning_effort);
+            append_image_paths(&mut cmd, image_paths);
             cmd.args(["--json", "--skip-git-repo-check"]);
             cmd.arg("-C");
             cmd.arg(cwd);
@@ -78,6 +101,16 @@ pub(crate) fn build_codex_command(
         }
     }
     cmd
+}
+
+fn append_image_paths(cmd: &mut Command, image_paths: &[String]) {
+    for raw in image_paths {
+        let path = PathBuf::from(raw.trim());
+        if path.is_file() {
+            cmd.arg("--image");
+            cmd.arg(path);
+        }
+    }
 }
 
 pub(crate) fn preflight_codex() -> Result<(), String> {
