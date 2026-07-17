@@ -378,7 +378,7 @@ function RunningAgentConversationsGroup({ onClose }: RunningAgentConversationsGr
               if (canOpen) void openRunningInstance(instance);
             }}
           >
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-transparent bg-[var(--background)] p-0.5 agent-runtime-submenu__icon--running">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-transparent bg-[var(--background)] p-0.5 agent-runtime-list__icon--running">
               <img
                 src={agent.icon}
                 alt=""

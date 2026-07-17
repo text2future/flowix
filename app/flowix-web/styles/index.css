@@ -343,7 +343,7 @@
 	pointer-events: auto !important;
 }
 
-/* 状态栏 hover 二级菜单 — 对话列表中运行中实例的 agent icon 外框,
+/* Agent 运行列表中运行中实例的 icon 外框,
  * 复用 editor-agent-thread-card.css 中的
  * `agent-type-badge-running-border` keyframes,
  * 视觉与 AgentThreadCard header 的 running icon 完全一致。
@@ -351,7 +351,7 @@
  * 选择器不在 .markdown-editor 下, 因此 keyframes 必须能在全局范围
  * 被找到 (editor-agent-thread-card.css 中 keyframes 定义本身没有
  * 作用域, 这里放心复用)。 */
-.agent-runtime-submenu__icon--running {
+.agent-runtime-list__icon--running {
   animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
 }
 
@@ -383,7 +383,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-runtime-submenu__icon--running {
+  .agent-runtime-list__icon--running {
     animation: none;
     border-color: color-mix(in oklch, var(--brand) 50%, transparent);
   }
