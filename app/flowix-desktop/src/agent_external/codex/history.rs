@@ -7,6 +7,11 @@ use walkdir::WalkDir;
 use crate::agent_session::{ChatMessage, ThreadInfo, ThreadMessagesPage};
 use crate::agent_types::AgentId;
 
+use super::tool_events::{
+    looks_like_unknown_tool_event, tool_event_definition, tool_event_id, tool_event_name,
+    CodexToolEventMode,
+};
+
 const AGENT_TYPE: &str = "codex";
 const MAX_HISTORY_TOOL_OUTPUT_CHARS: usize = 4096;
 
@@ -114,6 +119,10 @@ fn read_codex_session_messages(session_id: &str) -> Result<Vec<ChatMessage>, Str
     let path = find_codex_session_file(session_id)?
         .ok_or_else(|| format!("Codex session not found: {session_id}"))?;
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    Ok(parse_codex_session_messages(session_id, &text))
+}
+
+fn parse_codex_session_messages(session_id: &str, text: &str) -> Vec<ChatMessage> {
     let mut messages = Vec::new();
     let mut seen_user_messages = HashSet::new();
 
@@ -188,7 +197,7 @@ fn read_codex_session_messages(session_id: &str) -> Result<Vec<ChatMessage>, Str
     // the model attempted.
     close_orphan_codex_tool_calls(&mut messages);
 
-    Ok(messages)
+    messages
 }
 
 fn close_orphan_codex_tool_calls(messages: &mut [ChatMessage]) {
@@ -385,30 +394,27 @@ fn response_item_to_chat_message(
                 timestamp,
             ))
         }
-        "function_call" => {
-            let name = payload
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("tool");
+        "function_call" | "custom_tool_call" => {
+            let name = tool_event_name(payload, tool_event_definition(item_type), item_type);
             let call_id = payload
                 .get("call_id")
                 .and_then(Value::as_str)
-                .unwrap_or(name)
+                .unwrap_or(&name)
                 .to_string();
             let input = payload
                 .get("arguments")
-                .and_then(Value::as_str)
-                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .or_else(|| payload.get("input"))
+                .map(normalize_codex_value)
                 .unwrap_or_else(|| payload.clone());
             let mut message =
                 base_message(format!("tool-{call_id}"), "tool", String::new(), timestamp);
             message.tool_call_id = Some(call_id);
-            message.tool_name = Some(name.to_string());
+            message.tool_name = Some(name);
             message.tool_input = Some(input);
             message.is_loading = Some(true);
             Some(message)
         }
-        "function_call_output" => {
+        "function_call_output" | "custom_tool_call_output" => {
             let call_id = payload
                 .get("call_id")
                 .and_then(Value::as_str)
@@ -416,8 +422,7 @@ fn response_item_to_chat_message(
                 .to_string();
             let raw_output = payload
                 .get("output")
-                .and_then(Value::as_str)
-                .map(str::to_string)
+                .map(codex_output_to_text)
                 .unwrap_or_else(|| payload.to_string());
             let output_chars = raw_output.chars().count();
             let output_truncated = output_chars > MAX_HISTORY_TOOL_OUTPUT_CHARS;
@@ -477,7 +482,212 @@ fn response_item_to_chat_message(
             message.is_completed = Some(true);
             Some(message)
         }
-        _ => None,
+        _ => {
+            let definition = tool_event_definition(item_type);
+            match definition.map(|definition| definition.mode) {
+                Some(CodexToolEventMode::Call) => {
+                    Some(history_tool_call_message(timestamp, payload, item_type))
+                }
+                Some(CodexToolEventMode::Result) => {
+                    Some(history_tool_result_message(timestamp, payload, item_type))
+                }
+                Some(CodexToolEventMode::Lifecycle | CodexToolEventMode::Complete) => Some(
+                    completed_history_tool_message(timestamp, payload, item_type),
+                ),
+                None if looks_like_unknown_tool_event(item_type, payload) => {
+                    if item_type.ends_with("_output") || item_type.ends_with("_result") {
+                        Some(history_tool_result_message(timestamp, payload, item_type))
+                    } else {
+                        Some(completed_history_tool_message(
+                            timestamp, payload, item_type,
+                        ))
+                    }
+                }
+                None => None,
+            }
+        }
+    }
+}
+
+fn history_tool_call_message(timestamp: &str, payload: &Value, item_type: &str) -> ChatMessage {
+    let definition = tool_event_definition(item_type);
+    let call_id = tool_event_id(payload, item_type);
+    let mut message = base_message(format!("tool-{call_id}"), "tool", String::new(), timestamp);
+    message.tool_call_id = Some(call_id);
+    message.tool_name = Some(tool_event_name(payload, definition, item_type));
+    message.tool_input = Some(history_tool_input(payload, item_type));
+    message.is_loading = Some(true);
+    message
+}
+
+fn history_tool_result_message(timestamp: &str, payload: &Value, item_type: &str) -> ChatMessage {
+    let call_id = tool_event_id(payload, item_type);
+    let data_text = history_tool_data(&history_tool_output(payload, item_type));
+    let mut message = base_message(
+        format!("tool-result-{call_id}"),
+        "tool",
+        data_text.clone(),
+        timestamp,
+    );
+    message.tool_call_id = Some(call_id);
+    message.tool_name = Some("tool_result".to_string());
+    message.tool_data = Some(data_text);
+    message.is_loading = Some(false);
+    message
+}
+
+fn completed_history_tool_message(
+    timestamp: &str,
+    payload: &Value,
+    item_type: &str,
+) -> ChatMessage {
+    let definition = tool_event_definition(item_type);
+    let call_id = tool_event_id(payload, item_type);
+    let name = tool_event_name(payload, definition, item_type);
+    let input = history_tool_input(payload, item_type);
+    let raw_output = history_tool_output(payload, item_type);
+    let data_text = history_tool_data(&raw_output);
+    let mut message = base_message(
+        format!("tool-{call_id}"),
+        "tool",
+        data_text.clone(),
+        timestamp,
+    );
+    message.tool_call_id = Some(call_id);
+    message.tool_name = Some(name);
+    message.tool_input = Some(input);
+    message.tool_data = Some(data_text);
+    message.is_loading = Some(false);
+    message
+}
+
+fn history_tool_input(payload: &Value, item_type: &str) -> Value {
+    if matches!(
+        item_type,
+        "mcp_tool_call" | "mcp_tool_call_end" | "dynamic_tool_call"
+    ) {
+        let invocation = payload.get("invocation");
+        let tool = payload
+            .get("tool")
+            .or_else(|| payload.get("tool_name"))
+            .or_else(|| payload.get("name"))
+            .or_else(|| invocation.and_then(|value| value.get("tool")))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let server = payload
+            .get("server")
+            .or_else(|| invocation.and_then(|value| value.get("server")))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let arguments = payload
+            .get("arguments")
+            .or_else(|| payload.get("input"))
+            .or_else(|| invocation.and_then(|value| value.get("arguments")))
+            .map(normalize_codex_value)
+            .unwrap_or(Value::Null);
+        return serde_json::json!({
+            "tool": tool,
+            "server": server,
+            "arguments": arguments,
+        });
+    }
+    if matches!(item_type, "file_change" | "patch_apply_end") {
+        return serde_json::json!({
+            "changes": payload.get("changes").cloned().unwrap_or(Value::Null)
+        });
+    }
+    if let Some(command) = payload.get("command") {
+        return serde_json::json!({ "command": command });
+    }
+    if let Some(arguments) = payload
+        .get("invocation")
+        .and_then(|invocation| invocation.get("arguments"))
+    {
+        return normalize_codex_value(arguments);
+    }
+    for key in [
+        "arguments",
+        "input",
+        "params",
+        "action",
+        "query",
+        "prompt",
+        "changes",
+    ] {
+        if let Some(value) = payload.get(key) {
+            return normalize_codex_value(value);
+        }
+    }
+    history_fallback_payload(payload, item_type)
+}
+
+fn history_tool_output(payload: &Value, item_type: &str) -> String {
+    for key in [
+        "output",
+        "aggregated_output",
+        "result",
+        "content",
+        "changes",
+    ] {
+        if let Some(value) = payload.get(key) {
+            return codex_output_to_text(value);
+        }
+    }
+    history_fallback_payload(payload, item_type).to_string()
+}
+
+fn history_fallback_payload(payload: &Value, item_type: &str) -> Value {
+    let raw = payload.to_string();
+    let raw_chars = raw.chars().count();
+    serde_json::json!({
+        "codex_item_type": item_type,
+        "raw_payload_chars": raw_chars,
+        "raw_payload_truncated": raw_chars > MAX_HISTORY_TOOL_OUTPUT_CHARS,
+        "raw_payload_preview": truncate_history_tool_output(&raw),
+    })
+}
+
+fn history_tool_data(raw_output: &str) -> String {
+    let output_chars = raw_output.chars().count();
+    let output_truncated = output_chars > MAX_HISTORY_TOOL_OUTPUT_CHARS;
+    let output = truncate_history_tool_output(raw_output);
+    let data = serde_json::json!({
+        "output": output,
+        "output_chars": output_chars,
+        "output_truncated": output_truncated,
+    });
+    serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string())
+}
+
+fn normalize_codex_value(value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .unwrap_or_else(|| value.clone())
+}
+
+/// Newer Codex custom-tool outputs are content-block arrays rather than a
+/// plain string. Flatten their textual blocks so restored Thread Cards show
+/// the same useful output as the live tool row.
+fn codex_output_to_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(items) => {
+            let parts = items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .or_else(|| item.get("content"))
+                        .and_then(Value::as_str)
+                })
+                .collect::<Vec<_>>();
+            if parts.is_empty() {
+                value.to_string()
+            } else {
+                parts.join("")
+            }
+        }
+        _ => value.to_string(),
     }
 }
 
@@ -487,11 +697,11 @@ fn event_msg_to_chat_message(
     timestamp: &str,
     payload: &Value,
 ) -> Option<ChatMessage> {
-    match payload
+    let item_type = payload
         .get("type")
         .and_then(Value::as_str)
-        .unwrap_or_default()
-    {
+        .unwrap_or_default();
+    match item_type {
         "user_message" => payload.get("message").and_then(Value::as_str).map(|text| {
             base_message(
                 format!("{session_id}-{idx}-user-event"),
@@ -500,7 +710,16 @@ fn event_msg_to_chat_message(
                 timestamp,
             )
         }),
-        _ => None,
+        _ => {
+            let definition = tool_event_definition(item_type);
+            if definition.is_some() || looks_like_unknown_tool_event(item_type, payload) {
+                Some(completed_history_tool_message(
+                    timestamp, payload, item_type,
+                ))
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -767,6 +986,91 @@ mod tests {
             Some(&serde_json::json!("echo congratulations"))
         );
         assert_eq!(message.is_loading, Some(true));
+    }
+
+    #[test]
+    fn restores_custom_tool_call_and_content_block_output_as_one_tool_row() {
+        // Shape captured from ~/.codex/sessions/2026/07/18 rollouts.
+        let session = concat!(
+            "{\"timestamp\":\"2026-07-18T08:00:00Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"call_id\":\"call_exec_1\",\"name\":\"exec\",\"input\":\"const r = await tools.exec_command({\\\"cmd\\\":\\\"pwd\\\"}); text(r.output);\"}}\n",
+            "{\"timestamp\":\"2026-07-18T08:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call_output\",\"call_id\":\"call_exec_1\",\"output\":[{\"type\":\"input_text\",\"text\":\"Script completed\\n\"},{\"type\":\"input_text\",\"text\":\"/tmp/project\\n\"}]}}\n"
+        );
+
+        let messages = parse_codex_session_messages("session_1", session);
+
+        assert_eq!(messages.len(), 1);
+        let message = &messages[0];
+        assert_eq!(message.role, "tool");
+        assert_eq!(message.tool_call_id.as_deref(), Some("call_exec_1"));
+        assert_eq!(message.tool_name.as_deref(), Some("exec_command"));
+        assert_eq!(
+            message.tool_input,
+            Some(serde_json::json!(
+                "const r = await tools.exec_command({\"cmd\":\"pwd\"}); text(r.output);"
+            ))
+        );
+        assert_eq!(message.is_loading, Some(false));
+        let data: Value = serde_json::from_str(&message.content).expect("tool data json");
+        assert_eq!(
+            data.get("output").and_then(Value::as_str),
+            Some("Script completed\n/tmp/project\n")
+        );
+    }
+
+    #[test]
+    fn restores_registered_and_unknown_complete_tool_records() {
+        let session = concat!(
+            "{\"timestamp\":\"2026-07-18T08:00:00Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"mcp_tool_call\",\"id\":\"mcp_1\",\"tool_name\":\"read_document\",\"arguments\":{\"id\":\"doc_1\"},\"result\":{\"content\":\"body\"}}}\n",
+            "{\"timestamp\":\"2026-07-18T08:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"future_connector_call\",\"call_id\":\"future_1\",\"name\":\"future_connector\",\"arguments\":{\"query\":\"hello\"}}}\n",
+            "{\"timestamp\":\"2026-07-18T08:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"future_connector_output\",\"call_id\":\"future_1\",\"output\":\"future result\"}}\n",
+            "{\"timestamp\":\"2026-07-18T08:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"thread_settings_applied\",\"model\":\"gpt-5\"}}\n"
+        );
+
+        let messages = parse_codex_session_messages("session_1", session);
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].tool_call_id.as_deref(), Some("mcp_1"));
+        assert_eq!(messages[0].tool_name.as_deref(), Some("mcp_tool_call"));
+        assert_eq!(
+            messages[0]
+                .tool_input
+                .as_ref()
+                .and_then(|input| input.get("tool"))
+                .and_then(Value::as_str),
+            Some("read_document")
+        );
+        assert_eq!(messages[0].is_loading, Some(false));
+        assert_eq!(messages[1].tool_call_id.as_deref(), Some("future_1"));
+        assert_eq!(messages[1].tool_name.as_deref(), Some("future_connector"));
+        assert_eq!(messages[1].is_loading, Some(false));
+        assert!(messages[1].content.contains("future result"));
+    }
+
+    #[test]
+    fn restores_event_msg_mcp_and_file_change_tools() {
+        let session = concat!(
+            "{\"timestamp\":\"2026-07-18T08:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_end\",\"call_id\":\"mcp_1\",\"invocation\":{\"server\":\"codex\",\"tool\":\"list_mcp_resources\",\"arguments\":{}},\"result\":{\"Ok\":{\"content\":[]}}}}\n",
+            "{\"timestamp\":\"2026-07-18T08:00:01Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"patch_apply_end\",\"call_id\":\"patch_1\",\"success\":true,\"changes\":{\"/tmp/probe.svg\":{\"type\":\"add\"}}}}\n"
+        );
+        let messages = parse_codex_session_messages("session_1", session);
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].tool_name.as_deref(), Some("mcp_tool_call"));
+        assert_eq!(
+            messages[0]
+                .tool_input
+                .as_ref()
+                .and_then(|input| input.get("tool"))
+                .and_then(Value::as_str),
+            Some("list_mcp_resources")
+        );
+        assert_eq!(messages[1].tool_name.as_deref(), Some("file_change"));
+        assert!(messages[1]
+            .tool_input
+            .as_ref()
+            .and_then(|input| input.get("changes"))
+            .and_then(|changes| changes.get("/tmp/probe.svg"))
+            .is_some());
     }
 
     #[test]

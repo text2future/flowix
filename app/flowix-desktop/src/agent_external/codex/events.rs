@@ -2,6 +2,10 @@ use serde_json::Value;
 
 use crate::agent_flowix::{AgentChunk, StatusInfo, UsageInfo};
 
+use super::tool_events::{
+    looks_like_unknown_tool_event, tool_event_definition, tool_event_id, tool_event_name,
+    CodexToolEventDefinition, CodexToolEventMode,
+};
 use super::{truncate_chars, MAX_UI_OUTPUT_PREVIEW_CHARS};
 
 // Codex stdout event policy.
@@ -50,6 +54,12 @@ enum CodexEvent {
     ToolResult {
         id: String,
         name: String,
+        result: Value,
+    },
+    ToolComplete {
+        id: String,
+        name: String,
+        input: Value,
         result: Value,
     },
     Error {
@@ -129,6 +139,25 @@ pub fn codex_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> 
             name,
             result,
         }],
+        CodexEvent::ToolComplete {
+            id,
+            name,
+            input,
+            result,
+        } => vec![
+            AgentChunk::ToolCall {
+                thread_id: thread_id.to_string(),
+                id: id.clone(),
+                name: name.clone(),
+                input,
+            },
+            AgentChunk::ToolResult {
+                thread_id: thread_id.to_string(),
+                id,
+                name,
+                result,
+            },
+        ],
         CodexEvent::Error { message } => vec![AgentChunk::Error {
             thread_id: thread_id.to_string(),
             message,
@@ -202,9 +231,18 @@ fn parse_codex_event_msg(value: &Value) -> CodexEvent {
             .filter(|text| !text.trim().is_empty())
             .map(|text| CodexEvent::Text { text })
             .unwrap_or(CodexEvent::Unknown),
-        "task_started" | "task_complete" | "user_message" | "patch_apply_end"
-        | "context_compacted" => CodexEvent::Unknown,
-        _ => CodexEvent::Unknown,
+        "task_started" | "task_complete" | "user_message" | "context_compacted" => {
+            CodexEvent::Unknown
+        }
+        _ => {
+            if let Some(definition) = tool_event_definition(&payload_type) {
+                tool_complete_from_payload(payload, &payload_type, Some(definition))
+            } else if looks_like_unknown_tool_event(&payload_type, payload) {
+                tool_complete_from_payload(payload, &payload_type, None)
+            } else {
+                CodexEvent::Unknown
+            }
+        }
     }
 }
 
@@ -219,17 +257,36 @@ fn parse_codex_response_item(value: &Value) -> CodexEvent {
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    match item_type.as_str() {
+    let non_tool_event = match item_type.as_str() {
         "reasoning" => first_string(payload, &["summary", "text", "content", "message"])
             .filter(|text| !text.trim().is_empty())
             .map(|text| CodexEvent::Reasoning { text })
             .unwrap_or(CodexEvent::Unknown),
-        "function_call" | "custom_tool_call" => tool_call_from_response_item(payload, &item_type),
-        "function_call_output" | "custom_tool_call_output" => {
-            tool_result_from_response_item(payload, &item_type)
-        }
         "message" => CodexEvent::Unknown,
-        _ => CodexEvent::Unknown,
+        _ => {
+            if let Some(definition) = tool_event_definition(&item_type) {
+                return tool_event_from_response_item(payload, &item_type, definition);
+            }
+            if looks_like_unknown_tool_event(&item_type, payload) {
+                return tool_complete_from_payload(payload, &item_type, None);
+            }
+            CodexEvent::Unknown
+        }
+    };
+    non_tool_event
+}
+
+fn tool_event_from_response_item(
+    payload: &Value,
+    item_type: &str,
+    definition: CodexToolEventDefinition,
+) -> CodexEvent {
+    match definition.mode {
+        CodexToolEventMode::Call => tool_call_from_response_item(payload, item_type),
+        CodexToolEventMode::Result => tool_result_from_response_item(payload, item_type),
+        CodexToolEventMode::Lifecycle | CodexToolEventMode::Complete => {
+            tool_complete_from_payload(payload, item_type, Some(definition))
+        }
     }
 }
 
@@ -245,7 +302,7 @@ fn parse_codex_item_event(value: &Value, event_type: &str) -> CodexEvent {
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    match item_type.as_str() {
+    let non_tool_event = match item_type.as_str() {
         "agent_message" | "message" => message_text(payload)
             .filter(|text| !text.trim().is_empty())
             .map(|text| CodexEvent::Text { text })
@@ -254,39 +311,44 @@ fn parse_codex_item_event(value: &Value, event_type: &str) -> CodexEvent {
             .filter(|text| !text.trim().is_empty())
             .map(|text| CodexEvent::Reasoning { text })
             .unwrap_or(CodexEvent::Unknown),
-        "function_call" | "custom_tool_call" => tool_call_from_response_item(payload, &item_type),
-        "function_call_output" | "custom_tool_call_output" => {
-            tool_result_from_response_item(payload, &item_type)
-        }
-        "command_execution" => {
-            if event_type == "item.started" {
-                let id = first_string(payload, &["id"])
-                    .unwrap_or_else(|| format!("codex_{}", chrono::Utc::now().timestamp_millis()));
-                let input = payload
-                    .get("command")
-                    .map(|command| serde_json::json!({ "command": command }))
-                    .unwrap_or_else(|| payload.clone());
-                CodexEvent::ToolCall {
-                    id,
-                    name: "command_execution".to_string(),
-                    input,
-                }
-            } else {
-                let id = first_string(payload, &["id"])
-                    .unwrap_or_else(|| format!("codex_{}", chrono::Utc::now().timestamp_millis()));
-                let result = payload
-                    .get("output")
-                    .or_else(|| payload.get("result"))
-                    .map(normalize_json_value)
-                    .unwrap_or_else(|| payload.clone());
-                CodexEvent::ToolResult {
-                    id,
-                    name: "command_execution".to_string(),
-                    result: tool_result_payload(result),
-                }
+        _ => {
+            if let Some(definition) = tool_event_definition(&item_type) {
+                return tool_event_from_item_envelope(
+                    payload,
+                    &item_type,
+                    event_type,
+                    Some(definition),
+                );
             }
+            if looks_like_unknown_tool_event(&item_type, payload) {
+                return tool_event_from_item_envelope(payload, &item_type, event_type, None);
+            }
+            CodexEvent::Unknown
         }
-        _ => CodexEvent::Unknown,
+    };
+    non_tool_event
+}
+
+fn tool_event_from_item_envelope(
+    payload: &Value,
+    item_type: &str,
+    event_type: &str,
+    definition: Option<CodexToolEventDefinition>,
+) -> CodexEvent {
+    let mode = definition
+        .map(|definition| definition.mode)
+        .unwrap_or(CodexToolEventMode::Complete);
+    match mode {
+        CodexToolEventMode::Call => tool_call_from_response_item(payload, item_type),
+        CodexToolEventMode::Result => tool_result_from_response_item(payload, item_type),
+        CodexToolEventMode::Lifecycle if event_type == "item.started" => {
+            tool_call_from_payload(payload, item_type, definition)
+        }
+        CodexToolEventMode::Lifecycle => tool_result_from_payload(payload, item_type, definition),
+        CodexToolEventMode::Complete if event_type == "item.started" => {
+            tool_call_from_payload(payload, item_type, definition)
+        }
+        CodexToolEventMode::Complete => tool_complete_from_payload(payload, item_type, definition),
     }
 }
 
@@ -393,42 +455,153 @@ fn usage_from_token_count(value: &Value, payload: &Value) -> UsageSnapshot {
 }
 
 fn tool_call_from_response_item(payload: &Value, item_type: &str) -> CodexEvent {
-    let id = first_string(payload, &["call_id", "id"])
-        .unwrap_or_else(|| format!("codex_{}", chrono::Utc::now().timestamp_millis()));
-    let name = first_string(payload, &["name"]).unwrap_or_else(|| item_type.to_string());
-    let input = payload
-        .get("arguments")
-        .or_else(|| payload.get("input"))
-        .or_else(|| payload.get("params"))
-        .map(normalize_json_value)
-        .unwrap_or_else(|| payload.clone());
+    tool_call_from_payload(payload, item_type, tool_event_definition(item_type))
+}
+
+fn tool_result_from_response_item(payload: &Value, item_type: &str) -> CodexEvent {
+    tool_result_from_payload(payload, item_type, tool_event_definition(item_type))
+}
+
+fn tool_call_from_payload(
+    payload: &Value,
+    item_type: &str,
+    definition: Option<CodexToolEventDefinition>,
+) -> CodexEvent {
+    let id = tool_event_id(payload, item_type);
+    let name = tool_event_name(payload, definition, item_type);
+    let input = tool_input_payload(payload, item_type);
 
     CodexEvent::ToolCall { id, name, input }
 }
 
-fn tool_result_from_response_item(payload: &Value, item_type: &str) -> CodexEvent {
-    let id = first_string(payload, &["call_id", "id"])
-        .unwrap_or_else(|| format!("codex_{}", chrono::Utc::now().timestamp_millis()));
-    let name = first_string(payload, &["name"])
-        .unwrap_or_else(|| item_type.trim_end_matches("_output").to_string());
-    let result_value = payload
-        .get("output")
-        .or_else(|| payload.get("result"))
-        .map(normalize_json_value)
-        .unwrap_or_else(|| payload.clone());
-    let result = tool_result_payload(result_value);
+fn tool_result_from_payload(
+    payload: &Value,
+    item_type: &str,
+    definition: Option<CodexToolEventDefinition>,
+) -> CodexEvent {
+    let id = tool_event_id(payload, item_type);
+    let name = tool_event_name(payload, definition, item_type);
+    let result = tool_result_payload(tool_output_payload(payload, item_type));
 
     CodexEvent::ToolResult { id, name, result }
 }
 
+fn tool_complete_from_payload(
+    payload: &Value,
+    item_type: &str,
+    definition: Option<CodexToolEventDefinition>,
+) -> CodexEvent {
+    CodexEvent::ToolComplete {
+        id: tool_event_id(payload, item_type),
+        name: tool_event_name(payload, definition, item_type),
+        input: tool_input_payload(payload, item_type),
+        result: tool_result_payload(tool_output_payload(payload, item_type)),
+    }
+}
+
+fn tool_input_payload(payload: &Value, item_type: &str) -> Value {
+    if matches!(
+        item_type,
+        "mcp_tool_call" | "mcp_tool_call_end" | "dynamic_tool_call"
+    ) {
+        let invocation = payload.get("invocation");
+        let tool = payload
+            .get("tool")
+            .or_else(|| payload.get("tool_name"))
+            .or_else(|| payload.get("name"))
+            .or_else(|| invocation.and_then(|value| value.get("tool")))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let server = payload
+            .get("server")
+            .or_else(|| invocation.and_then(|value| value.get("server")))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let arguments = payload
+            .get("arguments")
+            .or_else(|| payload.get("input"))
+            .or_else(|| invocation.and_then(|value| value.get("arguments")))
+            .map(normalize_json_value)
+            .unwrap_or(Value::Null);
+        return serde_json::json!({
+            "tool": tool,
+            "server": server,
+            "arguments": arguments,
+        });
+    }
+    if matches!(item_type, "file_change" | "patch_apply_end") {
+        return serde_json::json!({
+            "changes": payload.get("changes").cloned().unwrap_or(Value::Null)
+        });
+    }
+    if let Some(command) = payload.get("command") {
+        return serde_json::json!({ "command": command });
+    }
+    for key in [
+        "arguments",
+        "input",
+        "params",
+        "action",
+        "query",
+        "prompt",
+        "changes",
+    ] {
+        if let Some(value) = payload.get(key) {
+            return normalize_json_value(value);
+        }
+    }
+    fallback_tool_payload(payload, item_type)
+}
+
+fn tool_output_payload(payload: &Value, item_type: &str) -> Value {
+    for key in [
+        "output",
+        "aggregated_output",
+        "result",
+        "content",
+        "changes",
+    ] {
+        if let Some(value) = payload.get(key) {
+            return normalize_json_value(value);
+        }
+    }
+    fallback_tool_payload(payload, item_type)
+}
+
+fn fallback_tool_payload(payload: &Value, item_type: &str) -> Value {
+    let raw = payload.to_string();
+    let raw_chars = raw.chars().count();
+    serde_json::json!({
+        "codex_item_type": item_type,
+        "raw_payload_chars": raw_chars,
+        "raw_payload_truncated": raw_chars > MAX_UI_OUTPUT_PREVIEW_CHARS,
+        "raw_payload_preview": truncate_chars(&raw, MAX_UI_OUTPUT_PREVIEW_CHARS),
+    })
+}
+
 fn tool_result_payload(value: Value) -> Value {
-    if let Some(output) = value.as_str() {
+    let text_output = match &value {
+        Value::String(output) => Some(output.clone()),
+        Value::Array(items) => {
+            let parts = items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .or_else(|| item.get("content"))
+                        .and_then(Value::as_str)
+                })
+                .collect::<Vec<_>>();
+            (!parts.is_empty()).then(|| parts.join(""))
+        }
+        _ => None,
+    };
+    if let Some(output) = text_output {
         let output_chars = output.chars().count();
         let output_truncated = output_chars > MAX_UI_OUTPUT_PREVIEW_CHARS;
         return serde_json::json!({
             "output_chars": output_chars,
             "output_truncated": output_truncated,
-            "output_preview": truncate_chars(output, MAX_UI_OUTPUT_PREVIEW_CHARS),
+            "output_preview": truncate_chars(&output, MAX_UI_OUTPUT_PREVIEW_CHARS),
         });
     }
     value
@@ -590,6 +763,85 @@ mod tests {
     }
 
     #[test]
+    fn preserves_names_for_current_codex_function_tools() {
+        for name in [
+            "list_mcp_resources",
+            "list_mcp_resource_templates",
+            "read_mcp_resource",
+            "get_goal",
+            "create_goal",
+            "update_goal",
+            "apply_patch",
+            "view_image",
+            "exec_command",
+            "update_plan",
+        ] {
+            let value = serde_json::json!({
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "call_id": format!("call_{name}"),
+                    "name": name,
+                    "arguments": "{}"
+                }
+            });
+            assert!(matches!(
+                codex_event_to_chunks("thread_1", &value).as_slice(),
+                [AgentChunk::ToolCall { name: actual, .. }] if actual == name
+            ));
+        }
+    }
+
+    #[test]
+    fn preserves_structured_and_failure_outputs_for_function_tools() {
+        let cases = [
+            (
+                "list_mcp_resources",
+                serde_json::json!({
+                    "resources": [{
+                        "server": "docs",
+                        "uri": "resource://guide",
+                        "metadata": { "nested": { "depth": 3 } }
+                    }]
+                })
+                .to_string(),
+            ),
+            ("list_mcp_resource_templates", "[]".to_string()),
+            (
+                "get_goal",
+                serde_json::json!({ "status": "none" }).to_string(),
+            ),
+            ("view_image", "SVG preview is not supported".to_string()),
+            (
+                "view_image",
+                serde_json::json!({
+                    "detail": "high",
+                    "image_url": "data:image/png;base64,preview"
+                })
+                .to_string(),
+            ),
+        ];
+
+        for (index, (name, output)) in cases.into_iter().enumerate() {
+            let value = serde_json::json!({
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": format!("call_{index}"),
+                    "name": name,
+                    "output": output
+                }
+            });
+            let chunks = codex_event_to_chunks("thread_1", &value);
+            assert!(matches!(
+                chunks.as_slice(),
+                [AgentChunk::ToolResult { result, .. }]
+                    if result.is_object() || result.is_array()
+            ));
+        }
+    }
+
+    #[test]
     fn maps_codex_agent_message_to_text_chunk() {
         let value = serde_json::json!({
             "type": "event_msg",
@@ -640,6 +892,233 @@ mod tests {
                     && name == "command_execution"
                     && input.get("command").and_then(Value::as_str) == Some("bash -lc ls")
         ));
+    }
+
+    #[test]
+    fn maps_official_command_aggregated_output_to_tool_result() {
+        let value = serde_json::json!({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/bin/zsh -lc pwd",
+                "aggregated_output": "/tmp/project\n",
+                "exit_code": 0,
+                "status": "completed"
+            }
+        });
+        let chunks = codex_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, name, result, .. }]
+                if id == "item_1"
+                    && name == "command_execution"
+                    && result.get("output_preview").and_then(Value::as_str)
+                        == Some("/tmp/project\n")
+        ));
+    }
+
+    #[test]
+    fn flattens_custom_tool_content_blocks_for_live_tool_result() {
+        let value = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call_output",
+                "call_id": "call_exec_1",
+                "output": [
+                    { "type": "input_text", "text": "Script completed\n" },
+                    { "type": "input_text", "text": "/tmp/project\n" }
+                ]
+            }
+        });
+        let chunks = codex_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, result, .. }]
+                if id == "call_exec_1"
+                    && result.get("output_preview").and_then(Value::as_str)
+                        == Some("Script completed\n/tmp/project\n")
+        ));
+    }
+
+    #[test]
+    fn maps_registered_mcp_lifecycle_events() {
+        let started = serde_json::json!({
+            "type": "item.started",
+            "item": {
+                "id": "mcp_1",
+                "type": "mcp_tool_call",
+                "tool_name": "read_document",
+                "arguments": { "id": "doc_1" },
+                "status": "in_progress"
+            }
+        });
+        let completed = serde_json::json!({
+            "type": "item.completed",
+            "item": {
+                "id": "mcp_1",
+                "type": "mcp_tool_call",
+                "tool_name": "read_document",
+                "arguments": { "id": "doc_1" },
+                "result": { "content": "document body" },
+                "status": "completed"
+            }
+        });
+
+        assert!(matches!(
+            codex_event_to_chunks("thread_1", &started).as_slice(),
+            [AgentChunk::ToolCall { id, name, input, .. }]
+                if id == "mcp_1"
+                    && name == "mcp_tool_call"
+                    && input.get("tool").and_then(Value::as_str) == Some("read_document")
+        ));
+        assert!(matches!(
+            codex_event_to_chunks("thread_1", &completed).as_slice(),
+            [AgentChunk::ToolResult { id, name, .. }]
+                if id == "mcp_1" && name == "mcp_tool_call"
+        ));
+    }
+
+    #[test]
+    fn maps_real_event_msg_tool_end_shapes_with_specific_inputs() {
+        let mcp = serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "mcp_tool_call_end",
+                "call_id": "exec-mcp-1",
+                "invocation": {
+                    "server": "codex",
+                    "tool": "list_mcp_resources",
+                    "arguments": {}
+                },
+                "result": { "Ok": { "content": [] } }
+            }
+        });
+        let mcp_chunks = codex_event_to_chunks("thread_1", &mcp);
+        assert!(matches!(
+            mcp_chunks.as_slice(),
+            [AgentChunk::ToolCall { name, input, .. }, AgentChunk::ToolResult { .. }]
+                if name == "mcp_tool_call"
+                    && input.get("tool").and_then(Value::as_str)
+                        == Some("list_mcp_resources")
+                    && input.get("server").and_then(Value::as_str) == Some("codex")
+        ));
+
+        let patch = serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "patch_apply_end",
+                "call_id": "patch-1",
+                "success": true,
+                "changes": {
+                    "/tmp/probe.svg": { "type": "add" }
+                }
+            }
+        });
+        let patch_chunks = codex_event_to_chunks("thread_1", &patch);
+        assert!(matches!(
+            patch_chunks.as_slice(),
+            [AgentChunk::ToolCall { name, input, .. }, AgentChunk::ToolResult { .. }]
+                if name == "file_change"
+                    && input.get("changes")
+                        .and_then(|changes| changes.get("/tmp/probe.svg"))
+                        .is_some()
+        ));
+    }
+
+    #[test]
+    fn unknown_event_msg_tool_end_uses_complete_fallback() {
+        let value = serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "future_tool_end",
+                "call_id": "future-1",
+                "name": "future_connector",
+                "arguments": { "query": "hello" },
+                "result": { "content": "world" }
+            }
+        });
+        let chunks = codex_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolCall { name, .. }, AgentChunk::ToolResult { .. }]
+                if name == "future_connector"
+        ));
+    }
+
+    #[test]
+    fn maps_real_codex_file_change_lifecycle_shape() {
+        let started = serde_json::json!({
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "file_change",
+                "changes": [{ "path": "/tmp/probe.txt", "kind": "add" }],
+                "status": "in_progress"
+            }
+        });
+        let completed = serde_json::json!({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "file_change",
+                "changes": [{ "path": "/tmp/probe.txt", "kind": "add" }],
+                "status": "completed"
+            }
+        });
+
+        assert!(matches!(
+            codex_event_to_chunks("thread_1", &started).as_slice(),
+            [AgentChunk::ToolCall { id, name, input, .. }]
+                if id == "item_1"
+                    && name == "file_change"
+                    && input.get("changes").and_then(Value::as_array).is_some()
+        ));
+        assert!(matches!(
+            codex_event_to_chunks("thread_1", &completed).as_slice(),
+            [AgentChunk::ToolResult { id, name, result, .. }]
+                if id == "item_1"
+                    && name == "file_change"
+                    && result.as_array().is_some()
+        ));
+    }
+
+    #[test]
+    fn unknown_tool_shaped_response_item_gets_generic_complete_chunks() {
+        let value = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "future_connector_call",
+                "call_id": "future_1",
+                "name": "future_connector",
+                "arguments": { "query": "hello" },
+                "result": { "status": "ok" }
+            }
+        });
+
+        let chunks = codex_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [
+                AgentChunk::ToolCall { id: call_id, name: call_name, .. },
+                AgentChunk::ToolResult { id: result_id, name: result_name, .. }
+            ] if call_id == "future_1"
+                && result_id == "future_1"
+                && call_name == "future_connector"
+                && result_name == "future_connector"
+        ));
+    }
+
+    #[test]
+    fn unknown_non_tool_item_stays_hidden() {
+        let value = serde_json::json!({
+            "type": "item.completed",
+            "item": {
+                "type": "thread_settings_applied",
+                "model": "gpt-5"
+            }
+        });
+        assert!(codex_event_to_chunks("thread_1", &value).is_empty());
     }
 
     #[test]

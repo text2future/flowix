@@ -6,6 +6,7 @@ pub mod history;
 pub mod io;
 pub mod runtime;
 mod stream;
+mod tool_events;
 
 pub const AGENT_TYPE: &str = "codex";
 pub const MAX_TOOL_OUTPUT_CHARS: usize = 64 * 1024;
