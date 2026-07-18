@@ -45,12 +45,39 @@ export class AgentThreadCardSubscriptionsController {
     this.dispose();
     this.unsubscribes = [
       this.subscribeThreadState(),
+      this.subscribeTitle(),
       this.subscribeSettings(),
       this.subscribeConversation(),
       this.subscribeAccess(),
       this.subscribeRuntime(),
       this.subscribeNotebooks(),
     ];
+  }
+
+  private subscribeTitle(): Unsubscribe {
+    const options = this.options;
+    return useChatStore.subscribe(
+      (state) => {
+        const threadId = options.getRenderThreadId();
+        const typeKey = options.getTypeKey();
+        return {
+          listTitle: threadId
+            ? state.threadLists[typeKey]?.find(
+                (item) => item.threadId === threadId,
+              )?.title
+            : undefined,
+          activeTitle:
+            threadId && state.activeThreadIds[typeKey] === threadId
+              ? state.currentThreadTitles[typeKey]
+              : undefined,
+        };
+      },
+      () => options.refreshAttrs(),
+      {
+        equalityFn: (a, b) =>
+          a.listTitle === b.listTitle && a.activeTitle === b.activeTitle,
+      },
+    );
   }
 
   dispose(): void {

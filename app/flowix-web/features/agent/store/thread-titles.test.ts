@@ -30,14 +30,11 @@ describe("thread-titles helpers", () => {
     expect(isExternalAgentType("openclaw")).toBe(true);
   });
 
-  it("canPersistThreadTitle matches externalSessionBacked flag", () => {
-    // flowix 是 STREAMING_PROVIDER, externalSessionBacked=false → 可持久化.
+  it("persists every agent title in the product database", () => {
     expect(canPersistThreadTitle("flowix")).toBe(true);
-    // codex / claude / hermes 是 EXTERNAL_CLI, externalSessionBacked=true → 不可.
-    expect(canPersistThreadTitle("codex")).toBe(false);
-    expect(canPersistThreadTitle("claude")).toBe(false);
-    expect(canPersistThreadTitle("hermes")).toBe(false);
-    // gemini / openclaw 是 SIMPLE_CLI, externalSessionBacked=false → 可.
+    expect(canPersistThreadTitle("codex")).toBe(true);
+    expect(canPersistThreadTitle("claude")).toBe(true);
+    expect(canPersistThreadTitle("hermes")).toBe(true);
     expect(canPersistThreadTitle("gemini")).toBe(true);
     expect(canPersistThreadTitle("openclaw")).toBe(true);
   });

@@ -180,4 +180,76 @@ mod tests {
             .unwrap();
         assert_eq!(second.title, "first title");
     }
+
+    #[tokio::test]
+    async fn external_session_promotes_product_title_to_canonical_thread() {
+        let manager = ThreadManager::for_tests();
+        manager
+            .update_title(
+                "codex-local-card-1",
+                "Product database title".to_string(),
+                AgentId("codex".to_string()),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .upsert_external_session(
+                "codex-local-card-1",
+                "codex",
+                "019f-test-canonical-session",
+                None,
+            )
+            .await
+            .unwrap();
+
+        let canonical = manager
+            .get_thread_info("019f-test-canonical-session")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(canonical.title, "Product database title");
+        let listed = manager.list_external_threads("codex").await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].thread_id, "019f-test-canonical-session");
+        assert_eq!(listed[0].title, "Product database title");
+    }
+
+    #[tokio::test]
+    async fn renaming_canonical_external_thread_updates_legacy_alias() {
+        let manager = ThreadManager::for_tests();
+        manager
+            .update_title(
+                "codex-local-card-2",
+                "Initial title".to_string(),
+                AgentId("codex".to_string()),
+            )
+            .await
+            .unwrap();
+        manager
+            .upsert_external_session(
+                "codex-local-card-2",
+                "codex",
+                "019f-test-canonical-rename",
+                None,
+            )
+            .await
+            .unwrap();
+
+        manager
+            .update_title(
+                "019f-test-canonical-rename",
+                "Renamed in product".to_string(),
+                AgentId("codex".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let alias = manager
+            .get_thread_info("codex-local-card-2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(alias.title, "Renamed in product");
+    }
 }

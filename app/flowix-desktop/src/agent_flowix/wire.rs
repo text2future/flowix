@@ -56,6 +56,9 @@ pub struct AgentUserMessage {
     pub codex_reasoning_effort: Option<String>,
     pub agent_role_memo_id: Option<String>,
     pub agent_role_name: Option<String>,
+    /// Product-owned conversation title. The command persists this to
+    /// `threads.title` before any runtime process can resolve a session id.
+    pub conversation_title: Option<String>,
 }
 
 impl AgentUserMessage {

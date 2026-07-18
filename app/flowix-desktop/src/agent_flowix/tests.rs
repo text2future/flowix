@@ -742,6 +742,7 @@ async fn runtime_config_applies_for_non_persisted_local_thread() {
         codex_reasoning_effort: None,
         agent_role_memo_id: None,
         agent_role_name: None,
+        conversation_title: None,
     };
 
     assert_eq!(message.model_for_runtime("claude"), Some("claude-sonnet-5"));

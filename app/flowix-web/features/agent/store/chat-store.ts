@@ -56,7 +56,6 @@ import {
 } from "@features/agent/store/snapshot-reconcile";
 
 import {
-  canPersistThreadTitle,
   defaultExternalThreadTitle,
   getConversationTitleForThread,
   getLanguage,
@@ -473,6 +472,11 @@ export const useChatStore = create<ChatStore>()(
           const type = getAgentType(
             typeKey ?? get().threadTypes[threadId] ?? get().activeAgentTypeKey,
           );
+          const before = get();
+          const previousListTitle = getThreadListForType(before, type.key).find(
+            (item) => item.threadId === threadId,
+          )?.title;
+          const previousActiveTitle = before.currentThreadTitles[type.key];
 
           set((state) => {
             const currentList = getThreadListForType(state, type.key);
@@ -494,17 +498,28 @@ export const useChatStore = create<ChatStore>()(
             };
           });
 
-          if (!canPersistThreadTitle(type.key)) return;
-
           try {
             await agentClient.updateThreadTitle(threadId, nextTitle, type.key);
-            if (type.key === "flowix") {
-              await get().loadThreadList();
-            } else {
-              await get().loadLocalAgentThreadList(type.key);
-            }
+            if (type.key === "flowix") await get().loadThreadList();
+            else if (type.key === "codex") await get().loadCodexThreadList();
+            else if (type.key === "claude") await get().loadClaudeThreadList();
+            else if (type.key === "hermes") await get().loadHermesThreadList();
+            else await get().loadLocalAgentThreadList(type.key);
           } catch (err) {
             console.error("Failed to update thread title:", err);
+            set((state) => ({
+              ...titleUpdate(state, type.key, previousActiveTitle),
+              ...threadListUpdate(
+                state,
+                type.key,
+                getThreadListForType(state, type.key).map((item) =>
+                  item.threadId === threadId && previousListTitle !== undefined
+                    ? { ...item, title: previousListTitle }
+                    : item,
+                ),
+              ),
+            }));
+            throw err;
           }
         },
 
@@ -516,17 +531,38 @@ export const useChatStore = create<ChatStore>()(
             instanceStore.getInstance(instanceId) ??
             (threadId ? instanceStore.findByThreadId(threadId) : null);
 
-          if (instance) {
-            instanceStore.renameInstance(instance.instanceId, nextTitle);
-          }
-
           const targetThreadId = threadId ?? instance?.threadId ?? null;
+          const renamedInstances = Object.values(instanceStore.instances)
+            .filter(
+              (candidate) =>
+                candidate.instanceId === instance?.instanceId ||
+                (targetThreadId && candidate.threadId === targetThreadId),
+            )
+            .map((candidate) => ({
+              instanceId: candidate.instanceId,
+              title: candidate.title,
+            }));
+          for (const candidate of renamedInstances) {
+            instanceStore.renameInstance(candidate.instanceId, nextTitle);
+          }
           if (targetThreadId) {
-            await get().renameThread(
-              targetThreadId,
-              nextTitle,
-              typeKey ?? instance?.agentType,
-            );
+            try {
+              await get().renameThread(
+                targetThreadId,
+                nextTitle,
+                typeKey ?? instance?.agentType,
+              );
+            } catch (err) {
+              for (const candidate of renamedInstances) {
+                if (candidate.title) {
+                  instanceStore.renameInstance(
+                    candidate.instanceId,
+                    candidate.title,
+                  );
+                }
+              }
+              throw err;
+            }
           }
         },
 
@@ -540,6 +576,23 @@ export const useChatStore = create<ChatStore>()(
 
           const isFirstMessage =
             options?.isFirstMessage ?? getRenderableMessageCount(threadId) === 0;
+          const conversationTitle = normalizeThreadTitle(
+            options?.conversationTitle,
+          );
+          if (isFirstMessage && conversationTitle) {
+            set((state) => ({
+              ...titleUpdate(state, type.key, conversationTitle),
+              ...threadListUpdate(
+                state,
+                type.key,
+                getThreadListForType(state, type.key).map((item) =>
+                  item.threadId === threadId
+                    ? { ...item, title: conversationTitle }
+                    : item,
+                ),
+              ),
+            }));
+          }
           // Agent Role 文档 (首条消息才追加): caller 已经在 await 路径里
           // 拉好 memo body 后通过 options.agentRoleBody 传入。 这里只
           // 负责拼接到 user 消息末尾 ── body 为空 / 没拉到时传 null,
@@ -629,6 +682,10 @@ export const useChatStore = create<ChatStore>()(
               agentRoleName: options?.agentRoleName,
               runtimeConfig: options?.runtimeConfig ?? undefined,
               imagePaths: options?.imagePaths,
+              conversationTitle:
+                isFirstMessage && conversationTitle
+                  ? conversationTitle
+                  : undefined,
             });
           } catch (err) {
             console.error("Failed to dispatch thread card chat_stream:", err);

@@ -543,6 +543,7 @@ interface AgentUserMessage {
   codexReasoningEffort?: AgentCodexReasoningEffort;
   agentRoleMemoId?: string;
   agentRoleName?: string;
+  conversationTitle?: string;
 }
 
 export interface ThreadInfo {

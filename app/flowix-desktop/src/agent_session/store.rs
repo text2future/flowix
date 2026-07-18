@@ -23,6 +23,25 @@ pub struct ThreadManager {
     conn: Mutex<Connection>,
 }
 
+fn external_default_title(runtime: &str) -> &'static str {
+    match runtime {
+        "claude" => "Claude Code session",
+        "hermes" => "Hermes session",
+        _ => "Codex session",
+    }
+}
+
+fn is_default_external_title(title: &str) -> bool {
+    matches!(
+        title.trim().to_lowercase().as_str(),
+        "codex session"
+            | "codex 会话"
+            | "claude code session"
+            | "claude code 会话"
+            | "hermes session"
+    )
+}
+
 impl ThreadManager {
     /// 测试用 fixture ── 不写磁盘, 用 `Connection::open_in_memory()` 建一个空库。
     /// `agent.rs::for_tests` 用它, 因为单元测试只验证 `AgentManager` 内部 HashMap
@@ -136,6 +155,59 @@ impl ThreadManager {
             ",
         )?;
 
+        // `threads.title` is the canonical product title. Older builds kept a
+        // useful title only on the card instance while external threads were
+        // inserted as the literal "Codex Session" (including Claude rows).
+        // Repair that split-brain state idempotently, then align every bound
+        // card snapshot with the canonical thread title.
+        conn.execute_batch(
+            "
+            UPDATE threads
+            SET title = (
+                SELECT i.title
+                FROM agent_conversation_instances i
+                WHERE i.thread_id = threads.thread_id
+                  AND trim(i.title) <> ''
+                  AND lower(trim(i.title)) NOT IN (
+                      'codex session', 'codex 会话',
+                      'claude code session', 'claude code 会话'
+                  )
+                ORDER BY i.updated_at DESC
+                LIMIT 1
+            )
+            WHERE lower(trim(title)) IN (
+                'codex session', 'codex 会话',
+                'claude code session', 'claude code 会话'
+            )
+              AND EXISTS (
+                SELECT 1
+                FROM agent_conversation_instances i
+                WHERE i.thread_id = threads.thread_id
+                  AND trim(i.title) <> ''
+                  AND lower(trim(i.title)) NOT IN (
+                      'codex session', 'codex 会话',
+                      'claude code session', 'claude code 会话'
+                  )
+              );
+
+            UPDATE agent_conversation_instances
+            SET title = (
+                    SELECT t.title FROM threads t
+                    WHERE t.thread_id = agent_conversation_instances.thread_id
+                ),
+                updated_at = max(updated_at, (
+                    SELECT t.updated_at FROM threads t
+                    WHERE t.thread_id = agent_conversation_instances.thread_id
+                ))
+            WHERE thread_id IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM threads t
+                  WHERE t.thread_id = agent_conversation_instances.thread_id
+                    AND t.title <> agent_conversation_instances.title
+              );
+            ",
+        )?;
+
         Ok(())
     }
 
@@ -175,6 +247,32 @@ impl ThreadManager {
         )?;
         let rows = stmt.query_map([agent_id], Self::row_to_thread_info)?;
 
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Product-owned external conversations only. Alias rows such as
+    /// `codex-local-*` remain in SQLite so an old document can resolve its
+    /// session id, but are excluded from the visible conversation list.
+    pub async fn list_external_threads(
+        &self,
+        runtime: &str,
+    ) -> Result<Vec<ThreadInfo>, ThreadError> {
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT t.thread_id, t.agent_id, t.title, t.created_at, t.updated_at
+             FROM threads t
+             WHERE t.agent_id = ?1
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM thread_external_sessions s
+                   WHERE s.thread_id = t.thread_id
+                     AND s.runtime = ?1
+                     AND s.external_session_id IS NOT NULL
+                     AND s.external_session_id <> t.thread_id
+               )
+             ORDER BY t.updated_at DESC",
+        )?;
+        let rows = stmt.query_map([runtime], Self::row_to_thread_info)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -587,13 +685,54 @@ impl ThreadManager {
     ) -> Result<(), ThreadError> {
         let now = chrono::Utc::now().timestamp_millis();
         let metadata = metadata.map(|v| v.to_string());
-        let conn = self.lock_conn();
-        conn.execute(
+        let mut conn = self.lock_conn();
+        let tx = conn.transaction()?;
+        let default_title = external_default_title(runtime);
+        tx.execute(
             "INSERT OR IGNORE INTO threads (thread_id, agent_id, title, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?4)",
-            params![thread_id, runtime, "Codex Session", now],
+            params![thread_id, runtime, default_title, now],
         )?;
-        conn.execute(
+
+        let local_title = tx
+            .query_row(
+                "SELECT title FROM threads WHERE thread_id = ?1",
+                [thread_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| default_title.to_string());
+        let canonical_existing = tx
+            .query_row(
+                "SELECT title FROM threads WHERE thread_id = ?1",
+                [external_session_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let canonical_title = match canonical_existing.as_deref() {
+            Some(title) if !is_default_external_title(title) => title.to_string(),
+            _ if !is_default_external_title(&local_title) => local_title.clone(),
+            Some(title) => title.to_string(),
+            None => default_title.to_string(),
+        };
+        tx.execute(
+            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(thread_id) DO UPDATE SET
+                agent_id = excluded.agent_id,
+                title = CASE
+                    WHEN lower(trim(threads.title)) IN (
+                        'codex session', 'codex 会话',
+                        'claude code session', 'claude code 会话',
+                        'hermes session'
+                    ) THEN excluded.title
+                    ELSE threads.title
+                END,
+                updated_at = excluded.updated_at",
+            params![external_session_id, runtime, canonical_title, now],
+        )?;
+
+        tx.execute(
             "INSERT INTO thread_external_sessions (
                 thread_id, runtime, external_session_id, metadata, created_at, updated_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
@@ -603,7 +742,31 @@ impl ThreadManager {
                 updated_at = excluded.updated_at",
             params![thread_id, runtime, external_session_id, metadata, now],
         )?;
-        self.touch_thread(&conn, thread_id, now)?;
+        tx.execute(
+            "INSERT INTO thread_external_sessions (
+                thread_id, runtime, external_session_id, metadata, created_at, updated_at
+             ) VALUES (?1, ?2, ?1, ?3, ?4, ?4)
+             ON CONFLICT(thread_id, runtime) DO UPDATE SET
+                external_session_id = excluded.external_session_id,
+                metadata = COALESCE(excluded.metadata, thread_external_sessions.metadata),
+                updated_at = excluded.updated_at",
+            params![external_session_id, runtime, metadata, now],
+        )?;
+        tx.execute(
+            "UPDATE agent_conversation_instances
+             SET thread_id = ?1, title = ?2, updated_at = ?3
+             WHERE thread_id = ?4",
+            params![external_session_id, canonical_title, now, thread_id],
+        )?;
+        tx.execute(
+            "UPDATE agent_conversation_instances
+             SET title = ?1, updated_at = max(updated_at, ?2)
+             WHERE thread_id = ?3 AND title <> ?1",
+            params![canonical_title, now, external_session_id],
+        )?;
+        self.touch_thread(&tx, thread_id, now)?;
+        self.touch_thread(&tx, external_session_id, now)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -869,25 +1032,55 @@ impl ThreadManager {
         &self,
         thread_id: &str,
         title: String,
+        agent_id: AgentId,
     ) -> Result<Option<ThreadInfo>, ThreadError> {
         let now = chrono::Utc::now().timestamp_millis();
-        let conn = self.lock_conn();
-        let updated = conn.execute(
-            "UPDATE threads SET title = ?1, updated_at = ?2 WHERE thread_id = ?3",
-            params![title, now, thread_id],
+        let mut conn = self.lock_conn();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(thread_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
+            params![thread_id, agent_id.0, title, now],
         )?;
-        if updated == 0 {
-            return Ok(None);
-        }
+        let canonical_id = tx
+            .query_row(
+                "SELECT external_session_id
+                 FROM thread_external_sessions
+                 WHERE thread_id = ?1 AND external_session_id IS NOT NULL
+                 ORDER BY updated_at DESC LIMIT 1",
+                [thread_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| thread_id.to_string());
+        tx.execute(
+            "UPDATE threads SET title = ?1, updated_at = ?2
+             WHERE thread_id = ?3
+                OR thread_id IN (
+                    SELECT thread_id FROM thread_external_sessions
+                    WHERE external_session_id = ?3
+                )",
+            params![title, now, canonical_id],
+        )?;
+        tx.execute(
+            "UPDATE agent_conversation_instances SET title = ?1, updated_at = max(updated_at, ?2)
+             WHERE thread_id = ?3
+                OR thread_id IN (
+                    SELECT thread_id FROM thread_external_sessions
+                    WHERE external_session_id = ?3
+                )",
+            params![title, now, canonical_id],
+        )?;
         // Keep SELECT inside the same std::sync::MutexGuard. ThreadManager uses
         // synchronous rusqlite calls internally; async signatures are kept for
         // upper-layer API consistency.
-        let info = conn
+        let info = tx
             .query_row(
                 "SELECT thread_id, agent_id, title, created_at, updated_at
                  FROM threads
                  WHERE thread_id = ?1",
-                [thread_id],
+                [&canonical_id],
                 |row| {
                     Ok(ThreadInfo {
                         thread_id: row.get(0)?,
@@ -899,6 +1092,7 @@ impl ThreadManager {
                 },
             )
             .optional()?;
+        tx.commit()?;
         Ok(info)
     }
 

@@ -566,6 +566,23 @@ pub async fn chat_with_agent_stream(
         runtime.key()
     );
 
+    if let Some(title) = message
+        .conversation_title
+        .as_deref()
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|value| !value.is_empty())
+    {
+        let manager = state.thread_manager.read().await;
+        manager
+            .update_title(
+                &threadId,
+                title,
+                crate::agent_types::AgentId::new(runtime.key()),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+
     // `agent_manager` 是 `Arc<AgentManager>`, `chat_stream` 内部已经
     // `tokio::spawn` ── IPC 立即返回, 不再 await 整个 stream 跑完。
     // 真正的助手回答通过 `agent-chunk` 事件 (`Text` / `Reasoning` 变体)
@@ -807,6 +824,7 @@ mod tests {
             codex_reasoning_effort: None,
             agent_role_memo_id: None,
             agent_role_name: None,
+            conversation_title: None,
         }
     }
 

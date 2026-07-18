@@ -38,13 +38,11 @@ function normalizeThreadTitle(title: string | null | undefined): string {
 }
 
 /**
- * 能否持久化 thread title (实际更新 SQLite `threads.title`):
- * - external runtime (Codex / Claude / Gemini / Hermes / OpenClaw) 的 thread
- *   title 由后端管理, 不在前端写 localStorage / SQLite。
- * - flowix / 本地 session 的 title 可以持久化。
+ * 所有 conversation title 都持久化到产品 SQLite `threads.title`。
+ * Codex / Claude 等 runtime 文件只提供消息历史，不能成为标题真源。
  */
-function canPersistThreadTitle(type: AgentTypeKey): boolean {
-  return !getAgentType(type).capabilities.externalSessionBacked;
+function canPersistThreadTitle(_type: AgentTypeKey): boolean {
+  return true;
 }
 
 /**

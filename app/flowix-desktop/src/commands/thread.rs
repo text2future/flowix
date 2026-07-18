@@ -196,8 +196,12 @@ pub async fn agent_conversation_delete_for_thread(
 }
 
 #[tauri::command]
-pub async fn codex_thread_list() -> Result<Vec<ThreadInfo>, String> {
-    crate::agent_external::codex::list_sessions().await
+pub async fn codex_thread_list(state: State<'_, AppState>) -> Result<Vec<ThreadInfo>, String> {
+    let manager = state.thread_manager.read().await;
+    manager
+        .list_external_threads("codex")
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -232,8 +236,12 @@ pub async fn codex_thread_session_id(
 }
 
 #[tauri::command]
-pub async fn claude_thread_list() -> Result<Vec<ThreadInfo>, String> {
-    crate::agent_external::claude::list_sessions().await
+pub async fn claude_thread_list(state: State<'_, AppState>) -> Result<Vec<ThreadInfo>, String> {
+    let manager = state.thread_manager.read().await;
+    manager
+        .list_external_threads("claude")
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -259,8 +267,12 @@ pub async fn claude_thread_session_id(
 }
 
 #[tauri::command]
-pub async fn hermes_thread_list() -> Result<Vec<ThreadInfo>, String> {
-    crate::agent_external::hermes::list_sessions().await
+pub async fn hermes_thread_list(state: State<'_, AppState>) -> Result<Vec<ThreadInfo>, String> {
+    let manager = state.thread_manager.read().await;
+    manager
+        .list_external_threads("hermes")
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -369,9 +381,18 @@ pub async fn thread_update_title(
         thread_id,
         agentType.as_deref().unwrap_or("unknown")
     );
+    let agent_id = agentType
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default");
     let manager = state.thread_manager.read().await;
     manager
-        .update_title(&thread_id, title)
+        .update_title(
+            &thread_id,
+            title,
+            crate::agent_types::AgentId::new(agent_id),
+        )
         .await
         .map_err(|e| e.to_string())
 }

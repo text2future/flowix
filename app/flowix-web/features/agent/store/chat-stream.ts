@@ -24,6 +24,8 @@ export interface DispatchChatStreamArgs {
   /** Runtime config snapshot from the conversation instance. */
   runtimeConfig?: RuntimeConfig;
   imagePaths?: string[];
+  /** Product-owned title persisted before the runtime process starts. */
+  conversationTitle?: string;
 }
 
 /**
@@ -48,6 +50,7 @@ export async function dispatchChatStream({
   agentRoleName,
   runtimeConfig: instanceRuntimeConfig,
   imagePaths,
+  conversationTitle,
 }: DispatchChatStreamArgs): Promise<void> {
   const runtimeConfig = buildAgentRuntimeConfig({
     typeKey: agentType,
@@ -68,5 +71,6 @@ export async function dispatchChatStream({
     agentRoleMemoId,
     agentRoleName,
     imagePaths,
+    conversationTitle,
   });
 }

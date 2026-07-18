@@ -58,7 +58,6 @@ export class AgentThreadCardChromeController {
       getInstanceId: options.getInstanceId,
       getTypeKey: options.getTypeKey,
       updateAttrs: options.updateAttrs,
-      t: options.t,
     });
     this.badge = new AgentThreadCardBadgeChromeController({
       badgeEl: options.badgeEl,

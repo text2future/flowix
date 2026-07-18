@@ -1,10 +1,6 @@
 import { useChatStore } from "@features/agent/store/chat-store";
 import type { AgentTypeKey } from "@/types/agent";
-import {
-  getAgentType,
-  normalizeAgentTypeKey,
-} from "@/lib/agent-types";
-import type { I18nKey } from "@features/i18n";
+import { normalizeAgentTypeKey } from "@/lib/agent-types";
 import { focusWithoutScroll } from "@features/editor/extensions/agent-thread-card/agent-thread-card-dom";
 
 export interface AgentThreadCardTitleEditControllerOptions {
@@ -16,7 +12,6 @@ export interface AgentThreadCardTitleEditControllerOptions {
   getInstanceId: () => string | null;
   getTypeKey: () => AgentTypeKey;
   updateAttrs: (attrs: Record<string, unknown>) => void;
-  t: (key: I18nKey) => string;
 }
 
 export class AgentThreadCardTitleEditController {
@@ -28,7 +23,6 @@ export class AgentThreadCardTitleEditController {
   private readonly getInstanceId: () => string | null;
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly updateAttrs: (attrs: Record<string, unknown>) => void;
-  private readonly t: (key: I18nKey) => string;
   private titleInput: HTMLInputElement | null = null;
   private titleBeforeEdit: string | null = null;
 
@@ -41,7 +35,6 @@ export class AgentThreadCardTitleEditController {
     this.getInstanceId = options.getInstanceId;
     this.getTypeKey = options.getTypeKey;
     this.updateAttrs = options.updateAttrs;
-    this.t = options.t;
   }
 
   get activeInput(): HTMLInputElement | null {
@@ -51,38 +44,20 @@ export class AgentThreadCardTitleEditController {
   getTitle(): string {
     const attrTitle = (this.getAttrTitle() ?? "").trim();
     const attrTypeKey = normalizeAgentTypeKey(this.getAttrTypeKey());
-    const instanceTitle = this.getInstanceTitle();
-    if (
-      instanceTitle &&
-      !(attrTitle && this.isDefaultExternalTitle(instanceTitle, attrTypeKey))
-    ) {
-      return instanceTitle;
-    }
-
     const threadId = this.getThreadId();
     if (threadId) {
       const state = useChatStore.getState();
       const listTitle = state.threadLists[attrTypeKey]?.find(
         (item) => item.threadId === threadId,
       )?.title;
-      if (
-        listTitle &&
-        !(attrTitle && this.isDefaultExternalTitle(listTitle, attrTypeKey))
-      ) {
-        return listTitle;
-      }
+      if (listTitle) return listTitle;
       if (state.activeThreadIds[attrTypeKey] === threadId) {
         const activeTitle = state.currentThreadTitles[attrTypeKey];
-        if (
-          activeTitle &&
-          !(attrTitle && this.isDefaultExternalTitle(activeTitle, attrTypeKey))
-        ) {
-          return activeTitle;
-        }
+        if (activeTitle) return activeTitle;
       }
     }
 
-    return attrTitle;
+    return this.getInstanceTitle() || attrTitle;
   }
 
   syncTitleText(): void {
@@ -153,23 +128,16 @@ export class AgentThreadCardTitleEditController {
     this.titleEl.textContent = nextTitle;
     this.updateAttrs({ title: nextTitle });
 
-    await useChatStore.getState().renameAgentConversation({
-      instanceId,
-      threadId,
-      title: nextTitle,
-      typeKey: this.getTypeKey(),
-    });
-  }
-
-  private isDefaultExternalTitle(title: string, typeKey: AgentTypeKey): boolean {
-    const normalized = title.replace(/\s+/g, " ").trim().toLowerCase();
-    if (!normalized) return false;
-    if (typeKey === "codex") {
-      return normalized === this.t("agent.codexSession.title").toLowerCase();
+    try {
+      await useChatStore.getState().renameAgentConversation({
+        instanceId,
+        threadId,
+        title: nextTitle,
+        typeKey: this.getTypeKey(),
+      });
+    } catch {
+      this.titleEl.textContent = previousTitle;
+      this.updateAttrs({ title: previousTitle });
     }
-    if (typeKey === "claude") {
-      return normalized === this.t("agent.claudeSession.title").toLowerCase();
-    }
-    return normalized === `${getAgentType(typeKey).name} session`.toLowerCase();
   }
 }

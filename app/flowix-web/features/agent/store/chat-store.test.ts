@@ -2107,4 +2107,102 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     );
   });
 
+  it("persists Codex titles and synchronizes every card bound to the thread", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const threadId = "019f-product-title-canonical";
+    vi.mocked(agent.listCodexThreads).mockResolvedValueOnce([
+      { threadId, title: "Database title", createdAt: 1, updatedAt: 2 },
+    ]);
+    const first = useAgentConversationStore.getState().createInstance({
+      agentType: "codex",
+      title: "First card title",
+      threadId,
+      source: { kind: "thread-card" },
+    });
+    const second = useAgentConversationStore.getState().createInstance({
+      agentType: "codex",
+      title: "Second card title",
+      threadId,
+      source: { kind: "thread-card" },
+    });
+
+    await useChatStore.getState().renameAgentConversation({
+      instanceId: first.instanceId,
+      threadId,
+      title: "Database title",
+      typeKey: "codex",
+    });
+
+    expect(agent.updateThreadTitle).toHaveBeenCalledWith(
+      threadId,
+      "Database title",
+      "codex",
+    );
+    expect(
+      useAgentConversationStore.getState().getInstance(first.instanceId)?.title,
+    ).toBe("Database title");
+    expect(
+      useAgentConversationStore.getState().getInstance(second.instanceId)?.title,
+    ).toBe("Database title");
+    expect(useChatStore.getState().threadLists.codex?.[0]?.title).toBe(
+      "Database title",
+    );
+  });
+
+  it("rolls every title snapshot back when product persistence fails", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const threadId = "019f-title-rollback";
+    vi.mocked(agent.updateThreadTitle).mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    const instance = useAgentConversationStore.getState().createInstance({
+      agentType: "codex",
+      title: "Original title",
+      threadId,
+      source: { kind: "thread-card" },
+    });
+    useChatStore.setState((state) => ({
+      activeThreadIds: { ...state.activeThreadIds, codex: threadId },
+      currentThreadTitles: {
+        ...state.currentThreadTitles,
+        codex: "Original title",
+      },
+      threadTypes: { ...state.threadTypes, [threadId]: "codex" },
+      threadLists: {
+        ...state.threadLists,
+        codex: [
+          { threadId, title: "Original title", createdAt: 1, updatedAt: 1 },
+        ],
+      },
+    }));
+
+    await expect(
+      useChatStore.getState().renameAgentConversation({
+        instanceId: instance.instanceId,
+        threadId,
+        title: "Unpersisted title",
+        typeKey: "codex",
+      }),
+    ).rejects.toThrow("database unavailable");
+
+    expect(useChatStore.getState().threadLists.codex?.[0]?.title).toBe(
+      "Original title",
+    );
+    expect(useChatStore.getState().currentThreadTitles.codex).toBe(
+      "Original title",
+    );
+    expect(
+      useAgentConversationStore.getState().getInstance(instance.instanceId)
+        ?.title,
+    ).toBe("Original title");
+  });
+
 });
