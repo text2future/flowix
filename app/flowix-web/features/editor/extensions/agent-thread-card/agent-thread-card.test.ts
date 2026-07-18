@@ -7,7 +7,8 @@ const agentAccessState = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
+  openPath: vi.fn(async () => undefined),
+  openUrl: vi.fn(async () => undefined),
 }));
 
 vi.mock("@platform/tauri/client", () => ({
@@ -294,6 +295,64 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(idleStatus?.hidden).toBe(true);
     expect(idleStatus?.textContent).toBe("");
     expect(card?.classList.contains("agent-thread-card--running")).toBe(false);
+  });
+
+  it("opens an encoded absolute assistant link with the system default app", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { openPath, openUrl } = await import("@tauri-apps/plugin-opener");
+    vi.mocked(openPath).mockClear();
+    vi.mocked(openUrl).mockClear();
+
+    const threadId = "thread-card-local-file-link";
+    const host = document.createElement("div");
+    document.body.append(host);
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [{
+          type: "agentThreadCard",
+          attrs: {
+            threadId,
+            title: "Local file link",
+            typeKey: "codex",
+            collapsed: false,
+          },
+        }],
+      },
+    });
+
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({
+      kind: "stream_start",
+      thread_id: threadId,
+      agent_type: "codex",
+    });
+    store.dispatchAgentChunk({
+      kind: "text",
+      thread_id: threadId,
+      agent_type: "codex",
+      text: '<a href="/Users/rop/Desktop/%E4%BA%BA%E7%89%A9%E6%A1%A3%E6%A1%88/tool-smoke-test/outputs/tool-smoke-report.docx">测试报告 DOCX</a>',
+    });
+    await flushAnimationFrame();
+
+    const link = host.querySelector<HTMLAnchorElement>(
+      '.agent-thread-card__message--assistant a[href]',
+    );
+    expect(link).not.toBeNull();
+    link?.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await flushPromises();
+
+    expect(openPath).toHaveBeenCalledWith(
+      "/Users/rop/Desktop/人物档案/tool-smoke-test/outputs/tool-smoke-report.docx",
+    );
+    expect(openUrl).not.toHaveBeenCalled();
   });
 
   it("uses the conversation run as the Thread Card footer running source", async () => {
