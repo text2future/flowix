@@ -9,6 +9,117 @@ import {
   parseAgentRequestUserInput,
 } from "@features/agent/tool-display";
 
+describe("Codex protocol tool summaries", () => {
+  it("shows the concrete MCP server and tool instead of empty arguments", () => {
+    const display = createAgentToolDisplay({
+      agentType: "codex",
+      toolName: "mcp_tool_call",
+      input: {
+        server: "codex",
+        tool: "list_mcp_resources",
+        arguments: {},
+      },
+    });
+    expect(display).toMatchObject({
+      summary: "list_mcp_resources",
+      title: "codex · list_mcp_resources",
+    });
+  });
+
+  it("formats core MCP argument names and values", () => {
+    const memo = createAgentToolDisplay({
+      agentType: "codex",
+      toolName: "mcp_tool_call",
+      input: {
+        server: "mcp_servers-flowix",
+        tool: "flowix_memo",
+        arguments: {
+          command: "search CODEX-SMOKE --notebook nb_1 --limit 5",
+          stdin: "temporary body",
+        },
+      },
+    });
+    expect(memo?.summary).toBe(
+      "flowix_memo · command: search CODEX-SMOKE --notebook nb_1 --limit 5 · stdin: temporary body",
+    );
+
+    const resource = createAgentToolDisplay({
+      agentType: "codex",
+      toolName: "mcp_tool_call",
+      input: {
+        server: "codex",
+        tool: "read_mcp_resource",
+        arguments: {
+          server: "codex_apps",
+          uri: "plugin://example/resource",
+          authorization_token: "must-not-render",
+        },
+      },
+    });
+    expect(resource?.summary).toBe(
+      "read_mcp_resource · uri: plugin://example/resource · server: codex_apps",
+    );
+    expect(resource?.summary).not.toContain("must-not-render");
+  });
+
+  it("prefers node repl title over long code", () => {
+    const display = createAgentToolDisplay({
+      agentType: "codex",
+      toolName: "mcp_tool_call",
+      input: {
+        server: "node_repl",
+        tool: "js",
+        arguments: {
+          title: "连接浏览器测试台",
+          code: "const veryLongProgram = 'x'.repeat(500); nodeRepl.write(veryLongProgram);",
+        },
+      },
+    });
+    expect(display?.summary).toMatch(/^js · title: 连接浏览器测试台 · code: /);
+    expect((display?.summary ?? "").length).toBeLessThan(120);
+  });
+
+  it("shows paths from lifecycle arrays and patch result maps", () => {
+    const lifecycle = createAgentToolDisplay({
+      agentType: "codex",
+      toolName: "file_change",
+      input: {
+        changes: [{ path: "/tmp/probe.svg", kind: "add" }],
+      },
+    });
+    expect(lifecycle?.summary).toBe("Add probe.svg");
+
+    const patchEnd = createAgentToolDisplay({
+      agentType: "codex",
+      toolName: "file_change",
+      input: {
+        changes: {
+          "/tmp/first.svg": { type: "update" },
+          "/tmp/second.svg": { type: "delete" },
+        },
+      },
+    });
+    expect(patchEnd?.summary).toBe("Update first.svg (+1)");
+  });
+
+  it("shows view_image paths for direct and single-tool exec inputs", () => {
+    expect(
+      createAgentToolDisplay({
+        agentType: "codex",
+        toolName: "view_image",
+        input: { path: "/tmp/preview.png" },
+      })?.summary,
+    ).toBe("preview.png");
+    expect(
+      createAgentToolDisplay({
+        agentType: "codex",
+        toolName: "view_image",
+        input: "await tools.view_image({path: '/tmp/wrapped.png'});",
+      })?.summary,
+    ).toBe("wrapped.png");
+  });
+});
+
 describe("parseAgentCommandInput", () => {
   it("splits command chains into display items without losing operators", () => {
     const r = parseAgentCommandInput({

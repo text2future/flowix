@@ -965,6 +965,62 @@ describe("AgentThreadCard NodeView streaming", () => {
     ).toBe("run build");
   });
 
+  it("renders the concrete MCP tool name in the primary color without a dot separator", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const threadId = "thread-card-mcp-tool-name";
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [{
+          type: "agentThreadCard",
+          attrs: {
+            threadId,
+            title: "MCP tool",
+            typeKey: "codex",
+            collapsed: false,
+          },
+        }],
+      },
+    });
+
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({
+      kind: "tool_call",
+      thread_id: threadId,
+      id: "mcp-display",
+      name: "mcp_tool_call",
+      input: {
+        server: "mcp_servers-flowix",
+        tool: "flowix_memo",
+        arguments: { command: "notebooks" },
+      },
+      agent_type: "codex",
+    });
+    await flushAnimationFrame();
+
+    const tool = host.querySelector(".agent-thread-card__message--tool");
+    expect(
+      tool?.querySelector(".agent-thread-card__message-tool-name")?.textContent,
+    ).toBe("MCP");
+    expect(
+      tool?.querySelector(".agent-thread-card__message-tool-concrete-name")
+        ?.textContent,
+    ).toBe("flowix_memo");
+    expect(
+      tool?.querySelector(".agent-thread-card__message-tool-summary")
+        ?.textContent,
+    ).toBe("command: notebooks");
+    expect(tool?.textContent).not.toContain("·");
+  });
+
   it("canonicalizes a Codex local Thread Card id to the external session id before loading history", async () => {
     const { AgentThreadCard } =
       await import("@features/editor/extensions/agent-thread-card");

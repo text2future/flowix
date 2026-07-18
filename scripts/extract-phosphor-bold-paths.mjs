@@ -61,6 +61,12 @@ const ICONS = {
 	Pause: 'pause',
 	ArrowsClockwise: 'arrowsClockwise',
 	Eye: 'eye',
+	Plug: 'plug',
+	FileCode: 'fileCode',
+	Image: 'image',
+	Wrench: 'wrench',
+	UsersThree: 'usersThree',
+	MagnifyingGlassPlus: 'magnifyPlus',
 };
 
 const args = new Set(process.argv.slice(2));

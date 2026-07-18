@@ -199,6 +199,7 @@ export function normalizeToolInput(
   if (input && typeof input === "object" && !Array.isArray(input)) {
     return input as Record<string, unknown>;
   }
+  if (Array.isArray(input)) return { items: input };
   if (typeof input === "string" && input.trim()) {
     try {
       const parsed = JSON.parse(input) as unknown;
@@ -576,6 +577,133 @@ function urlDisplay(
   return display(stringField(input, ["url", "href", "endpoint"]), "network");
 }
 
+function mcpToolDisplay(
+  input: Record<string, unknown>,
+): AgentToolDisplay | undefined {
+  const tool = deepStringField(input, ["tool", "tool_name", "name"]);
+  const server = deepStringField(input, ["server"]);
+  if (!tool) return undefined;
+  const rawArguments = input.arguments;
+  let args: Record<string, unknown> | undefined;
+  if (rawArguments && typeof rawArguments === "object" && !Array.isArray(rawArguments)) {
+    args = rawArguments as Record<string, unknown>;
+  } else if (typeof rawArguments === "string" && rawArguments.trim()) {
+    try {
+      const parsed = JSON.parse(rawArguments) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      args = { input: rawArguments };
+    }
+  }
+
+  const sensitive = /(^|_)(token|password|passwd|secret|authorization|api_?key)($|_)/i;
+  const priority = [
+    "command",
+    "query",
+    "uri",
+    "path",
+    "url",
+    "title",
+    "prompt",
+    "pattern",
+    "name",
+    "id",
+    "key",
+    "input",
+    "code",
+    "stdin",
+  ];
+  const entries = Object.entries(args ?? {}).filter(
+    ([key, value]) => !sensitive.test(key) && value !== undefined && value !== null,
+  );
+  entries.sort(([left], [right]) => {
+    const leftIndex = priority.indexOf(left);
+    const rightIndex = priority.indexOf(right);
+    return (leftIndex < 0 ? priority.length : leftIndex) -
+      (rightIndex < 0 ? priority.length : rightIndex);
+  });
+  const core = entries.slice(0, 2).flatMap(([key, value]) => {
+    const text = valueToText(value).replace(/\s+/g, " ").trim();
+    return text ? [`${key}: ${truncate(text, 72)}`] : [];
+  });
+  const summary = core.length > 0 ? `${tool} · ${core.join(" · ")}` : tool;
+  return display(summary, "generic", server ? `${server} · ${summary}` : summary);
+}
+
+interface FileChangeSummaryEntry {
+  path: string;
+  action?: string;
+}
+
+function fileChangeEntries(input: Record<string, unknown>): FileChangeSummaryEntry[] {
+  const changes = input.changes ?? input.items ?? input;
+  if (Array.isArray(changes)) {
+    return changes.flatMap((change) => {
+      if (!change || typeof change !== "object") return [];
+      const record = change as Record<string, unknown>;
+      const path = stringField(record, ["path", "file", "filename"]);
+      if (!path) return [];
+      return [{ path, action: stringField(record, ["kind", "type", "action"]) }];
+    });
+  }
+  if (!changes || typeof changes !== "object") return [];
+  const record = changes as Record<string, unknown>;
+  const directPath = stringField(record, ["path", "file", "filename"]);
+  if (directPath) {
+    return [
+      {
+        path: directPath,
+        action: stringField(record, ["kind", "type", "action"]),
+      },
+    ];
+  }
+  return Object.entries(record).flatMap(([path, detail]) => {
+    if (!path.includes("/") && !path.includes("\\")) return [];
+    const action =
+      detail && typeof detail === "object"
+        ? stringField(detail as Record<string, unknown>, ["kind", "type", "action"])
+        : undefined;
+    return [{ path, action }];
+  });
+}
+
+function fileChangeDisplay(
+  input: Record<string, unknown>,
+): AgentToolDisplay | undefined {
+  const entries = fileChangeEntries(input);
+  if (entries.length === 0) return undefined;
+  const first = entries[0];
+  const action = first.action?.toLowerCase();
+  const verb =
+    action === "add" || action === "create"
+      ? "Add"
+      : action === "delete" || action === "remove"
+        ? "Delete"
+        : action === "update" || action === "modify"
+          ? "Update"
+          : "Change";
+  const name = extractFileName(first.path);
+  const summary =
+    entries.length === 1
+      ? `${verb} ${name}`
+      : `${verb} ${name} (+${entries.length - 1})`;
+  return display(summary, "file", first.path);
+}
+
+function viewImageDisplay(
+  input: Record<string, unknown>,
+): AgentToolDisplay | undefined {
+  const directPath = deepStringField(input, ["path", "image_path", "file"]);
+  if (directPath) return display(extractFileName(directPath), "file", directPath);
+  const command = stringField(input, ["command", "script"]);
+  const wrappedPath = command?.match(/\bpath\s*:\s*["']([^"']+)["']/)?.[1];
+  return wrappedPath
+    ? display(extractFileName(wrappedPath), "file", wrappedPath)
+    : undefined;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
  *  patchDisplay ── Codex apply_patch 工具
  *
@@ -820,6 +948,9 @@ const FORMATTERS: Record<string, ToolDisplayFormatter> = {
   "*:execute_command": commandDisplay,
   "*:command_execution": commandDisplay,
   "*:shell_command": commandDisplay,
+  "codex:mcp_tool_call": mcpToolDisplay,
+  "codex:file_change": fileChangeDisplay,
+  "codex:view_image": viewImageDisplay,
   "*:load_skill": skillDisplay,
   "*:sub_agent": agentDisplay,
   "*:server": urlDisplay,

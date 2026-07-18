@@ -879,7 +879,7 @@
  * 视觉完全一致 (同样 14×14 渲染, 同样 muted-foreground 颜色)。未命中 → terminal。 */
 .markdown-editor .agent-thread-card__message--tool {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   padding: 4px 0;
@@ -930,10 +930,19 @@
  * 颜色 (前景) + 字重 (500) + 横向布局 (auto) 同步,
  * command-name 额外保留 45% 宽度上限 + ellipsis 截断。 */
 .markdown-editor .agent-thread-card__message-tool-name,
+.markdown-editor .agent-thread-card__message-tool-concrete-name,
 .markdown-editor .agent-thread-card__command-name {
   flex: 0 0 auto;
   color: var(--foreground);
   font-weight: 500;
+}
+
+.markdown-editor .agent-thread-card__message-tool-concrete-name {
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* tool-name 不需要水平截断, command-name 需要 ——

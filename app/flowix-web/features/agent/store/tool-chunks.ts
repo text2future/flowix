@@ -49,6 +49,27 @@ export function applyToolCallChunk(
       }),
     isLoading: true,
   };
+  const existingIndex = st.messages.findIndex(
+    (message) => message.role === "tool" && message.toolCallId === id,
+  );
+  if (existingIndex >= 0) {
+    const existing = st.messages[existingIndex];
+    const messages = [...st.messages];
+    messages[existingIndex] = {
+      ...existing,
+      toolName: name || existing.toolName,
+      toolAgentType: agentType ?? existing.toolAgentType,
+      toolInput: toolInput ?? existing.toolInput,
+      toolDisplay: display ?? toolMessage.toolDisplay ?? existing.toolDisplay,
+      // Replayed/complete events must never reopen an already-finished row.
+      isLoading: existing.isLoading === false ? false : true,
+    };
+    return {
+      messages,
+      pendingAssistantId: null,
+      pendingReasoningId: st.pendingReasoningId,
+    };
+  }
   return {
     messages: [...st.messages, toolMessage],
     pendingAssistantId: null,
@@ -67,21 +88,41 @@ export function applyToolResultChunk(
   id: string,
   name: string,
   result: unknown,
+  agentType?: AgentTypeKey,
 ): ApplyResult {
   const resultContent = summarizeToolResult(result);
   const resultToolName = name && name !== "tool_result" ? name : "";
+  const hasMatchingCall = st.messages.some(
+    (message) => message.role === "tool" && message.toolCallId === id,
+  );
+  const messages = hasMatchingCall
+    ? st.messages.map((m) =>
+        m.role === "tool" && m.toolCallId === id
+          ? {
+              ...m,
+              content: resultContent,
+              toolData: resultContent,
+              toolName: resultToolName || m.toolName || "",
+              isLoading: false,
+            }
+          : m,
+      )
+    : [
+        ...st.messages,
+        {
+          id: `tool-${id || Date.now()}`,
+          role: "tool" as const,
+          content: resultContent,
+          timestamp: new Date().toISOString(),
+          toolCallId: id,
+          toolName: resultToolName || "unknown_tool",
+          toolAgentType: agentType,
+          toolData: resultContent,
+          isLoading: false,
+        },
+      ];
   return {
-    messages: st.messages.map((m) =>
-      m.role === "tool" && m.toolCallId === id
-        ? {
-            ...m,
-            content: resultContent,
-            toolData: resultContent,
-            toolName: resultToolName || m.toolName || "",
-            isLoading: false,
-          }
-        : m,
-    ),
+    messages,
     pendingAssistantId: st.pendingAssistantId,
     pendingReasoningId: st.pendingReasoningId,
   };

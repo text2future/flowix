@@ -152,12 +152,34 @@ export function createAgentThreadCardMessageElement(options: {
         item.append(head, body);
       } else {
         item.append(icon, name);
-        const summary = document.createElement("span");
-        summary.className = "agent-thread-card__message-tool-summary";
-        summary.textContent = truncateToolMessageForDisplay(
+        const summaryText = truncateToolMessageForDisplay(
           messageView.toolSummary,
         );
-        item.append(summary);
+        if (
+          message.toolAgentType === "codex" &&
+          message.toolName === "mcp_tool_call"
+        ) {
+          const separatorIndex = summaryText.indexOf(" · ");
+          const concreteName = document.createElement("span");
+          concreteName.className =
+            "agent-thread-card__message-tool-concrete-name";
+          concreteName.textContent = separatorIndex >= 0
+            ? summaryText.slice(0, separatorIndex)
+            : summaryText;
+          item.append(concreteName);
+
+          if (separatorIndex >= 0) {
+            const summary = document.createElement("span");
+            summary.className = "agent-thread-card__message-tool-summary";
+            summary.textContent = summaryText.slice(separatorIndex + 3);
+            item.append(summary);
+          }
+        } else {
+          const summary = document.createElement("span");
+          summary.className = "agent-thread-card__message-tool-summary";
+          summary.textContent = summaryText;
+          item.append(summary);
+        }
       }
     } else if (message.role === "end") {
       const content = document.createElement("div");

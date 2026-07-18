@@ -232,6 +232,7 @@ function applyEventToChatSlice(
         event.toolCallId,
         event.name,
         event.result,
+        event.agentType,
       );
       const nextThreadState: ThreadState = {
         ...applyRunToolState(st, event, null),

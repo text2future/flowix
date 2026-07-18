@@ -238,6 +238,102 @@ export const TOOLS: readonly AgentToolMeta[] = [
     labelKey: "agent.tools.requestUserInput",
     iconPath: TOOL_ICON_PATHS.chatCircleText,
   },
+  // Codex function tools. These names come from function_call.name in the
+  // active Codex tool surface; they are distinct from item.type families
+  // such as mcp_tool_call and file_change below.
+  {
+    agentType: "codex",
+    name: "list_mcp_resources",
+    labelKey: "agent.tools.explored",
+    iconPath: TOOL_ICON_PATHS.plug,
+  },
+  {
+    agentType: "codex",
+    name: "list_mcp_resource_templates",
+    labelKey: "agent.tools.explored",
+    iconPath: TOOL_ICON_PATHS.plug,
+  },
+  {
+    agentType: "codex",
+    name: "read_mcp_resource",
+    labelKey: "agent.tools.explored",
+    iconPath: TOOL_ICON_PATHS.plug,
+  },
+  {
+    agentType: "codex",
+    name: "get_goal",
+    labelKey: "agent.tools.getGoal",
+    iconPath: TOOL_ICON_PATHS.checks,
+  },
+  {
+    agentType: "codex",
+    name: "create_goal",
+    labelKey: "agent.tools.createGoal",
+    iconPath: TOOL_ICON_PATHS.checks,
+  },
+  {
+    agentType: "codex",
+    name: "update_goal",
+    labelKey: "agent.tools.updateGoal",
+    iconPath: TOOL_ICON_PATHS.checks,
+  },
+  {
+    agentType: "codex",
+    name: "view_image",
+    labelKey: "agent.tools.viewImage",
+    iconPath: TOOL_ICON_PATHS.image,
+  },
+  {
+    agentType: "codex",
+    name: "exec",
+    aliases: ["wait", "write_stdin"],
+    labelKey: "agent.tools.bash",
+    iconPath: TOOL_ICON_PATHS.terminal,
+  },
+  {
+    agentType: "codex",
+    name: "apply_patch",
+    labelKey: "agent.tools.edited",
+    iconPath: TOOL_ICON_PATHS.filePlus,
+  },
+  {
+    agentType: "codex",
+    name: "mcp_tool_call",
+    labelKey: "agent.tools.mcpToolCall",
+    iconPath: TOOL_ICON_PATHS.plug,
+  },
+  {
+    agentType: "codex",
+    name: "file_change",
+    labelKey: "agent.tools.edited",
+    iconPath: TOOL_ICON_PATHS.fileCode,
+  },
+  {
+    agentType: "codex",
+    name: "image_generation",
+    aliases: ["image_generation_call"],
+    labelKey: "agent.tools.imageGeneration",
+    iconPath: TOOL_ICON_PATHS.image,
+  },
+  {
+    agentType: "codex",
+    name: "dynamic_tool_call",
+    labelKey: "agent.tools.dynamicToolCall",
+    iconPath: TOOL_ICON_PATHS.wrench,
+  },
+  {
+    agentType: "codex",
+    name: "collab_agent_tool_call",
+    labelKey: "agent.tools.collabAgentToolCall",
+    iconPath: TOOL_ICON_PATHS.usersThree,
+  },
+  {
+    agentType: "codex",
+    name: "tool_search",
+    aliases: ["tool_search_call", "tool_search_output"],
+    labelKey: "agent.tools.explored",
+    iconPath: TOOL_ICON_PATHS.magnifyPlus,
+  },
 ] as const;
 
 /* ── 派生索引 ── 把所有 aliases 摊平到一个 Map, O(1) 查询 ──────
