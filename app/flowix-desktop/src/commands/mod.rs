@@ -39,6 +39,8 @@ pub mod agent;
 pub mod agent_access;
 pub mod cli;
 pub mod dialog;
+pub mod external_document_watch;
+pub mod external_document;
 pub mod file;
 pub mod font;
 pub mod helpers;

@@ -1,7 +1,6 @@
 ﻿'use client';
 
 import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { useMemoStore } from '@features/memo';
 import {
   applyLoadedDocumentContent,
@@ -25,7 +24,7 @@ import { useDocumentContent } from '@features/document/components/session/use-do
 import { useDocumentAutosave } from '@features/document/components/session/use-document-autosave';
 import { useDocumentFinalize } from '@features/document/components/session/use-document-finalize';
 import { useExternalDocumentChangeWatch } from '@features/document/components/session/use-external-document-change-watch';
-import { useExternalDocumentImport } from '@features/document/components/session/use-external-document-import';
+import { useMemoDocumentChangeWatch } from '@features/document/components/session/use-memo-document-change-watch';
 import { LazyDocumentEditor } from '@features/document/components/lazy-document-editor';
 import { NotePropertiesDialog } from '@features/document/components/note-properties-dialog';
 import type { MarkdownEditorHandle } from '@features/editor/markdown-editor';
@@ -45,7 +44,6 @@ export function DocumentContainer({
   onSearchPanelOpenChange,
   toolbarCollapsed = false,
   onToolbarCollapsedChange,
-  onExternalImportApiChange,
 }: DocumentContainerProps) {
   const { t } = useI18n();
   const documentInstanceKey = useMemo(
@@ -65,14 +63,7 @@ export function DocumentContainer({
   // 包括 doc 内容 / charCount 这些高频变化。切到 selector 后, 只在用到的
   // 字段 (selectedNotebook + 4 个 action) 变化时才重渲。 activeMemo 单独
   // 用 useShallow 走 memoId selector, 避免按 memo 数组长度变化而重渲。
-  const { selectedNotebook, setSelectedMemo, loadMemos, upsertMemo } = useMemoStore(
-    useShallow((store) => ({
-      selectedNotebook: store.selectedNotebook,
-      setSelectedMemo: store.setSelectedMemo,
-      loadMemos: store.loadMemos,
-      upsertMemo: store.upsertMemo,
-    })),
-  );
+  const upsertMemo = useMemoStore((store) => store.upsertMemo);
   const activeMemo = useMemoStore(useCallback((store) => {
     return findMemoById(store, memoId);
   }, [memoId]));
@@ -111,42 +102,8 @@ export function DocumentContainer({
     upsertMemo,
     openMemoDocument,
   });
-  const setDocumentError = useCallback((message: string) => {
-    setState(prev => ({ ...prev, error: message }));
-  }, [setState]);
-  const {
-    isImportingExternal,
-    handleSaveExternalToMemo,
-  } = useExternalDocumentImport({
-    filePath,
-    isExternalDocument,
-    selectedNotebook,
-    clearSaveTimer,
-    saveDoc,
-    setSelectedMemo,
-    loadMemos,
-    openMemoDocument,
-    setError: setDocumentError,
-  });
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesContentSnapshot, setPropertiesContentSnapshot] = useState<string | null>(null);
-
-  // Publish the external-import api upward so the titlebar (rendered as a
-  // sibling above the content area) can show the file path and the save
-  // button. Memoize to keep referential equality stable across unrelated
-  // re-renders — the parent only re-runs its effect when isSaving flips.
-  const externalImportApi = useMemo(
-    () => (isExternalDocument
-      ? { isSaving: isImportingExternal, save: handleSaveExternalToMemo }
-      : null),
-    [isExternalDocument, isImportingExternal, handleSaveExternalToMemo],
-  );
-  useEffect(() => {
-    onExternalImportApiChange?.(externalImportApi);
-  }, [externalImportApi, onExternalImportApiChange]);
-  useEffect(() => {
-    return () => onExternalImportApiChange?.(null);
-  }, [onExternalImportApiChange]);
 
   useEffect(() => {
     const handleNavigateToMemo = async (e: Event) => {
@@ -277,6 +234,13 @@ export function DocumentContainer({
   }, [filePath, documentIdentity, documentInstanceKey, isExternalDocument, memoId, reloadDocument, clearSaveTimer]);
 
   useExternalDocumentChangeWatch({
+    filePath,
+    identity: documentIdentity,
+    clearSaveTimer,
+    reloadDocument,
+  });
+
+  useMemoDocumentChangeWatch({
     filePath,
     identity: documentIdentity,
     clearSaveTimer,

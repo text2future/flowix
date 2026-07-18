@@ -38,7 +38,6 @@ interface UseDocumentCommandsOptions {
   currentDocumentPath: string | null;
   getCurrentDocumentContent: () => string;
   currentMemo: MemoItem | null;
-  isExternalDocument: boolean;
   updateMemoMeta: (id: string, meta: Partial<Pick<MemoItem, 'updatedAt' | 'preview' | 'thumbnail' | 'favorited' | 'filename'>>) => void;
   setMemoColors: (id: string, colors: MemoColor[]) => Promise<boolean>;
 }
@@ -92,7 +91,6 @@ export function useDocumentCommands({
   currentDocumentPath,
   getCurrentDocumentContent,
   currentMemo,
-  isExternalDocument,
   updateMemoMeta,
   setMemoColors,
 }: UseDocumentCommandsOptions) {
@@ -153,18 +151,6 @@ export function useDocumentCommands({
       toast.error(tCmd('document.command.copyFailed'));
     }
   }, [currentDocumentPath]);
-
-  const handleCopyExternalPath = useCallback(async () => {
-    if (!currentDocumentPath || !isExternalDocument) return;
-
-    try {
-      await writeClipboardText(currentDocumentPath);
-      toast.success(tCmd('document.command.copyPathSuccess'));
-    } catch (error) {
-      console.warn('[useDocumentCommands] Failed to copy external path:', error);
-      toast.error(tCmd('document.command.copyFailed'));
-    }
-  }, [currentDocumentPath, isExternalDocument]);
 
   const handleTogglePin = useCallback(async () => {
     if (!currentMemo) return;
@@ -243,7 +229,6 @@ export function useDocumentCommands({
   return {
     handleCopyFullText,
     handleCopyLink,
-    handleCopyExternalPath,
     handleTogglePin,
     handleColorsChange,
     handleExportMarkdown,

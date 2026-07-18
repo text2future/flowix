@@ -39,6 +39,14 @@ describe('tab window store', () => {
     store.add({ ...tab('web:a'), title: 'Updated' });
     expect(useTabWindowStore.getState().tabs).toHaveLength(1);
     expect(useTabWindowStore.getState().tabs[0].title).toBe('Updated');
+
+    store.add({
+      id: 'external:/tmp/outside.md',
+      title: 'outside.md',
+      icon: null,
+      target: { kind: 'external_markdown', filePath: '/tmp/outside.md' },
+    });
+    expect(useTabWindowStore.getState().tabs[1].target.kind).toBe('external_markdown');
   });
 
   it('selects the left neighbour before the right neighbour', () => {

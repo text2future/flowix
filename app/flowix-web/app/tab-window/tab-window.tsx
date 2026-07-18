@@ -11,6 +11,7 @@ import { useDocumentStore } from '@features/document/store';
 import { useMemoStore } from '@features/memo';
 import { registerMemoEventHandler } from '@/lib/memo-dispatcher';
 import { displayTitleFromFilename } from '@/lib/utils';
+import { toast } from '@/lib/toast';
 import { windows, type WindowPosition, type WindowTab } from '@platform/tauri/client';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
@@ -60,9 +61,26 @@ interface WindowRollbackTabPayload {
   transferId: string;
 }
 
+interface TabWindowError {
+  message: string;
+  tabId: string | null;
+}
+
+function errorMessage(error: unknown): string {
+  if (
+    error
+    && typeof error === 'object'
+    && 'message' in error
+    && typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function TabWindow() {
   const { t } = useI18n();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TabWindowError | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isSearchPanelOpen, setIsSearchPanelOpen] = useState(false);
   const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
@@ -87,8 +105,8 @@ export function TabWindow() {
     [activeTabId, tabs],
   );
   const windowTitle = useMemo(() => {
-    const firstMemoTab = tabs.find((tab) => tab.target.kind === 'memo');
-    return displayTitleFromFilename(firstMemoTab?.title) || WINDOW_FALLBACK_TITLE;
+    const firstDocumentTab = tabs.find((tab) => tab.target.kind !== 'web');
+    return displayTitleFromFilename(firstDocumentTab?.title) || WINDOW_FALLBACK_TITLE;
   }, [tabs]);
   const activeMemoId = memoIdForTab(activeTab);
   const currentMemo = useMemoTabMetadataStore((state) => (
@@ -97,21 +115,28 @@ export function TabWindow() {
 
   const {
     currentDocumentPath,
+    currentDocumentSource,
     activeMemoSession,
+    activeExternalSession,
     isDocumentTransitioning,
     openMemoDocument,
+    openExternalDocument,
     clearDocument,
     discardMemoDocument,
   } = useDocumentStore(useShallow((state) => ({
     currentDocumentPath: state.currentDocumentPath,
+    currentDocumentSource: state.currentDocumentSource,
     activeMemoSession: state.activeMemoSession,
+    activeExternalSession: state.activeExternalSession,
     isDocumentTransitioning: state.isDocumentTransitioning,
     openMemoDocument: state.openMemoDocument,
+    openExternalDocument: state.openExternalDocument,
     clearDocument: state.clearDocument,
     discardMemoDocument: state.discardMemoDocument,
   })));
 
   const activateTab = useCallback((tabId: string): Promise<boolean> => {
+    setError(null);
     useTabWindowStore.getState().request(tabId);
     return activationCoordinatorRef.current.request(tabId, async (requestedId, isLatest) => {
       const tab = useTabWindowStore.getState().tabs.find((candidate) => candidate.id === requestedId);
@@ -159,6 +184,10 @@ export function TabWindow() {
             });
             break;
           }
+          case 'external_markdown':
+            if (!isLatest()) return false;
+            await openExternalDocument(tab.target.filePath);
+            break;
           case 'web':
             if (!isLatest()) return false;
             await clearDocument();
@@ -171,13 +200,12 @@ export function TabWindow() {
         return true;
       } catch (err) {
         if (isLatest()) {
-          useTabWindowStore.getState().rollbackRequest();
-          setError(err instanceof Error ? err.message : String(err));
+          setError({ message: errorMessage(err), tabId: requestedId });
         }
         return false;
       }
     });
-  }, [clearDocument, openMemoDocument]);
+  }, [clearDocument, openExternalDocument, openMemoDocument]);
 
   const closeWindowAfterFlush = useCallback(async () => {
     if (closingWindowRef.current) return;
@@ -188,9 +216,9 @@ export function TabWindow() {
       await getCurrentWindow().destroy();
     } catch (err) {
       closingWindowRef.current = false;
-      setError(err instanceof Error ? err.message : String(err));
+      setError({ message: errorMessage(err), tabId: activeTabId });
     }
-  }, [clearDocument]);
+  }, [activeTabId, clearDocument]);
 
   const closeTab = useCallback((tabId: string, sourceWasDeleted = false) => {
     if (closingTabIdsRef.current.has(tabId)) return;
@@ -224,12 +252,13 @@ export function TabWindow() {
         else store.remove(tabId);
         const memoId = memoIdForTab(tab);
         if (memoId) useMemoTabMetadataStore.getState().remove(memoId);
+        setError((current) => current?.tabId === tabId ? null : current);
         setDeleteDialogOpen(false);
         setIsSearchPanelOpen(false);
       } finally {
         closingTabIdsRef.current.delete(tabId);
       }
-    })().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    })().catch((err) => toast.error(errorMessage(err)));
   }, [activateTab, closeWindowAfterFlush, discardMemoDocument]);
 
   const detachTab = useCallback((
@@ -285,7 +314,7 @@ export function TabWindow() {
         // Window creation is transactional in the backend. If this was the
         // only tab, restore the flushed document in the still-valid source UI.
         if (clearedOnlyTab) void activateTab(tabId);
-        setError(err instanceof Error ? err.message : String(err));
+        toast.error(errorMessage(err));
       } finally {
         tabDragStartPromisesRef.current.delete(dragId);
         closingTabIdsRef.current.delete(tabId);
@@ -300,7 +329,7 @@ export function TabWindow() {
     const start = windows.beginTabItemDrag(tabId, dragId);
     tabDragStartPromisesRef.current.set(dragId, start);
     void start.catch((err) => {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     });
   }, []);
 
@@ -317,13 +346,13 @@ export function TabWindow() {
     void windows.reorderTabWindowTab(tabId, beforeTabId).then(() => {
       useTabWindowStore.getState().reorder(tabId, beforeTabId);
     }).catch((err) => {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     });
   }, []);
 
   const updateTabRegion = useCallback((region: Parameters<typeof windows.setTabWindowRegion>[0]) => {
     void windows.setTabWindowRegion(region).catch((err) => {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     });
   }, []);
 
@@ -343,7 +372,6 @@ export function TabWindow() {
     currentDocumentPath,
     getCurrentDocumentContent: useCallback(() => contentRef.current, []),
     currentMemo,
-    isExternalDocument: false,
     updateMemoMeta,
     setMemoColors,
   });
@@ -369,7 +397,7 @@ export function TabWindow() {
         if (transferId) {
           receivedTransfersRef.current.set(tab.id, transferId);
           void windows.ackTabWindowTransfer(transferId, tab.id).catch((err) => {
-            setError(err instanceof Error ? err.message : String(err));
+            toast.error(errorMessage(err));
           });
         }
         void activateTab(tab.id);
@@ -388,7 +416,7 @@ export function TabWindow() {
       const initialId = initialTabs[initialTabs.length - 1]?.id;
       if (!disposed && initialId && !receivedLiveTabRef.current) await activateTab(initialId);
     })().catch((err) => {
-      if (!disposed) setError(err instanceof Error ? err.message : String(err));
+      if (!disposed) setError({ message: errorMessage(err), tabId: null });
     });
     return () => {
       disposed = true;
@@ -469,12 +497,40 @@ export function TabWindow() {
     />
   );
 
+  const errorTab = error?.tabId
+    ? tabs.find((tab) => tab.id === error.tabId) ?? null
+    : null;
+  const errorView = error ? (
+    <div
+      role="alert"
+      className="flex min-h-0 flex-1 items-center justify-center px-6 py-10"
+    >
+      <div className="flex w-full max-w-md flex-col items-center text-center">
+        <h2 className="text-base font-semibold text-[var(--foreground)]">{t('error.title')}</h2>
+        {errorTab && (
+          <p className="mt-1 max-w-full truncate text-sm text-[var(--muted-foreground)]">
+            {displayTitleFromFilename(errorTab.title)}
+          </p>
+        )}
+        <p className="mt-3 max-h-32 max-w-full overflow-auto break-words rounded-lg bg-[var(--muted)]/45 px-3 py-2 text-left text-sm leading-6 text-[var(--muted-foreground)]">
+          {error.message}
+        </p>
+      </div>
+    </div>
+  ) : null;
+
+  const loadingView = (
+    <div className="flex min-h-0 flex-1 items-center justify-center" role="status" aria-label="Loading">
+      <div className="h-5 w-5 animate-spin rounded-full border-2 border-[color-mix(in_oklch,var(--muted-foreground)_26%,transparent)] border-t-[var(--brand)]" />
+    </div>
+  );
+
   if (error && tabs.length === 0) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden text-[var(--foreground)]" style={{ backgroundColor: 'var(--document-bg)' }}>
         <WindowsTitlebarControls />
         <div data-tauri-drag-region className={isWindowsPlatform() ? 'h-9 shrink-0 pr-[126px]' : 'h-12 shrink-0'} />
-        <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted-foreground)]">{error}</div>
+        {errorView}
       </div>
     );
   }
@@ -504,6 +560,7 @@ export function TabWindow() {
     onExportWord: commands.handleExportWord,
     onRequestDeleteMemo: () => currentMemo && setDeleteDialogOpen(true),
     onColorsChange: commands.handleColorsChange,
+    externalFilePath: currentDocumentSource === 'external' ? currentDocumentPath : null,
     windowTabs: tabStrip,
   };
 
@@ -516,22 +573,24 @@ export function TabWindow() {
     >
       <WindowsTitlebarControls />
       {isWindowsPlatform() ? <DocumentTitlebarWin {...titlebarProps} /> : <DocumentTitlebarMac {...titlebarProps} />}
-      {error && (
-        <div role="alert" className="shrink-0 border-b border-[var(--border)] bg-[var(--destructive)]/10 px-3 py-1.5 text-xs text-[var(--destructive)]">
-          {error}
-        </div>
-      )}
-      {activeTab ? (
+      {error ? errorView : activeTab ? (
         <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           <TabContent
             tab={activeTab}
-            contentKey={activeMemoSession?.id ?? activeTab.id}
+            contentKey={activeMemoSession?.id ?? activeExternalSession?.id ?? activeTab.id}
             memoContentProps={{
-              filePath: currentDocumentPath ?? (activeTab.target.kind === 'memo' ? activeTab.target.filePath : ''),
+              filePath: currentDocumentPath ?? (
+                activeTab.target.kind === 'memo' || activeTab.target.kind === 'external_markdown'
+                  ? activeTab.target.filePath
+                  : ''
+              ),
               notebookId: activeMemoSession?.notebookId ?? null,
               notebookPath: activeMemoSession?.notebookPath ?? null,
-              transitionId: activeMemoSession?.transitionId ?? null,
-              isExternalDocument: false,
+              transitionId:
+                activeMemoSession?.transitionId
+                ?? activeExternalSession?.transitionId
+                ?? null,
+              isExternalDocument: activeTab.target.kind === 'external_markdown',
               searchPanelOpen: isSearchPanelOpen,
               onSearchPanelOpenChange: setIsSearchPanelOpen,
               toolbarCollapsed,
@@ -541,7 +600,7 @@ export function TabWindow() {
           />
           {isDocumentTransitioning && <div className="absolute inset-0 z-40 flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_78%,transparent)] backdrop-blur-[1px]" role="status" aria-label="Loading"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[color-mix(in_oklch,var(--muted-foreground)_26%,transparent)] border-t-[var(--brand)]" /></div>}
         </div>
-      ) : <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>}
+      ) : loadingView}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>{t('memo.delete.title')}</DialogTitle><DialogDescription>{t('memo.delete.description', { name: displayTitleFromFilename(currentMemo?.filename) } satisfies I18nParams)}</DialogDescription></DialogHeader><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setDeleteDialogOpen(false)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">{t('memo.delete.cancel')}</button><button type="button" onClick={handleDelete} className="relative h-8 rounded-lg bg-[var(--destructive)] pl-3 pr-7 text-sm text-white hover:opacity-90">{t('memo.delete.confirm')}<Kbd className="!text-white border-0">↵</Kbd></button></div></DialogContent>
       </Dialog>

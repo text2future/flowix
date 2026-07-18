@@ -36,7 +36,7 @@
  * React-land where it stays reactive, while the queue orchestrates IPC
  * ordering.
  */
-import { memos as memosClient } from '@platform/tauri/client';
+import { externalDocuments, memos as memosClient } from '@platform/tauri/client';
 
 export interface SaveContext {
   /** Stable queue key for this editing session (`memo:<id>` or `external:<path>`). */
@@ -173,10 +173,28 @@ async function runChain(ctx: SaveContext): Promise<boolean> {
 async function runOne(ctx: SaveContext, content: string): Promise<boolean> {
   const expected = ctx.readExpected();
   try {
+    if (ctx.channel === 'external') {
+      const result = await externalDocuments.write({
+          filePath: ctx.path,
+          content,
+          expectedContent: expected,
+        });
+      if (result.status === 'saved') {
+        ctx.onSaved(result.path, result.content);
+        return true;
+      }
+      if (result.status === 'conflict') {
+        ctx.onCasRefused(content);
+        return false;
+      }
+      const message = result.status === 'missing'
+        ? `External document is unavailable: ${ctx.path}`
+        : result.message;
+      ctx.onError(content, new Error(message));
+      return false;
+    }
     const result = await memosClient.writeDocument({
-      key: ctx.key,
-      channel: ctx.channel,
-      filePath: ctx.path,
+      key: ctx.key!,
       content,
       expectedContent: expected,
     });

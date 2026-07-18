@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useRef } from 'react';
 
-import { memos as memosClient } from '@platform/tauri/client';
+import { externalDocuments, memos as memosClient } from '@platform/tauri/client';
 import {
   getActiveDocumentDraft,
   applyLoadedDocumentContent,
@@ -163,7 +163,9 @@ export function useDocumentAutosave({
           }
           buf.pendingContent = null;
           void (async () => {
-            const onDisk = await memosClient.readDocument(path).catch(() => null);
+            const onDisk = await (isExternalDocument
+              ? externalDocuments.read(path)
+              : memosClient.readDocument(path)).catch(() => null);
             if (!isMountedRef.current) return;
             if (onDisk !== null) {
               buf.lastSavedContent = onDisk;
@@ -203,7 +205,9 @@ export function useDocumentAutosave({
     // 1. 拉磁盘看是否变了
     let onDisk: string | null = null;
     try {
-      onDisk = await memosClient.readDocument(path);
+      onDisk = isExternalDocument
+        ? await externalDocuments.read(path)
+        : await memosClient.readDocument(path);
     } catch {
       // IPC 失败: 保守走 saveDoc, 让原 onCasRefused 兜底 (弹 toast + 刷新 CAS 基线)
       void saveDoc(content, path);
@@ -234,7 +238,7 @@ export function useDocumentAutosave({
     // reloadDocument 内部 applyLoadedContent 会把 buf 跟 React state
     // 一起对齐到磁盘, 这里不用手动改 buf。
     void reloadDocument(path, { preservePending: false, showLoading: false });
-  }, [identity, saveDoc, reloadDocument]);
+  }, [identity, isExternalDocument, saveDoc, reloadDocument]);
 
 
 

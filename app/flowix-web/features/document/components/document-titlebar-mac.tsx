@@ -7,9 +7,7 @@ import { Tooltip } from '@shared/ui/tooltip';
 import type { MemoColor, MemoItem } from '@features/memo';
 import {
   type DocumentState,
-  ExternalCopyButton,
-  ExternalPathDisplay,
-  ExternalSaveButton,
+  ExternalTitlebarBadge,
   MemoActions,
 } from '@features/document/components/document-titlebar-shared';
 import { useI18n } from '@features/i18n';
@@ -34,9 +32,6 @@ interface DocumentTitlebarMacProps {
   onRequestDeleteMemo: () => void;
   onColorsChange?: (next: MemoColor[]) => void;
   externalFilePath?: string | null;
-  isExternalSaving?: boolean;
-  onSaveExternalToMemo?: () => void;
-  onCopyExternalPath?: () => void;
   windowTabs?: ReactNode;
 }
 
@@ -44,8 +39,6 @@ const NAV_BTN =
   'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg transition-colors';
 const ICON_BTN =
   'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors bg-[var(--bg-titlebar)] border border-[var(--border)]';
-const SAVE_BTN =
-  'inline-flex h-8 shrink-0 enabled:!cursor-pointer disabled:!cursor-not-allowed items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-titlebar)] px-3 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-60';
 
 export function DocumentTitlebarMac({
   currentMemo,
@@ -67,9 +60,6 @@ export function DocumentTitlebarMac({
   onRequestDeleteMemo,
   onColorsChange,
   externalFilePath = null,
-  isExternalSaving = false,
-  onSaveExternalToMemo,
-  onCopyExternalPath,
   windowTabs,
 }: DocumentTitlebarMacProps) {
   const { t } = useI18n();
@@ -133,14 +123,14 @@ export function DocumentTitlebarMac({
         </div>
       )}
 
-      {!windowTabs && documentState === 'external' && externalFilePath && (
-        <ExternalPathDisplay path={externalFilePath} />
-      )}
 
       <div
         data-tauri-drag-region
-        className={`${windowTabs ? '' : 'ml-auto'} flex shrink-0 items-center gap-3 pr-2`}
+        className={`${windowTabs ? '' : 'ml-auto'} flex shrink-0 items-center gap-3 pr-5`}
       >
+        {documentState === 'external' && (
+          <ExternalTitlebarBadge />
+        )}
         {documentState === 'memo' && currentMemo && (
           <MemoActions
             memo={currentMemo}
@@ -156,21 +146,6 @@ export function DocumentTitlebarMac({
             onRequestDeleteMemo={onRequestDeleteMemo}
             onColorsChange={onColorsChange ?? (() => {})}
           />
-        )}
-        {documentState === 'external' && externalFilePath && onSaveExternalToMemo && (
-          <>
-            {onCopyExternalPath && (
-              <ExternalCopyButton
-                onCopy={onCopyExternalPath}
-                iconButtonClass={ICON_BTN}
-              />
-            )}
-            <ExternalSaveButton
-              isSaving={isExternalSaving}
-              onSave={onSaveExternalToMemo}
-              className={SAVE_BTN}
-            />
-          </>
         )}
       </div>
     </div>

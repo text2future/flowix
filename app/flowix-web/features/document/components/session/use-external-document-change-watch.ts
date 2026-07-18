@@ -3,19 +3,16 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import {
   hasDocumentUnsavedChanges,
-  isRecentSelfDocumentWrite,
   type DocumentIdentity,
 } from '@features/document';
 import { translate } from '@features/i18n';
 import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
 import { toast } from '@/lib/toast';
 import { canonicalPath } from '@/lib/path';
-import { registerMemoEventHandler } from '@/lib/memo-dispatcher';
-import type { MemoEvent } from '@/types/memo';
 import {
-  handleSiblingWindowContentUpdate,
-  type MemoContentUpdatedEvent,
-} from '@features/document/components/session/sibling-window-document-sync';
+  windows,
+  type ExternalDocumentChangedEvent,
+} from '@platform/tauri/client';
 
 interface UseExternalDocumentChangeWatchOptions {
   filePath: string;
@@ -51,117 +48,64 @@ export function useExternalDocumentChangeWatch({
   };
 
   useEffect(() => {
-    if (!filePath) return;
-
-    // 外部工具更新继续走统一 memo-event + dedup；Flowix 编辑器保存另走
-    // memo-content-updated，后端只把后者发给发送窗口之外的 Webview。
-    //
-    // 走 `registerMemoEventHandler` (应用层 dispatcher) 而非直接
-    // event-bus.subscribe — 跟 useMemoEvents 走同一份 memoDispatcher
-    // 实例, 自动共享 dedup middleware (Phase 2) + 跨订阅者一致 filter
-    // 语义。 此前直接 listen 'memo-event' 是 "双订阅绕过中央路由" 反
-    // 模式, 已统一。
-    const unsubscribeMemoEvents = registerMemoEventHandler(
-      async (event: MemoEvent) => {
-        if (!filePath) return;
-        if (event.kind !== 'updated') return;
-        if (!event.path) return;
-
-        if (event.source === 'user_edit') return;
-
-        // 匹配 emit path 跟当前 filePath ── 不一致说明物理 rename 了
-        // (emit 用 memo index 新 path, filePath 是 React 状态可能未跟上)。
-        // 这种情况由 useMemoEvents 内的 syncActiveDocumentPathIfRenamed
-        // 全权处理 (切 active path + 同步 buffer), 本 hook 不再 reload,
-        // 避免重复 IPC + 重复 applyLoadedContent。
-        const updatedPath = canonicalPath(event.path);
-        const currentPath = canonicalPath(filePath);
-        if (updatedPath !== currentPath) {
-          debugDocumentSync('[ext-watch] skip (path mismatch)', {
-            at: new Date().toISOString(),
-            source: event.source,
-            id: event.id,
-            eventPath: updatedPath,
-            currentPath,
-          });
-          return;
-        }
-
-        if (isRecentSelfDocumentWrite(event.id, updatedPath)) {
-          // The backend watcher can still surface our own successful write as
-          // a non-user_edit event. Treat matching recent writes as self-noise,
-          // otherwise first-line title editing trips the external-change UI.
-          return;
-        }
-
-        if (hasDocumentUnsavedChanges(identity)) {
-          // 用户在敲字, 外部并发改盘 ── 提示冲突但不覆盖 (避免丢字符),
-          // 让用户决定下一步 (继续编辑 / 手动复制 / 切走再切回)。
-          debugDocumentSync('[ext-watch] conflict (local dirty) -> toast', {
-            at: new Date().toISOString(),
-            source: event.source,
-            id: event.id,
-            path: currentPath,
-          });
-          maybeWarnAboutConflict();
-          return;
-        }
-
-        debugDocumentSync('[ext-watch] reload from disk', {
-          at: new Date().toISOString(),
-          source: event.source,
-          id: event.id,
-          path: currentPath,
-        });
-        // 无本地脏字符, 拉磁盘新内容覆盖编辑器。event.path 此时
-        // 等于 currentPath (上面已匹配), 用哪个都行 ── 用 filePath 跟原
-        // 行为一致。
-        clearSaveTimer();
-        await reloadDocument(filePath, { preservePending: false, showLoading: false });
-      },
-      (event) => event.kind === 'updated' && event.source !== 'user_edit',
-    );
+    if (!filePath || identity.kind !== 'external') return;
 
     let disposed = false;
-    let unsubscribeContentUpdates: (() => void) | null = null;
-    void getCurrentWindow().listen<MemoContentUpdatedEvent>(
-      'memo-content-updated',
-      async ({ payload: event }) => {
-        if (disposed) return;
-        const result = await handleSiblingWindowContentUpdate({
-          event,
-          identity,
-          isDirty: hasDocumentUnsavedChanges(identity),
-          onConflict: maybeWarnAboutConflict,
-          clearSaveTimer,
-          reloadDocument,
-        });
-        if (result === 'reloaded') {
-          debugDocumentSync('[memo-content-updated] reloaded from sibling window', {
-            id: event.id,
-            path: event.path,
+    let leaseId: string | null = null;
+    let unlisten: (() => void) | null = null;
+    const currentPath = canonicalPath(filePath);
+
+    void (async () => {
+      debugDocumentSync('[external-document-watch] registering', {
+        path: currentPath,
+        windowLabel: getCurrentWindow().label,
+      });
+      unlisten = await getCurrentWindow().listen<ExternalDocumentChangedEvent>(
+        'external-document-changed',
+        async ({ payload }) => {
+          debugDocumentSync('[external-document-changed] received', {
+            path: payload.path,
+            kind: payload.kind,
+            revision: payload.revision,
+            currentPath,
           });
-        }
-      },
-    ).then((unlisten) => {
+          if (disposed || canonicalPath(payload.path) !== currentPath) return;
+          if (hasDocumentUnsavedChanges(identity)) {
+            maybeWarnAboutConflict();
+            return;
+          }
+          if (payload.kind === 'deleted') {
+            const language = useUserSettingsStore.getState().settings.language;
+            toast.warning(translate(language, 'document.external.changeWarning'), { duration: 5000 });
+            return;
+          }
+          clearSaveTimer();
+          await reloadDocument(filePath, { preservePending: false, showLoading: false });
+        },
+      );
       if (disposed) {
         unlisten();
-      } else {
-        unsubscribeContentUpdates = unlisten;
+        unlisten = null;
+        return;
       }
-    }).catch((error) => {
-      console.warn('[memo-content-updated] listen failed:', error);
+      leaseId = await windows.watchExternalDocument(filePath);
+      debugDocumentSync('[external-document-watch] registered', {
+        path: currentPath,
+        leaseId,
+        windowLabel: getCurrentWindow().label,
+      });
+      if (disposed && leaseId) {
+        void windows.unwatchExternalDocument(leaseId);
+        leaseId = null;
+      }
+    })().catch((error) => {
+      if (!disposed) console.warn('[external-document-changed] watch failed:', error);
     });
 
     return () => {
       disposed = true;
-      unsubscribeMemoEvents();
-      unsubscribeContentUpdates?.();
+      unlisten?.();
+      if (leaseId) void windows.unwatchExternalDocument(leaseId);
     };
-  }, [
-    filePath,
-    identity,
-    reloadDocument,
-    clearSaveTimer,
-  ]);
+  }, [filePath, identity, clearSaveTimer, reloadDocument]);
 }

@@ -44,11 +44,6 @@ export interface DocumentContainerProps {
   // collapse/expand buttons; no focus-based show/hide.
   toolbarCollapsed?: boolean;
   onToolbarCollapsedChange?: (collapsed: boolean) => void;
-  // Lifted so the titlebar (rendered above the content area) can render the
-  // file path and the "保存为笔记" button. Container is the only place that
-  // holds the import hook (it needs the editor's contentRef + saveDoc), so
-  // we publish the api upward via this callback. Pass `null` to clear.
-  onExternalImportApiChange?: (api: { isSaving: boolean; save: () => void } | null) => void;
 }
 
 export const initialDocumentContainerState: DocumentContainerState = {

@@ -104,6 +104,10 @@ export function localFilePathFromAgentHref(
   return null;
 }
 
+function isMarkdownFilePath(path: string): boolean {
+  return /\.(?:md|markdown)$/i.test(path);
+}
+
 // OS 顶部控件区高度 ── AgentThreadCard 全屏时把卡片向上探出这条带状区
 // 高度, 覆盖到 webview 顶端 (而不是停在文档区顶边)。
 //
@@ -1154,6 +1158,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const rawHref = a.getAttribute("href");
     const localPath = localFilePathFromAgentHref(rawHref);
     if (localPath) {
+      if (isMarkdownFilePath(localPath)) {
+        void windows.openMarkdownPathTab(localPath).catch((error) => {
+          console.error("Failed to open agent thread card Markdown:", error);
+          toast.error(this.t("agent.link.openLocalFileFailed"));
+        });
+        return;
+      }
       void openPath(localPath).catch((error) => {
         console.error("Failed to open agent thread card file:", error);
         toast.error(this.t("agent.link.openLocalFileFailed"));

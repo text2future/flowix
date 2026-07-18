@@ -21,6 +21,20 @@ export function TabContent({ tab, contentKey, memoContentProps }: TabContentProp
     );
   }
 
+  if (tab.target.kind === 'external_markdown') {
+    return (
+      <DocumentContainer
+        key={contentKey}
+        {...memoContentProps}
+        filePath={memoContentProps.filePath || tab.target.filePath}
+        memoId={null}
+        notebookId={null}
+        notebookPath={null}
+        isExternalDocument
+      />
+    );
+  }
+
   return (
     <DocumentContainer
       key={contentKey}

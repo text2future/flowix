@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { memos as memosClient } from '@platform/tauri/client';
+import { externalDocuments, memos as memosClient } from '@platform/tauri/client';
 import { useMemoStore } from '@features/memo';
 import {
   setActiveDocumentPath,
@@ -149,7 +149,9 @@ export function useDocumentContent({
         });
         const readStartedAt = performance.now();
         let readPath = path;
-        let fullContent = await memosClient.readDocument(readPath);
+        let fullContent = isExternalDocument
+          ? await externalDocuments.read(readPath)
+          : await memosClient.readDocument(readPath);
         if (
           (fullContent === null || fullContent === undefined) &&
           !isExternalDocument

@@ -259,6 +259,11 @@ pub fn run() {
             let dispatcher: crate::events::SharedDispatcher =
                 std::sync::Arc::new(crate::events::TauriDispatcher::new(app.handle().clone()));
             app.manage(dispatcher);
+            app.manage(
+                commands::external_document_watch::ExternalDocumentWatchState::new(
+                    app.handle().clone(),
+                ),
+            );
             // Watch every configured notebook. MCP/external tools may write to
             // a background notebook, and those creates must still reach the
             // main Webview so it can route the note into a tab window.
@@ -399,6 +404,8 @@ pub fn run() {
             commands::memo::reads::open_memo_session,
             commands::memo::reads::read_document,
             commands::memo::reads::write_document,
+            commands::external_document::read_external_document,
+            commands::external_document::write_external_document,
             commands::memo::reads::get_launch_open_files,
             commands::memo::reads::search_memos,
             commands::memo::creates::add_document,
@@ -501,6 +508,9 @@ pub fn run() {
             commands::window::open_preferences_window,
             commands::tab_window::open_note_window,
             commands::tab_window::open_note_tab,
+            commands::tab_window::open_external_markdown_window,
+            commands::tab_window::open_external_markdown_tab,
+            commands::tab_window::open_markdown_path_tab,
             commands::tab_window::tab_window_ready,
             commands::tab_window::tab_window_ack_transfer,
             commands::tab_window::tab_window_set_tab_region,
@@ -509,6 +519,8 @@ pub fn run() {
             commands::tab_window::tab_window_detach_tab,
             commands::tab_window::tab_window_begin_tab_item_drag,
             commands::tab_window::tab_window_cancel_tab_item_drag,
+            commands::external_document_watch::watch_external_document,
+            commands::external_document_watch::unwatch_external_document,
             // 全局"通过链接打开笔记"入口 ── 接收 URL / 物理路径, 解析 + emit
             open_target::handler::open_memo_by_target,
             commands::cli::cli_link_status,
@@ -523,15 +535,14 @@ fn handle_second_instance(app: &tauri::AppHandle, args: Vec<String>) {
     // 二次启动: 区分 markdown 文件路径与 flowix:// 深链。
     // 两个通道可以同时触发 (用户用 `xdg-open foo.md flowix://memo/abc123` 启动)。
     let paths = commands::markdown_paths_from_args(args.clone());
-    if !paths.is_empty() {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.set_focus();
-        }
-        dispatcher::emit_to(app, "external-markdown-opened", paths);
+    for path in &paths {
+        route_markdown_path_to_tab(app, path);
     }
 
     for arg in args {
-        emit_open_target_if_resolved(app, &arg);
+        if !paths.contains(&arg) {
+            emit_open_target_if_resolved(app, &arg);
+        }
     }
 }
 
@@ -555,9 +566,30 @@ fn register_deep_links(app: &mut tauri::App) {
 fn register_deep_links(_app: &mut tauri::App) {}
 
 fn handle_cold_start_open_targets(app: &tauri::AppHandle) {
-    // 冷启动: 深链也可能经由 argv 走到 (Linux 上标准做法, macOS 上偶发)。
-    for arg in std::env::args().skip(1) {
-        emit_open_target_if_resolved(app, &arg);
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let paths = commands::markdown_paths_from_args(args.clone());
+    if !paths.is_empty() {
+        if let Some(main_window) = app.get_webview_window("main") {
+            main_window.hide().ok();
+        }
+        for path in &paths {
+            route_markdown_path_to_tab(app, path);
+        }
+    }
+    for arg in args {
+        if !paths.contains(&arg) {
+            emit_open_target_if_resolved(app, &arg);
+        }
+    }
+}
+
+fn route_markdown_path_to_tab(app: &tauri::AppHandle, path: &str) {
+    let state = app.state::<AppState>();
+    let coordinator = app.state::<commands::tab_window::TabWindowCoordinator>();
+    if let Err(error) =
+        commands::tab_window::route_markdown_path_tab(app, state.inner(), coordinator.inner(), path)
+    {
+        tracing::warn!("[open-markdown] failed to route {path}: {error}");
     }
 }
 
@@ -576,6 +608,19 @@ fn emit_open_target_if_resolved(app: &tauri::AppHandle, raw: &str) {
 
 fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+            for url in urls {
+                if url.scheme() == "file" {
+                    if let Ok(path) = url.to_file_path() {
+                        let path = path.to_string_lossy().to_string();
+                        if !commands::markdown_paths_from_args([path.clone()]).is_empty() {
+                            route_markdown_path_to_tab(app, &path);
+                        }
+                    }
+                }
+            }
+        }
         tauri::RunEvent::ExitRequested { .. } => {
             stop_external_agent_children(app, "exit");
         }

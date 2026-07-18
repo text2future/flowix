@@ -36,6 +36,9 @@ pub enum TabTarget {
         notebook_path: String,
         file_path: String,
     },
+    ExternalMarkdown {
+        file_path: String,
+    },
     Web {
         url: String,
     },
@@ -339,12 +342,19 @@ impl TabWindowCoordinator {
                 {
                     return true;
                 }
+                if self
+                    .pending_transfers
+                    .lock()
+                    .is_ok_and(|pending| !pending.contains_key(transfer_id))
+                {
+                    return false;
+                }
                 notified.await;
             }
         };
         let acknowledged = tokio::time::timeout(TAB_TRANSFER_ACK_TIMEOUT, wait)
             .await
-            .is_ok();
+            .is_ok_and(|value| value);
         if let Ok(mut acks) = self.transfer_acks.lock() {
             acks.remove(transfer_id);
         }
@@ -354,25 +364,61 @@ impl TabWindowCoordinator {
         acknowledged
     }
 
+    fn release_window_state(&self, app: &tauri::AppHandle, label: &str) {
+        let cancelled_drag = self.tab_item_drag.lock().ok().and_then(|mut drag| {
+            if drag.as_ref().is_some_and(|session| {
+                session.source_label == label || session.hovered_target.as_deref() == Some(label)
+            }) {
+                drag.take()
+            } else {
+                None
+            }
+        });
+        if let Some(cancelled_drag) = cancelled_drag {
+            clear_merge_hover(app, cancelled_drag.hovered_target.as_deref());
+        }
+
+        let removed_transfers = self
+            .pending_transfers
+            .lock()
+            .map(|mut pending| {
+                let ids = pending
+                    .iter()
+                    .filter(|(_, (target_label, _))| target_label == label)
+                    .map(|(transfer_id, _)| transfer_id.clone())
+                    .collect::<Vec<_>>();
+                pending.retain(|_, (target_label, _)| target_label != label);
+                ids
+            })
+            .unwrap_or_default();
+        if !removed_transfers.is_empty() {
+            if let Ok(mut acknowledgements) = self.transfer_acks.lock() {
+                for transfer_id in removed_transfers {
+                    acknowledgements.remove(&transfer_id);
+                }
+            }
+            self.transfer_notify.notify_waiters();
+        }
+        self.ready_notify.notify_waiters();
+    }
+
     async fn wait_for_window_ready(&self, label: &str) -> bool {
         let wait = async {
             loop {
                 let notified = self.ready_notify.notified();
-                if self.registry.lock().is_ok_and(|registry| {
-                    registry
-                        .windows
-                        .iter()
-                        .find(|entry| entry.label == label)
-                        .is_some_and(|entry| entry.ready)
-                }) {
-                    return true;
+                if let Ok(registry) = self.registry.lock() {
+                    match registry.windows.iter().find(|entry| entry.label == label) {
+                        Some(entry) if entry.ready => return true,
+                        None => return false,
+                        _ => {}
+                    }
                 }
                 notified.await;
             }
         };
         tokio::time::timeout(TAB_WINDOW_READY_TIMEOUT, wait)
             .await
-            .is_ok()
+            .is_ok_and(|value| value)
     }
 
     fn tab_item_drag_is_active(&self, source_label: &str, tab_id: &str, drag_id: &str) -> bool {
@@ -637,8 +683,78 @@ fn deliver_merged_tab(
 fn refresh_tab(tab: &WindowTab, state: &AppState) -> Result<WindowTab, String> {
     match &tab.target {
         TabTarget::Memo { memo_id, .. } => resolve_memo_tab(memo_id, state),
+        TabTarget::ExternalMarkdown { file_path } => resolve_external_markdown_tab(file_path),
         TabTarget::Web { .. } => Ok(tab.clone()),
     }
+}
+
+fn resolve_external_markdown_tab(file_path: &str) -> Result<WindowTab, String> {
+    let requested = std::path::PathBuf::from(file_path);
+    let is_markdown = requested
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown")
+        });
+    if !is_markdown || !requested.is_file() {
+        return Err(format!(
+            "external Markdown is unavailable: {}",
+            requested.display()
+        ));
+    }
+    let canonical = dunce::canonicalize(&requested)
+        .map_err(|error| format!("failed to resolve external Markdown: {error}"))?;
+    let title = canonical
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "external Markdown filename is unavailable".to_string())?
+        .to_string();
+    let canonical = canonical.to_string_lossy().to_string();
+    Ok(WindowTab {
+        id: format!("external:{canonical}"),
+        title,
+        icon: None,
+        target: TabTarget::ExternalMarkdown {
+            file_path: canonical,
+        },
+    })
+}
+
+pub fn route_markdown_path_tab(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    coordinator: &TabWindowCoordinator,
+    file_path: &str,
+) -> Result<(), String> {
+    let memo_tab = if is_direct_registered_notebook_child(file_path, state) {
+        crate::open_target::parse_open_target(file_path)
+            .ok()
+            .and_then(|target| {
+                crate::open_target::resolve_open_target(target, state.memo_file.as_ref()).ok()
+            })
+            .map(|resolved| resolve_memo_tab(&resolved.memo_id, state))
+            .transpose()?
+    } else {
+        None
+    };
+    let tab = match memo_tab {
+        Some(tab) => tab,
+        None => resolve_external_markdown_tab(file_path)?,
+    };
+    route_tab(app, coordinator, tab, OpenDisposition::LastWindow)
+}
+
+fn is_direct_registered_notebook_child(file_path: &str, state: &AppState) -> bool {
+    let Ok(file_path) = dunce::canonicalize(file_path) else {
+        return false;
+    };
+    let Some(parent) = file_path.parent() else {
+        return false;
+    };
+    let notebook_roots = read_lock(&state.memo_file, "memo_file").registered_notebook_paths();
+    notebook_roots
+        .into_iter()
+        .any(|root| dunce::canonicalize(root).is_ok_and(|canonical_root| canonical_root == parent))
 }
 
 fn resolve_memo_tab(memo_id: &str, state: &AppState) -> Result<WindowTab, String> {
@@ -796,6 +912,12 @@ fn create_window(
         let coordinator = app_handle.state::<TabWindowCoordinator>();
         match event {
             tauri::WindowEvent::Destroyed => {
+                if let Some(watches) = app_handle
+                    .try_state::<crate::commands::external_document_watch::ExternalDocumentWatchState>()
+                {
+                    watches.release_window(&event_label);
+                }
+                coordinator.release_window_state(&app_handle, &event_label);
                 if let Ok(mut registry) = coordinator.registry.lock() {
                     registry.close_window(&event_label);
                 };
@@ -889,6 +1011,44 @@ pub fn open_note_tab(
         resolve_memo_tab(&memo_id, state.inner())?,
         OpenDisposition::LastWindow,
     )
+}
+
+#[tauri::command]
+pub fn open_external_markdown_window(
+    app: tauri::AppHandle,
+    coordinator: tauri::State<'_, TabWindowCoordinator>,
+    file_path: String,
+) -> Result<(), String> {
+    route_tab(
+        &app,
+        coordinator.inner(),
+        resolve_external_markdown_tab(&file_path)?,
+        OpenDisposition::NewWindow,
+    )
+}
+
+#[tauri::command]
+pub fn open_external_markdown_tab(
+    app: tauri::AppHandle,
+    coordinator: tauri::State<'_, TabWindowCoordinator>,
+    file_path: String,
+) -> Result<(), String> {
+    route_tab(
+        &app,
+        coordinator.inner(),
+        resolve_external_markdown_tab(&file_path)?,
+        OpenDisposition::LastWindow,
+    )
+}
+
+#[tauri::command]
+pub fn open_markdown_path_tab(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    coordinator: tauri::State<'_, TabWindowCoordinator>,
+    file_path: String,
+) -> Result<(), String> {
+    route_markdown_path_tab(&app, state.inner(), coordinator.inner(), &file_path)
 }
 
 #[tauri::command]
@@ -1437,6 +1597,18 @@ mod tests {
         assert_eq!(value["target"]["memoId"], "a");
         assert_eq!(value["target"]["filePath"], "/notebook/A.md");
 
+        let external_tab = WindowTab {
+            id: "external:/tmp/Outside.md".to_string(),
+            title: "Outside.md".to_string(),
+            icon: None,
+            target: TabTarget::ExternalMarkdown {
+                file_path: "/tmp/Outside.md".to_string(),
+            },
+        };
+        let external_value = serde_json::to_value(external_tab).unwrap();
+        assert_eq!(external_value["target"]["kind"], "external_markdown");
+        assert_eq!(external_value["target"]["filePath"], "/tmp/Outside.md");
+
         let delivery = serde_json::to_value(WindowOpenTabPayload {
             tab: memo_tab,
             transfer_id: Some("tab-transfer-1".to_string()),
@@ -1446,5 +1618,26 @@ mod tests {
         assert_eq!(delivery["tab"]["id"], "memo:a");
         assert_eq!(delivery["transferId"], "tab-transfer-1");
         assert_eq!(delivery["targetLabel"], "tab-host-2");
+    }
+
+    #[test]
+    fn external_markdown_tab_uses_canonical_path_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("Outside.md");
+        std::fs::write(&path, "# Outside").unwrap();
+
+        let tab = resolve_external_markdown_tab(path.to_string_lossy().as_ref()).unwrap();
+        let canonical = dunce::canonicalize(path)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(tab.id, format!("external:{canonical}"));
+        assert_eq!(tab.title, "Outside.md");
+        assert_eq!(
+            tab.target,
+            TabTarget::ExternalMarkdown {
+                file_path: canonical,
+            }
+        );
     }
 }

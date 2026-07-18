@@ -324,7 +324,6 @@ export function MainLayout() {
   const {
     handleCopyFullText,
     handleCopyLink,
-    handleCopyExternalPath,
     handleTogglePin,
     handleColorsChange,
     handleExportMarkdown,
@@ -334,7 +333,6 @@ export function MainLayout() {
     currentDocumentPath,
     getCurrentDocumentContent,
     currentMemo,
-    isExternalDocument,
     updateMemoMeta,
     setMemoColors,
   });
@@ -345,17 +343,6 @@ export function MainLayout() {
   // via onExternalImportApiChange, we hold it here, and feed it to the
   // titlebar. The setter is memoized so the container's effect doesn't
   // re-fire on every parent render.
-  const [externalImportApi, setExternalImportApi] = useState<{
-    isSaving: boolean;
-    save: () => void;
-  } | null>(null);
-  const handleExternalImportApiChange = useCallback(
-    (api: { isSaving: boolean; save: () => void } | null) => {
-      setExternalImportApi(api);
-    },
-    [],
-  );
-
   useEffect(() => {
     currentDocumentContentRef.current = '';
   }, [currentDocumentInstanceKey]);
@@ -591,9 +578,6 @@ export function MainLayout() {
                 onRequestDeleteMemo={handleRequestDeleteMemo}
                 onColorsChange={handleColorsChange}
                 externalFilePath={isExternalDocument ? currentDocumentPath : null}
-                isExternalSaving={externalImportApi?.isSaving ?? false}
-                onSaveExternalToMemo={externalImportApi?.save}
-                onCopyExternalPath={isExternalDocument ? handleCopyExternalPath : undefined}
               />
             ) : (
               <DocumentTitlebarMac
@@ -615,9 +599,6 @@ export function MainLayout() {
                 onRequestDeleteMemo={handleRequestDeleteMemo}
                 onColorsChange={handleColorsChange}
                 externalFilePath={isExternalDocument ? currentDocumentPath : null}
-                isExternalSaving={externalImportApi?.isSaving ?? false}
-                onSaveExternalToMemo={externalImportApi?.save}
-                onCopyExternalPath={isExternalDocument ? handleCopyExternalPath : undefined}
               />
             )}
 
@@ -640,7 +621,6 @@ export function MainLayout() {
                     currentDocumentContentRef.current = data.memoContent;
                   }}
                   onCharCountChange={setCharCount}
-                  onExternalImportApiChange={handleExternalImportApiChange}
                 />
               ) : (
                 <div className="relative flex h-full w-full items-center justify-center">

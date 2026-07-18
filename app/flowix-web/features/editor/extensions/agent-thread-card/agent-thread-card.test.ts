@@ -48,6 +48,10 @@ vi.mock("@platform/tauri/client", () => ({
   memos: {
     listAgentRoleMemos: vi.fn(async () => []),
   },
+  windows: {
+    openPreferences: vi.fn(async () => undefined),
+    openMarkdownPathTab: vi.fn(async () => undefined),
+  },
   listenToAgentStream: vi.fn(),
 }));
 
@@ -353,6 +357,61 @@ describe("AgentThreadCard NodeView streaming", () => {
       "/Users/rop/Desktop/人物档案/tool-smoke-test/outputs/tool-smoke-report.docx",
     );
     expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("routes an assistant Markdown link through the Flowix tab window", async () => {
+    const { AgentThreadCard } =
+      await import("@features/editor/extensions/agent-thread-card");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const { windows } = await import("@platform/tauri/client");
+    vi.mocked(openPath).mockClear();
+    vi.mocked(windows.openMarkdownPathTab).mockClear();
+
+    const threadId = "thread-card-markdown-link";
+    const host = document.createElement("div");
+    document.body.append(host);
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: {
+        type: "doc",
+        content: [{
+          type: "agentThreadCard",
+          attrs: {
+            threadId,
+            title: "Markdown link",
+            typeKey: "codex",
+            collapsed: false,
+          },
+        }],
+      },
+    });
+
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({
+      kind: "stream_start",
+      thread_id: threadId,
+      agent_type: "codex",
+    });
+    store.dispatchAgentChunk({
+      kind: "text",
+      thread_id: threadId,
+      agent_type: "codex",
+      text: '<a href="/Users/rop/Documents/Outside%20Note.md">Markdown</a>',
+    });
+    await flushAnimationFrame();
+
+    host.querySelector<HTMLAnchorElement>(
+      '.agent-thread-card__message--assistant a[href]',
+    )?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushPromises();
+
+    expect(windows.openMarkdownPathTab).toHaveBeenCalledWith(
+      "/Users/rop/Documents/Outside Note.md",
+    );
+    expect(openPath).not.toHaveBeenCalled();
   });
 
   it("uses the conversation run as the Thread Card footer running source", async () => {

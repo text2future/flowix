@@ -228,7 +228,7 @@ export function TabStrip({
   };
 
   const titleFor = (tab: WindowTab) => (
-    tab.target.kind === 'memo' ? displayTitleFromFilename(tab.title) : tab.title
+    tab.target.kind === 'web' ? tab.title : displayTitleFromFilename(tab.title)
   );
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>, tabId: string) => {

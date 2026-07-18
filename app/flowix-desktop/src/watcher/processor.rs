@@ -241,6 +241,16 @@ fn is_under_attachments_dir(ctx: &NotebookWatchContext, path: &Path) -> bool {
     path_norm.starts_with(&attachments_dir)
 }
 
+/// Memo files live directly under the notebook root. The watcher itself is
+/// recursive because it also observes notebook-owned auxiliary directories,
+/// but Markdown files below arbitrary subdirectories are regular documents,
+/// not memos, and must never be registered in the memo index.
+fn is_direct_notebook_child(ctx: &NotebookWatchContext, path: &Path) -> bool {
+    let root = crate::watcher::path::normalize_for_compare(&ctx.root);
+    let path = crate::watcher::path::normalize_for_compare(path);
+    path.parent().is_some_and(|parent| parent == root)
+}
+
 fn sync_renamed_memo_from_key(
     memo_file: &MemoFile,
     ctx: &NotebookWatchContext,
@@ -352,6 +362,14 @@ impl MemoEventProcessor {
         memo_file: &Arc<std::sync::RwLock<MemoFile>>,
         ctx: &NotebookWatchContext,
     ) {
+        if !is_direct_notebook_child(ctx, &event.path) {
+            tracing::debug!(
+                "[MemoWatcher] processor skipped non-root Markdown path: {}",
+                event.path.display()
+            );
+            return;
+        }
+
         // 防御性拦截: 附件目录下的 .md 文件不是 memo, 一律不处理.
         // 后端 `save_attachment` / `save_attachment_content` 会把任意被选
         // 中的文件复制到 `<notebook>/attachments/`, 包括用户选了另一个
@@ -550,6 +568,20 @@ mod tests {
             notebook_id: "nb_test".to_string(),
             root: base.to_path_buf(),
         }
+    }
+
+    #[test]
+    fn memo_processing_accepts_only_markdown_directly_under_notebook_root() {
+        let (_mf, base) = fresh_memo_file();
+        let ctx = watch_ctx(&base);
+        let root_memo = base.join("Memo.md");
+        let nested_document = base.join("docs").join("Reference.md");
+        fs::create_dir_all(nested_document.parent().unwrap()).unwrap();
+        fs::write(&root_memo, "# Memo\n").unwrap();
+        fs::write(&nested_document, "# Reference\n").unwrap();
+
+        assert!(is_direct_notebook_child(&ctx, &root_memo));
+        assert!(!is_direct_notebook_child(&ctx, &nested_document));
     }
 
     /// 写一个 .md 到 notebook 根目录, 走 register_existing_file 把它登记

@@ -11,7 +11,6 @@ import {
   FileDocIcon,
   ClockIcon,
   TrashSimpleIcon,
-  BoxArrowDownIcon,
   SwatchesIcon,
   StackSimpleIcon,
 } from '@phosphor-icons/react';
@@ -69,6 +68,24 @@ const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
 export type DocumentState = 'empty' | 'memo' | 'external';
 
 // =====================================================================
+// External document titlebar badge — shown next to the path in the
+// child-window titlebar so the user knows this tab edits an external file
+// (the on-disk markdown lives outside the notebook and is not a memo).
+// =====================================================================
+
+export function ExternalTitlebarBadge() {
+  const { t } = useI18n();
+  return (
+    <span
+      className="shrink-0 whitespace-nowrap pl-3 text-xs text-[var(--muted-foreground)]"
+      aria-label={t("document.external.titlebarBadge")}
+    >
+      {t("document.external.titlebarBadge")}
+    </span>
+  );
+}
+
+// =====================================================================
 // External file path display — platform-agnostic, zero-prop besides path
 // =====================================================================
 
@@ -94,61 +111,6 @@ export function ExternalPathDisplay({ path }: { path: string }) {
         ))}
       </div>
     </div>
-  );
-}
-
-// =====================================================================
-// External save button — icon + text identical across platforms,
-// className (height / radius / bg / border / padding) supplied by caller
-// =====================================================================
-
-export function ExternalSaveButton({
-  isSaving,
-  onSave,
-  className,
-}: {
-  isSaving: boolean;
-  onSave: () => void;
-  className: string;
-}) {
-  const { t } = useI18n();
-  return (
-    <button
-      type="button"
-      onClick={onSave}
-      disabled={isSaving}
-      className={className}
-    >
-      <BoxArrowDownIcon className="h-4 w-4" />
-      <span className="text-xs">{isSaving ? t("document.external.save.saving") : t("document.external.save.label")}</span>
-    </button>
-  );
-}
-
-// =====================================================================
-// External copy-path button — icon only, iconButtonClass supplied by caller
-// (uses the same class as the memo action icon buttons for visual unity)
-// =====================================================================
-
-export function ExternalCopyButton({
-  onCopy,
-  iconButtonClass,
-}: {
-  onCopy: () => void;
-  iconButtonClass: string;
-}) {
-  const { t } = useI18n();
-  return (
-    <Tooltip content={t("document.external.copyPathTooltip")}>
-      <button
-        type="button"
-        onClick={onCopy}
-        aria-label={t("document.external.copyPath")}
-        className={iconButtonClass}
-      >
-        <CopyIcon className="w-4 h-4" />
-      </button>
-    </Tooltip>
   );
 }
 

@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged};
 use crate::watcher::path::normalize_for_compare;
-use flowix_core::memo_file::{atomic_write_bytes, Memo, MemoFile, MemoTodoEntry};
+use flowix_core::memo_file::{Memo, MemoFile, MemoTodoEntry};
 use flowix_core::MemoService;
 
 use crate::app::search_index::rebuild_index_in_background;
@@ -333,40 +333,26 @@ pub struct WriteDocumentResult {
     pub content: String,
 }
 
-/// Write a document through either the memo path or an external markdown path.
-///
-/// `internal` resolves by globally unique memo key and may rename the file when
-/// the title changes. `external` writes the provided file path directly.
-/// `expectedContent` is used as a CAS guard for both channels.
+/// Write an indexed memo. Standalone Markdown files use the independent
+/// `write_external_document` command and never enter this path.
 #[tauri::command]
 #[allow(non_snake_case)]
 pub fn write_document(
     key: Option<String>,
-    channel: String,
-    file_path: String,
     content: String,
     expectedContent: Option<String>,
     state: State<AppState>,
     app: AppHandle,
     window: tauri::WebviewWindow,
 ) -> Option<WriteDocumentResult> {
-    match channel.as_str() {
-        "internal" => write_document_internal(
-            key.as_deref(),
-            &content,
-            expectedContent.as_deref(),
-            &state,
-            &app,
-            window.label(),
-        ),
-        "external" => {
-            write_document_external(&file_path, &content, expectedContent.as_deref(), &state)
-        }
-        other => {
-            eprintln!("[write_document] unknown channel: {other}");
-            None
-        }
-    }
+    write_document_internal(
+        key.as_deref(),
+        &content,
+        expectedContent.as_deref(),
+        &state,
+        &app,
+        window.label(),
+    )
 }
 
 /// Write a memo by global key and return the final path/content after rename.
@@ -472,65 +458,6 @@ fn write_document_internal(
         }
         Err(e) => {
             eprintln!("[write_document_internal] write_memo failed for {key}: {e}");
-            None
-        }
-    }
-}
-
-/// Write an external markdown file directly. This does not update memo metadata.
-fn write_document_external(
-    file_path: &str,
-    content: &str,
-    expected_content: Option<&str>,
-    state: &State<AppState>,
-) -> Option<WriteDocumentResult> {
-    if !crate::commands::helpers::can_access_document_path(Path::new(file_path), state) {
-        eprintln!(
-            "[write_document_external] refused out-of-scope path: {}",
-            file_path
-        );
-        return None;
-    }
-    if let Some(parent) = Path::new(file_path).parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let io_path = resolve_document_path_for_io(file_path, state.inner());
-    start_security_bookmark_access(state.inner(), &io_path);
-    if let Some(parent) = io_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    // CAS: reject the write if the file changed since the caller read it.
-    if let Some(expected) = expected_content {
-        match fs::read_to_string(&io_path) {
-            Ok(current_content) if cas_content_matches(&current_content, expected, content) => {}
-            Ok(_) => {
-                eprintln!(
-                    "[write_document_external] CAS refused: {} changed on disk",
-                    file_path
-                );
-                return None;
-            }
-            Err(e) => {
-                eprintln!(
-                    "[write_document_external] Failed to verify {}: {}",
-                    file_path, e
-                );
-                return None;
-            }
-        }
-    }
-
-    match atomic_write_bytes(&io_path, content.as_bytes()) {
-        Ok(_) => Some(WriteDocumentResult {
-            path: io_path.to_string_lossy().to_string(),
-            content: content.to_string(),
-        }),
-        Err(e) => {
-            eprintln!(
-                "[write_document_external] write failed for {}: {}",
-                file_path, e
-            );
             None
         }
     }

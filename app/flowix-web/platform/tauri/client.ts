@@ -242,15 +242,11 @@ export const memos = {
   // - 'external' 鈹€鈹€ 澶栭儴 .md 鏂囦欢, 璧?`filePath` 瀵诲潃 + CAS, 涓嶆敼鍚?
   //   涓嶅姩 memo index銆?
   writeDocument: (params: {
-    key: string | null;
-    channel: 'internal' | 'external';
-    filePath: string;
+    key: string;
     content: string;
     expectedContent?: string;
   }) => invoke<{ path: string; content: string } | null>('write_document', {
     key: params.key,
-    channel: params.channel,
-    filePath: params.filePath,
     content: params.content,
     expectedContent: params.expectedContent,
   }),
@@ -299,6 +295,25 @@ export const memos = {
     absolutePath: string;
     memoTitle: string;
   } | null>('open_memo_by_target', { raw, emitEvent: options?.emitEvent ?? true }),
+};
+
+export type ExternalDocumentWriteOutcome =
+  | { status: 'saved'; path: string; content: string }
+  | { status: 'conflict'; diskContent: string }
+  | { status: 'missing' }
+  | { status: 'error'; message: string };
+
+export const externalDocuments = {
+  read: (filePath: string) => invoke<string>('read_external_document', { filePath }),
+  write: (params: {
+    filePath: string;
+    content: string;
+    expectedContent?: string;
+  }) => invoke<ExternalDocumentWriteOutcome>('write_external_document', {
+    filePath: params.filePath,
+    content: params.content,
+    expectedContent: params.expectedContent,
+  }),
 };
 
 // Tags
@@ -384,6 +399,10 @@ export type TabTarget =
       filePath: string;
     }
   | {
+      kind: 'external_markdown';
+      filePath: string;
+    }
+  | {
       kind: 'web';
       url: string;
     };
@@ -409,11 +428,27 @@ export interface TabDragResult {
   merged: boolean;
 }
 
+export interface ExternalDocumentChangedEvent {
+  path: string;
+  kind: 'modified' | 'deleted';
+  revision: string;
+}
+
 export const windows = {
   showMain: () => invoke<void>('show_main_window'),
   openPreferences: (tab?: string) => invoke<void>('open_preferences_window', { tab }),
   openNoteWindow: (memoId: string) => invoke<void>('open_note_window', { memoId }),
   openNoteTab: (memoId: string) => invoke<void>('open_note_tab', { memoId }),
+  openExternalMarkdownWindow: (filePath: string) =>
+    invoke<void>('open_external_markdown_window', { filePath }),
+  openExternalMarkdownTab: (filePath: string) =>
+    invoke<void>('open_external_markdown_tab', { filePath }),
+  openMarkdownPathTab: (filePath: string) =>
+    invoke<void>('open_markdown_path_tab', { filePath }),
+  watchExternalDocument: (filePath: string) =>
+    invoke<string>('watch_external_document', { filePath }),
+  unwatchExternalDocument: (leaseId: string) =>
+    invoke<void>('unwatch_external_document', { leaseId }),
   tabWindowReady: () => invoke<WindowTab[]>('tab_window_ready'),
   ackTabWindowTransfer: (transferId: string, tabId: string) =>
     invoke<void>('tab_window_ack_transfer', { transferId, tabId }),
