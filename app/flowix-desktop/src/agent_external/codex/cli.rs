@@ -568,6 +568,31 @@ mod tests {
     }
 
     #[test]
+    fn codex_command_enables_web_search_for_new_and_resumed_sessions() {
+        let cwd = std::env::temp_dir();
+        for session_id in [None, Some("019f0000-0000-7000-8000-000000000000")] {
+            let cmd = build_codex_command(session_id, &cwd, &[], None, None, None);
+            let args: Vec<String> = cmd
+                .as_std()
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            let search_index = args
+                .iter()
+                .position(|arg| arg == "--search")
+                .expect("Codex command must enable web search");
+            let exec_index = args
+                .iter()
+                .position(|arg| arg == "exec")
+                .expect("Codex command must contain exec");
+            assert!(
+                search_index < exec_index,
+                "--search is a top-level option and must precede exec: {args:?}"
+            );
+        }
+    }
+
+    #[test]
     fn resumed_codex_session_does_not_add_workspace_dirs() {
         let root = std::env::temp_dir().join(format!(
             "flowix-codex-resume-workspace-test-{}-{}",
@@ -601,10 +626,10 @@ mod tests {
     }
 
     #[test]
-    fn resumed_codex_session_does_not_emit_sandbox_flag() {
+    fn resumed_codex_session_uses_config_override_instead_of_sandbox_flag() {
         // `codex exec resume` 拒绝 `--sandbox`（exit 2: unexpected argument）。
-        // 即便用户在 UI 上配了 permission_mode，resume argv 也必须不带这个标志，
-        // 让 CLI 从 session 状态里恢复首次会话时已持久化的 sandbox 配置。
+        // resume 是新的 CLI invocation，必须用它支持的 config override 重新
+        // 应用 thread card 的权限快照，不能假定首次 turn 的 sandbox 会被恢复。
         let root = std::env::temp_dir().join(format!(
             "flowix-codex-resume-sandbox-test-{}-{}",
             std::process::id(),
@@ -631,6 +656,39 @@ mod tests {
             "resume argv must not contain --sandbox, got: {:?}",
             args
         );
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair[0] == "-c" && pair[1] == "sandbox_mode=\"workspace-write\"" }));
+
+        cleanup(&root);
+    }
+
+    #[test]
+    fn resumed_codex_session_reapplies_yolo_permission_mode() {
+        let root = std::env::temp_dir().join(format!(
+            "flowix-codex-resume-yolo-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
+        ));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+
+        let cmd = build_codex_command(
+            Some("019f0000-0000-7000-8000-000000000000"),
+            &root,
+            &[],
+            Some("yolo"),
+            None,
+            None,
+        );
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(args.iter().any(|arg| arg == "--yolo"));
+        assert!(!args.iter().any(|arg| arg == "--sandbox"));
+        assert!(!args.iter().any(|arg| arg.starts_with("sandbox_mode=")));
 
         cleanup(&root);
     }

@@ -80,9 +80,14 @@ pub(crate) fn build_codex_command_with_images(
     };
     cmd.current_dir(cwd);
     crate::process_window::hide_command_window(&mut cmd);
+    // `--search` is a Codex top-level option (not an `exec` subcommand
+    // option). Keep it before both `exec` and `exec resume` so every Flowix
+    // Codex turn exposes the native Responses web_search tool by default.
+    cmd.arg("--search");
     match session_id {
         Some(session_id) if !session_id.trim().is_empty() => {
             cmd.args(["exec", "resume"]);
+            append_resume_permission_override(&mut cmd, permission_mode);
             append_model_override(&mut cmd, codex_model);
             append_reasoning_effort_override(&mut cmd, reasoning_effort);
             append_image_paths(&mut cmd, image_paths);
@@ -163,6 +168,23 @@ fn append_permission_override(cmd: &mut Command, permission_mode: Option<&str>) 
     if let Some(mode) = normalized_permission_mode(permission_mode) {
         cmd.arg("--sandbox");
         cmd.arg(mode);
+    }
+}
+
+/// `codex exec resume` does not accept `--sandbox`, and each resume starts a
+/// fresh CLI process whose runtime policy is resolved for that invocation.
+/// Keep the thread-card permission snapshot effective on every turn by using
+/// the resume-specific flags/config overrides that the CLI accepts.
+fn append_resume_permission_override(cmd: &mut Command, permission_mode: Option<&str>) {
+    match normalized_permission_mode(permission_mode) {
+        Some("yolo") => {
+            cmd.arg("--yolo");
+        }
+        Some(mode) => {
+            cmd.arg("-c");
+            cmd.arg(format!("sandbox_mode=\"{mode}\""));
+        }
+        None => {}
     }
 }
 
