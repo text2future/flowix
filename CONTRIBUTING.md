@@ -71,19 +71,29 @@ project config; to match the human-friendly convention used by GitHub
 Releases, run `scripts/rename-dmg.sh` after `tauri build`:
 
 ```bash
-# Build arm64 + x86_64 packages first (see scripts/release.sh or tauri docs)
+# 1. Build arm64 + x86_64 packages
 ./node_modules/.bin/tauri build --config app/flowix-desktop/tauri.macos.production.local.json --target aarch64-apple-darwin
 ./node_modules/.bin/tauri build --config app/flowix-desktop/tauri.macos.production.local.json --target x86_64-apple-darwin
 
-# Rename dmg files to Flowix-${VERSION}-macOS-Apple-Silicon.dmg / Flowix-${VERSION}-macOS-Intel.dmg
-./scripts/rename-dmg.sh
-
-# Or copy the renamed files into a release staging dir without touching the originals
+# 2. Rename dmg files to Flowix-${VERSION}-macOS-{Apple-Silicon,Intel}.dmg
 ./scripts/rename-dmg.sh .build/release-${VERSION}
+
+# 3. Upload to GitHub Releases (strict allow-list: only the two dmg files
+#    plus GitHub's tag-generated Source code). Do NOT call `gh release
+#    upload` directly — it bypasses the allow-list.
+./scripts/upload-release.sh v${VERSION} .build/release-${VERSION}
+
+# 4. Edit the draft on github.com to attach release notes, then publish.
 ```
 
-The script reads `version` from `app/Cargo.toml`, so bump that (and
-`tauri.conf.json` / `package.json`) before building.
+The rename and upload scripts read `version` from `app/Cargo.toml`, so
+bump that (and `tauri.conf.json` / `package.json`) before building.
+
+**Always use `scripts/upload-release.sh` for releases** — never `gh release
+upload` directly. The script enforces an allow-list (only the two dmg
+files plus GitHub's tag-generated Source code zip/tar.gz); anything else
+that has somehow ended up on the release is pruned before the upload
+runs.
 
 ## Local workflow
 
