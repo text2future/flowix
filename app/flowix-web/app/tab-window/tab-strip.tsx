@@ -517,7 +517,7 @@ export function TabStrip({
               onDragStart={(event) => handleDragStart(event, tab.id)}
               onDrag={handleDrag}
               onDragEnd={handleDragEnd}
-              className={`group relative flex h-8 min-w-[60px] max-w-[150px] shrink basis-[150px] cursor-default items-center border text-xs transition-[color,background-color,border-color,opacity] [-webkit-app-region:no-drag] ${draggingTabId === tab.id ? 'opacity-45' : ''} ${selected ? 'tab-window-tab--active rounded-t-lg border-[var(--border)] border-b-transparent bg-[var(--document-bg)] text-[var(--foreground)]' : `rounded-lg border-transparent ${hoveredTabId === tab.id && !draggingTabId ? 'bg-[var(--muted)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}`}
+              className={`group relative flex h-8 min-w-[60px] max-w-[150px] shrink basis-[150px] cursor-default items-center border text-xs transition-[color,background-color,border-color,opacity] [-webkit-app-region:no-drag] ${draggingTabId === tab.id ? 'opacity-45' : ''} ${selected ? 'tab-window-tab--active rounded-t-xl border-[var(--border)] border-b-transparent bg-[var(--document-bg)] text-[var(--foreground)]' : `rounded-lg border-transparent ${hoveredTabId === tab.id && !draggingTabId ? 'bg-[var(--muted)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}`}
             >
               {draggingTabId && dropBeforeTabId === tab.id && (
                 <span aria-hidden="true" className="pointer-events-none absolute -left-px top-1 bottom-1 z-20 w-0.5 rounded-full bg-[var(--brand)]" />
@@ -537,7 +537,7 @@ export function TabStrip({
               >
                 {title}
               </button>
-              <button type="button" draggable={false} data-tab-close aria-label={`Close ${title}`} className="mr-2 flex h-5 w-5 shrink-0 cursor-default items-center justify-center rounded-md opacity-60 hover:bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)] hover:opacity-100 [-webkit-app-region:no-drag]" onClick={() => onClose(tab.id)}>
+              <button type="button" draggable={false} data-tab-close aria-label={`Close ${title}`} className="mr-2 flex h-5 w-5 shrink-0 cursor-default items-center justify-center rounded-full opacity-60 hover:bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)] hover:opacity-100 [-webkit-app-region:no-drag]" onClick={() => onClose(tab.id)}>
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
