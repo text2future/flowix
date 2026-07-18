@@ -140,6 +140,72 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     );
   });
 
+  it("projects live chunks in a tab-host bridge and releases it after the last owner", async () => {
+    const { listenToAgentStream } = await import("@platform/tauri/client");
+    const { acquireAgentChunkBridge, useChatStore } = await import(
+      "@features/agent/store/chat-store"
+    );
+    const unlisten = vi.fn();
+    let emitChunk!: (chunk: AgentChunk) => void;
+    vi.mocked(listenToAgentStream).mockImplementationOnce((handler, options) => {
+      emitChunk = handler;
+      options?.onListenerReady?.();
+      return unlisten;
+    });
+
+    const readyA = vi.fn();
+    const releaseA = acquireAgentChunkBridge(readyA);
+    const releaseB = acquireAgentChunkBridge();
+    expect(readyA).toHaveBeenCalledTimes(1);
+    expect(listenToAgentStream).toHaveBeenCalledTimes(1);
+
+    const threadId = "tab-host-thread";
+    emitChunk({ kind: "stream_start", thread_id: threadId });
+    emitChunk({ kind: "text", thread_id: threadId, text: "Live child-window reply" });
+    await flushAnimationFrame();
+
+    const running = useChatStore.getState().threadStates[threadId];
+    expect(running.isLoading).toBe(true);
+    expect(running.messages[0]?.content).toBe("Live child-window reply");
+
+    emitChunk({ kind: "stream_end", thread_id: threadId, reason: null });
+    expect(useChatStore.getState().threadStates[threadId].isLoading).toBe(false);
+
+    releaseA();
+    expect(unlisten).not.toHaveBeenCalled();
+    releaseB();
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes final history when listener recovery finds a locally running thread ended", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/chat-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
+    const { reconcileAgentRunsAndRefreshEndedHistory } = await import(
+      "@features/agent/hooks/use-agent-events"
+    );
+    const threadId = "tab-host-ended-during-listener-recovery";
+    useChatStore.getState().reconcileRunningRunsFromSnapshot({
+      [threadId]: {
+        runId: "run-ended-offline",
+        agentType: "flowix",
+        startedAt: Date.now() - 10_000,
+        currentTool: null,
+      },
+    });
+    vi.mocked(agent.runningThreads).mockResolvedValueOnce({});
+    const loadMessages = vi
+      .spyOn(useAgentConversationStore.getState(), "loadMessages")
+      .mockResolvedValueOnce();
+
+    await reconcileAgentRunsAndRefreshEndedHistory();
+
+    expect(useChatStore.getState().threadStates[threadId].isLoading).toBe(false);
+    expect(loadMessages).toHaveBeenCalledWith("flowix", threadId);
+  });
+
   it("routes streamed assistant text into the same thread state consumed by Thread Card", async () => {
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const { useAgentConversationStore } = await import(

@@ -1,16 +1,13 @@
 'use client';
 
 import { useEffect } from "react";
-import { useAgentEvents } from "@features/agent/hooks/use-agent-events";
-import { listenToAgentAccessChanges, windows } from "@platform/tauri/client";
-import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
-import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
-import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useI18n } from "@features/i18n";
+import { windows } from "@platform/tauri/client";
 import { useDocumentStore } from "@features/document/store/document-store";
 import { useMemoStore } from "@features/memo/store/memo-store";
 import { useTagStore } from "@features/memo/store/tag-store";
 import { useTodoCountStore } from "@features/memo/store/todo-count-store";
-import { prewarmNotebookCache, invalidateNotebookCache } from "@features/editor/extensions/note-link";
 import { invalidateMentionNotes } from "@features/editor/extensions/note-mention";
 import { invalidateMentionTags } from "@features/editor/extensions/tag-mention";
 import { toast } from "@/lib/toast";
@@ -22,19 +19,15 @@ import {
 } from "@platform/open-target";
 
 export function MainWindowEffects() {
-  useAgentEvents();
+  const { t } = useI18n();
+  const mainWindowTitle = t("window.main.title");
 
-  const refreshAgentRuntime = useAgentRuntimeStore((s) => s.refresh);
   useEffect(() => {
-    void refreshAgentRuntime({ force: true });
-  }, [refreshAgentRuntime]);
-
-  const hydrateAgentConversations = useAgentConversationStore(
-    (s) => s.hydrateFromBackend,
-  );
-  useEffect(() => {
-    void hydrateAgentConversations();
-  }, [hydrateAgentConversations]);
+    document.title = mainWindowTitle;
+    void getCurrentWindow().setTitle(mainWindowTitle).catch(() => {
+      // Browser preview or unavailable Tauri window API.
+    });
+  }, [mainWindowTitle]);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -49,7 +42,7 @@ export function MainWindowEffects() {
             invalidateMentionNotes();
             invalidateMentionTags();
           },
-          openNoteWindow: windows.openNoteWindow,
+          openNoteTab: windows.openNoteTab,
           reportOpenFailure: (error) => {
             console.warn("[MainWindowEffects] open created note window failed", error);
             toast.error(error instanceof Error ? error.message : String(error));
@@ -72,22 +65,6 @@ export function MainWindowEffects() {
       disposed = true;
       unsubscribe?.();
     };
-  }, []);
-
-  const loadAgentAccess = useAgentAccessStore((s) => s.loadInitial);
-  useEffect(() => {
-    void loadAgentAccess();
-    return listenToAgentAccessChanges(() => {
-      void loadAgentAccess();
-      invalidateNotebookCache();
-      invalidateMentionNotes();
-      invalidateMentionTags();
-      void prewarmNotebookCache();
-    });
-  }, [loadAgentAccess]);
-
-  useEffect(() => {
-    void prewarmNotebookCache();
   }, []);
 
   useEffect(() => {

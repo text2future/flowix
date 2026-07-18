@@ -19,6 +19,8 @@ export {
   getDocumentBuffer,
   hasDocumentUnsavedChanges,
   applyLoadedDocumentContent,
+  consumeStagedDocumentSnapshot,
+  stageDocumentSnapshot,
   setActiveDocumentPath,
 } from '@features/document/store/document-session-service';
 export {

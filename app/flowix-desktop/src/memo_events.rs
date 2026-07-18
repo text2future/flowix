@@ -258,14 +258,17 @@ mod tests {
     #[test]
     fn content_update_targets_only_sibling_windows() {
         assert!(!is_sibling_window_target(
-            &EventTarget::window("note-abc"),
-            "note-abc",
+            &EventTarget::window("tab-host-abc"),
+            "tab-host-abc",
         ));
         assert!(is_sibling_window_target(
             &EventTarget::window("main"),
-            "note-abc",
+            "tab-host-abc",
         ));
-        assert!(!is_sibling_window_target(&EventTarget::any(), "note-abc",));
+        assert!(!is_sibling_window_target(
+            &EventTarget::any(),
+            "tab-host-abc",
+        ));
     }
 
     #[test]
@@ -278,12 +281,12 @@ mod tests {
         let main = WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .unwrap();
-        let note = WebviewWindowBuilder::new(&app, "note-abc", Default::default())
+        let tab_host = WebviewWindowBuilder::new(&app, "tab-host-abc", Default::default())
             .build()
             .unwrap();
         let (tx, rx) = channel();
 
-        for (label, window) in [("main", &main), ("note-abc", &note)] {
+        for (label, window) in [("main", &main), ("tab-host-abc", &tab_host)] {
             let tx = tx.clone();
             window.listen(MEMO_CONTENT_UPDATED_EVENT, move |event| {
                 let payload: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
@@ -293,7 +296,7 @@ mod tests {
 
         emit_content_updated_to_sibling_windows(
             app.handle(),
-            note.label(),
+            tab_host.label(),
             "memo-1",
             "/notes/memo-1.md",
         );
@@ -312,7 +315,7 @@ mod tests {
         );
 
         let (recipient, payload) = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(recipient, "note-abc");
+        assert_eq!(recipient, "tab-host-abc");
         assert_eq!(payload["id"], "memo-1");
         assert_eq!(payload["path"], "/notes/memo-1-renamed.md");
         assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());

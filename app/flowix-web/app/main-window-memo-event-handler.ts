@@ -4,7 +4,7 @@ import type { MemoItem } from '@/types/memo-item';
 export interface MainWindowMemoEventActions {
   getSelectedNotebookId: () => string | null;
   invalidateMentionCaches: () => void;
-  openNoteWindow: (memoId: string) => Promise<void>;
+  openNoteTab: (memoId: string) => Promise<void>;
   reportOpenFailure: (error: unknown) => void;
   handleMemoCreated: (memo: MemoItem) => void;
   handleMemoUpdated: (memo: MemoItem) => void;
@@ -17,9 +17,10 @@ export interface MainWindowMemoEventActions {
 /**
  * Route one memo event inside the main Webview.
  *
- * Window opening is intentionally independent of the selected notebook. List
- * and tag metadata updates are scoped to the selected notebook, while the
- * notebook-keyed todo count may safely refresh in the background.
+ * Externally created notes always open. Application-created notes also open
+ * when they belong to a known background notebook, because the selected list
+ * cannot present them. List and tag metadata updates remain scoped to the
+ * selected notebook, while notebook-keyed todo counts refresh in background.
  */
 export function handleMainWindowMemoEvent(
   event: MemoEvent,
@@ -27,11 +28,15 @@ export function handleMainWindowMemoEvent(
 ): void {
   actions.invalidateMentionCaches();
 
-  if (event.kind === 'created' && event.source === 'external_tool') {
-    void actions.openNoteWindow(event.memo.id).catch(actions.reportOpenFailure);
+  const selectedNotebookId = actions.getSelectedNotebookId();
+  const shouldOpenCreatedNote = event.kind === 'created' && (
+    event.source === 'external_tool'
+    || (!!selectedNotebookId && selectedNotebookId !== event.notebookId)
+  );
+  if (shouldOpenCreatedNote) {
+    void actions.openNoteTab(event.memo.id).catch(actions.reportOpenFailure);
   }
 
-  const selectedNotebookId = actions.getSelectedNotebookId();
   if (!selectedNotebookId || selectedNotebookId !== event.notebookId) {
     if (event.derivedChanged.todos) {
       actions.refreshBackgroundTodoCount(event.notebookId);

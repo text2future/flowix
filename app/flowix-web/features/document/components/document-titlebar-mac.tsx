@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
 import { Tooltip } from '@shared/ui/tooltip';
@@ -36,6 +37,7 @@ interface DocumentTitlebarMacProps {
   isExternalSaving?: boolean;
   onSaveExternalToMemo?: () => void;
   onCopyExternalPath?: () => void;
+  windowTabs?: ReactNode;
 }
 
 const NAV_BTN =
@@ -68,6 +70,7 @@ export function DocumentTitlebarMac({
   isExternalSaving = false,
   onSaveExternalToMemo,
   onCopyExternalPath,
+  windowTabs,
 }: DocumentTitlebarMacProps) {
   const { t } = useI18n();
   const documentState: DocumentState = currentMemo
@@ -79,6 +82,7 @@ export function DocumentTitlebarMac({
   return (
     <div
       data-tauri-drag-region
+      data-tab-window-header={windowTabs ? '' : undefined}
       className={`h-12 shrink-0 ${isSidebarHidden ? 'pl-[90px]' : 'pl-0'} pr-0 z-[50] flex items-center`}
       style={{ backgroundImage: 'linear-gradient(to bottom, var(--bg-titlebar), transparent)' }}
     >
@@ -123,11 +127,20 @@ export function DocumentTitlebarMac({
         )}
       </div>
 
-      {documentState === 'external' && externalFilePath && (
+      {windowTabs && (
+        <div className="ml-[90px] mr-1 flex h-8 min-w-0 flex-1" data-tauri-drag-region>
+          {windowTabs}
+        </div>
+      )}
+
+      {!windowTabs && documentState === 'external' && externalFilePath && (
         <ExternalPathDisplay path={externalFilePath} />
       )}
 
-      <div className="ml-auto flex shrink-0 items-center gap-3 pr-2">
+      <div
+        data-tauri-drag-region
+        className={`${windowTabs ? '' : 'ml-auto'} flex shrink-0 items-center gap-3 pr-2`}
+      >
         {documentState === 'memo' && currentMemo && (
           <MemoActions
             memo={currentMemo}

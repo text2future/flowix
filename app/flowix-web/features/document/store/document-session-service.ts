@@ -11,7 +11,10 @@ import {
 } from '@features/document/store/buffer-registry';
 import { isContentSemanticallyEqual } from '@features/document/store/buffer-equality';
 import type { DocumentBuffer } from '@features/document/store/document-buffer';
-import type { DocumentIdentity } from '@features/document/store/document-identity';
+import {
+  documentIdentityKey,
+  type DocumentIdentity,
+} from '@features/document/store/document-identity';
 import { canonicalPath } from '@/lib/path';
 
 
@@ -24,6 +27,36 @@ interface DocumentDraftSnapshot {
 interface DocumentEditResult {
   changed: boolean;
   buffer: DocumentBuffer;
+}
+
+interface StagedDocumentSnapshot {
+  path: string;
+  content: string;
+}
+
+const stagedDocumentSnapshots = new Map<string, StagedDocumentSnapshot>();
+
+/** One-shot authoritative content returned together with memo metadata. */
+export function stageDocumentSnapshot(
+  identity: DocumentIdentity,
+  path: string,
+  content: string,
+): void {
+  stagedDocumentSnapshots.set(documentIdentityKey(identity), {
+    path: canonicalPath(path),
+    content,
+  });
+}
+
+export function consumeStagedDocumentSnapshot(
+  identity: DocumentIdentity,
+  path: string,
+): string | null {
+  const key = documentIdentityKey(identity);
+  const snapshot = stagedDocumentSnapshots.get(key);
+  if (!snapshot || snapshot.path !== canonicalPath(path)) return null;
+  stagedDocumentSnapshots.delete(key);
+  return snapshot.content;
 }
 
 interface SaveDocumentContentOptions {

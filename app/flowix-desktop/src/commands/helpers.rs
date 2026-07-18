@@ -19,12 +19,11 @@ pub(crate) fn start_security_bookmark_access(state: &AppState, path: &Path) {
 pub(crate) fn refresh_watcher_roots(state: &AppState, app: &AppHandle) {
     let configs = {
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        memo_file
-            .current_notebook_id_value()
-            .and_then(|id| memo_file.get_notebook_config_by_id(&id))
-            .into_iter()
-            .collect()
+        memo_file.read_notebook_configs().unwrap_or_default()
     };
+    for config in &configs {
+        start_security_bookmark_access(state, Path::new(&config.path));
+    }
     if let Some(watcher) = current_watcher(app) {
         if let Ok(mut g) = watcher.write() {
             g.rebind_all(app.clone(), configs);
@@ -99,7 +98,6 @@ fn switch_notebook(
             poisoned.into_inner()
         })
         .set_current_notebook(notebook_id);
-    refresh_watcher_roots(state, app);
 
     match reconcile_mode {
         ReconcileMode::Skip => {}

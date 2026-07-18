@@ -218,7 +218,7 @@ export interface ChatStore {
    * 清掉前端残留的 running 标记。
    */
   reconcileRunningRunsFromSnapshot: (running: Record<string, RunInfo>) => void;
-  reconcileRunningRuns: () => Promise<void>;
+  reconcileRunningRuns: () => Promise<Record<string, RunInfo>>;
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -827,6 +827,7 @@ export const useChatStore = create<ChatStore>()(
         reconcileRunningRuns: async () => {
           const running = await agentClient.runningThreads();
           get().reconcileRunningRunsFromSnapshot(running);
+          return running;
         },
       };
     },
@@ -852,24 +853,55 @@ export const useChatStore = create<ChatStore>()(
 );
 
 // ============================================================
-// 顶层 listener 注册 ── app.tsx 一次性挂载。
+// Window-level listener registration.
 // ============================================================
 //
-// 这段 IIFE 模块加载时跑, 把 `dispatchAgentChunk` 桥接到 listenToAgentChunks:
-// - 两窗口 (主窗口 / 偏好窗口) 都 import 这个模块, 但 listenToAgentChunks
-//   内部用 `streamUnlisten` 短路, 第二个调用直接 return ── 不会重复挂载。
-// - `useAgentEvents` 在 app.tsx 顶层显式挂一次, 卸载时 unlisten。
-// - `dispatchAgentChunk` 通过 zustand store 派发, 跨组件共享状态。
+// Each content-capable Webview (main / tab-host) owns an independent module
+// realm and Zustand store. AgentWindowEffects acquires this once in each
+// realm; reference counting keeps StrictMode/HMR mounts balanced while the
+// underlying event bus still owns only one native Tauri listener.
 //
-// 这里保留一段 `installAgentChunkBridge` 暴露, 给 `useAgentEvents` 调用;
-// 内部直接 import store 派发, 避免 `client.ts` 反向依赖 store (会形成
-// 循环引用: store → client → store)。
+// The shared event bus retries transient Tauri listen failures while this
+// logical subscription remains active. Dispatch stays here to avoid a reverse
+// dependency from client.ts to the store.
 
-let bridgeInstalled = false;
-export function installAgentChunkBridge(): void {
-  if (bridgeInstalled) return;
-  bridgeInstalled = true;
-  void listenToAgentChunks((chunk) => {
-    useChatStore.getState().dispatchAgentChunk(chunk);
-  });
+let bridgeReferences = 0;
+let bridgeUnlisten: (() => void) | null = null;
+let bridgeReady = false;
+const bridgeReadyHandlers = new Set<() => void>();
+
+function notifyAgentChunkBridgeReady(): void {
+  bridgeReady = true;
+  for (const handler of [...bridgeReadyHandlers]) handler();
+}
+
+/** Acquire this Webview's single agent-chunk projection bridge. */
+export function acquireAgentChunkBridge(onReady?: () => void): () => void {
+  bridgeReferences += 1;
+  if (onReady) bridgeReadyHandlers.add(onReady);
+
+  if (!bridgeUnlisten) {
+    bridgeUnlisten = listenToAgentChunks(
+      (chunk) => useChatStore.getState().dispatchAgentChunk(chunk),
+      { onListenerReady: notifyAgentChunkBridgeReady },
+    );
+  } else if (bridgeReady && onReady) {
+    queueMicrotask(() => {
+      if (bridgeReadyHandlers.has(onReady)) onReady();
+    });
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (onReady) bridgeReadyHandlers.delete(onReady);
+    bridgeReferences = Math.max(0, bridgeReferences - 1);
+    if (bridgeReferences > 0) return;
+
+    bridgeUnlisten?.();
+    bridgeUnlisten = null;
+    bridgeReady = false;
+    bridgeReadyHandlers.clear();
+  };
 }

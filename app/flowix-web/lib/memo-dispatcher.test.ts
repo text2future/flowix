@@ -19,12 +19,12 @@ describe('memo dispatcher window isolation', () => {
 
   it('routes a backend external-created event through the bridge to the main window opener', async () => {
     const { memoDispatcher } = await import('./memo-dispatcher');
-    const openNoteWindow = vi.fn().mockResolvedValue(undefined);
+    const openNoteTab = vi.fn().mockResolvedValue(undefined);
     const unsubscribe = memoDispatcher.subscribe((event) => {
       handleMainWindowMemoEvent(event, {
         getSelectedNotebookId: () => 'notebook-a',
         invalidateMentionCaches: vi.fn(),
-        openNoteWindow,
+        openNoteTab,
         reportOpenFailure: vi.fn(),
         handleMemoCreated: vi.fn(),
         handleMemoUpdated: vi.fn(),
@@ -58,7 +58,7 @@ describe('memo dispatcher window isolation', () => {
       source: 'external_tool',
     });
 
-    expect(openNoteWindow).toHaveBeenCalledWith('memo-external');
+    expect(openNoteTab).toHaveBeenCalledWith('memo-external');
     unsubscribe();
   });
 });

@@ -20,6 +20,7 @@ export const messages = {
     "language.zhCN": "简体中文",
     "language.enUS": "English",
 
+    "window.main.title": "首页",
     "preferences.title": "偏好设置",
     "preferences.groups.features": "功能",
     "preferences.groups.ai": "AI",
@@ -390,6 +391,7 @@ export const messages = {
     "window.minimize": "最小化",
     "window.maximize": "最大化",
     "window.close": "关闭",
+    "tabWindow.all": "全部",
     "error.title": "出错了",
     "error.unexpected": "发生了意外错误",
     "error.retry": "重试",
@@ -965,6 +967,7 @@ export const messages = {
     "language.zhCN": "Simplified Chinese",
     "language.enUS": "English",
 
+    "window.main.title": "Home",
     "preferences.title": "Preferences",
     "preferences.groups.features": "Features",
     "preferences.groups.ai": "AI",
@@ -1357,6 +1360,7 @@ export const messages = {
     "window.minimize": "Minimize",
     "window.maximize": "Maximize",
     "window.close": "Close",
+    "tabWindow.all": "All",
     "error.title": "Something went wrong",
     "error.unexpected": "An unexpected error occurred",
     "error.retry": "Retry",

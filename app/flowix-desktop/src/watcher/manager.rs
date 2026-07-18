@@ -1,4 +1,4 @@
-//! 笔记目录文件监听 — 包装 `notify::RecommendedWatcher` 监听当前 notebook
+//! 笔记目录文件监听 — 包装 `notify::RecommendedWatcher` 监听全部已配置 notebook
 //! 目录, 把外部编辑器 / 其他 AI 的磁盘变更转为 `MemoEvent::Updated` 或
 //! `MemoEvent::Deleted` emit 给前端。
 //!

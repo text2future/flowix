@@ -753,7 +753,7 @@ export function MemoList() {
   }, []);
 
   const handleOpenMemoWindow = useCallback((memo: MemoItem) => {
-    void tauriWindows.openNoteWindow(memo.id).catch((error) => {
+    void tauriWindows.openNoteTab(memo.id).catch((error) => {
       console.warn('[MemoList] open note window failed', error);
       toast.error(String(error));
     });

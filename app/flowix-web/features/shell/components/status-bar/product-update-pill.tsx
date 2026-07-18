@@ -26,7 +26,7 @@ export function ProductUpdatePill() {
 
   useEffect(() => {
     if (isLoading || !settings.productUpdates.enabled) return;
-    if (window.location.hash.startsWith('#preferences') || window.location.hash.startsWith('#note-window')) {
+    if (window.location.hash.startsWith('#preferences') || window.location.hash.startsWith('#tab-window')) {
       return;
     }
     const timer = window.setTimeout(() => {

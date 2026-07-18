@@ -23,12 +23,16 @@ const PreferencesView = lazy(() =>
   import("@features/preferences").then((module) => ({ default: module.PreferencesView }))
 );
 
-const FixedNoteWindow = lazy(() =>
-  import("./fixed-note-window").then((module) => ({ default: module.FixedNoteWindow }))
+const TabWindow = lazy(() =>
+  import("./tab-window/tab-window").then((module) => ({ default: module.TabWindow }))
 );
 
 const MainWindowEffects = lazy(() =>
   import("./main-window-effects").then((module) => ({ default: module.MainWindowEffects }))
+);
+
+const AgentWindowEffects = lazy(() =>
+  import("./agent-window-effects").then((module) => ({ default: module.AgentWindowEffects }))
 );
 
 function AppToaster() {
@@ -90,19 +94,22 @@ function App() {
     };
   }, []);
 
-  const isNoteWindow = hash.startsWith("#note-window");
+  const isTabWindow = hash.startsWith("#tab-window");
   const isPreferencesWindow = hash.startsWith("#preferences");
 
-  if (isNoteWindow) {
+  if (isTabWindow) {
     return (
       <ErrorBoundary>
         <AppToaster />
         <I18nProvider language={settings.language}>
           <ThemeProvider>
+            <Suspense fallback={null}>
+              <AgentWindowEffects />
+            </Suspense>
             <TooltipProvider>
               <ShortcutsProvider overrides={settings.shortcuts}>
                 <Suspense fallback={null}>
-                  <FixedNoteWindow />
+                  <TabWindow />
                 </Suspense>
               </ShortcutsProvider>
             </TooltipProvider>
@@ -137,6 +144,9 @@ function App() {
       <AppToaster />
       <I18nProvider language={settings.language}>
         <ThemeProvider>
+          <Suspense fallback={null}>
+            <AgentWindowEffects />
+          </Suspense>
           <Suspense fallback={null}>
             <MainWindowEffects />
           </Suspense>

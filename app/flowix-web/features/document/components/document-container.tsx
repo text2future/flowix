@@ -240,6 +240,12 @@ export function DocumentContainer({
     // 状态下的 rename 冲突由 useExternalDocumentChangeWatch 在事件
     // listener 里走 maybeWarnAboutConflict。
     if (!instanceKeyChanged && filePath === prevFilePathRef.current) {
+      // Restoring a retained single-tab window starts a new document
+      // transition, but this mounted editor already has the current content.
+      // Skip the redundant reload while still releasing the loading overlay.
+      if (transitionId !== null) {
+        useDocumentStore.getState().finishDocumentTransition(transitionId);
+      }
       return;
     }
 

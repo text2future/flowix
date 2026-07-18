@@ -1,5 +1,8 @@
 import { create } from 'zustand';
-import { flushDocumentPath } from '@features/document/store/document-session-service';
+import {
+  flushDocumentPath,
+  stageDocumentSnapshot,
+} from '@features/document/store/document-session-service';
 import { canonicalPath } from '@/lib/path';
 import type { DocumentIdentity } from '@features/document/store/document-identity';
 import { useDocumentHistoryStore, type MemoHistoryEntry } from '@features/document/store/document-history-store';
@@ -47,9 +50,11 @@ interface DocumentStore {
     notebookId?: string | null;
     notebookPath?: string | null;
     history?: 'push' | 'skip';
+    initialContent?: string;
   }) => Promise<void>;
   openExternalDocument: (path: string | null) => Promise<void>;
   clearDocument: () => Promise<void>;
+  discardMemoDocument: (memoId: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +174,14 @@ export const useDocumentStore = create<DocumentStore>()(
         };
       });
     },
-    openMemoDocument: async ({ memoId, path, notebookId = null, notebookPath = null, history = 'push' }) => {
+    openMemoDocument: async ({
+      memoId,
+      path,
+      notebookId = null,
+      notebookPath = null,
+      history = 'push',
+      initialContent,
+    }) => {
       const startedAt = performance.now();
       const canonicalNewPath = path ? canonicalPath(path) : null;
       if (isSameMemoTarget(get(), memoId, canonicalNewPath)) {
@@ -200,7 +212,8 @@ export const useDocumentStore = create<DocumentStore>()(
             // Flush pending edits on the outgoing document before
             // committing the new session. All document transitions are
             // queued here, so rapid clicks cannot overlap flush/set phases.
-            await flushDocumentPath(sessionIdentity(prev), prev.path);
+            const flushed = await flushDocumentPath(sessionIdentity(prev), prev.path);
+            if (!flushed) throw new Error('Document switch cancelled because saving did not complete');
             logOpenDocPerf('openMemoDocument:flush-previous', flushStartedAt, {
               transitionId,
               previousPath: prev.path,
@@ -213,6 +226,13 @@ export const useDocumentStore = create<DocumentStore>()(
             (prevMemo.memoId !== memoId || prevMemo.path !== canonicalNewPath)
           ) {
             useDocumentHistoryStore.getState().pushBack(memoHistoryEntryFromSession(prevMemo));
+          }
+          if (canonicalNewPath && initialContent !== undefined) {
+            stageDocumentSnapshot(
+              { kind: 'memo', id: memoId },
+              canonicalNewPath,
+              initialContent,
+            );
           }
           set(() => {
             if (!canonicalNewPath) return documentState(null, null);
@@ -262,7 +282,8 @@ export const useDocumentStore = create<DocumentStore>()(
 
           const prev = get().activeMemoSession ?? get().activeExternalSession;
           if (prev) {
-            await flushDocumentPath(sessionIdentity(prev), prev.path);
+            const flushed = await flushDocumentPath(sessionIdentity(prev), prev.path);
+            if (!flushed) throw new Error('Document switch cancelled because saving did not complete');
           }
           set(() => {
             if (!canonicalNewPath) return documentState(null, null);
@@ -290,9 +311,22 @@ export const useDocumentStore = create<DocumentStore>()(
       return enqueueTransition(async () => {
         const prev = get().activeMemoSession ?? get().activeExternalSession;
         if (prev) {
-          await flushDocumentPath(sessionIdentity(prev), prev.path);
+          const flushed = await flushDocumentPath(sessionIdentity(prev), prev.path);
+          if (!flushed) throw new Error('Document close cancelled because saving did not complete');
         }
         set(documentState(null, null));
+      });
+    },
+    discardMemoDocument: async (memoId) => {
+      return enqueueTransition(async () => {
+        const activeMemo = get().activeMemoSession;
+        if (activeMemo?.memoId === memoId) {
+          // The source has already been deleted, so flushing would either
+          // recreate it or fail and strand its tab. This path is deliberately
+          // narrower than clearDocument: callers must identify the deleted
+          // memo whose active session may be discarded.
+          set(documentState(null, null));
+        }
       });
     },
   })

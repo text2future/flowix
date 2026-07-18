@@ -5,6 +5,7 @@ import { useMemoStore } from '@features/memo';
 import {
   setActiveDocumentPath,
   applyLoadedDocumentContent,
+  consumeStagedDocumentSnapshot,
   useDocumentStore,
   type DocumentIdentity,
 } from '@features/document';
@@ -117,6 +118,19 @@ export function useDocumentContent({
       // target the right buffer.
       setActiveDocumentPath(identity, path);
       const currentLoadId = ++counter.current;
+      const stagedContent = consumeStagedDocumentSnapshot(identity, path);
+      if (stagedContent !== null) {
+        applyLoadedContent(path, stagedContent, { preservePending: false });
+        logOpenDocPerf('reloadDocument:staged', startedAt, {
+          memoId,
+          transitionId,
+          bytes: stagedContent.length,
+        });
+        if (transitionId !== null) {
+          useDocumentStore.getState().finishDocumentTransition(transitionId);
+        }
+        return;
+      }
       if (options?.showLoading ?? true) {
         setState((prev) => ({
           ...prev,

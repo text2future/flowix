@@ -37,7 +37,7 @@ function createActions(selectedNotebookId = 'notebook-a'): MainWindowMemoEventAc
   return {
     getSelectedNotebookId: vi.fn(() => selectedNotebookId),
     invalidateMentionCaches: vi.fn(),
-    openNoteWindow: vi.fn().mockResolvedValue(undefined),
+    openNoteTab: vi.fn().mockResolvedValue(undefined),
     reportOpenFailure: vi.fn(),
     handleMemoCreated: vi.fn(),
     handleMemoUpdated: vi.fn(),
@@ -54,7 +54,7 @@ describe('handleMainWindowMemoEvent', () => {
 
     handleMainWindowMemoEvent(createdEvent(), actions);
 
-    expect(actions.openNoteWindow).toHaveBeenCalledWith('memo-b');
+    expect(actions.openNoteTab).toHaveBeenCalledWith('memo-b');
     expect(actions.handleMemoCreated).not.toHaveBeenCalled();
     expect(actions.refreshSelectedNotebookMetadata).not.toHaveBeenCalled();
     expect(actions.invalidateMentionCaches).toHaveBeenCalledOnce();
@@ -65,7 +65,7 @@ describe('handleMainWindowMemoEvent', () => {
 
     handleMainWindowMemoEvent(createdEvent(), actions);
 
-    expect(actions.openNoteWindow).toHaveBeenCalledWith('memo-b');
+    expect(actions.openNoteTab).toHaveBeenCalledWith('memo-b');
     expect(actions.handleMemoCreated).not.toHaveBeenCalled();
     expect(actions.refreshSelectedNotebookMetadata).not.toHaveBeenCalled();
   });
@@ -88,9 +88,29 @@ describe('handleMainWindowMemoEvent', () => {
 
     handleMainWindowMemoEvent(event, actions);
 
-    expect(actions.openNoteWindow).not.toHaveBeenCalled();
+    expect(actions.openNoteTab).not.toHaveBeenCalled();
     expect(actions.handleMemoCreated).toHaveBeenCalledWith(memo);
     expect(actions.refreshSelectedNotebookMetadata).toHaveBeenCalledWith(event);
+  });
+
+  it('opens a user-created note when it belongs to a background notebook', () => {
+    const actions = createActions('notebook-a');
+    const event = createdEvent({ source: 'user_new' });
+
+    handleMainWindowMemoEvent(event, actions);
+
+    expect(actions.openNoteTab).toHaveBeenCalledWith('memo-b');
+    expect(actions.handleMemoCreated).not.toHaveBeenCalled();
+    expect(actions.refreshSelectedNotebookMetadata).not.toHaveBeenCalled();
+  });
+
+  it('opens an imported note when it belongs to a background notebook', () => {
+    const actions = createActions('notebook-a');
+    const event = createdEvent({ source: 'user_import' });
+
+    handleMainWindowMemoEvent(event, actions);
+
+    expect(actions.openNoteTab).toHaveBeenCalledWith('memo-b');
   });
 
   it('updates metadata and the active path for a current-notebook update', () => {
@@ -109,13 +129,13 @@ describe('handleMainWindowMemoEvent', () => {
 
     expect(actions.handleMemoUpdated).toHaveBeenCalledWith(event.memo);
     expect(actions.replaceActiveMemoPath).toHaveBeenCalledWith(memo.id, event.path);
-    expect(actions.openNoteWindow).not.toHaveBeenCalled();
+    expect(actions.openNoteTab).not.toHaveBeenCalled();
   });
 
   it('reports automatic window-open failures', async () => {
     const error = new Error('window unavailable');
     const actions = createActions('notebook-a');
-    vi.mocked(actions.openNoteWindow).mockRejectedValue(error);
+    vi.mocked(actions.openNoteTab).mockRejectedValue(error);
 
     handleMainWindowMemoEvent(createdEvent(), actions);
 

@@ -47,6 +47,16 @@ pub struct GetMemosResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OpenMemoSessionResponse {
+    pub memo: Memo,
+    pub notebook_id: String,
+    pub notebook_path: String,
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchMemosResponse {
     pub hits: Vec<MemoSearchHit>,
     pub index_ready: bool,

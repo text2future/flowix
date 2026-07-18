@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { subscribe } from '@platform/tauri/event-bus';
+import { subscribe, type SubscribeOptions } from '@platform/tauri/event-bus';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import type { UserSettings } from '@/lib/constants';
 import type {
@@ -17,7 +17,7 @@ import type {
   UsageInfo,
 } from '@/types/agent';
 import type { AgentAccessConfig, AgentAccessEntry } from '@/lib/types/agent-access';
-import type { MemoColor } from '@features/memo';
+import type { MemoColor, MemoItem } from '@features/memo';
 
 // ============================================
 // Types
@@ -192,6 +192,14 @@ export interface MemoVersionMeta {
   contentHash: string;
 }
 
+export interface OpenMemoSession {
+  memo: MemoItem;
+  notebookId: string;
+  notebookPath: string;
+  path: string;
+  content: string;
+}
+
 export const memos = {
   getMemos: (params?: {
     notebookId?: string;
@@ -222,6 +230,8 @@ export const memos = {
   getTodoCount: (notebookId?: string) =>
     invoke<number>('get_memo_todo_count', { notebookId }),
   readMemo: (id: string) => invoke<any | null>('read_memo', { id }),
+  openMemoSession: (id: string) =>
+    invoke<OpenMemoSession | null>('open_memo_session', { id }),
   readDocument: (filePath: string) => invoke<string | null>('read_document', { filePath }),
   // 鍐欑洏 IPC銆傝繑鍥炲€间负 null = 鍐欑洏澶辫触 (璺緞闈炴硶 / CAS refuse / fs error),
   // 鍚﹀垯杩斿洖 { path, content } 鈹€鈹€ `path` 鏄鐩樹笂鏈€缁堢墿鐞嗚矾寰?  // (rename 鍚庡彲鑳借窡 caller 浼犵殑 filePath 涓嶅悓, 鍓嶇闇€瑕佹嵁姝ゅ垏 buf),
@@ -365,19 +375,68 @@ export const dialogs = {
 };
 
 // Windows
-export interface NoteWindowPayload {
-  memoId: string;
-  notebookId: string;
-  notebookPath: string;
-  filePath: string;
+export type TabTarget =
+  | {
+      kind: 'memo';
+      memoId: string;
+      notebookId: string;
+      notebookPath: string;
+      filePath: string;
+    }
+  | {
+      kind: 'web';
+      url: string;
+    };
+
+export interface WindowTab {
+  id: string;
+  title: string;
+  icon: string | null;
+  target: TabTarget;
+}
+
+export interface WindowPosition {
+  x: number;
+  y: number;
+}
+
+export interface WindowRegion extends WindowPosition {
+  width: number;
+  height: number;
+}
+
+export interface TabDragResult {
+  merged: boolean;
 }
 
 export const windows = {
   showMain: () => invoke<void>('show_main_window'),
   openPreferences: (tab?: string) => invoke<void>('open_preferences_window', { tab }),
   openNoteWindow: (memoId: string) => invoke<void>('open_note_window', { memoId }),
-  resolveNoteWindowPayload: (memoId: string) =>
-    invoke<NoteWindowPayload>('resolve_note_window_payload', { memoId }),
+  openNoteTab: (memoId: string) => invoke<void>('open_note_tab', { memoId }),
+  tabWindowReady: () => invoke<WindowTab[]>('tab_window_ready'),
+  ackTabWindowTransfer: (transferId: string, tabId: string) =>
+    invoke<void>('tab_window_ack_transfer', { transferId, tabId }),
+  setTabWindowRegion: (region: WindowRegion) =>
+    invoke<void>('tab_window_set_tab_region', { region }),
+  closeTabWindowTab: (tabId: string) => invoke<void>('tab_window_close_tab', { tabId }),
+  reorderTabWindowTab: (tabId: string, beforeTabId: string | null) =>
+    invoke<void>('tab_window_reorder_tab', { tabId, beforeTabId }),
+  detachTabWindowTab: (
+    tabId: string,
+    position: WindowPosition,
+    dragId: string,
+  ) => invoke<TabDragResult>('tab_window_detach_tab', {
+    tabId,
+    position,
+    dragId,
+  }),
+  beginTabItemDrag: (tabId: string, dragId: string) => invoke<void>('tab_window_begin_tab_item_drag', {
+    tabId,
+    dragId,
+  }),
+  cancelTabItemDrag: (tabId: string, dragId: string) =>
+    invoke<void>('tab_window_cancel_tab_item_drag', { tabId, dragId }),
 };
 
 export interface ProductInfo {
@@ -714,8 +773,11 @@ export const cli = {
 // 鍐呴儴浠呬繚鐣欏巻鍙?API 鍚嶅瓧; 瀹炵幇鍏ㄩ儴璧?event-bus銆?// 澶氫釜璋冪敤鐐?(chat-store 涓?useAgentEvents) 鍏变韩鍚屼竴浠?Tauri listener,
 // 涓嶅啀闇€瑕佹墜宸ヨ窡韪?streamUnlisten銆?鍘?streamUnlisten 浠呯敤浜庡畬鍏?
 // 鍗歌浇 (stopListeningToAgentStream), 鐜板湪涔熻蛋 event-bus.unsubscribe銆?
-export function listenToAgentStream(callback: StreamCallback): UnlistenFn {
-  return subscribe<AgentChunk>('agent-chunk', callback);
+export function listenToAgentStream(
+  callback: StreamCallback,
+  options?: SubscribeOptions,
+): UnlistenFn {
+  return subscribe<AgentChunk>('agent-chunk', callback, options);
 }
 
 // ============================================

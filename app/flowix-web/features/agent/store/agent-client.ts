@@ -1,5 +1,6 @@
 import type { AgentChunk } from "@/types/agent";
 import { agent, listenToAgentStream } from "@platform/tauri/client";
+import type { SubscribeOptions } from "@platform/tauri/event-bus";
 
 export const agentClient = {
   chatStream: agent.chatStream,
@@ -32,6 +33,7 @@ export const agentClient = {
 
 export function listenToAgentChunks(
   callback: (chunk: AgentChunk) => void,
+  options?: SubscribeOptions,
 ): ReturnType<typeof listenToAgentStream> {
-  return listenToAgentStream(callback);
+  return listenToAgentStream(callback, options);
 }

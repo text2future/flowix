@@ -1,6 +1,6 @@
 export {
   useChatStore,
-  installAgentChunkBridge,
+  acquireAgentChunkBridge,
   type ThreadState,
 } from '@features/agent/store/chat-store';
 export { useAgentAccessStore } from '@features/agent/store/agent-access-store';

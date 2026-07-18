@@ -214,6 +214,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_process::init())
         .manage(memo_watcher.clone())
+        .manage(commands::tab_window::TabWindowCoordinator::default())
         .setup(move |app| {
             // ── 0) 启动设备登记 / last_seen 刷新 ─────────────────────
             //   不阻塞: spawn 一个 fire-and-forget tokio 任务, 自己内部
@@ -258,16 +259,17 @@ pub fn run() {
             let dispatcher: crate::events::SharedDispatcher =
                 std::sync::Arc::new(crate::events::TauriDispatcher::new(app.handle().clone()));
             app.manage(dispatcher);
-            // 启动时只监听当前 notebook。未选择 current notebook 时不绑定任何
-            // 根目录, 避免后台 stat/watch macOS 受保护目录触发权限弹窗。
+            // Watch every configured notebook. MCP/external tools may write to
+            // a background notebook, and those creates must still reach the
+            // main Webview so it can route the note into a tab window.
             let initial_notebooks = {
                 let memo_file = crate::lock_utils::read_lock(&memo_file_arc, "memo_file");
-                memo_file
-                    .current_notebook_id_value()
-                    .and_then(|id| memo_file.get_notebook_config_by_id(&id))
-                    .into_iter()
-                    .collect()
+                memo_file.read_notebook_configs().unwrap_or_default()
             };
+            for notebook in &initial_notebooks {
+                security_bookmarks_for_state
+                    .start_accessing_for_path(std::path::Path::new(&notebook.path));
+            }
             memo_watcher
                 .write()
                 .unwrap_or_else(|poisoned| {
@@ -394,6 +396,7 @@ pub fn run() {
             commands::memo::reads::get_memo_todo_metadata,
             commands::memo::reads::get_memo_todo_count,
             commands::memo::reads::read_memo,
+            commands::memo::reads::open_memo_session,
             commands::memo::reads::read_document,
             commands::memo::reads::write_document,
             commands::memo::reads::get_launch_open_files,
@@ -496,8 +499,16 @@ pub fn run() {
             // window
             commands::window::show_main_window,
             commands::window::open_preferences_window,
-            commands::window::open_note_window,
-            commands::window::resolve_note_window_payload,
+            commands::tab_window::open_note_window,
+            commands::tab_window::open_note_tab,
+            commands::tab_window::tab_window_ready,
+            commands::tab_window::tab_window_ack_transfer,
+            commands::tab_window::tab_window_set_tab_region,
+            commands::tab_window::tab_window_close_tab,
+            commands::tab_window::tab_window_reorder_tab,
+            commands::tab_window::tab_window_detach_tab,
+            commands::tab_window::tab_window_begin_tab_item_drag,
+            commands::tab_window::tab_window_cancel_tab_item_drag,
             // 全局"通过链接打开笔记"入口 ── 接收 URL / 物理路径, 解析 + emit
             open_target::handler::open_memo_by_target,
             commands::cli::cli_link_status,

@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged};
 use crate::watcher::path::normalize_for_compare;
-use flowix_core::memo_file::{atomic_write_bytes, Memo, MemoTodoEntry};
+use flowix_core::memo_file::{atomic_write_bytes, Memo, MemoFile, MemoTodoEntry};
 use flowix_core::MemoService;
 
 use crate::app::search_index::rebuild_index_in_background;
@@ -219,6 +219,49 @@ pub fn read_memo(id: String, state: State<AppState>) -> Option<Memo> {
         return None;
     }
     Some(memo)
+}
+
+/// Resolve the authoritative memo metadata, path and body in one IPC.
+///
+/// Tab hosts use this at activation time so inactive tabs remain cheap and a
+/// document switch does not need separate `read_memo` + `read_document` calls.
+#[tauri::command]
+pub fn open_memo_session(id: String, state: State<AppState>) -> Option<OpenMemoSessionResponse> {
+    let (memo, notebook_id, notebook_path, path) = {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let mut service = MemoService::new(&memo_file);
+        let resolved = service.resolve_memo(&id).ok()?;
+        (
+            MemoFile::index_entry_to_memo(&resolved.entry),
+            resolved.notebook.id,
+            resolved.notebook.path,
+            resolved.path,
+        )
+    };
+
+    start_security_bookmark_access(&state, &path);
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                tracing::info!(
+                    "[open_memo_session] file gone, unregistering ghost: {}",
+                    path.display()
+                );
+                let _ = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+                    .delete_memo(&memo.id);
+            }
+            return None;
+        }
+    };
+
+    Some(OpenMemoSessionResponse {
+        memo,
+        notebook_id,
+        notebook_path,
+        path: path.to_string_lossy().to_string(),
+        content,
+    })
 }
 
 #[tauri::command]
