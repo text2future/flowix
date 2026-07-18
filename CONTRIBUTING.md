@@ -61,6 +61,30 @@ changes — it's how reviewers skip what they don't need to read.
   `main`; never from a fork.
 - Draft releases are fine; flip to public after artifacts are uploaded.
 
+### Local manual release (override)
+
+Sometimes a release has to be cut locally — for example, when the CI matrix
+is missing a target, or when iterating on packaging before pushing a tag.
+
+Tauri's own bundler produces `Flowix_${VERSION}_${arch}.dmg` regardless of
+project config; to match the human-friendly convention used by GitHub
+Releases, run `scripts/rename-dmg.sh` after `tauri build`:
+
+```bash
+# Build arm64 + x86_64 packages first (see scripts/release.sh or tauri docs)
+./node_modules/.bin/tauri build --config app/flowix-desktop/tauri.macos.production.local.json --target aarch64-apple-darwin
+./node_modules/.bin/tauri build --config app/flowix-desktop/tauri.macos.production.local.json --target x86_64-apple-darwin
+
+# Rename dmg files to Flowix-${VERSION}-macOS-Apple-Silicon.dmg / Flowix-${VERSION}-macOS-Intel.dmg
+./scripts/rename-dmg.sh
+
+# Or copy the renamed files into a release staging dir without touching the originals
+./scripts/rename-dmg.sh .build/release-${VERSION}
+```
+
+The script reads `version` from `app/Cargo.toml`, so bump that (and
+`tauri.conf.json` / `package.json`) before building.
+
 ## Local workflow
 
 ```bash
