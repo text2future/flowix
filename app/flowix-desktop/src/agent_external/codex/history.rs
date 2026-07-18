@@ -134,8 +134,13 @@ fn read_codex_session_messages(session_id: &str) -> Result<Vec<ChatMessage>, Str
 
         if top_type == "event_msg" {
             if let Some(message) = event_msg_to_chat_message(session_id, idx, &timestamp, payload) {
-                if message.role == "user" && !seen_user_messages.insert(message.content.clone()) {
-                    continue;
+                if message.role == "user" {
+                    if is_hidden_codex_user_message(&message.content) {
+                        continue;
+                    }
+                    if !seen_user_messages.insert(message.content.clone()) {
+                        continue;
+                    }
                 }
                 messages.push(message);
             }
@@ -148,7 +153,7 @@ fn read_codex_session_messages(session_id: &str) -> Result<Vec<ChatMessage>, Str
 
         if let Some(message) = response_item_to_chat_message(session_id, idx, &timestamp, payload) {
             if message.role == "user" {
-                if message.content.starts_with("<environment_context>") {
+                if is_hidden_codex_user_message(&message.content) {
                     continue;
                 }
                 if !seen_user_messages.insert(message.content.clone()) {
@@ -253,11 +258,14 @@ fn read_codex_history_items() -> Result<Vec<HistoryItem>, String> {
         let Some(session_id) = value.get("session_id").and_then(Value::as_str) else {
             continue;
         };
-        let text = value
+        let raw_text = value
             .get("text")
             .and_then(Value::as_str)
-            .unwrap_or("Codex Session")
-            .replace('\n', " ");
+            .unwrap_or("Codex Session");
+        if is_hidden_codex_user_message(raw_text) {
+            continue;
+        }
+        let text = raw_text.replace('\n', " ");
         let ts = value
             .get("ts")
             .and_then(Value::as_i64)
@@ -325,7 +333,7 @@ fn read_codex_session_meta(path: &Path) -> Result<SessionMeta, String> {
                         && payload.get("role").and_then(Value::as_str) == Some("user")
                     {
                         if let Some(text) = content_parts_to_text(payload.get("content")) {
-                            if !text.starts_with("<environment_context>") {
+                            if !is_hidden_codex_user_message(&text) {
                                 title = Some(truncate_title(&text.replace('\n', " ")));
                             }
                         }
@@ -539,6 +547,13 @@ fn content_parts_to_text(content: Option<&Value>) -> Option<String> {
     }
 }
 
+/// Codex 会把运行环境和插件推荐作为 user 消息写入 rollout JSONL。
+/// 这些消息是运行时上下文，不是用户输入，不应进入聊天记录或会话标题。
+fn is_hidden_codex_user_message(content: &str) -> bool {
+    let content = content.trim_start();
+    content.starts_with("<recommended_plugins>") || content.starts_with("<environment_context>")
+}
+
 fn codex_session_files() -> Result<Vec<PathBuf>, String> {
     let Some(home) = dirs::home_dir() else {
         return Ok(Vec::new());
@@ -697,6 +712,20 @@ mod tests {
     fn recognizes_codex_session_ids() {
         assert!(is_codex_session_id("019ed38f-e9e3-7b61-8be3-80a40788d6e3"));
         assert!(!is_codex_session_id("thread_1781665906"));
+    }
+
+    #[test]
+    fn recognizes_runtime_injected_user_messages() {
+        assert!(is_hidden_codex_user_message(
+            "<recommended_plugins>\nplugin list\n</recommended_plugins>"
+        ));
+        assert!(is_hidden_codex_user_message(
+            "  \n<environment_context>\n<cwd>/tmp</cwd>\n</environment_context>"
+        ));
+        assert!(!is_hidden_codex_user_message(
+            "show <environment_context> examples"
+        ));
+        assert!(!is_hidden_codex_user_message("regular user prompt"));
     }
 
     #[test]
