@@ -22,6 +22,7 @@ const WINDOW_CASCADE_SLOTS: usize = 8;
 const TAB_DRAG_HOVER_POLL_INTERVAL: Duration = Duration::from_millis(24);
 const TAB_TRANSFER_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const TAB_WINDOW_READY_TIMEOUT: Duration = Duration::from_secs(8);
+const TAB_WINDOW_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(
@@ -115,12 +116,10 @@ impl WindowRegistry {
         Some((entry.label.clone(), entry.ready))
     }
 
-    fn mark_ready(&mut self, label: &str) -> Vec<WindowTab> {
-        let Some(entry) = self.windows.iter_mut().find(|entry| entry.label == label) else {
-            return Vec::new();
-        };
+    fn mark_ready(&mut self, label: &str) -> Option<Vec<WindowTab>> {
+        let entry = self.windows.iter_mut().find(|entry| entry.label == label)?;
         entry.ready = true;
-        entry.tabs.clone()
+        Some(entry.tabs.clone())
     }
 
     fn set_tab_region(&mut self, label: &str, region: WindowRegion) -> Result<(), String> {
@@ -296,6 +295,7 @@ pub struct TabWindowCoordinator {
     pending_transfers: Mutex<HashMap<String, (String, String)>>,
     transfer_acks: Mutex<HashSet<String>>,
     transfer_notify: tokio::sync::Notify,
+    registered_notify: tokio::sync::Notify,
     ready_notify: tokio::sync::Notify,
 }
 
@@ -311,6 +311,7 @@ impl Default for TabWindowCoordinator {
             pending_transfers: Mutex::new(HashMap::new()),
             transfer_acks: Mutex::new(HashSet::new()),
             transfer_notify: tokio::sync::Notify::new(),
+            registered_notify: tokio::sync::Notify::new(),
             ready_notify: tokio::sync::Notify::new(),
         }
     }
@@ -419,6 +420,29 @@ impl TabWindowCoordinator {
         tokio::time::timeout(TAB_WINDOW_READY_TIMEOUT, wait)
             .await
             .is_ok_and(|value| value)
+    }
+
+    async fn mark_window_ready_when_registered(
+        &self,
+        label: &str,
+    ) -> Result<Vec<WindowTab>, String> {
+        let wait = async {
+            loop {
+                let notified = self.registered_notify.notified();
+                let tabs = self
+                    .registry
+                    .lock()
+                    .map_err(|_| "tab window registry lock poisoned".to_string())?
+                    .mark_ready(label);
+                if let Some(tabs) = tabs {
+                    return Ok(tabs);
+                }
+                notified.await;
+            }
+        };
+        tokio::time::timeout(TAB_WINDOW_REGISTRATION_TIMEOUT, wait)
+            .await
+            .map_err(|_| format!("tab window was not registered before ready timeout: {label}"))?
     }
 
     fn tab_item_drag_is_active(&self, source_label: &str, tab_id: &str, drag_id: &str) -> bool {
@@ -866,7 +890,6 @@ fn cascaded_window_position(
 fn create_window(
     app: &tauri::AppHandle,
     coordinator: &TabWindowCoordinator,
-    registry: &mut WindowRegistry,
     tab: WindowTab,
     position: Option<WindowPosition>,
 ) -> Result<String, String> {
@@ -900,7 +923,12 @@ fn create_window(
     let builder = builder.decorations(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
-    registry.add_window(label.clone(), tab);
+    coordinator
+        .registry
+        .lock()
+        .map_err(|_| "tab window registry lock poisoned".to_string())?
+        .add_window(label.clone(), tab);
+    coordinator.registered_notify.notify_waiters();
     crate::window_chrome::apply_window_border_color(&window);
     // 新窗口即刻对齐主题背景色 (与主窗口启动一致), 避免冷启动白闪。
     let theme = app
@@ -965,7 +993,8 @@ fn route_tab(
         });
 
     let Some((label, ready)) = target else {
-        create_window(app, coordinator, &mut registry, tab, None)?;
+        drop(registry);
+        create_window(app, coordinator, tab, None)?;
         return Ok(());
     };
     drop(registry);
@@ -991,7 +1020,7 @@ fn route_tab(
 }
 
 #[tauri::command]
-pub fn open_note_window(
+pub async fn open_note_window(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
@@ -1006,7 +1035,7 @@ pub fn open_note_window(
 }
 
 #[tauri::command]
-pub fn open_note_tab(
+pub async fn open_note_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
@@ -1021,7 +1050,7 @@ pub fn open_note_tab(
 }
 
 #[tauri::command]
-pub fn open_external_markdown_window(
+pub async fn open_external_markdown_window(
     app: tauri::AppHandle,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
     file_path: String,
@@ -1035,7 +1064,7 @@ pub fn open_external_markdown_window(
 }
 
 #[tauri::command]
-pub fn open_external_markdown_tab(
+pub async fn open_external_markdown_tab(
     app: tauri::AppHandle,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
     file_path: String,
@@ -1049,7 +1078,7 @@ pub fn open_external_markdown_tab(
 }
 
 #[tauri::command]
-pub fn open_markdown_path_tab(
+pub async fn open_markdown_path_tab(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
@@ -1059,15 +1088,13 @@ pub fn open_markdown_path_tab(
 }
 
 #[tauri::command]
-pub fn tab_window_ready(
+pub async fn tab_window_ready(
     window: tauri::WebviewWindow,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
 ) -> Result<Vec<WindowTab>, String> {
     let tabs = coordinator
-        .registry
-        .lock()
-        .map_err(|_| "tab window registry lock poisoned".to_string())
-        .map(|mut registry| registry.mark_ready(window.label()))?;
+        .mark_window_ready_when_registered(window.label())
+        .await?;
     coordinator.ready_notify.notify_waiters();
     Ok(tabs)
 }
@@ -1305,10 +1332,10 @@ pub async fn tab_window_detach_tab(
             return Ok(DetachOperation::Cancelled);
         }
 
+        drop(registry);
         let label = create_window(
             &app,
             coordinator.inner(),
-            &mut registry,
             refreshed_tab.clone(),
             Some(position),
         )?;
@@ -1435,11 +1462,52 @@ mod tests {
         let mut registry = WindowRegistry::default();
         registry.add_window("tab-host-1".to_string(), tab("memo:a"));
         registry.append_to_last(tab("web:a"));
-        let tabs = registry.mark_ready("tab-host-1");
+        let tabs = registry.mark_ready("tab-host-1").unwrap();
         assert_eq!(
             tabs.iter().map(|tab| tab.id.as_str()).collect::<Vec<_>>(),
             vec!["memo:a", "web:a"]
         );
+    }
+
+    #[test]
+    fn ready_distinguishes_an_unregistered_window() {
+        let mut registry = WindowRegistry::default();
+        assert_eq!(registry.mark_ready("tab-host-missing"), None);
+    }
+
+    #[tokio::test]
+    async fn ready_waits_for_window_registration() {
+        let coordinator = std::sync::Arc::new(TabWindowCoordinator::default());
+        let waiting = {
+            let coordinator = std::sync::Arc::clone(&coordinator);
+            tokio::spawn(async move {
+                coordinator
+                    .mark_window_ready_when_registered("tab-host-1")
+                    .await
+            })
+        };
+
+        tokio::task::yield_now().await;
+        coordinator
+            .registry
+            .lock()
+            .unwrap()
+            .add_window("tab-host-1".to_string(), tab("memo:a"));
+        coordinator.registered_notify.notify_waiters();
+
+        let tabs = waiting.await.unwrap().unwrap();
+        assert_eq!(
+            tabs.iter().map(|tab| tab.id.as_str()).collect::<Vec<_>>(),
+            vec!["memo:a"]
+        );
+        assert!(coordinator
+            .registry
+            .lock()
+            .unwrap()
+            .windows
+            .iter()
+            .find(|entry| entry.label == "tab-host-1")
+            .is_some_and(|entry| entry.ready));
     }
 
     #[test]
@@ -1488,7 +1556,7 @@ mod tests {
         let mut registry = WindowRegistry::default();
         registry.add_window("tab-host-1".to_string(), tab("memo:a"));
         registry.add_window("tab-host-2".to_string(), tab("memo:b"));
-        registry.mark_ready("tab-host-2");
+        registry.mark_ready("tab-host-2").unwrap();
 
         let refreshed = WindowTab {
             title: "renamed.md".to_string(),
