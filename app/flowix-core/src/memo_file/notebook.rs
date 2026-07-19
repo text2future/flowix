@@ -52,9 +52,41 @@ impl MemoFile {
         if let Some(parent) = self.get_index_db_path().parent() {
             fs::create_dir_all(parent)?;
         }
-        let conn = Connection::open(self.get_index_db_path()).map_err(sqlite_to_io)?;
+        let mut conn = Connection::open(self.get_index_db_path()).map_err(sqlite_to_io)?;
         conn.busy_timeout(Duration::from_secs(10))
             .map_err(sqlite_to_io)?;
+        // 建表 + 老库兼容:
+        // - 全新库走 CREATE TABLE IF NOT EXISTS, `sort` 列直接建好。
+        // - 旧库 (v3 之前没有 `sort` 列) 走 ALTER TABLE ADD COLUMN, DEFAULT 0
+        //   让旧行读出来不报错, 然后由 `normalize_sort_for_legacy_rows`
+        //   一次性把 sort=0 的行按 created_at 升序重排成 10/20/30...。
+        let has_sort_column = conn
+            .prepare("PRAGMA table_info(notebooks)")
+            .map_err(sqlite_to_io)?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(sqlite_to_io)?
+            .filter_map(Result::ok)
+            .any(|name| name == "sort");
+        if !has_sort_column {
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS notebooks (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    icon TEXT,
+                    path TEXT NOT NULL UNIQUE,
+                    is_default INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                "#,
+            )
+            .map_err(sqlite_to_io)?;
+            conn.execute_batch(
+                "ALTER TABLE notebooks ADD COLUMN sort INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(sqlite_to_io)?;
+        }
         conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
@@ -66,14 +98,43 @@ impl MemoFile {
                 icon TEXT,
                 path TEXT NOT NULL UNIQUE,
                 is_default INTEGER NOT NULL,
+                sort INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_notebooks_is_default
                 ON notebooks(is_default);
+            CREATE INDEX IF NOT EXISTS idx_notebooks_sort
+                ON notebooks(sort);
             "#,
         )
         .map_err(sqlite_to_io)?;
+        if !has_sort_column {
+            // 旧库升级: 把 sort=0 的旧行按 created_at 升序重排, 步长 10。
+            // 写入事务, 失败回滚。读端下次进来 ORDER BY sort 即可看到正确顺序。
+            let tx = conn.transaction().map_err(sqlite_to_io)?;
+            let mut stmt = tx
+                .prepare(
+                    "SELECT id FROM notebooks WHERE sort = 0 \
+                     ORDER BY created_at ASC, name COLLATE NOCASE ASC",
+                )
+                .map_err(sqlite_to_io)?;
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(sqlite_to_io)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_to_io)?;
+            drop(stmt);
+            for (index, id) in ids.iter().enumerate() {
+                let sort_value = ((index as i64) + 1) * 10;
+                tx.execute(
+                    "UPDATE notebooks SET sort = ?1 WHERE id = ?2 AND sort = 0",
+                    params![sort_value, id],
+                )
+                .map_err(sqlite_to_io)?;
+            }
+            tx.commit().map_err(sqlite_to_io)?;
+        }
         Ok(conn)
     }
 
@@ -89,23 +150,29 @@ impl MemoFile {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT id, name, icon, path, is_default, created_at, updated_at
+                SELECT id, name, icon, path, is_default, sort, created_at, updated_at
                 FROM notebooks
-                ORDER BY created_at ASC, name COLLATE NOCASE ASC
+                -- 用户拖拽顺序优先, 然后用 created_at + name 兜底 (旧库未
+                -- normalize 时 sort 全部一致, 仍能保持稳定顺序)。
+                ORDER BY sort ASC, created_at ASC, name COLLATE NOCASE ASC
                 "#,
             )
             .map_err(sqlite_to_io)?;
         let rows = stmt
             .query_map([], |row| {
                 let is_default: i64 = row.get(4)?;
+                // sort 列 NOT NULL DEFAULT 0, 老库升级路径已经 normalize 过;
+                // 这里 COALESCE 兜底列存在但值缺失的极端情形。
+                let sort: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
                 Ok(NotebookConfig {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     icon: row.get(2)?,
                     path: row.get(3)?,
                     is_default: is_default != 0,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    sort,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             })
             .map_err(sqlite_to_io)?;
@@ -138,13 +205,14 @@ impl MemoFile {
                 .prepare(
                     r#"
                     INSERT INTO notebooks
-                        (id, name, icon, path, is_default, created_at, updated_at)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                        (id, name, icon, path, is_default, sort, created_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                     ON CONFLICT(id) DO UPDATE SET
                         name = excluded.name,
                         icon = excluded.icon,
                         path = excluded.path,
                         is_default = excluded.is_default,
+                        sort = excluded.sort,
                         created_at = excluded.created_at,
                         updated_at = excluded.updated_at
                     "#,
@@ -157,6 +225,7 @@ impl MemoFile {
                     config.icon,
                     config.path,
                     if config.is_default { 1 } else { 0 },
+                    config.sort,
                     config.created_at,
                     config.updated_at,
                 ])
@@ -191,6 +260,24 @@ impl MemoFile {
         Ok(())
     }
 
+    /// 分配一个新 notebook 的 sort: 已存在的最大 sort + 10, 步长 10 方便后续
+    /// reorder 时直接在中间插入。空库从 10 起。
+    ///
+    /// 用于 `create_notebook_registry` 等新建入口; 跟读路径 ORDER BY sort ASC
+    /// 配套, 保证新行自然落到末尾。
+    pub fn next_notebook_sort(&self) -> std::io::Result<i64> {
+        let conn = self.open_index_db()?;
+        let max_sort: Option<i64> = conn
+            .query_row(
+                "SELECT MAX(sort) FROM notebooks",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        Ok(max_sort.map(|v| v + 10).unwrap_or(10))
+    }
+
     /// Return the first registered notebook, or a non-persisted placeholder
     /// when no notebook has been registered yet.
     pub fn init_default_notebook(&self) -> NotebookConfig {
@@ -215,6 +302,9 @@ impl MemoFile {
             icon: None,
             path: format!("{}/", self.get_default_notebook_path().to_string_lossy()),
             is_default: false,
+            // 该默认 notebook 不持久化 (init_default_notebook_with_status
+            // 注释明确: 不写盘, 留给用户选择), sort 占 0 即可。
+            sort: 0,
             created_at: chrono::Utc::now().timestamp_millis(),
             updated_at: chrono::Utc::now().timestamp_millis(),
         };

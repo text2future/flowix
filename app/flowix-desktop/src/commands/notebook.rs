@@ -22,6 +22,9 @@ use super::helpers::{
 use crate::app::state::AppState;
 
 const NOTEBOOK_IMPORT_COMPLETE_EVENT: &str = "notebook-import-complete";
+/// 笔记本列表发生变化 (reorder / create / update / delete) 时 emit, 其它窗口
+/// store 监听后 reload。前端 TS 类型 `notebooks-changed` 事件 payload 为 unit。
+pub(crate) const NOTEBOOKS_CHANGED_EVENT: &str = "notebooks-changed";
 const NOTEBOOK_IMPORT_STATUS_EVENT: &str = "notebook-import-status";
 
 #[derive(Clone, Debug, Serialize)]
@@ -97,6 +100,7 @@ fn notebook_from_config(config: NotebookConfig) -> Notebook {
         created_at: config.created_at,
         updated_at: config.updated_at,
         is_default: config.is_default,
+        sort: config.sort,
     }
 }
 
@@ -118,16 +122,9 @@ fn create_notebook_registry(
         normalized_path
     );
 
-    let config = NotebookConfig {
-        id: id.clone(),
-        name: name.to_string(),
-        icon: normalized_icon,
-        path: normalized_path,
-        is_default: false,
-        created_at: now,
-        updated_at: now,
-    };
-
+    // 创建顺序: 1) 先读现有 configs 验证路径不冲突; 2) 算 next sort;
+    // 3) 组装 NotebookConfig 写盘。sort 取 MAX(sort)+10 让新行落到末尾
+    // (ORDER BY sort ASC), 不取 len 是因为 reorder 后 sort 是稀疏的。
     let mut configs = memo_file.read_notebook_configs().unwrap_or_default();
     if configs
         .iter()
@@ -135,6 +132,19 @@ fn create_notebook_registry(
     {
         return Err("PATH_ALREADY_REGISTERED".to_string());
     }
+    let next_sort = memo_file
+        .next_notebook_sort()
+        .map_err(|e| format!("INDEX_READ_FAILED: {e}"))?;
+    let config = NotebookConfig {
+        id: id.clone(),
+        name: name.to_string(),
+        icon: normalized_icon,
+        path: normalized_path,
+        is_default: false,
+        sort: next_sort,
+        created_at: now,
+        updated_at: now,
+    };
     configs.push(config.clone());
     memo_file
         .write_notebook_configs(&configs)
@@ -339,6 +349,7 @@ pub fn update_notebook(
         created_at: updated.created_at,
         updated_at: updated.updated_at,
         is_default: updated.is_default,
+        sort: updated.sort,
     })
 }
 
@@ -364,6 +375,71 @@ pub fn delete_notebook(id: String, state: State<AppState>, app: AppHandle) -> Re
     }
     refresh_watcher_roots(state.inner(), &app);
     Ok(true)
+}
+
+/// Reorder 客户端传来的 sort 列表。
+///
+/// - 前端发 `Vec<NotebookSortEntry>` 表达 "新顺序: 这个 id 的 sort 应是这个值"。
+/// - 不在该列表中的 notebook id 保留原 sort 不动 (后端不擅自重排未参与 reorder 的行)。
+/// - 写入事务; 失败回滚并返回 `Err(String)`, 跨 IPC 约定错误走 String。
+/// - 写完返回最新 `Vec<Notebook>`, 前端 store 直接 setState 即可。
+/// - 跨窗口事件: `NOTEBOOKS_CHANGED_EVENT` 让其它窗口 reload。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookSortEntry {
+    pub id: String,
+    pub sort: i64,
+}
+
+#[tauri::command]
+pub fn reorder_notebooks(
+    order: Vec<NotebookSortEntry>,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<Vec<Notebook>, String> {
+    let memo_file = write_lock(&state.memo_file, "memo_file");
+
+    // 防御: order 为空直接 no-op (前端误传空数组时保留语义一致, 不动磁盘)。
+    if order.is_empty() {
+        let configs = memo_file
+            .read_notebook_configs()
+            .map_err(|e| format!("INDEX_READ_FAILED: {e}"))?;
+        return Ok(configs.into_iter().map(notebook_from_config).collect());
+    }
+
+    // 把客户端发来的 (id, sort) 合并到现有 NotebookConfig: 保留每个 notebook
+    // 的 name / icon / path / is_default / created_at / updated_at, 仅覆写 sort。
+    // 未出现在 order 里的 notebook 保持原 sort (后端不擅自重排)。
+    let mut configs = memo_file
+        .read_notebook_configs()
+        .map_err(|e| format!("INDEX_READ_FAILED: {e}"))?;
+    let sort_map: std::collections::HashMap<&str, i64> = order
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry.sort))
+        .collect();
+    for config in configs.iter_mut() {
+        if let Some(new_sort) = sort_map.get(config.id.as_str()) {
+            config.sort = *new_sort;
+            config.updated_at = chrono::Utc::now().timestamp_millis();
+        }
+    }
+    memo_file
+        .write_notebook_configs(&configs)
+        .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
+
+    // read_notebook_configs 内部会回填 memo_file 缓存; 再读一次拿到 ORDER BY sort 的最新顺序。
+    let updated = memo_file
+        .read_notebook_configs()
+        .map_err(|e| format!("INDEX_READ_FAILED: {e}"))?;
+    drop(memo_file);
+
+    let notebooks: Vec<Notebook> = updated.into_iter().map(notebook_from_config).collect();
+
+    // 跨窗口同步: 让其它窗口 reload。NOTEBOOKS_CHANGED_EVENT 走 dispatcher::emit_to
+    // (跟 AGENT_ACCESS_CHANGED_EVENT / tag-system-changed 同款)。本窗口前端 store 也
+    // 通过 IPC 返回值更新, 这里只发事件给其它窗口即可。
+    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
+    Ok(notebooks)
 }
 
 #[tauri::command]

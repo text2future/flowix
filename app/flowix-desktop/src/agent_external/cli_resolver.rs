@@ -1,5 +1,17 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::RwLock;
+
+/// 进程级 external CLI 路径注册表 ── 启动时由 `agent_external_config` 模块从
+/// `~/.flowix/agent-external-config.json` 加载并通过 `set_external_cli_registry`
+/// 灌入。`None` = 未启用 (冷启动尚未加载 / 单测), 此时 `resolve_external_cli`
+/// 退化为原探测链的纯函数行为, 保证现有单测零改动。
+///
+/// "唯一参照"语义: 注册表命中即用, 不校验可执行性、不回退探测。path 失效由
+/// 上层 `executable_available` 判 false 标红, 由偏好设置的"重新探测"按钮触发
+/// 重探 ── 运行时绝不自动 fallback。key = `ExternalCliSpec::binary_name`。
+static REGISTRY: RwLock<Option<HashMap<String, PathBuf>>> = RwLock::new(None);
 
 pub(crate) struct ExternalCliSpec {
     pub binary_name: &'static str,
@@ -16,6 +28,17 @@ pub(crate) fn no_extra_candidates() -> Vec<PathBuf> {
 }
 
 pub(crate) fn resolve_external_cli(spec: &ExternalCliSpec) -> PathBuf {
+    // 唯一参照: 注册表里有该 CLI 的记录就直接用, 不校验可执行性、不回退探测。
+    if let Some(path) = lookup_registry(spec.binary_name) {
+        return path;
+    }
+    resolve_external_cli_uncached(spec)
+}
+
+/// 跳过注册表的纯探测链 ── 供启动探测 / 重新探测 / 单测使用。
+///
+/// 优先级: env var > PATH `which` > 固定候选目录 > 登录 shell `command -v`。
+pub(crate) fn resolve_external_cli_uncached(spec: &ExternalCliSpec) -> PathBuf {
     for env_var in spec.env_vars {
         if let Ok(path) = std::env::var(env_var) {
             let path = PathBuf::from(path);
@@ -53,6 +76,55 @@ pub(crate) fn resolve_external_cli(spec: &ExternalCliSpec) -> PathBuf {
         }
         PathBuf::from(spec.binary_name)
     }
+}
+
+fn lookup_registry(binary_name: &str) -> Option<PathBuf> {
+    REGISTRY
+        .read()
+        .unwrap_or_else(|poisoned| {
+            tracing::error!("external CLI registry lock poisoned, recovering");
+            poisoned.into_inner()
+        })
+        .as_ref()
+        .and_then(|map| map.get(binary_name).cloned())
+}
+
+/// 启动时把 JSON config 的内存镜像灌进注册表。此后 `resolve_external_cli`
+/// 命中即用, 不再每条消息跑探测链。
+pub(crate) fn set_external_cli_registry(entries: HashMap<String, PathBuf>) {
+    *REGISTRY.write().unwrap_or_else(|poisoned| {
+        tracing::error!("external CLI registry lock poisoned, recovering");
+        poisoned.into_inner()
+    }) = Some(entries);
+}
+
+/// 更新注册表单项 ── 用户改 path / 重新探测后调用。
+/// `path = None` 移除该项, 使 `resolve_external_cli` 回退探测 (重新探测用)。
+pub(crate) fn update_external_cli_path(binary_name: &str, path: Option<PathBuf>) {
+    let mut guard = REGISTRY.write().unwrap_or_else(|poisoned| {
+        tracing::error!("external CLI registry lock poisoned, recovering");
+        poisoned.into_inner()
+    });
+    match (guard.as_mut(), path) {
+        (Some(map), Some(p)) => {
+            map.insert(binary_name.to_string(), p);
+        }
+        (Some(map), None) => {
+            map.remove(binary_name);
+        }
+        (None, Some(p)) => {
+            let mut map = HashMap::new();
+            map.insert(binary_name.to_string(), p);
+            *guard = Some(map);
+        }
+        (None, None) => {}
+    }
+}
+
+/// 单测专用: 把注册表清回 `None`, 恢复纯函数探测行为, 隔离测试间副作用。
+#[cfg(test)]
+pub(crate) fn reset_external_cli_registry_for_test() {
+    *REGISTRY.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 }
 
 pub(crate) fn external_cli_candidate_paths(spec: &ExternalCliSpec) -> Vec<PathBuf> {

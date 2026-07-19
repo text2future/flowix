@@ -347,6 +347,7 @@ mod tests {
             icon: None,
             path: notes.to_string_lossy().to_string(),
             is_default: true,
+            sort: 0,
             created_at: 0,
             updated_at: 0,
         };

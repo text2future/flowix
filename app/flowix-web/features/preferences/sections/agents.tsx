@@ -1,19 +1,25 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { AgentRuntimeStatusList } from '@features/agent/components/agent-runtime-status-list';
 import { openAgentSetup } from '@features/agent/agent-setup';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import { useI18n } from '@features/i18n';
-import { SectionHeader } from '@features/preferences/sections/primitives';
+import { FieldRow, SectionHeader } from '@features/preferences/sections/primitives';
 import { AgentSection } from '@features/preferences/sections/agent';
-import { agent } from '@platform/tauri/client';
+import { ExternalPathRow } from '@features/preferences/sections/external-path-row';
+import { agent, type AgentExternalEntry } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
+import { AGENT_TYPES } from '@/lib/agent-types';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 
-type CollapsibleAgentKey = 'flowix' | 'claude' | 'codex';
+type CollapsibleAgentKey = 'flowix' | 'codex' | 'claude' | 'gemini' | 'hermes' | 'openclaw';
+
+/// "使用自定义模型" 文档链接, codex/claude 的"查看"按钮跳转此处。
+const CUSTOM_MODEL_DOCS_URL = 'https://flowix-memo.com/docs/ai-access/';
 
 export function AgentsSection() {
   const { t } = useI18n();
@@ -26,10 +32,24 @@ export function AgentsSection() {
   // 状态在组件生命周期内维持 ── 切走/回来会回到默认; 需要跨会话保留可下沉到
   // user-settings-store。
   const [expandedKey, setExpandedKey] = useState<CollapsibleAgentKey | null>('codex');
+  // External CLI 路径配置 (~/.flowix/agent-external-config.json) ──
+  // 唯一参照, 偏好设置可改 path / 重新探测。改 path 后同步刷 runtime status。
+  const [externalConfig, setExternalConfig] =
+    useState<Record<string, AgentExternalEntry> | null>(null);
+
+  const refreshExternal = useCallback(async () => {
+    try {
+      setExternalConfig(await agent.getExternalConfig());
+    } catch (err) {
+      console.warn('[agents] failed to load external config:', err);
+    }
+    void refreshStatus({ force: true });
+  }, [refreshStatus]);
 
   useEffect(() => {
     void refreshIfStale();
-  }, [refreshIfStale]);
+    void refreshExternal();
+  }, [refreshIfStale, refreshExternal]);
 
   const toggleExpanded = (key: CollapsibleAgentKey) => {
     // 同一张再点一次 → 折叠; 不同张 → 切到新的那张。
@@ -45,7 +65,14 @@ export function AgentsSection() {
   };
 
   const renderHeaderAction = (typeKey: string) => {
-    if (typeKey !== 'flowix' && typeKey !== 'claude' && typeKey !== 'codex') {
+    const isCollapsible =
+      typeKey === 'flowix' ||
+      typeKey === 'codex' ||
+      typeKey === 'claude' ||
+      typeKey === 'gemini' ||
+      typeKey === 'hermes' ||
+      typeKey === 'openclaw';
+    if (!isCollapsible) {
       return null;
     }
     const key = typeKey as CollapsibleAgentKey;
@@ -82,17 +109,6 @@ export function AgentsSection() {
     }
   };
 
-  const openCodexConfig = async () => {
-    try {
-      await agent.openCodexConfig();
-      toast.info(t('preferences.agents.codex.configOpened'));
-      void refreshStatus({ force: true, type: 'codex' });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('preferences.agents.codex.configOpenFailed', { message }));
-    }
-  };
-
   return (
     <div className="space-y-6 pb-6">
       <SectionHeader
@@ -113,11 +129,27 @@ export function AgentsSection() {
         // 互不串味。
         onCardClick={(key) => toggleExpanded(key as CollapsibleAgentKey)}
         renderAfterRow={(typeKey) => {
+          const renderExternalPath = () => {
+            const def = AGENT_TYPES.find((a) => a.key === typeKey);
+            const displayName = def?.name ?? typeKey;
+            // codex 走终端 npm install; 其余走 openAgentSetup 引导页。
+            const onInstall =
+              typeKey === 'codex'
+                ? () => void openCodexInstallTerminal()
+                : () => void openAgentSetup(typeKey);
+            return (
+              <ExternalPathRow
+                agentType={typeKey}
+                displayName={displayName}
+                entry={externalConfig?.[typeKey]}
+                onInstall={onInstall}
+                onChanged={() => void refreshExternal()}
+              />
+            );
+          };
           if (typeKey === 'flowix') {
             // 模型配置整段塞到 Flowix 卡片里 ── 用户展开 Flowix 时直接看到
-            // 供应商/模型/key 的表单, 不用跳到独立 tab。原先那个"配置"
-            // 跳转按钮一并去掉 (openAgentSetup('flowix') 的引导意义被这
-            // 个内嵌表单完全覆盖)。
+            // 供应商/模型/key 的表单, 不用跳到独立 tab。
             return renderCollapsible(
               'flowix',
               <div className="border-t border-[var(--divider)] py-3">
@@ -126,106 +158,48 @@ export function AgentsSection() {
             );
           }
           if (typeKey === 'claude') {
-            const claudeInstalled = statusByType.claude?.available === true;
             return renderCollapsible(
               'claude',
               <>
-                <div className="flex items-center justify-between gap-4 border-t border-[var(--divider)] py-2.5">
-                  <span className="min-w-0 text-xs text-[var(--foreground)]">
-                    {claudeInstalled
-                      ? t('preferences.agents.claude.installedPrompt')
-                      : t('preferences.agents.claude.installPrompt')}
-                  </span>
-                  {claudeInstalled ? (
-                    <span className="shrink-0 px-1 text-xs font-medium text-[var(--muted-foreground)]">
-                      {t('preferences.agents.claude.installed')}
-                    </span>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full"
-                      onClick={() => void openAgentSetup('claude')}
-                    >
-                      {t('preferences.agents.claude.install')}
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-4 border-t border-[var(--divider)] py-2.5">
-                  <span className="min-w-0 text-xs text-[var(--foreground)]">
-                    {t('preferences.agents.claude.authPrompt')}
-                  </span>
+                {renderExternalPath()}
+                <FieldRow
+                  title={t('preferences.agents.claude.customModelPrompt')}
+                  className="border-t border-[var(--divider)] py-4"
+                >
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    className="rounded-full"
-                    onClick={() => void openAgentSetup('claude')}
-                  >
-                    {t('preferences.agents.claude.auth')}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between gap-4 border-t border-[var(--divider)] py-2.5">
-                  <span className="min-w-0 text-xs text-[var(--foreground)]">
-                    {t('preferences.agents.claude.customModelPrompt')}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full text-xs"
-                    onClick={() => void openAgentSetup('claude')}
+                    onClick={() => void openUrl(CUSTOM_MODEL_DOCS_URL)}
                   >
                     {t('preferences.agents.claude.configure')}
                   </Button>
-                </div>
+                </FieldRow>
               </>,
             );
           }
           if (typeKey === 'codex') {
-            const codexInstalled = statusByType.codex?.available === true;
             return renderCollapsible(
               'codex',
               <>
-                <div className="flex items-center justify-between gap-4 border-t border-[var(--divider)] py-2.5">
-                  <span className="min-w-0 text-xs text-[var(--foreground)]">
-                    {codexInstalled
-                      ? t('preferences.agents.codex.installedPrompt')
-                      : t('preferences.agents.codex.downloadPrompt')}
-                  </span>
-                  {codexInstalled ? (
-                    <span className="shrink-0 px-1 text-xs font-medium text-[var(--muted-foreground)]">
-                      {t('preferences.agents.codex.installed')}
-                    </span>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full"
-                      onClick={() => void openCodexInstallTerminal()}
-                    >
-                      {t('preferences.agents.codex.download')}
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-4 border-t border-[var(--divider)] py-2.5">
-                  <span className="min-w-0 text-xs text-[var(--foreground)]">
-                    {t('preferences.agents.codex.customModelPrompt')}
-                  </span>
+                {renderExternalPath()}
+                <FieldRow
+                  title={t('preferences.agents.codex.customModelPrompt')}
+                  className="border-t border-[var(--divider)] py-4"
+                >
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    className="rounded-full text-xs"
-                    onClick={() => void openCodexConfig()}
+                    onClick={() => void openUrl(CUSTOM_MODEL_DOCS_URL)}
                   >
                     {t('preferences.agents.codex.configure')}
                   </Button>
-                </div>
+                </FieldRow>
               </>,
             );
+          }
+          // gemini / hermes / openclaw: 只展示状态 + 执行路径。
+          if (typeKey === 'gemini' || typeKey === 'hermes' || typeKey === 'openclaw') {
+            return renderCollapsible(typeKey as CollapsibleAgentKey, renderExternalPath());
           }
           return null;
         }}

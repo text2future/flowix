@@ -21,6 +21,7 @@ use crate::agent_external::claude::ClaudeCliManager;
 use crate::agent_external::codex::CodexCliManager;
 use crate::agent_external::hermes::HermesCliManager;
 use crate::agent_external::simple_cli::SimpleCliManager;
+use crate::agent_external_config::{AgentExternalEntry, AgentExternalSource};
 use crate::agent_flowix::{AgentChatResponse, AgentManager, AgentUserMessage, RunInfo};
 
 use crate::app::state::AppState;
@@ -352,68 +353,153 @@ fn executable_available(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 基于 `agent-external-config` 里记录的 path 算单个 external agent 的可用性。
+/// `path = None` -> 未配置 (启动探测没探到); `path = Some` 但失效 -> not found;
+/// 可用 -> `None` (调用方再叠加 preflight 错误, 如 codex 的 Node 依赖)。
+fn external_availability(entry: AgentExternalEntry, label: &str) -> AgentRuntimeAvailability {
+    let available = entry
+        .path
+        .as_ref()
+        .map(|p| executable_available(p))
+        .unwrap_or(false);
+    let reason = match &entry.path {
+        None => Some(format!("{label} not configured (click Redetect in preferences)")),
+        Some(p) if !available => Some(format!("{label} not found ({})", p.display())),
+        Some(_) => None,
+    };
+    AgentRuntimeAvailability { available, reason }
+}
+
 #[tauri::command]
 pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     let ai_config = state.user_config.get_ai_config().model;
     let flowix_available = !ai_config.model.trim().is_empty();
 
-    let codex_binary = crate::agent_external::codex::cli::resolve_codex_binary();
-    let codex_path_available = executable_available(&codex_binary);
-    // Codex CLI 可执行文件存在即认为是"可选"，不要因为原生可选依赖缺失
-    // 把 Codex 直接从列表里抹掉。依赖损坏信息会作为 `reason` 推到 UI,
-    // 让用户在偏好窗口或 thread card 上看到具体修复指引。
-    let codex_available = codex_path_available;
-    let codex_preflight_error = codex_path_available
-        .then(crate::agent_external::codex::cli::preflight_codex)
-        .and_then(Result::err);
-
-    let claude_binary = crate::agent_external::claude::cli::resolve_claude_binary();
-    let claude_available = executable_available(&claude_binary);
-    let gemini_binary = crate::agent_external::simple_cli::resolve_simple_cli_binary(
-        crate::agent_external::simple_cli::SimpleCliKind::Gemini,
-    );
-    let gemini_available = executable_available(&gemini_binary);
-    let hermes_binary = crate::agent_external::hermes::cli::resolve_hermes_binary();
-    let hermes_available = executable_available(&hermes_binary);
-    let openclaw_binary = crate::agent_external::simple_cli::resolve_simple_cli_binary(
-        crate::agent_external::simple_cli::SimpleCliKind::OpenClaw,
-    );
-    let openclaw_available = executable_available(&openclaw_binary);
+    // path 来源是 agent-external-config.json (唯一参照), 不再每次调
+    // resolve_*_binary 探测; preflight 内部的 resolve 会命中 REGISTRY (与 config 同步)。
+    let cfg = &state.agent_external_config;
+    let mut codex = external_availability(cfg.get_entry("codex"), "Codex CLI");
+    if codex.available {
+        // Codex 可执行文件存在即认为是"可选", 不要因为原生可选依赖缺失
+        // 把 Codex 从列表抹掉。依赖损坏信息作为 reason 推到 UI。
+        codex.reason = crate::agent_external::codex::cli::preflight_codex().err();
+    }
+    let claude = external_availability(cfg.get_entry("claude"), "Claude Code CLI");
+    let gemini = external_availability(cfg.get_entry("gemini"), "Gemini CLI");
+    let hermes = external_availability(cfg.get_entry("hermes"), "Hermes Agent CLI");
+    let openclaw = external_availability(cfg.get_entry("openclaw"), "OpenClaw CLI");
 
     AgentRuntimeStatus {
         flowix: AgentRuntimeAvailability {
             available: flowix_available,
             reason: (!flowix_available).then(|| "Flowix model is not configured".to_string()),
         },
-        codex: AgentRuntimeAvailability {
-            available: codex_available,
-            reason: if !codex_path_available {
-                Some(format!("Codex CLI not found ({})", codex_binary.display()))
-            } else {
-                codex_preflight_error
-            },
-        },
-        claude: AgentRuntimeAvailability {
-            available: claude_available,
-            reason: (!claude_available)
-                .then(|| format!("Claude Code CLI not found ({})", claude_binary.display())),
-        },
-        gemini: AgentRuntimeAvailability {
-            available: gemini_available,
-            reason: (!gemini_available)
-                .then(|| format!("Gemini CLI not found ({})", gemini_binary.display())),
-        },
-        hermes: AgentRuntimeAvailability {
-            available: hermes_available,
-            reason: (!hermes_available)
-                .then(|| format!("Hermes Agent CLI not found ({})", hermes_binary.display())),
-        },
-        openclaw: AgentRuntimeAvailability {
-            available: openclaw_available,
-            reason: (!openclaw_available)
-                .then(|| format!("OpenClaw CLI not found ({})", openclaw_binary.display())),
-        },
+        codex,
+        claude,
+        gemini,
+        hermes,
+        openclaw,
     }
+}
+
+/// 偏好设置展示用的 external agent 条目视图。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentExternalEntryView {
+    pub path: Option<String>,
+    pub source: AgentExternalSource,
+    pub available: bool,
+}
+
+impl AgentExternalEntryView {
+    fn from_entry(entry: AgentExternalEntry) -> Self {
+        let available = entry
+            .path
+            .as_ref()
+            .map(|p| executable_available(p))
+            .unwrap_or(false);
+        Self {
+            path: entry.path.map(|p| p.to_string_lossy().to_string()),
+            source: entry.source,
+            available,
+        }
+    }
+}
+
+/// 读取全部 external agent 的路径配置 (供偏好设置展示)。
+#[tauri::command]
+pub fn get_agent_external_config(
+    state: State<'_, AppState>,
+) -> HashMap<String, AgentExternalEntryView> {
+    state
+        .agent_external_config
+        .snapshot()
+        .into_iter()
+        .map(|(k, e)| (k, AgentExternalEntryView::from_entry(e)))
+        .collect()
+}
+
+/// 用户手改 path: 写 `source = user` 并同步注册表。
+#[tauri::command]
+pub fn set_agent_external_path(
+    agent_type: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<AgentExternalEntryView, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("path must not be empty".to_string());
+    }
+    let path_buf = PathBuf::from(trimmed);
+    // 校验: 必须是真实存在的可执行文件 ── 拒绝目录/文档/无执行权限的文件,
+    // 避免把无效路径写进 agent-external-config.json 导致后续 spawn 失败。
+    if !crate::agent_external::cli_resolver::is_executable_file(&path_buf) {
+        return Err(format!(
+            "not a valid executable file: {}",
+            path_buf.display()
+        ));
+    }
+    let entry = state
+        .agent_external_config
+        .set_user_path(&agent_type, path_buf)
+        .map_err(|e| e.to_string())?;
+    Ok(AgentExternalEntryView::from_entry(entry))
+}
+
+/// 重新探测单个 agent: 清注册表该项 -> 跑探测链 -> 写 `source = auto` -> 回填注册表。
+#[tauri::command]
+pub fn redetect_agent_external(
+    agent_type: String,
+    state: State<'_, AppState>,
+) -> Result<AgentExternalEntryView, String> {
+    state
+        .agent_external_config
+        .redetect(&agent_type)
+        .map_err(|e| e.to_string())?;
+    Ok(AgentExternalEntryView::from_entry(
+        state.agent_external_config.get_entry(&agent_type),
+    ))
+}
+
+/// 打开文件浏览器让用户选一个 CLI 可执行文件, 返回其绝对路径。
+/// 供偏好设置"切换"按钮调用 ── 路径只能通过文件选择器指定, 不允许手输。
+#[tauri::command]
+pub async fn select_external_cli_path(app: tauri::AppHandle) -> Option<String> {
+    use std::sync::mpsc;
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = mpsc::channel();
+    let handle = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = handle
+            .dialog()
+            .file()
+            .set_title("选择 CLI 可执行文件")
+            .blocking_pick_file()
+            .map(|p| p.to_string());
+        tx.send(result).ok();
+    });
+    rx.recv().ok().flatten()
 }
 
 #[cfg(target_os = "windows")]

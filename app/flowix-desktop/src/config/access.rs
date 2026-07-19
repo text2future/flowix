@@ -306,6 +306,7 @@ mod tests {
             icon: Some("📘".to_string()),
             path: path.to_string(),
             is_default: false,
+            sort: 0,
             created_at: 0,
             updated_at: 0,
         }

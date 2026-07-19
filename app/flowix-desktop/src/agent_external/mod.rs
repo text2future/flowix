@@ -32,9 +32,13 @@ static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 pub(crate) fn acquire_test_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_ENV_LOCK
+    let guard = TEST_ENV_LOCK
         .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .unwrap_or_else(|error| error.into_inner());
+    // 注册表是进程级 static, 跨测试会串味 ── 拿到锁后先清回 None, 保证每个
+    // 测试都从纯函数探测行为起步。测试若要验证 registry 语义, 在锁内自行 set。
+    cli_resolver::reset_external_cli_registry_for_test();
+    guard
 }
 
 // Re-export cross-runtime helpers at the crate root so callers can write

@@ -853,6 +853,7 @@ impl MemoFile {
                             icon: row.get(11)?,
                             path: row.get(12)?,
                             is_default: is_default != 0,
+            sort: 0,
                             created_at: row.get(14)?,
                             updated_at: row.get(15)?,
                         },

@@ -1101,6 +1101,10 @@ mod tests {
 
     fn with_claude_config_dir<T>(root: PathBuf, f: impl FnOnce() -> T) -> T {
         // Save & restore CLAUDE_CONFIG_DIR 避免污染其它并发 test.
+        // 持 TEST_ENV_LOCK 让 set/restore 与其它改 env 的测试互斥 ── 否则
+        // save-restore 窗口期 find_claude_session_file 可能读到被并发测试
+        // 改写的 CLAUDE_CONFIG_DIR, 导致 session 文件找不到 (flaky)。
+        let _guard = crate::agent_external::acquire_test_env_lock();
         let prev = std::env::var_os("CLAUDE_CONFIG_DIR");
         std::env::set_var("CLAUDE_CONFIG_DIR", &root);
         let result = f();

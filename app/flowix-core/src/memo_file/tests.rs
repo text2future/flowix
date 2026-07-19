@@ -53,6 +53,7 @@ fn fresh_memo_file() -> (MemoFile, PathBuf) {
         icon: Some("📓".to_string()),
         path: format!("{}/", tmp.display()),
         is_default: true,
+            sort: 0,
         created_at: 0,
         updated_at: 0,
     };
@@ -108,6 +109,7 @@ fn writing_notebook_configs_preserves_existing_memo_rows() {
             icon: Some("test".to_string()),
             path: format!("{}/", tmp.display()),
             is_default: true,
+            sort: 0,
             created_at: 0,
             updated_at: 1,
         },
@@ -117,6 +119,7 @@ fn writing_notebook_configs_preserves_existing_memo_rows() {
             icon: Some("other".to_string()),
             path: format!("{}/other/", tmp.display()),
             is_default: false,
+            sort: 0,
             created_at: 2,
             updated_at: 3,
         },
@@ -149,6 +152,7 @@ fn read_memos_for_notebook_id_does_not_switch_current_notebook() {
         icon: None,
         path: format!("{}/", other_dir.display()),
         is_default: false,
+            sort: 0,
         created_at: 1,
         updated_at: 1,
     });
@@ -184,6 +188,7 @@ fn register_existing_file_for_other_notebook_does_not_switch_current_notebook() 
         icon: None,
         path: format!("{}/", other_dir.display()),
         is_default: false,
+            sort: 0,
         created_at: 1,
         updated_at: 1,
     });
@@ -233,6 +238,7 @@ fn read_memo_by_id_resolves_global_notebook_location() {
         icon: None,
         path: format!("{}/", other_dir.display()),
         is_default: false,
+            sort: 0,
         created_at: 1,
         updated_at: 1,
     });
@@ -281,6 +287,7 @@ fn write_memo_by_id_updates_global_notebook_without_switching_current() {
         icon: None,
         path: format!("{}/", other_dir.display()),
         is_default: false,
+            sort: 0,
         created_at: 1,
         updated_at: 1,
     });
@@ -323,6 +330,7 @@ fn pasted_file_with_key_from_other_notebook_gets_new_id_in_current_notebook() {
         icon: None,
         path: format!("{}/", other_dir.display()),
         is_default: false,
+            sort: 0,
         created_at: 1,
         updated_at: 1,
     });
@@ -2076,6 +2084,7 @@ fn notebook_configs_cache_updates_on_write() {
         icon: None,
         path: "/tmp/extra/".to_string(),
         is_default: false,
+            sort: 0,
         created_at: 1,
         updated_at: 1,
     };
@@ -2475,4 +2484,232 @@ fn tag_prefix_counts_single_segment_works() {
         .read_tag_prefix_counts_for_notebook_id(Some("nb_test"))
         .unwrap();
     assert_eq!(counts.get("中国").copied(), Some(1));
+}
+
+// ============================================================
+// Notebook sort + legacy schema upgrade
+// ============================================================
+
+#[test]
+fn read_notebook_configs_orders_by_sort_ascending() {
+    // 显式构造三条 sort 不同的 notebook, 验证读出顺序按 sort 升序而不是 created_at。
+    let (mf, tmp) = fresh_memo_file();
+    let other = tmp.join("other");
+    let third = tmp.join("third");
+    fs::create_dir_all(&other).unwrap();
+    fs::create_dir_all(&third).unwrap();
+
+    let configs = vec![
+        // created_at 倒序写, 但 sort 顺序是我们要的
+        super::types::NotebookConfig {
+            id: "nb_first".to_string(),
+            name: "First".to_string(),
+            icon: None,
+            path: format!("{}/", other.display()),
+            is_default: false,
+            sort: 30,
+            created_at: 100,
+            updated_at: 100,
+        },
+        super::types::NotebookConfig {
+            id: "nb_second".to_string(),
+            name: "Second".to_string(),
+            icon: None,
+            path: format!("{}/", third.display()),
+            is_default: false,
+            sort: 10,
+            created_at: 50,
+            updated_at: 50,
+        },
+        super::types::NotebookConfig {
+            id: "nb_third".to_string(),
+            name: "Third".to_string(),
+            icon: None,
+            path: format!("{}/third-2/", tmp.display()),
+            is_default: false,
+            sort: 20,
+            created_at: 200,
+            updated_at: 200,
+        },
+    ];
+    mf.write_notebook_configs(&configs).unwrap();
+
+    let read = mf.read_notebook_configs().unwrap();
+    let ids: Vec<&str> = read.iter().map(|c| c.id.as_str()).collect();
+    // 排序优先级: sort ASC; 第二/三/一 (10/20/30)。
+    assert_eq!(ids, vec!["nb_second", "nb_third", "nb_first"]);
+    // 读出来的 sort 字段也必须透传。
+    assert_eq!(read[0].sort, 10);
+    assert_eq!(read[1].sort, 20);
+    assert_eq!(read[2].sort, 30);
+}
+
+#[test]
+fn next_notebook_sort_returns_step_above_max() {
+    let (mf, _tmp) = fresh_memo_file();
+    // fresh_memo_file 已经写入 nb_test (sort=0), 空 max -> 10
+    // 实际上 fresh_memo_file 的 sort=0, MAX=0, 应该返回 10
+    let next = mf.next_notebook_sort().expect("next sort");
+    assert_eq!(next, 10, "空/单行 max=0, next=10");
+
+    // 直接 push 一条 sort=200, next 应 = 210
+    let configs = mf.read_notebook_configs().unwrap();
+    let mut configs = configs;
+    configs.push(super::types::NotebookConfig {
+        id: "nb_extra".to_string(),
+        name: "Extra".to_string(),
+        icon: None,
+        path: "/tmp/extra/".to_string(),
+        is_default: false,
+        sort: 200,
+        created_at: 999,
+        updated_at: 999,
+    });
+    mf.write_notebook_configs(&configs).unwrap();
+    let next = mf.next_notebook_sort().expect("next sort");
+    assert_eq!(next, 210, "max=200, next=210");
+}
+
+#[test]
+fn open_index_db_upgrades_legacy_schema_and_normalizes_sort() {
+    // 模拟 v3 之前的 index.db: 没有 sort 列, 已存在多条笔记本 sort=0 (默认)。
+    // 第一次 open_index_db 应该自动 ALTER + normalize, 让旧行 sort 变成 10/20/30...。
+    let tmp = std::env::temp_dir().join(format!(
+        "flowix-notebook-legacy-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+    let config_dir = tmp.join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+
+    // 直接打开一个 SQLite db, 用旧 schema 写两行 (不带 sort 列)
+    {
+        let conn = rusqlite::Connection::open(config_dir.join("index.db")).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE notebooks (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                icon TEXT,
+                path TEXT NOT NULL UNIQUE,
+                is_default INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        // created_at 故意倒序: nb_alpha=100 (排第一), nb_beta=50 (排第二)
+        conn.execute(
+            "INSERT INTO notebooks (id, name, icon, path, is_default, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params!["nb_alpha", "Alpha", Option::<String>::None, "/tmp/a/", 0i64, 100i64, 100i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO notebooks (id, name, icon, path, is_default, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params!["nb_beta", "Beta", Option::<String>::None, "/tmp/b/", 0i64, 50i64, 50i64],
+        )
+        .unwrap();
+    }
+
+    // 现在用 MemoFile 打开同一份 db, 应该触发 ALTER + normalize。
+    let mf = MemoFile::new(config_dir.clone());
+    let configs = mf.read_notebook_configs().expect("read ok");
+
+    // normalize 走 ORDER BY created_at ASC, 所以 nb_beta (50) 在前, sort=10;
+    // nb_alpha (100) 在后, sort=20。
+    assert_eq!(configs.len(), 2);
+    assert_eq!(configs[0].id, "nb_beta");
+    assert_eq!(configs[0].sort, 10);
+    assert_eq!(configs[1].id, "nb_alpha");
+    assert_eq!(configs[1].sort, 20);
+
+    // 列必须存在, 新行写入也带 sort。
+    let mut next_configs = configs;
+    next_configs.push(super::types::NotebookConfig {
+        id: "nb_new".to_string(),
+        name: "New".to_string(),
+        icon: None,
+        path: "/tmp/new/".to_string(),
+        is_default: false,
+        sort: 99,
+        created_at: 1,
+        updated_at: 1,
+    });
+    mf.write_notebook_configs(&next_configs).unwrap();
+
+    let conn = rusqlite::Connection::open(config_dir.join("index.db")).unwrap();
+    let sort_alpha: i64 = conn
+        .query_row(
+            "SELECT sort FROM notebooks WHERE id = 'nb_alpha'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(sort_alpha, 20, "已 normalize 的行 sort 不应被覆盖");
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn reorder_then_read_preserves_client_supplied_order() {
+    // 模拟 reorder 流程: 客户端把 (id, sort) pair 合并到现有 configs,
+    // 然后 read_notebook_configs 按新 sort 返回。直接走 MemoFile 公开 API
+    // 不依赖 Tauri command, 测试覆盖顺序持久化与读取语义。
+    let (mf, tmp) = fresh_memo_file();
+    let other = tmp.join("other");
+    let third = tmp.join("third");
+    fs::create_dir_all(&other).unwrap();
+    fs::create_dir_all(&third).unwrap();
+
+    // 准备初始 configs (sort 都是 10/20/30, 顺序可预测)
+    let mut configs = mf.read_notebook_configs().unwrap();
+    configs.push(super::types::NotebookConfig {
+        id: "nb_b".to_string(),
+        name: "B".to_string(),
+        icon: None,
+        path: format!("{}/", other.display()),
+        is_default: false,
+        sort: 20,
+        created_at: 2,
+        updated_at: 2,
+    });
+    configs.push(super::types::NotebookConfig {
+        id: "nb_c".to_string(),
+        name: "C".to_string(),
+        icon: None,
+        path: format!("{}/", third.display()),
+        is_default: false,
+        sort: 30,
+        created_at: 3,
+        updated_at: 3,
+    });
+    mf.write_notebook_configs(&configs).unwrap();
+
+    // 模拟 reorder: 客户端把 nb_c (sort 30) 移到最前, 跟 nb_test 互换位置
+    let sort_map = vec![("nb_c".to_string(), 5), ("nb_test".to_string(), 50)];
+    let mut configs = mf.read_notebook_configs().unwrap();
+    for entry in &sort_map {
+        if let Some(cfg) = configs.iter_mut().find(|c| c.id == entry.0) {
+            cfg.sort = entry.1;
+        }
+    }
+    mf.write_notebook_configs(&configs).unwrap();
+
+    let read = mf.read_notebook_configs().unwrap();
+    let ids: Vec<&str> = read.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, vec!["nb_c", "nb_b", "nb_test"]);
+    assert_eq!(read[0].sort, 5);
+    assert_eq!(read[2].sort, 50);
+
+    // 二次读取幂等: 重启后再读顺序不变。
+    drop(mf);
+    let mf2 = MemoFile::new(tmp.join("config"));
+    let read = mf2.read_notebook_configs().unwrap();
+    assert_eq!(read[0].id, "nb_c");
+    assert_eq!(read[0].sort, 5);
 }

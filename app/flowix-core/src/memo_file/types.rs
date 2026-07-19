@@ -110,6 +110,9 @@ pub struct Notebook {
     pub updated_at: i64,
     #[serde(rename = "isDefault")]
     pub is_default: bool,
+    /// 用户拖拽顺序, 小值在前。`read_notebook_configs` 读时按该字段升序返回,
+    /// 旧库升级时按 created_at 一次性回填 10/20/30...。前端透传展示顺序。
+    pub sort: i64,
     pub missing: bool,
 }
 
@@ -121,6 +124,8 @@ pub struct NotebookConfig {
     pub path: String,
     #[serde(rename = "isDefault")]
     pub is_default: bool,
+    /// 用户拖拽顺序, 小值在前; `None` 表示尚未分配 (旧库 upgrade 路径内部使用)。
+    pub sort: i64,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]

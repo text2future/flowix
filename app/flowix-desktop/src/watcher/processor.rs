@@ -554,6 +554,7 @@ mod tests {
             icon: None,
             path: format!("{}/", tmp.display()),
             is_default: true,
+            sort: 0,
             created_at: 0,
             updated_at: 0,
         };

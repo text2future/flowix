@@ -52,7 +52,7 @@ function NotebookIconPicker({
   const { t } = useI18n();
   return (
     <div className="space-y-2">
-      <div className="text-xs font-medium text-[var(--muted-foreground)]">Icon</div>
+      <div className="text-xs font-medium text-[var(--muted-foreground)]">{t("notebook.iconLabel")}</div>
       <div className="max-h-[162px] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
         <div className="grid grid-cols-8 gap-1.5">
           <button
@@ -236,7 +236,7 @@ export function NotebookDialogs({
                     new CustomEvent<Notebook>('flowix:request-delete-notebook', { detail: target })
                   );
                 }}
-                className="h-8 px-3 text-sm rounded-lg bg-white text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--muted)] hover:text-[var(--destructive)]"
+                className="h-8 px-3 text-sm rounded-lg bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--muted)] hover:text-[var(--destructive)]"
               >
                 {t("notebook.edit.remove")}
               </button>

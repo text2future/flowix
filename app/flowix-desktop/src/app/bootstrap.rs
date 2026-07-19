@@ -2,6 +2,7 @@ use crate::agent_external::claude::ClaudeCliManager;
 use crate::agent_external::codex::CodexCliManager;
 use crate::agent_external::hermes::HermesCliManager;
 use crate::agent_external::simple_cli;
+use crate::agent_external_config::AgentExternalConfig;
 use crate::agent_flowix::AgentManager;
 use crate::agent_session::ThreadManager;
 use crate::app::panic::install_panic_log_hook;
@@ -68,6 +69,20 @@ pub fn run() {
                 system_data_path.display()
             );
             SystemData::transient(system_data_path)
+        }
+    };
+
+    // External CLI 路径配置 (~/.flowix/agent-external-config.json) ──
+    // 作为 codex/claude/gemini/hermes/openclaw 执行路径的唯一参照。
+    let agent_external_config_path = user_config_dir.join("agent-external-config.json");
+    let agent_external_config = match AgentExternalConfig::new(agent_external_config_path.clone()) {
+        Ok(store) => store,
+        Err(err) => {
+            tracing::error!(
+                "failed to initialize agent external config at {}: {err}",
+                agent_external_config_path.display()
+            );
+            AgentExternalConfig::transient(agent_external_config_path)
         }
     };
 
@@ -227,10 +242,18 @@ pub fn run() {
             ));
             device_registry.clone().spawn_startup_registration();
 
-            // ── 1) 构造 AppState 并 manage ──
+            // ── 1) 启动探测 external CLI 路径 ──
+            //   对 source=auto/缺失的 agent 跑探测链 (env>PATH>候选>shell),
+            //   写入 ~/.flowix/agent-external-config.json 并灌进
+            //   cli_resolver::REGISTRY; source=user 的跳过 (尊重用户手改)。
+            //   此后 resolve_external_cli 命中即用, 不再每条消息探测。
+            agent_external_config.run_startup_detect();
+
+            // ── 2) 构造 AppState 并 manage ──
             let app_state = AppState {
                 user_config: user_config_for_state.clone(),
                 system_data,
+                agent_external_config,
                 memo_file: memo_file_for_state.clone(),
                 search: search_init,
                 agent_manager: agent_manager.clone(),
@@ -252,6 +275,29 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window("main") {
                 crate::window_chrome::apply_window_border_color(&window);
+                // 启动即对齐主题背景色, 消除冷启动白闪 (尤其深色主题)。
+                let theme = app.state::<AppState>().user_config.get_preference().theme;
+                crate::window_chrome::apply_theme_background(&window, theme);
+
+                // Theme::System 时跟随 OS 明暗实时切换窗口背景色: 仅当窗口未设显式
+                // theme (本应用所有窗口都是) 时 Tauri 才派发 ThemeChanged, 故这里
+                // 监听主窗口即可触发一次全局刷新 (apply_theme_background_all 遍历所有窗口)。
+                let app_for_theme = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::ThemeChanged(_) = event {
+                        let current = app_for_theme
+                            .state::<AppState>()
+                            .user_config
+                            .get_preference()
+                            .theme;
+                        if current == crate::config::Theme::System {
+                            crate::window_chrome::apply_theme_background_all(
+                                &app_for_theme,
+                                current,
+                            );
+                        }
+                    }
+                });
             }
 
             // 在 setup 阶段 manage dispatcher, 因为
@@ -344,7 +390,9 @@ pub fn run() {
                 app.listen("user-config-changed", move |event| {
                     // payload 是 kind 字符串 ("preference" / "ai_config" / "watcher")
                     // ── ai_config 走 ~/.flowix/agent-config.toml (TOML), 其余走 JSON
-                    let kind = event.payload();
+                    // event.payload() 返回 serde_json 序列化结果 (带引号, 如 "\"preference\""),
+                    // 直接 == 比对会恒为 false, 这里反序列化还原成裸字符串。
+                    let kind = serde_json::from_str::<String>(event.payload()).unwrap_or_default();
                     if kind == "preference" || kind == "watcher" {
                         let new_cfg = uc_for_evt.get_preference().watcher.clone();
                         w_for_evt
@@ -356,6 +404,8 @@ pub fn run() {
                             .set_whitelist(new_cfg);
                         tracing::info!("[watcher] whitelist hot-updated");
                     }
+                    // 主题切换的原生 chrome 更新由前端 apply_window_theme IPC 实时驱动,
+                    // 不在这里处理 (这里 200ms 防抖后才触发, 且与持久化耦合)。
                 });
             }
 
@@ -440,6 +490,7 @@ pub fn run() {
             commands::notebook::delete_notebook,
             commands::notebook::clear_notebooks,
             commands::notebook::set_current_notebook,
+            commands::notebook::reorder_notebooks,
             // file
             commands::file::get_file_tree,
             commands::file::get_dir_children,
@@ -466,6 +517,10 @@ pub fn run() {
             commands::agent_access::add_agent_access_folder_from_picker,
             // agent
             commands::agent::agent_runtime_status,
+            commands::agent::get_agent_external_config,
+            commands::agent::set_agent_external_path,
+            commands::agent::redetect_agent_external,
+            commands::agent::select_external_cli_path,
             commands::agent::open_codex_cli_install_terminal,
             commands::agent::open_codex_config,
             commands::agent::cache_agent_image,
@@ -506,6 +561,7 @@ pub fn run() {
             // window
             commands::window::show_main_window,
             commands::window::open_preferences_window,
+            commands::window::apply_window_theme,
             commands::tab_window::open_note_window,
             commands::tab_window::open_note_tab,
             commands::tab_window::open_external_markdown_window,

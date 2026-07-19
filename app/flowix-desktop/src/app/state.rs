@@ -4,6 +4,7 @@ use crate::agent_external::claude::ClaudeCliManager;
 use crate::agent_external::codex::CodexCliManager;
 use crate::agent_external::hermes::HermesCliManager;
 use crate::agent_external::simple_cli;
+use crate::agent_external_config::AgentExternalConfig;
 use crate::agent_flowix::AgentManager;
 use crate::agent_session::ThreadManager;
 use crate::config::{AgentAccessStore, SecurityBookmarkStore, UserConfigStore};
@@ -23,6 +24,10 @@ pub struct AppState {
     /// System metadata (notebook tag order/layout/hidden state).
     /// Stored at `~/.flowix/boot/system.json`.
     pub system_data: SystemData,
+    /// External CLI 路径配置 (`~/.flowix/agent-external-config.json`) ──
+    /// codex/claude/gemini/hermes/openclaw 执行路径的唯一参照, 启动探测写入,
+    /// 运行时 `resolve_external_cli` 命中即用。
+    pub agent_external_config: AgentExternalConfig,
     pub memo_file: Arc<RwLock<MemoFile>>,
     /// 当前 notebook 的全文搜索索引 (内存倒排). 切换 notebook 时 rebuild;
     /// 写命令增量 upsert/remove.

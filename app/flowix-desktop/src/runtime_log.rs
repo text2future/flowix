@@ -157,6 +157,76 @@ fn append_json_line(path: PathBuf, line: &Value) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// dev-only external agent stdout dump (`~/.flowix/debug/`)
+// ---------------------------------------------------------------------------
+
+/// dev 环境才启用的 external agent stdout 原始流 dump 目录: `~/.flowix/debug/`。
+/// 与 `log_dir()` (`~/.flowix/logs/`) 物理隔离 ── debug 装的是子进程 stdout
+/// 原文全量, 体量大且可能含用户笔记内容, 仅 dev 构建写入, release 不触碰。
+pub fn debug_dir() -> PathBuf {
+    user_config_dir().join("debug")
+}
+
+/// 专属于 debug dump 的写入锁, 与 `LOG_WRITE_LOCK` 隔离 ── debug 行数远多于
+/// agent.log (单次 claude 运行可逾千行), 独立锁避免拖慢常规日志。
+static DEBUG_WRITE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+/// 仅 dev 构建: 把 external agent (claude / codex) 子进程 stdout 的一行原始
+/// JSONL 追加 dump 到 `~/.flowix/debug/<agent>-<run_id>.jsonl`。
+///
+/// 与 `record_agent_event` (写 `agent.log` 结构化事件摘要) 的区别: 这里写的是
+/// 子进程 stdout 原文全量 (含 `thinking_tokens` 增量 / `tool_use` / `tool_result`
+/// 原始块), 供排障时 1:1 还原 vendor CLI 真实回包。
+///
+/// **仅 dev**: `cfg!(debug_assertions)` 门控, release 构建立即返回 ── 不建目录、
+/// 不开文件, 生产环境绝不把用户笔记内容 / agent 流数据落盘。IO 失败静默吞掉,
+/// 不影响流处理主路径 (与 `record_agent_event` 一致的"尽力而为"语义)。
+///
+/// `thread_id` 当前不进文件名 (`run_id` 已唯一标识本次运行), 保留参数位是为
+/// 后续按对话归档 / 注入 dump header 预留, 也让调用点语义自解释。
+pub fn dump_debug_stdout_line(agent_type: &str, _thread_id: &str, run_id: &str, line: &str) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    dump_debug_stdout_line_to(&debug_dir(), agent_type, run_id, line);
+}
+
+/// `dump_debug_stdout_line` 的核心写入逻辑, 接受任意目录 ── 供单测在不污染
+/// 用户 `~/.flowix/debug/` 的前提下断言行为。不做 dev 门控 (test 都是 debug
+/// profile, 门控恒真)。
+fn dump_debug_stdout_line_to(dir: &PathBuf, agent_type: &str, run_id: &str, line: &str) {
+    if fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let file_name = format!(
+        "{}-{}.jsonl",
+        sanitize_debug_id(agent_type),
+        sanitize_debug_id(run_id)
+    );
+    let path = dir.join(file_name);
+    let Ok(_guard) = DEBUG_WRITE_LOCK.lock() else {
+        return;
+    };
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+/// 把任意字符串收敛成安全的文件名片段: 只保留 `[A-Za-z0-9._-]`, 其余替换为 `_`。
+/// `agent_type` / `run_id` 通常已是安全字符, 这里是防御性兜底, 避免路径穿越 / 非法文件名。
+fn sanitize_debug_id(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +273,47 @@ mod tests {
             .collect();
         entries.sort();
         assert_eq!(entries, vec!["agent.log"], "only agent.log should exist");
+    }
+
+    #[test]
+    fn dump_debug_stdout_line_to_appends_raw_lines() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().to_path_buf();
+        dump_debug_stdout_line_to(&dir, "claude", "run-abc", "{\"type\":\"system\",\"subtype\":\"init\"}");
+        dump_debug_stdout_line_to(&dir, "claude", "run-abc", "{\"type\":\"assistant\"}");
+
+        // 同一 run 多行 -> 同一文件追加, 每次一行。
+        let body = std::fs::read_to_string(dir.join("claude-run-abc.jsonl")).expect("read dump");
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "each call appends exactly one line");
+        assert!(lines[0].contains("\"subtype\":\"init\""));
+        assert!(lines[1].contains("\"assistant\""));
+    }
+
+    #[test]
+    fn dump_debug_stdout_line_to_partitions_per_run() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().to_path_buf();
+        dump_debug_stdout_line_to(&dir, "claude", "run-1", "a");
+        dump_debug_stdout_line_to(&dir, "claude", "run-2", "b");
+
+        // 不同 run_id -> 不同文件, 互不覆盖。
+        assert_eq!(
+            std::fs::read_to_string(dir.join("claude-run-1.jsonl")).unwrap(),
+            "a\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("claude-run-2.jsonl")).unwrap(),
+            "b\n"
+        );
+    }
+
+    #[test]
+    fn sanitize_debug_id_keeps_safe_chars_only() {
+        assert_eq!(sanitize_debug_id("claude"), "claude");
+        assert_eq!(sanitize_debug_id("run-1.2"), "run-1.2");
+        // 空格 / 斜杠等非法文件名字符 -> '_', 阻断路径穿越。
+        assert_eq!(sanitize_debug_id("a b/c"), "a_b_c");
+        assert_eq!(sanitize_debug_id("../etc"), ".._etc");
     }
 }

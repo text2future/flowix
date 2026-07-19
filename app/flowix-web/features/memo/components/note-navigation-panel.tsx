@@ -46,6 +46,20 @@ interface TagDropTarget {
   position: TagDropPosition;
 }
 
+interface NotebookDragGhost {
+  id: string;
+  rect: DOMRect;
+  currentX: number;
+  currentY: number;
+}
+
+type NotebookDropPosition = 'before' | 'after';
+
+interface NotebookDropTarget {
+  id: string;
+  position: NotebookDropPosition;
+}
+
 interface NoteNavigationPanelProps {
   notebooks: Notebook[];
   selectedNotebook: Notebook | null;
@@ -143,6 +157,23 @@ export function NoteNavigationPanel({
   const [draggingTagId, setDraggingTagId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<TagDropTarget | null>(null);
   const [dragGhost, setDragGhost] = useState<TagDragGhost | null>(null);
+
+  // 笔记本列表拖动 ── 完全沿用上方 tag 那套: 独立 state / ref 各自维护,
+  // 不抽公共 hook / 函数。两套状态机互不引用、各自只为本列表服务。
+  // tag 那套是 1.0.6 release 时就已经在跑 (经测试 OK), 这套照抄其结构
+  // 以保证行为对称。
+  const [draggingNotebookId, setDraggingNotebookId] = useState<string | null>(null);
+  const [notebookDropTarget, setNotebookDropTarget] = useState<NotebookDropTarget | null>(null);
+  const [notebookDragGhost, setNotebookDragGhost] = useState<NotebookDragGhost | null>(null);
+  const notebookDragPointerRef = useRef<{
+    sourceId: string;
+    pointerId: number;
+    startY: number;
+    startX: number;
+    rect: DOMRect | null;
+    isDragging: boolean;
+  } | null>(null);
+  const notebookRowRefs = useRef(new Map<string, HTMLDivElement>());
 
   const dragPointerRef = useRef<{
     sourceId: string;
@@ -384,15 +415,10 @@ export function NoteNavigationPanel({
         { name: string; fullPath: string; depth: number; count: number }
       >();
 
-      // 复用当前 tagOptions 的 count, 避免重算 prefix
-      for (const seg of tagOptions) {
-        segmentByFullPath.set(seg.fullPath, {
-          name: seg.name,
-          fullPath: seg.fullPath,
-          depth: seg.depth,
-          count: seg.count,
-        });
-      }
+      // count 复用当前 tagOptions, 避免重算 prefix; 但 segmentByFullPath 不预填:
+      // 必须按 layout 顺序 ensureSegment, 否则 layout 顺序被忽略, 拖动后 UI 不变
+      // (要等 reload 走 buildTagTreeOptions 才生效)。
+      const countByFullPath = new Map(tagOptions.map((seg) => [seg.fullPath, seg.count]));
 
       const ensureSegment = (fullPath: string) => {
         if (segmentByFullPath.has(fullPath)) return;
@@ -406,11 +432,11 @@ export function NoteNavigationPanel({
           name,
           fullPath,
           depth: depthFromSlashes,
-          count: 0,
+          count: countByFullPath.get(fullPath) ?? 0,
         });
       };
 
-      // 按 layout 顺序展开, 让新出现的 segment 节点排在已存在的之后。
+      // 按 layout 顺序展开: segment 节点顺序 = layout 顺序 (同级 reorder 立即生效)。
       for (const item of layout) {
         ensureSegment(item.id);
       }
@@ -668,6 +694,138 @@ export function NoteNavigationPanel({
     };
   }, [applyTagMove, findDropTarget, handleTagSelect]);
 
+  // ===== 笔记本列表拖动 ── 完全照 tag 那套的状态机; 不引 hook、不抽公共
+  // 函数、不写测试。复刻就是复刻, 接受两套状态机的重复。
+  const reorderNotebooks = useMemoStore((s) => s.reorderNotebooks);
+  const findNotebookDropTarget = useCallback(
+    (y: number, sourceId: string): NotebookDropTarget | null => {
+      const sourceIndex = notebooks.findIndex((nb) => nb.id === sourceId);
+      if (sourceIndex < 0) return null;
+      for (let index = 0; index < notebooks.length; index += 1) {
+        if (index === sourceIndex) continue;
+        const row = notebookRowRefs.current.get(notebooks[index].id);
+        if (!row) continue;
+        const rect = row.getBoundingClientRect();
+        if (y >= rect.top && y <= rect.bottom) {
+          const position: NotebookDropPosition =
+            y - rect.top < rect.height / 2 ? 'before' : 'after';
+          return { id: notebooks[index].id, position };
+        }
+      }
+      return null;
+    },
+    [notebooks]
+  );
+
+  const handleNotebookPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>, notebookId: string) => {
+      if (e.button !== 0) return;
+      // 整行可拖 (对齐 tag 行) ── 编辑笔的 onPointerDown stopPropagation
+      // 阻止冒泡到行, 不会误启动拖动; 其 onClick 仍正常打开编辑弹窗。
+      e.preventDefault();
+      const row = e.currentTarget;
+      try {
+        row.setPointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+      const rect = row.getBoundingClientRect();
+      notebookDragPointerRef.current = {
+        sourceId: notebookId,
+        pointerId: e.pointerId,
+        startY: e.clientY,
+        startX: e.clientX,
+        rect,
+        isDragging: false,
+      };
+    },
+    []
+  );
+
+  const applyNotebookMove = useCallback(
+    (sourceId: string, targetId: string, position: NotebookDropPosition) => {
+      if (sourceId === targetId) return;
+      const sourceIndex = notebooks.findIndex((nb) => nb.id === sourceId);
+      const targetIndex = notebooks.findIndex((nb) => nb.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      const ids = notebooks.map((nb) => nb.id);
+      const [moved] = ids.splice(sourceIndex, 1);
+      // source 已经在 splice 里被移除; 之后 targetIndex 是「在原列表
+      // 里的位置」(对 source 位置之后的 target 没校正, 故需再减 1)。
+      let insertAt = targetIndex;
+      if (sourceIndex < targetIndex) insertAt = targetIndex - 1;
+      if (position === 'after') insertAt += 1;
+      insertAt = Math.max(0, Math.min(insertAt, ids.length));
+      ids.splice(insertAt, 0, moved);
+      void reorderNotebooks(ids);
+    },
+    [notebooks, reorderNotebooks]
+  );
+
+  useEffect(() => {
+    const DRAG_THRESHOLD_PX = 4;
+
+    const handleMove = (e: PointerEvent) => {
+      const state = notebookDragPointerRef.current;
+      if (!state || state.pointerId !== e.pointerId) return;
+
+      if (!state.isDragging) {
+        const dy = Math.abs(e.clientY - state.startY);
+        const dx = Math.abs(e.clientX - state.startX);
+        if (dy < DRAG_THRESHOLD_PX && dx < DRAG_THRESHOLD_PX) return;
+        state.isDragging = true;
+        setDraggingNotebookId(state.sourceId);
+        if (state.rect) {
+          setNotebookDragGhost({
+            id: state.sourceId,
+            rect: state.rect,
+            currentX: e.clientX,
+            currentY: e.clientY,
+          });
+        }
+      } else {
+        setNotebookDragGhost((prev) =>
+          prev ? { ...prev, currentX: e.clientX, currentY: e.clientY } : null,
+        );
+      }
+
+      setNotebookDropTarget(findNotebookDropTarget(e.clientY, state.sourceId));
+    };
+
+    const handleUp = (e: PointerEvent) => {
+      const state = notebookDragPointerRef.current;
+      if (!state || state.pointerId !== e.pointerId) return;
+
+      if (state.isDragging) {
+        const target = findNotebookDropTarget(e.clientY, state.sourceId);
+        if (target) {
+          applyNotebookMove(state.sourceId, target.id, target.position);
+        }
+      } else {
+        // 无位移 → 视为点击选中 (对齐 tag 行: pointerup 非拖动时选中,
+        // 行上不再挂 onClick, 避免拖动刚过阈值松手时 click 误触发切换)。
+        const nb = notebooks.find((n) => n.id === state.sourceId);
+        if (nb) handleNotebookRowActivate(nb);
+      }
+
+      notebookDragPointerRef.current = null;
+      setDraggingNotebookId(null);
+      setNotebookDragGhost(null);
+      setNotebookDropTarget(null);
+    };
+
+    const handleCancel = (e: PointerEvent) => handleUp(e);
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleCancel);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleCancel);
+    };
+  }, [applyNotebookMove, findNotebookDropTarget, handleNotebookRowActivate, notebooks]);
+
   return (
     <div className="flex h-full min-w-0 select-none flex-col bg-[var(--agent-bg)] text-[var(--agent-foreground)]">
       {/* 顶部 header ── Mac/Win 差分:
@@ -702,12 +860,27 @@ export function NoteNavigationPanel({
               notebooks.map((notebook) => {
                 const isActive = selectedNotebook?.id === notebook.id;
                 const isMissing = Boolean(notebook.missing);
+                const isNotebookDragging = draggingNotebookId === notebook.id;
+                const showNotebookHoverBefore =
+                  notebookDropTarget?.id === notebook.id &&
+                  notebookDropTarget.position === 'before' &&
+                  !isNotebookDragging;
+                const showNotebookHoverAfter =
+                  notebookDropTarget?.id === notebook.id &&
+                  notebookDropTarget.position === 'after' &&
+                  !isNotebookDragging;
                 return (
                   <div
                     key={notebook.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => handleNotebookRowActivate(notebook)}
+                    onPointerDown={(event) =>
+                      handleNotebookPointerDown(event, notebook.id)
+                    }
+                    ref={(el) => {
+                      if (el) notebookRowRefs.current.set(notebook.id, el);
+                      else notebookRowRefs.current.delete(notebook.id);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -715,15 +888,25 @@ export function NoteNavigationPanel({
                       }
                     }}
                     className={cn(
-                      'group relative flex h-8 w-full cursor-pointer select-none items-center gap-2 rounded-md pl-1.5 pr-2 text-left text-sm transition-colors',
-                      isActive
-                        ? 'bg-[var(--muted)] text-[var(--foreground)]'
-                        : 'text-[var(--foreground)] hover:bg-[var(--muted)]',
+                      'group relative flex h-8 w-full select-none items-center gap-2 rounded-md pl-1.5 pr-2 text-left text-sm transition-colors',
+                      isNotebookDragging
+                        ? 'cursor-grabbing opacity-40'
+                        : 'cursor-pointer hover:bg-[var(--muted)]',
+                      !isNotebookDragging && isActive && 'bg-[var(--muted)]',
+                      !isNotebookDragging && 'text-[var(--foreground)]',
                       isMissing && 'opacity-70',
                     )}
+                    style={{ touchAction: 'none' }}
                     title={notebook.name}
                     aria-pressed={isActive}
+                    aria-grabbed={isNotebookDragging}
                   >
+                    {showNotebookHoverBefore && (
+                      <div className="pointer-events-none absolute left-1 right-1 -top-px h-0.5 rounded bg-[var(--primary)] z-10" />
+                    )}
+                    {showNotebookHoverAfter && (
+                      <div className="pointer-events-none absolute left-1 right-1 -bottom-px h-0.5 rounded bg-[var(--primary)] z-10" />
+                    )}
                     <NotebookIcon
                       icon={notebook.icon}
                       name={notebook.name}
@@ -752,6 +935,7 @@ export function NoteNavigationPanel({
                       <span
                         role="button"
                         tabIndex={-1}
+                        onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
                           onEditNotebook(notebook);
@@ -783,6 +967,35 @@ export function NoteNavigationPanel({
             <span className="min-w-0 flex-1 truncate">{t('status.new')}</span>
           </button>
         </OverlayScrollbar>
+
+        {/* 笔记本 ghost ── fixed 跟手, pointer-events: none 避免干扰命中测试。
+            仅当处于拖动态时挂载, 模仿 tag 那段 ghost 的视觉骨架。 */}
+        {notebookDragGhost && (
+          (() => {
+            const nb = notebooks.find((n) => n.id === notebookDragGhost.id);
+            if (!nb) return null;
+            return (
+              <div
+                aria-hidden
+                className="pointer-events-none fixed z-[1600] flex h-8 items-center gap-2 rounded-md border border-[var(--primary)] bg-[var(--background)]/95 pl-1.5 pr-2 text-sm shadow-lg"
+                style={{
+                  top: notebookDragGhost.currentY + 12,
+                  left: notebookDragGhost.currentX + 12,
+                  width: notebookDragGhost.rect.width,
+                  height: notebookDragGhost.rect.height,
+                }}
+              >
+                <NotebookIcon
+                  icon={nb.icon}
+                  name={nb.name}
+                  className="h-6 w-6 rounded-md bg-[var(--muted)] text-[11px] font-semibold text-[var(--secondary-foreground)]"
+                  imageClassName="h-5 w-5"
+                />
+                <span className="min-w-0 flex-1 truncate">{nb.name}</span>
+              </div>
+            );
+          })()
+        )}
       </div>
 
       {/* 笔记本 / 标签 分隔条 ── 鼠标 hover 显形 + 可拖动, 调节上方笔记本列表高度。

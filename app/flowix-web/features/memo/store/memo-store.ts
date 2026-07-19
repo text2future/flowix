@@ -53,6 +53,9 @@ export interface Notebook {
   createdAt: number;
   updatedAt: number;
   isDefault: boolean;
+  /** User-defined display order; smaller values appear first. Mirrors the
+   * Rust `NotebookConfig.sort` field. */
+  sort?: number;
   missing?: boolean;
 }
 
@@ -144,6 +147,12 @@ export interface MemoStore {
   setNotebooks: (notebooks: Notebook[]) => void;
   setSelectedMemo: (memo: MemoItem | null) => void;
   setSelectedNotebook: (notebook: Notebook | null) => void;
+  /**
+   * Persist a new notebook display order. `nextOrderIds` is the desired
+   * sequence; the store assigns sparse sort values internally and replaces
+   * the local cache with the backend's response.
+   */
+  reorderNotebooks: (nextOrderIds: string[]) => Promise<void>;
   setActiveFilter: (filter: ExtendedFilterType) => void;
   setActiveSort: (sort: SortType) => void;
   setColorFilter: (color: ColorFilterValue) => void;
@@ -279,6 +288,30 @@ export const useMemoStore = create<MemoStore>()(
       loadNotebooks: async () => {
         const nbList = await notebookRepository.list();
         set({ notebooks: nbList as Notebook[] });
+      },
+      /**
+       * Reorder notebooks by submitting the new id order to the backend.
+       * `nextOrderIds` is the desired sequence of notebook ids; the action
+       * assigns sort = (index + 1) * 10 (step 10 keeps room for future
+       * inserts) and replaces the local cache with the backend's response
+       * so that any normalization logic stays server-authoritative.
+       */
+      reorderNotebooks: async (nextOrderIds: string[]) => {
+        if (nextOrderIds.length === 0) return;
+        const order = nextOrderIds.map((id, index) => ({
+          id,
+          sort: (index + 1) * 10,
+        }));
+        try {
+          const updated = await notebookRepository.reorder(order);
+          set({ notebooks: updated as Notebook[] });
+        } catch (error) {
+          // 失败时重新拉一次 list 跟服务端对齐 (notebook 列表较短, 直接重拉比
+          // 维护本地乐观回滚更稳)。
+          console.error('[reorderNotebooks] failed', error);
+          const nbList = await notebookRepository.list();
+          set({ notebooks: nbList as Notebook[] });
+        }
       },
 
       createMemo: async (tag, notebookId) => {

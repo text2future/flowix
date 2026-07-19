@@ -902,6 +902,13 @@ fn create_window(
     let window = builder.build().map_err(|e| e.to_string())?;
     registry.add_window(label.clone(), tab);
     crate::window_chrome::apply_window_border_color(&window);
+    // 新窗口即刻对齐主题背景色 (与主窗口启动一致), 避免冷启动白闪。
+    let theme = app
+        .state::<AppState>()
+        .user_config
+        .get_preference()
+        .theme;
+    crate::window_chrome::apply_theme_background(&window, theme);
     if position.is_none() {
         cascade_window(app, &window, coordinator);
     }

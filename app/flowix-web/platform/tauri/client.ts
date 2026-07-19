@@ -18,6 +18,7 @@ import type {
 } from '@/types/agent';
 import type { AgentAccessConfig, AgentAccessEntry } from '@/lib/types/agent-access';
 import type { MemoColor, MemoItem } from '@features/memo';
+import type { ThemeId } from '@features/theme';
 
 // ============================================
 // Types
@@ -344,6 +345,11 @@ export const tags = {
 };
 
 // Notebooks
+export interface NotebookSortEntry {
+  id: string;
+  sort: number;
+}
+
 export const notebooks = {
   getAll: () => invoke<any[]>('get_notebooks'),
   create: (name: string, path: string, icon?: string | null) =>
@@ -353,6 +359,14 @@ export const notebooks = {
   delete: (id: string) => invoke<boolean>('delete_notebook', { id }),
   clearAll: () => invoke<boolean>('clear_notebooks'),
   setCurrent: (notebookId: string | null) => invoke<void>('set_current_notebook', { notebookId }),
+  /**
+   * Reorder notebooks. `order` is the desired (id, sort) pairs; the backend
+   * keeps any ids not present in the list untouched. Returns the fresh
+   * notebook list in the new order so callers can immediately replace their
+   * local cache without re-querying.
+   */
+  reorder: (order: NotebookSortEntry[]) =>
+    invoke<any[]>('reorder_notebooks', { order }),
 };
 
 // Files
@@ -437,6 +451,7 @@ export interface ExternalDocumentChangedEvent {
 export const windows = {
   showMain: () => invoke<void>('show_main_window'),
   openPreferences: (tab?: string) => invoke<void>('open_preferences_window', { tab }),
+  applyWindowTheme: (theme: ThemeId) => invoke<void>('apply_window_theme', { theme }),
   openNoteWindow: (memoId: string) => invoke<void>('open_note_window', { memoId }),
   openNoteTab: (memoId: string) => invoke<void>('open_note_tab', { memoId }),
   openExternalMarkdownWindow: (filePath: string) =>
@@ -643,6 +658,14 @@ export interface AgentRuntimeStatus {
   openclaw: AgentRuntimeAvailability;
 }
 
+export type AgentExternalSource = 'auto' | 'user';
+
+export interface AgentExternalEntry {
+  path: string | null;
+  source: AgentExternalSource;
+  available: boolean;
+}
+
 export const agent = {
   runtimeStatus: () =>
     invoke<AgentRuntimeStatus>('agent_runtime_status'),
@@ -650,6 +673,16 @@ export const agent = {
     invoke<void>('open_codex_cli_install_terminal'),
   openCodexConfig: () =>
     invoke<void>('open_codex_config'),
+  // ── External CLI 路径配置 (~/.flowix/agent-external-config.json) ──
+  // 唯一参照: 启动探测写入, 偏好设置可改 path / 重新探测。
+  getExternalConfig: () =>
+    invoke<Record<string, AgentExternalEntry>>('get_agent_external_config'),
+  setExternalPath: (agentType: string, path: string) =>
+    invoke<AgentExternalEntry>('set_agent_external_path', { agentType, path }),
+  redetectExternal: (agentType: string) =>
+    invoke<AgentExternalEntry>('redetect_agent_external', { agentType }),
+  selectExternalCliPath: () =>
+    invoke<string | null>('select_external_cli_path'),
   cacheImage: (content: string, mimeType: string) =>
     invoke<CachedAgentImage>('cache_agent_image', { content, mimeType }),
   deleteCachedImage: (path: string) =>

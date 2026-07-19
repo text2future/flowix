@@ -597,6 +597,7 @@ mod tests {
                 icon: None,
                 path: format!("{}/", notebook_path.display()),
                 is_default: true,
+            sort: 0,
                 created_at: 1,
                 updated_at: 1,
             }])

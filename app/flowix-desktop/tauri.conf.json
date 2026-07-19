@@ -11,6 +11,7 @@
     "frontendDist": "../../.build/web-dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Home",

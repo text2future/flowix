@@ -50,6 +50,9 @@ where
         if line.is_empty() {
             continue;
         }
+        // dev-only: 把子进程 stdout 原始行镜像到 ~/.flowix/debug/, 1:1 还原
+        // vendor CLI 回包供排障。release 构建内 no-op, 不落盘。
+        runtime_log::dump_debug_stdout_line(AGENT_TYPE, &thread_id, &run_id, line);
         runs.touch(&thread_id, Some(&run_id)).await;
 
         let parsed = parse_claude_stdout_line(&thread_id, line);

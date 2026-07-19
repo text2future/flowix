@@ -13,6 +13,7 @@ fn seed_notebook(config_dir: &std::path::Path, notebook_dir: &std::path::Path) {
             icon: None,
             path: format!("{}/", notebook_dir.display()),
             is_default: true,
+            sort: 0,
             created_at: 1,
             updated_at: 1,
         }])

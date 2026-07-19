@@ -77,5 +77,17 @@ pub async fn open_preferences_window(
 
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::window_chrome::apply_window_border_color(&window);
+    // 新窗口即刻对齐主题背景色 (与主窗口启动一致), 避免冷启动白闪。
+    let theme = state.user_config.get_preference().theme;
+    crate::window_chrome::apply_theme_background(&window, theme);
+    Ok(())
+}
+
+/// 前端切换主题时立即调用: 把新主题应用到所有窗口的原生 chrome (`set_theme` + 背景色),
+/// 不等 `set_preference` 的 200ms 防抖落盘, 实现实时跟随。落盘仍走 debounced
+/// `set_preference`, 与这里解耦 -- 视觉更新与持久化分离。
+#[tauri::command]
+pub fn apply_window_theme(theme: Theme, app: tauri::AppHandle) -> Result<(), String> {
+    crate::window_chrome::apply_theme_background_all(&app, theme);
     Ok(())
 }
