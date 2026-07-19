@@ -10,6 +10,7 @@ Flowix 是一款桌面笔记应用（**Tauri 2 + Rust 后端，React 19 + TS + T
 ```bash
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 npm run tauri:dev        # 推荐：独立 dev bundle ID (com.flowix.app.dev / "Flowix Dev")，可与生产 app 并存
+npm run tauri:dev:win    # Windows 开发启动：使用 app/flowix-desktop/tauri.windows.dev.conf.json
 npm run tauri dev        # ⚠️ 走默认 tauri.conf.json，与生产同 bundle ID (com.flowix.app)，已被生产占住时会立刻 exit 0
 npm run dev              # 仅前端 (localhost:1420)
 npm run tauri build      # 生产构建
