@@ -7,14 +7,25 @@ use walkdir::WalkDir;
 use crate::agent_session::{ChatMessage, ThreadInfo};
 use crate::agent_types::AgentId;
 
-use super::AGENT_TYPE;
+use super::{
+    events::{should_silence_event, silence_reason},
+    AGENT_TYPE,
+};
 
+/// [history path] 列出 `~/.claude/projects/.../*.jsonl` 里的所有 session
+/// 摘要。被前端 IPC `list_agent_conversation_instances` 等调用,数据源
+/// 是持久化 JSONL ── 与 stream path 完全独立。
 pub async fn list_sessions() -> Result<Vec<ThreadInfo>, String> {
     tokio::task::spawn_blocking(list_claude_sessions)
         .await
         .map_err(|e| e.to_string())?
 }
 
+/// [history path] 读 `~/.claude/projects/.../<sid>.jsonl` 全量,转成
+/// `Vec<ChatMessage>` 推到 thread card。被前端 IPC `get_session` 调用。
+/// 同会话的 stream path 走 `events.rs::parse_claude_stdout_line`,
+/// 数据源是 Claude Code 子进程的 stdout ── 两条 path 处理的是同一份
+/// 对话的不同视图(streaming 是实时切片, history 是压缩后的全量)。
 pub async fn get_session(session_id: &str) -> Result<Vec<ChatMessage>, String> {
     let session_id = session_id.to_string();
     tokio::task::spawn_blocking(move || read_claude_session_messages(&session_id))
@@ -91,6 +102,10 @@ fn list_claude_sessions() -> Result<Vec<ThreadInfo>, String> {
     Ok(list)
 }
 
+/// [history path] 读持久化 JSONL 全量,逐行转 `ChatMessage`。每行经
+/// `value_to_chat_messages` 过滤(isMeta / isSidechain / isSynthetic /
+/// subagent_type / task-notification 守卫),再经 `append_claude_history_message`
+/// 合并同 tool_call_id 的 tool_use + tool_result。
 fn read_claude_session_messages(session_id: &str) -> Result<Vec<ChatMessage>, String> {
     let path = find_claude_session_file(session_id)?
         .ok_or_else(|| format!("Claude Code session not found: {session_id}"))?;
@@ -117,6 +132,9 @@ fn read_claude_session_messages(session_id: &str) -> Result<Vec<ChatMessage>, St
     Ok(messages)
 }
 
+/// [history path] 修复"session 中途被 kill 留下的孤儿 tool_use"。
+/// stream path 没有等价需求 ── 流式下 tool_result 紧跟 tool_use 到达,
+/// 不会留孤儿。
 fn close_orphan_claude_tool_calls(messages: &mut [ChatMessage]) {
     use std::collections::HashSet;
     let matched: HashSet<String> = messages
@@ -138,6 +156,10 @@ fn close_orphan_claude_tool_calls(messages: &mut [ChatMessage]) {
     }
 }
 
+/// [history path] 把 `value_to_chat_messages` 产生的 `ChatMessage` 追加
+/// 到消息列表;特殊处理 tool_result ── 若已有同 tool_call_id 的
+/// tool_call_message(说明 tool_use 已先到),则原地合并而非追加,
+/// 避免 thread card 上同时显示"调用中"和"已返回"两条 tool 气泡。
 fn append_claude_history_message(messages: &mut Vec<ChatMessage>, message: ChatMessage) {
     let is_tool_result = message.role == "tool"
         && message.tool_name.as_deref() == Some("tool_result")
@@ -171,6 +193,10 @@ struct SessionMeta {
     updated_at: Option<i64>,
 }
 
+/// [history path] 读 JSONL 全量,提取 session 级元数据 ── id / title /
+/// created_at / updated_at。title 从首个 type=user 行 + 非合成消息
+/// (`!should_silence_event`) + 含可读 text 的行提取 ── 避免把
+/// Skill body / task-notification XML 误当成 session 标题。
 fn read_claude_session_meta(path: &Path) -> Result<SessionMeta, String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut id = session_id_from_filename(path);
@@ -187,7 +213,10 @@ fn read_claude_session_meta(path: &Path) -> Result<SessionMeta, String> {
             created_at = created_at.or(Some(ts));
             updated_at = Some(ts);
         }
-        if title.is_none() && value.get("type").and_then(Value::as_str) == Some("user") {
+        if title.is_none()
+            && value.get("type").and_then(Value::as_str) == Some("user")
+            && !should_silence_event(&value)
+        {
             if let Some(text) = message_content_to_text(&value) {
                 title = Some(truncate_title(&text.replace('\n', " ")));
             }
@@ -203,8 +232,8 @@ fn read_claude_session_meta(path: &Path) -> Result<SessionMeta, String> {
     })
 }
 
-/// 从 Claude Code CLI 的 session jsonl 里读出原始 cwd ── session 元数据
-/// 第一行通常带 `cwd` 字段 (`{"type":..., "cwd":"/abs/path", ...}`).
+/// [history path] 从 Claude Code CLI 的 session jsonl 里读出原始 cwd ──
+/// session 元数据第一行通常带 `cwd` 字段 (`{"type":..., "cwd":"/abs/path", ...}`).
 ///
 /// 用途: 后端 `claude_cli.rs::run_claude` 的 cwd 兜底链 ── 当 IPC 入参
 /// 的 `message.cwd_for_runtime` 拿不到值时 (前端全局 store 启动 race
@@ -251,7 +280,26 @@ pub fn claude_session_cwd(session_id: &str) -> Result<Option<PathBuf>, String> {
     Ok(None)
 }
 
+/// [history path] 持久化 JSONL 单行 → `Vec<ChatMessage>` ── 被
+/// `read_claude_session_messages` 调用。Entry guard 用 `silence_reason`
+/// 拦截合成消息(详见 `silence_reason` 的 doc);通过后按 role 分发:
+/// text / tool_use / tool_result 块各自转 `ChatMessage`。
 fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<ChatMessage> {
+    if let Some(reason) = silence_reason(value) {
+        tracing::debug!(
+            "[ClaudeHistory] silenced event session_id={session_id} idx={idx} reason={reason} \
+             event_type={} is_meta={} is_sidechain={} origin_kind={}",
+            value.get("type").and_then(serde_json::Value::as_str).unwrap_or_default(),
+            value.get("isMeta").and_then(serde_json::Value::as_bool).unwrap_or(false),
+            value.get("isSidechain").and_then(serde_json::Value::as_bool).unwrap_or(false),
+            value.get("origin")
+                .and_then(|o| o.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+        );
+        return Vec::new();
+    }
+
     let role = match value.get("type").and_then(Value::as_str) {
         Some("user") => "user",
         Some("assistant") => "assistant",
@@ -269,8 +317,17 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
 
     if let Some(content) = message_content(value) {
         if let Some(parts) = content.as_array() {
+            // `should_skip_user_text_blocks` heuristic **intentionally removed**.
+            // Empirically validated: the event-level guards in `silence_reason`
+            // (isMeta / isSidechain / isSynthetic / subagent_type /
+            // task-notification) already cover every real-case synthetic message.
+            // history.rs's content-shape heuristic was redundant defense, and
+            // removing it let history.rs stop tracking the "real user input +
+            // image" defensive case that Claude Code doesn't currently emit in
+            // JSONL. If a future Claude Code CLI release starts echoing user
+            // text + image rows that we want to render verbatim, re-add the
+            // heuristic and the two tests below.
             let mut text = String::new();
-            let skip_user_text_blocks = should_skip_user_text_blocks(role, parts);
             for (part_idx, part) in parts.iter().enumerate() {
                 let part_type = part.get("type").and_then(Value::as_str).unwrap_or_default();
                 match part_type {
@@ -288,7 +345,29 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
                         ));
                     }
                     "tool_result" => {
-                        if !skip_user_text_blocks && !text.trim().is_empty() {
+                        // 与 events.rs type=user 的 "Async agent launched
+                        // successfully" 前缀守卫对齐 ── Agent launch metadata
+                        // 占位 tool_result 在持久化 JSONL 里 isSidechain=false /
+                        // 无 subagent_type,事件级 silence_reason 抓不到,只能
+                        // 靠 content 前缀判定。content 有 string 和 array 两种
+                        // 形态,都得查。
+                        let content_text = match part.get("content") {
+                            Some(Value::String(s)) => Some(s.as_str()),
+                            Some(Value::Array(parts)) => parts
+                                .iter()
+                                .filter_map(|p| {
+                                    p.get("text").and_then(Value::as_str)
+                                })
+                                .next(),
+                            _ => None,
+                        };
+                        let is_agent_launch_metadata = content_text.is_some_and(
+                            |s| s.starts_with("Async agent launched successfully"),
+                        );
+                        if is_agent_launch_metadata {
+                            continue;
+                        }
+                        if !text.trim().is_empty() {
                             messages.push(base_message(
                                 format!("{session_id}-{idx}-{role}-text-{}", messages.len()),
                                 role,
@@ -301,9 +380,6 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
                         ));
                     }
                     _ => {
-                        if skip_user_text_blocks && part_type == "text" {
-                            continue;
-                        }
                         if let Some(part_text) = part
                             .get("text")
                             .or_else(|| part.get("content"))
@@ -340,17 +416,9 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
     )]
 }
 
-fn should_skip_user_text_blocks(role: &str, parts: &[Value]) -> bool {
-    role == "user"
-        && !parts.is_empty()
-        && parts.iter().all(|part| {
-            matches!(
-                part.get("type").and_then(Value::as_str).unwrap_or_default(),
-                "text" | "tool_result"
-            )
-        })
-}
-
+/// [history path] 把任意形状 content (string / array) 摊平成纯文本 ──
+/// `value_to_chat_messages` 的 string-content 兜底分支 + `read_claude_session_meta`
+/// 的 title 提取共用。
 fn message_content_to_text(value: &Value) -> Option<String> {
     if let Some(text) = value.get("content").and_then(Value::as_str) {
         return Some(text.to_string());
@@ -359,6 +427,8 @@ fn message_content_to_text(value: &Value) -> Option<String> {
     content_blocks_to_text(content)
 }
 
+/// [history path] 在两种 content envelope 之间二选一:
+/// `message.content`(嵌套格式,Claude Code v2) 或顶层 `content`(legacy 格式)。
 fn message_content(value: &Value) -> Option<&Value> {
     value
         .get("message")
@@ -366,6 +436,8 @@ fn message_content(value: &Value) -> Option<&Value> {
         .or_else(|| value.get("content"))
 }
 
+/// [history path] 把 array content 摊平成字符串 ── 遍历每个 block,取 `text`
+/// 或 `content` 字段拼接;空结果返回 None(避免推空 user 气泡)。
 fn content_blocks_to_text(content: &Value) -> Option<String> {
     match content {
         Value::String(text) => Some(text.to_string()),
@@ -385,6 +457,8 @@ fn content_blocks_to_text(content: &Value) -> Option<String> {
     }
 }
 
+/// [history path] 构造 user / tool 通用 ChatMessage 结构。所有 field 默认
+/// None,调用方按需填充 tool_call_id / tool_name / tool_input / tool_data 等。
 fn base_message(id: String, role: &str, content: String, timestamp: String) -> ChatMessage {
     ChatMessage {
         id,
@@ -405,6 +479,9 @@ fn base_message(id: String, role: &str, content: String, timestamp: String) -> C
     }
 }
 
+/// [history path] 构造 type=assistant 的 tool_use ChatMessage ── id /
+/// name / tool_input 从 JSONL block 字段读出,等 tool_result 到来后由
+/// `append_claude_history_message` 合并。
 fn tool_call_message(
     session_id: &str,
     idx: usize,
@@ -435,6 +512,8 @@ fn tool_call_message(
     message
 }
 
+/// [history path] 构造 type=user 的 tool_result ChatMessage ── 解析
+/// block.content 为 envelope JSON 字符串,存入 `tool_data` 供前端展示。
 fn tool_result_message(
     session_id: &str,
     idx: usize,
@@ -464,6 +543,9 @@ fn tool_result_message(
     message
 }
 
+/// [history path] 把 tool_result block.content 序列化成 envelope JSON
+/// 字符串 ── 与 `events.rs::claude_tool_result_value`(events path)行为一致,
+/// 只是输出格式用 pretty JSON 存到 `tool_data` 供前端展示。
 fn claude_tool_result_content(part: &Value) -> Value {
     let Some(content) = part.get("content") else {
         return claude_tool_result_envelope(part.clone(), part);
@@ -491,6 +573,9 @@ fn claude_tool_result_content(part: &Value) -> Value {
     claude_tool_result_envelope(content, part)
 }
 
+/// [both paths] tool_result envelope 公共逻辑 ── history.rs 走
+/// `claude_tool_result_content`,events.rs 走 `claude_tool_result_value`,
+/// 两者最终都调这里给 envelope 加 `is_error` 字段。
 fn claude_tool_result_envelope(mut value: Value, source: &Value) -> Value {
     if let Some(is_error) = source.get("is_error").and_then(Value::as_bool) {
         match &mut value {
@@ -508,6 +593,8 @@ fn claude_tool_result_envelope(mut value: Value, source: &Value) -> Value {
     value
 }
 
+/// [history path] 列出 `~/.claude/projects/.../*.jsonl` 文件 ── 被
+/// `find_claude_session_file` 调用。
 fn claude_session_files() -> Result<Vec<PathBuf>, String> {
     let Some(home) = dirs::home_dir() else {
         return Ok(Vec::new());
@@ -528,6 +615,9 @@ fn claude_session_files() -> Result<Vec<PathBuf>, String> {
         .collect())
 }
 
+/// [history path] 按 session_id 找 JSONL 文件 ── 先按文件名匹配,
+/// 找不到再退化为按 metadata.id 匹配(处理 sub-agent 文件名不含主 session id
+/// 的情况)。
 fn find_claude_session_file(session_id: &str) -> Result<Option<PathBuf>, String> {
     for path in claude_session_files()? {
         if path
@@ -550,6 +640,8 @@ fn find_claude_session_file(session_id: &str) -> Result<Option<PathBuf>, String>
     Ok(None)
 }
 
+/// [history path] 递归找 session id ── 顶层 / message envelope / parentUuid。
+/// 被 `read_claude_session_meta` 用作 id fallback。
 fn extract_session_id(value: &Value) -> Option<String> {
     for key in ["session_id", "sessionId", "uuid"] {
         if let Some(id) = value.get(key).and_then(Value::as_str) {
@@ -567,10 +659,13 @@ fn extract_session_id(value: &Value) -> Option<String> {
         })
 }
 
+/// [history path] 从文件路径里抽 session id ── `~/.claude/projects/.../<sid>.jsonl`
+/// 的文件名就是 sid(去掉 .jsonl 后缀)。
 fn session_id_from_filename(path: &Path) -> Option<String> {
     path.file_stem()?.to_str().map(str::to_string)
 }
 
+/// [history path] 优先用 JSONL `timestamp` 字段;缺失则用当前时间作为 fallback。
 fn extract_timestamp(value: &Value) -> String {
     if let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) {
         timestamp.to_string()
@@ -579,6 +674,8 @@ fn extract_timestamp(value: &Value) -> String {
     }
 }
 
+/// [history path] 同 `extract_timestamp`,但返回 i64 毫秒 ── 用于 session
+/// metadata 的 created_at / updated_at 计算。
 fn extract_timestamp_millis(value: &Value) -> Option<i64> {
     value
         .get("timestamp")
@@ -590,6 +687,8 @@ fn extract_timestamp_millis(value: &Value) -> Option<i64> {
         })
 }
 
+/// [history path] session 标题裁剪 ── 收拢空白字符到单空格,截前 40 字符,
+/// 超长加 `...`。被 `read_claude_session_meta` 用。
 fn truncate_title(text: &str) -> String {
     let trimmed = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if trimmed.chars().count() <= 40 {
@@ -738,18 +837,26 @@ mod tests {
         assert_eq!(messages[0].is_loading, Some(false));
     }
 
+    // `skips_user_text_only_skill_injection_messages` 和
+    // `skips_user_text_when_mixed_only_with_tool_result` 这两个测试是
+    // **有意永久删除**的——它们断言的块级 `should_skip_user_text_blocks`
+    // 启发式不再存在于 history.rs。守卫保留与否不影响实际 dev 行为(已实测),
+    // 保留守卫时这两条是回归护栏,删除守卫后它们会反过来 fail,所以一并删除。
+    // 若未来重新引入守卫(见 `value_to_chat_messages` 内的设计说明),
+    // 把这两条测试从 git history 拉回来即可。
+
     #[test]
-    fn skips_user_text_only_skill_injection_messages() {
+    fn skips_meta_user_messages_in_session_history() {
         let user = serde_json::json!({
+            "parentUuid": "c4ed80bd-9300-46a7-a454-2849594d41e6",
             "type": "user",
-            "timestamp": "2026-06-29T01:00:01Z",
             "message": {
                 "role": "user",
-                "content": [{
-                    "type": "text",
-                    "text": "Base directory for this skill: /tmp/verify\n\nskill body"
-                }]
-            }
+                "content": "[Your previous response had no visible output. Please continue.]"
+            },
+            "isMeta": true,
+            "uuid": "7257a401-a054-4807-9f88-27a0ad4b58f7",
+            "timestamp": "2026-07-18T14:42:15.285Z"
         });
 
         let messages = value_to_chat_messages("session_1", 1, &user);
@@ -757,34 +864,66 @@ mod tests {
     }
 
     #[test]
-    fn skips_user_text_when_mixed_only_with_tool_result() {
-        let user = serde_json::json!({
-            "type": "user",
-            "timestamp": "2026-06-29T01:00:01Z",
+    fn shows_sidechain_assistant_messages_in_session_history() {
+        // 反向 — isSidechain=true assistant 文本应在历史 thread card 展示。
+        let value = serde_json::json!({
+            "type": "assistant",
+            "isSidechain": true,
+            "timestamp": "2026-07-18T15:00:00Z",
             "message": {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Base directory for this skill: /tmp/verify\n\nskill body"
-                    },
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "toolu_1",
-                        "content": "loaded"
-                    }
-                ]
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "sub-agent reply" }]
             }
         });
+        let messages = value_to_chat_messages("session_1", 2, &value);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "assistant");
+        assert_eq!(messages[0].content, "sub-agent reply");
+    }
 
-        let messages = value_to_chat_messages("session_1", 1, &user);
+    fn shows_sidechain_user_tool_results_in_session_history() {
+        // 反向 — isSidechain=true sub-agent tool_result 应在历史 thread card 展示。
+        let value = serde_json::json!({
+            "type": "user",
+            "isSidechain": true,
+            "timestamp": "2026-07-18T15:00:01Z",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "sub-agent tool output"
+                }]
+            }
+        });
+        let messages = value_to_chat_messages("session_1", 3, &value);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, "tool");
-        assert_eq!(messages[0].tool_call_id.as_deref(), Some("toolu_1"));
-        assert!(messages[0].content.contains("loaded"));
-        assert!(!messages[0]
-            .content
-            .contains("Base directory for this skill"));
+        assert_eq!(messages[0].tool_name.as_deref(), Some("tool_result"));
+        assert!(messages[0].content.contains("sub-agent tool output"));
+    }
+
+    fn shows_agent_tool_use_in_assistant_history() {
+        // 反向 — main agent 的 Task 工具(name="Agent")tool_use 应在历史 thread card 展示。
+        let assistant = serde_json::json!({
+            "type": "assistant",
+            "isSidechain": false,
+            "timestamp": "2026-07-18T15:36:31.240Z",
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "call_e6e37468672748648ccf4b3e",
+                    "name": "Agent",
+                    "input": { "description": "Read README.md", "subagent_type": "Explore" }
+                }]
+            }
+        });
+        let messages = value_to_chat_messages("session_1", 0, &assistant);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "tool");
+        assert_eq!(messages[0].tool_name.as_deref(), Some("Agent"));
+        assert_eq!(messages[0].tool_call_id.as_deref(), Some("call_e6e37468672748648ccf4b3e"));
     }
 
     #[test]

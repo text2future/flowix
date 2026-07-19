@@ -695,6 +695,60 @@ fn parse_event_timestamp_millis(value: &Value) -> Option<i64> {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn dump_view_image_full_flow() {
+        // 模拟 codex 调 view_image 工具的完整流
+        // 实际跑 codex CLI 在本地受 model metadata 限制不出 function_call 事件
+        // 这里用 events.rs 已有 fixture 形态合成真实流
+
+        // 1. item.started - view_image 被调起
+        let event_started = serde_json::json!({
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "function_call",
+                "call_id": "call_view_image_001",
+                "name": "view_image",
+                "arguments": "{\"path\":\"/tmp/test_red.png\",\"detail\":\"high\"}"
+            }
+        });
+
+        // 2. item.completed - view_image 返回,output 为结构化 JSON
+        let event_completed = serde_json::json!({
+            "type": "item.completed",
+            "item": {
+                "id": "item_2",
+                "type": "function_call_output",
+                "call_id": "call_view_image_001",
+                "name": "view_image",
+                "output": "{\"detail\":\"high\",\"image_url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFklEQVR4nGNkYGD4z4AfMI0gkB8kAxIYqgYIBgOAQgSAeYThy0EYAAAAASUVORK5CYII=\"}"
+            }
+        });
+
+        // 3. item.completed - agent_message 总结
+        let event_summary = serde_json::json!({
+            "type": "item.completed",
+            "item": {
+                "id": "item_3",
+                "type": "agent_message",
+                "text": "\u{56fe}\u{7247}\u{662f}\u{7eaf}\u{7ea2}\u{8272},16x16 \u{50cf}\u{7d20}\u{3002}"
+            }
+        });
+
+        for (label, value) in [
+            ("item.started (view_image 调起)", event_started),
+            ("item.completed (view_image 返回)", event_completed),
+            ("item.completed (agent_message 总结)", event_summary),
+        ] {
+            eprintln!("\n=== {} ===", label);
+            let chunks = codex_event_to_chunks("thread_1", &value);
+            eprintln!("  emit {} chunk(s):", chunks.len());
+            for (i, c) in chunks.iter().enumerate() {
+                eprintln!("    [{}] {:?}", i, c);
+            }
+        }
+    }
     #[test]
     fn maps_codex_command_execution_to_lightweight_tool_chunks() {
         let started = serde_json::json!({

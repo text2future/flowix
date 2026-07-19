@@ -438,7 +438,7 @@ mod tests {
     //! `#[must_use]`-able via the leading `_guard =` binding — a missing
     //! `_` (or just dropping it) will still hold the lock until the
     //! function ends, so the binding just makes the intent obvious.
-    use super::super::events::claude_event_to_chunks;
+    use super::super::events::{claude_event_to_chunks, silence_reason, should_silence_event};
     use super::*;
     use crate::agent_external::acquire_test_env_lock as acquire_env_lock;
 
@@ -657,7 +657,11 @@ mod tests {
     }
 
     #[test]
-    fn ignores_claude_user_text_blocks_while_streaming() {
+    fn emits_text_and_tool_result_blocks_from_user_array_content() {
+        // type=user 的 content array 里同时含 text 与 tool_result 块时,两个块
+        // 都发——text 块发 AgentChunk::Text,tool_result 块发 AgentChunk::ToolResult。
+        // 这是 events.rs 流式路径的当前行为(与 history.rs 走过的路径
+        // 一致——文本累积进 user ChatMessage、tool_result 保留为 tool 消息)。
         let value = serde_json::json!({
             "type": "user",
             "message": {
@@ -678,9 +682,389 @@ mod tests {
         let chunks = claude_event_to_chunks("thread_1", &value);
         assert!(matches!(
             chunks.as_slice(),
-            [AgentChunk::ToolResult { id, result, .. }]
-                if id == "toolu_1" && result["content"] == "loaded"
+            [
+                AgentChunk::Text { text, .. },
+                AgentChunk::ToolResult { id, result, .. }
+            ] if text == "Base directory for this skill: /tmp/verify\n\nskill body"
+                && id == "toolu_1"
+                && result["content"] == "loaded"
         ));
+    }
+
+    #[test]
+    fn user_tool_result_only_content_emits_tool_result_chunk() {
+        // type=user 的 content array 里只有 tool_result 块(无 text)时,
+        // 只发 ToolResult 一条 chunk,与原本的 tool_result 处理路径一致。
+        let value = serde_json::json!({
+            "type": "user",
+            "message": {
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_2",
+                    "content": "file contents"
+                }]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, result, .. }]
+                if id == "toolu_2" && result["content"] == "file contents"
+        ));
+    }
+
+    #[test]
+    fn user_image_block_is_silently_dropped() {
+        // type=user 的 content array 含 image / attachment 等非 text/tool_result
+        // 块时,不产生任何 chunk(没有 AgentChunk 变体可以承载 user image)。
+        let value = serde_json::json!({
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "image",
+                        "source": { "type": "base64", "media_type": "image/png", "data": "abc" }
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_3",
+                        "content": "ok"
+                    }
+                ]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, result, .. }]
+                if id == "toolu_3" && result["content"] == "ok"
+        ));
+    }
+
+    #[test]
+    fn drops_claude_synthetic_user_marker_while_streaming() {
+        // 流式 stdout 的 isSynthetic=true — Skill 工具调用成功时,harness
+        // 把 skill body 注入到主 agent 的 user 消息里。该字段覆盖到了。
+        let stream_marker = serde_json::json!({
+            "type": "user",
+            "isSynthetic": true,
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "Base directory for this skill: /private/tmp/claude-501/bundled-skills/2.1.207/.../dataviz\n\n# Data Visualization\n\n..."
+                }]
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &stream_marker);
+        assert!(chunks.is_empty());
+
+        // 持久化 JSONL 的 isMeta=true — 同一类消息在 --resume / 压缩重建后
+        // 的形态。同一 helper 应当兼容。
+        let persistent_marker = serde_json::json!({
+            "type": "user",
+            "isMeta": true,
+            "message": {
+                "role": "user",
+                "content": "[Your previous response had no visible output. Please continue.]"
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &persistent_marker);
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn emits_claude_subagent_event_while_streaming() {
+        // 反向测试 — sub-agent 活动要展示在主 thread card 上,带真实工具名。
+        // ToolResult 的 name 字段由 stream.rs 的 tool_use_id->name 映射填充
+        // (这里单测只验证 chunk emit, 不验证 name 填充)。
+        // type=user + subagent_type(sub-agent tool_result) -> 推 ToolResult
+        let user_row = serde_json::json!({
+            "type": "user",
+            "subagent_type": "Explore",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_xxx",
+                    "content": "flowix"
+                }]
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &user_row);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, .. }] if id == "toolu_xxx"
+        ));
+
+        // type=assistant + subagent_type(sub-agent tool_use) -> 推 ToolCall
+        let assistant_tool_use = serde_json::json!({
+            "type": "assistant",
+            "subagent_type": "general-purpose",
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "call_6e8f0e4380094c58b5748d38",
+                    "name": "Read",
+                    "input": { "file_path": "README.md" }
+                }]
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &assistant_tool_use);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolCall { name, .. }] if name == "Read"
+        ));
+
+        // type=assistant + subagent_type(sub-agent text) -> 推 Text
+        let assistant_text = serde_json::json!({
+            "type": "assistant",
+            "subagent_type": "general-purpose",
+            "message": {
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "sub-agent reply" }]
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &assistant_text);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::Text { text, .. }] if text == "sub-agent reply"
+        ));
+    }
+
+    #[test]
+    fn emits_subagent_spawn_tool_use_blocks_in_assistant_message() {
+        // 主 agent 在 assistant 行里并行调起多个 Agent (Task) sub-agent ──
+        // 每个 tool_use 块对应一个 spawn,主 thread card **应当**展示这些
+        // tool_call 卡片(带真实工具名 "Agent")。文本 / 普通工具 (Bash / Read)
+        // 同样正常发。
+        let value = serde_json::json!({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    { "type": "text", "text": "let me run several analyses in parallel" },
+                    { "type": "tool_use", "id": "toolu_1", "name": "Agent",
+                      "input": { "description": "Research Plausible and Umami" } },
+                    { "type": "tool_use", "id": "toolu_2", "name": "Agent",
+                      "input": { "description": "Research Matomo and Cloudflare" } },
+                    { "type": "tool_use", "id": "toolu_3", "name": "Agent",
+                      "input": { "description": "Research Fathom and Pirsch" } },
+                    { "type": "tool_use", "id": "toolu_4", "name": "Bash",
+                      "input": { "command": "echo main" } }
+                ]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+
+        // 三个 Agent tool_use 全部展示为 ToolCall(name="Agent")
+        let agent_count = chunks.iter().filter(|c| {
+            matches!(c, AgentChunk::ToolCall { name, .. } if name == "Agent")
+        }).count();
+        assert_eq!(agent_count, 3, "should emit 3 Agent ToolCall chunks; got {}", agent_count);
+
+        // text 块正常发
+        assert!(chunks.iter().any(|c| matches!(
+            c, AgentChunk::Text { text, .. } if text == "let me run several analyses in parallel"
+        )));
+
+        // 普通 Bash tool_use 正常发
+        assert!(chunks.iter().any(|c| matches!(
+            c, AgentChunk::ToolCall { name, .. } if name == "Bash"
+        )));
+    }
+
+    #[test]
+    fn emits_agent_launch_metadata_tool_result() {
+        // 反向测试 — "Async agent launched successfully" launch metadata
+        // 也要 emit(主 thread card 展示 Agent tool 调起后的 launch 状态)。
+        // content 有 string 和 array 两种形态,都应正常推 ToolResult。
+        let string_form = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "call_e6e37468672748648ccf4b3e",
+                    "content": "Async agent launched successfully. placeholder"
+                }]
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &string_form);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { ref id, .. }] if id == "call_e6e37468672748648ccf4b3e"
+        ));
+
+        let array_form = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "call_xx",
+                    "content": [{
+                        "type": "text",
+                        "text": "Async agent launched successfully. array form"
+                    }]
+                }]
+            }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &array_form);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { ref id, .. }] if id == "call_xx"
+        ));
+    }
+
+    fn keeps_normal_tool_result_with_empty_name_unchanged() {
+        // 普通 Bash / Read tool_result 即便没 name 字段也应正常推 ToolResult
+        // ── 后端不臆断。content 以 "Async agent launched successfully"
+        // 起头那条才丢,其他原样的 tool_result 一律照常。name 空字符串是
+        // 流路径的固定行为,由前端决定怎么 fallback。
+        let value = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "file contents"
+                }]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { id, result, .. }]
+                if id == "toolu_1" && result["content"] == "file contents"
+        ));
+    }
+
+    #[test]
+    fn emits_claude_sidechain_assistant_text_while_streaming() {
+        // 反向测试 — isSidechain=true 标记的 sub-agent 文本应正常展示。
+        let value = serde_json::json!({
+            "type": "assistant",
+            "isSidechain": true,
+            "message": {
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "sub-agent says hi" }]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::Text { text, .. }] if text == "sub-agent says hi"
+        ));
+    }
+
+    fn emits_claude_sidechain_user_tool_result_while_streaming() {
+        // 反向测试 — isSidechain=true 标记的 sub-agent tool_result 应正常展示。
+        let value = serde_json::json!({
+            "type": "user",
+            "isSidechain": true,
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "sub-agent tool output"
+                }]
+            }
+        });
+
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolResult { ref id, .. }] if id == "toolu_1"
+        ));
+    }
+
+    fn silence_reason_categorizes_each_filter_case() {
+        // is_subagent_event / is_sidechain_event 已从 silence_reason 撤除
+        // (用户要求展示 sub-agent 工具调用)。silence_reason 现在只 catch:
+        //   1. synthetic_user_event — task-notification XML
+        //   2. synthetic_user_marker — isSynthetic / isMeta / Skill body
+        //
+        // synthetic_user_event: origin.kind == "task-notification"
+        let synthetic = serde_json::json!({
+            "type": "user",
+            "origin": { "kind": "task-notification" },
+            "message": { "role": "user", "content": "<task-notification>x</task-notification>" }
+        });
+        assert_eq!(silence_reason(&synthetic), Some("synthetic_user_event"));
+
+        // synthetic_user_marker: type=user + isSynthetic=true (流式) 或 isMeta=true (JSONL)
+        let stream_marker = serde_json::json!({
+            "type": "user",
+            "isSynthetic": true,
+            "message": { "role": "user", "content": [{"type":"text","text":"skill body"}] }
+        });
+        assert_eq!(silence_reason(&stream_marker), Some("synthetic_user_marker"));
+
+        let persistent_marker = serde_json::json!({
+            "type": "user",
+            "isMeta": true,
+            "message": { "role": "user", "content": "[hidden reminder]" }
+        });
+        assert_eq!(silence_reason(&persistent_marker), Some("synthetic_user_marker"));
+
+        // 反向断言: sub-agent 活动 + 普通主链路都不应被 silence_reason 拦
+        // (前者在 history/stream 两条 path 上都应正常 emit, 由 stream.rs 的
+        // tool_use_id->name 映射保证 ToolResult 拿到真实工具名)
+        let subagent_user = serde_json::json!({
+            "type": "user",
+            "subagent_type": "Explore",
+            "message": { "role": "user", "content": [{"type":"tool_result","tool_use_id":"x","content":"y"}] }
+        });
+        assert_eq!(silence_reason(&subagent_user), None);
+
+        let subagent_assistant = serde_json::json!({
+            "type": "assistant",
+            "isSidechain": true,
+            "message": { "role": "assistant", "content": [{"type":"tool_use","id":"x","name":"Read","input":{}}] }
+        });
+        assert_eq!(silence_reason(&subagent_assistant), None);
+
+        // 主链路 assistant 不命中
+        let main = serde_json::json!({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "hello" }]
+            }
+        });
+        assert_eq!(silence_reason(&main), None);
+        assert!(!should_silence_event(&main));
+    }
+
+    #[test]
+    fn should_silence_event_agrees_with_silence_reason_is_some() {
+        // 同一行任意两套谓词必须一致 — 反向条件(history.rs 标题检查用
+        // should_silence_event,正向丢弃用 silence_reason)如果发生分歧会
+        // 出现"被静默但被当作 title 候选"或"应丢弃却渲染"的回归。
+        for value in [
+            serde_json::json!({"type":"user","subagent_type":"Explore","message":{"role":"user","content":[]}}),
+            serde_json::json!({"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[]}}),
+            serde_json::json!({"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>x</task-notification>"}}),
+            serde_json::json!({"type":"user","isSynthetic":true,"message":{"role":"user","content":[{"type":"text","text":"x"}]}}),
+            serde_json::json!({"type":"user","isMeta":true,"message":{"role":"user","content":"x"}}),
+            serde_json::json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}),
+            serde_json::json!({"type":"user","message":{"role":"user","content":"real user prompt"}}),
+        ] {
+            assert_eq!(
+                should_silence_event(&value),
+                silence_reason(&value).is_some(),
+                "predicate mismatch for {value}"
+            );
+        }
     }
 
     fn make_fake_executable(dir_suffix: &str, name: &str, body: &str) -> (PathBuf, PathBuf) {

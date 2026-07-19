@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
 
 use tokio::process::Command;
 
@@ -24,6 +25,27 @@ pub(crate) fn resolve_node_binary(env_var: &str) -> Option<PathBuf> {
     node_candidate_paths()
         .into_iter()
         .find(|candidate| is_executable_file(candidate))
+}
+
+pub(crate) fn node_runtime_target(node: &Path) -> Option<(String, String)> {
+    let mut command = StdCommand::new(node);
+    crate::process_window::hide_std_command_window(&mut command);
+    let output = command
+        .args(["-p", "`${process.platform} ${process.arch}`"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let output_text = String::from_utf8(output.stdout).ok()?;
+    let mut fields = output_text.split_whitespace();
+    let platform = fields.next()?.to_string();
+    let arch = fields.next()?.to_string();
+    if fields.next().is_some() {
+        return None;
+    }
+    Some((platform, arch))
 }
 
 pub(crate) fn ensure_node_on_path(cmd: &mut Command) {

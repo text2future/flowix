@@ -12,7 +12,8 @@ use super::command::{
     normalized_permission_mode, normalized_reasoning_effort, parse_node_version,
     resolve_node_binary, which_codex,
 };
-use super::command::{build_codex_command_with_images, preflight_codex, resolve_codex_cwd};
+use super::command::{build_codex_command_with_images, resolve_codex_cwd};
+pub(crate) use super::command::{build_codex_entrypoint, preflight_codex};
 use super::history::is_codex_session_id;
 use super::runtime::{diagnostics_enabled, emit_chunk_with_run_id, resolve_run_id};
 use super::stream::read_codex_stdout;
@@ -399,18 +400,30 @@ impl CodexCliManager {
             })),
         );
         if !status.success() {
-            let detail = stderr_text.trim();
-            return Err(if detail.is_empty() {
-                format!("Codex CLI exited with status {status}")
-            } else {
-                format!("Codex CLI exited with status {status}: {detail}")
-            });
+            return Err(format_codex_failure(&status.to_string(), &stderr_text));
         }
         if !stderr_text.trim().is_empty() {
             tracing::info!("[CodexCli] stderr: {}", stderr_text.trim());
         }
         Ok(())
     }
+}
+
+fn format_codex_failure(status: &str, detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.is_empty() {
+        return format!("Codex CLI exited with status {status}");
+    }
+
+    let mut message = format!("Codex CLI exited with status {status}: {detail}");
+    if detail.contains("Missing optional dependency") {
+        message.push_str(concat!(
+            " Codex's native platform dependency is missing or was installed for a different ",
+            "Node.js architecture. Reinstall with `npm install -g @openai/codex@latest ",
+            "--force --include=optional`, or set CODEX_NODE_PATH to a matching Node.js runtime.",
+        ));
+    }
+    message
 }
 
 #[cfg(test)]
@@ -433,6 +446,26 @@ mod tests {
     //! (e.g. parsers, sort helpers) don't need the lock.
     use super::*;
     use crate::agent_external::acquire_test_env_lock as acquire_env_lock;
+
+    #[test]
+    fn formats_missing_native_dependency_with_repair_guidance() {
+        let message = format_codex_failure(
+            "exit status: 1",
+            "Error: Missing optional dependency @openai/codex-darwin-x64",
+        );
+
+        assert!(message.contains("@openai/codex-darwin-x64"));
+        assert!(message.contains("npm install -g @openai/codex@latest --force --include=optional"));
+        assert!(message.contains("CODEX_NODE_PATH"));
+    }
+
+    #[test]
+    fn formats_empty_codex_failure_without_trailing_separator() {
+        assert_eq!(
+            format_codex_failure("exit status: 1", "  "),
+            "Codex CLI exited with status exit status: 1"
+        );
+    }
 
     #[test]
     fn normalizes_supported_permission_modes() {

@@ -25,6 +25,9 @@ where
 {
     let mut reader = reader;
     let mut seen_sessions = HashSet::new();
+    // tool_use_id -> tool_name 跨行映射。ToolCall chunk 发出时记录 id->name,
+    // 后续 ToolResult chunk 到达时用它填入真实工具名,避免前端 name="" fallback "unknown tool"。
+    let mut tool_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     while let Some((raw, truncated_by_reader)) =
         read_capped_line(&mut reader, MAX_STDOUT_LINE_BYTES).await?
     {
@@ -135,7 +138,21 @@ where
             }
         }
 
-        for chunk in parsed.chunks {
+        for mut chunk in parsed.chunks {
+            // ToolCall 发出前记录 id -> name
+            if let AgentChunk::ToolCall { ref id, ref name, .. } = chunk {
+                if !id.is_empty() && !name.is_empty() {
+                    tool_names.insert(id.clone(), name.clone());
+                }
+            }
+            // ToolResult 用 tool_use_id 查回真实工具名,填入 name 字段
+            if let AgentChunk::ToolResult { ref id, ref mut name, .. } = chunk {
+                if name.is_empty() {
+                    if let Some(real_name) = tool_names.get(id) {
+                        *name = real_name.clone();
+                    }
+                }
+            }
             emit_chunk_with_run_id(&app_handle, &chunk, AGENT_TYPE, &run_id);
         }
     }

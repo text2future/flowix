@@ -358,7 +358,14 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     let flowix_available = !ai_config.model.trim().is_empty();
 
     let codex_binary = crate::agent_external::codex::cli::resolve_codex_binary();
-    let codex_available = executable_available(&codex_binary);
+    let codex_path_available = executable_available(&codex_binary);
+    // Codex CLI 可执行文件存在即认为是"可选"，不要因为原生可选依赖缺失
+    // 把 Codex 直接从列表里抹掉。依赖损坏信息会作为 `reason` 推到 UI,
+    // 让用户在偏好窗口或 thread card 上看到具体修复指引。
+    let codex_available = codex_path_available;
+    let codex_preflight_error = codex_path_available
+        .then(crate::agent_external::codex::cli::preflight_codex)
+        .and_then(Result::err);
 
     let claude_binary = crate::agent_external::claude::cli::resolve_claude_binary();
     let claude_available = executable_available(&claude_binary);
@@ -380,8 +387,11 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
         },
         codex: AgentRuntimeAvailability {
             available: codex_available,
-            reason: (!codex_available)
-                .then(|| format!("Codex CLI not found ({})", codex_binary.display())),
+            reason: if !codex_path_available {
+                Some(format!("Codex CLI not found ({})", codex_binary.display()))
+            } else {
+                codex_preflight_error
+            },
         },
         claude: AgentRuntimeAvailability {
             available: claude_available,
@@ -407,10 +417,12 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
 }
 
 #[cfg(target_os = "windows")]
-const CODEX_INSTALL_COMMAND: &str = "npm.cmd install -g @openai/codex";
+const CODEX_INSTALL_COMMAND: &str =
+    "npm.cmd install -g @openai/codex@latest --force --include=optional";
 
 #[cfg(not(target_os = "windows"))]
-const CODEX_INSTALL_COMMAND: &str = "npm install -g @openai/codex";
+const CODEX_INSTALL_COMMAND: &str =
+    "npm install -g @openai/codex@latest --force --include=optional";
 
 #[tauri::command]
 pub fn open_codex_cli_install_terminal() -> Result<(), String> {
@@ -709,8 +721,7 @@ pub async fn agent_supported_models(agent_type: String) -> Result<Vec<String>, S
 }
 
 async fn query_codex_models() -> Result<Vec<String>, String> {
-    let mut cmd =
-        tokio::process::Command::new(crate::agent_external::codex::cli::resolve_codex_binary());
+    let mut cmd = crate::agent_external::codex::cli::build_codex_entrypoint();
     crate::process_window::hide_command_window(&mut cmd);
     let output = cmd
         .args(["debug", "models"])

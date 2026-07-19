@@ -1289,31 +1289,68 @@
   font-size: inherit;
 }
 
-/* 表格 ── 面板走 min-w-full border-collapse + thead transparent +
- * tr border-b + th/td px-3 py-2; 卡片同节奏。 */
+/* 表格 ── 沿用编辑器 .tiptap table 的视觉规格 (separate + 单边 border)
+ * 但圆角职责收口到 tbody ── tbody 自身 8px 圆角 + overflow: hidden
+ * 把内部 cell 边框按 tbody 形状自然裁剪, 不再按行在角 cell 上单独设
+ * border-radius。 border-collapse: separate + border-spacing: 0 是
+ * 实现 tbody border-radius 视觉生效的前提。 */
 .markdown-editor .agent-thread-card__message-content table {
   width: 100%;
   margin: 8px 0;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: calc(var(--app-font-size, 15px) * 0.9);
 }
 .markdown-editor .agent-thread-card__message-content thead {
   background: transparent;
 }
-.markdown-editor .agent-thread-card__message-content tr {
-  border-bottom: 1px solid var(--border);
-}
-.markdown-editor .agent-thread-card__message-content tr:last-child {
-  border-bottom: 0;
+/* tbody 是外层圆角容器 ── 8px 圆角 + overflow: hidden 把内部 cell
+ * 边框按 tbody 形状裁剪成圆角视觉。 thead 紧贴 tbody 上沿, tbody
+ * 顶 2 角圆角与 thead 接缝形成"圆角下行"的整体外观; 底 2 角圆角
+ * 则是表整体的视觉收口。 */
+.markdown-editor .agent-thread-card__message-content tbody {
+  border-radius: 8px;
+  overflow: hidden;
 }
 .markdown-editor .agent-thread-card__message-content th,
 .markdown-editor .agent-thread-card__message-content td {
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
   color: var(--foreground);
   font-weight: 400;
   text-align: left;
   vertical-align: top;
+}
+/* 头行底色对齐编辑器 (--muted); thead transparent 让 th 的底色
+ * 直接透出, 不与 table 自身重叠。 */
+.markdown-editor .agent-thread-card__message-content th {
+  background: var(--muted);
+  font-weight: 600;
+}
+/* 相邻 cell 共用一条边 ── 把每条边归属到"左/上"侧, 让行内/列内交界
+ * 不出现双倍 1px 视觉。 */
+.markdown-editor .agent-thread-card__message-content th + th,
+.markdown-editor .agent-thread-card__message-content td + td,
+.markdown-editor .agent-thread-card__message-content th + td,
+.markdown-editor .agent-thread-card__message-content td + th {
+  border-left: 0;
+}
+.markdown-editor .agent-thread-card__message-content tr + tr th,
+.markdown-editor .agent-thread-card__message-content tr + tr td {
+  border-top: 0;
+}
+/* thead ↔ tbody 接缝去重 ── 默认两段 cell 各画一条边会在接缝处叠
+ * 成 2px, 这里压掉 tbody 首行 cell 的 border-top, 让 thead 末行 cell
+ * 的 border-bottom 独自承担"分隔线"职责, 视觉上仍是 1px。 */
+.markdown-editor .agent-thread-card__message-content
+  tbody
+  tr:first-child
+  th,
+.markdown-editor .agent-thread-card__message-content
+  tbody
+  tr:first-child
+  td {
+  border-top: 0;
 }
 
 .markdown-editor .agent-thread-card__empty {

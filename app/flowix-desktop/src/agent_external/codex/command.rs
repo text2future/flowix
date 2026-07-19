@@ -5,6 +5,7 @@ use tokio::process::Command;
 use super::binary::resolve_codex_binary;
 use super::history::codex_session_cwd;
 use super::AGENT_TYPE;
+use crate::agent_external::node::node_runtime_target;
 
 /// Cwd fallback chain:
 /// 1. `message.cwd_for_runtime` from IPC runtime_config.
@@ -63,21 +64,7 @@ pub(crate) fn build_codex_command_with_images(
     reasoning_effort: Option<&str>,
     image_paths: &[String],
 ) -> Command {
-    let codex = resolve_codex_binary();
-    let codex_real = std::fs::canonicalize(&codex).unwrap_or_else(|_| codex.clone());
-    let mut cmd = match codex_real.extension().and_then(|s| s.to_str()) {
-        Some("js") => {
-            let node = resolve_node_binary().unwrap_or_else(|| PathBuf::from("node"));
-            let mut cmd = Command::new(node);
-            cmd.arg(codex_real);
-            cmd
-        }
-        _ => {
-            let mut cmd = Command::new(codex);
-            ensure_node_on_path(&mut cmd);
-            cmd
-        }
-    };
+    let mut cmd = build_codex_entrypoint();
     cmd.current_dir(cwd);
     crate::process_window::hide_command_window(&mut cmd);
     // `--search` is a Codex top-level option (not an `exec` subcommand
@@ -118,6 +105,24 @@ fn append_image_paths(cmd: &mut Command, image_paths: &[String]) {
     }
 }
 
+pub(crate) fn build_codex_entrypoint() -> Command {
+    let codex = resolve_codex_binary();
+    let codex_real = std::fs::canonicalize(&codex).unwrap_or_else(|_| codex.clone());
+    match codex_real.extension().and_then(|s| s.to_str()) {
+        Some("js") => {
+            let node = resolve_node_binary().unwrap_or_else(|| PathBuf::from("node"));
+            let mut cmd = Command::new(node);
+            cmd.arg(codex_real);
+            cmd
+        }
+        _ => {
+            let mut cmd = Command::new(codex);
+            ensure_node_on_path(&mut cmd);
+            cmd
+        }
+    }
+}
+
 pub(crate) fn preflight_codex() -> Result<(), String> {
     let codex = resolve_codex_binary();
     let codex_real = std::fs::canonicalize(&codex).unwrap_or(codex);
@@ -125,16 +130,80 @@ pub(crate) fn preflight_codex() -> Result<(), String> {
     if !needs_node {
         return Ok(());
     }
-    if resolve_node_binary().is_none() {
-        return Err(format!(
+    let node = resolve_node_binary().ok_or_else(|| {
+        format!(
             "Codex CLI requires Node.js, but no Node.js installation was found. \
              Install Node.js from https://nodejs.org/, or set the CODEX_NODE_PATH \
              environment variable to your `node` binary. \
              (Codex binary resolved to: {})",
             resolve_codex_binary().display()
+        )
+    })?;
+
+    let Some((platform, arch)) = node_runtime_target(&node) else {
+        // A custom Node wrapper may not support `node -p`; keep the existing
+        // spawn path and let Codex report its own startup error.
+        return Ok(());
+    };
+    let Some(native_package) = codex_native_package(&platform, &arch) else {
+        return Err(format!(
+            "Codex CLI does not support the current Node.js runtime ({platform}/{arch}). \
+             Use a Node.js runtime on a supported platform and architecture. \
+             (Node binary: {})",
+            node.display()
         ));
+    };
+
+    let Some(package_root) = codex_package_root(&codex_real) else {
+        return Ok(());
+    };
+    if !package_root.join("package.json").is_file() {
+        return Ok(());
     }
-    Ok(())
+    if find_node_package(&package_root, native_package).is_some() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Codex CLI native dependency `{native_package}` is missing for Node.js {platform}/{arch}. \
+         Reinstall Codex with `npm install -g @openai/codex@latest --force --include=optional`, \
+         or set CODEX_NODE_PATH to a Node.js runtime matching the installed Codex package. \
+         (Codex binary: {}; Node binary: {})",
+        codex_real.display(),
+        node.display()
+    ))
+}
+
+fn codex_native_package(platform: &str, arch: &str) -> Option<&'static str> {
+    match (platform, arch) {
+        ("darwin", "x64") => Some("@openai/codex-darwin-x64"),
+        ("darwin", "arm64") => Some("@openai/codex-darwin-arm64"),
+        ("linux" | "android", "x64") => Some("@openai/codex-linux-x64"),
+        ("linux" | "android", "arm64") => Some("@openai/codex-linux-arm64"),
+        ("win32", "x64") => Some("@openai/codex-win32-x64"),
+        ("win32", "arm64") => Some("@openai/codex-win32-arm64"),
+        _ => None,
+    }
+}
+
+fn codex_package_root(codex: &std::path::Path) -> Option<PathBuf> {
+    let bin_dir = codex.parent()?;
+    (bin_dir.file_name().and_then(|name| name.to_str()) == Some("bin"))
+        .then(|| bin_dir.parent().map(PathBuf::from))?
+}
+
+fn find_node_package(package_root: &std::path::Path, package_name: &str) -> Option<PathBuf> {
+    let mut current = Some(package_root);
+    while let Some(root) = current {
+        let candidate = package_name
+            .split('/')
+            .fold(root.join("node_modules"), |path, part| path.join(part));
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        current = root.parent();
+    }
+    None
 }
 
 pub(crate) fn resolve_node_binary() -> Option<PathBuf> {
