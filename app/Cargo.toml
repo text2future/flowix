@@ -8,7 +8,7 @@ members = [
 
 # 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。
 [workspace.package]
-version = "1.1.2"
+version = "1.1.3"
 edition = "2021"
 
 # 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。
