@@ -881,6 +881,7 @@ mod tests {
         assert_eq!(messages[0].content, "sub-agent reply");
     }
 
+    #[test]
     fn shows_sidechain_user_tool_results_in_session_history() {
         // 反向 — isSidechain=true sub-agent tool_result 应在历史 thread card 展示。
         let value = serde_json::json!({
@@ -903,6 +904,7 @@ mod tests {
         assert!(messages[0].content.contains("sub-agent tool output"));
     }
 
+    #[test]
     fn shows_agent_tool_use_in_assistant_history() {
         // 反向 — main agent 的 Task 工具(name="Agent")tool_use 应在历史 thread card 展示。
         let assistant = serde_json::json!({

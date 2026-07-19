@@ -921,6 +921,7 @@ mod tests {
         ));
     }
 
+    #[test]
     fn keeps_normal_tool_result_with_empty_name_unchanged() {
         // 普通 Bash / Read tool_result 即便没 name 字段也应正常推 ToolResult
         // ── 后端不臆断。content 以 "Async agent launched successfully"
@@ -965,6 +966,7 @@ mod tests {
         ));
     }
 
+    #[test]
     fn emits_claude_sidechain_user_tool_result_while_streaming() {
         // 反向测试 — isSidechain=true 标记的 sub-agent tool_result 应正常展示。
         let value = serde_json::json!({
@@ -987,6 +989,7 @@ mod tests {
         ));
     }
 
+    #[test]
     fn silence_reason_categorizes_each_filter_case() {
         // is_subagent_event / is_sidechain_event 已从 silence_reason 撤除
         // (用户要求展示 sub-agent 工具调用)。silence_reason 现在只 catch:
