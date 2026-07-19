@@ -428,11 +428,10 @@ function AgentThreadNavigator({
   const currentDocumentPath = useDocumentStore((state) => state.currentDocumentPath);
   const currentDocumentSource = useDocumentStore((state) => state.currentDocumentSource);
   const activeMemoSession = useDocumentStore((state) => state.activeMemoSession);
-  const isLargeButton = iconButtonClass.includes('w-8') || iconButtonClass.includes('h-8');
-  const buttonSizeClass = isLargeButton ? 'h-8 px-1.5 rounded-xl' : 'h-7 px-1 rounded-lg';
-  const buttonSurfaceClass = isLargeButton
-    ? 'border border-[var(--border)] bg-[var(--bg-titlebar)]'
-    : '';
+  const isMacStyle = iconButtonClass.includes('rounded-xl');
+  const triggerButtonClass = isMacStyle
+    ? 'inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--bg-titlebar)] px-1.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]'
+    : `${iconButtonClass} shrink-0 gap-0.5`;
   const triggerItem = items.find((item) => item.isRunning) ?? items[0] ?? null;
   const triggerAgentType = getAgentType(triggerItem?.type ?? DEFAULT_AGENT_TYPE_KEY);
 
@@ -467,7 +466,7 @@ function AgentThreadNavigator({
             type="button"
             aria-label={t('document.agent.menu')}
             title={t('document.agent.menuTooltip')}
-            className={`inline-flex ${buttonSizeClass} ${buttonSurfaceClass} shrink-0 items-center justify-center gap-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]`}
+            className={triggerButtonClass}
           >
             <span
               aria-hidden="true"
