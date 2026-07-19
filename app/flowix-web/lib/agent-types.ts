@@ -29,6 +29,16 @@ const EXTERNAL_CLI_CAPABILITIES: AgentRuntimeCapabilities = {
   externalSessionBacked: true,
 };
 
+// 外部 CLI + 文本流式: adapter 产出高频增量 Text delta(走 rAF 合流), 同时保留
+// external session 对齐。Claude Code 开 --include-partial-messages 后用这档;
+// Codex 等 item 级(整段 Text)的 CLI 暂用 EXTERNAL_CLI_CAPABILITIES, 将来其
+// adapter 升级成 token 级流式时改用本档即可 ── 同一通用机制, 非 provider 逻辑。
+const STREAMING_EXTERNAL_CLI_CAPABILITIES: AgentRuntimeCapabilities = {
+  supportsTextStreaming: true,
+  supportsToolEvents: true,
+  externalSessionBacked: true,
+};
+
 const SIMPLE_CLI_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsTextStreaming: false,
   supportsToolEvents: false,
@@ -61,7 +71,7 @@ export const AGENT_TYPES: AgentType[] = [
     desc: 'Use Claude Code agent',
     nameKey: 'agent.types.claude.name',
     descKey: 'agent.types.claude.desc',
-    capabilities: EXTERNAL_CLI_CAPABILITIES,
+    capabilities: STREAMING_EXTERNAL_CLI_CAPABILITIES,
   },
   {
     key: 'hermes',

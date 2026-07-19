@@ -614,6 +614,83 @@ where
     }
 }
 
+/// 流式文本合并的定时 flush 间隔 ── 与前端 `streaming-buffer.ts` 的 rAF 帧率
+/// (~16ms) 对齐。partial 模式下 `claude --include-partial-messages` 每 token
+/// 一行 stream_event, 后端做对称合并后, `agent-chunk` IPC emit 频率从
+/// "每 token 一次"降到"每帧一次"。
+pub const STREAM_FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// 合并 buffer 的硬上限 ── burst 期间持续高速文本流时, 超过此值立即 flush,
+/// 既防 buffer 无限增长, 也避免单条合并 chunk 过大。64 KiB 远大于一帧的文本量,
+/// 正常路径不会触达。
+pub const STREAM_FLUSH_MAX_BYTES: usize = 64 * 1024;
+
+/// 帧级文本合并 buffer ── 把高频 `Text` / `Reasoning` chunk 攒批, 减少
+/// `emit_chunk_with_run_id` 的 IPC 次数。
+///
+/// 顺序不变量: `Text` / `Reasoning` 进 buffer; 其它 chunk (`ToolCall` /
+/// `ToolResult` / `Error` / `SessionResolved` / `Usage` / ...) 由调用方先调
+/// [`flush`](Self::flush) 拿走缓冲文本 emit, 再 emit 该 chunk, 保证
+/// `text -> tool_call -> text -> tool_result -> text` 的呈现顺序与后端发出顺序
+/// 一致。`flush` 先产出 `Reasoning` 再产出 `Text`, 与前端 `streaming-buffer` 的
+/// reasoning-first 语义对齐 (reasoning chunk 先于 text 出现, text 落地时 close
+/// reasoning 行)。
+///
+/// 单 thread / 单 run: 每个 stdout 读取循环持有独立实例, 无需并发保护。`flush`
+/// 返回 `Vec<AgentChunk>` 而非直接 emit ── 把 IPC 交给调用方 (沿用
+/// `emit_chunk_with_run_id`), buffer 自身保持纯逻辑、可单测。
+pub struct StreamingEmitBuffer {
+    thread_id: String,
+    text: String,
+    reasoning: String,
+}
+
+impl StreamingEmitBuffer {
+    pub fn new(thread_id: String) -> Self {
+        Self {
+            thread_id,
+            text: String::new(),
+            reasoning: String::new(),
+        }
+    }
+
+    /// 当前缓冲的文本字节数。调用方据此判断是否该在阈值处强制 flush。
+    pub fn pending_bytes(&self) -> usize {
+        self.text.len() + self.reasoning.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty() && self.reasoning.is_empty()
+    }
+
+    pub fn append_text(&mut self, text: &str) {
+        self.text.push_str(text);
+    }
+
+    pub fn append_reasoning(&mut self, text: &str) {
+        self.reasoning.push_str(text);
+    }
+
+    /// 取走缓冲文本, 先 reasoning 后 text, 各自拼成单条 `AgentChunk` 返回。
+    /// 空缓冲返回空 vec (调用方无需判空)。
+    pub fn flush(&mut self) -> Vec<AgentChunk> {
+        let mut out = Vec::new();
+        if !self.reasoning.is_empty() {
+            out.push(AgentChunk::Reasoning {
+                thread_id: self.thread_id.clone(),
+                text: std::mem::take(&mut self.reasoning),
+            });
+        }
+        if !self.text.is_empty() {
+            out.push(AgentChunk::Text {
+                thread_id: self.thread_id.clone(),
+                text: std::mem::take(&mut self.text),
+            });
+        }
+        out
+    }
+}
+
 pub async fn read_stderr_to_string<R>(
     thread_id: &str,
     expected_run_id: Option<&str>,
@@ -664,6 +741,62 @@ pub async fn kill_child_tree(child: &mut Child, label: &str, thread_id: &str) {
 mod tests {
     use super::*;
     use tokio::io::BufReader;
+
+    #[test]
+    fn streaming_emit_buffer_batches_text_and_reasoning_in_order() {
+        let mut buf = StreamingEmitBuffer::new("t1".to_string());
+        assert!(buf.is_empty());
+        assert_eq!(buf.pending_bytes(), 0);
+
+        buf.append_text("Hello, ");
+        buf.append_text("world!");
+        buf.append_reasoning("thinking...");
+        // text 与 reasoning 各自累积, 不交叉。
+        assert_eq!(
+            buf.pending_bytes(),
+            "Hello, world!".len() + "thinking...".len()
+        );
+
+        let chunks = buf.flush();
+        // reasoning 先于 text (前端 reasoning-first 语义)。
+        assert_eq!(chunks.len(), 2, "expected reasoning + text");
+        let reasoning_text = match &chunks[0] {
+            AgentChunk::Reasoning { thread_id, text } => {
+                assert_eq!(thread_id, "t1");
+                text.as_str()
+            }
+            _ => panic!("expected Reasoning first"),
+        };
+        assert_eq!(reasoning_text, "thinking...");
+        let text_text = match &chunks[1] {
+            AgentChunk::Text { thread_id, text } => {
+                assert_eq!(thread_id, "t1");
+                text.as_str()
+            }
+            _ => panic!("expected Text second"),
+        };
+        assert_eq!(text_text, "Hello, world!");
+        // flush 后缓冲清空, 再次 flush 为 no-op。
+        assert!(buf.is_empty());
+        assert!(buf.flush().is_empty());
+    }
+
+    #[test]
+    fn streaming_emit_buffer_flush_only_emits_non_empty() {
+        let mut buf = StreamingEmitBuffer::new("t2".to_string());
+        // 只有 text: 仅产出 Text。
+        buf.append_text("a");
+        let chunks = buf.flush();
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(chunks[0], AgentChunk::Text { .. }));
+        // 只有 reasoning: 仅产出 Reasoning。
+        buf.append_reasoning("b");
+        let chunks = buf.flush();
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(chunks[0], AgentChunk::Reasoning { .. }));
+        // 空: 不产出。
+        assert!(buf.flush().is_empty());
+    }
 
     #[test]
     fn registry_metadata_is_thread_scoped() {

@@ -555,7 +555,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(messagesAfter[1]?.textContent).toContain("Hello incremental patch");
   });
 
-  it("renders oversized assistant messages as a display-budgeted preview", async () => {
+  it("renders oversized assistant messages in full without folding", async () => {
     const { AgentThreadCard } =
       await import("@features/editor/extensions/agent-thread-card");
     const { useChatStore } = await import("@features/agent/store/chat-store");
@@ -617,15 +617,11 @@ describe("AgentThreadCard NodeView streaming", () => {
     const message = host.querySelector<HTMLElement>(
       ".agent-thread-card__message--assistant",
     )!;
-    expect(message.textContent).not.toContain(tail);
-    const toggle = message.querySelector<HTMLButtonElement>(
-      ".agent-thread-card__message-display-toggle",
-    )!;
-    expect(toggle.textContent).toBe("展开全文");
-
-    toggle.click();
+    // assistant 放行: 超长内容完整渲染 (含 tail), 不截断、不显示展开按钮。
     expect(message.textContent).toContain(tail);
-    expect(toggle.textContent).toBe("收起全文");
+    expect(
+      message.querySelector(".agent-thread-card__message-display-toggle"),
+    ).toBeNull();
   });
 
   it("does not select the Thread Card when clicking messages while editing the title", async () => {

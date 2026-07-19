@@ -124,7 +124,9 @@ pub(crate) fn update_external_cli_path(binary_name: &str, path: Option<PathBuf>)
 /// 单测专用: 把注册表清回 `None`, 恢复纯函数探测行为, 隔离测试间副作用。
 #[cfg(test)]
 pub(crate) fn reset_external_cli_registry_for_test() {
-    *REGISTRY.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    *REGISTRY
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 }
 
 pub(crate) fn external_cli_candidate_paths(spec: &ExternalCliSpec) -> Vec<PathBuf> {

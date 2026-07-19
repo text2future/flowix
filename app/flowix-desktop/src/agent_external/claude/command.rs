@@ -57,7 +57,12 @@ pub(crate) fn build_claude_command(
     if let Some(session_id) = session_id.filter(|s| !s.trim().is_empty()) {
         cmd.args(["--resume", session_id]);
     }
-    cmd.args(["--output-format", "stream-json", "--verbose"]);
+    cmd.args([
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+    ]);
     if let Some(mode) = normalized_claude_permission_mode(permission_mode) {
         cmd.args(["--permission-mode", mode]);
     }

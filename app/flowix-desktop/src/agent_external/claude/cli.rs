@@ -438,7 +438,10 @@ mod tests {
     //! `#[must_use]`-able via the leading `_guard =` binding — a missing
     //! `_` (or just dropping it) will still hold the lock until the
     //! function ends, so the binding just makes the intent obvious.
-    use super::super::events::{claude_event_to_chunks, silence_reason, should_silence_event};
+    use super::super::events::{
+        claude_event_to_chunks, claude_event_to_chunks_with_state, should_silence_event,
+        silence_reason, ClaudeStreamState,
+    };
     use super::*;
     use crate::agent_external::acquire_test_env_lock as acquire_env_lock;
 
@@ -862,10 +865,15 @@ mod tests {
         let chunks = claude_event_to_chunks("thread_1", &value);
 
         // 三个 Agent tool_use 全部展示为 ToolCall(name="Agent")
-        let agent_count = chunks.iter().filter(|c| {
-            matches!(c, AgentChunk::ToolCall { name, .. } if name == "Agent")
-        }).count();
-        assert_eq!(agent_count, 3, "should emit 3 Agent ToolCall chunks; got {}", agent_count);
+        let agent_count = chunks
+            .iter()
+            .filter(|c| matches!(c, AgentChunk::ToolCall { name, .. } if name == "Agent"))
+            .count();
+        assert_eq!(
+            agent_count, 3,
+            "should emit 3 Agent ToolCall chunks; got {}",
+            agent_count
+        );
 
         // text 块正常发
         assert!(chunks.iter().any(|c| matches!(
@@ -991,8 +999,8 @@ mod tests {
 
     #[test]
     fn silence_reason_categorizes_each_filter_case() {
-        // is_subagent_event / is_sidechain_event 已从 silence_reason 撤除
-        // (用户要求展示 sub-agent 工具调用)。silence_reason 现在只 catch:
+        // sub-agent / sidechain 过滤已从 silence_reason 撤除 (用户要求展示
+        // sub-agent 工具调用), 对应 helper 函数亦已删除。silence_reason 现在只 catch:
         //   1. synthetic_user_event — task-notification XML
         //   2. synthetic_user_marker — isSynthetic / isMeta / Skill body
         //
@@ -1010,14 +1018,20 @@ mod tests {
             "isSynthetic": true,
             "message": { "role": "user", "content": [{"type":"text","text":"skill body"}] }
         });
-        assert_eq!(silence_reason(&stream_marker), Some("synthetic_user_marker"));
+        assert_eq!(
+            silence_reason(&stream_marker),
+            Some("synthetic_user_marker")
+        );
 
         let persistent_marker = serde_json::json!({
             "type": "user",
             "isMeta": true,
             "message": { "role": "user", "content": "[hidden reminder]" }
         });
-        assert_eq!(silence_reason(&persistent_marker), Some("synthetic_user_marker"));
+        assert_eq!(
+            silence_reason(&persistent_marker),
+            Some("synthetic_user_marker")
+        );
 
         // 反向断言: sub-agent 活动 + 普通主链路都不应被 silence_reason 拦
         // (前者在 history/stream 两条 path 上都应正常 emit, 由 stream.rs 的
@@ -1295,5 +1309,135 @@ mod tests {
         assert_eq!(parse_node_version("current"), None);
         assert_eq!(parse_node_version("v18"), None);
         assert_eq!(parse_node_version("18.19.0.foo"), None);
+    }
+
+    // ---- --include-partial-messages (stream_event) streaming tests ----
+    // partial 模式下 Claude Code 把回答拆成 Anthropic 原生 stream_event 增量;
+    // 下列测试覆盖 text_delta / thinking_delta / tool_use input 累积 / assistant
+    // 快照抑制 / message_delta usage, 对应 events::stream_event_to_chunks。
+
+    #[test]
+    fn stream_event_text_delta_emits_incremental_text() {
+        let value = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_delta", "index": 0,
+                "delta": { "type": "text_delta", "text": "Hel" } }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::Text { text, .. }] if text == "Hel"
+        ));
+    }
+
+    #[test]
+    fn stream_event_thinking_delta_emits_reasoning() {
+        let value = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_delta", "index": 0,
+                "delta": { "type": "thinking_delta", "thinking": "step 1" } }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::Reasoning { text, .. }] if text == "step 1"
+        ));
+    }
+
+    #[test]
+    fn stream_event_text_deltas_emit_one_chunk_per_fragment() {
+        // 每个 text_delta 是增量片段 -> 各自一个 Text chunk; 前端 append 还原全文。
+        let d1 = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_delta", "index": 0,
+                "delta": { "type": "text_delta", "text": "1," } }
+        });
+        let d2 = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_delta", "index": 0,
+                "delta": { "type": "text_delta", "text": " 2" } }
+        });
+        let mut state = ClaudeStreamState::default();
+        let c1 = claude_event_to_chunks_with_state("thread_1", &d1, true, &mut state);
+        let c2 = claude_event_to_chunks_with_state("thread_1", &d2, true, &mut state);
+        assert!(matches!(c1.as_slice(), [AgentChunk::Text { text, .. }] if text == "1,"));
+        assert!(matches!(c2.as_slice(), [AgentChunk::Text { text, .. }] if text == " 2"));
+    }
+
+    #[test]
+    fn stream_event_tool_use_accumulates_input_across_deltas() {
+        // content_block_start(tool_use) + N x input_json_delta + content_block_stop
+        // -> 单个 ToolCall, input 为合并后解析的 JSON。start / delta 不 emit。
+        let mut state = ClaudeStreamState::default();
+        let start = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_start", "index": 1,
+                "content_block": { "type": "tool_use", "id": "toolu_1",
+                    "name": "Bash", "input": {} } }
+        });
+        let d1 = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_delta", "index": 1,
+                "delta": { "type": "input_json_delta", "partial_json": "{\"command\":" } }
+        });
+        let d2 = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_delta", "index": 1,
+                "delta": { "type": "input_json_delta", "partial_json": " \"echo hi\"}" } }
+        });
+        let stop = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "content_block_stop", "index": 1 }
+        });
+
+        assert!(claude_event_to_chunks_with_state("thread_1", &start, true, &mut state).is_empty());
+        assert!(claude_event_to_chunks_with_state("thread_1", &d1, true, &mut state).is_empty());
+        assert!(claude_event_to_chunks_with_state("thread_1", &d2, true, &mut state).is_empty());
+
+        let chunks = claude_event_to_chunks_with_state("thread_1", &stop, true, &mut state);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::ToolCall { id, name, input, .. }]
+                if id == "toolu_1" && name == "Bash"
+                    && input.get("command").and_then(|v| v.as_str()) == Some("echo hi")
+        ));
+    }
+
+    #[test]
+    fn partial_suppresses_assistant_snapshot_but_non_partial_emits() {
+        // partial=true: 冗余累积快照丢弃(delta 已驱动渲染)。
+        // partial=false: 整段文本照常 emit(回归保护)。
+        let assistant = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [{ "type": "text", "text": "hello" }] }
+        });
+        let mut state = ClaudeStreamState::default();
+        assert!(
+            claude_event_to_chunks_with_state("thread_1", &assistant, true, &mut state).is_empty()
+        );
+        let chunks = claude_event_to_chunks_with_state("thread_1", &assistant, false, &mut state);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::Text { text, .. }] if text == "hello"
+        ));
+    }
+
+    #[test]
+    fn stream_event_message_delta_emits_usage() {
+        let value = serde_json::json!({
+            "type": "stream_event",
+            "event": { "type": "message_delta",
+                "delta": { "stop_reason": "end_turn" },
+                "usage": { "input_tokens": 974, "output_tokens": 3,
+                    "cache_read_input_tokens": 18432 } }
+        });
+        let chunks = claude_event_to_chunks("thread_1", &value);
+        assert!(matches!(
+            chunks.as_slice(),
+            [AgentChunk::Usage { usage: Some(u), .. }]
+                if u.input_tokens == Some(974)
+                    && u.output_tokens == Some(3)
+                    && u.cached_input_tokens == Some(18432)
+        ));
     }
 }

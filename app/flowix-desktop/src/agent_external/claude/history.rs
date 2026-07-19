@@ -289,10 +289,20 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
         tracing::debug!(
             "[ClaudeHistory] silenced event session_id={session_id} idx={idx} reason={reason} \
              event_type={} is_meta={} is_sidechain={} origin_kind={}",
-            value.get("type").and_then(serde_json::Value::as_str).unwrap_or_default(),
-            value.get("isMeta").and_then(serde_json::Value::as_bool).unwrap_or(false),
-            value.get("isSidechain").and_then(serde_json::Value::as_bool).unwrap_or(false),
-            value.get("origin")
+            value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("isMeta")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            value
+                .get("isSidechain")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            value
+                .get("origin")
                 .and_then(|o| o.get("kind"))
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default(),
@@ -355,15 +365,12 @@ fn value_to_chat_messages(session_id: &str, idx: usize, value: &Value) -> Vec<Ch
                             Some(Value::String(s)) => Some(s.as_str()),
                             Some(Value::Array(parts)) => parts
                                 .iter()
-                                .filter_map(|p| {
-                                    p.get("text").and_then(Value::as_str)
-                                })
+                                .filter_map(|p| p.get("text").and_then(Value::as_str))
                                 .next(),
                             _ => None,
                         };
-                        let is_agent_launch_metadata = content_text.is_some_and(
-                            |s| s.starts_with("Async agent launched successfully"),
-                        );
+                        let is_agent_launch_metadata = content_text
+                            .is_some_and(|s| s.starts_with("Async agent launched successfully"));
                         if is_agent_launch_metadata {
                             continue;
                         }
@@ -925,7 +932,10 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, "tool");
         assert_eq!(messages[0].tool_name.as_deref(), Some("Agent"));
-        assert_eq!(messages[0].tool_call_id.as_deref(), Some("call_e6e37468672748648ccf4b3e"));
+        assert_eq!(
+            messages[0].tool_call_id.as_deref(),
+            Some("call_e6e37468672748648ccf4b3e")
+        );
     }
 
     #[test]

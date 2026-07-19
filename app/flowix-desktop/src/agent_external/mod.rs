@@ -48,6 +48,6 @@ pub(crate) fn acquire_test_env_lock() -> std::sync::MutexGuard<'static, ()> {
 pub use shared::{
     emit_chunk_with_run_id, emit_stream_end_once, kill_child_tree,
     persist_watchdog_finalized_run_state, read_capped_line, read_stderr_to_string, resolve_run_id,
-    select_external_session_for_runtime, ExternalRunRegistry, MAX_STDOUT_LINE_BYTES,
-    USER_STOPPED_REASON,
+    select_external_session_for_runtime, ExternalRunRegistry, StreamingEmitBuffer,
+    MAX_STDOUT_LINE_BYTES, STREAM_FLUSH_INTERVAL, STREAM_FLUSH_MAX_BYTES, USER_STOPPED_REASON,
 };

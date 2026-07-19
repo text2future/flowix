@@ -19,8 +19,9 @@ export function getMessageDisplayMaxChars(
   role: MessageDisplayBudgetRole,
 ): number {
   if (role === "user") return USER_MESSAGE_DISPLAY_MAX_CHARS;
-  if (role === "reasoning") return REASONING_MESSAGE_DISPLAY_MAX_CHARS;
-  return ASSISTANT_MESSAGE_DISPLAY_MAX_CHARS;
+  // reasoning / assistant 放行: 完整渲染, 不做字符预算截断。
+  // (ASSISTANT/REASONING_*_MAX_CHARS 常量保留作历史阈值参考, 不再生效。)
+  return Number.POSITIVE_INFINITY;
 }
 
 export function truncateByCodePoint(

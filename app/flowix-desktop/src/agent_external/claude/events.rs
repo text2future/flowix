@@ -1,11 +1,35 @@
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 use crate::agent_flowix::AgentChunk;
+use crate::agent_types::UsageInfo;
 
 pub(crate) struct ParsedClaudeStdoutLine {
     pub value: Option<Value>,
     pub session_id: Option<String>,
     pub chunks: Vec<AgentChunk>,
+}
+
+/// `--include-partial-messages` 模式下, Claude Code 把一次 assistant 回答拆成
+/// 多条 `stream_event`(Anthropic 原生流式事件)增量输出。其中 `tool_use` 块的
+/// `input` JSON 通过 `input_json_delta` 分片到达, 单行解析无法还原完整 input,
+/// 必须跨行累积 ── 本结构持有这个跨行状态, 由 `read_claude_stdout` 循环按会话
+/// 保存, 传入 `claude_event_to_chunks_with_state`。
+///
+/// 镜像 OpenAI 兼容 provider 的 `PendingToolCalls`(BTreeMap 按 content_block
+/// `index` 累积 `arguments`), 仅作用于 Claude partial 流式路径。
+#[derive(Default)]
+pub(crate) struct ClaudeStreamState {
+    /// content_block `index` -> 累积中的 tool_use 输入。
+    /// `content_block_start`(tool_use) 建 entry;`input_json_delta` 追加
+    /// `partial_json`;`content_block_stop` flush 成 `AgentChunk::ToolCall`。
+    pending_tool_inputs: BTreeMap<i64, PendingToolInput>,
+}
+
+struct PendingToolInput {
+    id: String,
+    name: String,
+    json_buf: String,
 }
 
 /// [stream path] 把 Claude Code 子进程 stdout 的一行 JSONL 解析成
@@ -14,7 +38,33 @@ pub(crate) struct ParsedClaudeStdoutLine {
 /// 流式回显。同会话的 history path 走 `history.rs::value_to_chat_messages`,
 /// 数据源是 `~/.claude/projects/.../sid.jsonl` ── 两条路径处理的是同一份
 /// 对话的不同视图(streaming 是实时切片, history 是压缩后的全量)。
+///
+/// 本入口是非 partial 兜底(单元测试 / 未开 `--include-partial-messages` 的历史
+/// 路径);真实流式路径走 [`parse_claude_stdout_line_with_state`](partial=true +
+/// 跨行 state)。
+#[allow(dead_code)] // 非 partial 兜底 + 单元测试入口; 生产流式走 with_state。
 pub(crate) fn parse_claude_stdout_line(thread_id: &str, line: &str) -> ParsedClaudeStdoutLine {
+    parse_claude_stdout_line_inner(thread_id, line, false, &mut ClaudeStreamState::default())
+}
+
+/// [stream path] partial 模式专用入口 ── `read_claude_stdout` 持有跨行 `state`,
+/// `partial=true` 抑制冗余 `assistant` 快照(delta 已驱动渲染), 并把
+/// `stream_event` 解析成增量 `AgentChunk`。`state` 在调用方循环里跨行复用,
+/// 同一会话的 `input_json_delta` 分片在此累积。
+pub(crate) fn parse_claude_stdout_line_with_state(
+    thread_id: &str,
+    line: &str,
+    state: &mut ClaudeStreamState,
+) -> ParsedClaudeStdoutLine {
+    parse_claude_stdout_line_inner(thread_id, line, true, state)
+}
+
+fn parse_claude_stdout_line_inner(
+    thread_id: &str,
+    line: &str,
+    partial: bool,
+    state: &mut ClaudeStreamState,
+) -> ParsedClaudeStdoutLine {
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         return ParsedClaudeStdoutLine {
             value: None,
@@ -27,7 +77,7 @@ pub(crate) fn parse_claude_stdout_line(thread_id: &str, line: &str) -> ParsedCla
     };
 
     let session_id = extract_session_id(&value);
-    let chunks = claude_event_to_chunks(thread_id, &value);
+    let chunks = claude_event_to_chunks_with_state(thread_id, &value, partial, state);
 
     ParsedClaudeStdoutLine {
         value: Some(value),
@@ -51,7 +101,10 @@ fn is_synthetic_user_event(value: &Value) -> bool {
     if value.get("type").and_then(Value::as_str) != Some("user") {
         return false;
     }
-    if value.get("origin").and_then(|o| o.get("kind")).and_then(Value::as_str)
+    if value
+        .get("origin")
+        .and_then(|o| o.get("kind"))
+        .and_then(Value::as_str)
         == Some("task-notification")
     {
         return true;
@@ -62,35 +115,6 @@ fn is_synthetic_user_event(value: &Value) -> bool {
         }
     }
     false
-}
-
-/// [history path primarily] Sub-agent 分支链路 (`isSidechain=true`) 的
-/// JSONL 行不属于主对话:它们是 Task 工具 spawn 的 Explore / Bash / Plan
-/// agent 在自己的 thread 里产生的 user / assistant / tool_use / tool_result,
-/// 主 thread card 不应展示。流式 stdout 不携带 isSidechain 字段(改用
-/// `subagent_type`,见 `is_subagent_event`),所以本 helper 在 stream path
-/// 上也是 no-op。
-///
-/// 仅匹配 `isSidechain: true`;缺失或 `false` 不影响(主链路)。
-fn is_sidechain_event(value: &Value) -> bool {
-    value.get("isSidechain").and_then(Value::as_bool) == Some(true)
-}
-
-/// [stream path primarily] 流式 stdout 的 sub-agent 分支信号 ──
-/// `subagent_type` 是顶层字段,例如 `"Explore"` / `"general-purpose"`。
-/// 这是 Task 工具 spawn 的子 agent 产生的活动(tool_use / tool_result /
-/// text)被 echo 进主 agent 的 stdout 视图,主 thread card 不应展示。
-///
-/// `subagent_type` 同时出现在 type=user(sub-agent 的 tool_result 回显)
-/// 和 type=assistant(sub-agent 的 tool_use / text)两种行上 ── 所以本
-/// helper **不限 type**,任意 type + 顶层 `subagent_type` 即命中。持久化
-/// JSONL 里同一类内容用 `isSidechain=true` 表示(见 `is_sidechain_event`);
-/// 流式 stdout 不携带 isSidechain 字段,所以两条独立 helper 各管一摊。
-fn is_subagent_event(value: &Value) -> bool {
-    value
-        .get("subagent_type")
-        .and_then(Value::as_str)
-        .is_some()
 }
 
 /// [both paths] 流式 `isSynthetic=true` + 持久化 `isMeta=true` 的统一
@@ -150,15 +174,35 @@ pub(super) fn should_silence_event(value: &Value) -> bool {
 /// 调用,是流式 stdout 解析的最底层。entry guard 用 `silence_reason` 拦截
 /// 合成消息(详见 `silence_reason` 的 doc);通过后按 `type` 分发到各 block
 /// 处理分支(assistant / user / result / system / 未知 type fallback)。
+#[allow(dead_code)] // 非 partial 兜底 + 单元测试入口; 生产流式走 with_state。
 pub(crate) fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> {
+    claude_event_to_chunks_with_state(thread_id, value, false, &mut ClaudeStreamState::default())
+}
+
+pub(crate) fn claude_event_to_chunks_with_state(
+    thread_id: &str,
+    value: &Value,
+    partial: bool,
+    state: &mut ClaudeStreamState,
+) -> Vec<AgentChunk> {
     if let Some(reason) = silence_reason(value) {
         tracing::debug!(
             "[ClaudeCli] silenced event thread_id={thread_id} reason={reason} \
              event_type={} is_meta={} is_sidechain={} origin_kind={}",
-            value.get("type").and_then(serde_json::Value::as_str).unwrap_or_default(),
-            value.get("isMeta").and_then(serde_json::Value::as_bool).unwrap_or(false),
-            value.get("isSidechain").and_then(serde_json::Value::as_bool).unwrap_or(false),
-            value.get("origin")
+            value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("isMeta")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            value
+                .get("isSidechain")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            value
+                .get("origin")
                 .and_then(|o| o.get("kind"))
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default(),
@@ -171,9 +215,22 @@ pub(crate) fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<Agen
         .and_then(Value::as_str)
         .unwrap_or_default();
 
+    // [stream path, partial only] type=stream_event ── Anthropic 原生流式事件
+    // (message_start / content_block_start|delta|stop / message_delta|stop)。
+    // text_delta / thinking_delta -> 增量 Text / Reasoning;input_json_delta ->
+    // 跨行累积;message_delta -> Usage。partial=false 时不会出现该 type。
+    if event_type == "stream_event" {
+        return stream_event_to_chunks(thread_id, value, state);
+    }
+
     // [stream path] type=assistant 分发 ── text / thinking / tool_use 块
     // → 对应 AgentChunk;image / attachment 等 → 静默丢弃。
     if event_type == "assistant" {
+        // partial: delta 已驱动渲染, 丢弃冗余累积快照。partial 快照与非 partial
+        // 完整消息的 stop_reason 都是 null, 只能靠 `partial` 标志区分。
+        if partial {
+            return Vec::new();
+        }
         let mut chunks = Vec::new();
         if let Some(content) = value
             .get("message")
@@ -237,7 +294,7 @@ pub(crate) fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<Agen
 
     // [stream path] type=user 分发 ── text 块 → AgentChunk::Text;
     // tool_result 块 → AgentChunk::ToolResult;image / attachment 等 → 静默
-    // 丢弃。合成消息(isMeta / isSynthetic / subagent_type / sidechain /
+    // 丢弃。合成消息(isMeta / isSynthetic /
     // task-notification)由 entry guard `silence_reason` 在分发前拦截,
     // 不会到这里。
     if event_type == "user" {
@@ -312,6 +369,145 @@ pub(crate) fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<Agen
     Vec::new()
 }
 
+/// [stream path, partial only] 解析 `type=stream_event` 行。`event` 是 Anthropic
+/// 原生流式事件, `index` 标识 content_block。tool_use 的 `input` 通过
+/// `input_json_delta` 分片累积到 `state`, 在 `content_block_stop` flush 成
+/// `AgentChunk::ToolCall`(解析失败 / 空 -> `{}`)。
+///
+/// sub-agent 的 stream_event 带 `parent_tool_use_id`(非 null)── 与非 partial
+/// 路径一致, sub-agent 活动按设计展示在主 thread card 上(见 cli.rs
+/// `emits_claude_subagent_event_while_streaming`), 此处不额外过滤。
+fn stream_event_to_chunks(
+    thread_id: &str,
+    value: &Value,
+    state: &mut ClaudeStreamState,
+) -> Vec<AgentChunk> {
+    let Some(ev) = value.get("event") else {
+        return Vec::new();
+    };
+    let event_type = ev.get("type").and_then(Value::as_str).unwrap_or_default();
+    let index = ev.get("index").and_then(Value::as_i64).unwrap_or(0);
+
+    match event_type {
+        // 新 message 开始: 清掉上一轮残留的 pending tool input, 防跨轮泄漏。
+        "message_start" => {
+            state.pending_tool_inputs.clear();
+            Vec::new()
+        }
+        // tool_use 块开始: 记 id / name, input 由 input_json_delta 累积。
+        // text / thinking 块 start 无 chunk(内容由 delta 投递)。
+        "content_block_start" => {
+            let is_tool_use = ev
+                .get("content_block")
+                .and_then(|b| b.get("type"))
+                .and_then(Value::as_str)
+                == Some("tool_use");
+            if is_tool_use {
+                let cb = ev.get("content_block").cloned().unwrap_or(Value::Null);
+                let id = cb
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("claude_tool")
+                    .to_string();
+                let name = cb
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("tool")
+                    .to_string();
+                state.pending_tool_inputs.insert(
+                    index,
+                    PendingToolInput {
+                        id,
+                        name,
+                        json_buf: String::new(),
+                    },
+                );
+            }
+            Vec::new()
+        }
+        "content_block_delta" => {
+            let delta = ev.get("delta").cloned().unwrap_or(Value::Null);
+            match delta
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
+                "text_delta" => match delta.get("text").and_then(Value::as_str) {
+                    Some(text) if !text.is_empty() => vec![AgentChunk::Text {
+                        thread_id: thread_id.to_string(),
+                        text: text.to_string(),
+                    }],
+                    _ => Vec::new(),
+                },
+                "thinking_delta" => match delta.get("thinking").and_then(Value::as_str) {
+                    Some(text) if !text.is_empty() => vec![AgentChunk::Reasoning {
+                        thread_id: thread_id.to_string(),
+                        text: text.to_string(),
+                    }],
+                    _ => Vec::new(),
+                },
+                "input_json_delta" => {
+                    if let Some(fragment) = delta.get("partial_json").and_then(Value::as_str) {
+                        if let Some(pending) = state.pending_tool_inputs.get_mut(&index) {
+                            pending.json_buf.push_str(fragment);
+                        }
+                    }
+                    Vec::new()
+                }
+                _ => Vec::new(),
+            }
+        }
+        // flush 累积的 tool_use input -> ToolCall(解析失败 / 空 -> `{}`)。
+        "content_block_stop" => match state.pending_tool_inputs.remove(&index) {
+            Some(pending) => {
+                let input = if pending.json_buf.trim().is_empty() {
+                    serde_json::json!({})
+                } else {
+                    serde_json::from_str(&pending.json_buf)
+                        .unwrap_or_else(|_| serde_json::json!({}))
+                };
+                vec![AgentChunk::ToolCall {
+                    thread_id: thread_id.to_string(),
+                    id: pending.id,
+                    name: pending.name,
+                    input,
+                }]
+            }
+            None => Vec::new(),
+        },
+        // 末尾 usage(input / output / cache_read tokens)。stop_reason 也在本事件,
+        // 但前端靠 stream_end 收敛 run, 无需额外 chunk。
+        "message_delta" => match ev.get("usage") {
+            Some(usage) => vec![AgentChunk::Usage {
+                thread_id: thread_id.to_string(),
+                model_id: None,
+                last_run_at: None,
+                usage: Some(UsageInfo {
+                    input_tokens: usage
+                        .get("input_tokens")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as u32),
+                    cached_input_tokens: usage
+                        .get("cache_read_input_tokens")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as u32),
+                    output_tokens: usage
+                        .get("output_tokens")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as u32),
+                    reasoning_output_tokens: None,
+                    total_tokens: None,
+                    model_context_window: None,
+                }),
+                status_info: None,
+            }],
+            None => Vec::new(),
+        },
+        // message_stop / 其他: 无 chunk。
+        _ => Vec::new(),
+    }
+}
+
 // [both paths] ToolResult payload 序列化 ── events.rs 和 history.rs 的
 // 两条 path 在推 ToolResult 时都会调这里把 block.content 转成统一 envelope。
 fn claude_tool_result_value(block: &Value) -> Value {
@@ -359,9 +555,9 @@ fn claude_tool_result_envelope(mut value: Value, source: &Value) -> Value {
 }
 
 // [stream path] 从顶层 / 嵌套 message envelope 里递归找 session id ──
-    // Claude Code 的 stdout JSONL 在顶层或 message.* 里都会带 session_id。
-    // 用于 `parse_claude_stdout_line` 的 `SessionResolved` chunk 推送与
-    // `upsert_external_session` 持久化。
+// Claude Code 的 stdout JSONL 在顶层或 message.* 里都会带 session_id。
+// 用于 `parse_claude_stdout_line` 的 `SessionResolved` chunk 推送与
+// `upsert_external_session` 持久化。
 fn extract_session_id(value: &Value) -> Option<String> {
     for key in ["session_id", "sessionId", "uuid"] {
         if let Some(id) = value.get(key).and_then(Value::as_str) {
@@ -372,7 +568,7 @@ fn extract_session_id(value: &Value) -> Option<String> {
 }
 
 // [stream path] 未知 type 兜底用的递归 string 查找 ── 先看顶层 keys,
-    // 再递归 Value::Object / Value::Array,找到任意 string 字段即返回。
+// 再递归 Value::Object / Value::Array,找到任意 string 字段即返回。
 fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
     for key in keys {
         if let Some(text) = value.get(*key).and_then(Value::as_str) {
