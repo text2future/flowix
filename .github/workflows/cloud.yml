@@ -1,0 +1,44 @@
+name: cloud
+
+on:
+  push:
+    branches: [main]
+    paths: ["cloud/**"]
+  pull_request:
+    paths: ["cloud/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cloud/package-lock.json
+      - run: npm ci
+        working-directory: cloud
+      - run: npm run typecheck
+        working-directory: cloud
+      - run: npm test
+        working-directory: cloud
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cloud/package-lock.json
+      - run: npm ci
+        working-directory: cloud
+      # 仅部署代码;D1 迁移请手动 npm run db:migrate:remote --env production
+      - run: npx wrangler deploy --env production
+        working-directory: cloud
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
