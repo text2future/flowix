@@ -203,6 +203,7 @@ export interface ChatStore {
   stopStream: () => Promise<void>;
   stopThreadRun: (threadId: string, runId?: string) => Promise<void>;
   dispatchAgentEvent: (event: AgentEvent) => void;
+  flushAgentEventBuffer: () => void;
 
   /**
    * 全局 `agent-chunk` 派发器 ── 由 `useAgentEvents` 在 app.tsx 顶层
@@ -661,10 +662,6 @@ export const useChatStore = create<ChatStore>()(
                 .getState()
                 .lockInstanceFileSeed(options.instanceId);
             }
-            useAgentConversationStore.getState().markRunStarted(options.instanceId, {
-              runId,
-              startedAt: Date.now(),
-            });
           }
 
           try {
@@ -755,20 +752,6 @@ export const useChatStore = create<ChatStore>()(
               ),
             };
           });
-          if (targetRunId && stoppedAt !== null) {
-            const instanceStore = useAgentConversationStore.getState();
-            const instance =
-              instanceStore.findByRunId(targetRunId) ??
-              instanceStore.findByThreadId(threadId);
-            if (instance) {
-              instanceStore.markRunEnded(
-                instance.instanceId,
-                "cancelled",
-                stoppedAt,
-                "cancelled",
-              );
-            }
-          }
           // 修复 #9: 之前 `targetRunId` 早 return 后仍发 IPC, 后端走
           // thread-wide stop 兜底 ── 是浪费, 且本地 store 的 applyRunStopped
           // 在 set() 早 return 时没跑, 用户看不到"已停"的视觉反馈。
@@ -791,6 +774,10 @@ export const useChatStore = create<ChatStore>()(
 
         dispatchAgentEvent: (event) => {
           streamDispatcher.dispatch(event);
+        },
+
+        flushAgentEventBuffer: () => {
+          streamDispatcher.flushBuffer();
         },
 
         dispatchAgentChunk: (chunk) => {
@@ -819,12 +806,7 @@ export const useChatStore = create<ChatStore>()(
                 type.key,
               );
             }
-            const runId =
-              info.runId ??
-              state.threadStates[canonicalThreadId]?.activeRunId ??
-              state.threadStates[localThreadId]?.activeRunId ??
-              createRunId(canonicalThreadId);
-            const instance = ensureConversationInstanceForThread(
+            ensureConversationInstanceForThread(
               canonicalThreadId,
               type.key,
               normalizeThreadTitle(
@@ -834,7 +816,6 @@ export const useChatStore = create<ChatStore>()(
                   canonicalThreadId,
                 ),
               ),
-              info.runId,
               {
                 // 保留 instance 已有 title ── 当 caller 传入的 title 就是
                 // 当前 instance 的 default title 时 (典型场景: 之前快照
@@ -843,13 +824,7 @@ export const useChatStore = create<ChatStore>()(
                 defaultTitle: defaultExternalThreadTitle(type.key),
               },
             );
-            instanceStore.markRunStarted(instance.instanceId, {
-              runId,
-              startedAt: info.startedAt || now,
-              currentTool: info.currentTool ?? null,
-            });
           }
-          instanceStore.markRunningMissingFromSnapshotEnded(running, now);
           set((state) =>
             reconcileThreadStatesFromRunningSnapshot(
               state,

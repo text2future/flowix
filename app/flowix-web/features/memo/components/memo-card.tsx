@@ -223,14 +223,6 @@ function MemoCardShell({
         <div
           onClick={() => onSelect(memo)}
           onDoubleClick={() => onOpenInWindow?.(memo)}
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.setData('text/plain', memo.id);
-            event.dataTransfer.effectAllowed = 'copy';
-          }}
-          onDragEnd={(event) => {
-            void event.dataTransfer.getData('text/plain');
-          }}
           className={cn(
             'group memo-card relative cursor-pointer rounded-xl px-3 py-3 transition-all',
             isSelected && 'bg-[var(--accent)]',

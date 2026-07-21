@@ -6,7 +6,6 @@ export interface MemoLibraryMetadata {
   tagOptions: MemoTagTreeItem[];
   tagLayout: MemoTagLayoutItem[];
   hiddenTagIds: string[];
-  selectedTagId: string | null;
   totalMemoCount: number;
   agentMemoCount: number;
   todoMemoCount: number;
@@ -29,14 +28,14 @@ export interface MemoTagTreeItem extends MemoTagLayoutItem {
    *  都走 fullPath, 选中 `中国` 即选中 fullPath = `中国`。 */
   fullPath: string;
   depth: number;
-  /** prefix count: 自身 + 所有以 fullPath/ 为前缀的 descendant 的 memo
-   *  数累加 (粗略; 一个 memo 有多个子 tag 时会 over-count, MVP 可接受)。 */
+  /** prefix count: 挂了"以 fullPath 起始的 tag"的去重 memo 数 (后端
+   *  get_tag_prefix_counts 用 HashSet<memo_id> 去重, 同一 memo 多个子
+   *  tag 在父 prefix 下只算 1)。 */
   count: number;
 }
 
 interface LoadMemoLibraryMetadataParams {
   notebook: Notebook;
-  selectedTagId: string | null;
 }
 
 function normalizeSavedStringArray(value: unknown): string[] {
@@ -204,7 +203,6 @@ export function buildTagTreeOptions({
 
 export async function loadMemoLibraryMetadata({
   notebook,
-  selectedTagId,
 }: LoadMemoLibraryMetadataParams): Promise<MemoLibraryMetadata | null> {
   const [
     tagsResult,
@@ -271,11 +269,47 @@ export async function loadMemoLibraryMetadata({
     tagOptions,
     tagLayout,
     hiddenTagIds,
-    selectedTagId: selectedTagId && usedTagIdSet.has(selectedTagId) ? selectedTagId : null,
     totalMemoCount: usedTagIdsResult.totalMemoCount ?? 0,
     agentMemoCount: usedTagIdsResult.agentMemoCount ?? 0,
     todoMemoCount: usedTagIdsResult.todoMemoCount ?? 0,
   };
+}
+
+/**
+ * 校验 selectedTagId 是否是当前标签树里实际存在的节点 (含路径前缀
+ * segment)。重命名 / reparent 后 selectedTagId 可能暂时是旧路径, 调用方
+ * 在 metadata 重载回写时用此函数重新校验**当前** selectedTagId, 避免用
+ * IPC 发出时的旧值校验结果覆盖用户刚设的新路径。
+ */
+export function resolveSelectedTagId(
+  selectedTagId: string | null,
+  tagOptions: MemoTagTreeItem[],
+): string | null {
+  if (!selectedTagId) return null;
+  return tagOptions.some((tag) => tag.fullPath === selectedTagId)
+    ? selectedTagId
+    : null;
+}
+
+/**
+ * 把 selectedTagId 从旧前缀映射到新前缀 (move_memo_tag 整棵子树 prefix
+ * 替换后, 被重命名节点本身或后代的 fullPath 都变了)。重命名 / reparent
+ * 成功后用它把 selectedTagId 跟到新 fullPath:
+ * - 选中被重命名节点本身: 直接换成 newPrefix
+ * - 选中其后代: 前缀替换 (oldPrefix -> newPrefix)
+ * - 无关选中: 不动
+ */
+export function rebaseSelectedTagId(
+  selected: string | null,
+  oldPrefix: string,
+  newPrefix: string,
+): string | null {
+  if (!selected) return null;
+  if (selected === oldPrefix) return newPrefix;
+  if (selected.startsWith(oldPrefix + '/')) {
+    return newPrefix + selected.slice(oldPrefix.length);
+  }
+  return selected;
 }
 
 export async function getNotebookTodoCount(notebookId: string): Promise<number> {

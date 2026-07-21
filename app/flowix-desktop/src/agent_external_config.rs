@@ -1,17 +1,10 @@
-//! External CLI path config ── 持久化在 `~/.flowix/agent-external-config.json`。
-//!
-//! 作为各 external agent (codex / claude / gemini / hermes / openclaw) 执行路径
-//! 的"唯一参照":
-//! - 启动时探测一次 (`run_startup_detect`), 把命中的 path 写入文件并灌进
-//!   `agent_external::cli_resolver::REGISTRY`; 此后运行时 `resolve_external_cli`
-//!   命中即用, 不再每条消息跑探测链。
-//! - `source = "user"` 的条目启动探测跳过, 尊重用户在偏好设置里手改的路径。
-//! - path 失效 (文件被删) 不自动 fallback ── 由 `executable_available` 判 false
-//!   标红, 用户在偏好设置点"重新探测" (`redetect`) 触发重探。
-//!
-//! 结构与 `system_data::SystemData` 对齐: `RwLock` 内存镜像 + tmp+rename 原子写
-//! + 0o600 权限。
-
+//! External CLI path config 鈹€鈹€ 鎸佷箙鍖栧湪 `~/.flowix/agent-external-config.json`銆?//!
+//! 浣滀负鍚?external agent (codex / claude / gemini / hermes / openclaw) 鎵ц璺緞
+//! 鐨?鍞竴鍙傜収":
+//! - 鍚姩鏃舵帰娴嬩竴娆?(`run_startup_detect`), 鎶婂懡涓殑 path 鍐欏叆鏂囦欢骞剁亴杩?//!   `agent_external::cli_resolver::REGISTRY`; 姝ゅ悗杩愯鏃?`resolve_external_cli`
+//!   鍛戒腑鍗崇敤, 涓嶅啀姣忔潯娑堟伅璺戞帰娴嬮摼銆?//! - `source = "user"` 鐨勬潯鐩惎鍔ㄦ帰娴嬭烦杩? 灏婇噸鐢ㄦ埛鍦ㄥ亸濂借缃噷鎵嬫敼鐨勮矾寰勩€?//! - path 澶辨晥 (鏂囦欢琚垹) 涓嶈嚜鍔?fallback 鈹€鈹€ 鐢?`executable_available` 鍒?false
+//!   鏍囩孩, 鐢ㄦ埛鍦ㄥ亸濂借缃偣"閲嶆柊鎺㈡祴" (`redetect`) 瑙﹀彂閲嶆帰銆?//!
+//! 缁撴瀯涓?`system_data::SystemData` 瀵归綈: `RwLock` 鍐呭瓨闀滃儚 + tmp+rename 鍘熷瓙鍐?//! + 0o600 鏉冮檺銆?
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -25,8 +18,7 @@ use crate::agent_external::cli_resolver::{
 };
 use crate::agent_external::{claude, codex, hermes, simple_cli};
 
-/// 5 个 external agent 的 binary_name (= AgentTypeKey = registry key)。
-/// 顺序影响偏好设置列表呈现, 不影响逻辑。
+/// 5 涓?external agent 鐨?binary_name (= AgentTypeKey = registry key)銆?/// 椤哄簭褰卞搷鍋忓ソ璁剧疆鍒楄〃鍛堢幇, 涓嶅奖鍝嶉€昏緫銆?
 pub const EXTERNAL_AGENT_KEYS: &[&str] = &["codex", "claude", "gemini", "hermes", "openclaw"];
 
 pub struct AgentExternalConfig {
@@ -44,10 +36,10 @@ pub struct AgentExternalConfigFile {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentExternalEntry {
-    /// 探测到的执行路径; `None` = 未探测到 / 未配置。
+    /// 鎺㈡祴鍒扮殑鎵ц璺緞; `None` = 鏈帰娴嬪埌 / 鏈厤缃€?
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
-    /// `auto` = 启动探测写入 (可被下次启动覆盖); `user` = 用户手改 (启动探测跳过)。
+    /// `auto` = 鍚姩鎺㈡祴鍐欏叆 (鍙涓嬫鍚姩瑕嗙洊); `user` = 鐢ㄦ埛鎵嬫敼 (鍚姩鎺㈡祴璺宠繃)銆?
     #[serde(default = "default_source")]
     pub source: AgentExternalSource,
 }
@@ -144,7 +136,7 @@ impl AgentExternalConfig {
         Ok(())
     }
 
-    /// 读取某 agent 的当前条目 (path + source)。
+    /// 璇诲彇鏌?agent 鐨勫綋鍓嶆潯鐩?(path + source)銆?
     pub fn get_entry(&self, agent_key: &str) -> AgentExternalEntry {
         self.read_data()
             .agents
@@ -153,12 +145,12 @@ impl AgentExternalConfig {
             .unwrap_or_default()
     }
 
-    /// 全量快照, 供偏好设置展示。
+    /// 鍏ㄩ噺蹇収, 渚涘亸濂借缃睍绀恒€?
     pub fn snapshot(&self) -> HashMap<String, AgentExternalEntry> {
         self.read_data().agents.clone()
     }
 
-    /// 用户手改 path: 写 `source = user`, flush, 同步注册表。返回更新后的条目。
+    /// 鐢ㄦ埛鎵嬫敼 path: 鍐?`source = user`, flush, 鍚屾娉ㄥ唽琛ㄣ€傝繑鍥炴洿鏂板悗鐨勬潯鐩€?
     pub fn set_user_path(
         &self,
         agent_key: &str,
@@ -177,11 +169,10 @@ impl AgentExternalConfig {
         Ok(entry)
     }
 
-    /// 启动探测: 对 `source = auto` 或缺失的 agent 跑探测链写入; `source = user`
-    /// 跳过。探测完成后把全量 path 灌进注册表, 使 `resolve_external_cli` 命中即用。
-    ///
-    /// 此刻注册表尚未启用 (`REGISTRY = None`), 各 `resolve_*_binary` 会走原探测链
-    /// (env > PATH > 候选 > shell), 与改造前行为一致。
+    /// 鍚姩鎺㈡祴: 瀵?`source = auto` 鎴栫己澶辩殑 agent 璺戞帰娴嬮摼鍐欏叆; `source = user`
+    /// 璺宠繃銆傛帰娴嬪畬鎴愬悗鎶婂叏閲?path 鐏岃繘娉ㄥ唽琛? 浣?`resolve_external_cli` 鍛戒腑鍗崇敤銆?    ///
+    /// 姝ゅ埢娉ㄥ唽琛ㄥ皻鏈惎鐢?(`REGISTRY = None`), 鍚?`resolve_*_binary` 浼氳蛋鍘熸帰娴嬮摼
+    /// (env > PATH > 鍊欓€?> shell), 涓庢敼閫犲墠琛屼负涓€鑷淬€?
     pub fn run_startup_detect(&self) {
         let mut changed = false;
         {
@@ -206,7 +197,7 @@ impl AgentExternalConfig {
         self.load_into_registry();
     }
 
-    /// 把当前 JSON 的 path 内存镜像灌进 `REGISTRY`。
+    /// 鎶婂綋鍓?JSON 鐨?path 鍐呭瓨闀滃儚鐏岃繘 `REGISTRY`銆?
     pub fn load_into_registry(&self) {
         let data = self.read_data();
         let mut map: HashMap<String, PathBuf> = HashMap::new();
@@ -218,11 +209,10 @@ impl AgentExternalConfig {
         set_external_cli_registry(map);
     }
 
-    /// 重新探测单个 agent: 清注册表该项 -> 跑探测 -> 写 `source = auto` ->
-    /// 更新注册表。返回探测到的 path (`None` = 没探测到)。
+    /// 閲嶆柊鎺㈡祴鍗曚釜 agent: 娓呮敞鍐岃〃璇ラ」 -> 璺戞帰娴?-> 鍐?`source = auto` ->
+    /// 鏇存柊娉ㄥ唽琛ㄣ€傝繑鍥炴帰娴嬪埌鐨?path (`None` = 娌℃帰娴嬪埌)銆?
     pub fn redetect(&self, agent_key: &str) -> std::io::Result<Option<PathBuf>> {
-        // 先从注册表移除该项, 使 `resolve_*_binary` 回退探测链而非命中旧 path。
-        update_external_cli_path(agent_key, None);
+        // 鍏堜粠娉ㄥ唽琛ㄧЩ闄よ椤? 浣?`resolve_*_binary` 鍥為€€鎺㈡祴閾捐€岄潪鍛戒腑鏃?path銆?        update_external_cli_path(agent_key, None);
         let detected = detect_external_binary(agent_key);
         {
             let mut data = self.write_data();
@@ -235,7 +225,7 @@ impl AgentExternalConfig {
             );
             self.flush(&data)?;
         }
-        // 探测到才回填注册表; 没探测到保持移除状态 (该 agent 标 unavailable)。
+        // 鎺㈡祴鍒版墠鍥炲～娉ㄥ唽琛? 娌℃帰娴嬪埌淇濇寔绉婚櫎鐘舵€?(璇?agent 鏍?unavailable)銆?
         if let Some(p) = detected.clone() {
             update_external_cli_path(agent_key, Some(p));
         }
@@ -243,8 +233,8 @@ impl AgentExternalConfig {
     }
 }
 
-/// 跑某 agent 的探测链。此时该项已从注册表移除或注册表未启用, `resolve_*_binary`
-/// 会回退到 env / PATH / 候选 / shell 探测。返回可执行路径或 `None`。
+/// 璺戞煇 agent 鐨勬帰娴嬮摼銆傛鏃惰椤瑰凡浠庢敞鍐岃〃绉婚櫎鎴栨敞鍐岃〃鏈惎鐢? `resolve_*_binary`
+/// 浼氬洖閫€鍒?env / PATH / 鍊欓€?/ shell 鎺㈡祴銆傝繑鍥炲彲鎵ц璺緞鎴?`None`銆?
 fn detect_external_binary(agent_key: &str) -> Option<PathBuf> {
     let path = match agent_key {
         "codex" => codex::cli::resolve_codex_binary(),
@@ -257,7 +247,7 @@ fn detect_external_binary(agent_key: &str) -> Option<PathBuf> {
             return None;
         }
     };
-    // 探测链全未命中时返回裸名 (如 "codex"), 不算可用。
+    // 鎺㈡祴閾惧叏鏈懡涓椂杩斿洖瑁稿悕 (濡?"codex"), 涓嶇畻鍙敤銆?
     if is_executable_file(&path) {
         Some(path)
     } else {
@@ -314,7 +304,7 @@ mod tests {
         assert_eq!(entry.source, AgentExternalSource::User);
         assert_eq!(entry.path.as_deref(), Some(fake.as_path()));
 
-        // 重新读盘验证持久化。
+        // 閲嶆柊璇荤洏楠岃瘉鎸佷箙鍖栥€?
         let reloaded = AgentExternalConfig::new(cfg.path.clone()).expect("reload");
         let again = reloaded.get_entry("codex");
         assert_eq!(again.source, AgentExternalSource::User);
@@ -333,7 +323,7 @@ mod tests {
 
         cfg.run_startup_detect();
 
-        // user 条目不被覆盖。
+        // user 鏉＄洰涓嶈瑕嗙洊銆?
         let entry = cfg.get_entry("codex");
         assert_eq!(entry.source, AgentExternalSource::User);
         assert_eq!(entry.path.as_deref(), Some(sentinel.as_path()));
@@ -346,11 +336,11 @@ mod tests {
         cfg.set_user_path("codex", PathBuf::from("/sentinel/user/path"))
             .expect("set user");
 
-        // redetect 强制重探并写回 source=auto。
+        // redetect 寮哄埗閲嶆帰骞跺啓鍥?source=auto銆?
         let _ = cfg.redetect("codex").expect("redetect");
         let entry = cfg.get_entry("codex");
         assert_eq!(entry.source, AgentExternalSource::Auto);
-        // 真实环境多半探测不到 codex -> None; 若探测到则必为可执行文件。
+        // 鐪熷疄鐜澶氬崐鎺㈡祴涓嶅埌 codex -> None; 鑻ユ帰娴嬪埌鍒欏繀涓哄彲鎵ц鏂囦欢銆?
         if let Some(p) = entry.path.as_deref() {
             assert!(is_executable_file(p));
         }
@@ -363,11 +353,11 @@ mod tests {
         cfg.set_user_path("codex", PathBuf::from("/some/codex"))
             .expect("set");
         cfg.load_into_registry();
-        // resolve_external_cli 现在应命中注册表返回该路径。
+        // resolve_external_cli 鐜板湪搴斿懡涓敞鍐岃〃杩斿洖璇ヨ矾寰勩€?
         use crate::agent_external::cli_resolver::{
             reset_external_cli_registry_for_test, ExternalCliSpec,
         };
-        // 临时构造一个 codex spec 验证 lookup; 直接走 resolve_external_cli。
+        // 涓存椂鏋勯€犱竴涓?codex spec 楠岃瘉 lookup; 鐩存帴璧?resolve_external_cli銆?
         let spec = ExternalCliSpec {
             binary_name: "codex",
             #[cfg(windows)]

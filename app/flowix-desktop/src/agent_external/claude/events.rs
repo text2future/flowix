@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::agent_flowix::AgentChunk;
 use crate::agent_types::UsageInfo;
@@ -10,20 +10,23 @@ pub(crate) struct ParsedClaudeStdoutLine {
     pub chunks: Vec<AgentChunk>,
 }
 
-/// `--include-partial-messages` 模式下, Claude Code 把一次 assistant 回答拆成
-/// 多条 `stream_event`(Anthropic 原生流式事件)增量输出。其中 `tool_use` 块的
-/// `input` JSON 通过 `input_json_delta` 分片到达, 单行解析无法还原完整 input,
-/// 必须跨行累积 ── 本结构持有这个跨行状态, 由 `read_claude_stdout` 循环按会话
-/// 保存, 传入 `claude_event_to_chunks_with_state`。
-///
-/// 镜像 OpenAI 兼容 provider 的 `PendingToolCalls`(BTreeMap 按 content_block
-/// `index` 累积 `arguments`), 仅作用于 Claude partial 流式路径。
+/// `--include-partial-messages` 妯″紡涓? Claude Code 鎶婁竴娆?assistant 鍥炵瓟鎷嗘垚
+/// 澶氭潯 `stream_event`(Anthropic 鍘熺敓娴佸紡浜嬩欢)澧為噺杈撳嚭銆傚叾涓?`tool_use` 鍧楃殑
+/// `input` JSON 閫氳繃 `input_json_delta` 鍒嗙墖鍒拌揪, 鍗曡瑙ｆ瀽鏃犳硶杩樺師瀹屾暣 input,
+/// 蹇呴』璺ㄨ绱Н 鈹€鈹€ 鏈粨鏋勬寔鏈夎繖涓法琛岀姸鎬? 鐢?`read_claude_stdout` 寰幆鎸変細璇?/// 淇濆瓨, 浼犲叆 `claude_event_to_chunks_with_state`銆?///
+/// 闀滃儚 OpenAI 鍏煎 provider 鐨?`PendingToolCalls`(BTreeMap 鎸?content_block
+/// `index` 绱Н `arguments`), 浠呬綔鐢ㄤ簬 Claude partial 娴佸紡璺緞銆?
 #[derive(Default)]
 pub(crate) struct ClaudeStreamState {
-    /// content_block `index` -> 累积中的 tool_use 输入。
-    /// `content_block_start`(tool_use) 建 entry;`input_json_delta` 追加
-    /// `partial_json`;`content_block_stop` flush 成 `AgentChunk::ToolCall`。
+    /// content_block `index` -> 绱Н涓殑 tool_use 杈撳叆銆?
+    /// `content_block_start`(tool_use) 寤?entry;`input_json_delta` 杩藉姞
+    /// `partial_json`;`content_block_stop` flush 鎴?`AgentChunk::ToolCall`銆?
     pending_tool_inputs: BTreeMap<i64, PendingToolInput>,
+    /// 已发出 ToolCall 的 tool_use_id 集合 —— 跨行去重,防止 stream_event 增量与
+    /// 完整 assistant 快照对同一 id 重复发 ToolCall。partial 模式下内置工具
+    /// (WebSearch / Agent / TaskOutput 等无 stream_event 增量的工具)只出现在完整
+    /// 快照里,靠本集合判定"是否已被增量发过"以决定是否从快照补发。
+    emitted_tool_call_ids: HashSet<String>,
 }
 
 struct PendingToolInput {
@@ -32,25 +35,20 @@ struct PendingToolInput {
     json_buf: String,
 }
 
-/// [stream path] 把 Claude Code 子进程 stdout 的一行 JSONL 解析成
-/// `ParsedClaudeStdoutLine`。非 JSON 行作为 raw 文本 Text chunk 透传,
-/// JSON 行转 AgentChunk 列表。被 `stream.rs::read_claude_stdout` 调用于
-/// 流式回显。同会话的 history path 走 `history.rs::value_to_chat_messages`,
-/// 数据源是 `~/.claude/projects/.../sid.jsonl` ── 两条路径处理的是同一份
-/// 对话的不同视图(streaming 是实时切片, history 是压缩后的全量)。
-///
-/// 本入口是非 partial 兜底(单元测试 / 未开 `--include-partial-messages` 的历史
-/// 路径);真实流式路径走 [`parse_claude_stdout_line_with_state`](partial=true +
-/// 跨行 state)。
-#[allow(dead_code)] // 非 partial 兜底 + 单元测试入口; 生产流式走 with_state。
+/// [stream path] 鎶?Claude Code 瀛愯繘绋?stdout 鐨勪竴琛?JSONL 瑙ｆ瀽鎴?/// `ParsedClaudeStdoutLine`銆傞潪 JSON 琛屼綔涓?raw 鏂囨湰 Text chunk 閫忎紶,
+/// JSON 琛岃浆 AgentChunk 鍒楄〃銆傝 `stream.rs::read_claude_stdout` 璋冪敤浜?/// 娴佸紡鍥炴樉銆傚悓浼氳瘽鐨?history path 璧?`history.rs::value_to_chat_messages`,
+/// 鏁版嵁婧愭槸 `~/.claude/projects/.../sid.jsonl` 鈹€鈹€ 涓ゆ潯璺緞澶勭悊鐨勬槸鍚屼竴浠?/// 瀵硅瘽鐨勪笉鍚岃鍥?streaming 鏄疄鏃跺垏鐗? history 鏄帇缂╁悗鐨勫叏閲?銆?///
+/// 鏈叆鍙ｆ槸闈?partial 鍏滃簳(鍗曞厓娴嬭瘯 / 鏈紑 `--include-partial-messages` 鐨勫巻鍙?/// 璺緞);鐪熷疄娴佸紡璺緞璧?[`parse_claude_stdout_line_with_state`](partial=true +
+/// 璺ㄨ state)
+#[allow(dead_code)] // 闈?partial 鍏滃簳 + 鍗曞厓娴嬭瘯鍏ュ彛; 鐢熶骇娴佸紡璧?with_state銆?
 pub(crate) fn parse_claude_stdout_line(thread_id: &str, line: &str) -> ParsedClaudeStdoutLine {
     parse_claude_stdout_line_inner(thread_id, line, false, &mut ClaudeStreamState::default())
 }
 
-/// [stream path] partial 模式专用入口 ── `read_claude_stdout` 持有跨行 `state`,
-/// `partial=true` 抑制冗余 `assistant` 快照(delta 已驱动渲染), 并把
-/// `stream_event` 解析成增量 `AgentChunk`。`state` 在调用方循环里跨行复用,
-/// 同一会话的 `input_json_delta` 分片在此累积。
+/// [stream path] partial 妯″紡涓撶敤鍏ュ彛 鈹€鈹€ `read_claude_stdout` 鎸佹湁璺ㄨ `state`,
+/// `partial=true` 鎶戝埗鍐椾綑 `assistant` 蹇収(delta 宸查┍鍔ㄦ覆鏌?, 骞舵妸
+/// `stream_event` 瑙ｆ瀽鎴愬閲?`AgentChunk`銆俙state` 鍦ㄨ皟鐢ㄦ柟寰幆閲岃法琛屽鐢?
+/// 鍚屼竴浼氳瘽鐨?`input_json_delta` 鍒嗙墖鍦ㄦ绱Н銆?
 pub(crate) fn parse_claude_stdout_line_with_state(
     thread_id: &str,
     line: &str,
@@ -66,6 +64,13 @@ fn parse_claude_stdout_line_inner(
     state: &mut ClaudeStreamState,
 ) -> ParsedClaudeStdoutLine {
     let Ok(value) = serde_json::from_str::<Value>(line) else {
+        if looks_like_claude_json_event_line(line) {
+            return ParsedClaudeStdoutLine {
+                value: None,
+                session_id: None,
+                chunks: Vec::new(),
+            };
+        }
         return ParsedClaudeStdoutLine {
             value: None,
             session_id: None,
@@ -86,17 +91,13 @@ fn parse_claude_stdout_line_inner(
     }
 }
 
-/// [history path primarily] Claude Code v2 把 Task 子 agent 完成的通知
-/// 包成 `type=user` 消息喂给主 agent,内容是整段
-/// `<task-notification>...</task-notification>` XML —— 这一形态只在
-/// 持久化 JSONL 里出现(由 CLI 在压缩 / 上下文恢复阶段写入)。
-/// 流式 stdout 里 sub-agent 完成通知改走 `type=result, origin.kind=
-/// "task-notification"`(无 type=user 形态),所以本 helper 在 stream path
-/// 上实际上是 no-op。
-///
-/// `origin.kind == "task-notification"` 是最可靠的 schema 级信号;
-/// 旧版本或非标格式可能没有 origin 字段但 content 直接是 `<task-notification>`
-/// 字符串——一并兜底。
+/// [history path primarily] Claude Code v2 鎶?Task 瀛?agent 瀹屾垚鐨勯€氱煡
+/// 鍖呮垚 `type=user` 娑堟伅鍠傜粰涓?agent,鍐呭鏄暣娈?/// `<task-notification>...</task-notification>` XML 鈥斺€?杩欎竴褰㈡€佸彧鍦?/// 鎸佷箙鍖?JSONL 閲屽嚭鐜?鐢?CLI 鍦ㄥ帇缂?/ 涓婁笅鏂囨仮澶嶉樁娈靛啓鍏?銆?/// 娴佸紡 stdout 閲?sub-agent 瀹屾垚閫氱煡鏀硅蛋 `type=result, origin.kind=
+/// "task-notification"`(鏃?type=user 褰㈡€?,鎵€浠ユ湰 helper 鍦?stream path
+/// 涓婂疄闄呬笂鏄?no-op銆?///
+/// `origin.kind == "task-notification"` 鏄渶鍙潬鐨?schema 绾т俊鍙?
+/// 鏃х増鏈垨闈炴爣鏍煎紡鍙兘娌℃湁 origin 瀛楁浣?content 鐩存帴鏄?`<task-notification>`
+/// 瀛楃涓测€斺€斾竴骞跺厹搴曘€?
 fn is_synthetic_user_event(value: &Value) -> bool {
     if value.get("type").and_then(Value::as_str) != Some("user") {
         return false;
@@ -117,16 +118,14 @@ fn is_synthetic_user_event(value: &Value) -> bool {
     false
 }
 
-/// [both paths] 流式 `isSynthetic=true` + 持久化 `isMeta=true` 的统一
-/// helper。两者语义相同:标记"harness / CLI 合成的 user 消息"(主要是
-/// Skill 工具调用时注入的 skill body,以及 `Your previous response had no
-/// visible output...` 一类的隐式提醒),主 thread card 上不应展示。
-///
-/// 字段名随载体不同,本 helper 同时覆盖两条路径:
-///   - [stream path]  流式 stdout(v2.1.207+): 顶层 `isSynthetic` 字段
-///   - [history path] 持久化 JSONL: 顶层 `isMeta` 字段(出现在 --resume /
-///                     压缩重建阶段,以及部分行同时在持久化文件中)
-/// 两个都覆盖以防 resume / 压缩重建场景下混用导致漏过。
+/// [both paths] 娴佸紡 `isSynthetic=true` + 鎸佷箙鍖?`isMeta=true` 鐨勭粺涓€
+/// helper銆備袱鑰呰涔夌浉鍚?鏍囪"harness / CLI 鍚堟垚鐨?user 娑堟伅"(涓昏鏄?/// Skill 宸ュ叿璋冪敤鏃舵敞鍏ョ殑 skill body,浠ュ強 `Your previous response had no
+/// visible output...` 涓€绫荤殑闅愬紡鎻愰啋),涓?thread card 涓婁笉搴斿睍绀恒€?///
+/// 瀛楁鍚嶉殢杞戒綋涓嶅悓,鏈?helper 鍚屾椂瑕嗙洊涓ゆ潯璺緞:
+///   - [stream path]  娴佸紡 stdout(v2.1.207+): 椤跺眰 `isSynthetic` 瀛楁
+///   - [history path] 鎸佷箙鍖?JSONL: 椤跺眰 `isMeta` 瀛楁(鍑虹幇鍦?--resume /
+///                     鍘嬬缉閲嶅缓闃舵,浠ュ強閮ㄥ垎琛屽悓鏃跺湪鎸佷箙鍖栨枃浠朵腑)
+/// 涓や釜閮借鐩栦互闃?resume / 鍘嬬缉閲嶅缓鍦烘櫙涓嬫贩鐢ㄥ鑷存紡杩囥€?
 fn is_synthetic_user_marker(value: &Value) -> bool {
     if value.get("type").and_then(Value::as_str) != Some("user") {
         return false;
@@ -137,19 +136,74 @@ fn is_synthetic_user_marker(value: &Value) -> bool {
     if value.get("isMeta").and_then(Value::as_bool) == Some(true) {
         return true;
     }
+    if value
+        .get("isVisibleInTranscriptOnly")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return true;
+    }
+    if value.get("isCompactSummary").and_then(Value::as_bool) == Some(true) {
+        return true;
+    }
+    if message_content_text(value).is_some_and(|text| is_claude_skill_injection_text(&text)) {
+        return true;
+    }
     false
 }
 
-/// [both paths] 统一静默判定入口 ── 在 events.rs(stream) 与 history.rs
-/// (history) 两个入口都会被调用。返回 `Some(reason)` 时该事件应在渲染前
-/// 整条丢弃;`reason` 是稳定的字符串标签,只用于 `tracing::debug!` 日志与
-/// 单元测试断言,绝不展示给最终用户。
-///
-/// 检查顺序固定,从最具体的"系统合成"信号到最弱(同时反映两条 path 的
-/// 命中频率 ── 高频信号在前,避免无谓的低频检查):
-///   1. synthetic_user_event   [history]   task-notification(origin.kind 或 <task-notification> 前缀)
-///   2. synthetic_user_marker  [both]      Skill body 注入 / 系统提醒(isSynthetic 或 isMeta)
-/// 任何多重命中优先归到最先匹配的那一类,避免日志里同一行出现多个 reason。
+fn message_content_text(value: &Value) -> Option<String> {
+    let content = value
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .or_else(|| value.get("content"))?;
+    match content {
+        Value::String(text) => Some(text.to_string()),
+        Value::Array(parts) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    part.get("text")
+                        .or_else(|| part.get("content"))
+                        .and_then(Value::as_str)
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            (!text.trim().is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn is_claude_skill_injection_text(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    trimmed.starts_with("Base directory for this skill:")
+        || trimmed.starts_with("# Building LLM-Powered Applications with Claude")
+        || trimmed.contains("\n# Building LLM-Powered Applications with Claude")
+}
+
+fn looks_like_claude_json_event_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('{')
+        && (trimmed.contains(r#""type":"user""#)
+            || trimmed.contains(r#""type": "user""#)
+            || trimmed.contains(r#""type":"assistant""#)
+            || trimmed.contains(r#""type": "assistant""#)
+            || trimmed.contains(r#""type":"stream_event""#)
+            || trimmed.contains(r#""type": "stream_event""#)
+            || trimmed.contains(r#""type":"result""#)
+            || trimmed.contains(r#""type": "result""#)
+            || trimmed.contains(r#""type":"system""#)
+            || trimmed.contains(r#""type": "system""#)
+            || trimmed.contains("Base directory for this skill:"))
+}
+
+/// [both paths] 缁熶竴闈欓粯鍒ゅ畾鍏ュ彛 鈹€鈹€ 鍦?events.rs(stream) 涓?history.rs
+/// (history) 涓や釜鍏ュ彛閮戒細琚皟鐢ㄣ€傝繑鍥?`Some(reason)` 鏃惰浜嬩欢搴斿湪娓叉煋鍓?/// 鏁存潯涓㈠純;`reason` 鏄ǔ瀹氱殑瀛楃涓叉爣绛?鍙敤浜?`tracing::debug!` 鏃ュ織涓?/// 鍗曞厓娴嬭瘯鏂█,缁濅笉灞曠ず缁欐渶缁堢敤鎴枫€?///
+/// 妫€鏌ラ『搴忓浐瀹?浠庢渶鍏蜂綋鐨?绯荤粺鍚堟垚"淇″彿鍒版渶寮?鍚屾椂鍙嶆槧涓ゆ潯 path 鐨?/// 鍛戒腑棰戠巼 鈹€鈹€ 楂橀淇″彿鍦ㄥ墠,閬垮厤鏃犺皳鐨勪綆棰戞鏌?:
+///   1. synthetic_user_event   [history]   task-notification(origin.kind 鎴?<task-notification> 鍓嶇紑)
+///   2. synthetic_user_marker  [both]      Skill body 娉ㄥ叆 / 绯荤粺鎻愰啋(isSynthetic 鎴?isMeta)
+/// 浠讳綍澶氶噸鍛戒腑浼樺厛褰掑埌鏈€鍏堝尮閰嶇殑閭ｄ竴绫?閬垮厤鏃ュ織閲屽悓涓€琛屽嚭鐜板涓?reason銆?
 pub(super) fn silence_reason(value: &Value) -> Option<&'static str> {
     if is_synthetic_user_event(value) {
         return Some("synthetic_user_event");
@@ -160,21 +214,18 @@ pub(super) fn silence_reason(value: &Value) -> Option<&'static str> {
     None
 }
 
-/// [both paths] `silence_reason(value).is_some()` 的语义糖,用于"该行
-/// 是否应丢弃"的纯布尔判定(不需要 reason 字符串)。`silence_reason` 与
-/// `should_silence_event` 都对外暴露,前者用于需要打日志的入口
-/// (events.rs::claude_event_to_chunks / history.rs::value_to_chat_messages),
-/// 后者用于"反向条件"判断(history.rs::read_claude_session_meta 的标题
-/// 候选条件),少做一次 Option 解包。
+/// [both paths] `silence_reason(value).is_some()` 鐨勮涔夌硸,鐢ㄤ簬"璇ヨ
+/// 鏄惁搴斾涪寮?鐨勭函甯冨皵鍒ゅ畾(涓嶉渶瑕?reason 瀛楃涓?銆俙silence_reason` 涓?/// `should_silence_event` 閮藉澶栨毚闇?鍓嶈€呯敤浜庨渶瑕佹墦鏃ュ織鐨勫叆鍙?/// (events.rs::claude_event_to_chunks / history.rs::value_to_chat_messages),
+/// 鍚庤€呯敤浜?鍙嶅悜鏉′欢"鍒ゆ柇(history.rs::read_claude_session_meta 鐨勬爣棰?/// 鍊欓€夋潯浠?,灏戝仛涓€娆?Option 瑙ｅ寘銆?
 pub(super) fn should_silence_event(value: &Value) -> bool {
     silence_reason(value).is_some()
 }
 
-/// [stream path] 单行 JSONL → AgentChunk 列表。被 `parse_claude_stdout_line`
-/// 调用,是流式 stdout 解析的最底层。entry guard 用 `silence_reason` 拦截
-/// 合成消息(详见 `silence_reason` 的 doc);通过后按 `type` 分发到各 block
-/// 处理分支(assistant / user / result / system / 未知 type fallback)。
-#[allow(dead_code)] // 非 partial 兜底 + 单元测试入口; 生产流式走 with_state。
+/// [stream path] 鍗曡 JSONL 鈫?AgentChunk 鍒楄〃銆傝 `parse_claude_stdout_line`
+/// 璋冪敤,鏄祦寮?stdout 瑙ｆ瀽鐨勬渶搴曞眰銆俥ntry guard 鐢?`silence_reason` 鎷︽埅
+/// 鍚堟垚娑堟伅(璇﹁ `silence_reason` 鐨?doc);閫氳繃鍚庢寜 `type` 鍒嗗彂鍒板悇 block
+/// 澶勭悊鍒嗘敮(assistant / user / result / system / 鏈煡 type fallback)
+#[allow(dead_code)] // 闈?partial 鍏滃簳 + 鍗曞厓娴嬭瘯鍏ュ彛; 鐢熶骇娴佸紡璧?with_state銆?
 pub(crate) fn claude_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> {
     claude_event_to_chunks_with_state(thread_id, value, false, &mut ClaudeStreamState::default())
 }
@@ -215,21 +266,23 @@ pub(crate) fn claude_event_to_chunks_with_state(
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    // [stream path, partial only] type=stream_event ── Anthropic 原生流式事件
-    // (message_start / content_block_start|delta|stop / message_delta|stop)。
-    // text_delta / thinking_delta -> 增量 Text / Reasoning;input_json_delta ->
-    // 跨行累积;message_delta -> Usage。partial=false 时不会出现该 type。
+    // [stream path, partial only] type=stream_event 鈹€鈹€ Anthropic 鍘熺敓娴佸紡浜嬩欢
+    // (message_start / content_block_start|delta|stop / message_delta|stop)銆?    // text_delta / thinking_delta -> 澧為噺 Text / Reasoning;input_json_delta ->
+    // 璺ㄨ绱Н;message_delta -> Usage銆俻artial=false 鏃朵笉浼氬嚭鐜拌 type銆?
     if event_type == "stream_event" {
         return stream_event_to_chunks(thread_id, value, state);
     }
 
-    // [stream path] type=assistant 分发 ── text / thinking / tool_use 块
-    // → 对应 AgentChunk;image / attachment 等 → 静默丢弃。
+    // [stream path] type=assistant 鍒嗗彂 鈹€鈹€ text / thinking / tool_use 鍧?    // 鈫?瀵瑰簲 AgentChunk;image / attachment 绛?鈫?闈欓粯涓㈠純銆?
     if event_type == "assistant" {
-        // partial: delta 已驱动渲染, 丢弃冗余累积快照。partial 快照与非 partial
-        // 完整消息的 stop_reason 都是 null, 只能靠 `partial` 标志区分。
+        // partial: delta 宸查┍鍔ㄦ覆鏌? 涓㈠純鍐椾綑绱Н蹇収銆俻artial 蹇収涓庨潪 partial
+        // 瀹屾暣娑堟伅鐨?stop_reason 閮芥槸 null, 鍙兘闈?`partial` 鏍囧織鍖哄垎銆?
         if partial {
-            return Vec::new();
+            // text/thinking 已由 stream_event delta 驱动渲染,跳过;但对内置工具
+            // (WebSearch / Agent / TaskOutput 等无 stream_event 增量、仅存于快照的
+            // 工具)补发 ToolCall,避免后续 tool_result 因 name="" 且无配对 tool_call
+            // 渲染成 "Unknown Tool"。详见 reconcile_partial_assistant_tool_calls。
+            return reconcile_partial_assistant_tool_calls(thread_id, value, state);
         }
         let mut chunks = Vec::new();
         if let Some(content) = value
@@ -292,11 +345,11 @@ pub(crate) fn claude_event_to_chunks_with_state(
         return chunks;
     }
 
-    // [stream path] type=user 分发 ── text 块 → AgentChunk::Text;
-    // tool_result 块 → AgentChunk::ToolResult;image / attachment 等 → 静默
-    // 丢弃。合成消息(isMeta / isSynthetic /
-    // task-notification)由 entry guard `silence_reason` 在分发前拦截,
-    // 不会到这里。
+    // [stream path] type=user 鍒嗗彂 鈹€鈹€ text 鍧?鈫?AgentChunk::Text;
+    // tool_result 鍧?鈫?AgentChunk::ToolResult;image / attachment 绛?鈫?闈欓粯
+    // 涓㈠純銆傚悎鎴愭秷鎭?isMeta / isSynthetic /
+    // task-notification)鐢?entry guard `silence_reason` 鍦ㄥ垎鍙戝墠鎷︽埅,
+    // 涓嶄細鍒拌繖閲屻€?
     if event_type == "user" {
         let mut chunks = Vec::new();
         if let Some(content) = value
@@ -337,13 +390,13 @@ pub(crate) fn claude_event_to_chunks_with_state(
         return chunks;
     }
 
-    // [stream path] type=result ── CLI 终止标记,渲染前丢弃。
+    // [stream path] type=result 鈹€鈹€ CLI 缁堟鏍囪,娓叉煋鍓嶄涪寮冦€?
     if event_type == "result" {
         return Vec::new();
     }
 
-    // [stream path] type=system ── subtype=error 转 AgentChunk::Error,
-    // 其他 subtype(init / thinking_tokens 等)是 harness 元数据,丢弃。
+    // [stream path] type=system 鈹€鈹€ subtype=error 杞?AgentChunk::Error,
+    // 鍏朵粬 subtype(init / thinking_tokens 绛?鏄?harness 鍏冩暟鎹?涓㈠純銆?
     if event_type == "system" {
         if value.get("subtype").and_then(Value::as_str) == Some("error") {
             if let Some(text) = first_string(value, &["message", "error"]) {
@@ -356,7 +409,7 @@ pub(crate) fn claude_event_to_chunks_with_state(
         return Vec::new();
     }
 
-    // [stream path] 未知 type 兜底 ── 用 first_string 找顶层 string 字段。
+    // [stream path] 鏈煡 type 鍏滃簳 鈹€鈹€ 鐢?first_string 鎵鹃《灞?string 瀛楁銆?
     if let Some(text) = first_string(value, &["delta", "text", "content"]) {
         if !text.trim().is_empty() {
             return vec![AgentChunk::Text {
@@ -369,14 +422,12 @@ pub(crate) fn claude_event_to_chunks_with_state(
     Vec::new()
 }
 
-/// [stream path, partial only] 解析 `type=stream_event` 行。`event` 是 Anthropic
-/// 原生流式事件, `index` 标识 content_block。tool_use 的 `input` 通过
-/// `input_json_delta` 分片累积到 `state`, 在 `content_block_stop` flush 成
-/// `AgentChunk::ToolCall`(解析失败 / 空 -> `{}`)。
-///
-/// sub-agent 的 stream_event 带 `parent_tool_use_id`(非 null)── 与非 partial
-/// 路径一致, sub-agent 活动按设计展示在主 thread card 上(见 cli.rs
-/// `emits_claude_subagent_event_while_streaming`), 此处不额外过滤。
+/// [stream path, partial only] 瑙ｆ瀽 `type=stream_event` 琛屻€俙event` 鏄?Anthropic
+/// 鍘熺敓娴佸紡浜嬩欢, `index` 鏍囪瘑 content_block銆倀ool_use 鐨?`input` 閫氳繃
+/// `input_json_delta` 鍒嗙墖绱Н鍒?`state`, 鍦?`content_block_stop` flush 鎴?/// `AgentChunk::ToolCall`(瑙ｆ瀽澶辫触 / 绌?-> `{}`)銆?///
+/// sub-agent 鐨?stream_event 甯?`parent_tool_use_id`(闈?null)鈹€鈹€ 涓庨潪 partial
+/// 璺緞涓€鑷? sub-agent 娲诲姩鎸夎璁″睍绀哄湪涓?thread card 涓?瑙?cli.rs
+/// `emits_claude_subagent_event_while_streaming`), 姝ゅ涓嶉澶栬繃婊ゃ€?
 fn stream_event_to_chunks(
     thread_id: &str,
     value: &Value,
@@ -389,13 +440,13 @@ fn stream_event_to_chunks(
     let index = ev.get("index").and_then(Value::as_i64).unwrap_or(0);
 
     match event_type {
-        // 新 message 开始: 清掉上一轮残留的 pending tool input, 防跨轮泄漏。
+        // 鏂?message 寮€濮? 娓呮帀涓婁竴杞畫鐣欑殑 pending tool input, 闃茶法杞硠婕忋€?
         "message_start" => {
             state.pending_tool_inputs.clear();
             Vec::new()
         }
-        // tool_use 块开始: 记 id / name, input 由 input_json_delta 累积。
-        // text / thinking 块 start 无 chunk(内容由 delta 投递)。
+        // tool_use 鍧楀紑濮? 璁?id / name, input 鐢?input_json_delta 绱Н銆?
+        // text / thinking 鍧?start 鏃?chunk(鍐呭鐢?delta 鎶曢€?銆?
         "content_block_start" => {
             let is_tool_use = ev
                 .get("content_block")
@@ -457,9 +508,13 @@ fn stream_event_to_chunks(
                 _ => Vec::new(),
             }
         }
-        // flush 累积的 tool_use input -> ToolCall(解析失败 / 空 -> `{}`)。
+        // flush 绱Н鐨?tool_use input -> ToolCall(瑙ｆ瀽澶辫触 / 绌?-> `{}`)銆?
         "content_block_stop" => match state.pending_tool_inputs.remove(&index) {
             Some(pending) => {
+                // 若该 id 已被完整快照补发过(insert 返回 false),跳过避免重复 ToolCall。
+                if !state.emitted_tool_call_ids.insert(pending.id.clone()) {
+                    return Vec::new();
+                }
                 let input = if pending.json_buf.trim().is_empty() {
                     serde_json::json!({})
                 } else {
@@ -475,8 +530,8 @@ fn stream_event_to_chunks(
             }
             None => Vec::new(),
         },
-        // 末尾 usage(input / output / cache_read tokens)。stop_reason 也在本事件,
-        // 但前端靠 stream_end 收敛 run, 无需额外 chunk。
+        // 鏈熬 usage(input / output / cache_read tokens)銆俿top_reason 涔熷湪鏈簨浠?
+        // 浣嗗墠绔潬 stream_end 鏀舵暃 run, 鏃犻渶棰濆 chunk銆?
         "message_delta" => match ev.get("usage") {
             Some(usage) => vec![AgentChunk::Usage {
                 thread_id: thread_id.to_string(),
@@ -503,13 +558,66 @@ fn stream_event_to_chunks(
             }],
             None => Vec::new(),
         },
-        // message_stop / 其他: 无 chunk。
+        // message_stop / 鍏朵粬: 鏃?chunk銆?
         _ => Vec::new(),
     }
 }
 
-// [both paths] ToolResult payload 序列化 ── events.rs 和 history.rs 的
-// 两条 path 在推 ToolResult 时都会调这里把 block.content 转成统一 envelope。
+// [both paths] ToolResult payload 搴忓垪鍖?鈹€鈹€ events.rs 鍜?history.rs 鐨?// 涓ゆ潯 path 鍦ㄦ帹 ToolResult 鏃堕兘浼氳皟杩欓噷鎶?block.content 杞垚缁熶竴 envelope銆?
+/// [stream path, partial only] 完整 `type=assistant` 快照里的 tool_use 补发。
+///
+/// `--include-partial-messages` 下 Claude Code 对普通模型工具(Bash / Read 等)会先
+/// 发 `stream_event` content_block_* 增量再发完整快照;但对内置工具(WebSearch 服务
+/// 端工具、Agent / Task / TaskOutput 等 SDK 编排工具)只产出完整 `type=assistant`
+/// 快照,没有 stream_event 增量。partial 主路径会整条丢弃快照(text/thinking 已由
+/// delta 渲染),导致这些 tool_use 的 ToolCall 永不发出,后续 tool_result(name 恒
+/// 为空)渲染成 "Unknown Tool"。
+///
+/// 本函数遍历快照 content,对**未在 `emitted_tool_call_ids` 登记**的 tool_use 补发
+/// `AgentChunk::ToolCall`(含完整 input);text/thinking 跳过(已由 delta 流过)。
+/// 同一 id 若已被 stream_event 发过则跳过,避免重复。
+fn reconcile_partial_assistant_tool_calls(
+    thread_id: &str,
+    value: &Value,
+    state: &mut ClaudeStreamState,
+) -> Vec<AgentChunk> {
+    let Some(content) = value
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut chunks = Vec::new();
+    for block in content {
+        if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+            continue;
+        }
+        let id = block
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("claude_tool")
+            .to_string();
+        // insert 返回 false = 已由 stream_event 增量发过,跳过避免重复
+        if !state.emitted_tool_call_ids.insert(id.clone()) {
+            continue;
+        }
+        let name = block
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("tool")
+            .to_string();
+        let input = block.get("input").cloned().unwrap_or(Value::Null);
+        chunks.push(AgentChunk::ToolCall {
+            thread_id: thread_id.to_string(),
+            id,
+            name,
+            input,
+        });
+    }
+    chunks
+}
+
 fn claude_tool_result_value(block: &Value) -> Value {
     let Some(content) = block.get("content") else {
         return claude_tool_result_envelope(block.clone(), block);
@@ -554,10 +662,9 @@ fn claude_tool_result_envelope(mut value: Value, source: &Value) -> Value {
     value
 }
 
-// [stream path] 从顶层 / 嵌套 message envelope 里递归找 session id ──
-// Claude Code 的 stdout JSONL 在顶层或 message.* 里都会带 session_id。
-// 用于 `parse_claude_stdout_line` 的 `SessionResolved` chunk 推送与
-// `upsert_external_session` 持久化。
+// [stream path] 浠庨《灞?/ 宓屽 message envelope 閲岄€掑綊鎵?session id 鈹€鈹€
+// Claude Code 鐨?stdout JSONL 鍦ㄩ《灞傛垨 message.* 閲岄兘浼氬甫 session_id銆?// 鐢ㄤ簬 `parse_claude_stdout_line` 鐨?`SessionResolved` chunk 鎺ㄩ€佷笌
+// `upsert_external_session` 鎸佷箙鍖栥€?
 fn extract_session_id(value: &Value) -> Option<String> {
     for key in ["session_id", "sessionId", "uuid"] {
         if let Some(id) = value.get(key).and_then(Value::as_str) {
@@ -567,8 +674,8 @@ fn extract_session_id(value: &Value) -> Option<String> {
     value.get("message").and_then(extract_session_id)
 }
 
-// [stream path] 未知 type 兜底用的递归 string 查找 ── 先看顶层 keys,
-// 再递归 Value::Object / Value::Array,找到任意 string 字段即返回。
+// [stream path] 鏈煡 type 鍏滃簳鐢ㄧ殑閫掑綊 string 鏌ユ壘 鈹€鈹€ 鍏堢湅椤跺眰 keys,
+// 鍐嶉€掑綊 Value::Object / Value::Array,鎵惧埌浠绘剰 string 瀛楁鍗宠繑鍥炪€?
 fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
     for key in keys {
         if let Some(text) = value.get(*key).and_then(Value::as_str) {
@@ -580,5 +687,68 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
         Value::Object(map) => map.values().find_map(|v| first_string(v, keys)),
         Value::Array(items) => items.iter().find_map(|v| first_string(v, keys)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_claude_stdout_contract_fixture_to_expected_chunks() {
+        let mut state = ClaudeStreamState::default();
+        let mut session_ids = Vec::new();
+        let mut chunks = Vec::new();
+
+        for line in include_str!("../fixtures/claude_stdout_contract.jsonl")
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+        {
+            let parsed = parse_claude_stdout_line_with_state("thread_contract", line, &mut state);
+            if let Some(session_id) = parsed.session_id {
+                session_ids.push(session_id);
+            }
+            chunks.extend(parsed.chunks);
+        }
+
+        assert_eq!(session_ids, vec!["claude-session-1"]);
+        assert_eq!(chunks.len(), 6);
+        assert!(matches!(
+            &chunks[0],
+            AgentChunk::Reasoning { text, .. } if text == "Need inspect workspace."
+        ));
+        assert!(matches!(
+            &chunks[1],
+            AgentChunk::Text { text, .. } if text == "The workspace is "
+        ));
+        assert!(matches!(
+            &chunks[2],
+            AgentChunk::ToolCall { id, name, input, .. }
+                if id == "toolu_1"
+                    && name == "Bash"
+                    && input.get("command").and_then(Value::as_str) == Some("pwd")
+        ));
+        assert!(matches!(
+            &chunks[3],
+            AgentChunk::Usage {
+                usage: Some(crate::agent_types::UsageInfo {
+                    input_tokens: Some(90),
+                    cached_input_tokens: Some(30),
+                    output_tokens: Some(12),
+                    ..
+                }),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &chunks[4],
+            AgentChunk::ToolResult { id, result, .. }
+                if id == "toolu_1"
+                    && result.get("content").and_then(Value::as_str) == Some("/tmp/flowix\n")
+        ));
+        assert!(matches!(
+            &chunks[5],
+            AgentChunk::Error { message, .. } if message == "Claude transport error"
+        ));
     }
 }

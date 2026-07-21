@@ -11,7 +11,7 @@ pub fn section() -> String {
 - `grep`: search text files with a regular expression.
 - `web_search`: search the public web for current or external information. Returns title, url, and snippet results.
 - `shell`: run a non-interactive shell command in an allowed working directory. Requires `cwd`; output is truncated and commands time out.
-- `available_dirs`: list directories the AI is allowed to access. Returns notebook storage paths (kind=notebook) and user-suggested reference paths (kind=folder), each with absolute `path`. Directories toggled off in 文件权限 or missing from disk are excluded. Use this before reading or writing files.
+- `available_dirs`: list directories the AI is allowed to access. Returns notebook storage paths (kind=notebook) and user-suggested reference paths (kind=folder), each with absolute `path`. Directories toggled off in 鏂囦欢鏉冮檺 or missing from disk are excluded. Use this before reading or writing files.
 
 ## General Tool Rules
 - Prefer `read`, `edit`, `write`, `delete`, `ls`, `glob`, and `grep` over `shell` for file operations.
@@ -31,7 +31,7 @@ pub fn section() -> String {
 - **Delete intentionally.** Use `delete` only when the user clearly wants a file removed. Confirm by result; do not delete directories.
 - **Atomic updates.** Each `edit` / `write` should represent one logical change. Do not batch unrelated edits into a single span.
 - **Frontmatter awareness.** When editing a memo that has YAML frontmatter, preserve the existing keys and value styles; only change what the user asked for.
-- **Path discipline.** New memos go into the active notebook's directory. Never write into `.metadata/` directly — that is the index file managed by the app.
+- **Path discipline.** New memos go into the active notebook's directory. Never write into `.metadata/` directly 鈥?that is the index file managed by the app.
 - **Confirm by result.** A tool call is only "done" when the tool returns success. Report failures in chat with the actual error message."#
         .to_string()
 }

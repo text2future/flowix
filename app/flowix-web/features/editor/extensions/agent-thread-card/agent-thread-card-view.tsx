@@ -346,7 +346,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       updateAttrs: (attrs) => this.updateAttrs(attrs),
       t: (key) => this.t(key),
       getThreadState: () => this.currentThreadState(),
-      getPersistedRun: () => this.instance?.run ?? undefined,
     });
     this.chrome.attach();
 
@@ -1114,7 +1113,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private currentRuntimeView(state: ThreadState | undefined = this.currentThreadState()) {
     return selectAgentThreadCardRuntimeView({
       state,
-      conversationRun: this.instance?.run ?? undefined,
       isCreating: this.isCreating,
       isLoading: !!state?.isLoading,
       typeKey: this.typeKey,
@@ -1191,7 +1189,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       metaEl: this.metaEl,
       runStatusEl: this.runStatusEl,
       state,
-      conversationRun: this.instance?.run ?? undefined,
       isCreating: this.isCreating,
       isLoading,
       typeKey: this.typeKey,

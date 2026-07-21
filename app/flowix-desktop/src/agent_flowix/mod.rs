@@ -5,7 +5,7 @@ mod prompt;
 pub(crate) mod providers;
 pub(crate) mod skills;
 // `pub(crate)` because `commands::settings::test_ai_connection` calls
-// `agent::provider::probe_chat` directly — but we keep the module's
+// `agent::provider::probe_chat` directly 鈥?but we keep the module's
 // internal items (`pub(super)`) only visible to the `agent` module so
 // we don't expose chat-stream plumbing outside of agent.rs.
 pub(crate) mod provider;
@@ -34,73 +34,65 @@ use factory::CachedInstance;
 use flowix_core::memo_file::MemoFile;
 use state::{CallKey, InFlightChat};
 
-/// AgentManager 现在只维护"当前生效的 provider 实例", 真正的配置真源是
-/// `~/.flowix/agent-config.toml` (经 `UserConfigStore` 暴露)。每次 chat
-/// 调用前读最新配置, 与构建缓存的配置对比, 不一致则重建 provider。
-///
-/// 这样 ai_config 变更 (例如用户在偏好里换了模型 / API key) 不再依赖前端重新
-/// "init agent", 后端自己感知并热替换。
-///
-/// 三个 `Arc<...>` 依赖从 `lib.rs` 注入, 与 `AppState` 共享同一份引用 (refcount=2):
-/// - `user_config`: 读 agent-config.toml
-/// - `thread_manager`: 落盘 chat 历史
-/// - `memo_file`: 工具读写的真实笔记
-///
-/// 这三个字段之前是 `chat_stream` 等方法的 `app_state: &crate::app::state::AppState`
-/// 参数 ── 模块反向依赖 commands。注入后 agent 不再依赖 commands 模块, 可以
-/// 单独测试 (见 `for_tests` 构造器)。
+/// AgentManager 鐜板湪鍙淮鎶?褰撳墠鐢熸晥鐨?provider 瀹炰緥", 鐪熸鐨勯厤缃湡婧愭槸
+/// `~/.flowix/agent-config.toml` (缁?`UserConfigStore` 鏆撮湶)銆傛瘡娆?chat
+/// 璋冪敤鍓嶈鏈€鏂伴厤缃? 涓庢瀯寤虹紦瀛樼殑閰嶇疆瀵规瘮, 涓嶄竴鑷村垯閲嶅缓 provider銆?///
+/// 杩欐牱 ai_config 鍙樻洿 (渚嬪鐢ㄦ埛鍦ㄥ亸濂介噷鎹簡妯″瀷 / API key) 涓嶅啀渚濊禆鍓嶇閲嶆柊
+/// "init agent", 鍚庣鑷繁鎰熺煡骞剁儹鏇挎崲銆?///
+/// 涓変釜 `Arc<...>` 渚濊禆浠?`lib.rs` 娉ㄥ叆, 涓?`AppState` 鍏变韩鍚屼竴浠藉紩鐢?(refcount=2):
+/// - `user_config`: 璇?agent-config.toml
+/// - `thread_manager`: 钀界洏 chat 鍘嗗彶
+/// - `memo_file`: 宸ュ叿璇诲啓鐨勭湡瀹炵瑪璁?///
+/// 杩欎笁涓瓧娈典箣鍓嶆槸 `chat_stream` 绛夋柟娉曠殑 `app_state: &crate::app::state::AppState`
+/// 鍙傛暟 鈹€鈹€ 妯″潡鍙嶅悜渚濊禆 commands銆傛敞鍏ュ悗 agent 涓嶅啀渚濊禆 commands 妯″潡, 鍙互
+/// 鍗曠嫭娴嬭瘯 (瑙?`for_tests` 鏋勯€犲櫒)銆?
 pub struct AgentManager {
     instance: tokio::sync::RwLock<Option<CachedInstance>>,
-    /// 每个 thread 的 read 工具快照。edit 工具需要 read 后的内容做漂移检测。
+    /// 姣忎釜 thread 鐨?read 宸ュ叿蹇収銆俥dit 宸ュ叿闇€瑕?read 鍚庣殑鍐呭鍋氭紓绉绘娴嬨€?
     read_snapshots: tokio::sync::RwLock<HashMap<String, HashMap<String, String>>>,
-    /// 每个 thread 的 (tool_name, args_hash) → 累计调用次数。
-    /// 超过 STUCK_THRESHOLD 视为 LLM 卡在循环里, 熔断。LLM 给最终回答
-    /// (无 tool call) 或 chat 异常退出时由 chat_stream 入口清空。
+    /// 姣忎釜 thread 鐨?(tool_name, args_hash) 鈫?绱璋冪敤娆℃暟銆?
+    /// 瓒呰繃 STUCK_THRESHOLD 瑙嗕负 LLM 鍗″湪寰幆閲? 鐔旀柇銆侺LM 缁欐渶缁堝洖绛?
+    /// (鏃?tool call) 鎴?chat 寮傚父閫€鍑烘椂鐢?chat_stream 鍏ュ彛娓呯┖銆?
     tool_call_attempts: tokio::sync::RwLock<HashMap<String, HashMap<CallKey, u32>>>,
-    /// 每个 thread 当前正在跑的 chat_stream 状态。取消标志、开始时间、
-    /// run_id 以前分散在 `cancel_flags` / `started_at` 两把锁里, 生命周期
-    /// 需要两处同步维护；现在收敛成单个 registry, register / stop /
-    /// unregister 都只改一个 entry。
+    /// 姣忎釜 thread 褰撳墠姝ｅ湪璺戠殑 chat_stream 鐘舵€併€傚彇娑堟爣蹇椼€佸紑濮嬫椂闂淬€?    /// run_id 浠ュ墠鍒嗘暎鍦?`cancel_flags` / `started_at` 涓ゆ妸閿侀噷, 鐢熷懡鍛ㄦ湡
+    /// 闇€瑕佷袱澶勫悓姝ョ淮鎶わ紱鐜板湪鏀舵暃鎴愬崟涓?registry, register / stop /
+    /// unregister 閮藉彧鏀逛竴涓?entry銆?
     in_flight: tokio::sync::Mutex<HashMap<String, InFlightChat>>,
-    /// ai_config 真源 (`~/.flowix/agent-config.toml`)
+    /// ai_config 鐪熸簮 (`~/.flowix/agent-config.toml`)
     user_config: Arc<UserConfigStore>,
-    /// 线程表 (chat 历史的持久化)
+    /// 绾跨▼琛?(chat 鍘嗗彶鐨勬寔涔呭寲)
     thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
-    /// 笔记本文件 (工具读写的对象)
+    /// 绗旇鏈枃浠?(宸ュ叿璇诲啓鐨勫璞?
     memo_file: Arc<std::sync::RwLock<MemoFile>>,
-    /// Agent 可访问目录真源 (`~/.flowix/agent-access.json`)。
-    /// `execute_tool` 把它喂给 `ToolScope::from_memo_file_and_access`
-    /// 决定 `allowed_roots`, 也用来过滤 `available_dirs` 工具的返回。
-    // `agent-access.json` backs defaults and legacy/global fallback. For a
+    /// Agent 鍙闂洰褰曠湡婧?(`~/.flowix/agent-access.json`)銆?
+    /// `execute_tool` 鎶婂畠鍠傜粰 `ToolScope::from_memo_file_and_access`
+    /// 鍐冲畾 `allowed_roots`, 涔熺敤鏉ヨ繃婊?`available_dirs` 宸ュ叿鐨勮繑鍥炪€?    // `agent-access.json` backs defaults and legacy/global fallback. For a
     // real agent-thread-card run, Flowix tool scope should use the message
     // runtime config workspace paths when present.
     agent_access: Arc<AgentAccessStore>,
     /// macOS security-scoped bookmarks for user-selected notebook / agent roots.
     security_bookmarks: Arc<SecurityBookmarkStore>,
-    /// Skills registry (`~/.flowix/skills/.system/` + 用户自添加)。
-    /// 系统 prompt builder 读 `summaries()` 注入 "# Skills" 段;
-    /// `load_skill` 工具 handler 读 `get(name)` 拿 body。
-    /// 启动后不可变 ── 无内部锁, `Arc` 共享给 prompt builder / tool handler。
+    /// Skills registry (`~/.flowix/skills/.system/` + 鐢ㄦ埛鑷坊鍔?銆?
+    /// 绯荤粺 prompt builder 璇?`summaries()` 娉ㄥ叆 "# Skills" 娈?
+    /// `load_skill` 宸ュ叿 handler 璇?`get(name)` 鎷?body銆?
+    /// 鍚姩鍚庝笉鍙彉 鈹€鈹€ 鏃犲唴閮ㄩ攣, `Arc` 鍏变韩缁?prompt builder / tool handler銆?
     skill_store: Arc<SkillStore>,
 }
 
-/// 在 `AgentManager` drop 时清掉与每个 thread 关联的 in-memory 状态 ──
-/// 解决 #3.5: Tauri 进程退出时 `instance: tokio::sync::RwLock<Option<CachedInstance>>`
-/// 里的 `CachedInstance` (含 rllm client / reqwest HTTP client) 不
-/// graceful shutdown, 可能造成:
-/// - 在飞请求被截断 (用户看到一半的响应)
-/// - 连接池未 flush (操作系统层面 close, 但我们没法等)
+/// 鍦?`AgentManager` drop 鏃舵竻鎺変笌姣忎釜 thread 鍏宠仈鐨?in-memory 鐘舵€?鈹€鈹€
+/// 瑙ｅ喅 #3.5: Tauri 杩涚▼閫€鍑烘椂 `instance: tokio::sync::RwLock<Option<CachedInstance>>`
+/// 閲岀殑 `CachedInstance` (鍚?rllm client / reqwest HTTP client) 涓?/// graceful shutdown, 鍙兘閫犳垚:
+/// - 鍦ㄩ璇锋眰琚埅鏂?(鐢ㄦ埛鐪嬪埌涓€鍗婄殑鍝嶅簲)
+/// - 杩炴帴姹犳湭 flush (鎿嶄綔绯荤粺灞傞潰 close, 浣嗘垜浠病娉曠瓑)
 ///
-/// 不在 drop 里 spawn 额外 task 强 cancel 活跃 stream ── 留给 reqwest 自销毁。
-/// `instance` / `read_snapshots` / `tool_call_attempts` / `in_flight` 都是
-/// `Arc<...>`, 单个 owner drop 时 refcount 减一, 不阻塞真正的 I/O 关停。
-/// 只负责把"我们维护的"状态显式打 log, 便于排障时区分"我 drop 了" vs
-/// "进程被 SIGKILL"。
+/// 涓嶅湪 drop 閲?spawn 棰濆 task 寮?cancel 娲昏穬 stream 鈹€鈹€ 鐣欑粰 reqwest 鑷攢姣併€?/// `instance` / `read_snapshots` / `tool_call_attempts` / `in_flight` 閮芥槸
+/// `Arc<...>`, 鍗曚釜 owner drop 鏃?refcount 鍑忎竴, 涓嶉樆濉炵湡姝ｇ殑 I/O 鍏冲仠銆?/// 鍙礋璐ｆ妸"鎴戜滑缁存姢鐨?鐘舵€佹樉寮忔墦 log, 渚夸簬鎺掗殰鏃跺尯鍒?鎴?drop 浜? vs
+/// "杩涚▼琚?SIGKILL"銆?
 impl Drop for AgentManager {
     fn drop(&mut self) {
         tracing::info!("[AgentManager] dropping; flushing in-memory state");
-        // 锁取不到不阻塞 ── 锁中毒或活跃写锁都不会让 Drop 失败, 这条
-        // 路径是进程退出最后的清理, 不该 panic。
+        // 閿佸彇涓嶅埌涓嶉樆濉?鈹€鈹€ 閿佷腑姣掓垨娲昏穬鍐欓攣閮戒笉浼氳 Drop 澶辫触, 杩欐潯
+        // 璺緞鏄繘绋嬮€€鍑烘渶鍚庣殑娓呯悊, 涓嶈 panic銆?
         if let Ok(snapshots) = self.read_snapshots.try_read() {
             if !snapshots.is_empty() {
                 tracing::info!(
@@ -129,8 +121,7 @@ impl Drop for AgentManager {
 }
 
 impl AgentManager {
-    /// 构造时必须传入共享依赖 ── 与 `AppState` 持有同一份 Arc 引用。
-    /// 这样 `agent` 模块不再依赖 `AppState` (历史 P2-#2 反向依赖)。
+    /// 鏋勯€犳椂蹇呴』浼犲叆鍏变韩渚濊禆 鈹€鈹€ 涓?`AppState` 鎸佹湁鍚屼竴浠?Arc 寮曠敤銆?    /// 杩欐牱 `agent` 妯″潡涓嶅啀渚濊禆 `AppState` (鍘嗗彶 P2-#2 鍙嶅悜渚濊禆)銆?
     pub fn new(
         user_config: Arc<UserConfigStore>,
         thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
@@ -153,12 +144,10 @@ impl AgentManager {
         }
     }
 
-    /// 测试用 fixture ── 用空 / 临时路径构造依赖, 不真正读写业务磁盘。
-    /// 现存的单元测试只验证 `record_tool_call` / `clear_tool_call_attempts` /
-    /// `cleanup_thread` 的 HashMap 状态, 不触碰 `user_config` / `thread_manager` /
-    /// `memo_file` / `agent_access` (参见 `cleanup_thread_removes_read_snapshot`
-    /// 注释: "can't call `execute_tool_for_thread` because it lacks `memo_file`")。
-    /// skill_store 用空目录构造 (没有 SKILL.md 时返回空 store, 不影响既有断言)。
+    /// 娴嬭瘯鐢?fixture 鈹€鈹€ 鐢ㄧ┖ / 涓存椂璺緞鏋勯€犱緷璧? 涓嶇湡姝ｈ鍐欎笟鍔＄鐩樸€?    /// 鐜板瓨鐨勫崟鍏冩祴璇曞彧楠岃瘉 `record_tool_call` / `clear_tool_call_attempts` /
+    /// `cleanup_thread` 鐨?HashMap 鐘舵€? 涓嶈Е纰?`user_config` / `thread_manager` /
+    /// `memo_file` / `agent_access` (鍙傝 `cleanup_thread_removes_read_snapshot`
+    /// 娉ㄩ噴: "can't call `execute_tool_for_thread` because it lacks `memo_file`")銆?    /// skill_store 鐢ㄧ┖鐩綍鏋勯€?(娌℃湁 SKILL.md 鏃惰繑鍥炵┖ store, 涓嶅奖鍝嶆棦鏈夋柇瑷€)銆?
     #[cfg(test)]
     pub fn for_tests() -> Self {
         let home = std::env::temp_dir().join(format!("agent_mgr_test_{}", std::process::id()));

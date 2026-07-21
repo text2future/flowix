@@ -249,10 +249,9 @@ pub(super) fn glob_pattern_to_regex(pattern: &str) -> Result<regex::Regex, Strin
     regex::Regex::new(&regex).map_err(|e| e.to_string())
 }
 
-// ============== 4 高频工具: tokio::fs ==============
+// ============== 4 楂橀宸ュ叿: tokio::fs ==============
 //
-// 之前 v3 是 "async fn 但函数体从不 .await" 的伪 async, 整个 read/write/edit/ls
-// 期间把 Tokio worker 线程卡死, 单次工具调用动辄几百 ms ── 期间 UI 滚动 /
-// 菜单 / Tiptap 都不响应。 v4 改 tokio::fs 对位, 让 worker 真正能切出去。
-// 错误处理把 `io::Error` 套成 `ToolResult::error(...)`, 公开签名仍是
-// `async fn -> ToolResult` 不变。
+// 涔嬪墠 v3 鏄?"async fn 浣嗗嚱鏁颁綋浠庝笉 .await" 鐨勪吉 async, 鏁翠釜 read/write/edit/ls
+// 鏈熼棿鎶?Tokio worker 绾跨▼鍗℃, 鍗曟宸ュ叿璋冪敤鍔ㄨ緞鍑犵櫨 ms 鈹€鈹€ 鏈熼棿 UI 婊氬姩 /
+// 鑿滃崟 / Tiptap 閮戒笉鍝嶅簲銆?v4 鏀?tokio::fs 瀵逛綅, 璁?worker 鐪熸鑳藉垏鍑哄幓銆?// 閿欒澶勭悊鎶?`io::Error` 濂楁垚 `ToolResult::error(...)`, 鍏紑绛惧悕浠嶆槸
+// `async fn -> ToolResult` 涓嶅彉銆?

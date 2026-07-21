@@ -62,8 +62,31 @@ describe('agent thread card selectors', () => {
     expect(status.latestRun?.runId).toBe('run-1');
   });
 
-  it('prefers the conversation run status over thread runtime fallback', () => {
+  it('uses the latest thread runtime when no active run is present', () => {
     const status = selectAgentThreadCardRunStatus({
+      state: threadState({
+        runs: {
+          'run-thread': {
+            runId: 'run-thread',
+            agentType: 'codex',
+            threadId: 'thread-1',
+            status: 'failed',
+            startedAt: 10,
+          },
+        },
+      }),
+      isCreating: false,
+      isLoading: false,
+      typeKey: 'codex',
+    });
+
+    expect(status.shouldShowStatus).toBe(true);
+    expect(status.status).toBe('failed');
+    expect(status.latestRun?.runId).toBe('run-thread');
+  });
+
+  it('derives Thread Card runtime UI from the active thread run', () => {
+    const runtime = selectAgentThreadCardRuntimeView({
       state: threadState({
         activeRunId: 'run-thread',
         runs: {
@@ -71,34 +94,11 @@ describe('agent thread card selectors', () => {
             runId: 'run-thread',
             agentType: 'codex',
             threadId: 'thread-1',
-            status: 'completed',
-            startedAt: 10,
+            status: 'running',
+            startedAt: 20,
           },
         },
       }),
-      conversationRun: {
-        runId: 'run-conversation',
-        status: 'running',
-        startedAt: 20,
-      },
-      isCreating: false,
-      isLoading: false,
-      typeKey: 'codex',
-    });
-
-    expect(status.shouldShowStatus).toBe(true);
-    expect(status.status).toBe('running');
-    expect(status.latestRun?.runId).toBe('run-conversation');
-  });
-
-  it('derives Thread Card runtime UI from the conversation run', () => {
-    const runtime = selectAgentThreadCardRuntimeView({
-      state: undefined,
-      conversationRun: {
-        runId: 'run-conversation',
-        status: 'running',
-        startedAt: 20,
-      },
       isCreating: false,
       isLoading: false,
       typeKey: 'codex',

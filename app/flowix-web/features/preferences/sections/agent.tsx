@@ -716,10 +716,16 @@ export function AgentSection() {
             onValueChange={updateProvider}
           >
             <SelectTrigger className="w-[16rem]">
-              <span className="flex items-center gap-2 min-w-0">
-                <ProviderIcon spec={providerIconSpec(localConfig.provider)} />
-                <span className="truncate">{currentProviderLabel}</span>
-              </span>
+              {localConfig.provider.trim() ? (
+                <span className="flex items-center gap-2 min-w-0">
+                  <ProviderIcon spec={providerIconSpec(localConfig.provider)} />
+                  <span className="truncate">{currentProviderLabel}</span>
+                </span>
+              ) : (
+                <span className="truncate text-[var(--muted-foreground)]">
+                  {t('common.pleaseSelect')}
+                </span>
+              )}
             </SelectTrigger>
             <SelectContent align="start">
               {PROVIDER_OPTIONS.filter((opt) =>

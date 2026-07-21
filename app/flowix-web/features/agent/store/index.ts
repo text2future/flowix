@@ -10,7 +10,7 @@ export {
   selectAgentConversationRunStatus,
   selectIsAgentConversationRunning,
   selectRunningAgentConversationInstances,
+  selectRunningAgentConversationThreadIds,
   type AgentConversationInstance,
-  type AgentConversationRun,
   type AgentConversationSource,
 } from '@features/agent/store/agent-conversation-store';

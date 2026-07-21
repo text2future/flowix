@@ -2,7 +2,6 @@ import type { EditorView } from "@tiptap/pm/view";
 import type { AgentTypeKey } from "@/types/agent";
 import type { I18nKey } from "@features/i18n";
 import type { ThreadState } from "@features/agent/store/chat-store";
-import type { AgentConversationRun } from "@features/agent/store/agent-conversation-store";
 import { AgentThreadCardHeaderChromeController } from "@features/editor/extensions/agent-thread-card/chrome/header-chrome-controller";
 import { AgentThreadCardTitleEditController } from "@features/editor/extensions/agent-thread-card/chrome/title-edit-controller";
 import { AgentThreadCardBadgeChromeController } from "@features/editor/extensions/agent-thread-card/chrome/badge-chrome-controller";
@@ -28,7 +27,6 @@ export interface AgentThreadCardChromeControllerOptions {
   getInstanceId: () => string | null;
   getTypeKey: () => AgentTypeKey;
   getThreadState: () => ThreadState | undefined;
-  getPersistedRun: () => AgentConversationRun | undefined;
   updateAttrs: (attrs: Record<string, unknown>) => void;
   t: (key: I18nKey) => string;
 }
@@ -66,7 +64,6 @@ export class AgentThreadCardChromeController {
       hoverCardMount: options.badgeHoverCardMount,
       getThreadId: options.getThreadId,
       getThreadState: options.getThreadState,
-      getPersistedRun: options.getPersistedRun,
       getTypeKey: options.getTypeKey,
       isFullscreen: options.isFullscreen,
     });

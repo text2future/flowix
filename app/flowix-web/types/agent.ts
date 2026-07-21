@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Unified chat message types for Flowix app
  */
 
@@ -327,12 +327,8 @@ export interface AgentChunkSessionResolved {
 }
 
 /**
- * `runs[runId]` 涓?`lastRun` 鍏辩敤鐨?run 缁堟鐘舵€併€? * 姝ｅ父瀹屾垚 鈫?`'completed'`, 鐢ㄦ埛涓诲姩 stop 鈫?`'cancelled'`,
- * 閿欒 / 瓒?cycle / token budget 鈫?`'failed'`銆? *
- * 娉? 涓?`AgentConversationRun.status`(鍚庤€呭涓€涓?`'completed'`) 璇箟瀵归綈 鈹€鈹€
- * `run-lifecycle.applyRunEnded` 鍦ㄦ甯稿畬鎴愭椂鏍?`'completed'`,
- * `agent-conversation-store.markRunEnded` 鍚屾牱 `'completed'`銆? * `AgentThreadCardRunStatusView.status` 涔熸樉寮忓垪鍑?`'completed'` 浣滀负鍚堟硶
- * fallback 鍊笺€備袱杈归暱鏈熶笉涓€鑷?鈫?浼氬鑷?`lastRun.status === 'failed'` 浣? * `instance.run.status === 'completed'` 鐨勫涓嶄笂,灞曠ず灞?read this 鏃跺洶鎯戙€? */
+ * Shared terminal status for `runs[runId]` and `lastRun`.
+ */
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled";
 
 export interface AgentRunState {

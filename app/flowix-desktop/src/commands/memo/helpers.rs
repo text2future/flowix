@@ -75,7 +75,7 @@ pub(super) fn emit_updated_memo_event(
 }
 
 /// Mark the written file, refresh the search index, and notify the UI.
-pub(super) fn emit_updated_after_write(
+pub(crate) fn emit_updated_after_write(
     state: &AppState,
     app: &AppHandle,
     id: &str,
@@ -189,7 +189,7 @@ mod tests {
     fn cas_accepts_frontmatter_body_leading_blank_drift() {
         let current = "---\nkey: d7ngibb3\n---\n\n# 2026-07-05\n";
         let expected = "---\nkey: d7ngibb3\n---\n# 2026-07-05\n";
-        let incoming = "---\nkey: d7ngibb3\n---\n\n\n# 2026-07-05\n\n你好";
+        let incoming = "---\nkey: d7ngibb3\n---\n\n\n# 2026-07-05\n\n浣犲ソ";
 
         assert!(cas_content_matches(current, expected, incoming));
     }

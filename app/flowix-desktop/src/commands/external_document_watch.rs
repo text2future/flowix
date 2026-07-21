@@ -535,12 +535,24 @@ mod tests {
         assert!(registry.revisions.get(&lease_id).is_none());
 
         // Second concurrent claim must be rejected while still delivering.
-        assert!(!try_claim_revision(&mut registry, &lease_id, &path, "rev-a"));
+        assert!(!try_claim_revision(
+            &mut registry,
+            &lease_id,
+            &path,
+            "rev-a"
+        ));
 
         // Already-observed revision must be rejected even if delivering is cleared.
         registry.delivering.remove(&lease_id);
-        registry.revisions.insert(lease_id.clone(), "rev-a".to_string());
-        assert!(!try_claim_revision(&mut registry, &lease_id, &path, "rev-a"));
+        registry
+            .revisions
+            .insert(lease_id.clone(), "rev-a".to_string());
+        assert!(!try_claim_revision(
+            &mut registry,
+            &lease_id,
+            &path,
+            "rev-a"
+        ));
     }
 
     #[test]
@@ -565,7 +577,10 @@ mod tests {
 
         registry.delivering.insert(lease_id.clone());
         complete_revision_delivery(&mut registry, &lease_id, true, "rev-b".to_string());
-        assert_eq!(registry.revisions.get(&lease_id).map(String::as_str), Some("rev-b"));
+        assert_eq!(
+            registry.revisions.get(&lease_id).map(String::as_str),
+            Some("rev-b")
+        );
     }
 
     #[test]
@@ -581,8 +596,18 @@ mod tests {
             },
         );
 
-        assert!(!try_claim_revision(&mut registry, "missing", &original, "rev"));
-        assert!(!try_claim_revision(&mut registry, "lease-3", &renamed, "rev"));
+        assert!(!try_claim_revision(
+            &mut registry,
+            "missing",
+            &original,
+            "rev"
+        ));
+        assert!(!try_claim_revision(
+            &mut registry,
+            "lease-3",
+            &renamed,
+            "rev"
+        ));
         assert!(!registry.delivering.contains("lease-3"));
     }
 }

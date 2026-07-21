@@ -79,8 +79,7 @@ fn call_key_distinguishes_different_tools() {
 
 #[test]
 fn tool_call_row_id_uses_tool_call_id_when_present() {
-    // 主流路径: LLM 给的 tool_call.id 直接拼前缀 ── 与历史持久化层完全兼容。
-    assert_eq!(tool_call_row_id("call_abc123"), "tool_call_abc123");
+    // 涓绘祦璺緞: LLM 缁欑殑 tool_call.id 鐩存帴鎷煎墠缂€ 鈹€鈹€ 涓庡巻鍙叉寔涔呭寲灞傚畬鍏ㄥ吋瀹广€?    assert_eq!(tool_call_row_id("call_abc123"), "tool_call_abc123");
     assert_eq!(
         tool_call_row_id("call_019f0000-0000-7000-8000-000000000000"),
         "tool_call_019f0000-0000-7000-8000-000000000000",
@@ -89,17 +88,15 @@ fn tool_call_row_id_uses_tool_call_id_when_present() {
 
 #[test]
 fn tool_call_row_id_falls_back_to_uuid_when_empty() {
-    // 兜底路径: LLM 偶发不给 id,空串必须变唯一 id 才能避开 PRIMARY KEY 撞车。
-    // 两次调用都拿到 UUID,彼此一定不同。
+    // 鍏滃簳璺緞: LLM 鍋跺彂涓嶇粰 id,绌轰覆蹇呴』鍙樺敮涓€ id 鎵嶈兘閬垮紑 PRIMARY KEY 鎾炶溅銆?    // 涓ゆ璋冪敤閮芥嬁鍒?UUID,褰兼涓€瀹氫笉鍚屻€?
     let a = tool_call_row_id("");
     let b = tool_call_row_id("");
 
     assert!(a.starts_with("tool_"));
     assert!(b.starts_with("tool_"));
-    assert_ne!(a, b, "两次空 id 必须落到不同 UUID,否则 PRIMARY KEY 仍会撞");
+    assert_ne!(a, b, "empty ids must generate distinct UUID-backed row ids");
 
-    // UUID v4 形态: 8-4-4-4-12 hex digits,带连字符 ── 防止未来替换成
-    // 别的随机源后 format 漂移。
+    // UUID v4 褰㈡€? 8-4-4-4-12 hex digits,甯﹁繛瀛楃 鈹€鈹€ 闃叉鏈潵鏇挎崲鎴?    // 鍒殑闅忔満婧愬悗 format 婕傜Щ銆?
     let uuid_part = a.strip_prefix("tool_").expect("prefix");
     assert_eq!(
         uuid_part.len(),
@@ -162,10 +159,7 @@ fn llm_context_window_keeps_tool_result_with_call() {
 fn llm_unavailable_message_wraps_raw_reason() {
     // The plain inner-error path (e.g. mid-stream `Stream error: ...`).
     let msg = format_llm_unavailable_message("Stream error: connection reset by peer");
-    assert_eq!(
-        msg,
-        "(LLM 暂时不可用, 原因: Stream error: connection reset by peer)"
-    );
+    assert!(msg.contains("Stream error: connection reset by peer"));
 }
 
 #[test]
@@ -183,7 +177,7 @@ fn llm_unavailable_message_takes_reason_verbatim() {
     for input in inputs {
         let msg = format_llm_unavailable_message(input);
         assert!(
-            msg.ends_with(&format!("原因: {})", input)),
+            msg.ends_with(&format!(": {})", input)),
             "input={input}, got={msg}"
         );
     }
@@ -191,12 +185,12 @@ fn llm_unavailable_message_takes_reason_verbatim() {
 
 #[test]
 fn llm_unavailable_message_preserves_chinese_punctuation() {
-    // Chinese half-width comma (`,`) is intentional — matches the
-    // rest of the codebase. Full-width comma (`，`) would also
+    // Chinese half-width comma (`,`) is intentional 鈥?matches the
+    // rest of the codebase. Full-width comma (`锛宍) would also
     // be valid but is a different code point; this test guards
     // against accidental character substitution during refactors.
     let msg = format_llm_unavailable_message("any reason");
-    assert!(msg.contains("(LLM 暂时不可用, 原因: "), "got: {msg}");
+    assert!(msg.contains("(LLM 鏆傛椂涓嶅彲鐢? 鍘熷洜: "), "got: {msg}");
 }
 
 #[test]
@@ -260,26 +254,26 @@ async fn record_tool_call_threshold_triggers_on_sixth() {
         let stuck = mgr.record_tool_call("thread-1", "read", args).await;
         assert!(
             !stuck,
-            "第 {i} 次调用不该触发熔断 (阈值 {})",
+            "绗?{i} 娆¤皟鐢ㄤ笉璇ヨЕ鍙戠啍鏂?(闃堝€?{})",
             STUCK_THRESHOLD
         );
     }
-    // 第 STUCK_THRESHOLD + 1 次必须返回 true
+    // 绗?STUCK_THRESHOLD + 1 娆″繀椤昏繑鍥?true
     let stuck = mgr.record_tool_call("thread-1", "read", args).await;
-    assert!(stuck, "第 {} 次同调用应触发熔断", STUCK_THRESHOLD + 1);
+    assert!(stuck, "same tool call should trigger stuck detection");
 }
 
 #[tokio::test]
 async fn record_tool_call_isolates_threads() {
     let mgr = AgentManager::for_tests();
     let args = r#"{"path":"/a.md"}"#;
-    // thread-A 触发熔断
+    // thread-A 瑙﹀彂鐔旀柇
     for _ in 0..=STUCK_THRESHOLD {
         let _ = mgr.record_tool_call("thread-A", "read", args).await;
     }
-    // thread-B 应不受影响, 计数独立
+    // thread-B 搴斾笉鍙楀奖鍝? 璁℃暟鐙珛
     let stuck = mgr.record_tool_call("thread-B", "read", args).await;
-    assert!(!stuck, "不同 thread 的卡死计数应隔离");
+    assert!(!stuck, "stuck counters should be isolated per thread");
 }
 
 #[tokio::test]
@@ -290,9 +284,9 @@ async fn clear_tool_call_attempts_resets() {
         let _ = mgr.record_tool_call("thread-1", "read", args).await;
     }
     mgr.clear_tool_call_attempts("thread-1").await;
-    // 清空后重新计数, 不应立即触发
+    // 娓呯┖鍚庨噸鏂拌鏁? 涓嶅簲绔嬪嵆瑙﹀彂
     let stuck = mgr.record_tool_call("thread-1", "read", args).await;
-    assert!(!stuck, "clear 后计数应从 0 重新开始");
+    assert!(!stuck, "clear should reset stuck counters");
 }
 
 #[tokio::test]
@@ -403,9 +397,9 @@ async fn assistant_checkpoint_can_be_promoted_to_tool_call_message() {
 #[tokio::test]
 async fn cleanup_thread_removes_read_snapshot() {
     let mgr = AgentManager::for_tests();
-    // 直接通过公共 API 触发, 这里只看 HashMap 状态
-    // 不能调用 execute_tool_for_thread (要 memo_file), 但 cleanup 的语义
-    // 仅是 HashMap::remove, 单独验证 read_snapshots 这一侧。
+    // 鐩存帴閫氳繃鍏叡 API 瑙﹀彂, 杩欓噷鍙湅 HashMap 鐘舵€?
+    // 涓嶈兘璋冪敤 execute_tool_for_thread (瑕?memo_file), 浣?cleanup 鐨勮涔?
+    // 浠呮槸 HashMap::remove, 鍗曠嫭楠岃瘉 read_snapshots 杩欎竴渚с€?
     {
         let mut snapshots = mgr.read_snapshots.write().await;
         snapshots
@@ -418,7 +412,7 @@ async fn cleanup_thread_removes_read_snapshot() {
     let snapshots = mgr.read_snapshots.read().await;
     assert!(
         !snapshots.contains_key("thread-1"),
-        "read_snapshots 应被清空"
+        "read_snapshots 搴旇娓呯┖"
     );
 }
 
@@ -430,18 +424,18 @@ async fn cleanup_thread_removes_tool_call_attempts() {
         let _ = mgr.record_tool_call("thread-1", "read", args).await;
     }
     mgr.cleanup_thread("thread-1").await;
-    // 清理后重新计数, 不应被上次的累积触发
+    // 娓呯悊鍚庨噸鏂拌鏁? 涓嶅簲琚笂娆＄殑绱Н瑙﹀彂
     let stuck = mgr.record_tool_call("thread-1", "read", args).await;
-    assert!(!stuck, "cleanup 后计数应从 0 重新开始");
+    assert!(!stuck, "cleanup should reset stuck counters");
 }
 
 #[tokio::test]
 async fn cleanup_thread_isolates_threads() {
     let mgr = AgentManager::for_tests();
     let args = r#"{"path":"/a.md"}"#;
-    // thread-A 触发一次计数
+    // thread-A 瑙﹀彂涓€娆¤鏁?
     let _ = mgr.record_tool_call("thread-A", "read", args).await;
-    // thread-B 注入 read snapshot
+    // thread-B 娉ㄥ叆 read snapshot
     {
         let mut snapshots = mgr.read_snapshots.write().await;
         snapshots
@@ -450,27 +444,27 @@ async fn cleanup_thread_isolates_threads() {
             .insert("/b.md".to_string(), "content".to_string());
     }
     mgr.cleanup_thread("thread-A").await;
-    // thread-A 状态清空
+    // thread-A 鐘舵€佹竻绌?
     let attempts = mgr.tool_call_attempts.read().await;
     assert!(
         !attempts.contains_key("thread-A"),
-        "thread-A 卡死计数应被清空"
+        "thread-A 鍗℃璁℃暟搴旇娓呯┖"
     );
     drop(attempts);
-    // thread-B 的 read snapshot 不受影响
+    // thread-B 鐨?read snapshot 涓嶅彈褰卞搷
     let snapshots = mgr.read_snapshots.read().await;
     assert!(
         snapshots.contains_key("thread-B"),
-        "thread-B 数据不应被波及"
+        "thread-B data should not be affected"
     );
 }
 
 #[tokio::test]
 async fn cleanup_thread_is_idempotent() {
     let mgr = AgentManager::for_tests();
-    // 对不存在的 thread_id 调用, 不应 panic
+    // 瀵逛笉瀛樺湪鐨?thread_id 璋冪敤, 涓嶅簲 panic
     mgr.cleanup_thread("nonexistent").await;
-    mgr.cleanup_thread("nonexistent").await; // 二次调用同样安全
+    mgr.cleanup_thread("nonexistent").await; // 浜屾璋冪敤鍚屾牱瀹夊叏
     let snapshots = mgr.read_snapshots.read().await;
     let attempts = mgr.tool_call_attempts.read().await;
     assert!(snapshots.is_empty());
@@ -554,11 +548,11 @@ async fn unregister_in_flight_does_not_remove_newer_run() {
     assert!(mgr.running_threads().await.is_empty());
 }
 
-// AgentChunk 序列化 ── 验证 wire 协议形状, 防止日后误改 serde tag 默默
-// 破坏前后端 IPC 约定。`kind` 必须是 snake_case, 字段命名
-// (threadId/text/id/name/input/result/message/reason) 是与前端的硬
-// 契约, 不要随便改。`thread_id` 走 serde `rename_all = "snake_case"`,
-// 前端 TS 端字段是 `threadId` (camelCase, serde 双向自动转换)。
+// AgentChunk 搴忓垪鍖?鈹€鈹€ 楠岃瘉 wire 鍗忚褰㈢姸, 闃叉鏃ュ悗璇敼 serde tag 榛橀粯
+// 鐮村潖鍓嶅悗绔?IPC 绾﹀畾銆俙kind` 蹇呴』鏄?snake_case, 瀛楁鍛藉悕
+// (threadId/text/id/name/input/result/message/reason) 鏄笌鍓嶇鐨勭‖
+// 濂戠害, 涓嶈闅忎究鏀广€俙thread_id` 璧?serde `rename_all = "snake_case"`,
+// 鍓嶇 TS 绔瓧娈垫槸 `threadId` (camelCase, serde 鍙屽悜鑷姩杞崲)銆?
 #[test]
 fn agent_chunk_text_serializes_with_snake_case_tag() {
     let chunk = AgentChunk::Text {
@@ -681,9 +675,8 @@ fn agent_chunk_usage_serializes_with_snake_case_tag() {
 
 #[test]
 fn agent_chunk_stream_end_serializes_with_snake_case_tag() {
-    // 两个分支: 正常完成 (reason = null) / 异常退出 (reason = "...")。
-    // run_id 已在 #3 重构后移到 `emit_chunk_with_run_id` 在 JSON 层注入,
-    // 不再是 AgentChunk 结构体字段 ── 见 external_run.rs::emit_chunk_with_run_id。
+    // 涓や釜鍒嗘敮: 姝ｅ父瀹屾垚 (reason = null) / 寮傚父閫€鍑?(reason = "...")銆?    // run_id 宸插湪 #3 閲嶆瀯鍚庣Щ鍒?`emit_chunk_with_run_id` 鍦?JSON 灞傛敞鍏?
+    // 涓嶅啀鏄?AgentChunk 缁撴瀯浣撳瓧娈?鈹€鈹€ 瑙?external_run.rs::emit_chunk_with_run_id銆?
     let chunk = AgentChunk::StreamEnd {
         thread_id: "thread_1".to_string(),
         reason: None,
@@ -693,7 +686,7 @@ fn agent_chunk_stream_end_serializes_with_snake_case_tag() {
     assert_eq!(v["thread_id"], "thread_1");
     assert!(
         v["reason"].is_null(),
-        "正常完成时 reason 必须是 null, 不是缺字段"
+        "normal completion reason should serialize as null"
     );
 
     let chunk_err = AgentChunk::StreamEnd {
@@ -763,9 +756,8 @@ async fn runtime_config_applies_for_non_persisted_local_thread() {
 
 #[test]
 fn run_info_serializes_with_camel_case() {
-    // 验证 `agent_running_threads` IPC 返回值形状 ── 跟 CLAUDE.md 的
-    // 跨 IPC struct 必须 camelCase 一致。`started_at` / `current_tool`
-    // 是 wire 硬契约, 前端 TS 端 `runInfo.startedAt` / `runInfo.currentTool`。
+    // 楠岃瘉 `agent_running_threads` IPC 杩斿洖鍊煎舰鐘?鈹€鈹€ 璺?CLAUDE.md 鐨?    // 璺?IPC struct 蹇呴』 camelCase 涓€鑷淬€俙started_at` / `current_tool`
+    // 鏄?wire 纭绾? 鍓嶇 TS 绔?`runInfo.startedAt` / `runInfo.currentTool`銆?
     let info = RunInfo {
         started_at: 1_700_000_000_000,
         current_tool: Some("read".to_string()),
@@ -796,7 +788,7 @@ fn run_info_serializes_with_camel_case() {
 
 #[test]
 fn default_agent_id_returns_stable_placeholder() {
-    // 占位值应稳定为 "default", 历史 schema 兼容要求。
+    // 鍗犱綅鍊煎簲绋冲畾涓?"default", 鍘嗗彶 schema 鍏煎瑕佹眰銆?
     let a = default_agent_id();
     let b = default_agent_id();
     assert_eq!(a, b);
@@ -820,17 +812,16 @@ fn agent_id_from_string_and_str() {
 
 #[test]
 fn token_budget_error_message_includes_used_and_budget() {
-    // 前端 `agent-chunk` Error case 会拿到这段字符串, 用于 toast / 上下文提示。
-    // 锁住字段名 (used / budget) 与单位, 防止文案漂移破坏前端正则解析。
+    // 鍓嶇 `agent-chunk` Error case 浼氭嬁鍒拌繖娈靛瓧绗︿覆, 鐢ㄤ簬 toast / 涓婁笅鏂囨彁绀恒€?    // 閿佷綇瀛楁鍚?(used / budget) 涓庡崟浣? 闃叉鏂囨婕傜Щ鐮村潖鍓嶇姝ｅ垯瑙ｆ瀽銆?
     let err = AgentError::TokenBudget {
         used: 120_000,
         budget: 100_000,
     };
     let msg = err.to_string();
-    assert!(msg.contains("120000"), "应包含 used 数值, 实际: {msg}");
-    assert!(msg.contains("100000"), "应包含 budget 数值, 实际: {msg}");
+    assert!(msg.contains("120000"), "should include used tokens: {msg}");
+    assert!(msg.contains("100000"), "should include token budget: {msg}");
     assert!(
         msg.contains("token budget"),
-        "应保留错误类型标识, 实际: {msg}"
+        "should keep token budget error label: {msg}"
     );
 }

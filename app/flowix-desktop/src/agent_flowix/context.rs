@@ -42,20 +42,17 @@ pub(super) fn truncate_for_sub_agent(content: &str, max_chars: usize) -> String 
     format!("{truncated}\n\n[truncated: original result was longer than {max_chars} characters]")
 }
 
-/// 把持久化行转回 rllm 的 ChatMessage。返回 None 表示该行不进 LLM 上下文
-/// (reasoning / system / 残缺 tool 等待)。
+/// 鎶婃寔涔呭寲琛岃浆鍥?rllm 鐨?ChatMessage銆傝繑鍥?None 琛ㄧず璇ヨ涓嶈繘 LLM 涓婁笅鏂?/// (reasoning / system / 娈嬬己 tool 绛夊緟)銆?///
+/// 杞崲瑙勫垯:
+/// - user 鈫?User, content = llm_content ?? content, Text
+/// - assistant 甯?tool_calls 鈫?Assistant, content, ToolUse(鍙嶅簭鍒楀寲鐨?Vec<ToolCall>)
+/// - assistant 涓嶅甫 tool_calls 鈫?Assistant, content, Text
+/// - tool 甯?tool_data 鈫?User(content = tool_data), ToolResult(vec![ToolCall{ id, function{name: "tool_result", arguments: tool_data }}])
+/// - tool 涓嶅甫 tool_data 鈫?None (閬垮厤缁?LLM 鐪嬬┖ tool result)
+/// - reasoning / system / 鍏跺畠 鈫?None
 ///
-/// 转换规则:
-/// - user → User, content = llm_content ?? content, Text
-/// - assistant 带 tool_calls → Assistant, content, ToolUse(反序列化的 Vec<ToolCall>)
-/// - assistant 不带 tool_calls → Assistant, content, Text
-/// - tool 带 tool_data → User(content = tool_data), ToolResult(vec![ToolCall{ id, function{name: "tool_result", arguments: tool_data }}])
-/// - tool 不带 tool_data → None (避免给 LLM 看空 tool result)
-/// - reasoning / system / 其它 → None
-///
-/// 工具结果用 `role: User` 包一层是 rllm 的约定 (它的 ChatRole 只有 User/Assistant),
-/// provider 看 MessageType 而不是 role 决定发什么, 跟 rllm 自带参考实现 (llm crate 的
-/// `providers/openai_compatible.rs`) 一致。
+/// 宸ュ叿缁撴灉鐢?`role: User` 鍖呬竴灞傛槸 rllm 鐨勭害瀹?(瀹冪殑 ChatRole 鍙湁 User/Assistant),
+/// provider 鐪?MessageType 鑰屼笉鏄?role 鍐冲畾鍙戜粈涔? 璺?rllm 鑷甫鍙傝€冨疄鐜?(llm crate 鐨?/// `providers/openai_compatible.rs`) 涓€鑷淬€?
 fn persisted_to_llm(m: crate::agent_session::ChatMessage) -> Option<OpenAICompatibleChatMessage> {
     match m.role.as_str() {
         "user" => Some(OpenAICompatibleChatMessage {
@@ -79,7 +76,7 @@ fn persisted_to_llm(m: crate::agent_session::ChatMessage) -> Option<OpenAICompat
                     }
                 }
                 Some(serde_json::Value::Null) | None => MessageType::Text,
-                // tool_calls 形状不预期 (非数组) — 当作普通文本, 不喂垃圾给 LLM
+                // tool_calls 褰㈢姸涓嶉鏈?(闈炴暟缁? 鈥?褰撲綔鏅€氭枃鏈? 涓嶅杺鍨冨溇缁?LLM
                 _ => MessageType::Text,
             };
             Some(OpenAICompatibleChatMessage {
@@ -106,7 +103,7 @@ fn persisted_to_llm(m: crate::agent_session::ChatMessage) -> Option<OpenAICompat
                 reasoning: None,
             })
         }
-        _ => None, // reasoning / system / end / 其它
+        _ => None, // reasoning / system / end / 鍏跺畠
     }
 }
 

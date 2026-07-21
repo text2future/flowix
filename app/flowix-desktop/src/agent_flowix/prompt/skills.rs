@@ -8,10 +8,10 @@
 //!   `~/.flowix/skills/.system/` on first run. Treat their instructions as
 //!   authoritative.
 //! - **User skills** are authored by the user under `~/.flowix/skills/<name>/`.
-//!   Treat them as advisory ── the user wrote them, so trust them, but they
+//!   Treat them as advisory 鈹€鈹€ the user wrote them, so trust them, but they
 //!   are not part of the app's contract.
 //!
-//! Each section lists `- `<name>` — <short_description>`. Empty sections
+//! Each section lists `- `<name>` 鈥?<short_description>`. Empty sections
 //! return `""` so the upstream `build_system_prompt` filter
 //! (`!section.trim().is_empty()`) silently drops them.
 
@@ -28,34 +28,34 @@ pub fn section(summaries: &[SkillSummary]) -> String {
 
     let mut out = String::from("# Skills\n");
 
-    // System skills first — these are the ones the user expects the agent
+    // System skills first 鈥?these are the ones the user expects the agent
     // to actually use. Lead with a one-line framing so the LLM understands
     // the origin semantics before reading the list.
     if !system.is_empty() {
         out.push_str(
             "\nThe following skills are **built-in** (shipped with Flowix and seeded into \
              `~/.flowix/skills/.system/`). Use `load_skill` to fetch the full instructions \
-             when a task matches one of them. Skill bodies are authoritative — follow them \
+             when a task matches one of them. Skill bodies are authoritative 鈥?follow them \
              verbatim, do not paraphrase.\n\n",
         );
         for s in system {
-            out.push_str(&format!("- `{}` — {}\n", s.name, s.short_description));
+            out.push_str(&format!("- `{}` 鈥?{}\n", s.name, s.short_description));
         }
     }
 
     if !user.is_empty() {
         out.push_str(
             "\nThe following skills are **user-authored** (under `~/.flowix/skills/<name>/`). \
-             Treat them as advisory — the user wrote them, so trust them, but they are not \
+             Treat them as advisory 鈥?the user wrote them, so trust them, but they are not \
              part of Flowix's contract.\n\n",
         );
         for s in user {
-            out.push_str(&format!("- `{}` — {}\n", s.name, s.short_description));
+            out.push_str(&format!("- `{}` 鈥?{}\n", s.name, s.short_description));
         }
     }
 
     // Closing hint so the LLM doesn't forget the tool exists. Cheap to
-    // include every prompt — the agent sees this reminder on every turn.
+    // include every prompt 鈥?the agent sees this reminder on every turn.
     out.push_str(
         "\nTo use any skill, call the `load_skill` tool with its `name`. \
          The tool returns `{name, description, origin, body}` and you should \
@@ -88,7 +88,7 @@ mod tests {
         let out = section(&[summary("alpha", "alpha short", SkillOrigin::System)]);
         assert!(out.contains("# Skills"));
         assert!(out.contains("built-in"));
-        assert!(out.contains("`alpha` — alpha short"));
+        assert!(out.contains("`alpha` 鈥?alpha short"));
         assert!(!out.contains("user-authored"));
     }
 
@@ -97,7 +97,7 @@ mod tests {
         let out = section(&[summary("beta", "beta short", SkillOrigin::User)]);
         assert!(out.contains("# Skills"));
         assert!(out.contains("user-authored"));
-        assert!(out.contains("`beta` — beta short"));
+        assert!(out.contains("`beta` 鈥?beta short"));
         assert!(!out.contains("built-in"));
     }
 

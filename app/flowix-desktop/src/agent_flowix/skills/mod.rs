@@ -3,12 +3,13 @@
 //! ## What this module owns
 //!
 //! - **Discovery**: scanning the user skills root (`~/.flowix/skills/`)
-//!   for SKILL.md files in two areas — `.system/<name>/SKILL.md` (built-in,
+//!
+//! for SKILL.md files in two areas 鈥?`.system/<name>/SKILL.md` (built-in,
 //!   seeded from the app bundle once) and `<name>/SKILL.md` (user-authored).
 //! - **Parsing**: YAML frontmatter (name, description, optional
 //!   `metadata.short-description`) and markdown body.
 //! - **Loading**: a [`SkillStore`] that holds the discovered skills in
-//!   memory for the lifetime of the app — read-only after construction.
+//!   memory for the lifetime of the app 鈥?read-only after construction.
 //! - **Seeding**: one-shot copy of bundled built-in skills into the user's
 //!   `.system/` on first run; never overwrites user edits.
 //!
@@ -25,7 +26,7 @@
 //!
 //! `SkillStore` is immutable after `SkillStore::load`. Wrap in
 //! `Arc<SkillStore>` and share between the system-prompt builder and the
-//! tool handler — no `RwLock` needed.
+//! tool handler 鈥?no `RwLock` needed.
 
 pub mod parser;
 pub mod scanner;
@@ -35,7 +36,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Origin tag — system skills are bundled with the app and seeded once;
+/// Origin tag 鈥?system skills are bundled with the app and seeded once;
 /// user skills are authored directly under the skills root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -44,14 +45,14 @@ pub enum SkillOrigin {
     User,
 }
 
-/// A single loaded skill — full content + provenance. Returned by
+/// A single loaded skill 鈥?full content + provenance. Returned by
 /// [`SkillStore::get`] when the LLM calls `load_skill`.
 #[derive(Debug, Clone)]
 pub struct Skill {
     /// Skill identifier; matches the folder name (frontmatter `name` is
     /// overridden by the scanner if the two disagree).
     pub name: String,
-    /// Long description from frontmatter — used in tool results and the
+    /// Long description from frontmatter 鈥?used in tool results and the
     /// system prompt detail view.
     pub description: String,
     /// Short description for the system-prompt bullet list. Falls back to
@@ -82,7 +83,7 @@ pub struct SkillSummary {
 /// `load_skill` tool handler.
 #[derive(Debug)]
 pub struct SkillStore {
-    /// name → Skill. Last-write-wins on collision (user > system per the
+    /// name 鈫?Skill. Last-write-wins on collision (user > system per the
     /// scanner's iteration order).
     skills: HashMap<String, Skill>,
     /// Stable sorted projection used by the system prompt.
@@ -101,7 +102,7 @@ impl SkillStore {
         for skill in skills_vec {
             skills.insert(skill.name.clone(), skill);
         }
-        // Build summaries in stable order — `HashMap::values()` has
+        // Build summaries in stable order 鈥?`HashMap::values()` has
         // arbitrary iteration order, so we re-apply the (origin, name) sort
         // here to keep the system prompt content deterministic.
         let mut summaries: Vec<SkillSummary> = skills
@@ -149,7 +150,7 @@ impl SkillStore {
 
 // Re-exports so callers (and tests) don't have to dig into submodules.
 // `#[allow(unused_imports)]` quiets the "unused import" lint that fires
-// when this crate is checked in isolation — these are part of the module's
+// when this crate is checked in isolation 鈥?these are part of the module's
 // public surface, intended for downstream consumers and integration tests.
 #[allow(unused_imports)]
 pub use parser::{parse_skill_file, ParseError};

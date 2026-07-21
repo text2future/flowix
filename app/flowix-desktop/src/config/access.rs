@@ -303,7 +303,7 @@ mod tests {
         NotebookConfig {
             id: id.to_string(),
             name: name.to_string(),
-            icon: Some("📘".to_string()),
+            icon: Some("馃摌".to_string()),
             path: path.to_string(),
             is_default: false,
             sort: 0,

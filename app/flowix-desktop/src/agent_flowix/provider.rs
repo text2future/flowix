@@ -248,7 +248,7 @@ pub(super) fn build_chat_provider(
     }
 }
 
-// ─── Connection probe ───────────────────────────────────────────────
+// 鈹€鈹€鈹€ Connection probe 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 //
 // `probe_chat` is a one-shot connectivity check used by the Preferences UI
 // "Test Connection" button and by `Save` (which probes first, then writes).
@@ -257,7 +257,7 @@ pub(super) fn build_chat_provider(
 //      not whatever instance was last built for an active chat thread;
 //   2. failed probes don't poison the cached instance.
 //
-// On error we don't propagate `LLMError` directly — the IPC boundary sticks
+// On error we don't propagate `LLMError` directly 鈥?the IPC boundary sticks
 // to JSON-friendly types, and the UI benefits from a coarse error kind
 // (auth vs network vs model-not-found vs ...) so it can pick the right hint.
 
@@ -314,9 +314,9 @@ pub struct TestConnectionResult {
 }
 
 /// Hard cap on a probe round-trip. The OpenAICompatible path internally
-/// retries up to 3 × 120s before giving up (see
+/// retries up to 3 脳 120s before giving up (see
 /// `providers/openai_compatible/constants.rs`), which is fine for an actual
-/// chat but unacceptable for a "Test connection" button — the user expects
+/// chat but unacceptable for a "Test connection" button 鈥?the user expects
 /// a quick verdict. We wrap the *outer* call with `PROBE_TIMEOUT_SECS` so a
 /// hung upstream can't pin both UI buttons indefinitely.
 const PROBE_TIMEOUT_SECS: u64 = 30;
@@ -341,7 +341,7 @@ pub(crate) async fn probe_chat(config: &AiModelConfig) -> TestConnectionResult {
     let start = Instant::now();
     let model_id = config.model.trim().to_string();
 
-    // 1. Zero-cost preflight — don't burn a request round-trip on
+    // 1. Zero-cost preflight 鈥?don't burn a request round-trip on
     //    obviously wrong config (missing key, bad URL scheme, ...).
     if let Some(err) = precheck(config) {
         return TestConnectionResult {
@@ -354,7 +354,7 @@ pub(crate) async fn probe_chat(config: &AiModelConfig) -> TestConnectionResult {
     }
 
     // 2. Build a one-shot provider. Skipping `ensure_instance` is
-    //    intentional — see the module-level comment.
+    //    intentional 鈥?see the module-level comment.
     let provider = match build_chat_provider(config, String::new(), &[]) {
         Ok(p) => p,
         Err(err) => {
@@ -372,7 +372,7 @@ pub(crate) async fn probe_chat(config: &AiModelConfig) -> TestConnectionResult {
     };
 
     // 3. Send the smallest possible prompt. `chat_with_tools(..., None)`
-    //    hits the same code path on every backend — no tool-specific
+    //    hits the same code path on every backend 鈥?no tool-specific
     //    routing to worry about.
     let messages = [OpenAICompatibleChatMessage {
         role: ChatRole::User,
@@ -431,7 +431,7 @@ enum Outcome {
     TimedOut,
 }
 
-/// Pure validation — no I/O. Mirrors what `save` *should* reject on its
+/// Pure validation 鈥?no I/O. Mirrors what `save` *should* reject on its
 /// own (the front-end also does this, but we re-check here so a malicious
 /// or buggy caller can't bypass).
 ///
@@ -439,7 +439,7 @@ enum Outcome {
 /// in `app/flowix-web/features/preferences/sections/agent.tsx::
 /// validateBeforeSave` so the front-end can fail-fast on obvious mistakes
 /// without burning an HTTP round-trip. If you add a rule here, mirror it
-/// in `validateBeforeSave` too — otherwise the front-end will let through
+/// in `validateBeforeSave` too 鈥?otherwise the front-end will let through
 /// a config this function rejects.
 fn precheck(config: &AiModelConfig) -> Option<TestConnectionError> {
     if config.provider.trim().is_empty() {
@@ -474,8 +474,7 @@ fn precheck(config: &AiModelConfig) -> Option<TestConnectionError> {
             message: "api_key is empty".to_string(),
         });
     }
-    // Ollama / OpenAI-compatible self-host have *no* default base URL —
-    // unlike OpenAI/Anthropic/etc. which `LLMBuilder` falls back to. An
+    // Ollama / OpenAI-compatible self-host have *no* default base URL 鈥?    // unlike OpenAI/Anthropic/etc. which `LLMBuilder` falls back to. An
     // empty `api_url` here would produce a request to `"/chat/completions"`
     // (no host), surfacing as a confusing `NetworkUnreachable` instead of
     // a clear "you forgot the URL" message.
@@ -508,15 +507,15 @@ fn sanitize(msg: &str) -> String {
     let mut chars = trimmed.chars();
     let head: String = chars.by_ref().take(SANITIZE_MAX_CHARS).collect();
     if chars.next().is_some() {
-        format!("{head}… (truncated)")
+        format!("{head}鈥?(truncated)")
     } else {
         head
     }
 }
 
-/// Map `LLMError` → `TestConnectionErrorKind`.
+/// Map `LLMError` 鈫?`TestConnectionErrorKind`.
 ///
-/// Several LLMError variants embed a child error message — `RetryExceeded`
+/// Several LLMError variants embed a child error message 鈥?`RetryExceeded`
 /// wraps the last attempt's Display, and rllm backends for Anthropic /
 /// Google / DeepSeek may stuff status info into `ProviderError` or
 /// `Generic`. We try `classify_status_string` on the inner text first
@@ -524,7 +523,8 @@ fn sanitize(msg: &str) -> String {
 /// the wrapper chain.
 ///
 /// **Why we don't just use `format!("[{head}] {err}")`**: `LLMError`'s
-/// `Display` impl embeds `raw_response` for `ResponseFormatError` — that
+/// `Display`
+/// impl embeds `raw_response` for `ResponseFormatError` 鈥?that
 /// field can be hundreds of KB of upstream HTML. We extract the safe
 /// fields per-variant instead of relying on Display.
 fn classify_error(err: &LLMError) -> TestConnectionError {
@@ -553,7 +553,7 @@ fn classify_error(err: &LLMError) -> TestConnectionError {
             message,
             raw_response,
         } => {
-            // `raw_response` is the full upstream body — never ship it to
+            // `raw_response` is the full upstream body 鈥?never ship it to
             // the frontend, but always log it so a dev chasing a bad
             // upstream can find it.
             if !raw_response.is_empty() {
@@ -588,7 +588,7 @@ fn classify_error(err: &LLMError) -> TestConnectionError {
             msg.clone(),
         ),
         LLMError::ToolConfigError(msg) => {
-            // This means *we* built a bad tool schema — a config bug on
+            // This means *we* built a bad tool schema 鈥?a config bug on
             // the Flowix side, not anything the user did. Tell them the
             // form is wrong so they don't blame the provider.
             (
@@ -606,7 +606,7 @@ fn classify_error(err: &LLMError) -> TestConnectionError {
 
 /// Try to pull a leading HTTP status out of `message` and map it to a
 /// `TestConnectionErrorKind`. Returns `None` when no usable status is
-/// present — callers should fall back to their default kind.
+/// present 鈥?callers should fall back to their default kind.
 fn classify_status_string(message: &str) -> Option<TestConnectionErrorKind> {
     let head = message
         .split(|c: char| !c.is_ascii_digit())
@@ -638,7 +638,7 @@ mod probe_tests {
         }
     }
 
-    // ─── precheck ──────────────────────────────────────────────────
+    // 鈹€鈹€鈹€ precheck 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn precheck_rejects_empty_provider() {
@@ -656,7 +656,7 @@ mod probe_tests {
 
     #[test]
     fn precheck_rejects_whitespace_only_model() {
-        // Same outcome as empty — `trim()` should normalise.
+        // Same outcome as empty 鈥?`trim()` should normalise.
         let err = precheck(&cfg("OpenAI", "   ", "", "k")).unwrap();
         assert_eq!(err.kind, TestConnectionErrorKind::BadConfig);
         assert!(err.message.contains("model"));
@@ -683,7 +683,7 @@ mod probe_tests {
 
     #[test]
     fn precheck_rejects_empty_url_for_ollama() {
-        // Ollama has no default base URL — empty api_url would POST to
+        // Ollama has no default base URL 鈥?empty api_url would POST to
         // "/chat/completions" with no host. Reject up-front.
         let err = precheck(&cfg("Ollama", "qwen", "", "")).unwrap();
         assert_eq!(err.kind, TestConnectionErrorKind::BadConfig);
@@ -704,7 +704,7 @@ mod probe_tests {
         assert!(precheck(&cfg("Anthropic", "claude", "", "sk-test")).is_none());
     }
 
-    // ─── classify_status_string ───────────────────────────────────
+    // 鈹€鈹€鈹€ classify_status_string 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn classify_status_string_recognises_known_codes() {
@@ -741,7 +741,7 @@ mod probe_tests {
         assert_eq!(classify_status_string("API error"), None);
     }
 
-    // ─── classify_error ───────────────────────────────────────────
+    // 鈹€鈹€鈹€ classify_error 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn classify_error_autherror_maps_to_auth_failed() {
@@ -802,7 +802,7 @@ mod probe_tests {
         assert_eq!(te.kind, TestConnectionErrorKind::BadConfig);
     }
 
-    // ─── sanitize ─────────────────────────────────────────────────
+    // 鈹€鈹€鈹€ sanitize 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn sanitize_strips_newlines() {
@@ -815,7 +815,7 @@ mod probe_tests {
         let huge = "a".repeat(SANITIZE_MAX_CHARS + 50);
         let out = sanitize(&huge);
         assert!(out.starts_with(&"a".repeat(SANITIZE_MAX_CHARS)));
-        assert!(out.ends_with("… (truncated)"));
+        assert!(out.ends_with("鈥?(truncated)"));
     }
 
     #[test]

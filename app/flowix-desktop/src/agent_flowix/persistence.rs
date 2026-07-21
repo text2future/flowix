@@ -9,16 +9,12 @@ use crate::agent_session::{ChatMessage as ThreadChatMessage, ThreadManager};
 use super::context::build_llm_context_window;
 use super::{AgentError, AgentManager, AgentUserMessage};
 
-/// RAII guard ── 在 `persist_tool_call` (写 `is_loading = true`) 之后,
-/// `persist_tool_result` (写 `is_loading = 0`) 之前的任何 panic / early
-/// return / 新增错误路径都会触发 drop, fire-and-forget 一个
-/// `clear_tool_loading` 把对应行解锁, 避免前端工具调用行永远转圈。
-///
-/// 解决 #3.1: 历史上 `execute_tool_for_thread` panic 或新增错误路径导致
-/// `persist_tool_result` 不到时, loading 状态卡死。Success 路径下
-/// `persist_tool_result` 已经把 is_loading 归零, guard 的 drop UPDATE 命中
-/// 同一行再写 0 ── 幂等, 不算浪费。Guard 自身不持锁 (不持 thread_manager
-/// 的 read guard), 避免与外层 RwLock 锁顺序冲突。
+/// RAII guard 鈹€鈹€ 鍦?`persist_tool_call` (鍐?`is_loading = true`) 涔嬪悗,
+/// `persist_tool_result` (鍐?`is_loading = 0`) 涔嬪墠鐨勪换浣?panic / early
+/// return / 鏂板閿欒璺緞閮戒細瑙﹀彂 drop, fire-and-forget 涓€涓?/// `clear_tool_loading` 鎶婂搴旇瑙ｉ攣, 閬垮厤鍓嶇宸ュ叿璋冪敤琛屾案杩滆浆鍦堛€?///
+/// 瑙ｅ喅 #3.1: 鍘嗗彶涓?`execute_tool_for_thread` panic 鎴栨柊澧為敊璇矾寰勫鑷?/// `persist_tool_result` 涓嶅埌鏃? loading 鐘舵€佸崱姝汇€係uccess 璺緞涓?/// `persist_tool_result` 宸茬粡鎶?is_loading 褰掗浂, guard 鐨?drop UPDATE 鍛戒腑
+/// 鍚屼竴琛屽啀鍐?0 鈹€鈹€ 骞傜瓑, 涓嶇畻娴垂銆侴uard 鑷韩涓嶆寔閿?(涓嶆寔 thread_manager
+/// 鐨?read guard), 閬垮厤涓庡灞?RwLock 閿侀『搴忓啿绐併€?
 pub(super) struct IsLoadingGuard {
     thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
     thread_id: String,
@@ -41,9 +37,8 @@ impl IsLoadingGuard {
 
 impl Drop for IsLoadingGuard {
     fn drop(&mut self) {
-        // drop 是同步的, 不能 .await ── 但能 spawn 一个新 task。task 拿
-        // `thread_manager` 的 Arc, 即使 AgentManager 后续被 drop 引用计数
-        // 仍能撑住这个 UPDATE 完成。
+        // drop 鏄悓姝ョ殑, 涓嶈兘 .await 鈹€鈹€ 浣嗚兘 spawn 涓€涓柊 task銆倀ask 鎷?        // `thread_manager` 鐨?Arc, 鍗充娇 AgentManager 鍚庣画琚?drop 寮曠敤璁℃暟
+        // 浠嶈兘鎾戜綇杩欎釜 UPDATE 瀹屾垚銆?
         let tm = self.thread_manager.clone();
         let tid = std::mem::take(&mut self.thread_id);
         let tcid = std::mem::take(&mut self.tool_call_id);
@@ -56,13 +51,11 @@ impl Drop for IsLoadingGuard {
     }
 }
 
-/// 计算 `tool` 行写入 SQLite 时的主键 id ── 抽出来便于单测, 同时也是
-/// `persist_tool_call` 的唯一入口, 防止"两处 format 各自演化"漂移。
-///
-/// LLM 偶发不给 `tool_call.id`(极少数 gateway / 模型在并行工具调用场景下漏填),
-/// 直接 `format!("tool_{}", "")` 会得到 `"tool_"`, 同 thread 内多次 tool_call
-/// 全撞 PRIMARY KEY (`thread_messages.id` 是 TEXT PRIMARY KEY, 见 `threads.rs`)。
-/// 兜底用 UUID v4, 保证每次调用都得到不同 id。
+/// 璁＄畻 `tool` 琛屽啓鍏?SQLite 鏃剁殑涓婚敭 id 鈹€鈹€ 鎶藉嚭鏉ヤ究浜庡崟娴? 鍚屾椂涔熸槸
+/// `persist_tool_call` 鐨勫敮涓€鍏ュ彛, 闃叉"涓ゅ format 鍚勮嚜婕斿寲"婕傜Щ銆?///
+/// LLM 鍋跺彂涓嶇粰 `tool_call.id`(鏋佸皯鏁?gateway / 妯″瀷鍦ㄥ苟琛屽伐鍏疯皟鐢ㄥ満鏅笅婕忓～),
+/// 鐩存帴 `format!("tool_{}", "")` 浼氬緱鍒?`"tool_"`, 鍚?thread 鍐呭娆?tool_call
+/// 鍏ㄦ挒 PRIMARY KEY (`thread_messages.id` 鏄?TEXT PRIMARY KEY, 瑙?`threads.rs`)銆?/// 鍏滃簳鐢?UUID v4, 淇濊瘉姣忔璋冪敤閮藉緱鍒颁笉鍚?id銆?
 pub(super) fn tool_call_row_id(tool_call_id: &str) -> String {
     if tool_call_id.is_empty() {
         format!("tool_{}", Uuid::new_v4())
@@ -96,7 +89,7 @@ impl AgentManager {
     ///
     /// Recovery for the LLM-side 400 "invalid function arguments" rejection.
     /// The root cause is the parallel-call parser collision in
-    /// `openai_compatible.rs` — fixed separately — but this is the safety
+    /// `openai_compatible.rs` 鈥?fixed separately 鈥?but this is the safety
     /// net: degrade gracefully (LLM sees empty args on the next round) rather
     /// than abort the user's session.
     ///
@@ -111,7 +104,7 @@ impl AgentManager {
             Some(t) => t,
             None => return Ok(false),
         };
-        // Walk from the end — the most recent assistant(tool_calls) is
+        // Walk from the end 鈥?the most recent assistant(tool_calls) is
         // the one the gateway is choking on.
         let target = thread
             .messages
@@ -343,9 +336,8 @@ impl AgentManager {
         Ok(())
     }
 
-    /// 助手既输出了文本又发出了 tool_call 的合并落盘。OpenAI 协议里这两者本就是
-    /// 同一条 assistant 消息 (content + tool_calls 字段), 不该拆成两行。
-    /// text 可为空 (LLM 纯发 tool call, 不带前导文本), calls 至少一个。
+    /// 鍔╂墜鏃㈣緭鍑轰簡鏂囨湰鍙堝彂鍑轰簡 tool_call 鐨勫悎骞惰惤鐩樸€侽penAI 鍗忚閲岃繖涓よ€呮湰灏辨槸
+    /// 鍚屼竴鏉?assistant 娑堟伅 (content + tool_calls 瀛楁), 涓嶈鎷嗘垚涓よ銆?    /// text 鍙负绌?(LLM 绾彂 tool call, 涓嶅甫鍓嶅鏂囨湰), calls 鑷冲皯涓€涓€?
     pub(super) async fn flush_assistant_message_with_tool_calls(
         &self,
         thread_id: &str,
@@ -353,14 +345,14 @@ impl AgentManager {
         calls: &[LlmToolCall],
         reasoning: Option<&str>,
     ) -> Result<(), AgentError> {
-        // 序列化为 OpenAI 格式的 JSON 数组, 持久化层与 rllm 解耦。
+        // 搴忓垪鍖栦负 OpenAI 鏍煎紡鐨?JSON 鏁扮粍, 鎸佷箙鍖栧眰涓?rllm 瑙ｈ€︺€?
         let tool_calls_json = serialize_tool_calls(calls);
-        // 借用首个 call.id 作行 id, 保持同 tool_call 的多 row 共享前缀便于排查。
+        // 鍊熺敤棣栦釜 call.id 浣滆 id, 淇濇寔鍚?tool_call 鐨勫 row 鍏变韩鍓嶇紑渚夸簬鎺掓煡銆?
         let id_seed = calls
             .first()
             .map(|c| c.id.clone())
-            // LLM 整轮都没给 id (极少见) ── 用 UUID 兜底, 避免同毫秒内的多
-            // 个 call 拿到同一 id_seed 撞 PRIMARY KEY (issue #3.2)。
+            // LLM 鏁磋疆閮芥病缁?id (鏋佸皯瑙? 鈹€鈹€ 鐢?UUID 鍏滃簳, 閬垮厤鍚屾绉掑唴鐨勫
+            // 涓?call 鎷垮埌鍚屼竴 id_seed 鎾?PRIMARY KEY (issue #3.2)銆?
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         self.add_thread_message(
             thread_id,
@@ -394,12 +386,9 @@ impl AgentManager {
         tool_name: &str,
         tool_input: serde_json::Value,
     ) -> Result<(), AgentError> {
-        // 行 id 必须全局唯一 ── LLM 偶发不给 tool_call.id(罕见但发生过),空字符串
-        // 拼出来就是 "tool_",同 thread 内多次 tool_call 全撞 PRIMARY KEY。
-        // 用 UUID 兜底, 与 `flush_assistant_message_with_tool_calls` 同形 (issue #3.2)。
-        // 这里**不**改写 `tool_call_id` 列的值 ── 那列是给 `update_tool_result` 的
-        // WHERE 子句用的, 列空值的退化场景(LLM 一整轮都给空 id)在原始路径上根本
-        // 进不到这里(PRIMARY KEY 已拒), 不属于本次修复要解决的范围。
+        // 琛?id 蹇呴』鍏ㄥ眬鍞竴 鈹€鈹€ LLM 鍋跺彂涓嶇粰 tool_call.id(缃曡浣嗗彂鐢熻繃),绌哄瓧绗︿覆
+        // 鎷煎嚭鏉ュ氨鏄?"tool_",鍚?thread 鍐呭娆?tool_call 鍏ㄦ挒 PRIMARY KEY銆?        // 鐢?UUID 鍏滃簳, 涓?`flush_assistant_message_with_tool_calls` 鍚屽舰 (issue #3.2)銆?        // 杩欓噷**涓?*鏀瑰啓 `tool_call_id` 鍒楃殑鍊?鈹€鈹€ 閭ｅ垪鏄粰 `update_tool_result` 鐨?        // WHERE 瀛愬彞鐢ㄧ殑, 鍒楃┖鍊肩殑閫€鍖栧満鏅?LLM 涓€鏁磋疆閮界粰绌?id)鍦ㄥ師濮嬭矾寰勪笂鏍规湰
+        // 杩涗笉鍒拌繖閲?PRIMARY KEY 宸叉嫆), 涓嶅睘浜庢湰娆′慨澶嶈瑙ｅ喅鐨勮寖鍥淬€?
         let row_id = tool_call_row_id(tool_call_id);
         self.add_thread_message(
             thread_id,

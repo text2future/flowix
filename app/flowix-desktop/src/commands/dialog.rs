@@ -1,15 +1,12 @@
-//! Dialog IPC — 原生 dialog + 附件保存 + 导出文件。
+//! Dialog IPC 鈥?鍘熺敓 dialog + 闄勪欢淇濆瓨 + 瀵煎嚭鏂囦欢銆?//!
+//! 7 涓?IPC:
+//! - `select_directory` / `select_files` / `save_file_dialog` 鈥?璧?tauri-plugin-dialog
+//! - `save_attachment` / `save_attachment_content` 鈥?鎷疯礉鍒?`<notebook>/attachments/`
+//! - `copy_attachment_file` 鈥?鎶婇檮浠跺鍒跺埌淇濆瓨瀵硅瘽妗嗛€変腑鐨勭洰鏍囪矾寰?//! - `write_export_file` 鈥?鍐欎换鎰忚矾寰?(鏃?scope guard, 椋庨櫓鐐?
 //!
-//! 7 个 IPC:
-//! - `select_directory` / `select_files` / `save_file_dialog` — 走 tauri-plugin-dialog
-//! - `save_attachment` / `save_attachment_content` — 拷贝到 `<notebook>/attachments/`
-//! - `copy_attachment_file` — 把附件复制到保存对话框选中的目标路径
-//! - `write_export_file` — 写任意路径 (无 scope guard, 风险点)
-//!
-//! 4 个域内 helper: `sanitize_attachment_file_name` / `unique_attachment_path`
-//! (注意: 这两个**不是**跨域, 所以放在本文件而不是 helpers.rs) /
-//! `base64_decode` / `write_bytes_to_path`。
-
+//! 4 涓煙鍐?helper: `sanitize_attachment_file_name` / `unique_attachment_path`
+//! (娉ㄦ剰: 杩欎袱涓?*涓嶆槸**璺ㄥ煙, 鎵€浠ユ斁鍦ㄦ湰鏂囦欢鑰屼笉鏄?helpers.rs) /
+//! `base64_decode` / `write_bytes_to_path`銆?
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,7 +20,7 @@ use crate::lock_utils::{read_lock, write_lock};
 use super::helpers::start_security_bookmark_access;
 use crate::app::state::AppState;
 
-// ==================== 域内 helper ====================
+// ==================== 鍩熷唴 helper ====================
 
 fn sanitize_attachment_file_name(name: &str) -> String {
     let leaf = Path::new(name)
@@ -112,7 +109,7 @@ fn write_bytes_to_path(file_path: &str, bytes: &[u8]) -> bool {
     fs::write(path, bytes).is_ok()
 }
 
-// ==================== IPC: 原生 dialog ====================
+// ==================== IPC: 鍘熺敓 dialog ====================
 
 #[tauri::command]
 pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
@@ -130,8 +127,8 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
         let state_handle = handle.clone();
         handle
             .run_on_main_thread(move || {
-                let result = crate::config::pick_directory_with_bookmark("选择笔记本文件夹").map(
-                    |(path, bookmark)| {
+                let result = crate::config::pick_directory_with_bookmark("閫夋嫨绗旇鏈枃浠跺す")
+                    .map(|(path, bookmark)| {
                         let state = state_handle.state::<AppState>();
                         if let Err(e) = state
                             .security_bookmarks
@@ -140,8 +137,7 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
                             tracing::warn!("[select_directory] failed to persist bookmark: {e}");
                         }
                         path
-                    },
-                );
+                    });
                 tx.send(result).ok();
             })
             .ok()?;
@@ -156,7 +152,7 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
         let result = handle
             .dialog()
             .file()
-            .set_title("选择笔记本文件夹")
+            .set_title("閫夋嫨绗旇鏈枃浠跺す")
             .blocking_pick_folder()
             .map(|p| p.to_string());
         tx.send(result).ok();
@@ -187,8 +183,8 @@ pub async fn select_files(app: tauri::AppHandle) -> Option<Vec<String>> {
                     "webm", "mov", "avi", "zip", "rar", "7z", "tar", "gz",
                 ],
             )
-            .set_title("选择图片")
-            .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
+            .set_title("閫夋嫨鍥剧墖")
+            .add_filter("鍥剧墖", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
             .add_filter("All files", &["*"])
             .blocking_pick_files()
             .map(|paths| paths.into_iter().map(|p| p.to_string()).collect());
@@ -218,7 +214,7 @@ pub async fn save_file_dialog(
         let mut builder = handle
             .dialog()
             .file()
-            .set_title("保存文件")
+            .set_title("淇濆瓨鏂囦欢")
             .set_file_name(&suggested);
 
         for filter in &filter_list {
@@ -239,7 +235,7 @@ pub async fn save_file_dialog(
     rx.recv().ok().flatten()
 }
 
-// ==================== IPC: 附件保存 ====================
+// ==================== IPC: 闄勪欢淇濆瓨 ====================
 
 #[tauri::command]
 pub async fn save_attachment(
@@ -356,10 +352,9 @@ pub async fn open_attachment_file(
         .map_err(|e| e.to_string())
 }
 
-// ==================== IPC: 导出 ====================
+// ==================== IPC: 瀵煎嚭 ====================
 
-/// 写任意路径 (无 scope guard) — 历史遗留: 导出功能不走 notebook 限制。
-/// 风险: 前端可以传任意路径。已在 caller 侧加 `expectedDirectory` 等弱校验。
+/// 鍐欎换鎰忚矾寰?(鏃?scope guard) 鈥?鍘嗗彶閬楃暀: 瀵煎嚭鍔熻兘涓嶈蛋 notebook 闄愬埗銆?/// 椋庨櫓: 鍓嶇鍙互浼犱换鎰忚矾寰勩€傚凡鍦?caller 渚у姞 `expectedDirectory` 绛夊急鏍￠獙銆?
 #[tauri::command]
 pub fn write_export_file(file_path: String, content: String) -> bool {
     write_bytes_to_path(&file_path, content.as_bytes())

@@ -31,6 +31,7 @@ export function AgentConversationOverlay({
   const { language, t } = useI18n();
   const [activeType, setActiveType] = useState<AgentConversationFilter>(initialAgentType);
   const instancesMap = useAgentConversationStore((state) => state.instances);
+  const threadStates = useChatStore((state) => state.threadStates);
   const instancesByType = useMemo(() => {
     const result = {} as Record<AgentTypeKey, AgentConversationInstance[]>;
     for (const type of AGENT_TYPES) {
@@ -160,7 +161,7 @@ export function AgentConversationOverlay({
               <div>
                 {activeInstances.map((instance) => {
                   const canOpen = Boolean(instance.source.memoId || instance.source.documentPath);
-                  const running = selectIsAgentConversationRunning(instance);
+                  const running = selectIsAgentConversationRunning(instance, threadStates);
                   return (
                     <button
                       key={instance.instanceId}

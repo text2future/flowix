@@ -414,12 +414,13 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(openPath).not.toHaveBeenCalled();
   });
 
-  it("uses the conversation run as the Thread Card footer running source", async () => {
+  it("uses thread runtime as the Thread Card footer running source", async () => {
     const { AgentThreadCard } =
       await import("@features/editor/extensions/agent-thread-card");
     const { useAgentConversationStore } = await import(
       "@features/agent/store/agent-conversation-store"
     );
+    const { useChatStore } = await import("@features/agent/store/chat-store");
     const threadId = "thread-card-conversation-run-source";
     const instance = useAgentConversationStore.getState().createInstance({
       agentType: "flowix",
@@ -427,9 +428,11 @@ describe("AgentThreadCard NodeView streaming", () => {
       threadId,
       source: { kind: "thread-card" },
     });
-    useAgentConversationStore.getState().markRunStarted(instance.instanceId, {
-      runId: "run-conversation-source",
-      startedAt: Date.now(),
+    useChatStore.getState().dispatchAgentChunk({
+      kind: "stream_start",
+      thread_id: threadId,
+      run_id: "run-conversation-source",
+      agent_type: "flowix",
     });
 
     const host = document.createElement("div");

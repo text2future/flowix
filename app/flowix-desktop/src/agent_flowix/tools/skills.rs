@@ -1,11 +1,11 @@
-//! `load_skill` tool — pulls a registered skill's full body on demand.
+//! `load_skill` tool 鈥?pulls a registered skill's full body on demand.
 //!
 //! Mirrors the structure of `notebook.rs` (file-level `TOOL_NAME` const +
 //! `*_tool()` constructor + free `execute_tool()` function). Registered in
 //! `super::get_all_tools()` and dispatched from `super::execute_tool()`.
 //!
 //! The agent's system prompt lists every available skill as
-//! `- \`<name>\` — <short_description>` so the LLM knows which names to
+//! `- \`<name>\` 鈥?<short_description>` so the LLM knows which names to
 //! pass here. On unknown names the handler returns a sorted "Available: [...]"
 //! list so the LLM can self-correct without losing its turn.
 
@@ -21,7 +21,7 @@ pub const TOOL_NAME: &str = "load_skill";
 pub fn load_skill_tool() -> Tool {
     function_tool(
         TOOL_NAME,
-        "Load a registered skill's full instructions by name. The system prompt lists every available skill as `- `<name>` — <short_description>`; call this tool when a task matches one of them. Returns `{name, description, origin, body}` where `body` is the full markdown body (frontmatter already stripped). Use the returned instructions verbatim — do not paraphrase.",
+        "Load a registered skill's full instructions by name. The system prompt lists every available skill as `- `<name>` 鈥?<short_description>`; call this tool when a task matches one of them. Returns `{name, description, origin, body}` where `body` is the full markdown body (frontmatter already stripped). Use the returned instructions verbatim 鈥?do not paraphrase.",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -45,7 +45,7 @@ pub async fn execute_tool(skill_store: &SkillStore, arguments: &str) -> ToolResu
         Ok(a) => a,
         Err(e) => {
             return ToolResult::error(format!(
-                "load_skill: invalid arguments — expected {{\"name\": \"<skill_name>\"}}: {e}"
+                "load_skill: invalid arguments 鈥?expected {{\"name\": \"<skill_name>\"}}: {e}"
             ))
         }
     };
@@ -70,7 +70,7 @@ pub async fn execute_tool(skill_store: &SkillStore, arguments: &str) -> ToolResu
         }
         None => {
             // Sorted list so the LLM can pick without guessing. If the store
-            // is completely empty, surface that explicitly — calling
+            // is completely empty, surface that explicitly 鈥?calling
             // load_skill on an empty system should never silently succeed.
             let names = skill_store.summaries();
             let available = if names.is_empty() {

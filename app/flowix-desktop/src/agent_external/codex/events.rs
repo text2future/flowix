@@ -70,7 +70,7 @@ enum CodexEvent {
 
 /// Token usage snapshot emitted by Codex `event_msg:token_count`.
 /// Internal representation that aggregates `event_msg:token_count`,
-/// `turn.completed.usage`, and `turn_context` payload — used to build the
+/// `turn.completed.usage`, and `turn_context` payload 鈥?used to build the
 /// wire-format [`UsageInfo`] + [`StatusInfo`] + top-level metadata chunks.
 ///
 /// `prompt_tokens` / `completion_tokens` are kept here as parse-time helpers
@@ -97,9 +97,9 @@ pub fn codex_event_to_chunks(thread_id: &str, value: &Value) -> Vec<AgentChunk> 
     match parse_codex_event(value) {
         CodexEvent::Lifecycle { usage: None } | CodexEvent::Unknown => Vec::new(),
         CodexEvent::Lifecycle { usage: Some(usage) } => {
-            // 通用 metadata 协议 ── 透传给前端, 累加到 run / thread。
-            // token 字段走嵌套 `UsageInfo`,codex plan 信息走嵌套 `StatusInfo`,
-            // model_id / last_run_at 留在顶层。
+            // 閫氱敤 metadata 鍗忚 鈹€鈹€ 閫忎紶缁欏墠绔? 绱姞鍒?run / thread銆?
+            // token 瀛楁璧板祵濂?`UsageInfo`,codex plan 淇℃伅璧板祵濂?`StatusInfo`,
+            // model_id / last_run_at 鐣欏湪椤跺眰銆?
             vec![AgentChunk::Usage {
                 thread_id: thread_id.to_string(),
                 model_id: usage.model_id,
@@ -1192,6 +1192,62 @@ mod tests {
                 }),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn maps_codex_stdout_contract_fixture_to_expected_chunks() {
+        let chunks: Vec<AgentChunk> = include_str!("../fixtures/codex_stdout_contract.jsonl")
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .flat_map(|line| {
+                let value: Value = serde_json::from_str(line).expect("fixture line is valid JSON");
+                codex_event_to_chunks("thread_contract", &value)
+            })
+            .collect();
+
+        assert_eq!(chunks.len(), 6);
+        assert!(matches!(
+            &chunks[0],
+            AgentChunk::ToolCall { id, name, input, .. }
+                if id == "item_cmd_1"
+                    && name == "command_execution"
+                    && input.get("command").and_then(Value::as_str) == Some("bash -lc pwd")
+        ));
+        assert!(matches!(
+            &chunks[1],
+            AgentChunk::ToolResult { id, name, result, .. }
+                if id == "item_cmd_1"
+                    && name == "command_execution"
+                    && result.get("output_preview").and_then(Value::as_str)
+                        == Some("/tmp/flowix\n")
+        ));
+        assert!(matches!(
+            &chunks[2],
+            AgentChunk::Reasoning { text, .. }
+                if text == "Need inspect workspace before answering."
+        ));
+        assert!(matches!(
+            &chunks[3],
+            AgentChunk::Text { text, .. } if text == "The workspace is /tmp/flowix."
+        ));
+        assert!(matches!(
+            &chunks[4],
+            AgentChunk::Usage {
+                usage: Some(crate::agent_types::UsageInfo {
+                    input_tokens: Some(120),
+                    cached_input_tokens: Some(40),
+                    output_tokens: Some(16),
+                    reasoning_output_tokens: Some(4),
+                    total_tokens: Some(140),
+                    ..
+                }),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &chunks[5],
+            AgentChunk::Error { message, .. } if message == "fatal transport error"
         ));
     }
 

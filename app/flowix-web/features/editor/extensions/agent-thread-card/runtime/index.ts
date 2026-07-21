@@ -5,7 +5,6 @@ export {
 } from "./agent-thread-card-runtime-controller";
 export {
   computeAgentThreadCardBadgeData,
-  getConversationRunLastRunAt,
   renderAgentThreadCardMetaState,
   type AgentThreadCardBadgeData,
 } from "./run-status-presenter";

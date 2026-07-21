@@ -1,22 +1,20 @@
 /**
- * 覆盖 "重启产品后, 已存在的 thread card resume 时 cwd 缺失" 这条修复路径.
+ * 瑕嗙洊 "閲嶅惎浜у搧鍚? 宸插瓨鍦ㄧ殑 thread card resume 鏃?cwd 缂哄け" 杩欐潯淇璺緞.
  *
- * 关键不变量:
- *   buildInitialInstanceRuntimeConfig() 必返回:
- *     - cwd: 同步可读 selectedNotebook.path (即使 agent-access-store
- *       还在 EMPTY_CONFIG 状态 ── 启动 race 窗口内的真实场景)
- *     - files.notebooks / files.folders: 从 agentAccessStore.enabled
- *       entries 派生
+ * 鍏抽敭涓嶅彉閲?
+ *   buildInitialInstanceRuntimeConfig() 蹇呰繑鍥?
+ *     - cwd: 鍚屾鍙 selectedNotebook.path (鍗充娇 agent-access-store
+ *       杩樺湪 EMPTY_CONFIG 鐘舵€?鈹€鈹€ 鍚姩 race 绐楀彛鍐呯殑鐪熷疄鍦烘櫙)
+ *     - files.notebooks / files.folders: 浠?agentAccessStore.enabled
+ *       entries 娲剧敓
  *
- * 这是 instance 创建瞬间的 snapshot; 老 instance 的 backfill 走同一份
- * helper 同步落 SQLite, 见 `agent-conversation-store.ts::backfillMissingRuntimeConfig`.
+ * 杩欐槸 instance 鍒涘缓鐬棿鐨?snapshot; 鑰?instance 鐨?backfill 璧板悓涓€浠? * helper 鍚屾钀?SQLite, 瑙?`agent-conversation-store.ts::backfillMissingRuntimeConfig`.
  *
- * 测试策略: 通过 `vi.mock` 把 store 切到 test 控制下 ── 避免 chat-store
- * / memo-store 引发的 tauri-side 副作用 (`listen` 等) 误打断测试。
- */
+ * 娴嬭瘯绛栫暐: 閫氳繃 `vi.mock` 鎶?store 鍒囧埌 test 鎺у埗涓?鈹€鈹€ 閬垮厤 chat-store
+ * / memo-store 寮曞彂鐨?tauri-side 鍓綔鐢?(`listen` 绛? 璇墦鏂祴璇曘€? */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// 用 vi.hoisted 让 mocks 在文件顶层 hoist 后注入 ── 这是 vitest 通用模式.
+// 鐢?vi.hoisted 璁?mocks 鍦ㄦ枃浠堕《灞?hoist 鍚庢敞鍏?鈹€鈹€ 杩欐槸 vitest 閫氱敤妯″紡.
 const memoStateMock = vi.hoisted(() => ({
   selectedNotebook: null as null | { id: string; path: string } | unknown,
 }));
@@ -62,16 +60,16 @@ vi.mock("@features/agent/store/agent-conversation-store", () => ({
       messageStates: conversationStateMock.messageStates,
     }),
     setState: (updater: unknown) => {
-      // Tests 调用 setState({ instances: {...}, messageStates: {...} }) (object 形式)
-      // 时把 partial 合并进 conversationStateMock。
+      // Tests 璋冪敤 setState({ instances: {...}, messageStates: {...} }) (object 褰㈠紡)
+      // 鏃舵妸 partial 鍚堝苟杩?conversationStateMock銆?    
       if (typeof updater === "object" && updater !== null) {
         const patch = updater as {
           instances?: Record<string, unknown>;
           messageStates?: Record<string, unknown>;
         };
         if (patch.instances) {
-          // 把 patch.instances 为空的视为 reset ── beforeEach 必须真清空,
-          // 否则上一次的 instance 会污染下一条 case.
+          // 鎶?patch.instances 涓虹┖鐨勮涓?reset 鈹€鈹€ beforeEach 蹇呴』鐪熸竻绌?
+          // 鍚﹀垯涓婁竴娆＄殑 instance 浼氭薄鏌撲笅涓€鏉?case.
           if (Object.keys(patch.instances).length === 0) {
             conversationStateMock.instances = {};
           } else {
@@ -140,41 +138,40 @@ describe("buildInitialInstanceRuntimeConfig", () => {
     accessStateMock.config = { version: 1, entries: [] };
   });
 
-  it("selectedNotebook 已 hydrate 时, 给出 cwd + 一致 cwd 顶层字段", async () => {
+  it("selectedNotebook 宸?hydrate 鏃? 缁欏嚭 cwd + 涓€鑷?cwd 椤跺眰瀛楁", async () => {
     memoStateMock.selectedNotebook = {
       id: "nb-1",
-      path: "/Users/rop/Desktop/Notes/菜谱",
+      path: "/Users/rop/Desktop/Notes/鑿滆氨",
     };
     const { buildInitialInstanceRuntimeConfig } =
       await import("@features/agent/store/initial-runtime-config");
 
     const config = buildInitialInstanceRuntimeConfig();
 
-    expect(config.cwd).toBe("/Users/rop/Desktop/Notes/菜谱");
-    expect(config.files?.workspace).toBe("/Users/rop/Desktop/Notes/菜谱");
-    // selectedNotebook 没进 agent-access-store entries 时, files.notebooks
-    // 不会自动 unshift, 但 files.workspace 仍是 cwd. 这是与
-    // buildAgentRuntimeConfig 的设计一致 ── workspace 字段单独管主目录,
-    // folders/notebooks 是用户主动加进 access 的 entries.
+    expect(config.cwd).toBe("/Users/rop/Desktop/Notes/鑿滆氨");
+    expect(config.files?.workspace).toBe("/Users/rop/Desktop/Notes/鑿滆氨");
+    // selectedNotebook 娌¤繘 agent-access-store entries 鏃? files.notebooks
+    // 涓嶄細鑷姩 unshift, 浣?files.workspace 浠嶆槸 cwd. 杩欐槸涓?    // buildAgentRuntimeConfig 鐨勮璁′竴鑷?鈹€鈹€ workspace 瀛楁鍗曠嫭绠′富鐩綍,
+    // folders/notebooks 鏄敤鎴蜂富鍔ㄥ姞杩?access 鐨?entries.
     expect(config.files?.notebooks).toEqual([]);
     expect(config.files?.folders).toEqual([]);
   });
 
-  it("selectedNotebook 还没 hydrate (启动 race) 时, 不抛错而返回 cwd=undefined, files 空", async () => {
+  it("selectedNotebook 杩樻病 hydrate (鍚姩 race) 鏃? 涓嶆姏閿欒€岃繑鍥?cwd=undefined, files 绌?", async () => {
     const { buildInitialInstanceRuntimeConfig } =
       await import("@features/agent/store/initial-runtime-config");
 
     const config = buildInitialInstanceRuntimeConfig();
 
-    // 这是启动 race 窗口内的真实场景. helper 必须不抛错, 允许
-    // 兜底链 (userPayload.systemReminderDirectory / Rust session cwd) 兜住.
+    // 杩欐槸鍚姩 race 绐楀彛鍐呯殑鐪熷疄鍦烘櫙. helper 蹇呴』涓嶆姏閿? 鍏佽
+    // 鍏滃簳閾?(userPayload.systemReminderDirectory / Rust session cwd) 鍏滀綇.
     expect(config.cwd).toBeUndefined();
     expect(config.files?.workspace).toBeUndefined();
     expect(config.files?.notebooks).toEqual([]);
     expect(config.files?.folders).toEqual([]);
   });
 
-  it("agent-access 已有 enabled entries 时, 派生到 folders / notebooks", async () => {
+  it("agent-access 宸叉湁 enabled entries 鏃? 娲剧敓鍒?folders / notebooks", async () => {
     accessStateMock.config = {
       version: 1,
       entries: [
@@ -197,13 +194,13 @@ describe("buildInitialInstanceRuntimeConfig", () => {
           id: "missing",
           kind: "folder",
           path: "/Users/rop/Desktop/ghost",
-          missing: true, // missing → skip
+          missing: true, // missing 鈫?skip
         }),
         makeEntry({
           id: "disabled",
           kind: "folder",
           path: "/Users/rop/Desktop/disabled",
-          enabled: false, // disabled → skip
+          enabled: false, // disabled 鈫?skip
         }),
       ],
     };
@@ -216,7 +213,7 @@ describe("buildInitialInstanceRuntimeConfig", () => {
     expect(config.files?.notebooks).toEqual(["/Users/rop/Desktop/Notes"]);
   });
 
-  it("normalizeWorkspacePath 处理尾部斜杠, 避免 cwd 拼接漂移", async () => {
+  it("normalizeWorkspacePath 澶勭悊灏鹃儴鏂滄潬, 閬垮厤 cwd 鎷兼帴婕傜Щ", async () => {
     memoStateMock.selectedNotebook = {
       id: "nb-1",
       path: "/Users/rop/Desktop/misc/",
@@ -230,21 +227,21 @@ describe("buildInitialInstanceRuntimeConfig", () => {
     expect(config.files?.workspace).toBe("/Users/rop/Desktop/misc");
   });
 });
-describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
+describe("buildInitialInstanceRuntimeConfig 鈥?frozen seed flow", () => {
   beforeEach(() => {
     memoStateMock.selectedNotebook = null;
     accessStateMock.config = { version: 1, entries: [] };
-    // 清空 conversation store (hydrated state 容易污染跨 describe block)
+    // 娓呯┖ conversation store (hydrated state 瀹规槗姹℃煋璺?describe block)
     useAgentConversationStore.setState({
       instances: {},
       messageStates: {},
     });
   });
 
-  it("没冻结 instance 时, 走 selectedNotebook + agent-access 派生 (原行为)", async () => {
+  it("娌″喕缁?instance 鏃? 璧?selectedNotebook + agent-access 娲剧敓 (鍘熻涓?", async () => {
     memoStateMock.selectedNotebook = {
       id: "nb-1",
-      path: "/Users/rop/Desktop/Notes/菜谱",
+      path: "/Users/rop/Desktop/Notes/鑿滆氨",
     };
     accessStateMock.config = {
       version: 1,
@@ -259,7 +256,7 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
         {
           id: "n-1",
           kind: "notebook",
-          path: "/Users/rop/Desktop/Notes/学习笔记",
+          path: "/Users/rop/Desktop/Notes/瀛︿範绗旇",
           enabled: true,
           missing: false,
         },
@@ -269,13 +266,13 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
       await import("@features/agent/store/initial-runtime-config");
 
     const config = buildInitialInstanceRuntimeConfig();
-    expect(config.cwd).toBe("/Users/rop/Desktop/Notes/菜谱");
-    expect(config.files?.workspace).toBe("/Users/rop/Desktop/Notes/菜谱");
+    expect(config.cwd).toBe("/Users/rop/Desktop/Notes/鑿滆氨");
+    expect(config.files?.workspace).toBe("/Users/rop/Desktop/Notes/鑿滆氨");
     expect(config.files?.folders).toEqual(["/Users/rop/Desktop/folder-1"]);
-    expect(config.files?.notebooks).toEqual(["/Users/rop/Desktop/Notes/学习笔记"]);
+    expect(config.files?.notebooks).toEqual(["/Users/rop/Desktop/Notes/瀛︿範绗旇"]);
   });
 
-  it("已有冻结 instance 的 workspace 时, 优先用冻结值而不是 selectedNotebook", async () => {
+  it("宸叉湁鍐荤粨 instance 鐨?workspace 鏃? 浼樺厛鐢ㄥ喕缁撳€艰€屼笉鏄?selectedNotebook", async () => {
     useAgentConversationStore.setState({
       instances: {
         "inst-a": {
@@ -293,7 +290,6 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
           },
           source: { kind: "thread-card" },
           role: null,
-          run: null,
           createdAt: 1,
           updatedAt: 100,
         },
@@ -313,7 +309,7 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
     expect(config.files?.workspace).toBe("D:\\user-set");
   });
 
-  it("多个 instance 时, 取最近 updatedAt 的冻结 instance 作种子", async () => {
+  it("澶氫釜 instance 鏃? 鍙栨渶杩?updatedAt 鐨勫喕缁?instance 浣滅瀛?", async () => {
     useAgentConversationStore.setState({
       instances: {
         "inst-old": {
@@ -331,7 +327,6 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
           },
           source: { kind: "thread-card" },
           role: null,
-          run: null,
           createdAt: 1,
           updatedAt: 50,
         },
@@ -350,7 +345,6 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
           },
           source: { kind: "thread-card" },
           role: null,
-          run: null,
           createdAt: 1,
           updatedAt: 200,
         },
@@ -368,7 +362,6 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
           },
           source: { kind: "thread-card" },
           role: null,
-          run: null,
           createdAt: 1,
           updatedAt: 1000,
         },
@@ -383,7 +376,7 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
     expect(config.cwd).toBe("D:\\newer-set");
   });
 
-  it("冻结种子的 folders 与全局 enabled folders 取并集去重", async () => {
+  it("鍐荤粨绉嶅瓙鐨?folders 涓庡叏灞€ enabled folders 鍙栧苟闆嗗幓閲?", async () => {
     useAgentConversationStore.setState({
       instances: {
         "inst-a": {
@@ -401,7 +394,6 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
           },
           source: { kind: "thread-card" },
           role: null,
-          run: null,
           createdAt: 1,
           updatedAt: 100,
         },
@@ -449,7 +441,7 @@ describe("buildInitialInstanceRuntimeConfig — frozen seed flow", () => {
     ]);
   });
 });
-describe("buildInitialInstanceRuntimeConfig — backfill 同源 (回归)", () => {
+describe("buildInitialInstanceRuntimeConfig 鈥?backfill 鍚屾簮 (鍥炲綊)", () => {
   beforeEach(() => {
     memoStateMock.selectedNotebook = null;
     accessStateMock.config = { version: 1, entries: [] };
@@ -457,8 +449,8 @@ describe("buildInitialInstanceRuntimeConfig — backfill 同源 (回归)", () =>
     conversationStateMock.messageStates = {};
   });
 
-  it("backfill 调用与新建 instance 拿到相同的 seed - 与 selectLatestFrozenFileSeed 直接调用一致", async () => {
-    // 设一个 frozen instance (workspace: D:\\frozen-set, folders: [D:\\seed-folder])
+  it("backfill 璋冪敤涓庢柊寤?instance 鎷垮埌鐩稿悓鐨?seed - 涓?selectLatestFrozenFileSeed 鐩存帴璋冪敤涓€鑷?", async () => {
+    // 璁句竴涓?frozen instance (workspace: D:\\frozen-set, folders: [D:\\seed-folder])
     conversationStateMock.instances = {
       "inst-frozen": {
         instanceId: "inst-frozen",
@@ -475,7 +467,6 @@ describe("buildInitialInstanceRuntimeConfig — backfill 同源 (回归)", () =>
         },
         source: { kind: "thread-card" },
         role: null,
-        run: null,
         createdAt: 1,
         updatedAt: 100,
       },
@@ -484,8 +475,8 @@ describe("buildInitialInstanceRuntimeConfig — backfill 同源 (回归)", () =>
     const { buildInitialInstanceRuntimeConfig } =
       await import("@features/agent/store/initial-runtime-config");
 
-    // 这条是 extension insertAgentThreadCard 与 view ensureInstanceBinding
-    // 共用的"新建 instance" path ── 直接复用同一 helper.
+    // 杩欐潯鏄?extension insertAgentThreadCard 涓?view ensureInstanceBinding
+    // 鍏辩敤鐨?鏂板缓 instance" path 鈹€鈹€ 鐩存帴澶嶇敤鍚屼竴 helper.
     const config = buildInitialInstanceRuntimeConfig();
 
     expect(config.cwd).toBe("D:\\frozen-set");
@@ -494,7 +485,7 @@ describe("buildInitialInstanceRuntimeConfig — backfill 同源 (回归)", () =>
   });
 });
 import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
-describe("buildInitialInstanceRuntimeConfig — extension.insertAgentThreadCard 等价路径", () => {
+describe("buildInitialInstanceRuntimeConfig 鈥?extension.insertAgentThreadCard 绛変环璺緞", () => {
   beforeEach(() => {
     memoStateMock.selectedNotebook = null;
     accessStateMock.config = { version: 1, entries: [] };
@@ -502,8 +493,8 @@ describe("buildInitialInstanceRuntimeConfig — extension.insertAgentThreadCard 
     conversationStateMock.messageStates = {};
   });
 
-  it("worker 默认 cwd = 'D:\\user-pinned' 时, 新 instance 的 workspace 等于它", async () => {
-    // 模拟 worker 已结过 workspace = D:\\user-pinned, 没修改 folders/notebooks
+  it("worker 榛樿 cwd = 'D:\\user-pinned' 鏃? 鏂?instance 鐨?workspace 绛変簬瀹?", async () => {
+    // 妯℃嫙 worker 宸茬粨杩?workspace = D:\\user-pinned, 娌′慨鏀?folders/notebooks
     conversationStateMock.instances = {
       "inst-a": {
         instanceId: "inst-a",
@@ -520,13 +511,12 @@ describe("buildInitialInstanceRuntimeConfig — extension.insertAgentThreadCard 
         },
         source: { kind: "thread-card" },
         role: null,
-        run: null,
         createdAt: 1,
         updatedAt: 200,
       },
     };
 
-    // 同时 selectedNotebook 是某个别的值, 不能覆盖 frozen
+    // 鍚屾椂 selectedNotebook 鏄煇涓埆鐨勫€? 涓嶈兘瑕嗙洊 frozen
     memoStateMock.selectedNotebook = {
       id: "nb-other",
       path: "D:\\another-notebook",
@@ -538,13 +528,13 @@ describe("buildInitialInstanceRuntimeConfig — extension.insertAgentThreadCard 
 
     expect(config.cwd).toBe("D:\\user-pinned");
     expect(config.files?.workspace).toBe("D:\\user-pinned");
-    // folders/notebooks 取并集
+    // folders/notebooks 鍙栧苟闆?  
     expect(config.files?.folders).toContain("D:\\a-folder");
     expect(config.files?.notebooks).toContain("D:\\a-notebook");
   });
 
-  it("worker 未冻结, 走 selectedNotebook + 第一个 enabled folder", async () => {
-    // selectedNotebook 已 hydrate, 是只读的「选中」语义来源
+  it("worker 鏈喕缁? 璧?selectedNotebook + 绗竴涓?enabled folder", async () => {
+    // selectedNotebook 宸?hydrate, 鏄彧璇荤殑銆岄€変腑銆嶈涔夋潵婧?
     memoStateMock.selectedNotebook = {
       id: "nb-1",
       path: "D:\\current",
@@ -566,10 +556,13 @@ describe("buildInitialInstanceRuntimeConfig — extension.insertAgentThreadCard 
       await import("@features/agent/store/initial-runtime-config");
     const config = buildInitialInstanceRuntimeConfig();
 
-    // 没冻结 → workspace 取 selectedNotebook
+    // 娌″喕缁?鈫?workspace 鍙?selectedNotebook
     expect(config.cwd).toBe("D:\\current");
     expect(config.files?.workspace).toBe("D:\\current");
-    // folders 还是从 enabled 拿
+    // folders 杩樻槸浠?enabled 鎷?  
     expect(config.files?.folders).toEqual(["D:\\flowix"]);
   });
 });
+
+
+

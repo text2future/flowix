@@ -1,12 +1,9 @@
-//! Notebook IPC — 增删改查 + 切换当前 notebook。
-//!
-//! `set_current_notebook` 走 `switch_notebook_and_rebuild` helper, 触发
-//! watcher rebind + 磁盘对账 + 后台索引 rebuild。
-//!
-//! 增 / 改 / 删 / 清空 四个写操作都会同步更新 `agent_access` store
-//! (`~/.flowix/agent-access.json`), 任何 entry 真改了之后 emit
-//! `agent-access-changed` 事件, 其它窗口 React 树收到后从磁盘重新 load。
-
+//! Notebook IPC 鈥?澧炲垹鏀规煡 + 鍒囨崲褰撳墠 notebook銆?//!
+//! `set_current_notebook` 璧?`switch_notebook_and_rebuild` helper, 瑙﹀彂
+//! watcher rebind + 纾佺洏瀵硅处 + 鍚庡彴绱㈠紩 rebuild銆?//!
+//! 澧?/ 鏀?/ 鍒?/ 娓呯┖ 鍥涗釜鍐欐搷浣滈兘浼氬悓姝ユ洿鏂?`agent_access` store
+//! (`~/.flowix/agent-access.json`), 浠讳綍 entry 鐪熸敼浜嗕箣鍚?emit
+//! `agent-access-changed` 浜嬩欢, 鍏跺畠绐楀彛 React 鏍戞敹鍒板悗浠庣鐩橀噸鏂?load銆?
 use crate::events as dispatcher;
 use serde::Serialize;
 use std::path::Path;
@@ -22,8 +19,8 @@ use super::helpers::{
 use crate::app::state::AppState;
 
 const NOTEBOOK_IMPORT_COMPLETE_EVENT: &str = "notebook-import-complete";
-/// 笔记本列表发生变化 (reorder / create / update / delete) 时 emit, 其它窗口
-/// store 监听后 reload。前端 TS 类型 `notebooks-changed` 事件 payload 为 unit。
+/// 绗旇鏈垪琛ㄥ彂鐢熷彉鍖?(reorder / create / update / delete) 鏃?emit, 鍏跺畠绐楀彛
+/// store 鐩戝惉鍚?reload銆傚墠绔?TS 绫诲瀷 `notebooks-changed` 浜嬩欢 payload 涓?unit銆?
 pub(crate) const NOTEBOOKS_CHANGED_EVENT: &str = "notebooks-changed";
 const NOTEBOOK_IMPORT_STATUS_EVENT: &str = "notebook-import-status";
 
@@ -122,9 +119,8 @@ fn create_notebook_registry(
         normalized_path
     );
 
-    // 创建顺序: 1) 先读现有 configs 验证路径不冲突; 2) 算 next sort;
-    // 3) 组装 NotebookConfig 写盘。sort 取 MAX(sort)+10 让新行落到末尾
-    // (ORDER BY sort ASC), 不取 len 是因为 reorder 后 sort 是稀疏的。
+    // 鍒涘缓椤哄簭: 1) 鍏堣鐜版湁 configs 楠岃瘉璺緞涓嶅啿绐? 2) 绠?next sort;
+    // 3) 缁勮 NotebookConfig 鍐欑洏銆俿ort 鍙?MAX(sort)+10 璁╂柊琛岃惤鍒版湯灏?    // (ORDER BY sort ASC), 涓嶅彇 len 鏄洜涓?reorder 鍚?sort 鏄█鐤忕殑銆?
     let mut configs = memo_file.read_notebook_configs().unwrap_or_default();
     if configs
         .iter()
@@ -155,8 +151,7 @@ fn create_notebook_registry(
 }
 
 fn sync_notebook_agent_access(config: &NotebookConfig, state: &AppState, app: &AppHandle) {
-    // 同步往 agent_access 列表里加一条 (默认 enabled), 写盘后才算
-    // 同步完成 ── store 内部走原子写, 失败会回滚内存。
+    // 鍚屾寰€ agent_access 鍒楄〃閲屽姞涓€鏉?(榛樿 enabled), 鍐欑洏鍚庢墠绠?    // 鍚屾瀹屾垚 鈹€鈹€ store 鍐呴儴璧板師瀛愬啓, 澶辫触浼氬洖婊氬唴瀛樸€?
     if state.agent_access.add_or_update_notebook(config) {
         dispatcher::emit_to(app, AGENT_ACCESS_CHANGED_EVENT, ());
     }
@@ -201,7 +196,7 @@ fn run_notebook_import(app: AppHandle, notebook_id: String) {
         }
     }
 
-    // 空目录也写出空 memo index, 让"新建 notebook 已建立索引"这个状态可观察。
+    // 绌虹洰褰曚篃鍐欏嚭绌?memo index, 璁?鏂板缓 notebook 宸插缓绔嬬储寮?杩欎釜鐘舵€佸彲瑙傚療銆?
     {
         let memo_file = read_lock(&app_state.memo_file, "memo_file");
         tracing::info!(
@@ -334,7 +329,7 @@ pub fn update_notebook(
     let updated = configs[index].clone();
     drop(memo_file);
 
-    // 名字 / 路径变更都同步到 agent_access ── store 自己判定是否真改。
+    // 鍚嶅瓧 / 璺緞鍙樻洿閮藉悓姝ュ埌 agent_access 鈹€鈹€ store 鑷繁鍒ゅ畾鏄惁鐪熸敼銆?
     if state.agent_access.add_or_update_notebook(&updated) {
         dispatcher::emit_to(&app, AGENT_ACCESS_CHANGED_EVENT, ());
     }
@@ -368,8 +363,7 @@ pub fn delete_notebook(id: String, state: State<AppState>, app: AppHandle) -> Re
         .write_notebook_configs(&configs)
         .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
 
-    // 同步把对应的 agent_access entry 也删了, 状态栏的"文件权限"子菜单
-    // 会少一行 ── 用户没主动去勾选, 不应该留个孤儿在那里。
+    // 鍚屾鎶婂搴旂殑 agent_access entry 涔熷垹浜? 鐘舵€佹爮鐨?鏂囦欢鏉冮檺"瀛愯彍鍗?    // 浼氬皯涓€琛?鈹€鈹€ 鐢ㄦ埛娌′富鍔ㄥ幓鍕鹃€? 涓嶅簲璇ョ暀涓鍎垮湪閭ｉ噷銆?
     if state.agent_access.remove_notebook(&id) {
         dispatcher::emit_to(&app, AGENT_ACCESS_CHANGED_EVENT, ());
     }
@@ -377,13 +371,8 @@ pub fn delete_notebook(id: String, state: State<AppState>, app: AppHandle) -> Re
     Ok(true)
 }
 
-/// Reorder 客户端传来的 sort 列表。
-///
-/// - 前端发 `Vec<NotebookSortEntry>` 表达 "新顺序: 这个 id 的 sort 应是这个值"。
-/// - 不在该列表中的 notebook id 保留原 sort 不动 (后端不擅自重排未参与 reorder 的行)。
-/// - 写入事务; 失败回滚并返回 `Err(String)`, 跨 IPC 约定错误走 String。
-/// - 写完返回最新 `Vec<Notebook>`, 前端 store 直接 setState 即可。
-/// - 跨窗口事件: `NOTEBOOKS_CHANGED_EVENT` 让其它窗口 reload。
+/// Reorder 瀹㈡埛绔紶鏉ョ殑 sort 鍒楄〃銆?///
+/// - 鍓嶇鍙?`Vec<NotebookSortEntry>` 琛ㄨ揪 "鏂伴『搴? 杩欎釜 id 鐨?sort 搴旀槸杩欎釜鍊?銆?/// - 涓嶅湪璇ュ垪琛ㄤ腑鐨?notebook id 淇濈暀鍘?sort 涓嶅姩 (鍚庣涓嶆搮鑷噸鎺掓湭鍙備笌 reorder 鐨勮)銆?/// - 鍐欏叆浜嬪姟; 澶辫触鍥炴粴骞惰繑鍥?`Err(String)`, 璺?IPC 绾﹀畾閿欒璧?String銆?/// - 鍐欏畬杩斿洖鏈€鏂?`Vec<Notebook>`, 鍓嶇 store 鐩存帴 setState 鍗冲彲銆?/// - 璺ㄧ獥鍙ｄ簨浠? `NOTEBOOKS_CHANGED_EVENT` 璁╁叾瀹冪獥鍙?reload銆?
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookSortEntry {
@@ -399,7 +388,7 @@ pub fn reorder_notebooks(
 ) -> Result<Vec<Notebook>, String> {
     let memo_file = write_lock(&state.memo_file, "memo_file");
 
-    // 防御: order 为空直接 no-op (前端误传空数组时保留语义一致, 不动磁盘)。
+    // 闃插尽: order 涓虹┖鐩存帴 no-op (鍓嶇璇紶绌烘暟缁勬椂淇濈暀璇箟涓€鑷? 涓嶅姩纾佺洏)銆?
     if order.is_empty() {
         let configs = memo_file
             .read_notebook_configs()
@@ -407,9 +396,8 @@ pub fn reorder_notebooks(
         return Ok(configs.into_iter().map(notebook_from_config).collect());
     }
 
-    // 把客户端发来的 (id, sort) 合并到现有 NotebookConfig: 保留每个 notebook
-    // 的 name / icon / path / is_default / created_at / updated_at, 仅覆写 sort。
-    // 未出现在 order 里的 notebook 保持原 sort (后端不擅自重排)。
+    // 鎶婂鎴风鍙戞潵鐨?(id, sort) 鍚堝苟鍒扮幇鏈?NotebookConfig: 淇濈暀姣忎釜 notebook
+    // 鐨?name / icon / path / is_default / created_at / updated_at, 浠呰鍐?sort銆?    // 鏈嚭鐜板湪 order 閲岀殑 notebook 淇濇寔鍘?sort (鍚庣涓嶆搮鑷噸鎺?銆?
     let mut configs = memo_file
         .read_notebook_configs()
         .map_err(|e| format!("INDEX_READ_FAILED: {e}"))?;
@@ -427,7 +415,7 @@ pub fn reorder_notebooks(
         .write_notebook_configs(&configs)
         .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
 
-    // read_notebook_configs 内部会回填 memo_file 缓存; 再读一次拿到 ORDER BY sort 的最新顺序。
+    // read_notebook_configs 鍐呴儴浼氬洖濉?memo_file 缂撳瓨; 鍐嶈涓€娆℃嬁鍒?ORDER BY sort 鐨勬渶鏂伴『搴忋€?
     let updated = memo_file
         .read_notebook_configs()
         .map_err(|e| format!("INDEX_READ_FAILED: {e}"))?;
@@ -435,10 +423,8 @@ pub fn reorder_notebooks(
 
     let notebooks: Vec<Notebook> = updated.into_iter().map(notebook_from_config).collect();
 
-    // 跨窗口同步: 让其它窗口 reload。NOTEBOOKS_CHANGED_EVENT 走 dispatcher::emit_to
-    // (跟 AGENT_ACCESS_CHANGED_EVENT / tag-system-changed 同款)。本窗口前端 store 也
-    // 通过 IPC 返回值更新, 这里只发事件给其它窗口即可。
-    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
+    // 璺ㄧ獥鍙ｅ悓姝? 璁╁叾瀹冪獥鍙?reload銆侼OTEBOOKS_CHANGED_EVENT 璧?dispatcher::emit_to
+    // (璺?AGENT_ACCESS_CHANGED_EVENT / tag-system-changed 鍚屾)銆傛湰绐楀彛鍓嶇 store 涔?    // 閫氳繃 IPC 杩斿洖鍊兼洿鏂? 杩欓噷鍙彂浜嬩欢缁欏叾瀹冪獥鍙ｅ嵆鍙€?    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
     Ok(notebooks)
 }
 
@@ -452,7 +438,7 @@ pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> bool {
     let ok = memo_file.write_notebook_configs(&[]).is_ok();
     drop(memo_file);
 
-    // 把被清掉的非默认 notebook 在 access 列表里也清掉, 然后 emit 一次。
+    // 鎶婅娓呮帀鐨勯潪榛樿 notebook 鍦?access 鍒楄〃閲屼篃娓呮帀, 鐒跺悗 emit 涓€娆°€?
     let mut any_removed = false;
     for id in before_ids {
         if state.agent_access.remove_notebook(&id) {

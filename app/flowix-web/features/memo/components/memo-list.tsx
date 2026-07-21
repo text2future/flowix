@@ -12,6 +12,7 @@ import {
   useAgentConversationStore,
   type AgentConversationInstance,
 } from '@features/agent/store';
+import { useChatStore } from '@features/agent/store/chat-store';
 import {
   getVisibleCreateFilter,
   getNotebookIconOption,
@@ -25,6 +26,7 @@ import {
   type MemoItem,
   type Notebook,
 } from '@features/memo';
+import { resolveSelectedTagId } from '@features/memo/services/memo-list-metadata-service';
 import { useTauriRpc } from '@platform/tauri/use-tauri-rpc';
 import { windows as tauriWindows } from '@platform/tauri/client';
 import { useMemoInsertAnimation } from '@features/memo/hooks/use-memo-insert-animation';
@@ -354,8 +356,15 @@ export function MemoList() {
   const selectedNotebookId = selectedNotebook?.id;
   const selectedTagId = useTagStore((s) => s.selectedTagId);
   const tagMetadataRefreshVersion = useTagStore((s) => s.metadataRefreshVersion);
-  const runningAgentInstances = useAgentConversationStore(
-    useShallow((s) => selectRunningAgentConversationInstances(s)),
+  const agentConversationInstances = useAgentConversationStore((s) => s.instances);
+  const threadStates = useChatStore((s) => s.threadStates);
+  const runningAgentInstances = useMemo(
+    () =>
+      selectRunningAgentConversationInstances(
+        { instances: agentConversationInstances },
+        threadStates,
+      ),
+    [agentConversationInstances, threadStates],
   );
   const getRunningAgentForMemo = useCallback(
     (memo: MemoItem): AgentConversationInstance | null => {
@@ -520,7 +529,6 @@ export function MemoList() {
   const loadData = useCallback(async () => {
     const loadSeq = ++loadDataSeqRef.current;
     const state = useMemoStore.getState();
-    const currentSelectedTagId = useTagStore.getState().selectedTagId;
     let currentNotebook = state.selectedNotebook;
 
     const notebooksResult = await notebookRepository.list();
@@ -566,7 +574,6 @@ export function MemoList() {
 
     const libraryMetadata = await loadLibraryMetadata(
       currentNotebook,
-      currentSelectedTagId,
       tagMetadataRefreshVersion
     );
     if (!libraryMetadata) return;
@@ -575,11 +582,14 @@ export function MemoList() {
 
     setTagMap(libraryMetadata.tagMap);
 
-    // Tag 列表与顺序的 UI 已迁出 memo-list, 此处只取 selectedTagId 校验,
-    // 仍能防止 useTagStore 持久化出 "已不存在的 tag" 残留选中态。
-    const nextSelectedTagId = libraryMetadata.selectedTagId;
-    if (currentSelectedTagId !== nextSelectedTagId) {
-      setSelectedTagId(nextSelectedTagId);
+    // selectedTagId 校验: 防止 useTagStore 持久化残留 "已不存在的 tag" 选中态。
+    // 用当前 selectedTagId 重新校验 (而非 loadData 开头取的旧值): IPC 期间
+    // selectedTagId 可能已变 (重命名 commitRename 更新到新 fullPath), 用旧值
+    // 校验出的 null 会覆盖新值, 选中态丢成"全部"。
+    const latestSelectedTagId = useTagStore.getState().selectedTagId;
+    const resolvedSelectedTagId = resolveSelectedTagId(latestSelectedTagId, libraryMetadata.tagOptions);
+    if (resolvedSelectedTagId !== latestSelectedTagId) {
+      setSelectedTagId(resolvedSelectedTagId);
     }
 
   }, [loadLibraryMetadata, setNotebooks, setSelectedNotebook, setSelectedTagId, tagMetadataRefreshVersion]);
@@ -658,6 +668,12 @@ export function MemoList() {
   });
   const memoListLoadingText = showMemoListLoading ? t('memo.list.loadingMemos') : null;
   const visibleLoadingText = blockingLoadingText;
+  // 选中标签的展示名: tagMap 只收录真实 tag (id = 完整路径, 如
+  // "Flowix/云存储"), 不含路径前缀 segment。选中父节点 (e.g. "Flowix")
+  // 时 selectedTagId = fullPath "Flowix" 是前缀而非任何 memo 的真实 tag,
+  // tagMap 取不到, fallback 到 activeTagId (即 fullPath) 本身展示 ──
+  // 与 memo-card 的 `tagMap[tagId] || tagId` 同模式。
+  const activeTagName = activeTagId ? (tagMap[activeTagId] ?? activeTagId) : null;
 
   // 'color' 是前端专用 filter — 后端返回全量, 这里按 `colorFilter` 二次过滤:
   //   'any'  → memo.colors.length > 0
@@ -944,8 +960,7 @@ export function MemoList() {
                   title={
                     (() => {
                       const base = selectedNotebook?.name || t('memo.list.selectNotebook');
-                      const tagSuffix =
-                        activeTagId && tagMap[activeTagId] ? ` #${tagMap[activeTagId]}` : '';
+                      const tagSuffix = activeTagName ? ` #${activeTagName}` : '';
                       const todoSuffix = activeFilter === 'todos' ? ` @${t('memo.list.filterTasks')}` : '';
                       const agentSuffix = activeFilter === 'agents' ? ` @${t('memo.list.filterAgents')}` : '';
                       // 颜色筛选的后缀直接展示具体的颜色名, 而不是泛化的
@@ -965,8 +980,8 @@ export function MemoList() {
                   }
                 >
                   {selectedNotebook?.name || t('memo.list.selectNotebook')}
-                  {activeTagId && tagMap[activeTagId] && (
-                    <> {' '}#{tagMap[activeTagId]}</>
+                  {activeTagName && (
+                    <> {' '}#{activeTagName}</>
                   )}
                   {activeFilter === 'todos' && (
                     <> {' '}@{t('memo.list.filterTasks')}</>

@@ -45,4 +45,10 @@ export type MemoEvent =
       path: string;
       notebookId: string;
       derivedChanged: MemoDerivedChanged;
+    }
+  | {
+      kind: 'tags_renamed';
+      notebookId: string;
+      renamedTags: Array<[string, string]>;
+      affectedMemoIds: string[];
     };

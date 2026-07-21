@@ -23,9 +23,9 @@ pub struct ResolvedOpenTarget {
     pub notebook_id: String,
     pub notebook_name: String,
     pub notebook_path: String,
-    /// 绝对物理路径 (从 memo index entry.filename 拼)
+    /// 缁濆鐗╃悊璺緞 (浠?memo index entry.filename 鎷?
     pub absolute_path: String,
-    /// memo filename (用于 stale check / 前端显示)
+    /// memo filename (鐢ㄤ簬 stale check / 鍓嶇鏄剧ず)
     pub memo_title: String,
 }
 
@@ -52,9 +52,8 @@ pub fn resolve_open_target(
         return Err(ResolveError::NotebookNotFound("<no notebook>".into()));
     }
 
-    // 1. 物理路径模式: 按 filename 反查 memo index 后, 必须确认传入路径
-    //    与 notebook 根目录 + entry.filename 的完整规范化路径一致。这样
-    //    `/notebook/subdir/Note.md` 不会误命中根目录的 `Note.md`。
+    // 1. 鐗╃悊璺緞妯″紡: 鎸?filename 鍙嶆煡 memo index 鍚? 蹇呴』纭浼犲叆璺緞
+    //    涓?notebook 鏍圭洰褰?+ entry.filename 鐨勫畬鏁磋鑼冨寲璺緞涓€鑷淬€傝繖鏍?    //    `/notebook/subdir/Note.md` 涓嶄細璇懡涓牴鐩綍鐨?`Note.md`銆?
     if let Some(abs_path) = target_physical_path(&target) {
         if let Some(filename) = Path::new(&abs_path).file_name().and_then(|n| n.to_str()) {
             if let Some((cfg, memo)) =
@@ -64,7 +63,7 @@ pub fn resolve_open_target(
                 return Ok(build_resolved(memo, &cfg, canonical_abs));
             }
         }
-        // 物理 filename 找不到 memo index entry (可能不是 memo 文件 / 路径拼错)
+        // 鐗╃悊 filename 鎵句笉鍒?memo index entry (鍙兘涓嶆槸 memo 鏂囦欢 / 璺緞鎷奸敊)
         return Err(ResolveError::NotFound(abs_path));
     }
 

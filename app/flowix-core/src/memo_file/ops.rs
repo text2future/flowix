@@ -1844,6 +1844,28 @@ impl MemoFile {
         old_path: &str,
         new_path: &str,
     ) -> std::io::Result<MoveTagReport> {
+        // 旧入口 (无 hook): 保持原签名, 委托 with_hooks 传 no-op 回调。
+        // core 单测与无 watcher 需求的调用方 (CLI) 走这个, 不感知 hook。
+        self.move_memo_tag_locked_with_hooks(notebook_id, old_path, new_path, |_| {}, |_, _| {})
+    }
+
+    /// [`move_memo_tag_locked`] 的带 hook 版: desktop 在每个 memo 写盘前后
+    /// 注入回调 ── `on_before_write` 用于 mark_self_write 抑制 watcher 自写,
+    /// `on_after_write` 用于收集 (id, before) 供调用方在释放 memo_file read
+    /// lock 后 emit MemoEvent::Updated。core 不依赖 tauri / watcher /
+    /// memo_events, 通过回调与 desktop 解耦 (保持零 Tauri 依赖)。
+    pub fn move_memo_tag_locked_with_hooks<F, G>(
+        &self,
+        notebook_id: Option<&str>,
+        old_path: &str,
+        new_path: &str,
+        on_before_write: F,
+        mut on_after_write: G,
+    ) -> std::io::Result<MoveTagReport>
+    where
+        F: Fn(&Path),
+        G: FnMut(&str, &Memo),
+    {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
 
         // 1. 校验 + 规范化
@@ -1937,6 +1959,10 @@ impl MemoFile {
                 continue;
             }
 
+            // 改写前的 memo 快照: on_after_write 把它交回调用方, 用于 emit
+            // memo-event 时算 derived_changed (before -> after)。
+            let before_memo = MemoFile::index_entry_to_memo(&location.memo);
+
             // 收集实际改写涉及的 (old, new) 路径对, 用于报告
             for old_tag in &location.memo.tags {
                 let new_tag = if old_tag == &old_path {
@@ -1957,10 +1983,15 @@ impl MemoFile {
             let overrides: MergeOverrides =
                 [("key".to_string(), memo_id.clone())].into_iter().collect();
             let merged = merge_frontmatter(&new_body, &overrides);
+
+            // 写盘前通知调用方 mark_self_write ── 抑制 watcher 把这次自写
+            // 误判为外部修改 (否则 N 个 memo 触发 N 次 reload + 事件轰击)。
+            on_before_write(&path);
+
             atomic_write_bytes(&path, merged.as_bytes())?;
 
             // 重新派生 + 同步 memo index
-            let mut memo = MemoFile::index_entry_to_memo(&location.memo);
+            let mut memo = before_memo.clone();
             apply_derived_memo_fields(&mut memo, &merged);
             memo.updated_at = chrono::Utc::now().timestamp_millis();
             MemoFile::sync_index_on_write_for_notebook_id_locked(
@@ -1968,6 +1999,12 @@ impl MemoFile {
                 &location.notebook.id,
                 &memo,
             )?;
+
+            // 写盘 + index 同步完成后, 把 (id, before) 交回调用方 ── 调用方
+            // 在释放 memo_file read lock 后据此 emit MemoEvent::Updated,
+            // 避免持锁期间递归 read_lock (std RwLock 不支持递归 read)。
+            on_after_write(memo_id.as_str(), &before_memo);
+
             report.affected_memos += 1;
         }
 

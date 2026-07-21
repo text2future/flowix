@@ -1,9 +1,6 @@
-//! Agent IPC — LLM 流式 chat + abort。
-//!
-//! Agent 的配置真源是 `~/.flowix/agent-config.toml` (经 `set_ai_config` 命令落盘)。
-//! 后端按需从 `UserConfigStore` 拉取并在 `AgentManager` 里缓存 provider 实例,
-//! 前端不再 init agent / 提交模型信息, 只发起 chat / thread 操作。
-
+//! Agent IPC 鈥?LLM 娴佸紡 chat + abort銆?//!
+//! Agent 鐨勯厤缃湡婧愭槸 `~/.flowix/agent-config.toml` (缁?`set_ai_config` 鍛戒护钀界洏)銆?//! 鍚庣鎸夐渶浠?`UserConfigStore` 鎷夊彇骞跺湪 `AgentManager` 閲岀紦瀛?provider 瀹炰緥,
+//! 鍓嶇涓嶅啀 init agent / 鎻愪氦妯″瀷淇℃伅, 鍙彂璧?chat / thread 鎿嶄綔銆?
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -23,6 +20,7 @@ use crate::agent_external::hermes::HermesCliManager;
 use crate::agent_external::simple_cli::SimpleCliManager;
 use crate::agent_external_config::{AgentExternalEntry, AgentExternalSource};
 use crate::agent_flowix::{AgentChatResponse, AgentManager, AgentUserMessage, RunInfo};
+use crate::agent_session::AgentExternalEvent;
 
 use crate::app::state::AppState;
 
@@ -264,8 +262,8 @@ impl ChatRuntime for RuntimeHandle<'_> {
         app_handle: &tauri::AppHandle,
     ) -> bool {
         match self {
-            // Flowix 内部 agent 自带 cancel token + select!, stop 信号能被流式
-            // 任务即时响应, 不需要这里补发 StreamEnd, 故不传 app_handle。
+            // Flowix 鍐呴儴 agent 鑷甫 cancel token + select!, stop 淇″彿鑳借娴佸紡
+            // 浠诲姟鍗虫椂鍝嶅簲, 涓嶉渶瑕佽繖閲岃ˉ鍙?StreamEnd, 鏁呬笉浼?app_handle銆?
             Self::Flowix(manager) => manager.stop_chat(thread_id, run_id).await,
             Self::Codex(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
             Self::Claude(manager) => manager.stop_chat(thread_id, run_id, app_handle).await,
@@ -353,9 +351,8 @@ fn executable_available(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// 基于 `agent-external-config` 里记录的 path 算单个 external agent 的可用性。
-/// `path = None` -> 未配置 (启动探测没探到); `path = Some` 但失效 -> not found;
-/// 可用 -> `None` (调用方再叠加 preflight 错误, 如 codex 的 Node 依赖)。
+/// 鍩轰簬 `agent-external-config` 閲岃褰曠殑 path 绠楀崟涓?external agent 鐨勫彲鐢ㄦ€с€?/// `path = None` -> 鏈厤缃?(鍚姩鎺㈡祴娌℃帰鍒?; `path = Some` 浣嗗け鏁?-> not found;
+/// 鍙敤 -> `None` (璋冪敤鏂瑰啀鍙犲姞 preflight 閿欒, 濡?codex 鐨?Node 渚濊禆)銆?
 fn external_availability(entry: AgentExternalEntry, label: &str) -> AgentRuntimeAvailability {
     let available = entry
         .path
@@ -363,7 +360,9 @@ fn external_availability(entry: AgentExternalEntry, label: &str) -> AgentRuntime
         .map(|p| executable_available(p))
         .unwrap_or(false);
     let reason = match &entry.path {
-        None => Some(format!("{label} not configured (click Redetect in preferences)")),
+        None => Some(format!(
+            "{label} not configured (click Redetect in preferences)"
+        )),
         Some(p) if !available => Some(format!("{label} not found ({})", p.display())),
         Some(_) => None,
     };
@@ -375,13 +374,11 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     let ai_config = state.user_config.get_ai_config().model;
     let flowix_available = !ai_config.model.trim().is_empty();
 
-    // path 来源是 agent-external-config.json (唯一参照), 不再每次调
-    // resolve_*_binary 探测; preflight 内部的 resolve 会命中 REGISTRY (与 config 同步)。
+    // The external CLI path comes from agent-external-config.json. Runtime
+    // preflight can still add dependency details without hiding the entry.
     let cfg = &state.agent_external_config;
     let mut codex = external_availability(cfg.get_entry("codex"), "Codex CLI");
     if codex.available {
-        // Codex 可执行文件存在即认为是"可选", 不要因为原生可选依赖缺失
-        // 把 Codex 从列表抹掉。依赖损坏信息作为 reason 推到 UI。
         codex.reason = crate::agent_external::codex::cli::preflight_codex().err();
     }
     let claude = external_availability(cfg.get_entry("claude"), "Claude Code CLI");
@@ -402,7 +399,7 @@ pub fn agent_runtime_status(state: State<'_, AppState>) -> AgentRuntimeStatus {
     }
 }
 
-/// 偏好设置展示用的 external agent 条目视图。
+/// 鍋忓ソ璁剧疆灞曠ず鐢ㄧ殑 external agent 鏉＄洰瑙嗗浘銆?
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentExternalEntryView {
@@ -426,7 +423,7 @@ impl AgentExternalEntryView {
     }
 }
 
-/// 读取全部 external agent 的路径配置 (供偏好设置展示)。
+/// 璇诲彇鍏ㄩ儴 external agent 鐨勮矾寰勯厤缃?(渚涘亸濂借缃睍绀?銆?
 #[tauri::command]
 pub fn get_agent_external_config(
     state: State<'_, AppState>,
@@ -439,7 +436,7 @@ pub fn get_agent_external_config(
         .collect()
 }
 
-/// 用户手改 path: 写 `source = user` 并同步注册表。
+/// 鐢ㄦ埛鎵嬫敼 path: 鍐?`source = user` 骞跺悓姝ユ敞鍐岃〃銆?
 #[tauri::command]
 pub fn set_agent_external_path(
     agent_type: String,
@@ -451,8 +448,8 @@ pub fn set_agent_external_path(
         return Err("path must not be empty".to_string());
     }
     let path_buf = PathBuf::from(trimmed);
-    // 校验: 必须是真实存在的可执行文件 ── 拒绝目录/文档/无执行权限的文件,
-    // 避免把无效路径写进 agent-external-config.json 导致后续 spawn 失败。
+    // 鏍￠獙: 蹇呴』鏄湡瀹炲瓨鍦ㄧ殑鍙墽琛屾枃浠?鈹€鈹€ 鎷掔粷鐩綍/鏂囨。/鏃犳墽琛屾潈闄愮殑鏂囦欢,
+    // 閬垮厤鎶婃棤鏁堣矾寰勫啓杩?agent-external-config.json 瀵艰嚧鍚庣画 spawn 澶辫触銆?
     if !crate::agent_external::cli_resolver::is_executable_file(&path_buf) {
         return Err(format!(
             "not a valid executable file: {}",
@@ -466,7 +463,7 @@ pub fn set_agent_external_path(
     Ok(AgentExternalEntryView::from_entry(entry))
 }
 
-/// 重新探测单个 agent: 清注册表该项 -> 跑探测链 -> 写 `source = auto` -> 回填注册表。
+/// 閲嶆柊鎺㈡祴鍗曚釜 agent: 娓呮敞鍐岃〃璇ラ」 -> 璺戞帰娴嬮摼 -> 鍐?`source = auto` -> 鍥炲～娉ㄥ唽琛ㄣ€?
 #[tauri::command]
 pub fn redetect_agent_external(
     agent_type: String,
@@ -481,8 +478,7 @@ pub fn redetect_agent_external(
     ))
 }
 
-/// 打开文件浏览器让用户选一个 CLI 可执行文件, 返回其绝对路径。
-/// 供偏好设置"切换"按钮调用 ── 路径只能通过文件选择器指定, 不允许手输。
+/// 鎵撳紑鏂囦欢娴忚鍣ㄨ鐢ㄦ埛閫変竴涓?CLI 鍙墽琛屾枃浠? 杩斿洖鍏剁粷瀵硅矾寰勩€?/// 渚涘亸濂借缃?鍒囨崲"鎸夐挳璋冪敤 鈹€鈹€ 璺緞鍙兘閫氳繃鏂囦欢閫夋嫨鍣ㄦ寚瀹? 涓嶅厑璁告墜杈撱€?
 #[tauri::command]
 pub async fn select_external_cli_path(app: tauri::AppHandle) -> Option<String> {
     use std::sync::mpsc;
@@ -494,7 +490,7 @@ pub async fn select_external_cli_path(app: tauri::AppHandle) -> Option<String> {
         let result = handle
             .dialog()
             .file()
-            .set_title("选择 CLI 可执行文件")
+            .set_title("Select CLI executable")
             .blocking_pick_file()
             .map(|p| p.to_string());
         tx.send(result).ok();
@@ -681,14 +677,12 @@ pub async fn chat_with_agent_stream(
             .map_err(|error| error.to_string())?;
     }
 
-    // `agent_manager` 是 `Arc<AgentManager>`, `chat_stream` 内部已经
-    // `tokio::spawn` ── IPC 立即返回, 不再 await 整个 stream 跑完。
-    // 真正的助手回答通过 `agent-chunk` 事件 (`Text` / `Reasoning` 变体)
-    // 推到前端, 按 `thread_id` 派发到 `threadStates[tid]`。
-    //
-    // Tauri IPC 边界仍要求 `Result<T, String>` ── `AgentError` 在此
-    // `.map_err(|e| e.to_string())` 透传。当前 spawn 后不会走到 Err 分支
-    // (错误信号已全部走 `Error` chunk), 但保留 Result 形状不破 IPC 契约。
+    // `agent_manager` 鏄?`Arc<AgentManager>`, `chat_stream` 鍐呴儴宸茬粡
+    // `tokio::spawn` 鈹€鈹€ IPC 绔嬪嵆杩斿洖, 涓嶅啀 await 鏁翠釜 stream 璺戝畬銆?    // 鐪熸鐨勫姪鎵嬪洖绛旈€氳繃 `agent-chunk` 浜嬩欢 (`Text` / `Reasoning` 鍙樹綋)
+    // 鎺ㄥ埌鍓嶇, 鎸?`thread_id` 娲惧彂鍒?`threadStates[tid]`銆?    //
+    // Tauri IPC 杈圭晫浠嶈姹?`Result<T, String>` 鈹€鈹€ `AgentError` 鍦ㄦ
+    // `.map_err(|e| e.to_string())` 閫忎紶銆傚綋鍓?spawn 鍚庝笉浼氳蛋鍒?Err 鍒嗘敮
+    // (閿欒淇″彿宸插叏閮ㄨ蛋 `Error` chunk), 浣嗕繚鐣?Result 褰㈢姸涓嶇牬 IPC 濂戠害銆?
     let result = runtime_handle(&state, runtime)
         .chat_stream(&threadId, message, &app_handle)
         .await;
@@ -705,7 +699,7 @@ pub async fn chat_with_agent_stream(
 /// got a cancel signal; `false` if there was nothing to cancel (e.g. user
 /// clicked stop after the LLM had already finished, or never sent a
 /// message). The frontend uses the boolean to decide whether to also
-/// hide the stop button / show a toast — a `false` return is harmless.
+/// hide the stop button / show a toast 鈥?a `false` return is harmless.
 ///
 /// `runId` (optional) scopes the kill to a single in-flight run on the
 /// thread. When `None` / unmatched, the manager falls back to a thread-wide
@@ -749,13 +743,12 @@ fn run_id_for_kill(provided: Option<&str>) -> Option<&str> {
     provided.map(str::trim).filter(|value| !value.is_empty())
 }
 
-/// 查询当前所有 in-flight chat ── 前端启动时调一次, seed
-/// `threadStates[].isLoading`, 让"进程内已有后台跑 chat"在重启后
-/// 仍然可见。返回 `HashMap<thread_id, RunInfo>`; 空 map 表示当前
-/// 没有 in-flight chat (稳态)。
-///
-/// 进程退出 in-flight chat 自然死, 这是"瞬态"信息; A5 启动清理
-/// 兜底 `is_loading=1` 的 SQLite 残留行, 二者组合保证 UI 状态一致。
+/// 鏌ヨ褰撳墠鎵€鏈?in-flight chat 鈹€鈹€ 鍓嶇鍚姩鏃惰皟涓€娆? seed
+/// `threadStates[].isLoading`, 璁?杩涚▼鍐呭凡鏈夊悗鍙拌窇 chat"鍦ㄩ噸鍚悗
+/// 浠嶇劧鍙銆傝繑鍥?`HashMap<thread_id, RunInfo>`; 绌?map 琛ㄧず褰撳墠
+/// 娌℃湁 in-flight chat (绋虫€?銆?///
+/// 杩涚▼閫€鍑?in-flight chat 鑷劧姝? 杩欐槸"鐬€?淇℃伅; A5 鍚姩娓呯悊
+/// 鍏滃簳 `is_loading=1` 鐨?SQLite 娈嬬暀琛? 浜岃€呯粍鍚堜繚璇?UI 鐘舵€佷竴鑷淬€?
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn agent_running_threads(
@@ -768,20 +761,43 @@ pub async fn agent_running_threads(
     Ok(running)
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Codex 模型列表 / 默认模型
-//
-// 这两个 IPC 命令原本放在 `commands/thread.rs`, 但语义上属于 agent 配置,
-// 与 `agent.*` 命名空间对齐挪到这里。命令名 (codex_default_model /
-// agent_supported_models) 与前端 invoke 不变。
-// ─────────────────────────────────────────────────────────────────────────
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn agent_external_events(
+    threadId: String,
+    afterId: Option<i64>,
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<AgentExternalEvent>, String> {
+    let manager = state.thread_manager.read().await;
+    let mut product_thread_id = threadId.clone();
+    for runtime in ["codex", "claude", "gemini", "hermes", "openclaw"] {
+        if let Ok(Some(local_thread_id)) = manager
+            .find_thread_by_external_session(&threadId, runtime)
+            .await
+        {
+            product_thread_id = local_thread_id;
+            break;
+        }
+    }
+    let page_limit = limit.unwrap_or(1000).clamp(1, 1000);
+    manager
+        .list_agent_external_events_by_thread(&product_thread_id, afterId, page_limit)
+        .await
+        .map_err(|error| error.to_string())
+}
 
-/// 返回 Codex 默认 model id, 优先级:
-///   1. `~/.codex/config.toml` 顶层 `model = "..."`;
-///   2. `codex debug models` 列表第一项;
-///   3. 兜底硬编码 `"gpt-5.5"`。
-/// 仅用于前端 UI label 显示; 真正运行 Codex 时 `model == "inherit"` / 空
-/// 会走 `codex_cli::normalized_codex_model` 不传 `-m`。
+// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// Codex 妯″瀷鍒楄〃 / 榛樿妯″瀷
+//
+// 杩欎袱涓?IPC 鍛戒护鍘熸湰鏀惧湪 `commands/thread.rs`, 浣嗚涔変笂灞炰簬 agent 閰嶇疆,
+// 涓?`agent.*` 鍛藉悕绌洪棿瀵归綈鎸埌杩欓噷銆傚懡浠ゅ悕 (codex_default_model /
+// agent_supported_models) 涓庡墠绔?invoke 涓嶅彉銆?// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+/// 杩斿洖 Codex 榛樿 model id, 浼樺厛绾?
+///   1. `~/.codex/config.toml` 椤跺眰 `model = "..."`;
+///   2. `codex debug models` 鍒楄〃绗竴椤?
+///   3. 鍏滃簳纭紪鐮?`"gpt-5.5"`銆?/// 浠呯敤浜庡墠绔?UI label 鏄剧ず; 鐪熸杩愯 Codex 鏃?`model == "inherit"` / 绌?/// 浼氳蛋 `codex_cli::normalized_codex_model` 涓嶄紶 `-m`銆?
 #[tauri::command]
 pub async fn codex_default_model() -> Result<String, String> {
     if let Some(model) = read_codex_config_model() {
@@ -795,9 +811,8 @@ pub async fn codex_default_model() -> Result<String, String> {
     Ok("gpt-5.5".to_string())
 }
 
-/// 按 agent type 返回后端支持的 model id 列表。当前只有 `codex` 走动态
-/// 查询 (本机 `codex debug models`); 其余 type 返回空 ── 前端会回落到
-/// 硬编码 fallback (CODEX_MODEL_OPTIONS / CLAUDE_MODEL_OPTIONS)。
+/// 鎸?agent type 杩斿洖鍚庣鏀寔鐨?model id 鍒楄〃銆傚綋鍓嶅彧鏈?`codex` 璧板姩鎬?/// 鏌ヨ (鏈満 `codex debug models`); 鍏朵綑 type 杩斿洖绌?鈹€鈹€ 鍓嶇浼氬洖钀藉埌
+/// 纭紪鐮?fallback (CODEX_MODEL_OPTIONS / CLAUDE_MODEL_OPTIONS)銆?
 #[tauri::command]
 pub async fn agent_supported_models(agent_type: String) -> Result<Vec<String>, String> {
     match agent_type.trim().to_ascii_lowercase().as_str() {
@@ -851,8 +866,7 @@ fn read_codex_config_model() -> Option<String> {
     parse_codex_config_model(&content)
 }
 
-/// 轻量解析 `~/.codex/config.toml` 顶层 `model = "..."`。
-/// 不引入完整 TOML parser ── 只需这一行, 逐行扫描即可。
+/// 杞婚噺瑙ｆ瀽 `~/.codex/config.toml` 椤跺眰 `model = "..."`銆?/// 涓嶅紩鍏ュ畬鏁?TOML parser 鈹€鈹€ 鍙渶杩欎竴琛? 閫愯鎵弿鍗冲彲銆?
 fn parse_codex_config_model(content: &str) -> Option<String> {
     content.lines().find_map(|line| {
         let line = line.trim();

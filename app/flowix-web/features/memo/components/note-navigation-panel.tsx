@@ -26,10 +26,14 @@ import {
 } from '@features/memo';
 import {
   persistTagLayout,
+  rebaseSelectedTagId,
+  resolveSelectedTagId,
   type MemoTagLayoutItem,
   type MemoTagTreeItem,
 } from '@features/memo/services/memo-list-metadata-service';
 import { useI18n } from '@features/i18n';
+import { invalidateMentionTags } from '@features/editor/extensions/tag-mention';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
 import { isWindowsPlatform } from '@features/shortcuts/platform';
 
 interface TagDragGhost {
@@ -157,6 +161,9 @@ export function NoteNavigationPanel({
   const [draggingTagId, setDraggingTagId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<TagDropTarget | null>(null);
   const [dragGhost, setDragGhost] = useState<TagDragGhost | null>(null);
+  // 行内重命名编辑态: editingTagId 命中时标签名 span 替换为 input。
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [editingTagName, setEditingTagName] = useState('');
 
   // 笔记本列表拖动 ── 完全沿用上方 tag 那套: 独立 state / ref 各自维护,
   // 不抽公共 hook / 函数。两套状态机互不引用、各自只为本列表服务。
@@ -237,7 +244,6 @@ export function NoteNavigationPanel({
       try {
         const metadata = await loadLibraryMetadata(
           notebook,
-          useTagStore.getState().selectedTagId,
           tagMetadataRefreshVersion
         );
         if (!metadata || cancelled) return;
@@ -253,9 +259,13 @@ export function NoteNavigationPanel({
             .filter((id) => validTagIds.has(id));
           setCollapsedTagIds(nextCollapsed);
         }
+        // 用当前 selectedTagId 重新校验 (而非 IPC 时的旧值): IPC 期间
+        // selectedTagId 可能已变 (重命名 commitRename 把旧路径更新到新
+        // fullPath), 用旧值校验出的 null 会覆盖新值, 选中态丢成"全部"。
         const currentSelectedTagId = useTagStore.getState().selectedTagId;
-        if (metadata.selectedTagId !== currentSelectedTagId) {
-          setSelectedTagId(metadata.selectedTagId);
+        const resolvedSelectedTagId = resolveSelectedTagId(currentSelectedTagId, metadata.tagOptions);
+        if (resolvedSelectedTagId !== currentSelectedTagId) {
+          setSelectedTagId(resolvedSelectedTagId);
         }
       } catch (error) {
         if (!cancelled) {
@@ -299,6 +309,65 @@ export function NoteNavigationPanel({
       setActiveFilter,
       setSelectedTagId,
     ],
+  );
+
+  const startRename = useCallback((tag: MemoTagTreeItem) => {
+    setEditingTagId(tag.id);
+    setEditingTagName(tag.name);
+  }, []);
+
+  // 行内重命名提交: 复用 moveTag (重命名 = 同父级 move 末段)。segment 字符
+  // 类与 TAG_REGEX [^/\s\p{P}]+ 一致; 冲突依赖后端 AlreadyExists 报错 toast,
+  // 保持编辑态。成功后失效 mention 缓存 + 清 metadata, 并把 selectedTagId
+  // 跟到新 fullPath (否则 metadata refresh 会用 validTagSelectionSet 校验掉
+  // 旧路径, 丢失选中态)。
+  const commitRename = useCallback(
+    async (tag: MemoTagTreeItem, newSegment: string) => {
+      const trimmed = newSegment.trim();
+      if (!trimmed || trimmed === tag.name) {
+        setEditingTagId(null);
+        return;
+      }
+      if (/[/\s\p{P}]/u.test(trimmed)) {
+        toast.error(t('memo.tag.renameInvalidChar'));
+        return;
+      }
+      const lastSlash = tag.fullPath.lastIndexOf('/');
+      const parent = lastSlash > 0 ? tag.fullPath.slice(0, lastSlash) : null;
+      const newFullPath = parent ? `${parent}/${trimmed}` : trimmed;
+      if (newFullPath === tag.fullPath) {
+        setEditingTagId(null);
+        return;
+      }
+      const notebookId = useMemoStore.getState().selectedNotebook?.id;
+      if (!notebookId) {
+        setEditingTagId(null);
+        return;
+      }
+      // moveTag 前记下选中态 ── 不能在 await 后取: moveTag 期间后端 emit
+      // MemoEvent::Updated 触发 metadata 重载, 会把旧路径 selectedTagId
+      // 校验清成 null, await 后取到的已是 null, 无法前缀替换。
+      const beforeSelected = useTagStore.getState().selectedTagId;
+      try {
+        const report = await useTagStore
+          .getState()
+          .moveTag(notebookId, tag.fullPath, newFullPath);
+        if (report) {
+          // 选中态保持: 把 selectedTagId 从旧前缀映射到新前缀 (本身 / 后代),
+          // 在 clearLibraryMetadata 前同步写回, 不依赖 await 后的 selectedTagId。
+          const nextSelected = rebaseSelectedTagId(beforeSelected, tag.fullPath, newFullPath);
+          if (nextSelected !== useTagStore.getState().selectedTagId) {
+            useTagStore.getState().setSelectedTagId(nextSelected);
+          }
+          invalidateMentionTags();
+          clearLibraryMetadata();
+        }
+        setEditingTagId(null);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [clearLibraryMetadata, t],
   );
 
   const handleShowAllTags = useCallback(() => {
@@ -530,12 +599,22 @@ export function NoteNavigationPanel({
           return next;
         });
 
+        // moveTag 前记下选中态 ── await 期间 memo-event 触发的 metadata 重载
+        // 会把旧路径 selectedTagId 校验清成 null, await 后取不到原值。
+        const beforeSelected = useTagStore.getState().selectedTagId;
         try {
           const report = await useTagStore
             .getState()
             .moveTag(notebookId, sourceTag.fullPath, newPath);
           if (report) {
-            // 触发 metadata 刷新, 列表 / 标签面板 / 下拉缓存都重拉
+            // 选中态保持: 把 selectedTagId 从旧前缀映射到新前缀, 在
+            // clearLibraryMetadata 前同步写回, 不依赖 await 后的 selectedTagId。
+            const nextSelected = rebaseSelectedTagId(beforeSelected, sourceTag.fullPath, newPath);
+            if (nextSelected !== useTagStore.getState().selectedTagId) {
+              useTagStore.getState().setSelectedTagId(nextSelected);
+            }
+            // 编辑器 `#` mention 缓存失效 + metadata 重拉 (列表/面板/下拉)。
+            invalidateMentionTags();
             clearLibraryMetadata();
           }
         } catch (err) {
@@ -1121,8 +1200,9 @@ export function NoteNavigationPanel({
                   dropTarget?.id === tag.id && dropTarget.position === 'inside' && !isDragging;
 
                 return (
+                  <ContextMenu key={tag.id}>
+                  <ContextMenuTrigger asChild>
                   <div
-                    key={tag.id}
                     ref={(node) => {
                       if (node) {
                         rowRefs.current.set(tag.id, node);
@@ -1206,14 +1286,36 @@ export function NoteNavigationPanel({
                         />
                       )}
                     </span>
-                    <span
-                      className={cn(
-                        'min-w-0 flex-1 truncate',
-                        isHidden && !isSelected && 'text-[var(--muted-foreground)]',
-                      )}
-                    >
-                      {tag.name}
-                    </span>
+                    {editingTagId === tag.id ? (
+                      <input
+                        autoFocus
+                        value={editingTagName}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => setEditingTagName(e.target.value)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void commitRename(tag, editingTagName);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setEditingTagId(null);
+                          }
+                        }}
+                        onBlur={() => void commitRename(tag, editingTagName)}
+                        className="min-w-0 flex-1 rounded-sm bg-[var(--background)] px-0 text-sm outline-none ring-1 ring-[var(--primary)]"
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 truncate',
+                          isHidden && !isSelected && 'text-[var(--muted-foreground)]',
+                        )}
+                      >
+                        {tag.name}
+                      </span>
+                    )}
                     <span
                       className={cn(
                         'ml-2 shrink-0 tabular-nums text-xs text-[var(--muted-foreground)]',
@@ -1229,6 +1331,16 @@ export function NoteNavigationPanel({
                       <span className="pointer-events-none absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-[var(--brand)]" />
                     )}
                   </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-[160px]">
+                    <ContextMenuItem onClick={() => startRename(tag)}>
+                      {t('memo.tag.rename')}
+                    </ContextMenuItem>
+                    <ContextMenuItem disabled>
+                      {t('memo.tag.delete')}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
                 );
               })}
               </>

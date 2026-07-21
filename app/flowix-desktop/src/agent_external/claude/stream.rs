@@ -4,19 +4,22 @@ use std::time::Instant;
 
 use tokio::io::BufReader;
 
-use super::events::{parse_claude_stdout_line_with_state, ClaudeStreamState};
+use super::events::{
+    parse_claude_stdout_line_with_state, ClaudeStreamState, ParsedClaudeStdoutLine,
+};
 use super::{truncate_for_log, AGENT_TYPE};
 use crate::agent_external::{
-    emit_chunk_with_run_id, read_capped_line, ExternalRunRegistry, StreamingEmitBuffer,
+    persist_and_emit_external_chunk, read_capped_line, ExternalRunRegistry, StreamingEmitBuffer,
     MAX_STDOUT_LINE_BYTES, STREAM_FLUSH_INTERVAL, STREAM_FLUSH_MAX_BYTES,
 };
 use crate::agent_flowix::AgentChunk;
 use crate::agent_session::ThreadManager;
 use crate::runtime_log;
 
-/// flush `emit_buf` 的全部缓冲 chunk 并逐条 emit。空缓冲为 no-op。
-fn flush_emit_buffer(
+/// flush `emit_buf` 鐨勫叏閮ㄧ紦鍐?chunk 骞堕€愭潯 emit銆傜┖缂撳啿涓?no-op銆?
+async fn flush_emit_buffer(
     app_handle: &tauri::AppHandle,
+    thread_manager: &Arc<tokio::sync::RwLock<ThreadManager>>,
     emit_buf: &mut StreamingEmitBuffer,
     run_id: &str,
 ) {
@@ -24,21 +27,30 @@ fn flush_emit_buffer(
         return;
     }
     for chunk in emit_buf.flush() {
-        emit_chunk_with_run_id(app_handle, &chunk, AGENT_TYPE, run_id);
+        persist_and_emit_external_chunk(
+            app_handle,
+            thread_manager,
+            AGENT_TYPE,
+            &chunk,
+            run_id,
+            None,
+        )
+        .await;
     }
 }
 
-/// burst 保险 ── 缓冲超过 [`STREAM_FLUSH_MAX_BYTES`] 时立即 flush 并重置帧计时,
-/// 防止持续高速文本流时缓冲无限增长。正常一帧的文本量远小于此阈值, 只有
-/// read_capped_line 持续返回高频 text 行的极端 burst 才会触达。
-fn flush_emit_buffer_if_full(
+/// burst 淇濋櫓 鈹€鈹€ 缂撳啿瓒呰繃 [`STREAM_FLUSH_MAX_BYTES`] 鏃剁珛鍗?flush 骞堕噸缃抚璁℃椂,
+/// 闃叉鎸佺画楂橀€熸枃鏈祦鏃剁紦鍐叉棤闄愬闀裤€傛甯镐竴甯х殑鏂囨湰閲忚繙灏忎簬姝ら槇鍊? 鍙湁
+/// read_capped_line 鎸佺画杩斿洖楂橀 text 琛岀殑鏋佺 burst 鎵嶄細瑙﹁揪銆?
+async fn flush_emit_buffer_if_full(
     app_handle: &tauri::AppHandle,
+    thread_manager: &Arc<tokio::sync::RwLock<ThreadManager>>,
     emit_buf: &mut StreamingEmitBuffer,
     run_id: &str,
     last_flush_at: &mut Instant,
 ) {
     if emit_buf.pending_bytes() >= STREAM_FLUSH_MAX_BYTES {
-        flush_emit_buffer(app_handle, emit_buf, run_id);
+        flush_emit_buffer(app_handle, thread_manager, emit_buf, run_id).await;
         *last_flush_at = Instant::now();
     }
 }
@@ -56,40 +68,36 @@ where
 {
     let mut reader = reader;
     let mut seen_sessions = HashSet::new();
-    // tool_use_id -> tool_name 跨行映射。ToolCall chunk 发出时记录 id->name,
-    // 后续 ToolResult chunk 到达时用它填入真实工具名,避免前端 name="" fallback "unknown tool"。
+    // tool_use_id -> tool_name 璺ㄨ鏄犲皠銆俆oolCall chunk 鍙戝嚭鏃惰褰?id->name,
+    // 鍚庣画 ToolResult chunk 鍒拌揪鏃剁敤瀹冨～鍏ョ湡瀹炲伐鍏峰悕,閬垮厤鍓嶇 name="" fallback "unknown tool"銆?
     let mut tool_names: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
-    // partial 模式跨行状态 ── 累积 tool_use 的 input_json_delta 分片, 在
-    // content_block_stop flush 成 ToolCall。见 events::ClaudeStreamState。
+    // partial 妯″紡璺ㄨ鐘舵€?鈹€鈹€ 绱Н tool_use 鐨?input_json_delta 鍒嗙墖, 鍦?    // content_block_stop flush 鎴?ToolCall銆傝 events::ClaudeStreamState銆?
     let mut stream_state = ClaudeStreamState::default();
-    // 帧级文本合并 buffer ── 把高频 Text / Reasoning 攒批, 减少 agent-chunk IPC
-    // emit 次数 (见 StreamingEmitBuffer doc)。Text/Reasoning 进 buffer; 其它 chunk
-    // 先 flush 再 emit, 保证呈现顺序。
+    // 甯х骇鏂囨湰鍚堝苟 buffer 鈹€鈹€ 鎶婇珮棰?Text / Reasoning 鏀掓壒, 鍑忓皯 agent-chunk IPC
+    // emit 娆℃暟 (瑙?StreamingEmitBuffer doc)銆俆ext/Reasoning 杩?buffer; 鍏跺畠 chunk
+    // 鍏?flush 鍐?emit, 淇濊瘉鍛堢幇椤哄簭銆?
     let mut emit_buf = StreamingEmitBuffer::new(thread_id.clone());
-    // 帧级 flush 计时 ── 与前端 rAF 帧率 (~16ms) 对齐。每读完一整行检查 elapsed,
-    // burst 期间约每帧 flush 一次。
-    //
-    // 不用 select! + interval: read_capped_line 读 > BufReader 容量 (8 KiB) 的长行
-    // 时会跨多次 fill_buf 累积 out, select! 在中途 drop 其 future 会丢失已累积的部分
-    // 行 (reader cursor 已 consume 但 out 被丢), 导致大 tool_result 行损坏 -> JSON
-    // 解析失败被当 non_json 文本回显。"行末时间检查"在 read_capped_line 完整返回一
-    // 行后才检查时间, 零 drop 风险。
+    // 甯х骇 flush 璁℃椂 鈹€鈹€ 涓庡墠绔?rAF 甯х巼 (~16ms) 瀵归綈銆傛瘡璇诲畬涓€鏁磋妫€鏌?elapsed,
+    // burst 鏈熼棿绾︽瘡甯?flush 涓€娆°€?    //
+    // 涓嶇敤 select! + interval: read_capped_line 璇?> BufReader 瀹归噺 (8 KiB) 鐨勯暱琛?    // 鏃朵細璺ㄥ娆?fill_buf 绱Н out, select! 鍦ㄤ腑閫?drop 鍏?future 浼氫涪澶卞凡绱Н鐨勯儴鍒?    // 琛?(reader cursor 宸?consume 浣?out 琚涪), 瀵艰嚧澶?tool_result 琛屾崯鍧?-> JSON
+    // 瑙ｆ瀽澶辫触琚綋 non_json 鏂囨湰鍥炴樉銆?琛屾湯鏃堕棿妫€鏌?鍦?read_capped_line 瀹屾暣杩斿洖涓€
+    // 琛屽悗鎵嶆鏌ユ椂闂? 闆?drop 椋庨櫓銆?
     let mut last_flush_at = Instant::now();
 
     loop {
         let line_opt = match read_capped_line(&mut reader, MAX_STDOUT_LINE_BYTES).await {
             Ok(opt) => opt,
             Err(err) => {
-                // 管道异常: 尽量 flush 已收到的文本再上抛。
-                flush_emit_buffer(&app_handle, &mut emit_buf, &run_id);
+                // 绠￠亾寮傚父: 灏介噺 flush 宸叉敹鍒扮殑鏂囨湰鍐嶄笂鎶涖€?
+                flush_emit_buffer(&app_handle, &thread_manager, &mut emit_buf, &run_id).await;
                 return Err(err);
             }
         };
         let Some((raw, truncated_by_reader)) = line_opt else {
-            // EOF: 必须在返回前 flush 残留文本 ── 否则 spawn tail 的
-            // emit_stream_end_once 会先于尾部文本到达前端。
-            flush_emit_buffer(&app_handle, &mut emit_buf, &run_id);
+            // EOF: 蹇呴』鍦ㄨ繑鍥炲墠 flush 娈嬬暀鏂囨湰 鈹€鈹€ 鍚﹀垯 spawn tail 鐨?
+            // emit_stream_end_once 浼氬厛浜庡熬閮ㄦ枃鏈埌杈惧墠绔€?
+            flush_emit_buffer(&app_handle, &thread_manager, &mut emit_buf, &run_id).await;
             break;
         };
         if truncated_by_reader {
@@ -111,8 +119,8 @@ where
         if line.is_empty() {
             continue;
         }
-        // dev-only: 把子进程 stdout 原始行镜像到 ~/.flowix/debug/, 1:1 还原
-        // vendor CLI 回包供排障。release 构建内 no-op, 不落盘。
+        // dev-only: 鎶婂瓙杩涚▼ stdout 鍘熷琛岄暅鍍忓埌 ~/.flowix/debug/, 1:1 杩樺師
+        // vendor CLI 鍥炲寘渚涙帓闅溿€俽elease 鏋勫缓鍐?no-op, 涓嶈惤鐩樸€?
         runtime_log::dump_debug_stdout_line(AGENT_TYPE, &thread_id, &run_id, line);
         runs.touch(&thread_id, Some(&run_id)).await;
 
@@ -120,6 +128,22 @@ where
         let value = match parsed.value {
             Some(value) => value,
             None => {
+                let Some(text) = non_json_stdout_text(&parsed, line) else {
+                    runtime_log::record_agent_event(
+                        "debug",
+                        "claude_stdout",
+                        "claude.stdout_non_json_dropped",
+                        "Claude stdout emitted a JSON-like line that was intentionally dropped",
+                        Some(&thread_id),
+                        Some(AGENT_TYPE),
+                        Some(serde_json::json!({
+                            "run_id": run_id,
+                            "line_chars": line.chars().count(),
+                            "line_preview": truncate_for_log(line),
+                        })),
+                    );
+                    continue;
+                };
                 let line_chars = line.chars().count();
                 runtime_log::record_agent_event(
                     "warn",
@@ -134,9 +158,16 @@ where
                         "line_preview": truncate_for_log(line),
                     })),
                 );
-                // 非 JSON 行作为文本回显 ── 进 buffer 合并 (最多延迟一帧)。
-                emit_buf.append_text(&format!("{line}\n"));
-                flush_emit_buffer_if_full(&app_handle, &mut emit_buf, &run_id, &mut last_flush_at);
+                // 闈?JSON 琛屼綔涓烘枃鏈洖鏄?鈹€鈹€ 杩?buffer 鍚堝苟 (鏈€澶氬欢杩熶竴甯?銆?
+                emit_buf.append_text(&text);
+                flush_emit_buffer_if_full(
+                    &app_handle,
+                    &thread_manager,
+                    &mut emit_buf,
+                    &run_id,
+                    &mut last_flush_at,
+                )
+                .await;
                 continue;
             }
         };
@@ -182,19 +213,23 @@ where
                         "[ClaudeCli] failed to persist external session mapping for {thread_id}: {err}"
                     );
                 }
-                // SessionResolved 是非文本 chunk ── 先 flush 文本 buffer, 保证它之前
-                // 的文本先落地, 再 emit。
-                flush_emit_buffer(&app_handle, &mut emit_buf, &run_id);
+                // SessionResolved 鏄潪鏂囨湰 chunk 鈹€鈹€ 鍏?flush 鏂囨湰 buffer, 淇濊瘉瀹冧箣鍓?
+                // 鐨勬枃鏈厛钀藉湴, 鍐?emit銆?
+                flush_emit_buffer(&app_handle, &thread_manager, &mut emit_buf, &run_id).await;
                 last_flush_at = Instant::now();
-                emit_chunk_with_run_id(
+                let chunk = AgentChunk::SessionResolved {
+                    thread_id: thread_id.clone(),
+                    session_id: session_id.clone(),
+                };
+                persist_and_emit_external_chunk(
                     &app_handle,
-                    &AgentChunk::SessionResolved {
-                        thread_id: thread_id.clone(),
-                        session_id: session_id.clone(),
-                    },
+                    &thread_manager,
                     AGENT_TYPE,
+                    &chunk,
                     &run_id,
-                );
+                    None,
+                )
+                .await;
                 runs.set_session_id(&thread_id, Some(&run_id), session_id.clone())
                     .await;
             }
@@ -206,26 +241,30 @@ where
                     emit_buf.append_text(&text);
                     flush_emit_buffer_if_full(
                         &app_handle,
+                        &thread_manager,
                         &mut emit_buf,
                         &run_id,
                         &mut last_flush_at,
-                    );
+                    )
+                    .await;
                 }
                 AgentChunk::Reasoning { text, .. } => {
                     emit_buf.append_reasoning(&text);
                     flush_emit_buffer_if_full(
                         &app_handle,
+                        &thread_manager,
                         &mut emit_buf,
                         &run_id,
                         &mut last_flush_at,
-                    );
+                    )
+                    .await;
                 }
                 mut chunk => {
-                    // 非文本 chunk ── 先 flush 文本 buffer, 保证
-                    // text -> tool_call -> text -> tool_result 的呈现顺序, 再 emit。
-                    flush_emit_buffer(&app_handle, &mut emit_buf, &run_id);
+                    // 闈炴枃鏈?chunk 鈹€鈹€ 鍏?flush 鏂囨湰 buffer, 淇濊瘉
+                    // text -> tool_call -> text -> tool_result 鐨勫憟鐜伴『搴? 鍐?emit銆?
+                    flush_emit_buffer(&app_handle, &thread_manager, &mut emit_buf, &run_id).await;
                     last_flush_at = Instant::now();
-                    // ToolCall 发出前记录 id -> name
+                    // ToolCall 鍙戝嚭鍓嶈褰?id -> name
                     if let AgentChunk::ToolCall {
                         ref id, ref name, ..
                     } = chunk
@@ -234,7 +273,7 @@ where
                             tool_names.insert(id.clone(), name.clone());
                         }
                     }
-                    // ToolResult 用 tool_use_id 查回真实工具名,填入 name 字段
+                    // ToolResult 鐢?tool_use_id 鏌ュ洖鐪熷疄宸ュ叿鍚?濉叆 name 瀛楁
                     if let AgentChunk::ToolResult {
                         ref id,
                         ref mut name,
@@ -247,17 +286,24 @@ where
                             }
                         }
                     }
-                    emit_chunk_with_run_id(&app_handle, &chunk, AGENT_TYPE, &run_id);
+                    persist_and_emit_external_chunk(
+                        &app_handle,
+                        &thread_manager,
+                        AGENT_TYPE,
+                        &chunk,
+                        &run_id,
+                        None,
+                    )
+                    .await;
                 }
             }
         }
 
-        // 帧级 flush ── 这一行处理完, 若距上次 flush 已过一帧, 落地缓冲文本。
-        // burst 期间约每 16ms flush 一次 (与前端 rAF 对齐); 非文本 chunk 已在上面
-        // 强制 flush, 这里主要兜持续文本流的攒批。行流停顿时 read_capped_line 阻塞,
-        // 缓冲里最多残留一帧文本, 由下一行 / EOF / 工具调用触发落地。
+        // 甯х骇 flush 鈹€鈹€ 杩欎竴琛屽鐞嗗畬, 鑻ヨ窛涓婃 flush 宸茶繃涓€甯? 钀藉湴缂撳啿鏂囨湰銆?        // burst 鏈熼棿绾︽瘡 16ms flush 涓€娆?(涓庡墠绔?rAF 瀵归綈); 闈炴枃鏈?chunk 宸插湪涓婇潰
+        // 寮哄埗 flush, 杩欓噷涓昏鍏滄寔缁枃鏈祦鐨勬敀鎵广€傝娴佸仠椤挎椂 read_capped_line 闃诲,
+        // 缂撳啿閲屾渶澶氭畫鐣欎竴甯ф枃鏈? 鐢变笅涓€琛?/ EOF / 宸ュ叿璋冪敤瑙﹀彂钀藉湴銆?
         if last_flush_at.elapsed() >= STREAM_FLUSH_INTERVAL {
-            flush_emit_buffer(&app_handle, &mut emit_buf, &run_id);
+            flush_emit_buffer(&app_handle, &thread_manager, &mut emit_buf, &run_id).await;
             last_flush_at = Instant::now();
         }
     }
@@ -271,6 +317,27 @@ where
         None,
     );
     Ok(())
+}
+
+fn non_json_stdout_text(parsed: &ParsedClaudeStdoutLine, line: &str) -> Option<String> {
+    if parsed.chunks.is_empty() {
+        return None;
+    }
+
+    let text = parsed
+        .chunks
+        .iter()
+        .filter_map(|chunk| match chunk {
+            AgentChunk::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<String>();
+
+    if text.is_empty() {
+        Some(format!("{line}\n"))
+    } else {
+        Some(text)
+    }
 }
 
 #[cfg(test)]
@@ -289,6 +356,34 @@ mod tests {
                 .chars()
                 .count(),
             2048
+        );
+    }
+
+    #[test]
+    fn non_json_stdout_text_drops_malformed_claude_skill_event() {
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: C:\Users\Administrator\AppData\Local\Temp\claude\bundled-skills\2.1.199\2e69ace9e17316f996ad08e77f1a5312\claude-api\n\n# Building LLM-Powered Applications with Claude"}]}}"#;
+        let mut state = ClaudeStreamState::default();
+        let parsed = parse_claude_stdout_line_with_state("thread_1", line, &mut state);
+
+        assert!(parsed.value.is_none());
+        assert!(parsed.chunks.is_empty());
+        assert_eq!(non_json_stdout_text(&parsed, line), None);
+    }
+
+    #[test]
+    fn non_json_stdout_text_keeps_plain_stdout() {
+        let parsed = ParsedClaudeStdoutLine {
+            value: None,
+            session_id: None,
+            chunks: vec![AgentChunk::Text {
+                thread_id: "thread_1".to_string(),
+                text: "plain progress\n".to_string(),
+            }],
+        };
+
+        assert_eq!(
+            non_json_stdout_text(&parsed, "plain progress"),
+            Some("plain progress\n".to_string())
         );
     }
 }

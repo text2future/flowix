@@ -26,6 +26,24 @@ interface Options {
 
 const CONFLICT_WARNING_COOLDOWN_MS = 5000;
 
+/**
+ * `tags_renamed` 事件的 reload 判定 ── 抽成纯函数以便单测。
+ *
+ * `true` 表示应当把当前打开的 memo 文档 reload 到磁盘最新内容 (含新
+ * `#tag` token); `false` 表示不该动 (无关 memo / dirty 草稿 / 不是
+ * memo 文档)。
+ */
+export function shouldReloadDocumentForTagsRenamed(
+  event: Extract<MemoEvent, { kind: 'tags_renamed' }>,
+  identity: DocumentIdentity,
+  isDirty: boolean,
+): boolean {
+  if (identity.kind !== 'memo') return false;
+  if (!event.affectedMemoIds.includes(identity.id)) return false;
+  if (isDirty) return false;
+  return true;
+}
+
 export function useMemoDocumentChangeWatch({
   filePath,
   identity,
@@ -46,6 +64,20 @@ export function useMemoDocumentChangeWatch({
 
     const unsubscribeMemoEvents = registerMemoEventHandler(
       async (event: MemoEvent) => {
+        // tags_renamed: move_memo_tag 批量改写 .md body 完成后的一次性事件。
+        // 当前打开的 memo 如果在被改写的 affectedMemoIds 列表里, 需要
+        // reloadDocument 把磁盘最新内容 (含新 tag token) 拉进来, 否则
+        // 编辑器还显示旧 #tag, 跟列表卡片不一致。
+        if (event.kind === 'tags_renamed') {
+          const isDirty = hasDocumentUnsavedChanges(identity);
+          if (!shouldReloadDocumentForTagsRenamed(event, identity, isDirty)) {
+            if (isDirty) warnAboutConflict();
+            return;
+          }
+          clearSaveTimer();
+          await reloadDocument(filePath, { preservePending: false, showLoading: false });
+          return;
+        }
         if (event.kind !== 'updated' || event.source === 'user_edit' || !event.path) return;
         const updatedPath = canonicalPath(event.path);
         if (updatedPath !== canonicalPath(filePath)) return;
@@ -57,7 +89,11 @@ export function useMemoDocumentChangeWatch({
         clearSaveTimer();
         await reloadDocument(filePath, { preservePending: false, showLoading: false });
       },
-      (event) => event.kind === 'updated' && event.source !== 'user_edit',
+      (event) =>
+        // tags_renamed: 接收 ── 但内部会按 affectedMemoIds 收窄。
+        // updated: 走 user_edit 排除分支 (与原行为一致)。
+        event.kind === 'tags_renamed'
+        || (event.kind === 'updated' && event.source !== 'user_edit'),
     );
 
     let disposed = false;

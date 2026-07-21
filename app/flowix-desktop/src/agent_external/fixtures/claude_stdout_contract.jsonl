@@ -1,0 +1,11 @@
+{"type":"system","subtype":"init","session_id":"claude-session-1"}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","role":"assistant","content":[]}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Need inspect workspace."}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"The workspace is "}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"pwd\"}"}}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":2}}
+{"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":90,"cache_read_input_tokens":30,"output_tokens":12}}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"/tmp/flowix\n"}]}}
+{"type":"system","subtype":"error","message":"Claude transport error"}
+{"type":"result","subtype":"success","duration_ms":1000}

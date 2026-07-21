@@ -1,12 +1,6 @@
-//! 笔记目录监听模块。
-//!
-//! 模块边界:
-//! - `manager` 持有 `notify::RecommendedWatcher` 生命周期, 采集原始文件事件。
-//! - `event` 提供跨平台 `RawFsEvent` / `FsEventKind` 抽象。
-//! - `filter` 负责 whitelist / self-write / debounce 三段过滤。
-//! - `processor` 把通过过滤的事件分流成 memo register / reload / unregister。
-//! - `runtime` 提供从 Tauri state 访问当前 watcher 的窄接口。
-
+//! 绗旇鐩綍鐩戝惉妯″潡銆?//!
+//! 妯″潡杈圭晫:
+//! - `manager` 鎸佹湁 `notify::RecommendedWatcher` 鐢熷懡鍛ㄦ湡, 閲囬泦鍘熷鏂囦欢浜嬩欢銆?//! - `event` 鎻愪緵璺ㄥ钩鍙?`RawFsEvent` / `FsEventKind` 鎶借薄銆?//! - `filter` 璐熻矗 whitelist / self-write / debounce 涓夋杩囨护銆?//! - `processor` 鎶婇€氳繃杩囨护鐨勪簨浠跺垎娴佹垚 memo register / reload / unregister銆?//! - `runtime` 鎻愪緵浠?Tauri state 璁块棶褰撳墠 watcher 鐨勭獎鎺ュ彛銆?
 pub mod event;
 pub mod filter;
 pub mod manager;

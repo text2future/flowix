@@ -43,6 +43,9 @@ import type { MemoEvent } from '@/types/memo';
  * - created → e.memo.id
  * - updated → e.id
  * - deleted → e.id
+ * - tags_renamed → 返回 `undefined` (立即派发, 不 dedup) ── 它不是
+ *   单条 memo 事件, 没有 memo id 维度; 短时间内多次 rename 也应该
+ *   各自生效, 不能合并。
  *
  * 返回 `undefined` 表示此事件不参与 dedup (立即 next)。
  */
@@ -50,6 +53,7 @@ function memoEventKey(event: MemoEvent): string | undefined {
   if (event.kind === 'created') return event.memo.id;
   if (event.kind === 'updated') return event.id;
   if (event.kind === 'deleted') return event.id;
+  // tags_renamed 没有 memo id 维度, 返回 undefined 让 caller 走 "立即 next" 分支
   return undefined;
 }
 

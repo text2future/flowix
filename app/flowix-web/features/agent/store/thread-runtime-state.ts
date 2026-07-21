@@ -94,6 +94,20 @@ export function releaseThreadRuntimeMessages(st: ThreadState): ThreadState {
 }
 
 /**
+ * 把仍处于 loading 的 tool 行收尾为 isLoading=false ── run 结束时调用,
+ * 避免"被中断 / result 未到达"的 tool_call 永久转圈(history 路径靠
+ * close_orphan_claude_tool_calls 在 reload 时做同样收尾,这里补齐 live 路径)。
+ * 仅在 run 真正结束(thread 不再 loading)时调用,避免误关并发 run 的工具行。
+ */
+export function closeLoadingToolRows(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) =>
+    message.role === "tool" && message.isLoading
+      ? { ...message, isLoading: false }
+      : message,
+  );
+}
+
+/**
  * 判断 thread 是否处于 "正在跑" 的状态 ── 用来决定是否要 ensureRunActive
  * (补丁式补一个 stream_start)。 三条都要满足: isLoading=true,
  * activeRunId 已设, runs[activeRunId].status === 'running'。
@@ -167,6 +181,5 @@ function applyRunStartedImpl(
     isLoading: true,
     activeRunId: event.runId,
     runs: { ...st.runs, [event.runId]: run },
-    lastRun: st.lastRun?.runId === event.runId ? st.lastRun : undefined,
   };
 }

@@ -272,14 +272,11 @@ impl AgentManager {
             None
         };
 
-        // Plan B: Agent 不再 mark_self_write, 也不再手动 emit memo-event。
-        // 一切磁盘变更交给 watcher 的 dispatch_modify_event 单点处理 —
-        // 它走 frontmatter-key-first 分流, 自动用 reload_memo_from_disk_by_filename
-        // (或 register_existing_file) 同步 memo index, 然后 emit
-        // `MemoEvent::Updated` / `Created` (source: ExternalTool)。
-
-        // `self.memo_file` 是 `Arc<RwLock<MemoFile>>`, 解引用后调用 `.read()`
-        // 自动得到 `&RwLock<MemoFile>`, 喂给 `execute_tool` 的形参类型。
+        // Plan B: Agent 涓嶅啀 mark_self_write, 涔熶笉鍐嶆墜鍔?emit memo-event銆?        // 涓€鍒囩鐩樺彉鏇翠氦缁?watcher 鐨?dispatch_modify_event 鍗曠偣澶勭悊 鈥?        // 瀹冭蛋 frontmatter-key-first 鍒嗘祦, 鑷姩鐢?reload_memo_from_disk_by_filename
+        // (鎴?register_existing_file) 鍚屾 memo index, 鐒跺悗 emit
+        // `MemoEvent::Updated` / `Created` (source: ExternalTool)銆?
+        // `self.memo_file` 鏄?`Arc<RwLock<MemoFile>>`, 瑙ｅ紩鐢ㄥ悗璋冪敤 `.read()`
+        // 鑷姩寰楀埌 `&RwLock<MemoFile>`, 鍠傜粰 `execute_tool` 鐨勫舰鍙傜被鍨嬨€?
         let result = execute_tool(
             tool_name,
             arguments,
@@ -292,12 +289,9 @@ impl AgentManager {
         )
         .await;
 
-        // 工具调用失败 ── 把错误镜像到 agent.log。 注意这**不替代**把错误
-        // 交还 LLM: 下面 `ToolResult` chunk 仍然 emit 到前端, thread.db 也
-        // 落 tool_data (success=false) 行, LLM 下轮 reload 时能看到, 由
-        // LLM 自己决定是改路径 / 换工具 / 收口。 agent.log 这里是排障的
-        // 镜像 ── 用户事后反馈"刚才 LLM 怎么愣在那里"时, 能直接 grep
-        // `kind=tool_error` 看具体哪条工具调用吃了什么 error。
+        // 宸ュ叿璋冪敤澶辫触 鈹€鈹€ 鎶婇敊璇暅鍍忓埌 agent.log銆?娉ㄦ剰杩?*涓嶆浛浠?*鎶婇敊璇?        // 浜よ繕 LLM: 涓嬮潰 `ToolResult` chunk 浠嶇劧 emit 鍒板墠绔? thread.db 涔?        // 钀?tool_data (success=false) 琛? LLM 涓嬭疆 reload 鏃惰兘鐪嬪埌, 鐢?        // LLM 鑷繁鍐冲畾鏄敼璺緞 / 鎹㈠伐鍏?/ 鏀跺彛銆?agent.log 杩欓噷鏄帓闅滅殑
+        // 闀滃儚 鈹€鈹€ 鐢ㄦ埛浜嬪悗鍙嶉"鍒氭墠 LLM 鎬庝箞鎰ｅ湪閭ｉ噷"鏃? 鑳界洿鎺?grep
+        // `kind=tool_error` 鐪嬪叿浣撳摢鏉″伐鍏疯皟鐢ㄥ悆浜嗕粈涔?error銆?
         if !result.success {
             if let Some(err_msg) = result.error.as_deref() {
                 runtime_log::record_agent_event(
@@ -316,9 +310,8 @@ impl AgentManager {
             match tool_name {
                 "read" => {
                     if let Some(path_key) = path_key {
-                        // 跟 filesystem.rs::read 走同样路径 ── 改 `tokio::fs::read_to_string`
-                        // 让 worker 不被同步 I/O 卡死, 单次大文件读盘不再冻住整个
-                        // ReAct 循环。 read 工具本身已切到 tokio::fs, 这里跟它对齐。
+                        // 璺?filesystem.rs::read 璧板悓鏍疯矾寰?鈹€鈹€ 鏀?`tokio::fs::read_to_string`
+                        // 璁?worker 涓嶈鍚屾 I/O 鍗℃, 鍗曟澶ф枃浠惰鐩樹笉鍐嶅喕浣忔暣涓?                        // ReAct 寰幆銆?read 宸ュ叿鏈韩宸插垏鍒?tokio::fs, 杩欓噷璺熷畠瀵归綈銆?
                         if let Ok(content) = tokio::fs::read_to_string(&path_key).await {
                             let mut snapshots = self.read_snapshots.write().await;
                             snapshots
@@ -330,17 +323,16 @@ impl AgentManager {
                 }
                 "write" | "edit" => {
                     if let Some(path_key) = path_key {
-                        // 清掉 read 快照: 文件可能变了, 旧快照失效。
-                        // edit 工具的 drift 检测依赖 read_snapshot, 不清会让
-                        // 下次 edit 用过期快照报 "File changed on disk" 假阳性。
+                        // 娓呮帀 read 蹇収: 鏂囦欢鍙兘鍙樹簡, 鏃у揩鐓уけ鏁堛€?                        // edit 宸ュ叿鐨?drift 妫€娴嬩緷璧?read_snapshot, 涓嶆竻浼氳
+                        // 涓嬫 edit 鐢ㄨ繃鏈熷揩鐓ф姤 "File changed on disk" 鍋囬槼鎬с€?
                         let mut snapshots = self.read_snapshots.write().await;
                         if let Some(files) = snapshots.get_mut(thread_id) {
                             files.remove(&path_key);
                         }
-                        // memo index 同步 + memo-event emit 完全交给 watcher
-                        // (dispatch_modify_event: frontmatter-key-first 分流 →
-                        //  reload_memo_from_disk_by_filename / register_unnamed_file →
-                        //  emit source=ExternalTool)。Agent 不再自己 emit。
+                        // memo index 鍚屾 + memo-event emit 瀹屽叏浜ょ粰 watcher
+                        // (dispatch_modify_event: frontmatter-key-first 鍒嗘祦 鈫?
+                        //  reload_memo_from_disk_by_filename / register_unnamed_file 鈫?
+                        //  emit source=ExternalTool)銆侫gent 涓嶅啀鑷繁 emit銆?
                     }
                 }
                 _ => {}

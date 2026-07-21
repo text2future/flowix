@@ -14,15 +14,14 @@ pub const MAX_LOG_TEXT_CHARS: usize = 2048;
 pub const MAX_UI_OUTPUT_PREVIEW_CHARS: usize = 4096;
 pub use crate::agent_external::MAX_STDOUT_LINE_BYTES;
 
-// CLI runtime ── spawn `codex` binary 子进程, 按 JSONL 行解析 stdout。
+// CLI runtime 鈹€鈹€ spawn `codex` binary 瀛愯繘绋? 鎸?JSONL 琛岃В鏋?stdout銆?
 pub use cli::CodexCliManager;
 
-// History API ── 读 ~/.codex/sessions/* 下的 jsonl, 转成 ChatMessage 流。
+// History API 鈹€鈹€ 璇?~/.codex/sessions/* 涓嬬殑 jsonl, 杞垚 ChatMessage 娴併€?
 pub use history::{get_session, get_session_page, is_codex_session_id, list_sessions};
 
-// Event JSON → AgentChunk 转换 (供 cli 模块内部使用, 也对外暴露给
-// 未来想要内嵌到非外部 runtime 的调用方复用)。
-
+// Event JSON 鈫?AgentChunk 杞崲 (渚?cli 妯″潡鍐呴儴浣跨敤, 涔熷澶栨毚闇茬粰
+// 鏈潵鎯宠鍐呭祵鍒伴潪澶栭儴 runtime 鐨勮皟鐢ㄦ柟澶嶇敤)銆?
 pub fn truncate_for_log(text: &str) -> String {
     truncate_chars(text, MAX_LOG_TEXT_CHARS)
 }

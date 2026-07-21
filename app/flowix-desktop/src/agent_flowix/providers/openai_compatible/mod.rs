@@ -145,10 +145,8 @@ impl OpenAICompatibleConfig {
 }
 
 /// OpenAI-compatible provider using /v1/chat/completions endpoint.
-/// 流式入口走 [`Self::chat_stream_tagged`] ── 拿结构化 `OpenAICompatibleStreamItem`
-/// (reasoning / text 分离, 无 `[REASONING]:` 字符串前缀)。非流式走
-/// [`Self::chat_with_tools`] ── `AgentChatProvider::chat_with_tools` 在
-/// Rllm 流式不支持时降级到非流式时调。
+/// 娴佸紡鍏ュ彛璧?[`Self::chat_stream_tagged`] 鈹€鈹€ 鎷跨粨鏋勫寲 `OpenAICompatibleStreamItem`
+/// (reasoning / text 鍒嗙, 鏃?`[REASONING]:` 瀛楃涓插墠缂€)銆傞潪娴佸紡璧?/// [`Self::chat_with_tools`] 鈹€鈹€ `AgentChatProvider::chat_with_tools` 鍦?/// Rllm 娴佸紡涓嶆敮鎸佹椂闄嶇骇鍒伴潪娴佸紡鏃惰皟銆?
 #[derive(Debug, Clone)]
 pub struct OpenAICompatibleProvider {
     config: Arc<OpenAICompatibleConfig>,
@@ -157,30 +155,19 @@ pub struct OpenAICompatibleProvider {
 
 impl OpenAICompatibleProvider {
     pub fn new(config: OpenAICompatibleConfig) -> Self {
-        // 用 `connect_timeout` 限制握手, `read_timeout` 容忍长流式生成期间
-        // 单帧空闲 — 之前一个 60s `Client::timeout()` 是**总**超时, 推理
-        // 模型首字节慢 + 大 payload write 工具下一轮 reload 三者一叠加就
-        // 容易在流还没开始时就被截断, 错误还会被 reqwest 的 `Kind::Decode`
-        // 包装成误导性的 "error decoding response body"。
-        //
-        // 不再设总超时: `read_timeout(120s)` 在每个 frame 收到时重置, 长
-        // 生成只要持续吐 chunk 就不会触发; 真要兜底可在调用方按 cycle
-        // 加 wall-clock cap, 不应该在这一层硬切。
+        // 鐢?`connect_timeout` 闄愬埗鎻℃墜, `read_timeout` 瀹瑰繊闀挎祦寮忕敓鎴愭湡闂?        // 鍗曞抚绌洪棽 鈥?涔嬪墠涓€涓?60s `Client::timeout()` 鏄?*鎬?*瓒呮椂, 鎺ㄧ悊
+        // 妯″瀷棣栧瓧鑺傛參 + 澶?payload write 宸ュ叿涓嬩竴杞?reload 涓夎€呬竴鍙犲姞灏?        // 瀹规槗鍦ㄦ祦杩樻病寮€濮嬫椂灏辫鎴柇, 閿欒杩樹細琚?reqwest 鐨?`Kind::Decode`
+        // 鍖呰鎴愯瀵兼€х殑 "error decoding response body"銆?        //
+        // 涓嶅啀璁炬€昏秴鏃? `read_timeout(120s)` 鍦ㄦ瘡涓?frame 鏀跺埌鏃堕噸缃? 闀?        // 鐢熸垚鍙鎸佺画鍚?chunk 灏变笉浼氳Е鍙? 鐪熻鍏滃簳鍙湪璋冪敤鏂规寜 cycle
+        // 鍔?wall-clock cap, 涓嶅簲璇ュ湪杩欎竴灞傜‖鍒囥€?
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .read_timeout(std::time::Duration::from_secs(120))
-            // L1-a: 关掉 hyper 透明解压 — SSE 流的 chunked body 不应被
-            //        gzip/brotli 中间层改写; 否则 zstd 头解析失败会冒泡为
-            //        Kind::Decode, 根因其实是"网关注入透明解压"。同时
-            //        配 Accept-Encoding: identity 显式声明"不压缩",
-            //        与 no_gzip 形成双向保险。
-            .no_gzip()
-            // L1-b: 30s 心跳 — 中间网络设备 NAT / 防火墙 60-90s 静默切断
-            //        长连接是 LLM 流式断流的常见根因。
-            .tcp_keepalive(std::time::Duration::from_secs(30))
-            // L1-c: 连接池空闲 90s 回收 — 避免复用"看起来活着但实际
-            //        已被网关 reset"的连接。
-            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            // L1-a: 鍏虫帀 hyper 閫忔槑瑙ｅ帇 鈥?SSE 娴佺殑 chunked body 涓嶅簲琚?            //        gzip/brotli 涓棿灞傛敼鍐? 鍚﹀垯 zstd 澶磋В鏋愬け璐ヤ細鍐掓场涓?            //        Kind::Decode, 鏍瑰洜鍏跺疄鏄?缃戝叧娉ㄥ叆閫忔槑瑙ｅ帇"銆傚悓鏃?            //        閰?Accept-Encoding: identity 鏄惧紡澹版槑"涓嶅帇缂?,
+            //        涓?no_gzip 褰㈡垚鍙屽悜淇濋櫓銆?            .no_gzip()
+            // L1-b: 30s 蹇冭烦 鈥?涓棿缃戠粶璁惧 NAT / 闃茬伀澧?60-90s 闈欓粯鍒囨柇
+            //        闀胯繛鎺ユ槸 LLM 娴佸紡鏂祦鐨勫父瑙佹牴鍥犮€?            .tcp_keepalive(std::time::Duration::from_secs(30))
+            // L1-c: 杩炴帴姹犵┖闂?90s 鍥炴敹 鈥?閬垮厤澶嶇敤"鐪嬭捣鏉ユ椿鐫€浣嗗疄闄?            //        宸茶缃戝叧 reset"鐨勮繛鎺ャ€?            .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
             .expect("Failed to build reqwest Client");
         Self {
@@ -197,9 +184,9 @@ impl OpenAICompatibleProvider {
         }
     }
 
-    /// 非流式 chat completion ── 给 `AgentChatProvider::chat_with_tools`
-    /// fallback 路径用 (Rllm 分支流式不支持时降级到非流式)。agent.rs:192
-    /// 直接 `provider.chat_with_tools(...)` 调用, 不走 rllm trait dispatch。
+    /// 闈炴祦寮?chat completion 鈹€鈹€ 缁?`AgentChatProvider::chat_with_tools`
+    /// fallback 璺緞鐢?(Rllm 鍒嗘敮娴佸紡涓嶆敮鎸佹椂闄嶇骇鍒伴潪娴佸紡)銆俛gent.rs:192
+    /// 鐩存帴 `provider.chat_with_tools(...)` 璋冪敤, 涓嶈蛋 rllm trait dispatch銆?
     pub async fn chat_with_tools(
         &self,
         messages: &[OpenAICompatibleChatMessage],
@@ -231,6 +218,7 @@ impl OpenAICompatibleProvider {
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
             stream: false,
+            parallel_tool_calls: tool_requests.as_ref().map(|_| false),
             tools: tool_requests,
             reasoning_split: self.config.reasoning_split,
         };
@@ -311,12 +299,8 @@ impl OpenAICompatibleProvider {
 
     fn build_url(&self) -> String {
         let base = self.config.base_url.trim_end_matches('/');
-        // 兼容两种入参形式:
-        //   - "base" (如 OpenAI 的 https://api.openai.com/v1) ——
-        //     追加 /chat/completions。
-        //   - 完整 endpoint (如 DeepSeek 锁定的
-        //     https://api.deepseek.com/chat/completions) ——
-        //     已经包含路径, 不再追加, 避免拼成 ".../chat/completions/chat/completions"。
+        // 鍏煎涓ょ鍏ュ弬褰㈠紡:
+        //   - "base" (濡?OpenAI 鐨?https://api.openai.com/v1) 鈥斺€?        //     杩藉姞 /chat/completions銆?        //   - 瀹屾暣 endpoint (濡?DeepSeek 閿佸畾鐨?        //     https://api.deepseek.com/chat/completions) 鈥斺€?        //     宸茬粡鍖呭惈璺緞, 涓嶅啀杩藉姞, 閬垮厤鎷兼垚 ".../chat/completions/chat/completions"銆?
         if base.ends_with("/chat/completions") {
             base.to_string()
         } else {
@@ -560,7 +544,7 @@ impl OpenAICompatibleProvider {
                     index += 1;
                 }
                 _ => {
-                    // Image/Audio/Pdf/ImageURL: 当前应用未使用, 跳过避免悄悄丢消息。
+                    // Image/Audio/Pdf/ImageURL: 褰撳墠搴旂敤鏈娇鐢? 璺宠繃閬垮厤鎮勬倓涓㈡秷鎭€?
                     tracing::warn!(
                         "[OpenAI] Skipping unsupported MessageType variant in prepare_messages"
                     );
@@ -582,11 +566,9 @@ impl OpenAICompatibleProvider {
             .map(str::to_string)
     }
 
-    /// 内部分流式方法, 产 [`OpenAICompatibleStreamItem`]。agent.rs 用这个方法 ——
-    /// 它需要把 `reasoning_content` 与 `content` 区分开, 然后构造
-    /// [`crate::agent_flowix::AgentChunk`] 发给前端。这是 OpenAICompatibleProvider
-    /// 唯一保留的流式入口; rllm trait 上的 `chat_stream_with_tools` 已
-    /// `unimplemented!()` (无活跃消费者, 见 impl 注释)。
+    /// 鍐呴儴鍒嗘祦寮忔柟娉? 浜?[`OpenAICompatibleStreamItem`]銆俛gent.rs 鐢ㄨ繖涓柟娉?鈥斺€?    /// 瀹冮渶瑕佹妸 `reasoning_content` 涓?`content` 鍖哄垎寮€, 鐒跺悗鏋勯€?    /// [`crate::agent_flowix::AgentChunk`] 鍙戠粰鍓嶇銆傝繖鏄?OpenAICompatibleProvider
+    /// 鍞竴淇濈暀鐨勬祦寮忓叆鍙? rllm trait 涓婄殑 `chat_stream_with_tools` 宸?    /// `unimplemented!()` (鏃犳椿璺冩秷璐硅€? 瑙?
+    /// impl 娉ㄩ噴)銆?
     pub async fn chat_stream_tagged(
         &self,
         messages: &[OpenAICompatibleChatMessage],
@@ -622,6 +604,7 @@ impl OpenAICompatibleProvider {
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
             stream: true,
+            parallel_tool_calls: tool_requests.as_ref().map(|_| false),
             tools: tool_requests,
             reasoning_split: self.config.reasoning_split,
         };
@@ -645,9 +628,8 @@ impl OpenAICompatibleProvider {
                 .bearer_auth(&self.config.api_key)
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
-                // L1-d: 显式拒绝压缩 — 与 builder.no_gzip() 双向保险,
-                //        SSE 流式响应经透明解压后容易被误判为 Decode 错误。
-                .header("Accept-Encoding", "identity")
+                // L1-d: 鏄惧紡鎷掔粷鍘嬬缉 鈥?涓?builder.no_gzip() 鍙屽悜淇濋櫓,
+                //        SSE 娴佸紡鍝嶅簲缁忛€忔槑瑙ｅ帇鍚庡鏄撹璇垽涓?Decode 閿欒銆?                .header("Accept-Encoding", "identity")
                 .timeout(timeout)
                 .body(body.clone());
 
@@ -793,16 +775,11 @@ impl OpenAICompatibleProvider {
                             }
                         }
 
-                        // Token 用量在流末尾单独送 (顶层 `usage`, 不在 choices 里)。
-                        // 之前 `Usage` 字段在 ApiStreamChunk 解析但从未被读取 ──
-                        // 现在透传给 agent.rs 做跨 cycle 累加 + 预算熔断。
-                        // total_tokens 为 None (网关没填) 时不 emit, 避免把
-                        // `Some(Usage { total_tokens: 0, .. })` 当成 0 token 计入。
-                        //
-                        // Compatibility fallback: 旧 provider 只报
-                        // `prompt_tokens` / `completion_tokens` 时,在 SSE 解析层
-                        // 把它们 fallback 到 `input_tokens` / `output_tokens`,
-                        // 这样下游 chunk 协议不再携带 prompt/completion 字段。
+                        // Token 鐢ㄩ噺鍦ㄦ祦鏈熬鍗曠嫭閫?(椤跺眰 `usage`, 涓嶅湪 choices 閲?銆?                        // 涔嬪墠 `Usage` 瀛楁鍦?ApiStreamChunk 瑙ｆ瀽浣嗕粠鏈璇诲彇 鈹€鈹€
+                        // 鐜板湪閫忎紶缁?agent.rs 鍋氳法 cycle 绱姞 + 棰勭畻鐔旀柇銆?                        // total_tokens 涓?None (缃戝叧娌″～) 鏃朵笉 emit, 閬垮厤鎶?                        // `Some(Usage { total_tokens: 0, .. })` 褰撴垚 0 token 璁″叆銆?                        //
+                        // Compatibility fallback: 鏃?provider 鍙姤
+                        // `prompt_tokens` / `completion_tokens` 鏃?鍦?SSE 瑙ｆ瀽灞?                        // 鎶婂畠浠?fallback 鍒?`input_tokens` / `output_tokens`,
+                        // 杩欐牱涓嬫父 chunk 鍗忚涓嶅啀鎼哄甫 prompt/completion 瀛楁銆?
                         if let Some(usage) = response.usage {
                             if let Some(total) = usage.total_tokens {
                                 queue.push_back(Ok(OpenAICompatibleStreamItem::Usage {
@@ -875,8 +852,7 @@ mod tests {
     //!
     //! The pre-fix parser used a single `PendingToolCall` bucket and ignored
     //! the LLM-assigned `index` field, so when the LLM emitted N parallel
-    //! `tool_calls` in one delta they were all clobbered into one bucket —
-    //! their `arguments` strings concatenated and only the last `id`
+    //! `tool_calls` in one delta they were all clobbered into one bucket 鈥?    //! their `arguments` strings concatenated and only the last `id`
     //! survived. The gateway then rejected the next turn with 400
     //! "invalid function arguments json string".
     //!
@@ -967,7 +943,7 @@ mod tests {
         // ended up with the same concatenated string.
         assert_ne!(
             calls[0].function.arguments, calls[1].function.arguments,
-            "arguments were collapsed — index keying is broken"
+            "arguments were collapsed 鈥?index keying is broken"
         );
     }
 
@@ -1011,7 +987,7 @@ mod tests {
 
     #[test]
     fn three_parallel_calls_round_trip() {
-        // Three calls in one turn — guards the upper end of the parallel
+        // Three calls in one turn 鈥?guards the upper end of the parallel
         // path. Order of emission must be ascending index.
         let mut pending = PendingToolCalls::new();
         merge_tool_call_delta(
@@ -1033,11 +1009,11 @@ mod tests {
     #[test]
     fn extracts_markdown_remote_file_url_and_windows_image_paths() {
         let content = concat!(
-            "看图 ![remote](https://example.com/a.png?x=1) ",
-            "裸链 https://example.com/b.jpg, ",
+            "鐪嬪浘 ![remote](https://example.com/a.png?x=1) ",
+            "瑁搁摼 https://example.com/b.jpg, ",
             "file:///D:/imgs/c.jpeg ",
             "![asset](asset://localhost/C%3A%5CUsers%5CAdministrator%5CDocuments%5Cflowix%2Fattachments%5CSnipaste.png) ",
-            "本地 D:\\imgs\\nested dir\\d.png"
+            "鏈湴 D:\\imgs\\nested dir\\d.png"
         );
         let sources = extract_image_sources(content);
         assert_eq!(
@@ -1271,7 +1247,7 @@ mod tests {
         ));
         let message = LlmChatMessage {
             role: ChatRole::User,
-            content: format!("描述这张图 ![sample]({})", path.display()),
+            content: format!("鎻忚堪杩欏紶鍥?![sample]({})", path.display()),
             message_type: MessageType::Text,
         };
         let messages = provider.prepare_messages(&[message.into()]).await.unwrap();
@@ -1293,7 +1269,7 @@ mod tests {
         );
         let message = LlmChatMessage {
             role: ChatRole::User,
-            content: format!("鎻忚堪杩欏紶鍥?![sample]({})", path.display()),
+            content: format!("閹诲繗鍫潻娆忕炊閸?![sample]({})", path.display()),
             message_type: MessageType::Text,
         };
         let messages = provider.prepare_messages(&[message.into()]).await.unwrap();

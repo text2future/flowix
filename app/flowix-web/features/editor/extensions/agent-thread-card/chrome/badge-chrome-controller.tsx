@@ -3,7 +3,6 @@ import { createRoot, type Root } from "react-dom/client";
 import type { AgentTypeKey } from "@/types/agent";
 import { getAgentType } from "@/lib/agent-types";
 import { useChatStore, type ThreadState } from "@features/agent/store/chat-store";
-import type { AgentConversationRun } from "@features/agent/store/agent-conversation-store";
 import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
 import { BadgeHoverCard } from "@features/editor/extensions/agent-thread-card/badge-hover-card";
 import { computeAgentThreadCardBadgeData } from "@features/editor/extensions/agent-thread-card/runtime/run-status-presenter";
@@ -15,7 +14,6 @@ export interface AgentThreadCardBadgeChromeControllerOptions {
   hoverCardMount: HTMLSpanElement;
   getThreadId: () => string | null;
   getThreadState: () => ThreadState | undefined;
-  getPersistedRun: () => AgentConversationRun | undefined;
   getTypeKey: () => AgentTypeKey;
   isFullscreen: () => boolean;
 }
@@ -28,7 +26,6 @@ export class AgentThreadCardBadgeChromeController {
   private readonly hoverCardRoot: Root;
   private readonly getThreadId: () => string | null;
   private readonly getThreadState: () => ThreadState | undefined;
-  private readonly getPersistedRun: () => AgentConversationRun | undefined;
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly isFullscreen: () => boolean;
   private hoverCardTimer: ReturnType<typeof setInterval> | null = null;
@@ -42,7 +39,6 @@ export class AgentThreadCardBadgeChromeController {
     this.hoverCardRoot = createRoot(options.hoverCardMount);
     this.getThreadId = options.getThreadId;
     this.getThreadState = options.getThreadState;
-    this.getPersistedRun = options.getPersistedRun;
     this.getTypeKey = options.getTypeKey;
     this.isFullscreen = options.isFullscreen;
   }
@@ -124,7 +120,6 @@ export class AgentThreadCardBadgeChromeController {
     const { model, lastRunAt, totalTokens } =
       computeAgentThreadCardBadgeData({
         threadState: this.getThreadState(),
-        conversationRun: this.getPersistedRun(),
         codexModel: useChatStore.getState().agentCodexModel,
         typeKey: this.getTypeKey(),
       });

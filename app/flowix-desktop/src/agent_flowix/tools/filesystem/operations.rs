@@ -232,8 +232,7 @@ pub(super) async fn ls(arguments: &str, scope: &ToolScope) -> ToolResult {
     };
 
     let mut result = Vec::new();
-    // `take(limit)` 在 async iter 上不能直接调 ── tokio::fs::ReadDir 的
-    // `next_entry` 一次返回一条, 手动控制上限。
+    // `take(limit)` 鍦?async iter 涓婁笉鑳界洿鎺ヨ皟 鈹€鈹€ tokio::fs::ReadDir 鐨?    // `next_entry` 涓€娆¤繑鍥炰竴鏉? 鎵嬪姩鎺у埗涓婇檺銆?
     let mut count = 0usize;
     loop {
         if count >= limit {
@@ -265,11 +264,8 @@ pub(super) async fn ls(arguments: &str, scope: &ToolScope) -> ToolResult {
     }))
 }
 
-// ============== glob / grep: spawn_blocking + 上限 ==============
+// ============== glob / grep: spawn_blocking + 涓婇檺 ==============
 //
-// glob / grep 走 `WalkDir` 这类 crate-level 同步 API, 即便包
-// `tokio::fs` 也不解决"遍历目录树不让 worker 调度"的问题。 整段塞进
-// `tokio::task::spawn_blocking`, 让 worker 真正能跑别的 task; 同时加
-// MAX_GLOB_FILES / MAX_GREP_FILES / MAX_GREP_TOTAL_BYTES /
-// MAX_GREP_FILE_BYTES / MAX_GREP_WALLCLOCK 多重硬上限, 触发上限时
-// truncated 标记, LLM 据此自纠 (缩窄 path)。
+// glob / grep 璧?`WalkDir` 杩欑被 crate-level 鍚屾 API, 鍗充究鍖?// `tokio::fs` 涔熶笉瑙ｅ喅"閬嶅巻鐩綍鏍戜笉璁?worker 璋冨害"鐨勯棶棰樸€?鏁存濉炶繘
+// `tokio::task::spawn_blocking`, 璁?worker 鐪熸鑳借窇鍒殑 task; 鍚屾椂鍔?// MAX_GLOB_FILES / MAX_GREP_FILES / MAX_GREP_TOTAL_BYTES /
+// MAX_GREP_FILE_BYTES / MAX_GREP_WALLCLOCK 澶氶噸纭笂闄? 瑙﹀彂涓婇檺鏃?// truncated 鏍囪, LLM 鎹鑷籂 (缂╃獎 path)銆?

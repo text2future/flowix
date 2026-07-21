@@ -1,15 +1,14 @@
 import type { AgentRunState, AgentTypeKey } from '@/types/agent';
 import type { ThreadState } from '@features/agent/store/chat-store';
-import type { AgentConversationRun } from '@features/agent/store/agent-conversation-store';
 import { getAgentType } from '@/lib/agent-types';
 
 export interface AgentThreadCardRunStatusView {
   activeRun: AgentRunState | undefined;
-  latestRun: AgentRunState | AgentConversationRun | undefined;
+  latestRun: AgentRunState | undefined;
   supportsStreaming: boolean;
   isIdle: boolean;
-  status: AgentRunState['status'] | AgentConversationRun['status'] | 'completed';
-  statusClass: AgentRunState['status'] | AgentConversationRun['status'] | 'completed' | 'idle';
+  status: AgentRunState['status'] | 'completed';
+  statusClass: AgentRunState['status'] | 'completed' | 'idle';
   shouldShowStatus: boolean;
 }
 
@@ -22,7 +21,6 @@ export interface AgentThreadCardRuntimeView extends AgentThreadCardRunStatusView
 
 export function selectAgentThreadCardRunStatus(input: {
   state: ThreadState | undefined;
-  conversationRun?: AgentConversationRun;
   isCreating: boolean;
   isLoading: boolean;
   typeKey: AgentTypeKey;
@@ -32,14 +30,13 @@ export function selectAgentThreadCardRunStatus(input: {
     : undefined;
   const latestThreadRun = activeRun ?? Object.values(input.state?.runs ?? {})
     .sort((a, b) => b.startedAt - a.startedAt)[0];
-  const latestRun = input.conversationRun ?? latestThreadRun;
+  const latestRun = latestThreadRun;
   const supportsStreaming = getAgentType(activeRun?.agentType ?? input.typeKey)
     .capabilities.supportsTextStreaming;
   const isIdle = !input.isCreating && !activeRun && !input.isLoading && !latestRun;
   const status = input.isCreating
     ? 'running'
-    : input.conversationRun?.status ??
-      activeRun?.status ??
+    : activeRun?.status ??
       (input.isLoading ? 'running' : latestThreadRun?.status ?? 'completed');
 
   return {
@@ -55,7 +52,6 @@ export function selectAgentThreadCardRunStatus(input: {
 
 export function selectAgentThreadCardRuntimeView(input: {
   state: ThreadState | undefined;
-  conversationRun?: AgentConversationRun;
   isCreating: boolean;
   isLoading: boolean;
   typeKey: AgentTypeKey;

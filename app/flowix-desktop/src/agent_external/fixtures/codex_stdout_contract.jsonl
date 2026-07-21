@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_cmd_1","type":"command_execution","command":"bash -lc pwd","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_cmd_1","type":"command_execution","command":"bash -lc pwd","aggregated_output":"/tmp/flowix\n","exit_code":0,"status":"completed"}}
+{"type":"response_item","payload":{"type":"reasoning","summary":"Need inspect workspace before answering."}}
+{"type":"item.completed","item":{"id":"item_msg_1","type":"agent_message","text":"The workspace is /tmp/flowix."}}
+{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":40,"output_tokens":16,"reasoning_output_tokens":4}}
+{"type":"turn.failed","error":{"message":"stream disconnected before completion; retrying"}}
+{"type":"error","message":"fatal transport error"}

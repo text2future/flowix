@@ -92,6 +92,7 @@ pub(crate) fn build_codex_command_with_images(
             append_additional_workspace_dirs(&mut cmd, cwd, workspace_paths);
         }
     }
+    crate::agent_external::shared::configure_unix_process_group(&mut cmd);
     cmd
 }
 

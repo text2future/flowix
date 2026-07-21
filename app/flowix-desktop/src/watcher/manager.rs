@@ -1,40 +1,25 @@
-//! 笔记目录文件监听 — 包装 `notify::RecommendedWatcher` 监听全部已配置 notebook
-//! 目录, 把外部编辑器 / 其他 AI 的磁盘变更转为 `MemoEvent::Updated` 或
-//! `MemoEvent::Deleted` emit 给前端。
+//! 绗旇鐩綍鏂囦欢鐩戝惉 鈥?鍖呰 `notify::RecommendedWatcher` 鐩戝惉鍏ㄩ儴宸查厤缃?notebook
+//! 鐩綍, 鎶婂閮ㄧ紪杈戝櫒 / 鍏朵粬 AI 鐨勭鐩樺彉鏇磋浆涓?`MemoEvent::Updated` 鎴?//! `MemoEvent::Deleted` emit 缁欏墠绔€?//!
+//! ## 鑷啓鎶戝埗 (self-write suppression)
 //!
-//! ## 自写抑制 (self-write suppression)
+//! 鍚庣鑷韩鍐欏叆 (鐢ㄦ埛 UI / Agent / import 璺緞) 鍦?*鍐欑洏涔嬪墠**璋冪敤
+//! `MemoWatcher::mark_self_write(path)` 鎶婅矾寰勫鍏ユ姂鍒堕泦鍚堛€倃atcher 鍥炶皟
+//! 鐪嬪埌鍚岃矾寰勪簨浠? 鍛戒腑鍗冲悶銆傝繖涓€椤哄簭寰堝叧閿?鈥?鍐欑洏鍓?mark 鎵嶈兘鍏虫帀
+//! "notify 浜嬩欢鍏堜簬 mark 鍒拌揪"鐨?race window, 鍚﹀垯 IPC 鍛戒护鍒氭妸鏂囦欢钀界洏
+//! 杩樻病鏉ュ緱鍙婂鎶戝埗琛? watcher 灏卞厛鐪嬪埌 Create 浜嬩欢, 瑙﹀彂 reload/re-register
+//! 浜屾 emit銆?//!
+//! 璁捐: 鍚庣 emit 鏄悓姝ョ殑, 鍏堜簬 notify 鍥炶皟鍒拌揪鍓嶇; UI 姘歌繙鍏堢湅鍒拌嚜瀹?//! "Created" / "Updated" 浜嬩欢, 涓嶄細闂儊銆倃atcher 150ms 鍐呯殑鍥炲搷琚悶, 鏉滅粷
+//! "澶栭儴鐪嬭捣鏉ユ敼浜嗕袱娆?銆?//!
+//! ## Rename 妫€娴嬶細frontmatter-key-first
 //!
-//! 后端自身写入 (用户 UI / Agent / import 路径) 在**写盘之前**调用
-//! `MemoWatcher::mark_self_write(path)` 把路径塞入抑制集合。watcher 回调
-//! 看到同路径事件, 命中即吞。这一顺序很关键 — 写盘前 mark 才能关掉
-//! "notify 事件先于 mark 到达"的 race window, 否则 IPC 命令刚把文件落盘
-//! 还没来得及塞抑制表, watcher 就先看到 Create 事件, 触发 reload/re-register
-//! 二次 emit。
-//!
-//! 设计: 后端 emit 是同步的, 先于 notify 回调到达前端; UI 永远先看到自家
-//! "Created" / "Updated" 事件, 不会闪烁。watcher 150ms 内的回响被吞, 杜绝
-//! "外部看起来改了两次"。
-//!
-//! ## Rename 检测：frontmatter-key-first
-//!
-//! 旧版用 `inode_tracker`（Unix ino / Windows NTFS MFT file_index + vol_serial）
-//! 配对 From + To 事件识别 rename。重构后**完全不需要 inode / file_index**：
-//! processor 读磁盘 frontmatter 的 `key` 字段直接作为 id 真源。fs::rename
-//! 拆出的 From + To 两条事件中, To 事件读到的 frontmatter key 跟旧 entry 的
-//! id 一致 → `rename_memo_file` 自动保留 id 改 entry.filename。
-//!
-//! 跨平台行为统一 — 在 NTFS / FAT32 / exFAT / 网络盘 / symlink / 跨卷 上
-//! 行为一致, 不再有 Plan A 那套 Windows-only `windows-sys` 依赖。
-//!
-//! ## 跨平台
-//!
-//! `notify::RecommendedWatcher` 自动选 macOS FSEvents / Linux inotify /
-//! Windows ReadDirectoryChangesW, 已由 `notify` 6.0 的依赖图自包含。
-//!
-//! 路径比较两侧 (`mark_self_write` 入参 / watcher 收到的 `event.paths`) 都
-//! 走 [`normalize_for_compare`] 归一: macOS 上 `/var` ↔ `/private/var` symlink
-//! 折叠, Windows 上 `\\?\C:\...` 前缀去掉。否则 HashMap 精确匹配会 miss。
-
+//! 鏃х増鐢?`inode_tracker`锛圲nix ino / Windows NTFS MFT file_index + vol_serial锛?//! 閰嶅 From + To 浜嬩欢璇嗗埆 rename銆傞噸鏋勫悗**瀹屽叏涓嶉渶瑕?inode / file_index**锛?//! processor 璇荤鐩?frontmatter 鐨?`key` 瀛楁鐩存帴浣滀负 id 鐪熸簮銆俧s::rename
+//! 鎷嗗嚭鐨?From + To 涓ゆ潯浜嬩欢涓? To 浜嬩欢璇诲埌鐨?frontmatter key 璺熸棫 entry 鐨?//! id 涓€鑷?鈫?`rename_memo_file` 鑷姩淇濈暀 id 鏀?entry.filename銆?//!
+//! 璺ㄥ钩鍙拌涓虹粺涓€ 鈥?鍦?NTFS / FAT32 / exFAT / 缃戠粶鐩?/ symlink / 璺ㄥ嵎 涓?//! 琛屼负涓€鑷? 涓嶅啀鏈?Plan A 閭ｅ Windows-only `windows-sys` 渚濊禆銆?//!
+//! ## 璺ㄥ钩鍙?//!
+//! `notify::RecommendedWatcher` 鑷姩閫?macOS FSEvents / Linux inotify /
+//! Windows ReadDirectoryChangesW, 宸茬敱 `notify` 6.0 鐨勪緷璧栧浘鑷寘鍚€?//!
+//! 璺緞姣旇緝涓や晶 (`mark_self_write` 鍏ュ弬 / watcher 鏀跺埌鐨?`event.paths`) 閮?//! 璧?[`normalize_for_compare`] 褰掍竴: macOS 涓?`/var` 鈫?`/private/var` symlink
+//! 鎶樺彔, Windows 涓?`\\?\C:\...` 鍓嶇紑鍘绘帀銆傚惁鍒?HashMap 绮剧‘鍖归厤浼?miss銆?
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -53,19 +38,11 @@ use flowix_core::memo_file::{MemoFile, NotebookConfig};
 
 const REMOVE_TOMBSTONE_DELAY: Duration = Duration::from_millis(450);
 
-/// 笔记本目录的文件监听器。
-///
-/// 字段语义:
-/// - `_watcher`: 持有 `RecommendedWatcher` 期间持续监听。Drop 时自动停止。
-/// - `watched_roots`: 当前绑定的 notebook 根目录集合。
-/// - `recent_self_writes`: 自写抑制表, `(normalized path, 标记时间)`。
-///   回调查表, 命中即吞; 表项通过 TTL 清理, 保证 macOS FSEvents 一次写入
-///   产生多条事件时能全部抑制。键都走 [`normalize_for_compare`] 归一。
-/// - `last_emit`: 路径防抖表, `(normalized path, 上次 emit 时间)`。150ms
-///   内同路径事件吞掉, 处理编辑器保存时的重复 notify。
-/// - `remove_coalescer`: 外部 rename 可能先到 Remove(old), 这里短暂保留
-///   tombstone, 等待随后 Create/Modify(new) 通过 frontmatter key 合并。
-/// - `whitelist`: 运行时可热更新的 watcher 白/黑名单配置。
+/// 绗旇鏈洰褰曠殑鏂囦欢鐩戝惉鍣ㄣ€?///
+/// 瀛楁璇箟:
+/// - `_watcher`: 鎸佹湁 `RecommendedWatcher` 鏈熼棿鎸佺画鐩戝惉銆侱rop 鏃惰嚜鍔ㄥ仠姝€?/// - `watched_roots`: 褰撳墠缁戝畾鐨?notebook 鏍圭洰褰曢泦鍚堛€?/// - `recent_self_writes`: 鑷啓鎶戝埗琛? `(normalized path, 鏍囪鏃堕棿)`銆?///   鍥炶皟鏌ヨ〃, 鍛戒腑鍗冲悶; 琛ㄩ」閫氳繃 TTL 娓呯悊, 淇濊瘉 macOS FSEvents 涓€娆″啓鍏?///   浜х敓澶氭潯浜嬩欢鏃惰兘鍏ㄩ儴鎶戝埗銆傞敭閮借蛋 [`normalize_for_compare`] 褰掍竴銆?/// - `last_emit`: 璺緞闃叉姈琛? `(normalized path, 涓婃 emit 鏃堕棿)`銆?50ms
+///   鍐呭悓璺緞浜嬩欢鍚炴帀, 澶勭悊缂栬緫鍣ㄤ繚瀛樻椂鐨勯噸澶?notify銆?/// - `remove_coalescer`: 澶栭儴 rename 鍙兘鍏堝埌 Remove(old), 杩欓噷鐭殏淇濈暀
+///   tombstone, 绛夊緟闅忓悗 Create/Modify(new) 閫氳繃 frontmatter key 鍚堝苟銆?/// - `whitelist`: 杩愯鏃跺彲鐑洿鏂扮殑 watcher 鐧?榛戝悕鍗曢厤缃€?
 pub struct MemoWatcher {
     _watcher: Option<RecommendedWatcher>,
     watched_roots: Arc<std::sync::RwLock<Vec<NotebookWatchContext>>>,
@@ -89,8 +66,8 @@ impl MemoWatcher {
         }
     }
 
-    /// 替换白名单配置。 `lib.rs::setup` 会在启动 + 热更新时调用,
-    /// 中间以 `Arc<RwLock<WhitelistConfig>>` 共享。
+    /// 鏇挎崲鐧藉悕鍗曢厤缃€?`lib.rs::setup` 浼氬湪鍚姩 + 鐑洿鏂版椂璋冪敤,
+    /// 涓棿浠?`Arc<RwLock<WhitelistConfig>>` 鍏变韩銆?
     pub fn set_whitelist(&self, new_cfg: WhitelistConfig) {
         if let Ok(mut g) = self.whitelist.write() {
             *g = new_cfg;
@@ -98,7 +75,7 @@ impl MemoWatcher {
     }
 
     pub fn rebind_all(&mut self, app: AppHandle, configs: Vec<NotebookConfig>) {
-        // Drop 旧 watcher — 此赋值 `take` 出 Option, 旧 RecommendedWatcher 立即析构
+        // Drop 鏃?watcher 鈥?姝よ祴鍊?`take` 鍑?Option, 鏃?RecommendedWatcher 绔嬪嵆鏋愭瀯
         let _ = self._watcher.take();
         if let Some(coalescer) = self.remove_coalescer.take() {
             coalescer.cancel_all();
@@ -182,15 +159,13 @@ impl MemoWatcher {
         self._watcher = Some(watcher);
     }
 
-    /// 后端自身写入路径在**写盘之前**调用, 把 path 塞抑制表。
-    ///
-    /// 路径入表前先走 [`normalize_for_compare`] 归一, 跟 watcher 端查表口径一致。
-    /// 表项不在命中时立即删除, 而是由 2s TTL 清理, 以吞掉同一次写盘产生的
-    /// 多条 notify 事件。
+    /// 鍚庣鑷韩鍐欏叆璺緞鍦?*鍐欑洏涔嬪墠**璋冪敤, 鎶?path 濉炴姂鍒惰〃銆?    ///
+    /// 璺緞鍏ヨ〃鍓嶅厛璧?[`normalize_for_compare`] 褰掍竴, 璺?watcher 绔煡琛ㄥ彛寰勪竴鑷淬€?    /// 琛ㄩ」涓嶅湪鍛戒腑鏃剁珛鍗冲垹闄? 鑰屾槸鐢?2s TTL 娓呯悊, 浠ュ悶鎺夊悓涓€娆″啓鐩樹骇鐢熺殑
+    /// 澶氭潯 notify 浜嬩欢銆?
     pub fn mark_self_write(&self, path: &Path) {
         let key = normalize_for_compare(path);
         if let Ok(mut map) = self.recent_self_writes.lock() {
-            // 顺手剪枝过老条目, 抑制表小 (<几十项) 剪枝 < 1µs
+            // 椤烘墜鍓灊杩囪€佹潯鐩? 鎶戝埗琛ㄥ皬 (<鍑犲崄椤? 鍓灊 < 1碌s
             map.retain(|_, t| t.elapsed() < SELF_WRITE_TTL);
             tracing::debug!(
                 "[mark_self_write] path={} key={} table_size={}",
@@ -203,14 +178,11 @@ impl MemoWatcher {
     }
 }
 
-/// notify 回调主体 — 过滤 + 自写抑制 + 防抖 + 触发 `MemoFile` 重派生 + emit。
-///
-/// 注意: 这个函数在 notify 自己的线程上跑, 跟 ReAct 主循环并发。
-/// `MemoFile` 是 `Arc<StdRwLock<MemoFile>>`, 我们读锁拿, 调用方负责不持锁跨 await。
-///
-/// 抑制两道闸, 逐级下沉:
-/// 1. `recent_self_writes` (路径) — `mark_self_write` 在写盘前调用
-/// 2. `last_emit` (路径) — 150ms 内同路径事件吞, 处理 FSEvents 双触发
+/// notify 鍥炶皟涓讳綋 鈥?杩囨护 + 鑷啓鎶戝埗 + 闃叉姈 + 瑙﹀彂 `MemoFile` 閲嶆淳鐢?+ emit銆?///
+/// 娉ㄦ剰: 杩欎釜鍑芥暟鍦?notify 鑷繁鐨勭嚎绋嬩笂璺? 璺?ReAct 涓诲惊鐜苟鍙戙€?/// `MemoFile` 鏄?`Arc<StdRwLock<MemoFile>>`, 鎴戜滑璇婚攣鎷? 璋冪敤鏂硅礋璐ｄ笉鎸侀攣璺?await銆?///
+/// 鎶戝埗涓ら亾闂? 閫愮骇涓嬫矇:
+/// 1. `recent_self_writes` (璺緞) 鈥?`mark_self_write` 鍦ㄥ啓鐩樺墠璋冪敤
+/// 2. `last_emit` (璺緞) 鈥?150ms 鍐呭悓璺緞浜嬩欢鍚? 澶勭悊 FSEvents 鍙岃Е鍙?
 fn handle_notify_event(
     app: &AppHandle,
     memo_file: &Arc<std::sync::RwLock<MemoFile>>,
@@ -233,7 +205,7 @@ fn handle_notify_event(
             tracing::debug!("[MemoWatcher] no notebook root for {}", path.display());
             continue;
         };
-        // 跑三段 filter pipeline: whitelist / self-write / debounce。
+        // 璺戜笁娈?filter pipeline: whitelist / self-write / debounce銆?
         let fs_kind = FsEventKind::from_notify(&event.kind);
         if matches!(fs_kind, FsEventKind::Create | FsEventKind::Modify) {
             // A rename can arrive as Remove(old) followed by Create/Modify(new).
@@ -256,9 +228,8 @@ fn handle_notify_event(
             }
         }
 
-        // manager 只做采集 + 过滤, 业务分流交给 MemoEventProcessor。
-        // processor 自己读磁盘抽 frontmatter key 做 rename / reload /
-        // register 分流, 这里不需要 stat 任何 metadata。
+        // manager 鍙仛閲囬泦 + 杩囨护, 涓氬姟鍒嗘祦浜ょ粰 MemoEventProcessor銆?        // processor 鑷繁璇荤鐩樻娊 frontmatter key 鍋?rename / reload /
+        // register 鍒嗘祦, 杩欓噷涓嶉渶瑕?stat 浠讳綍 metadata銆?
         match fs_kind {
             FsEventKind::Remove => {
                 if schedule_pending_remove(remove_coalescer, memo_file, ctx.clone(), &path) {
@@ -410,8 +381,7 @@ mod tests {
 
     #[test]
     fn normalize_for_compare_falls_back_when_path_missing() {
-        // 写盘前 mark 的典型场景: 文件还没创建, canonicalize 必然失败。
-        // 应当退到原 path 字符串, 不丢抑制。
+        // 鍐欑洏鍓?mark 鐨勫吀鍨嬪満鏅? 鏂囦欢杩樻病鍒涘缓, canonicalize 蹇呯劧澶辫触銆?        // 搴斿綋閫€鍒板師 path 瀛楃涓? 涓嶄涪鎶戝埗銆?
         let p = Path::new("/definitely/does/not/exist/foo.md");
         let normalized = normalize_for_compare(p);
         assert_eq!(normalized, p.to_path_buf());
@@ -419,10 +389,8 @@ mod tests {
 
     #[test]
     fn normalize_for_compare_joins_canonical_parent_when_only_parent_exists() {
-        // 父目录存在 (notebook dir 已建), 文件不存在 — canonicalize 父目录
-        // 成功, 应当 join 回去。这是写盘前 mark 期望走的回退路径。
-        // pid + nano 后缀防跟其它测试的 tempdir 撞名, 避免 cargo test 并行
-        // 跑时的偶发 flake。
+        // 鐖剁洰褰曞瓨鍦?(notebook dir 宸插缓), 鏂囦欢涓嶅瓨鍦?鈥?canonicalize 鐖剁洰褰?        // 鎴愬姛, 搴斿綋 join 鍥炲幓銆傝繖鏄啓鐩樺墠 mark 鏈熸湜璧扮殑鍥為€€璺緞銆?        // pid + nano 鍚庣紑闃茶窡鍏跺畠娴嬭瘯鐨?tempdir 鎾炲悕, 閬垮厤 cargo test 骞惰
+        // 璺戞椂鐨勫伓鍙?flake銆?
         let tmp = std::env::temp_dir().join(format!(
             "flowix-fs-watcher-norm-{}-{}",
             std::process::id(),
@@ -434,7 +402,7 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let file_path = tmp.join("not-yet-created.md");
         let normalized = normalize_for_compare(&file_path);
-        // 父目录走 canonicalize, 跟原 parent 等价 (本机无 symlink 时)
+        // 鐖剁洰褰曡蛋 canonicalize, 璺熷師 parent 绛変环 (鏈満鏃?symlink 鏃?
         assert_eq!(
             normalized.parent().unwrap().canonicalize().unwrap(),
             tmp.canonicalize().unwrap()

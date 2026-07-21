@@ -12,10 +12,9 @@ pub(super) struct CachedInstance {
 }
 
 impl AgentManager {
-    /// 拿到与当前 ai_config 对应的 provider 实例; 配置缺 model 则报错。
-    ///
-    /// 走双读锁: 先 read 尝试命中缓存, 不命中再升级到 write 重建。这样并发 chat
-    /// 不会互相阻塞 — 只有真正发生配置变更时才有写锁竞争。
+    /// 鎷垮埌涓庡綋鍓?ai_config 瀵瑰簲鐨?provider 瀹炰緥; 閰嶇疆缂?model 鍒欐姤閿欍€?    ///
+    /// 璧板弻璇婚攣: 鍏?read 灏濊瘯鍛戒腑缂撳瓨, 涓嶅懡涓啀鍗囩骇鍒?write 閲嶅缓銆傝繖鏍峰苟鍙?chat
+    /// 涓嶄細浜掔浉闃诲 鈥?鍙湁鐪熸鍙戠敓閰嶇疆鍙樻洿鏃舵墠鏈夊啓閿佺珵浜夈€?
     pub(super) async fn ensure_instance(
         &self,
         config: &AiModelConfig,
@@ -93,7 +92,7 @@ impl AgentManager {
             .as_deref()
             .map(str::trim)
             .filter(|name| !name.is_empty())
-            .unwrap_or("未命名角色");
+            .unwrap_or("Unnamed role");
 
         Some(format!(
             "# Agent Role\nRole name: {role_name}\n\n<role-instructions>\n{role_body}\n</role-instructions>"

@@ -18,7 +18,7 @@ function threadState(overrides: Partial<ThreadState> = {}): ThreadState {
 }
 
 describe("run-status-presenter", () => {
-  it("prefers conversation run badge metadata over chat-store thread snapshots", () => {
+  it("uses chat-store thread snapshots for badge metadata", () => {
     const badge = computeAgentThreadCardBadgeData({
       threadState: threadState({
         lastRun: {
@@ -31,22 +31,14 @@ describe("run-status-presenter", () => {
           usage: { total_tokens: 123 },
         },
       }),
-      conversationRun: {
-        runId: "conversation-run",
-        status: "completed",
-        startedAt: 300,
-        endedAt: 400,
-        model: "conversation-model",
-        usage: { total_tokens: 456 },
-      },
       codexModel: "inherit",
       typeKey: "codex",
     });
 
     expect(badge).toMatchObject({
-      model: "conversation-model",
-      lastRunAt: 400,
-      totalTokens: 456,
+      model: "thread-model",
+      lastRunAt: 200,
+      totalTokens: 123,
     });
   });
 
@@ -63,7 +55,6 @@ describe("run-status-presenter", () => {
           usage: { total_tokens: 123 },
         },
       }),
-      conversationRun: undefined,
       codexModel: "inherit",
       typeKey: "codex",
     });

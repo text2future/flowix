@@ -12,6 +12,7 @@ import {
 import type { ThreadState, ThreadsMap } from "@features/agent/store/thread-runtime-state";
 import type { ChatStore } from "@features/agent/store/chat-store";
 import { findHistoryThreadInfo } from "@features/agent/store/thread-history";
+import { replayExternalEventsForThread } from "@features/agent/store/external-event-replay";
 
 /**
  * 加载 thread 历史 (messages + title) ── loadThread / loadCodexThread 等
@@ -29,7 +30,6 @@ export async function loadThreadForType(
     const { useAgentConversationStore } = await import(
       "@features/agent/store/agent-conversation-store"
     );
-    await useAgentConversationStore.getState().loadMessages(type.key, threadId);
     const threadInfo = await findHistoryThreadInfo(
       type.key,
       threadId,
@@ -58,6 +58,19 @@ export async function loadThreadForType(
         ),
       };
     });
+    if (type.key !== "flowix") {
+      const replayedDisplay = await replayExternalEventsForThread(
+        set,
+        get,
+        type.key,
+        threadId,
+      );
+      if (!replayedDisplay) {
+        await useAgentConversationStore.getState().loadMessages(type.key, threadId);
+      }
+      return;
+    }
+    await useAgentConversationStore.getState().loadMessages(type.key, threadId);
   } catch (err) {
     console.error(`Failed to load ${type.name} thread:`, err);
   }

@@ -7,7 +7,7 @@
 //!   area. Existing user edits always win.
 //! - Recursive copy: a skill folder may contain auxiliary files alongside
 //!   `SKILL.md` (templates, examples). All of them get copied.
-//! - Missing bundled root or missing user root → no-op + warn, never panic.
+//! - Missing bundled root or missing user root 鈫?no-op + warn, never panic.
 //!   (Production builds with a stripped bundle still start cleanly; users
 //!   can later drop skills in manually.)
 //!
@@ -31,7 +31,7 @@ pub struct SeedReport {
 /// Walk `<bundled_root>/.system/` and copy any skill folder that doesn't
 /// exist yet under `<user_root>/.system/<name>/`.
 ///
-/// The function is **idempotent** — calling it repeatedly after the user
+/// The function is **idempotent** 鈥?calling it repeatedly after the user
 /// already has all bundled skills is a no-op (everything lands in
 /// `skipped`).
 ///
@@ -117,7 +117,7 @@ pub fn seed_system_skills(bundled_root: &Path, user_root: &Path) -> SeedReport {
     report
 }
 
-/// Recursive copy: `src` directory → `dst` directory. Mirrors the helper
+/// Recursive copy: `src` directory 鈫?`dst` directory. Mirrors the helper
 /// in `lib.rs::copy_dir_recursive` but lives here so the skills module is
 /// self-contained and easy to test.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -135,7 +135,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
             }
             std::fs::copy(&from, &to)?;
         }
-        // Symlinks / devices / etc. intentionally skipped — bundled skills
+        // Symlinks / devices / etc. intentionally skipped 鈥?bundled skills
         // are plain files.
     }
     Ok(())

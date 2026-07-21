@@ -118,6 +118,7 @@ export const TOOLS: readonly AgentToolMeta[] = [
       "search_web",
       "network_search",
       "web search",
+      "websearch",
     ],
     labelKey: "agent.tools.webSearch",
     iconPath: TOOL_ICON_PATHS.globe,
@@ -212,8 +213,19 @@ export const TOOLS: readonly AgentToolMeta[] = [
   },
   {
     name: "sub_agent",
+    // Claude Code 内置编排工具: Agent / Task 是同一"派子 agent"工具的不同名,
+    // name 来自 stream-json 的 tool_use.name(Claude Code 用 "Agent")。
+    aliases: ["agent", "task"],
     labelKey: "agent.tools.subAgent",
     iconPath: TOOL_ICON_PATHS.globe,
+  },
+  {
+    // Claude Code TaskOutput: 取回异步 Agent/Task 的结果。无 stream_event 增量,
+    // 靠 events.rs 快照补发 ToolCall 才能正确渲染(否则 "Unknown Tool")。
+    name: "task_output",
+    aliases: ["taskoutput"],
+    labelKey: "agent.tools.taskOutput",
+    iconPath: TOOL_ICON_PATHS.arrowsClockwise,
   },
   {
     name: "update_plan",

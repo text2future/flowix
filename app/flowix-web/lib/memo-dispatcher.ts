@@ -57,9 +57,19 @@ function installMemoEventBridge(): void {
       console.log('[memo-event] raw <- tauri', {
         at: new Date().toISOString(),
         kind: payload.kind,
-        source: payload.kind === 'deleted' ? null : payload.source,
-        id: payload.kind === 'deleted' ? payload.id : payload.memo.id,
-        path: payload.kind === 'created' ? payload.memo.filename : payload.path,
+        source: payload.kind === 'created' || payload.kind === 'updated' ? payload.source : null,
+        id:
+          payload.kind === 'updated' || payload.kind === 'deleted'
+            ? payload.id
+            : payload.kind === 'created'
+              ? payload.memo.id
+              : null,
+        path:
+          payload.kind === 'created'
+            ? payload.memo.filename
+            : payload.kind === 'updated' || payload.kind === 'deleted'
+              ? payload.path
+              : null,
       });
     }
     memoDispatcher.dispatch(payload);

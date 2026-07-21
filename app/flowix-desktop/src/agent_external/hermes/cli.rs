@@ -11,8 +11,8 @@ use crate::agent_external::cli_resolver::{
     no_extra_candidates, resolve_external_cli, ExternalCliSpec,
 };
 use crate::agent_external::{
-    emit_chunk_with_run_id, emit_stream_end_once, kill_child_tree, resolve_run_id,
-    select_external_session_for_runtime, ExternalRunRegistry, USER_STOPPED_REASON,
+    emit_stream_end_once, kill_child_tree, persist_and_emit_external_chunk, persist_external_chunk,
+    resolve_run_id, select_external_session_for_runtime, ExternalRunRegistry, USER_STOPPED_REASON,
 };
 use crate::agent_flowix::{AgentChunk, AgentId, AgentUserMessage};
 use crate::agent_session::{ChatMessage as ThreadChatMessage, ThreadManager};
@@ -39,6 +39,49 @@ impl HermesCliManager {
         }
     }
 
+    /// Idle-watchdog hook (called by `app::watchdog`). Mirrors the Claude/Codex
+    /// managers: `reap_inactive` already claimed the StreamEnd slot under its
+    /// lock, so we emit Error + StreamEnd directly here without re-checking the
+    /// CAS flag. Without this, a hung Hermes child would never be reaped (the
+    /// watchdog previously only swept Claude/Codex).
+    pub async fn reap_inactive_runs(
+        &self,
+        app_handle: &tauri::AppHandle,
+        idle_timeout_ms: i64,
+    ) -> usize {
+        let finalized = self.runs.reap_inactive(idle_timeout_ms, "HermesCli").await;
+        for run in &finalized {
+            let run_id = run.run_id.as_deref().unwrap_or(run.thread_id.as_str());
+            if let Some(reason) = run.reason.clone() {
+                persist_and_emit_external_chunk(
+                    app_handle,
+                    &self.thread_manager,
+                    AGENT_TYPE,
+                    &AgentChunk::Error {
+                        thread_id: run.thread_id.clone(),
+                        message: reason.clone(),
+                    },
+                    run_id,
+                    None,
+                )
+                .await;
+            }
+            persist_and_emit_external_chunk(
+                app_handle,
+                &self.thread_manager,
+                AGENT_TYPE,
+                &AgentChunk::StreamEnd {
+                    thread_id: run.thread_id.clone(),
+                    reason: run.reason.clone(),
+                },
+                run_id,
+                None,
+            )
+            .await;
+        }
+        finalized.len()
+    }
+
     pub async fn chat_stream(
         self: &Arc<Self>,
         thread_id: &str,
@@ -49,34 +92,36 @@ impl HermesCliManager {
         let app_handle = app_handle.clone();
         let manager = self.clone();
         let run_id = resolve_run_id(&thread_id, message.run_id.as_deref());
-        // 共享的"StreamEnd 已经 emit 出去没"标志 ── 见 CodexCliManager 同名注释。
+        // 鍏变韩鐨?StreamEnd 宸茬粡 emit 鍑哄幓娌?鏍囧織 鈹€鈹€ 瑙?CodexCliManager 鍚屽悕娉ㄩ噴銆?
         let stream_end_emitted = Arc::new(AtomicBool::new(false));
 
         // Reap any zombie child (kill/oom/broken pipe leaves the registry
         // entry behind until the watchdog sweeps it) and refuse overlapping
-        // runs BEFORE we emit StreamStart — otherwise the UI flashes
+        // runs BEFORE we emit StreamStart 鈥?otherwise the UI flashes
         // loading for ~ms and then bounces to an error.
         if let Some(reason) = self.runs.reap_stale(&thread_id).await {
             return Err(reason);
         }
 
         tokio::spawn(async move {
-            // 通用 metadata 协议 ── StreamStart 携带该 run 锁定的
-            // model / reasoning_effort, 前端 hover card 等组件可读。
+            // 閫氱敤 metadata 鍗忚 鈹€鈹€ StreamStart 鎼哄甫璇?run 閿佸畾鐨?            // model / reasoning_effort, 鍓嶇 hover card 绛夌粍浠跺彲璇汇€?
             let model = message.model_for_runtime("hermes").map(str::to_string);
             let reasoning_effort = message
                 .reasoning_effort_for_runtime("hermes")
                 .map(str::to_string);
-            emit_chunk_with_run_id(
+            persist_and_emit_external_chunk(
                 &app_handle,
+                &manager.thread_manager,
+                AGENT_TYPE,
                 &AgentChunk::StreamStart {
                     thread_id: thread_id.clone(),
                     model,
                     reasoning_effort,
                 },
-                AGENT_TYPE,
                 &run_id,
-            );
+                None,
+            )
+            .await;
 
             let reason = match manager
                 .run_hermes(
@@ -90,29 +135,48 @@ impl HermesCliManager {
             {
                 Ok(()) => None,
                 Err(err) => {
-                    emit_chunk_with_run_id(
+                    persist_and_emit_external_chunk(
                         &app_handle,
+                        &manager.thread_manager,
+                        AGENT_TYPE,
                         &AgentChunk::Error {
                             thread_id: thread_id.clone(),
                             message: err.clone(),
                         },
-                        AGENT_TYPE,
                         &run_id,
-                    );
+                        None,
+                    )
+                    .await;
                     Some(err)
                 }
             };
 
-            // 兜底 emit: 若 stop_chat 还没替我们发过 StreamEnd, 由本路径补发;
-            // 否则 CAS 失败, 跳过避免重复。详见 `shared::emit_stream_end_once`。
-            emit_stream_end_once(
+            // 鍏滃簳 emit: 鑻?stop_chat 杩樻病鏇挎垜浠彂杩?StreamEnd, 鐢辨湰璺緞琛ュ彂;
+            // 鍚﹀垯 CAS 澶辫触, 璺宠繃閬垮厤閲嶅銆傝瑙?`shared::emit_stream_end_once`銆?
+            let stream_end = AgentChunk::StreamEnd {
+                thread_id: thread_id.clone(),
+                reason,
+            };
+            if emit_stream_end_once(
                 &app_handle,
                 &thread_id,
                 &run_id,
                 AGENT_TYPE,
-                reason,
+                match &stream_end {
+                    AgentChunk::StreamEnd { reason, .. } => reason.clone(),
+                    _ => None,
+                },
                 &stream_end_emitted,
-            );
+            ) {
+                persist_external_chunk(
+                    &manager.thread_manager,
+                    AGENT_TYPE,
+                    &stream_end,
+                    &run_id,
+                    None,
+                )
+                .await;
+            }
         });
 
         Ok(String::new())
@@ -134,14 +198,27 @@ impl HermesCliManager {
         kill_child_tree(&mut running.child, DISPLAY_NAME, thread_id).await;
 
         let run_id_for_chunk = running.run_id.as_deref().unwrap_or(thread_id).to_string();
-        emit_stream_end_once(
+        let stream_end = AgentChunk::StreamEnd {
+            thread_id: thread_id.to_string(),
+            reason: Some(USER_STOPPED_REASON.to_string()),
+        };
+        if emit_stream_end_once(
             app_handle,
             thread_id,
             &run_id_for_chunk,
             AGENT_TYPE,
             Some(USER_STOPPED_REASON.to_string()),
             &running.stream_end_emitted,
-        );
+        ) {
+            persist_external_chunk(
+                &self.thread_manager,
+                AGENT_TYPE,
+                &stream_end,
+                &run_id_for_chunk,
+                None,
+            )
+            .await;
+        }
         true
     }
 
@@ -268,6 +345,7 @@ impl HermesCliManager {
                 thread_id.to_string(),
                 run_id.to_string(),
                 app_handle.clone(),
+                self.thread_manager.clone(),
                 BufReader::new(stdout),
             );
             let stderr_task = read_to_string(BufReader::new(stderr));
@@ -465,15 +543,22 @@ impl HermesCliManager {
                 })),
             );
         }
-        emit_chunk_with_run_id(
+        let chunk = AgentChunk::SessionResolved {
+            thread_id: thread_id.to_string(),
+            session_id: session_id.clone(),
+        };
+        persist_and_emit_external_chunk(
             app_handle,
-            &AgentChunk::SessionResolved {
-                thread_id: thread_id.to_string(),
-                session_id,
-            },
+            &self.thread_manager,
             AGENT_TYPE,
+            &chunk,
             run_id,
-        );
+            None,
+        )
+        .await;
+        self.runs
+            .set_session_id(thread_id, Some(run_id), session_id)
+            .await;
     }
 }
 
@@ -486,6 +571,7 @@ fn build_hermes_command(
     crate::process_window::hide_command_window(&mut cmd);
     cmd.current_dir(cwd);
     cmd.args(command_args(permission_mode, session_id));
+    crate::agent_external::shared::configure_unix_process_group(&mut cmd);
     cmd
 }
 
@@ -543,6 +629,7 @@ async fn read_stdout_as_text<R>(
     thread_id: String,
     run_id: String,
     app_handle: tauri::AppHandle,
+    thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
     reader: BufReader<R>,
 ) -> Result<String, String>
 where
@@ -558,15 +645,18 @@ where
             break;
         }
         let text = String::from_utf8_lossy(&buffer[..n]).to_string();
-        emit_chunk_with_run_id(
+        persist_and_emit_external_chunk(
             &app_handle,
+            &thread_manager,
+            AGENT_TYPE,
             &AgentChunk::Text {
                 thread_id: thread_id.clone(),
                 text: text.clone(),
             },
-            AGENT_TYPE,
             &run_id,
-        );
+            None,
+        )
+        .await;
         output.push_str(&text);
         total_bytes = total_bytes.saturating_add(n);
         if total_bytes >= MAX_OUTPUT_BYTES {

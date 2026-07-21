@@ -20,6 +20,7 @@ import { recordAgentLifecycleEvent } from "@features/agent/diagnostics/agent-run
 import type { LiveMessageState } from "@features/agent/store/chunk-result";
 import { createStreamingBuffer } from "@features/agent/store/streaming-buffer";
 import {
+  closeLoadingToolRows,
   emptyThreadState,
   ensureRunActive,
   isThreadRunActive,
@@ -29,7 +30,6 @@ import {
   type ThreadsMap,
 } from "@features/agent/store/thread-runtime-state";
 import {
-  conversationUsagePatchFromState,
   syncConversationInstanceForEvent,
 } from "@features/agent/store/conversation-run-sync";
 import { useAgentConversationStore } from "@features/agent/store/agent-conversation-store";
@@ -154,19 +154,13 @@ function applyEventToChatSlice(
       };
     }
     case "stream_end": {
-      const nextThreadState = applyRunEnded(st, event);
+      const ended = applyRunEnded(st, event);
+      // run 结束时把仍 loading 的 tool 行(被中断 / result 未到达)收尾,避免
+      // 永久转圈。仅 thread 不再 loading 时收尾,避免误关并发 run 的工具行。
+      const nextThreadState = ended.isLoading
+        ? ended
+        : { ...ended, messages: closeLoadingToolRows(ended.messages) };
       syncLiveMessageState(event.agentType, tid, nextThreadState);
-      const instanceStore = useAgentConversationStore.getState();
-      const eventInstance =
-        instanceStore.findByRunId(event.runId) ??
-        instanceStore.findByThreadId(event.threadId);
-      const usagePatch = conversationUsagePatchFromState(
-        nextThreadState,
-        event.runId,
-      );
-      if (eventInstance && usagePatch) {
-        instanceStore.updateRun(eventInstance.instanceId, usagePatch);
-      }
       const runtimeThreadState = nextThreadState.isLoading
         ? nextThreadState
         : releaseThreadRuntimeMessages(nextThreadState);
@@ -176,17 +170,6 @@ function applyEventToChatSlice(
     }
     case "usage": {
       const nextThreadState = applyRunUsage(st, event);
-      const instanceStore = useAgentConversationStore.getState();
-      const eventInstance =
-        instanceStore.findByRunId(event.runId) ??
-        instanceStore.findByThreadId(event.threadId);
-      const usagePatch = conversationUsagePatchFromState(
-        nextThreadState,
-        event.runId,
-      );
-      if (eventInstance && usagePatch) {
-        instanceStore.updateRun(eventInstance.instanceId, usagePatch);
-      }
       return {
         threadStates: threadRunUpdate(slice.threadStates, tid, nextThreadState),
       };
@@ -399,10 +382,7 @@ export function createStreamEventDispatcher(
     }
 
     if (event.kind !== "usage") {
-      syncConversationInstanceForEvent(
-        event,
-        host.getChatSlice().threadStates[tid] ?? emptyThreadState(),
-      );
+      syncConversationInstanceForEvent(event);
     }
 
     const nextPatch = applyEventToChatSlice(host.getChatSlice(), event);

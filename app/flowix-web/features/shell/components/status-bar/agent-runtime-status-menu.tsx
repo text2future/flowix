@@ -17,6 +17,7 @@ import {
   selectIsAgentConversationRunning,
   useAgentConversationStore,
 } from '@features/agent/store/agent-conversation-store';
+import { useChatStore } from '@features/agent/store/chat-store';
 import { windows } from '@platform/tauri/client';
 import { getAgentRuntimeStatusText } from '@features/agent/components/agent-runtime-status-list';
 import { openAgentSetup } from '@features/agent/agent-setup';
@@ -31,10 +32,13 @@ export function AgentRuntimeStatusMenu() {
   const isChecking = useAgentRuntimeStore((s) => s.isChecking);
   const refreshIfStale = useAgentRuntimeStore((s) => s.refreshIfStale);
   const instancesMap = useAgentConversationStore((s) => s.instances);
+  const threadStates = useChatStore((s) => s.threadStates);
   const hasRunning = useMemo(
     () =>
-      Object.values(instancesMap).some(selectIsAgentConversationRunning),
-    [instancesMap],
+      Object.values(instancesMap).some((instance) =>
+        selectIsAgentConversationRunning(instance, threadStates),
+      ),
+    [instancesMap, threadStates],
   );
   useEffect(() => {
     if (open) {

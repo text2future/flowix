@@ -1,10 +1,6 @@
-//! File IPC — 任意 in-notebook 文件的 tree / read / write / create。
-//!
-//! 跟 `memo.rs::read_document` / `write_document` 的区别: 那两个走单文件路径
-//! (`can_access_document_path` 守卫, 包括 `.md` 后缀绕过), 这八个走
-//! `space_path` 作用域 (`can_access_scoped_file` 守卫, 必须落在声明的
-//! notebook 根下)。
-
+//! File IPC 鈥?浠绘剰 in-notebook 鏂囦欢鐨?tree / read / write / create銆?//!
+//! 璺?`memo.rs::read_document` / `write_document` 鐨勫尯鍒? 閭ｄ袱涓蛋鍗曟枃浠惰矾寰?//! (`can_access_document_path` 瀹堝崼, 鍖呮嫭 `.md` 鍚庣紑缁曡繃), 杩欏叓涓蛋
+//! `space_path` 浣滅敤鍩?(`can_access_scoped_file` 瀹堝崼, 蹇呴』钀藉湪澹版槑鐨?//! notebook 鏍逛笅)銆?
 use std::fs;
 use std::path::Path;
 
@@ -30,7 +26,7 @@ pub struct DocTreeItem {
     pub children: Option<Vec<DocTreeItem>>,
 }
 
-// ==================== 域内 helper ====================
+// ==================== 鍩熷唴 helper ====================
 
 fn generate_stable_id(full_path: &str) -> String {
     format!(

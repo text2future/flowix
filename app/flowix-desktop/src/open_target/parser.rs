@@ -1,24 +1,20 @@
-//! `parse_open_target` — 把 URL / 物理路径 解析成 [`OpenTarget`]。
+//! `parse_open_target` 鈥?鎶?URL / 鐗╃悊璺緞 瑙ｆ瀽鎴?[`OpenTarget`]銆?//!
+//! **绾嚱鏁? 鏃犲壇浣滅敤**: 涓嶆煡纾佺洏, 涓嶈閰嶇疆銆?閲嶅璺戦浂鎴愭湰, 鍗曟祴鍏ㄦ爤瑕嗙洊銆?//!
+//! ## URL scheme 璁捐
 //!
-//! **纯函数, 无副作用**: 不查磁盘, 不读配置。 重复跑零成本, 单测全栈覆盖。
+//! - `flowix://memo/<memo-id>`              鈥?涓昏鍦烘櫙
+//! - `flowix://open?path=<encoded-abs>`     鈥?鐗╃悊璺緞 (鍐呴儴鎶?id)
+//! - `file://<abs>`                          鈥?鐗╃悊璺緞鐨?URL 褰㈠紡 (鍏煎 macOS Finder 澶嶅埗)
+//! - 瑁哥粷瀵硅矾寰?(浠?`/` 寮€澶?               鈥?鐗╃悊璺緞鐩翠紶
 //!
-//! ## URL scheme 设计
+//! ## memo id 鏍煎紡绾︽潫
 //!
-//! - `flowix://memo/<memo-id>`              — 主要场景
-//! - `flowix://open?path=<encoded-abs>`     — 物理路径 (内部抽 id)
-//! - `file://<abs>`                          — 物理路径的 URL 形式 (兼容 macOS Finder 复制)
-//! - 裸绝对路径 (以 `/` 开头)               — 物理路径直传
-//!
-//! ## memo id 格式约束
-//!
-//! memo id 格式: 兼容旧 6 字符或当前 [`flowix_core::memo_file::MEMO_ID_LENGTH`]
-//! 字符, 字符集为 `[0-9a-z]`。
-
+//! memo id 鏍煎紡: 鍏煎鏃?6 瀛楃鎴栧綋鍓?[`flowix_core::memo_file::MEMO_ID_LENGTH`]
+//! 瀛楃, 瀛楃闆嗕负 `[0-9a-z]`銆?
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// 解析后、待路由的"打开请求"。 不绑定具体 notebook / memo, 只表达
-/// "用户想打开什么"。 resolver 层再查磁盘 / memo index 落到具体 notebook。
+/// 瑙ｆ瀽鍚庛€佸緟璺敱鐨?鎵撳紑璇锋眰"銆?涓嶇粦瀹氬叿浣?notebook / memo, 鍙〃杈?/// "鐢ㄦ埛鎯虫墦寮€浠€涔?銆?resolver 灞傚啀鏌ョ鐩?/ memo index 钀藉埌鍏蜂綋 notebook銆?
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(
     rename_all = "camelCase",
@@ -26,16 +22,16 @@ use thiserror::Error;
     rename_all_fields = "snake_case"
 )]
 pub enum OpenTarget {
-    /// 物理路径 — 走 memo index 扫所有 notebook 找匹配的 .md。
+    /// 鐗╃悊璺緞 鈥?璧?memo index 鎵墍鏈?notebook 鎵惧尮閰嶇殑 .md銆?
     PhysicalPath {
         path: String,
         memo_id: Option<String>,
     },
-    /// 深链 `flowix://...` — memo_id 是全局唯一主键。
+    /// 娣遍摼 `flowix://...` 鈥?memo_id 鏄叏灞€鍞竴涓婚敭銆?
     DeepLink {
         url: String,
         memo_id: Option<String>,
-        /// `flowix://open?path=` 时携带
+        /// `flowix://open?path=` 鏃舵惡甯?
         physical_path: Option<String>,
     },
 }
@@ -52,7 +48,7 @@ pub enum OpenTargetError {
     MissingPath,
 }
 
-/// memo id: 旧 6 字符或当前 MEMO_ID_LENGTH 字符, 字符集 `[0-9a-z]`。
+/// memo id: 鏃?6 瀛楃鎴栧綋鍓?MEMO_ID_LENGTH 瀛楃, 瀛楃闆?`[0-9a-z]`銆?
 pub fn is_valid_memo_id(s: &str) -> bool {
     matches!(s.len(), 6 | flowix_core::memo_file::MEMO_ID_LENGTH)
         && s.chars()
@@ -60,8 +56,8 @@ pub fn is_valid_memo_id(s: &str) -> bool {
 }
 
 fn percent_decode(s: &str) -> String {
-    // 兜底: JS 端 url.pathname 已经 percent-decode 大部分, 后端 url crate 解
-    // query 时也会解, 这里再做一道对裸字符串鲁棒。 失败按原值返回。
+    // 鍏滃簳: JS 绔?url.pathname 宸茬粡 percent-decode 澶ч儴鍒? 鍚庣 url crate 瑙?
+    // query 鏃朵篃浼氳В, 杩欓噷鍐嶅仛涓€閬撳瑁稿瓧绗︿覆椴佹銆?澶辫触鎸夊師鍊艰繑鍥炪€?
     percent_decode_strict(s).unwrap_or_else(|| s.to_string())
 }
 
@@ -85,14 +81,13 @@ fn percent_decode_strict(s: &str) -> Option<String> {
 }
 
 fn split_scheme<'a>(raw: &'a str) -> Option<(&'a str, &'a str)> {
-    // `flowix://memo/<id>` — 拆 scheme + 之后部分。
-    //   - scheme 部分 (`flowix`) 大小写不敏感 (OS 投递时大小写不固定)
-    //   - rest **保留**原大小写 ── memo id 在 memo index 里走 `[0-9a-z]`,
-    //     任何大写字符都是无效 id, 直接在 `is_valid_memo_id` 里拒掉,
-    //     不要预 lowercase 否则 `flowix://memo/ABCDEF` 会被误判为合法。
+    // `flowix://memo/<id>` 鈥?鎷?scheme + 涔嬪悗閮ㄥ垎銆?    //   - scheme 閮ㄥ垎 (`flowix`) 澶у皬鍐欎笉鏁忔劅 (OS 鎶曢€掓椂澶у皬鍐欎笉鍥哄畾)
+    //   - rest **淇濈暀**鍘熷ぇ灏忓啓 鈹€鈹€ memo id 鍦?memo index 閲岃蛋 `[0-9a-z]`,
+    //     浠讳綍澶у啓瀛楃閮芥槸鏃犳晥 id, 鐩存帴鍦?`is_valid_memo_id` 閲屾嫆鎺?
+    //     涓嶈棰?lowercase 鍚﹀垯 `flowix://memo/ABCDEF` 浼氳璇垽涓哄悎娉曘€?
     let lower = raw.to_ascii_lowercase();
     if let Some(rest) = lower.strip_prefix("flowix://") {
-        // 同样偏移在原 `raw` 上取 rest, 保持原大小写
+        // 鍚屾牱鍋忕Щ鍦ㄥ師 `raw` 涓婂彇 rest, 淇濇寔鍘熷ぇ灏忓啓
         let original_rest = &raw[raw.len() - rest.len()..];
         Some(("flowix", original_rest))
     } else {
@@ -101,8 +96,8 @@ fn split_scheme<'a>(raw: &'a str) -> Option<(&'a str, &'a str)> {
 }
 
 fn split_path_query(rest: &str) -> (String, Vec<(String, String)>) {
-    // 简单 query 解析: `?k=v&k=v` → `[(k, v), ...]`
-    // 不依赖 url crate (避免引入 'url' 依赖)。
+    // 绠€鍗?query 瑙ｆ瀽: `?k=v&k=v` 鈫?`[(k, v), ...]`
+    // 涓嶄緷璧?url crate (閬垮厤寮曞叆 'url' 渚濊禆)銆?
     match rest.find('?') {
         Some(idx) => {
             let path = rest[..idx].to_string();
@@ -130,33 +125,32 @@ fn get_query<'a>(pairs: &'a [(String, String)], key: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-/// 解析原始输入 (URL / 物理路径) → [`OpenTarget`]。
+/// 瑙ｆ瀽鍘熷杈撳叆 (URL / 鐗╃悊璺緞) 鈫?[`OpenTarget`]銆?
 pub fn parse_open_target(raw: &str) -> Result<OpenTarget, OpenTargetError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(OpenTargetError::Empty);
     }
 
-    // 1. `flowix://` 深链
+    // 1. `flowix://` 娣遍摼
     if let Some((_, rest)) = split_scheme(trimmed) {
         return parse_deep_link(&rest, trimmed);
     }
 
-    // 2. `file://` 物理路径 (macOS Finder 复制粘贴常见)
+    // 2. `file://` 鐗╃悊璺緞 (macOS Finder 澶嶅埗绮樿创甯歌)
     if let Some(rest) = trimmed
         .strip_prefix("file://")
         .or_else(|| trimmed.strip_prefix("file:///"))
     {
         let decoded = percent_decode(rest);
-        // v3: 物理 filename 不再带 `#<id>` 后缀, memo_id 由 resolver 走
-        // memo index filename → id 反查; parser 阶段无法给 memo_id。
+        // v3: 鐗╃悊 filename 涓嶅啀甯?`#<id>` 鍚庣紑, memo_id 鐢?resolver 璧?        // memo index filename 鈫?id 鍙嶆煡; parser 闃舵鏃犳硶缁?memo_id銆?
         return Ok(OpenTarget::PhysicalPath {
             path: decoded,
             memo_id: None,
         });
     }
 
-    // 3. 裸绝对路径 / 任意字符 (resolver 拒掉非法)
+    // 3. 瑁哥粷瀵硅矾寰?/ 浠绘剰瀛楃 (resolver 鎷掓帀闈炴硶)
     Ok(OpenTarget::PhysicalPath {
         path: trimmed.to_string(),
         memo_id: None,
@@ -182,8 +176,8 @@ fn parse_deep_link(rest: &str, full: &str) -> Result<OpenTarget, OpenTargetError
             let path_arg = get_query(&query, "path")
                 .ok_or(OpenTargetError::MissingPath)?
                 .to_string();
-            // v3: 物理 filename 不再带 `#<id>` 后缀, memo_id 走 resolver
-            // 走 memo index filename → id 反查。
+            // v3: 鐗╃悊 filename 涓嶅啀甯?`#<id>` 鍚庣紑, memo_id 璧?resolver
+            // 璧?memo index filename 鈫?id 鍙嶆煡銆?
             Ok(OpenTarget::DeepLink {
                 url: full.to_string(),
                 memo_id: None,
@@ -225,7 +219,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_memo_id_length() {
-        // 5 位和 7 位都拒绝；旧 6 位和新 8 位都兼容。
+        // 5 浣嶅拰 7 浣嶉兘鎷掔粷锛涙棫 6 浣嶅拰鏂?8 浣嶉兘鍏煎銆?
         let err = parse_open_target("flowix://memo/abc12").unwrap_err();
         assert!(matches!(err, OpenTargetError::InvalidMemoId(_)));
         let err = parse_open_target("flowix://memo/abc1234").unwrap_err();
@@ -238,7 +232,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_memo_id_chars() {
-        // 含大写 / `_` / `-` 都不行
+        // 鍚ぇ鍐?/ `_` / `-` 閮戒笉琛?
         let err = parse_open_target("flowix://memo/ABCDEF").unwrap_err();
         assert!(matches!(err, OpenTargetError::InvalidMemoId(_)));
         let err = parse_open_target("flowix://memo/ab_cde").unwrap_err();
@@ -247,8 +241,8 @@ mod tests {
 
     #[test]
     fn parses_open_with_path_query() {
-        // v3: 物理 filename 不再带 `#<id>` 后缀, parser 阶段 memo_id = None,
-        // resolver 走 memo index filename → id 反查。
+        // v3: 鐗╃悊 filename 涓嶅啀甯?`#<id>` 鍚庣紑, parser 闃舵 memo_id = None,
+        // resolver 璧?memo index filename 鈫?id 鍙嶆煡銆?
         let t = parse_open_target(
             "flowix://open?path=%2FUsers%2Frop%2FDocuments%2Fflowix%2Fnotebook%2Fhello.md",
         )
@@ -271,7 +265,7 @@ mod tests {
 
     #[test]
     fn parses_file_scheme() {
-        // v3: 物理 filename 不再带 `#<id>` 后缀, parser 阶段 memo_id = None。
+        // v3: 鐗╃悊 filename 涓嶅啀甯?`#<id>` 鍚庣紑, parser 闃舵 memo_id = None銆?
         let t = parse_open_target("file:///Users/rop/Documents/flowix/nb/hello.md").unwrap();
         match t {
             OpenTarget::PhysicalPath { path, memo_id } => {
@@ -284,7 +278,7 @@ mod tests {
 
     #[test]
     fn parses_raw_absolute_path() {
-        // v3: 物理 filename 不再带 `#<id>` 后缀, parser 阶段 memo_id = None。
+        // v3: 鐗╃悊 filename 涓嶅啀甯?`#<id>` 鍚庣紑, parser 闃舵 memo_id = None銆?
         let t = parse_open_target("/Users/rop/Documents/flowix/nb/hello.md").unwrap();
         match t {
             OpenTarget::PhysicalPath { path, memo_id } => {
@@ -312,12 +306,15 @@ mod tests {
 
     #[test]
     fn memo_id_with_unicode_path() {
-        // 物理路径里含中文, 必须走 PhysicalPath 路径 (非深链)。
-        // v3 后 filename 不再带 `#<id>`, parser 阶段 memo_id = None。
-        let t = parse_open_target("/Users/rop/Documents/flowix/开发待办事项/笔记.md").unwrap();
+        // 鐗╃悊璺緞閲屽惈涓枃, 蹇呴』璧?PhysicalPath 璺緞 (闈炴繁閾?銆?        // v3 鍚?filename 涓嶅啀甯?`#<id>`, parser 闃舵 memo_id = None銆?
+        let t =
+            parse_open_target("/Users/rop/Documents/flowix/寮€鍙戝緟鍔炰簨椤?绗旇.md").unwrap();
         match t {
             OpenTarget::PhysicalPath { path, memo_id } => {
-                assert_eq!(path, "/Users/rop/Documents/flowix/开发待办事项/笔记.md");
+                assert_eq!(
+                    path,
+                    "/Users/rop/Documents/flowix/寮€鍙戝緟鍔炰簨椤?绗旇.md"
+                );
                 assert_eq!(memo_id, None);
             }
             _ => panic!("expected PhysicalPath"),
@@ -326,7 +323,7 @@ mod tests {
 
     #[test]
     fn case_insensitive_scheme() {
-        // macOS / Windows 投递过来的 scheme 大小写不一定, 都要能解析
+        // macOS / Windows 鎶曢€掕繃鏉ョ殑 scheme 澶у皬鍐欎笉涓€瀹? 閮借鑳借В鏋?
         let t = parse_open_target("FLOWIX://memo/abc12345").unwrap();
         assert!(matches!(t, OpenTarget::DeepLink { .. }));
     }

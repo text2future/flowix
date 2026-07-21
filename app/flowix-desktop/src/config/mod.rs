@@ -2,17 +2,17 @@
 //!
 //! Four closely related concerns live here:
 //!
-//! - [`user`] — user-level settings: AI model config (toml), preferences
+//! - [`user`] 鈥?user-level settings: AI model config (toml), preferences
 //!   (json), theme, agent persona. Persisted at `~/.flowix/agent-config.toml`
 //!   and `~/.flowix/boot/preference.json`. Owns the `atomic_write_json`
 //!   helper used by sibling stores.
-//! - [`access`] — agent-access registry: which folders + notebooks the AI
+//! - [`access`] 鈥?agent-access registry: which folders + notebooks the AI
 //!   agent is allowed to see. Persisted at `~/.flowix/agent-access.json`.
 //!   Distinct from the notebook registry so users can grant/revoke AI access
 //!   without touching the notebook registry itself.
-//! - [`path_scope`] — tiny pure helper: is `path` inside `root`? Used by
+//! - [`path_scope`] 鈥?tiny pure helper: is `path` inside `root`? Used by
 //!   access checks, dialog code, and security-bookmark filtering.
-//! - [`security_bookmark`] — macOS security-scoped bookmarks for
+//! - [`security_bookmark`] 鈥?macOS security-scoped bookmarks for
 //!   user-selected directories that survive across launches. Sibling of
 //!   `user`/`access` but only meaningful on macOS; on other platforms the
 //!   store is still constructed but never gains entries.

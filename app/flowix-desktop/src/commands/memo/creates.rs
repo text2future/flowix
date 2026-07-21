@@ -384,7 +384,7 @@ pub fn update_memo_db(
             }
         }
     }
-    // 濞?content 闁哄洤鐡ㄩ弻?    if let Some(body) = content {
+    // 婵?content 闂佸搫娲ら悺銊╁蓟?
     if let Some(body) = content {
         match MemoService::new(&read_lock(&state.memo_file, "memo_file"))
             .save_memo_preserving_filename(&id, &body)
@@ -399,7 +399,7 @@ pub fn update_memo_db(
             }
         }
     }
-    // 濞?metadata
+    // 婵?metadata
     if preview.is_some() {
         let mut updated = current;
         if let Some(p) = preview {

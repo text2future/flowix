@@ -1,25 +1,16 @@
-//! 窗口原生层 chrome: Windows 边框色 + 跨平台主题背景色。
-//!
-//! 主题背景色走 Tauri 的 `set_background_color` (同时设原生窗口层 + webview 层),
-//! 主要用于消除冷启动 / webview 重载时的白闪, 让窗口底色与前端主题
-//! (`styles/theme/*.css` 的 `--background`) 对齐。可见背景仍由 webview CSS 主导,
-//! 这里只兜底 webview 未绘制时段。
-//!
-//! 另按产品主题的 "os-theme" (dark / light) 调 `set_theme` 设原生窗口主题, 让标题栏 /
-//! 顶部分隔线 / 红绿灯等原生 chrome 与 webview 内容明暗一致 (否则深色内容 + 浅色原生
-//! chrome 会在窗口顶部露白线 ── 原生 chrome 默认跟随系统外观, 系统浅色时即使产品主题
-//! 是 dark 也会画浅色分隔线)。
-//!
-//! 平台注意 (来自 Tauri 文档):
-//! - Windows: 窗口层 alpha 被忽略, 故全部用 alpha=0xFF (不透明)。
-//! - macOS:   需启用 `macos-private-api` (Cargo feature + `tauri.conf.json` 的
-//!            `app.macOSPrivateApi`), 否则 wry 的 `set_background_color` 对 WKWebView
-//!            是 no-op -- webview 保持默认不透明白色 (`drawsBackground=YES`), 盖住
-//!            NSWindow 背景且 resize 时边缘露白。启用后 wry 会关掉 `drawsBackground`
-//!            并设 `underPageBackgroundColor`, webview 层即随主题变色 (resize/冷启动
-//!            均不露白)。Flowix 非 App Store 分发, 私有 API 不影响公证。
-//! - Linux:   `window.theme()` 可能不支持 -> `Theme::System` 回退到 light (可接受降级)。
-
+//! 绐楀彛鍘熺敓灞?chrome: Windows 杈规鑹?+ 璺ㄥ钩鍙颁富棰樿儗鏅壊銆?//!
+//! 涓婚鑳屾櫙鑹茶蛋 Tauri 鐨?`set_background_color` (鍚屾椂璁惧師鐢熺獥鍙ｅ眰 + webview 灞?,
+//! 涓昏鐢ㄤ簬娑堥櫎鍐峰惎鍔?/ webview 閲嶈浇鏃剁殑鐧介棯, 璁╃獥鍙ｅ簳鑹蹭笌鍓嶇涓婚
+//! (`styles/theme/*.css` 鐨?`--background`) 瀵归綈銆傚彲瑙佽儗鏅粛鐢?webview CSS 涓诲,
+//! 杩欓噷鍙厹搴?webview 鏈粯鍒舵椂娈点€?//!
+//! 鍙︽寜浜у搧涓婚鐨?"os-theme" (dark / light) 璋?`set_theme` 璁惧師鐢熺獥鍙ｄ富棰? 璁╂爣棰樻爮 /
+//! 椤堕儴鍒嗛殧绾?/ 绾㈢豢鐏瓑鍘熺敓 chrome 涓?webview 鍐呭鏄庢殫涓€鑷?(鍚﹀垯娣辫壊鍐呭 + 娴呰壊鍘熺敓
+//! chrome 浼氬湪绐楀彛椤堕儴闇茬櫧绾?鈹€鈹€ 鍘熺敓 chrome 榛樿璺熼殢绯荤粺澶栬, 绯荤粺娴呰壊鏃跺嵆浣夸骇鍝佷富棰?//! 鏄?dark 涔熶細鐢绘祬鑹插垎闅旂嚎)銆?//!
+//! 骞冲彴娉ㄦ剰 (鏉ヨ嚜 Tauri 鏂囨。):
+//! - Windows: 绐楀彛灞?alpha 琚拷鐣? 鏁呭叏閮ㄧ敤 alpha=0xFF (涓嶉€忔槑)銆?//! - macOS:   闇€鍚敤 `macos-private-api` (Cargo feature + `tauri.conf.json` 鐨?//!            `app.macOSPrivateApi`), 鍚﹀垯 wry 鐨?`set_background_color` 瀵?WKWebView
+//!            鏄?no-op -- webview 淇濇寔榛樿涓嶉€忔槑鐧借壊 (`drawsBackground=YES`), 鐩栦綇
+//!            NSWindow 鑳屾櫙涓?resize 鏃惰竟缂橀湶鐧姐€傚惎鐢ㄥ悗 wry 浼氬叧鎺?`drawsBackground`
+//!            骞惰 `underPageBackgroundColor`, webview 灞傚嵆闅忎富棰樺彉鑹?(resize/鍐峰惎鍔?//!            鍧囦笉闇茬櫧)銆侳lowix 闈?App Store 鍒嗗彂, 绉佹湁 API 涓嶅奖鍝嶅叕璇併€?//! - Linux:   `window.theme()` 鍙兘涓嶆敮鎸?-> `Theme::System` 鍥為€€鍒?light (鍙帴鍙楅檷绾?銆?
 use tauri::Manager;
 
 use crate::config::Theme;
@@ -49,11 +40,10 @@ pub fn apply_window_border_color<R: tauri::Runtime>(window: &tauri::WebviewWindo
 #[cfg(not(target_os = "windows"))]
 pub fn apply_window_border_color<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) {}
 
-/// Flowix 主题 -> Tauri 窗口背景色。
-///
-/// 色值由前端 `styles/theme/*.css` 的 `--background` (oklch) 精确转换成 sRGB,
-/// 与前端底色对齐避免闪色。`Theme::System` 用 `system` (当前解析的系统明暗,
-/// 由 `window.theme()` 给出) 落到 light/dark; 取不到系统值时兜底 light。
+/// Flowix 涓婚 -> Tauri 绐楀彛鑳屾櫙鑹层€?///
+/// 鑹插€肩敱鍓嶇 `styles/theme/*.css` 鐨?`--background` (oklch) 绮剧‘杞崲鎴?sRGB,
+/// 涓庡墠绔簳鑹插榻愰伩鍏嶉棯鑹层€俙Theme::System` 鐢?`system` (褰撳墠瑙ｆ瀽鐨勭郴缁熸槑鏆?
+/// 鐢?`window.theme()` 缁欏嚭) 钀藉埌 light/dark; 鍙栦笉鍒扮郴缁熷€兼椂鍏滃簳 light銆?
 pub fn theme_background_color(
     theme: Theme,
     system: Option<tauri::Theme>,
@@ -77,18 +67,16 @@ pub fn theme_background_color(
     }
 }
 
-/// Flowix 产品主题 -> 对应的 "os-theme" (原生窗口主题)。
-///
-/// 决定标题栏 / 顶部分隔线 / 红绿灯按钮等原生 chrome 的明暗, 与 webview 内容主题
-/// 对齐。原生 chrome 默认跟随系统外观, 不显式设置时: 系统浅色 + 产品 dark 主题 ->
-/// 顶部画浅色分隔线 (表现为深色模式下顶部白线)。
-///
-/// 分类 (按各主题 `--background` 明暗, 见 `theme_background_color`):
+/// Flowix 浜у搧涓婚 -> 瀵瑰簲鐨?"os-theme" (鍘熺敓绐楀彛涓婚)銆?///
+/// 鍐冲畾鏍囬鏍?/ 椤堕儴鍒嗛殧绾?/ 绾㈢豢鐏寜閽瓑鍘熺敓 chrome 鐨勬槑鏆? 涓?webview 鍐呭涓婚
+/// 瀵归綈銆傚師鐢?chrome 榛樿璺熼殢绯荤粺澶栬, 涓嶆樉寮忚缃椂: 绯荤粺娴呰壊 + 浜у搧 dark 涓婚 ->
+/// 椤堕儴鐢绘祬鑹插垎闅旂嚎 (琛ㄧ幇涓烘繁鑹叉ā寮忎笅椤堕儴鐧界嚎)銆?///
+/// 鍒嗙被 (鎸夊悇涓婚 `--background` 鏄庢殫, 瑙?`theme_background_color`):
 /// - `Dark` -> `Dark`
-/// - `Light` / `Rock` / `Mist` / `Ember` -> `Light` (均为浅底主题)
-/// - `System` -> `None` (跟随 OS 外观, 保留 `ThemeChanged` 实时跟随)
+/// - `Light` / `Rock` / `Mist` / `Ember` -> `Light` (鍧囦负娴呭簳涓婚)
+/// - `System` -> `None` (璺熼殢 OS 澶栬, 淇濈暀 `ThemeChanged` 瀹炴椂璺熼殢)
 ///
-/// 注意: macOS 上 `set_theme` 是 app-wide (非单窗口), 任一窗口设置即全局生效。
+/// 娉ㄦ剰: macOS 涓?`set_theme` 鏄?app-wide (闈炲崟绐楀彛), 浠讳竴绐楀彛璁剧疆鍗冲叏灞€鐢熸晥銆?
 pub fn os_theme_for(theme: Theme) -> Option<tauri::Theme> {
     match theme {
         Theme::Dark => Some(tauri::Theme::Dark),
@@ -97,16 +85,13 @@ pub fn os_theme_for(theme: Theme) -> Option<tauri::Theme> {
     }
 }
 
-/// 把主题应用到单个窗口的原生 chrome:
-/// 1. `set_theme` - 原生窗口主题 (标题栏 / 分隔线等 chrome 明暗), 按 os-theme。
-/// 2. `set_background_color` - 原生窗口层 + webview 层背景色, 兜底防闪。
-///
-/// 两者都是 AppKit / 原生 UI 调用, 必须在主线程执行。但调用方常在 IPC 命令 /
-/// 事件回调线程 (非主线程: Tauri 2 命令走 async runtime, `app.emit` 又在调用线程
-/// 同步触发 `app.listen` 回调), 直接调用会静默失效 —— 典型表现: 启动时 (setup
-/// 在主线程) 主题生效, 运行时切换主题原生 chrome 不更新。故统一用
-/// `run_on_main_thread` dispatch 到主线程, 并在主线程内读 `system` (避免离主线程
-/// 读 NSApp appearance 拿到旧值)。
+/// 鎶婁富棰樺簲鐢ㄥ埌鍗曚釜绐楀彛鐨勫師鐢?chrome:
+/// 1. `set_theme` - 鍘熺敓绐楀彛涓婚 (鏍囬鏍?/ 鍒嗛殧绾跨瓑 chrome 鏄庢殫), 鎸?os-theme銆?/// 2. `set_background_color` - 鍘熺敓绐楀彛灞?+ webview 灞傝儗鏅壊, 鍏滃簳闃查棯銆?///
+/// 涓よ€呴兘鏄?AppKit / 鍘熺敓 UI 璋冪敤, 蹇呴』鍦ㄤ富绾跨▼鎵ц銆備絾璋冪敤鏂瑰父鍦?IPC 鍛戒护 /
+/// 浜嬩欢鍥炶皟绾跨▼ (闈炰富绾跨▼: Tauri 2 鍛戒护璧?async runtime, `app.emit` 鍙堝湪璋冪敤绾跨▼
+/// 鍚屾瑙﹀彂 `app.listen` 鍥炶皟), 鐩存帴璋冪敤浼氶潤榛樺け鏁?鈥斺€?鍏稿瀷琛ㄧ幇: 鍚姩鏃?(setup
+/// 鍦ㄤ富绾跨▼) 涓婚鐢熸晥, 杩愯鏃跺垏鎹富棰樺師鐢?chrome 涓嶆洿鏂般€傛晠缁熶竴鐢?/// `run_on_main_thread` dispatch 鍒颁富绾跨▼, 骞跺湪涓荤嚎绋嬪唴璇?`system` (閬垮厤绂讳富绾跨▼
+/// 璇?NSApp appearance 鎷垮埌鏃у€?銆?
 pub fn apply_theme_background(window: &tauri::WebviewWindow, theme: Theme) {
     let win = window.clone();
     if let Err(e) = window.run_on_main_thread(move || {
@@ -124,7 +109,7 @@ pub fn apply_theme_background(window: &tauri::WebviewWindow, theme: Theme) {
     }
 }
 
-/// 把主题背景色应用到当前所有窗口 (main / preferences / 动态 tab 窗口)。
+/// 鎶婁富棰樿儗鏅壊搴旂敤鍒板綋鍓嶆墍鏈夌獥鍙?(main / preferences / 鍔ㄦ€?tab 绐楀彛)銆?
 pub fn apply_theme_background_all(app: &tauri::AppHandle, theme: Theme) {
     for window in app.webview_windows().values() {
         apply_theme_background(window, theme);

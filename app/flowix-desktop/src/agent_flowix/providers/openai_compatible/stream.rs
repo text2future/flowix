@@ -87,26 +87,23 @@ pub(super) fn flush_pending_tool_calls(pending: &mut PendingToolCalls) -> Vec<Ll
     out
 }
 
-/// OpenAI provider 内部流事件 — 推理模型的 `reasoning_content` 与普通 `content`
-/// 分开表达, 避免再走 "在 content 里塞 `[REASONING]:` 前缀" 的字符串协议。
-/// rllm 的 `StreamChunk` 只能 `Text(String)` 表达文本, 没法区分两类文本,
-/// 所以这里引入自己的 enum ── agent.rs 直接消费这套。trait 路径的
-/// `chat_stream_with_tools` 已废弃 (unimplemented!); 该路径的 reasoning
-/// 包装 (`[REASONING]:` 前缀回填) 跟着删掉, 避免误导。
+/// OpenAI provider 鍐呴儴娴佷簨浠?鈥?鎺ㄧ悊妯″瀷鐨?`reasoning_content` 涓庢櫘閫?`content`
+/// 鍒嗗紑琛ㄨ揪, 閬垮厤鍐嶈蛋 "鍦?content 閲屽 `[REASONING]:` 鍓嶇紑" 鐨勫瓧绗︿覆鍗忚銆?/// rllm 鐨?`StreamChunk` 鍙兘 `Text(String)` 琛ㄨ揪鏂囨湰, 娌℃硶鍖哄垎涓ょ被鏂囨湰,
+/// 鎵€浠ヨ繖閲屽紩鍏ヨ嚜宸辩殑 enum 鈹€鈹€ agent.rs 鐩存帴娑堣垂杩欏銆倀rait 璺緞鐨?/// `chat_stream_with_tools` 宸插簾寮?(unimplemented!); 璇ヨ矾寰勭殑 reasoning
+/// 鍖呰 (`[REASONING]:` 鍓嶇紑鍥炲～) 璺熺潃鍒犳帀, 閬垮厤璇銆?
 #[derive(Debug, Clone)]
 pub enum OpenAICompatibleStreamItem {
-    /// 助手流式回答 (普通 content)
+    /// 鍔╂墜娴佸紡鍥炵瓟 (鏅€?content)
     Text(String),
-    /// 推理模型的思考过程 (reasoning_content)
+    /// 鎺ㄧ悊妯″瀷鐨勬€濊€冭繃绋?(reasoning_content)
     Reasoning(String),
-    /// LLM 发出工具调用, 已聚合完 (id/call_type/function{name,arguments} 齐全)
+    /// LLM 鍙戝嚭宸ュ叿璋冪敤, 宸茶仛鍚堝畬 (id/call_type/function{name,arguments} 榻愬叏)
     ToolUseComplete { tool_call: LlmToolCall },
-    /// 流末尾的 token 计数 (OpenAI 协议在最后一个 SSE chunk 的顶层 `usage` 字段
-    /// 单独送, 不混在 `choices` 里)。`total_tokens` 自身是 None 时整条 Usage 不 emit。
-    ///
-    /// Compatibility: 旧 provider 只报 `prompt_tokens` / `completion_tokens`
-    /// 时, SSE 解析层会 fallback 到 input/output;这里只承载新协议字段,
-    /// wire 形状不再透传 prompt/completion。
+    /// 娴佹湯灏剧殑 token 璁℃暟 (OpenAI 鍗忚鍦ㄦ渶鍚庝竴涓?SSE chunk 鐨勯《灞?`usage` 瀛楁
+    /// 鍗曠嫭閫? 涓嶆贩鍦?`choices` 閲?銆俙total_tokens` 鑷韩鏄?None 鏃舵暣鏉?Usage 涓?emit銆?    ///
+    /// Compatibility: 鏃?provider 鍙姤 `prompt_tokens` / `completion_tokens`
+    /// 鏃? SSE 瑙ｆ瀽灞備細 fallback 鍒?input/output;杩欓噷鍙壙杞芥柊鍗忚瀛楁,
+    /// wire 褰㈢姸涓嶅啀閫忎紶 prompt/completion銆?
     Usage {
         total_tokens: u32,
         input_tokens: Option<u32>,
@@ -115,7 +112,7 @@ pub enum OpenAICompatibleStreamItem {
         reasoning_output_tokens: Option<u32>,
         model_context_window: Option<u32>,
     },
-    /// 流结束 (OpenAI `[DONE]` 或流自然断)
+    /// 娴佺粨鏉?(OpenAI `[DONE]` 鎴栨祦鑷劧鏂?
     Done {
         #[allow(dead_code)]
         stop_reason: String,

@@ -13,14 +13,14 @@ pub(crate) fn resolve_claude_cwd(
     let from_ipc = message
         .cwd_for_runtime(AGENT_TYPE)
         .map(PathBuf::from)
-        .filter(|p| p.exists());
+        .filter(|p| p.is_dir());
     if let Some(cwd) = from_ipc {
         return cwd;
     }
 
     if let Some(sid) = session_id.filter(|s| !s.trim().is_empty()) {
         if let Ok(Some(cwd)) = claude_session_cwd(sid) {
-            if cwd.exists() {
+            if cwd.is_dir() {
                 return cwd;
             }
         }
@@ -71,6 +71,7 @@ pub(crate) fn build_claude_command(
     }
     append_additional_workspace_dirs(&mut cmd, cwd, workspace_paths);
     cmd.arg("");
+    crate::agent_external::shared::configure_unix_process_group(&mut cmd);
     cmd
 }
 
@@ -137,7 +138,7 @@ fn normalized_additional_workspace_dirs(cwd: &PathBuf, workspace_paths: &[String
             continue;
         }
         let path = PathBuf::from(trimmed);
-        if !path.exists() {
+        if !path.is_dir() {
             continue;
         }
         let normalized = normalize_workspace_path_for_compare(&path);
@@ -163,5 +164,43 @@ pub(crate) fn normalized_claude_permission_mode(mode: Option<&str>) -> Option<&'
         Some("danger-full-access") => Some("bypassPermissions"),
         Some("yolo") => Some("bypassPermissions"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("flowix-{name}-{nonce}"))
+    }
+
+    #[test]
+    fn normalized_additional_workspace_dirs_rejects_files() {
+        let root = unique_temp_dir("claude-workspaces");
+        let cwd = root.join("cwd");
+        let extra = root.join("extra");
+        let file = root.join("note.md");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&extra).expect("create extra dir");
+        fs::write(&file, "note").expect("create file");
+
+        let workspace_paths = vec![
+            cwd.to_string_lossy().into_owned(),
+            file.to_string_lossy().into_owned(),
+            extra.to_string_lossy().into_owned(),
+        ];
+
+        let dirs = normalized_additional_workspace_dirs(&cwd, &workspace_paths);
+
+        assert_eq!(dirs, vec![extra]);
+
+        fs::remove_dir_all(root).ok();
     }
 }

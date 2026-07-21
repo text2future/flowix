@@ -17,8 +17,7 @@ import {
   PencilSimpleLineIcon,
   PushPin,
 } from '@phosphor-icons/react';
-import { useEffect, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Command,
   CommandDialog,
@@ -339,8 +338,11 @@ interface RunningAgentConversationsGroupProps {
 
 function RunningAgentConversationsGroup({ onClose }: RunningAgentConversationsGroupProps) {
   const { t } = useI18n();
-  const runningInstances = useAgentConversationStore(
-    useShallow((s) => selectRunningAgentConversationInstances(s)),
+  const instances = useAgentConversationStore((s) => s.instances);
+  const threadStates = useChatStore((s) => s.threadStates);
+  const runningInstances = useMemo(
+    () => selectRunningAgentConversationInstances({ instances }, threadStates),
+    [instances, threadStates],
   );
 
   if (runningInstances.length === 0) return null;
@@ -369,10 +371,15 @@ function RunningAgentConversationsGroup({ onClose }: RunningAgentConversationsGr
       {runningInstances.map((instance) => {
         const agent = getAgentType(instance.agentType);
         const canOpen = Boolean(instance.source.memoId || instance.source.documentPath);
+        const threadState = instance.threadId ? threadStates[instance.threadId] : undefined;
+        const activeRun = threadState?.activeRunId
+          ? threadState.runs[threadState.activeRunId]
+          : undefined;
+        const runId = activeRun?.runId ?? instance.instanceId;
         return (
           <CommandItem
-            key={instance.run?.runId ?? instance.instanceId}
-            value={`agent-running-${instance.run?.runId ?? instance.instanceId}`}
+            key={runId}
+            value={`agent-running-${runId}`}
             disabled={!canOpen}
             onSelect={() => {
               if (canOpen) void openRunningInstance(instance);
@@ -390,7 +397,7 @@ function RunningAgentConversationsGroup({ onClose }: RunningAgentConversationsGr
               <span className="truncate">{instance.title?.trim() || t('common.untitled')}</span>
               <span className="truncate text-xs text-[var(--muted-foreground)]">
                 {agent.name}
-                {instance.run?.currentTool ? ` - ${instance.run.currentTool}` : ''}
+                {activeRun?.currentTool ? ` - ${activeRun.currentTool}` : ''}
               </span>
             </div>
             <CommandShortcut className="shrink-0 text-[var(--primary)]">

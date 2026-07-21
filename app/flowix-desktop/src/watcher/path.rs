@@ -1,16 +1,13 @@
-//! 跨 watcher manager / filter 共享的路径归一工具。
-//!
-//! `MemoWatcher::mark_self_write` 和 `SelfWriteSuppressor` / `Debouncer`
-//! 都用这里生成 HashMap key, 避免写盘端与 notify 端路径口径不一致。
-
+//! 璺?watcher manager / filter 鍏变韩鐨勮矾寰勫綊涓€宸ュ叿銆?//!
+//! `MemoWatcher::mark_self_write` 鍜?`SelfWriteSuppressor` / `Debouncer`
+//! 閮界敤杩欓噷鐢熸垚 HashMap key, 閬垮厤鍐欑洏绔笌 notify 绔矾寰勫彛寰勪笉涓€鑷淬€?
 use std::path::{Path, PathBuf};
 
-/// 把 `Path` 归一到 `HashMap<PathBuf, _>` 查表口径。
-///
-/// 优先用 `dunce::canonicalize` 折叠 symlink / `\\?\` 前缀; 失败 (文件尚未
-/// 创建 — 写盘前 mark 的常见情形) 退到"只 canonicalize 父目录, 再 join
-/// 文件名", 父目录在 notebook 创建时已经存在, 这一步必然成功。即便父目录
-/// canonicalize 也失败, 退回原 path 字符串, 至少不丢抑制 (退化到精确匹配)。
+/// 鎶?`Path` 褰掍竴鍒?`HashMap<PathBuf, _>` 鏌ヨ〃鍙ｅ緞銆?///
+/// 浼樺厛鐢?`dunce::canonicalize` 鎶樺彔 symlink / `\\?\` 鍓嶇紑; 澶辫触 (鏂囦欢灏氭湭
+/// 鍒涘缓 鈥?鍐欑洏鍓?mark 鐨勫父瑙佹儏褰? 閫€鍒?鍙?canonicalize 鐖剁洰褰? 鍐?join
+/// 鏂囦欢鍚?, 鐖剁洰褰曞湪 notebook 鍒涘缓鏃跺凡缁忓瓨鍦? 杩欎竴姝ュ繀鐒舵垚鍔熴€傚嵆渚跨埗鐩綍
+/// canonicalize 涔熷け璐? 閫€鍥炲師 path 瀛楃涓? 鑷冲皯涓嶄涪鎶戝埗 (閫€鍖栧埌绮剧‘鍖归厤)銆?
 pub fn normalize_for_compare(path: &Path) -> PathBuf {
     if let Ok(canon) = dunce::canonicalize(path) {
         return canon;

@@ -7,15 +7,15 @@
 //! File layout (split from the original 1414-line `commands/memo.rs` because
 //! the file carried five distinct sub-domains):
 //!
-//! - [`helpers`] — shared functions used by every other section
+//! - [`helpers`] 鈥?shared functions used by every other section
 //!   (`read_memo_or_none`, `emit_updated_after_write`, `cas_content_matches`,
 //!   etc.) plus the unit tests for `cas_content_matches`.
-//! - [`reads`]   — read-only IPC: list / search / get_memos / read_document /
+//! - [`reads`]   鈥?read-only IPC: list / search / get_memos / read_document /
 //!   mention / todo metadata / version listing.
-//! - [`creates`] — create / import / template commands, plus single-field
+//! - [`creates`] 鈥?create / import / template commands, plus single-field
 //!   updates (favorite, unfavorite, set_colors, finalize_filename).
-//! - [`versions`] — memo version history (list / read / create / restore).
-//! - [`deletes`] — delete commands.
+//! - [`versions`] 鈥?memo version history (list / read / create / restore).
+//! - [`deletes`] 鈥?delete commands.
 //!
 //! Shared response / item structs that cross section boundaries live here at
 //! the `memo::` namespace level so siblings can `use super::*` to grab them.
@@ -25,12 +25,12 @@
 
 pub mod creates;
 pub mod deletes;
-mod helpers;
+pub(crate) mod helpers;
 pub mod reads;
 pub mod versions;
 
-// `helpers` stays private because nothing outside `memo/` needs it; commands
-// inside `creates` / `reads` / etc. access it via `super::helpers`.
+// `helpers` is `pub(crate)`: memo commands access it via `super::helpers`,
+// and `commands::tag` reuses `emit_updated_after_write` for move_memo_tag.
 pub use reads::*;
 
 use serde::Serialize;
@@ -38,7 +38,7 @@ use serde::Serialize;
 use flowix_core::memo_file::Memo;
 use flowix_core::search::MemoSearchHit;
 
-// Shared response / item structs ── referenced by multiple sections below.
+// Shared response / item structs 鈹€鈹€ referenced by multiple sections below.
 
 #[derive(Serialize)]
 pub struct GetMemosResponse {

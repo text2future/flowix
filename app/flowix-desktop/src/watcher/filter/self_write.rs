@@ -6,7 +6,7 @@
 use crate::watcher::event::{DropReason, FilterDecision, RawFsEvent};
 use crate::watcher::filter::{Filter, FilterCtx, SELF_WRITE_TTL};
 
-/// 段 2: 自写抑制。`mark_self_write` 写过的路径, 命中即吞。
+/// 娈?2: 鑷啓鎶戝埗銆俙mark_self_write` 鍐欒繃鐨勮矾寰? 鍛戒腑鍗冲悶銆?
 pub struct SelfWriteSuppressor;
 
 impl Filter for SelfWriteSuppressor {
@@ -15,14 +15,13 @@ impl Filter for SelfWriteSuppressor {
         let Ok(mut map) = ctx.recent_self_writes.lock() else {
             return FilterDecision::Pass;
         };
-        // 顺手剪枝过老条目。SELF_WRITE_TTL (2s) 覆盖 IPC 命令结束 → notify
-        // 回调到达的间隔, FSEvents 双触发 (macOS 把一次 fs::write 拆成
-        // Metadata(Any) + Data(Content) 两条 Modify) 也都在窗内。
-        map.retain(|_, t| t.elapsed() < SELF_WRITE_TTL);
+        // 椤烘墜鍓灊杩囪€佹潯鐩€係ELF_WRITE_TTL (2s) 瑕嗙洊 IPC 鍛戒护缁撴潫 鈫?notify
+        // 鍥炶皟鍒拌揪鐨勯棿闅? FSEvents 鍙岃Е鍙?(macOS 鎶婁竴娆?fs::write 鎷嗘垚
+        // Metadata(Any) + Data(Content) 涓ゆ潯 Modify) 涔熼兘鍦ㄧ獥鍐呫€?        map.retain(|_, t| t.elapsed() < SELF_WRITE_TTL);
 
-        // 不 remove 表项 — FSEvents 双触发两条事件都要吞, remove 后第二条
-        // 会 MISS 漏到 processor 走 "外部修改" 路径。 表项由上面的 retain
-        // 走 2s TTL 兜底清理, 不会无限占位。
+        // 涓?remove 琛ㄩ」 鈥?FSEvents 鍙岃Е鍙戜袱鏉′簨浠堕兘瑕佸悶, remove 鍚庣浜屾潯
+        // 浼?MISS 婕忓埌 processor 璧?"澶栭儴淇敼" 璺緞銆?琛ㄩ」鐢变笂闈㈢殑 retain
+        // 璧?2s TTL 鍏滃簳娓呯悊, 涓嶄細鏃犻檺鍗犱綅銆?
         if map.contains_key(&key) {
             tracing::debug!(
                 "[SelfWriteSuppressor] HIT path={} key={} table_size={}",

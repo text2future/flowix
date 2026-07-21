@@ -43,10 +43,8 @@ pub async fn get_session_page(
 }
 
 pub fn is_codex_session_id(text: &str) -> bool {
-    // 必须显式拒绝 "codex-local-agent-inst-<ts>-<seq>" 等前端占位符 ──
-    // 这些字符串长度 ≥ 32 且包含 5 个 dash, 老版宽松判断会把它当成
-    // session id 传给 Codex CLI 的 resume, 但 CLI 不认 ── 与
-    // claude_history 同病同治。
+    // 蹇呴』鏄惧紡鎷掔粷 "codex-local-agent-inst-<ts>-<seq>" 绛夊墠绔崰浣嶇 鈹€鈹€
+    // 杩欎簺瀛楃涓查暱搴?鈮?32 涓斿寘鍚?5 涓?dash, 鑰佺増瀹芥澗鍒ゆ柇浼氭妸瀹冨綋鎴?    // session id 浼犵粰 Codex CLI 鐨?resume, 浣?CLI 涓嶈 鈹€鈹€ 涓?    // claude_history 鍚岀梾鍚屾不銆?
     let value = text.trim();
     if value.is_empty() || value.starts_with("codex-local-") {
         return false;
@@ -766,8 +764,7 @@ fn content_parts_to_text(content: Option<&Value>) -> Option<String> {
     }
 }
 
-/// Codex 会把运行环境和插件推荐作为 user 消息写入 rollout JSONL。
-/// 这些消息是运行时上下文，不是用户输入，不应进入聊天记录或会话标题。
+/// Codex 浼氭妸杩愯鐜鍜屾彃浠舵帹鑽愪綔涓?user 娑堟伅鍐欏叆 rollout JSONL銆?/// 杩欎簺娑堟伅鏄繍琛屾椂涓婁笅鏂囷紝涓嶆槸鐢ㄦ埛杈撳叆锛屼笉搴旇繘鍏ヨ亰澶╄褰曟垨浼氳瘽鏍囬銆?
 fn is_hidden_codex_user_message(content: &str) -> bool {
     let content = content.trim_start();
     content.starts_with("<recommended_plugins>") || content.starts_with("<environment_context>")
@@ -822,12 +819,11 @@ fn session_id_from_filename(path: &Path) -> Option<String> {
     }
 }
 
-/// 从 Codex CLI 的 session jsonl 里读出原始 cwd ── Codex rollout 文件
-/// 第一行通常是 `session_meta` 事件, 内嵌 `payload.cwd` 字段.
+/// 浠?Codex CLI 鐨?session jsonl 閲岃鍑哄師濮?cwd 鈹€鈹€ Codex rollout 鏂囦欢
+/// 绗竴琛岄€氬父鏄?`session_meta` 浜嬩欢, 鍐呭祵 `payload.cwd` 瀛楁.
 ///
-/// 用途: 后端 `codex_cli.rs` 的 cwd 兜底链 ── IPC 入参拿不到 cwd 时,
-/// 用 session 文件自身的 cwd 作为真源。 与 claude 修复同形 (见
-/// `claude_history::claude_session_cwd` 注释).
+/// 鐢ㄩ€? 鍚庣 `codex_cli.rs` 鐨?cwd 鍏滃簳閾?鈹€鈹€ IPC 鍏ュ弬鎷夸笉鍒?cwd 鏃?
+/// 鐢?session 鏂囦欢鑷韩鐨?cwd 浣滀负鐪熸簮銆?涓?claude 淇鍚屽舰 (瑙?/// `claude_history::claude_session_cwd` 娉ㄩ噴).
 pub fn codex_session_cwd(session_id: &str) -> Result<Option<PathBuf>, String> {
     let Some(home) = dirs::home_dir() else {
         return Ok(None);
@@ -949,8 +945,8 @@ mod tests {
 
     #[test]
     fn rejects_local_codex_thread_ids() {
-        // 同 claude 的修复 ── "codex-local-agent-inst-..." 前缀直接拒掉,
-        // 避免误把前端占位符当 Codex CLI session id。
+        // 鍚?claude 鐨勪慨澶?鈹€鈹€ "codex-local-agent-inst-..." 鍓嶇紑鐩存帴鎷掓帀,
+        // 閬垮厤璇妸鍓嶇鍗犱綅绗﹀綋 Codex CLI session id銆?
         assert!(!is_codex_session_id(
             "codex-local-agent-inst-1783828675847-3"
         ));
@@ -1158,9 +1154,9 @@ mod tests {
     #[test]
     fn close_orphan_codex_tool_calls_closes_only_unmatched_calls() {
         let mut messages = vec![
-            // function_call(call_id=X) — has a matching output below.
+            // function_call(call_id=X) 鈥?has a matching output below.
             tool_call_msg("X", "Read", true),
-            // function_call(call_id=Y) — killed before tool_result was written.
+            // function_call(call_id=Y) 鈥?killed before tool_result was written.
             tool_call_msg("Y", "Bash", true),
             // function_call_output for X (already merged with the row above).
             tool_result_msg("X", "ok"),
@@ -1172,9 +1168,9 @@ mod tests {
             .iter()
             .filter_map(|m| m.tool_call_id.as_deref().map(|id| (id, m)))
             .collect();
-        // X: matched → left at is_loading=false (because the output row has it).
+        // X: matched 鈫?left at is_loading=false (because the output row has it).
         assert_eq!(by_call["X"].is_loading, Some(false));
-        // Y: unmatched → forced to false.
+        // Y: unmatched 鈫?forced to false.
         assert_eq!(by_call["Y"].is_loading, Some(false));
     }
 
@@ -1236,9 +1232,8 @@ mod tests {
         )
     }
 
-    /// Codex rollout session_meta 事件带 `payload.cwd`. 验证
-    /// `codex_session_cwd_in` 能从该字段读出真值 ── 后端 cwd 兜底链
-    /// 在 IPC 入参空时, 用这个值救回 "重启后 resume cwd 缺失"。
+    /// Codex rollout session_meta 浜嬩欢甯?`payload.cwd`. 楠岃瘉
+    /// `codex_session_cwd_in` 鑳戒粠璇ュ瓧娈佃鍑虹湡鍊?鈹€鈹€ 鍚庣 cwd 鍏滃簳閾?    /// 鍦?IPC 鍏ュ弬绌烘椂, 鐢ㄨ繖涓€兼晳鍥?"閲嶅惎鍚?resume cwd 缂哄け"銆?
     #[test]
     fn codex_session_cwd_reads_payload_cwd() {
         let tmp = codex_session_cwd_tempdir();
@@ -1256,13 +1251,13 @@ mod tests {
         )
         .expect("write rollout jsonl");
 
-        // 不依赖 dirs::home_dir / HOME env. 直接传 home.
+        // 涓嶄緷璧?dirs::home_dir / HOME env. 鐩存帴浼?home.
         let cwd = codex_session_cwd_in(&tmp, sid).expect("read cwd");
         let resolved = cwd.expect("cwd should be present");
         assert_eq!(resolved, tmp);
     }
 
-    /// 字段缺失时返回 None ── 不允许悄悄兜底到 "."
+    /// 瀛楁缂哄け鏃惰繑鍥?None 鈹€鈹€ 涓嶅厑璁告倓鎮勫厹搴曞埌 "."
     #[test]
     fn codex_session_cwd_returns_none_when_missing() {
         let tmp = codex_session_cwd_tempdir();

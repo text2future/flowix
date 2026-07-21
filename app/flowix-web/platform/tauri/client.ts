@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { subscribe, type SubscribeOptions } from '@platform/tauri/event-bus';
@@ -13,8 +13,6 @@ import type {
   AgentTypeKey,
   ChatMessage,
   RunInfo,
-  StatusInfo,
-  UsageInfo,
 } from '@/types/agent';
 import type { AgentAccessConfig, AgentAccessEntry } from '@/lib/types/agent-access';
 import type { MemoColor, MemoItem } from '@features/memo';
@@ -321,9 +319,6 @@ export const externalDocuments = {
 export const tags = {
   getAll: (notebookId?: string) =>
     invoke<{ tags: { id: string; name: string }[] }>('get_all_tags', { notebookId }),
-  create: (name: string) => invoke<{ id: string; name: string } | null>('create_memo_tag', { name }),
-  rename: (id: string, name: string) => invoke<{ id: string; name: string } | null>('rename_memo_tag', { id, name }),
-  delete: (id: string) => invoke<boolean>('delete_memo_tag', { id }),
   /**
    * 移动 subtag: 把 `oldPath` 整棵子树重命名 (含 prefix 替换), 批量
    * 改写所有受影响 memo 的 .md body + 同步 memo index。
@@ -603,6 +598,15 @@ export interface ThreadInfo {
   updatedAt: number;
 }
 
+export interface AgentExternalEvent {
+  id: number;
+  runtime: AgentTypeKey;
+  threadId: string;
+  normalizedJson: string;
+  rawJson?: string | null;
+  createdAt: number;
+}
+
 export type AgentConversationSource = {
   kind: 'thread-card';
   documentPath?: string | null;
@@ -614,23 +618,6 @@ export interface AgentConversationRole {
   name?: string | null;
 }
 
-export interface AgentConversationRun {
-  runId: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
-  startedAt: number;
-  endedAt?: number | null;
-  currentTool?: string | null;
-  model?: string | null;
-  modelId?: string | null;
-  reasoningEffort?: string | null;
-  lastRunAt?: number | null;
-  reason?: string | null;
-  /** Nested token usage — mirrors Rust `UsageInfo` stored as JSON. */
-  usage?: UsageInfo | null;
-  /** Provider-specific status snapshot — mirrors Rust `StatusInfo`. */
-  statusInfo?: StatusInfo | null;
-}
-
 export interface AgentConversationInstance {
   instanceId: string;
   agentType: AgentTypeKey;
@@ -639,7 +626,6 @@ export interface AgentConversationInstance {
   runtimeConfig?: string | null;
   source: AgentConversationSource;
   role?: AgentConversationRole | null;
-  run?: AgentConversationRun | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -701,6 +687,8 @@ export const agent = {
   // 鍚庣闀滃儚 `cancel_flags` 鐨勭敓鍛藉懆鏈? 涓?`StreamStart/End` chunk 鍚屾銆?
   runningThreads: () =>
     invoke<Record<string, RunInfo>>('agent_running_threads'),
+  externalEvents: (threadId: string, afterId?: number | null, limit?: number) =>
+    invoke<AgentExternalEvent[]>('agent_external_events', { threadId, afterId, limit }),
   listThreads: () =>
     invoke<ThreadInfo[]>('thread_list'),
   listLocalAgentThreads: (agentType: AgentTypeKey) =>
@@ -735,14 +723,8 @@ export const agent = {
       'agent_conversation_find_by_thread',
       { threadId },
     ),
-  findConversationByRun: (runId: string) =>
-    invoke<AgentConversationInstance | null>('agent_conversation_find_by_run', {
-      runId,
-    }),
   upsertConversationInstance: (instance: AgentConversationInstance) =>
     invoke<AgentConversationInstance>('agent_conversation_upsert', { instance }),
-  upsertConversationRunState: (instanceId: string, run: AgentConversationRun) =>
-    invoke<void>('agent_conversation_upsert_run_state', { instanceId, run }),
   deleteConversationInstance: (instanceId: string) =>
     invoke<boolean>('agent_conversation_delete', { instanceId }),
   deleteConversationInstancesForThread: (threadId: string) =>

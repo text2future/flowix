@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use tauri::State;
 
 use crate::app::state::AppState;
-use crate::commands::helpers::start_security_bookmark_access;
 use crate::commands::external_document_watch::ExternalDocumentWatchState;
+use crate::commands::helpers::start_security_bookmark_access;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -84,7 +84,9 @@ pub fn write_external_document(
         return ExternalDocumentWriteOutcome::Conflict { disk_content };
     }
 
-    let permissions = fs::metadata(&path).ok().map(|metadata| metadata.permissions());
+    let permissions = fs::metadata(&path)
+        .ok()
+        .map(|metadata| metadata.permissions());
     if let Err(error) = flowix_core::memo_file::atomic_write_bytes(&path, content.as_bytes()) {
         return ExternalDocumentWriteOutcome::Error {
             message: format!("failed to write {}: {error}", path.display()),
@@ -93,7 +95,10 @@ pub fn write_external_document(
     if let Some(permissions) = permissions {
         if let Err(error) = fs::set_permissions(&path, permissions) {
             return ExternalDocumentWriteOutcome::Error {
-                message: format!("saved {}, but failed to restore permissions: {error}", path.display()),
+                message: format!(
+                    "saved {}, but failed to restore permissions: {error}",
+                    path.display()
+                ),
             };
         }
     }

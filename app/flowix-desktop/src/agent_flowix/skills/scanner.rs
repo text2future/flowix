@@ -2,10 +2,10 @@
 //!
 //! Two scan areas inside the same root (e.g. `~/.flowix/skills/`):
 //!
-//! - **System area**: `<root>/.system/<skill_name>/SKILL.md` — built-in
+//! - **System area**: `<root>/.system/<skill_name>/SKILL.md` 鈥?built-in
 //!   skills, seeded once from the app bundle. Walked at depth 2 (the
 //!   `SKILL.md` file is exactly two levels under the system area root).
-//! - **User area**: `<root>/<skill_name>/SKILL.md` — user-authored skills.
+//! - **User area**: `<root>/<skill_name>/SKILL.md` 鈥?user-authored skills.
 //!   Walked at depth 1 (a single folder under the root, containing a
 //!   `SKILL.md`).
 //!
@@ -24,11 +24,11 @@ use super::{Skill, SkillOrigin};
 /// Scan a single skills root (e.g. `~/.flowix/skills/`).
 ///
 /// Missing areas (`<root>/.system/` absent, `<root>` itself absent) are
-/// silently skipped — the scanner is robust against partial state. Per-file
+/// silently skipped 鈥?the scanner is robust against partial state. Per-file
 /// parse failures log a warning and are dropped, never aborting the scan.
 ///
 /// Both areas use the same shape `<area_root>/<skill_name>/SKILL.md`, so
-/// the same `scan_area` walker handles both — the `area_root` argument
+/// the same `scan_area` walker handles both 鈥?the `area_root` argument
 /// just differs (`.system` for built-in skills, the root itself for user).
 pub fn scan_root(root: &Path) -> Vec<Skill> {
     let mut by_name: HashMap<String, Skill> = HashMap::new();
@@ -46,7 +46,7 @@ pub fn scan_root(root: &Path) -> Vec<Skill> {
         );
     }
 
-    // User area: `<root>/<skill_name>/SKILL.md` — top-level children of root.
+    // User area: `<root>/<skill_name>/SKILL.md` 鈥?top-level children of root.
     // `<root>/.system` is its own walk above; the user walker would also pick
     // up `<root>/.system/<name>/SKILL.md` (depth 3, doesn't match our depth-2
     // walk) and we skip it via `is_hidden` on the `.system` boundary folder.
@@ -78,7 +78,7 @@ pub fn scan_root(root: &Path) -> Vec<Skill> {
 /// whose intermediate segments include a `.`-prefixed component is
 /// dropped. WalkDir's `filter_entry` would be cleaner but it does not
 /// fire on intermediate directories when `min_depth > 0` (only on yielded
-/// entries) — and we want to skip whole subtrees like `<root>/.drafts/`,
+/// entries) 鈥?and we want to skip whole subtrees like `<root>/.drafts/`,
 /// so post-filtering on path is the reliable approach.
 fn scan_area(area_root: &Path, origin: SkillOrigin) -> Vec<Skill> {
     let mut out = Vec::new();
@@ -163,7 +163,7 @@ fn path_has_hidden_segment(path: &Path, area_root: &Path) -> bool {
 /// directory at startup so `seed.rs` can copy built-in skills into the
 /// user's `~/.flowix/skills/.system/`. The bundled root doesn't exist in
 /// every environment (it's only present after `tauri build`), so a `None`
-/// return is normal — `seed.rs` treats that as a no-op.
+/// return is normal 鈥?`seed.rs` treats that as a no-op.
 ///
 /// Resolution order:
 /// 1. `FLOWIX_BUNDLED_SKILLS` env var (escape hatch for ops).

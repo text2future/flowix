@@ -930,12 +930,8 @@ fn create_window(
         .add_window(label.clone(), tab);
     coordinator.registered_notify.notify_waiters();
     crate::window_chrome::apply_window_border_color(&window);
-    // 新窗口即刻对齐主题背景色 (与主窗口启动一致), 避免冷启动白闪。
-    let theme = app
-        .state::<AppState>()
-        .user_config
-        .get_preference()
-        .theme;
+    // 鏂扮獥鍙ｅ嵆鍒诲榻愪富棰樿儗鏅壊 (涓庝富绐楀彛鍚姩涓€鑷?, 閬垮厤鍐峰惎鍔ㄧ櫧闂€?
+    let theme = app.state::<AppState>().user_config.get_preference().theme;
     crate::window_chrome::apply_theme_background(&window, theme);
     if position.is_none() {
         cascade_window(app, &window, coordinator);
@@ -1454,7 +1450,10 @@ mod tests {
     #[test]
     fn window_title_uses_the_first_document_title_without_markdown_extension() {
         assert_eq!(tab_window_title(&tab("Project Notes.md")), "Project Notes");
-        assert_eq!(tab_window_title(&tab("项目计划.MARKDOWN")), "项目计划");
+        assert_eq!(
+            tab_window_title(&tab("椤圭洰璁″垝.MARKDOWN")),
+            "椤圭洰璁″垝"
+        );
     }
 
     #[test]

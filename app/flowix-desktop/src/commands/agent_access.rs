@@ -1,10 +1,8 @@
-//! Agent 访问目录 IPC — 读写 `~/.flowix/agent-access.json`。
-//!
-//! 与 `commands::settings` 同形: 写操作成功后 emit `agent-access-changed`
-//! 事件, 其它窗口的 React 树收到后从磁盘重新 load。 前端 `set_agent_access`
-//! 走乐观更新 (改本地后再 await), 失败由 store 的 `loadInitial` 回滚 ──
-//! 见 `app/flowix-web/lib/store/agent-access-store.ts`。
-
+//! Agent 璁块棶鐩綍 IPC 鈥?璇诲啓 `~/.flowix/agent-access.json`銆?//!
+//! 涓?`commands::settings` 鍚屽舰: 鍐欐搷浣滄垚鍔熷悗 emit `agent-access-changed`
+//! 浜嬩欢, 鍏跺畠绐楀彛鐨?React 鏍戞敹鍒板悗浠庣鐩橀噸鏂?load銆?鍓嶇 `set_agent_access`
+//! 璧颁箰瑙傛洿鏂?(鏀规湰鍦板悗鍐?await), 澶辫触鐢?store 鐨?`loadInitial` 鍥炴粴 鈹€鈹€
+//! 瑙?`app/flowix-web/lib/store/agent-access-store.ts`銆?
 use std::path::Path;
 
 use crate::events as dispatcher;
@@ -14,21 +12,20 @@ use crate::config::{AgentAccessConfig, AgentAccessEntry, AgentAccessKind};
 
 use crate::app::state::AppState;
 
-/// 跨窗口同步事件 ── 任一窗口成功写入 agent-access.json 后 emit, 其它窗口
-/// 收到后从磁盘重新 load。 payload 是 `()` (无 payload), 监听者直接
-/// `loadInitial()` 拉整份 config ── 比按 entry diff 简单且不会错过任何字段。
+/// 璺ㄧ獥鍙ｅ悓姝ヤ簨浠?鈹€鈹€ 浠讳竴绐楀彛鎴愬姛鍐欏叆 agent-access.json 鍚?emit, 鍏跺畠绐楀彛
+/// 鏀跺埌鍚庝粠纾佺洏閲嶆柊 load銆?payload 鏄?`()` (鏃?payload), 鐩戝惉鑰呯洿鎺?/// `loadInitial()` 鎷夋暣浠?config 鈹€鈹€ 姣旀寜 entry diff 绠€鍗曚笖涓嶄細閿欒繃浠讳綍瀛楁銆?
 pub(super) const AGENT_ACCESS_CHANGED_EVENT: &str = "agent-access-changed";
 
-/// 拉取当前 agent_access 整份 config。 每次都从 store 读, `missing` 字段
-/// 在 `get_config` 内重新算, 失联目录会立刻拿到最新 disk 状态。
+/// 鎷夊彇褰撳墠 agent_access 鏁翠唤 config銆?姣忔閮戒粠 store 璇? `missing` 瀛楁
+/// 鍦?`get_config` 鍐呴噸鏂扮畻, 澶辫仈鐩綍浼氱珛鍒绘嬁鍒版渶鏂?disk 鐘舵€併€?
 #[tauri::command]
 pub fn get_agent_access(state: State<AppState>) -> AgentAccessConfig {
     state.agent_access.get_config()
 }
 
-/// 用整份新 config 覆盖 (前端走乐观更新, 整份 set 避免一条 IPC 一份的
-/// 复杂协议)。 先落盘, 再 emit, 成功才更新内存 (跟 user_config 的 set
-/// 路径完全对齐)。
+/// 鐢ㄦ暣浠芥柊 config 瑕嗙洊 (鍓嶇璧颁箰瑙傛洿鏂? 鏁翠唤 set 閬垮厤涓€鏉?IPC 涓€浠界殑
+/// 澶嶆潅鍗忚)銆?鍏堣惤鐩? 鍐?emit, 鎴愬姛鎵嶆洿鏂板唴瀛?(璺?user_config 鐨?set
+/// 璺緞瀹屽叏瀵归綈)銆?
 #[tauri::command]
 pub fn set_agent_access(
     config: AgentAccessConfig,

@@ -59,3 +59,9 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dw
 objc2 = "0.6.4"
 objc2-app-kit = "0.3.2"
 objc2-foundation = "0.3.2"
+
+[target.'cfg(unix)'.dependencies]
+# Used by `kill_child_tree` to signal the whole process group so external-CLI
+# grandchildren (Node CLIs spawn their own shells/tools) are reaped on stop.
+# tokio already pulls libc in on Unix, so this adds no new download.
+libc = "0.2"

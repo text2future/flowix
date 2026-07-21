@@ -8,7 +8,6 @@ interface MemoLibraryMetadataStore {
   queryKey: string | null;
   loadMetadata: (
     notebook: Notebook,
-    selectedTagId: string | null,
     refreshVersion: number
   ) => Promise<MemoLibraryMetadata | null>;
   clearMetadata: () => void;
@@ -20,18 +19,17 @@ let inFlightPromise: Promise<MemoLibraryMetadata | null> | null = null;
 
 function getMetadataQueryKey(
   notebookId: string,
-  selectedTagId: string | null,
   refreshVersion: number
 ): string {
-  return [notebookId, selectedTagId ?? '', refreshVersion].join(':');
+  return [notebookId, refreshVersion].join(':');
 }
 
 export const useMemoLibraryMetadataStore = create<MemoLibraryMetadataStore>()((set, get) => ({
   metadata: null,
   queryKey: null,
 
-  loadMetadata: async (notebook, selectedTagId, refreshVersion) => {
-    const queryKey = getMetadataQueryKey(notebook.id, selectedTagId, refreshVersion);
+  loadMetadata: async (notebook, refreshVersion) => {
+    const queryKey = getMetadataQueryKey(notebook.id, refreshVersion);
     const state = get();
     if (state.queryKey === queryKey && state.metadata) {
       return state.metadata;
@@ -43,7 +41,7 @@ export const useMemoLibraryMetadataStore = create<MemoLibraryMetadataStore>()((s
     const requestSeq = ++metadataRequestSeq;
 
     inFlightQueryKey = queryKey;
-    inFlightPromise = loadMemoLibraryMetadata({ notebook, selectedTagId })
+    inFlightPromise = loadMemoLibraryMetadata({ notebook })
       .then((metadata) => {
         if (requestSeq === metadataRequestSeq) {
           set({

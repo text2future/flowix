@@ -131,12 +131,9 @@ impl ToolScope {
         }
     }
 
-    /// 构造时同时读 access 列表 (启用且未失联) 与 memo_file 的默认 notebook
-    /// 路径。 access 列表是 AI 可见目录的**真源** ── 用户可以在
-    /// `~/.flowix/agent-access.json` 里取消勾选某个 notebook 让 AI
-    /// 看不到, 不影响 notebook 本身存在。`default_root` 在 access 列表为
-    /// 空时只保留 `default_root` 作为报错提示路径, 不把它隐式加入允许范围。
-    /// Build the legacy/global scope from `agent-access.json`.
+    /// 鏋勯€犳椂鍚屾椂璇?access 鍒楄〃 (鍚敤涓旀湭澶辫仈) 涓?memo_file 鐨勯粯璁?notebook
+    /// 璺緞銆?access 鍒楄〃鏄?AI 鍙鐩綍鐨?*鐪熸簮** 鈹€鈹€ 鐢ㄦ埛鍙互鍦?    /// `~/.flowix/agent-access.json` 閲屽彇娑堝嬀閫夋煇涓?notebook 璁?AI
+    /// 鐪嬩笉鍒? 涓嶅奖鍝?notebook 鏈韩瀛樺湪銆俙default_root` 鍦?access 鍒楄〃涓?    /// 绌烘椂鍙繚鐣?`default_root` 浣滀负鎶ラ敊鎻愮ず璺緞, 涓嶆妸瀹冮殣寮忓姞鍏ュ厑璁歌寖鍥淬€?    /// Build the legacy/global scope from `agent-access.json`.
     ///
     /// This is a compatibility fallback for old requests that do not carry
     /// runtime workspace paths. New agent-thread-card runs should pass
@@ -163,9 +160,8 @@ impl ToolScope {
             if !entry.enabled || entry.missing {
                 continue;
             }
-            // kind=Notebook: 必须仍然存在于 notebook 注册表 (防止 access
-            // 列表里有 "幽灵 notebook id" 把 `~/etc/` 这种路径放行)。
-            // kind=Folder: 直接信任。
+            // kind=Notebook: 蹇呴』浠嶇劧瀛樺湪浜?notebook 娉ㄥ唽琛?(闃叉 access
+            // 鍒楄〃閲屾湁 "骞界伒 notebook id" 鎶?`~/etc/` 杩欑璺緞鏀捐)銆?            // kind=Folder: 鐩存帴淇′换銆?
             if entry.kind == crate::config::AgentAccessKind::Notebook {
                 let still_registered = registered.iter().any(|c| c.id == entry.id);
                 if !still_registered {
@@ -194,7 +190,7 @@ impl ToolScope {
     }
 
     /// Canonical default notebook path. Use this to construct error
-    /// messages that tell the LLM where the *real* notebook is.
+    /// messages that tell the LLM where the real notebook is.
     #[allow(dead_code)]
     pub fn default_root(&self) -> &Path {
         &self._default_root

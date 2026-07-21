@@ -1,14 +1,15 @@
-//! Agent session store — chat thread persistence, external-runtime session
+//! Agent session store 鈥?chat thread persistence, external-runtime session
 //! mapping, and agent-conversation metadata, all backed by a single
 //! SQLite database (one `Mutex<Connection>` in `store::ThreadManager`).
 //!
 //! File layout:
-//! - `error` — `ThreadError` enum
-//! - `types` — pure data: `ChatMessage`, `ThreadInfo`, `Thread`, `ThreadMessagesPage`,
+//! - `error` 鈥?`ThreadError` enum
+//! - `types` 鈥?pure data: `ChatMessage`, `ThreadInfo`, `Thread`, `ThreadMessagesPage`,
 //!   plus the `AgentConversation*` family
-//! - `store` — `ThreadManager` + every SQL impl + migrations + row mappers
+//! - `store` 鈥?`ThreadManager` + every SQL
+//!   impl + migrations + row mappers
 //!   (kept as one `impl` block because all tables share the same connection)
-//! - `tests` — unit tests against an in-memory `ThreadManager`
+//! - `tests` 鈥?unit tests against an in-memory `ThreadManager`
 //!
 //! The split was driven by `threads.rs` reaching 1456 lines as a single
 //! file while carrying three distinct domains (chat / external-session /

@@ -48,6 +48,8 @@ import {
   useAgentConversationStore,
   type AgentConversationInstance,
 } from '@features/agent/store/agent-conversation-store';
+import { useChatStore } from '@features/agent/store/chat-store';
+import type { ThreadsMap } from '@features/agent/store/thread-runtime-state';
 import { getAgentType, DEFAULT_AGENT_TYPE_KEY } from '@/lib/agent-types';
 import { canonicalPath } from '@/lib/path';
 import { useI18n, translate, type AppLanguage, type I18nKey, type I18nParams } from '@features/i18n';
@@ -307,6 +309,7 @@ function isConversationForCurrentDocument(
 function getAgentThreadTitlebarItemsFromConversations(
   t: (key: I18nKey, params?: I18nParams) => string,
   instances: Record<string, AgentConversationInstance>,
+  threadStates: ThreadsMap,
   currentDocumentSource: 'memo' | 'external' | null,
   currentDocumentPath: string | null,
   activeMemoSession: { memoId: string; path: string } | null,
@@ -334,7 +337,7 @@ function getAgentThreadTitlebarItemsFromConversations(
         type: instance.agentType || DEFAULT_AGENT_TYPE_KEY,
         threadId: instance.threadId,
         element,
-        isRunning: selectIsAgentConversationRunning(instance),
+        isRunning: selectIsAgentConversationRunning(instance, threadStates),
         updatedAt: instance.updatedAt,
         createdAt: instance.createdAt,
       };
@@ -425,6 +428,7 @@ function AgentThreadNavigator({
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AgentThreadTitlebarItem[]>([]);
   const conversationInstances = useAgentConversationStore((state) => state.instances);
+  const threadStates = useChatStore((state) => state.threadStates);
   const currentDocumentPath = useDocumentStore((state) => state.currentDocumentPath);
   const currentDocumentSource = useDocumentStore((state) => state.currentDocumentSource);
   const activeMemoSession = useDocumentStore((state) => state.activeMemoSession);
@@ -439,6 +443,7 @@ function AgentThreadNavigator({
     const nextItems = getAgentThreadTitlebarItemsFromConversations(
       t,
       conversationInstances,
+      threadStates,
       currentDocumentSource,
       currentDocumentPath,
       activeMemoSession,

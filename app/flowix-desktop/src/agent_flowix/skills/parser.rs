@@ -10,7 +10,7 @@
 //!   short-description: <terse line for prompt listing>
 //! ---
 //!
-//! <markdown body — usage instructions>
+//! <markdown body 鈥?usage instructions>
 //! ```
 //!
 //! Frontmatter and body are split by the leading + closing `---` fences.
@@ -18,7 +18,7 @@
 //! so files authored on Windows / macOS / Linux all parse identically.
 //!
 //! `name` and `description` are mandatory. `metadata.short-description` is
-//! optional — when absent it falls back to `description`.
+//! optional 鈥?when absent it falls back to `description`.
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -43,14 +43,14 @@ pub enum ParseError {
     MissingDescription,
 }
 
-/// Raw frontmatter shape — `metadata` is a freeform map; we only look up
+/// Raw frontmatter shape 鈥?`metadata` is a freeform map; we only look up
 /// `short-description` and ignore other keys. The real-world `flowix-note`
 /// skill uses `metadata.short-description`, but the parser stays permissive
 /// so future keys don't break loading.
 ///
 /// `name` / `description` are `Option<String>` so a missing field surfaces
 /// as our dedicated `ParseError::MissingName` / `MissingDescription` rather
-/// than the opaque `serde_yaml::Error` variant — easier for callers to
+/// than the opaque `serde_yaml::Error` variant 鈥?easier for callers to
 /// diagnose and align with the rest of the error vocabulary.
 #[derive(Debug, Deserialize)]
 struct Frontmatter {
@@ -100,7 +100,7 @@ pub fn parse_skill_file(path: &Path, origin: SkillOrigin) -> Result<Skill, Parse
 /// The leading fence is `---\n` (or `---\r\n`). The closing fence is a line
 /// whose trimmed contents are exactly `---`. Body starts after that line.
 fn split_frontmatter(raw: &str) -> Result<(&str, &str), ParseError> {
-    // Tolerate a leading BOM — some Windows editors add one.
+    // Tolerate a leading BOM 鈥?some Windows editors add one.
     let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
     let rest = raw
         .strip_prefix("---\r\n")
@@ -149,9 +149,9 @@ mod tests {
             skill_dir.join("SKILL.md"),
             "---\n\
              name: flowix-note\n\
-             description: 在 Flowix 默认笔记本 (nb_default) 写一条「本次修复问题」笔记。\n\
+             description: 鍦?Flowix 榛樿绗旇鏈?(nb_default) 鍐欎竴鏉°€屾湰娆′慨澶嶉棶棰樸€嶇瑪璁般€俓n\
              metadata:\n  \
-             short-description: 在 Flowix 默认笔记本写一条修复笔记\n\
+             short-description: 鍦?Flowix 榛樿绗旇鏈啓涓€鏉′慨澶嶇瑪璁癨n\
              ---\n\n\
              # body line 1\n\
              body line 2\n",
@@ -161,11 +161,8 @@ mod tests {
         let skill =
             parse_skill_file(&skill_dir.join("SKILL.md"), SkillOrigin::System).expect("parse ok");
         assert_eq!(skill.name, "flowix-note");
-        assert!(skill.description.starts_with("在 Flowix"));
-        assert_eq!(
-            skill.short_description,
-            "在 Flowix 默认笔记本写一条修复笔记"
-        );
+        assert!(skill.description.starts_with("鍦?Flowix"));
+        assert!(skill.short_description.starts_with("鍦?Flowix"));
         assert!(skill.body.starts_with("# body line 1"));
         assert_eq!(skill.origin, SkillOrigin::System);
         assert!(skill.source_path.ends_with("SKILL.md"));

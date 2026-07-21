@@ -6,7 +6,7 @@ use tokio::io::BufReader;
 
 use super::events::{codex_event_to_chunks, is_transient_codex_reconnect_event};
 use super::io::read_capped_line;
-use super::runtime::emit_chunk_with_run_id;
+use super::runtime::persist_and_emit_codex_chunk;
 use super::{truncate_for_log, AGENT_TYPE, MAX_STDOUT_LINE_BYTES, MAX_TOOL_OUTPUT_CHARS};
 use crate::agent_external::ExternalRunRegistry;
 use crate::agent_flowix::AgentChunk;
@@ -35,9 +35,8 @@ where
         if line.is_empty() {
             continue;
         }
-        // dev-only: 把子进程 stdout 原始行镜像到 ~/.flowix/debug/, 1:1 还原
-        // vendor CLI 回包供排障。release 构建内 no-op, 不落盘。
-        runtime_log::dump_debug_stdout_line(AGENT_TYPE, &thread_id, &run_id, line);
+        // dev-only: 鎶婂瓙杩涚▼ stdout 鍘熷琛岄暅鍍忓埌 ~/.flowix/debug/, 1:1 杩樺師
+        // vendor CLI 鍥炲寘渚涙帓闅溿€俽elease 鏋勫缓鍐?no-op, 涓嶈惤鐩樸€?        runtime_log::dump_debug_stdout_line(AGENT_TYPE, &thread_id, &run_id, line);
         runs.touch(&thread_id, Some(&run_id)).await;
         if line_truncated_by_reader {
             runtime_log::record_agent_event(
@@ -56,6 +55,7 @@ where
 
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             let line_chars = line.chars().count();
+            let looks_like_event = looks_like_codex_json_event_line(line);
             runtime_log::record_agent_event(
                 "warn",
                 "codex_stdout",
@@ -67,24 +67,30 @@ where
                     "line_chars": line_chars,
                     "line_truncated": line_chars > MAX_TOOL_OUTPUT_CHARS || line_truncated_by_reader,
                     "line_truncated_by_reader": line_truncated_by_reader,
+                    "looks_like_event": looks_like_event,
                     "line_preview": truncate_for_log(line),
                 })),
             );
+            if looks_like_event {
+                continue;
+            }
             let text = if line_chars > MAX_TOOL_OUTPUT_CHARS {
                 let truncated: String = line.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
                 format!("{truncated}\n...[truncated]")
             } else {
                 format!("{line}\n")
             };
-            emit_chunk_with_run_id(
+            persist_and_emit_codex_chunk(
                 &app_handle,
+                &thread_manager,
                 &AgentChunk::Text {
                     thread_id: emit_thread_id.clone(),
                     text,
                 },
-                AGENT_TYPE,
                 &run_id,
-            );
+                Some(line),
+            )
+            .await;
             continue;
         };
 
@@ -128,22 +134,26 @@ where
                     );
                 }
                 emit_thread_id = thread_id.clone();
-                emit_chunk_with_run_id(
+                let chunk = AgentChunk::SessionResolved {
+                    thread_id: thread_id.clone(),
+                    session_id: session_id.clone(),
+                };
+                persist_and_emit_codex_chunk(
                     &app_handle,
-                    &AgentChunk::SessionResolved {
-                        thread_id: thread_id.clone(),
-                        session_id: session_id.clone(),
-                    },
-                    AGENT_TYPE,
+                    &thread_manager,
+                    &chunk,
                     &run_id,
-                );
+                    Some(line),
+                )
+                .await;
                 runs.set_session_id(&thread_id, Some(&run_id), session_id.clone())
                     .await;
             }
         }
 
         for chunk in codex_event_to_chunks(&emit_thread_id, &value) {
-            emit_chunk_with_run_id(&app_handle, &chunk, AGENT_TYPE, &run_id);
+            persist_and_emit_codex_chunk(&app_handle, &thread_manager, &chunk, &run_id, Some(line))
+                .await;
         }
 
         if codex_run_signal(&value).is_terminal_turn() {
@@ -163,6 +173,21 @@ where
         })),
     );
     Ok(())
+}
+
+fn looks_like_codex_json_event_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('{')
+        && (trimmed.contains(r#""type":"item."#)
+            || trimmed.contains(r#""type": "item."#)
+            || trimmed.contains(r#""type":"event_msg""#)
+            || trimmed.contains(r#""type": "event_msg""#)
+            || trimmed.contains(r#""type":"turn."#)
+            || trimmed.contains(r#""type": "turn."#)
+            || trimmed.contains(r#""type":"thread."#)
+            || trimmed.contains(r#""type": "thread."#)
+            || trimmed.contains(r#""kind":"item."#)
+            || trimmed.contains(r#""kind": "item."#))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -342,5 +367,12 @@ mod tests {
             extract_session_id(&value).as_deref(),
             Some("019ed38f-e9e3-7b61-8be3-80a40788d6e3")
         );
+    }
+
+    #[test]
+    fn detects_malformed_codex_event_lines() {
+        let malformed = r#"{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":""C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'rg --files .'"}}"#;
+        assert!(looks_like_codex_json_event_line(malformed));
+        assert!(!looks_like_codex_json_event_line("plain stderr output"));
     }
 }

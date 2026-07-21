@@ -1,10 +1,12 @@
-//! ThreadManager — single SQLite facade for three tables:
+//! ThreadManager - single SQLite facade for thread, external-session,
+//! conversation-instance, and external-event tables:
 //!   1. threads / thread_messages  (chat thread + history)
-//!   2. thread_external_sessions  (thread ↔ codex/claude/hermes session id)
-//!   3. agent_conversation_instances / _run_state (persona + run metadata)
+//!   2. thread_external_sessions  (thread 閳?codex/claude/hermes session id)
+//!   3. agent_conversation_instances (persona metadata)
+//!   4. agent_external_events (external-agent stream event log)
 //!
-//! All three share a single `Mutex<Connection>`, so this module
-//! intentionally stays as one `impl ThreadManager` block — splitting
+//! All tables share a single `Mutex<Connection>`, so this module
+//! intentionally stays as one `impl ThreadManager` block 閳?splitting
 //! per-table would break the cross-table transaction in
 //! `delete_thread_with_agent_conversations` and force every method
 //! to plumb `&Connection` through the public API. The implementation
@@ -19,6 +21,9 @@ use super::error::ThreadError;
 use super::types::*;
 use crate::agent_types::AgentId;
 
+const THREAD_DB_SCHEMA_VERSION: i64 = 1;
+const MAX_EXTERNAL_EVENTS_PER_THREAD: i64 = 10_000;
+
 pub struct ThreadManager {
     conn: Mutex<Connection>,
 }
@@ -31,45 +36,38 @@ fn external_default_title(runtime: &str) -> &'static str {
     }
 }
 
-fn is_default_external_title(title: &str) -> bool {
-    matches!(
-        title.trim().to_lowercase().as_str(),
-        "codex session"
-            | "codex 会话"
-            | "claude code session"
-            | "claude code 会话"
-            | "hermes session"
-    )
-}
-
 impl ThreadManager {
-    /// 测试用 fixture ── 不写磁盘, 用 `Connection::open_in_memory()` 建一个空库。
-    /// `agent.rs::for_tests` 用它, 因为单元测试只验证 `AgentManager` 内部 HashMap
-    /// 状态, 不真正读写 thread 库。
+    /// 濞村鐦悽?fixture 閳光偓閳光偓 娑撳秴鍟撶壕浣烘磸, 閻?`Connection::open_in_memory()` 瀵よ桨绔存稉顏嗏敄鎼存挶鈧?    /// `agent.rs::for_tests` 閻劌鐣? 閸ョ姳璐熼崡鏇炲帗濞村鐦崣顏堢崣鐠?`AgentManager` 閸愬懘鍎?HashMap
+    /// 閻樿埖鈧? 娑撳秶婀″锝堫嚢閸?thread 鎼存挶鈧?
     #[cfg(test)]
     pub fn for_tests() -> Self {
         Self::new_in_memory().expect("in-memory migrations failed")
     }
 
     pub fn new(db_path: PathBuf) -> Result<Self, ThreadError> {
-        let conn = Connection::open(db_path)?;
-        Self::run_migrations(&conn)?;
+        let mut conn = Connection::open(db_path)?;
+        Self::run_migrations(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
     }
 
     pub fn new_in_memory() -> Result<Self, ThreadError> {
-        let conn = Connection::open_in_memory()?;
-        Self::run_migrations(&conn)?;
+        let mut conn = Connection::open_in_memory()?;
+        Self::run_migrations(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
     }
 
-    fn run_migrations(conn: &Connection) -> Result<(), ThreadError> {
+    fn run_migrations(conn: &mut Connection) -> Result<(), ThreadError> {
         conn.execute_batch(
             "
+            -- WAL lets high-frequency external-CLI event writes proceed
+            -- concurrently with history reads, instead of blocking readers.
+            -- `synchronous = NORMAL` is safe under WAL and the common choice.
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
 
             CREATE TABLE IF NOT EXISTS threads (
@@ -107,11 +105,12 @@ impl ThreadManager {
             CREATE TABLE IF NOT EXISTS thread_external_sessions (
                 thread_id TEXT NOT NULL,
                 runtime TEXT NOT NULL,
-                external_session_id TEXT,
-                metadata TEXT,
+                external_session_id TEXT NOT NULL,
+                session_metadata_json TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY (thread_id, runtime),
+                UNIQUE (runtime, external_session_id),
                 FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
             );
 
@@ -133,33 +132,33 @@ impl ThreadManager {
             CREATE INDEX IF NOT EXISTS idx_agent_conversation_thread
                 ON agent_conversation_instances(thread_id);
 
-            CREATE TABLE IF NOT EXISTS agent_conversation_run_state (
-                instance_id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                started_at INTEGER NOT NULL,
-                ended_at INTEGER,
-                current_tool TEXT,
-                model TEXT,
-                model_id TEXT,
-                reasoning_effort TEXT,
-                last_run_at INTEGER,
-                reason TEXT,
-                usage_json TEXT,
-                status_info_json TEXT,
-                updated_at INTEGER NOT NULL,
-                FOREIGN KEY(instance_id)
-                    REFERENCES agent_conversation_instances(instance_id)
-                    ON DELETE CASCADE
+            DROP TABLE IF EXISTS agent_conversation_run_state;
+
+            CREATE TABLE IF NOT EXISTS agent_external_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                runtime TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                normalized_json TEXT NOT NULL,
+                raw_json TEXT,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
             );
             ",
         )?;
 
-        // `threads.title` is the canonical product title. Older builds kept a
-        // useful title only on the card instance while external threads were
-        // inserted as the literal "Codex Session" (including Claude rows).
-        // Repair that split-brain state idempotently, then align every bound
-        // card snapshot with the canonical thread title.
+        Self::migrate_agent_external_events_table(conn)?;
+        conn.execute_batch(
+            "
+            CREATE INDEX IF NOT EXISTS idx_agent_external_events_thread
+                ON agent_external_events(thread_id, id);
+            ",
+        )?;
+
+        // `threads.title` is the product title. Older builds kept a useful
+        // title only on the card instance while external threads were inserted
+        // as the literal "Codex Session" (including Claude rows). Repair that
+        // split-brain state idempotently, then align every bound card snapshot
+        // with the thread title.
         conn.execute_batch(
             "
             UPDATE threads
@@ -169,15 +168,17 @@ impl ThreadManager {
                 WHERE i.thread_id = threads.thread_id
                   AND trim(i.title) <> ''
                   AND lower(trim(i.title)) NOT IN (
-                      'codex session', 'codex 会话',
-                      'claude code session', 'claude code 会话'
+                      'codex session',
+                      'claude code session',
+                      'hermes session'
                   )
                 ORDER BY i.updated_at DESC
                 LIMIT 1
             )
             WHERE lower(trim(title)) IN (
-                'codex session', 'codex 会话',
-                'claude code session', 'claude code 会话'
+                'codex session',
+                'claude code session',
+                'hermes session'
             )
               AND EXISTS (
                 SELECT 1
@@ -185,8 +186,9 @@ impl ThreadManager {
                 WHERE i.thread_id = threads.thread_id
                   AND trim(i.title) <> ''
                   AND lower(trim(i.title)) NOT IN (
-                      'codex session', 'codex 会话',
-                      'claude code session', 'claude code 会话'
+                      'codex session',
+                      'claude code session',
+                      'hermes session'
                   )
               );
 
@@ -208,12 +210,279 @@ impl ThreadManager {
             ",
         )?;
 
+        Self::migrate_external_thread_identity(conn)?;
+        conn.pragma_update(None, "user_version", THREAD_DB_SCHEMA_VERSION)?;
+
         Ok(())
     }
 
-    /// 加锁助手 ── 锁中毒 (panic held it) 时仍返回 guard, 不让单点 panic
-    /// 阻断后续读写。所有写入都先落盘再更新内存, 这种窗口期极少。
-    /// 错误级别用 `tracing::error!`, 与 `user_config.rs` 保持一致。
+    fn migrate_agent_external_events_table(conn: &mut Connection) -> Result<(), ThreadError> {
+        let mut stmt = conn.prepare("PRAGMA table_info(agent_external_events)")?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_column = |name: &str| columns.iter().any(|column| column == name);
+        let needs_rebuild = !has_column("runtime")
+            || !has_column("normalized_json")
+            || columns.iter().any(|column| {
+                matches!(
+                    column.as_str(),
+                    "instance_id"
+                        | "run_id"
+                        | "external_session_id"
+                        | "sequence"
+                        | "kind"
+                        | "role"
+                        | "message_id"
+                        | "tool_call_id"
+                        | "agent_type"
+                        | "payload_json"
+                )
+            });
+        drop(stmt);
+        if !needs_rebuild {
+            return Ok(());
+        }
+
+        let id_expr = if has_column("id") { "id" } else { "rowid" };
+        let runtime_expr = if has_column("runtime") {
+            "COALESCE(runtime, '')"
+        } else if has_column("agent_type") {
+            "COALESCE(agent_type, '')"
+        } else {
+            "''"
+        };
+        let thread_id_expr = if has_column("thread_id") {
+            "COALESCE(thread_id, '')"
+        } else {
+            "''"
+        };
+        let normalized_json_expr = if has_column("normalized_json") {
+            "COALESCE(normalized_json, '{}')"
+        } else if has_column("payload_json") {
+            "COALESCE(payload_json, '{}')"
+        } else {
+            "'{}'"
+        };
+        let raw_json_expr = if has_column("raw_json") {
+            "raw_json"
+        } else {
+            "NULL"
+        };
+        let created_at_expr = if has_column("created_at") {
+            "COALESCE(created_at, CAST(strftime('%s','now') AS INTEGER) * 1000)"
+        } else {
+            "CAST(strftime('%s','now') AS INTEGER) * 1000"
+        };
+
+        let tx = conn.transaction()?;
+        tx.execute_batch(&format!(
+            "
+            ALTER TABLE agent_external_events RENAME TO agent_external_events_legacy;
+
+            CREATE TABLE agent_external_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                runtime TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                normalized_json TEXT NOT NULL,
+                raw_json TEXT,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
+            );
+
+            INSERT INTO agent_external_events (
+                id, runtime, thread_id, normalized_json, raw_json, created_at
+            )
+            SELECT
+                {id_expr},
+                {runtime_expr},
+                {thread_id_expr},
+                {normalized_json_expr},
+                {raw_json_expr},
+                {created_at_expr}
+            FROM agent_external_events_legacy
+            WHERE EXISTS (
+                SELECT 1
+                FROM threads t
+                WHERE t.thread_id = {thread_id_expr}
+            )
+            ORDER BY {id_expr} ASC;
+
+            DROP TABLE agent_external_events_legacy;
+            ",
+        ))?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn migrate_external_thread_identity(conn: &mut Connection) -> Result<(), ThreadError> {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            DROP TABLE IF EXISTS temp.external_session_aliases;
+            CREATE TEMP TABLE external_session_aliases AS
+            SELECT
+                s.thread_id AS local_thread_id,
+                s.runtime AS runtime,
+                s.external_session_id AS external_session_id,
+                COALESCE(s.session_metadata_json, (
+                    SELECT self.session_metadata_json
+                    FROM thread_external_sessions self
+                    WHERE self.thread_id = s.external_session_id
+                      AND self.runtime = s.runtime
+                      AND self.external_session_id = s.external_session_id
+                    LIMIT 1
+                )) AS session_metadata_json,
+                s.created_at AS created_at,
+                s.updated_at AS updated_at
+            FROM thread_external_sessions s
+            WHERE s.external_session_id IS NOT NULL
+              AND s.external_session_id <> ''
+              AND s.thread_id <> s.external_session_id
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM thread_external_sessions newer
+                  WHERE newer.external_session_id = s.external_session_id
+                    AND newer.runtime = s.runtime
+                    AND newer.thread_id <> newer.external_session_id
+                    AND (
+                        newer.updated_at > s.updated_at
+                        OR (
+                            newer.updated_at = s.updated_at
+                            AND newer.thread_id > s.thread_id
+                        )
+                    )
+              );
+
+            INSERT OR IGNORE INTO threads (
+                thread_id, agent_id, title, created_at, updated_at
+            )
+            SELECT
+                a.local_thread_id,
+                c.agent_id,
+                c.title,
+                min(c.created_at, a.created_at),
+                max(c.updated_at, a.updated_at)
+            FROM external_session_aliases a
+            JOIN threads c ON c.thread_id = a.external_session_id;
+
+            UPDATE threads
+            SET title = (
+                    SELECT c.title
+                    FROM external_session_aliases a
+                    JOIN threads c ON c.thread_id = a.external_session_id
+                    WHERE a.local_thread_id = threads.thread_id
+                      AND lower(trim(c.title)) NOT IN (
+                          'codex session',
+                          'claude code session',
+                          'hermes session'
+                      )
+                    LIMIT 1
+                ),
+                updated_at = max(updated_at, (
+                    SELECT c.updated_at
+                    FROM external_session_aliases a
+                    JOIN threads c ON c.thread_id = a.external_session_id
+                    WHERE a.local_thread_id = threads.thread_id
+                    LIMIT 1
+                ))
+            WHERE lower(trim(title)) IN (
+                    'codex session',
+                    'claude code session',
+                    'hermes session'
+                )
+              AND EXISTS (
+                  SELECT 1
+                  FROM external_session_aliases a
+                  JOIN threads c ON c.thread_id = a.external_session_id
+                  WHERE a.local_thread_id = threads.thread_id
+                    AND lower(trim(c.title)) NOT IN (
+                        'codex session',
+                        'claude code session',
+                        'hermes session'
+                    )
+              );
+
+            UPDATE agent_conversation_instances
+            SET thread_id = (
+                    SELECT a.local_thread_id
+                    FROM external_session_aliases a
+                    WHERE a.external_session_id = agent_conversation_instances.thread_id
+                    LIMIT 1
+                ),
+                title = COALESCE((
+                    SELECT t.title
+                    FROM external_session_aliases a
+                    JOIN threads t ON t.thread_id = a.local_thread_id
+                    WHERE a.external_session_id = agent_conversation_instances.thread_id
+                    LIMIT 1
+                ), title),
+                updated_at = max(updated_at, (
+                    SELECT t.updated_at
+                    FROM external_session_aliases a
+                    JOIN threads t ON t.thread_id = a.local_thread_id
+                    WHERE a.external_session_id = agent_conversation_instances.thread_id
+                    LIMIT 1
+                ))
+            WHERE thread_id IN (
+                SELECT external_session_id FROM external_session_aliases
+            );
+
+            UPDATE agent_external_events
+            SET thread_id = (
+                    SELECT a.local_thread_id
+                    FROM external_session_aliases a
+                    WHERE a.external_session_id = agent_external_events.thread_id
+                    LIMIT 1
+                )
+            WHERE thread_id IN (
+                SELECT external_session_id FROM external_session_aliases
+            );
+
+            DELETE FROM threads
+            WHERE thread_id IN (
+                SELECT external_session_id FROM external_session_aliases
+            );
+
+            ALTER TABLE thread_external_sessions RENAME TO thread_external_sessions_legacy;
+
+            CREATE TABLE thread_external_sessions (
+                thread_id TEXT NOT NULL,
+                runtime TEXT NOT NULL,
+                external_session_id TEXT NOT NULL,
+                session_metadata_json TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (thread_id, runtime),
+                UNIQUE (runtime, external_session_id),
+                FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
+            );
+
+            INSERT OR REPLACE INTO thread_external_sessions (
+                thread_id, runtime, external_session_id, session_metadata_json, created_at, updated_at
+            )
+            SELECT
+                a.local_thread_id,
+                a.runtime,
+                a.external_session_id,
+                a.session_metadata_json,
+                a.created_at,
+                a.updated_at
+            FROM external_session_aliases a
+            WHERE EXISTS (
+                SELECT 1 FROM threads t WHERE t.thread_id = a.local_thread_id
+            );
+
+            DROP TABLE thread_external_sessions_legacy;
+            DROP TABLE IF EXISTS temp.external_session_aliases;
+            ",
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 閸旂娀鏀ｉ崝鈺傚 閳光偓閳光偓 闁夸椒鑵戝В?(panic held it) 閺冩湹绮涙潻鏂挎礀 guard, 娑撳秷顔€閸楁洜鍋?panic
+    /// 闂冪粯鏌囬崥搴ｇ敾鐠囪鍟撻妴鍌涘閺堝鍟撻崗銉╁厴閸忓牐鎯ら惄妯哄晙閺囧瓨鏌婇崘鍛摠, 鏉╂瑧顫掔粣妤€褰涢張鐔哥€亸鎴欌偓?    /// 闁挎瑨顕ょ痪褍鍩嗛悽?`tracing::error!`, 娑?`user_config.rs` 娣囨繃瀵旀稉鈧懛娣偓?    
     pub(crate) fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|poisoned| {
             tracing::error!("[ThreadManager] connection lock poisoned, recovering");
@@ -250,9 +519,6 @@ impl ThreadManager {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// Product-owned external conversations only. Alias rows such as
-    /// `codex-local-*` remain in SQLite so an old document can resolve its
-    /// session id, but are excluded from the visible conversation list.
     pub async fn list_external_threads(
         &self,
         runtime: &str,
@@ -262,14 +528,6 @@ impl ThreadManager {
             "SELECT t.thread_id, t.agent_id, t.title, t.created_at, t.updated_at
              FROM threads t
              WHERE t.agent_id = ?1
-               AND NOT EXISTS (
-                   SELECT 1
-                   FROM thread_external_sessions s
-                   WHERE s.thread_id = t.thread_id
-                     AND s.runtime = ?1
-                     AND s.external_session_id IS NOT NULL
-                     AND s.external_session_id <> t.thread_id
-               )
              ORDER BY t.updated_at DESC",
         )?;
         let rows = stmt.query_map([runtime], Self::row_to_thread_info)?;
@@ -391,17 +649,15 @@ impl ThreadManager {
         self.get_thread_info_with_conn(&conn, thread_id)
     }
 
-    /// Layer 4: 分页加载 thread 历史 ── 不再一次 SELECT 全部, 按 sequence DESC
-    /// 取最近 `limit` 条, 在 Rust 侧 reverse 回 ASC 返回。`before_sequence`:
-    ///   - None: 取最近 `limit` 条 (首次进入 thread)
-    ///   - Some(s): 取 sequence < s 的最近 `limit` 条 (用户向上滚动加载更早历史)
+    /// Layer 4: 閸掑棝銆夐崝鐘烘祰 thread 閸樺棗褰?閳光偓閳光偓 娑撳秴鍟€娑撯偓濞?SELECT 閸忋劑鍎? 閹?sequence DESC
+    /// 閸欐牗娓舵潻?`limit` 閺? 閸?Rust 娓?reverse 閸?ASC 鏉╂柨娲栭妴淇檅efore_sequence`:
+    ///   - None: 閸欐牗娓舵潻?`limit` 閺?(妫ｆ牗顐兼潻娑樺弳 thread)
+    ///   - Some(s): 閸?sequence < s 閻ㄥ嫭娓舵潻?`limit` 閺?(閻劍鍩涢崥鎴滅瑐濠婃艾濮╅崝鐘烘祰閺囧瓨妫崢鍡楀蕉)
     ///
-    /// 返回 `(messages, oldest_sequence, has_more)`:
-    ///   - oldest_sequence: 本批最早一条的 sequence, 用作下一页 cursor
-    ///   - has_more: 是否还有更早的历史
-    ///
-    /// 不返回 ThreadInfo。前端 loadThread 可复用 thread_list 缓存里的 title。
-    /// 这里专注 messages 分页, 保持单一职责。
+    /// 鏉╂柨娲?`(messages, oldest_sequence, has_more)`:
+    ///   - oldest_sequence: 閺堫剚澹掗張鈧弮鈺€绔撮弶锛勬畱 sequence, 閻劋缍旀稉瀣╃妞?cursor
+    ///   - has_more: 閺勵垰鎯佹潻妯绘箒閺囧瓨妫惃鍕坊閸?    ///
+    /// 娑撳秷绻戦崶?ThreadInfo閵嗗倸澧犵粩?loadThread 閸欘垰顦查悽?thread_list 缂傛挸鐡ㄩ柌宀€娈?title閵?    /// 鏉╂瑩鍣锋稉鎾存暈 messages 閸掑棝銆? 娣囨繃瀵旈崡鏇氱閼卞矁鐭楅妴?    
     pub async fn get_thread_messages_page(
         &self,
         thread_id: &str,
@@ -681,10 +937,10 @@ impl ThreadManager {
         thread_id: &str,
         runtime: &str,
         external_session_id: &str,
-        metadata: Option<serde_json::Value>,
+        session_metadata: Option<serde_json::Value>,
     ) -> Result<(), ThreadError> {
         let now = chrono::Utc::now().timestamp_millis();
-        let metadata = metadata.map(|v| v.to_string());
+        let session_metadata_json = session_metadata.map(|v| v.to_string());
         let mut conn = self.lock_conn();
         let tx = conn.transaction()?;
         let default_title = external_default_title(runtime);
@@ -694,7 +950,7 @@ impl ThreadManager {
             params![thread_id, runtime, default_title, now],
         )?;
 
-        let local_title = tx
+        let title = tx
             .query_row(
                 "SELECT title FROM threads WHERE thread_id = ?1",
                 [thread_id],
@@ -702,72 +958,112 @@ impl ThreadManager {
             )
             .optional()?
             .unwrap_or_else(|| default_title.to_string());
-        let canonical_existing = tx
-            .query_row(
-                "SELECT title FROM threads WHERE thread_id = ?1",
-                [external_session_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let canonical_title = match canonical_existing.as_deref() {
-            Some(title) if !is_default_external_title(title) => title.to_string(),
-            _ if !is_default_external_title(&local_title) => local_title.clone(),
-            Some(title) => title.to_string(),
-            None => default_title.to_string(),
-        };
-        tx.execute(
-            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?4)
-             ON CONFLICT(thread_id) DO UPDATE SET
-                agent_id = excluded.agent_id,
-                title = CASE
-                    WHEN lower(trim(threads.title)) IN (
-                        'codex session', 'codex 会话',
-                        'claude code session', 'claude code 会话',
-                        'hermes session'
-                    ) THEN excluded.title
-                    ELSE threads.title
-                END,
-                updated_at = excluded.updated_at",
-            params![external_session_id, runtime, canonical_title, now],
-        )?;
 
         tx.execute(
             "INSERT INTO thread_external_sessions (
-                thread_id, runtime, external_session_id, metadata, created_at, updated_at
+                thread_id, runtime, external_session_id, session_metadata_json, created_at, updated_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
              ON CONFLICT(thread_id, runtime) DO UPDATE SET
                 external_session_id = excluded.external_session_id,
-                metadata = excluded.metadata,
+                session_metadata_json = excluded.session_metadata_json,
                 updated_at = excluded.updated_at",
-            params![thread_id, runtime, external_session_id, metadata, now],
-        )?;
-        tx.execute(
-            "INSERT INTO thread_external_sessions (
-                thread_id, runtime, external_session_id, metadata, created_at, updated_at
-             ) VALUES (?1, ?2, ?1, ?3, ?4, ?4)
-             ON CONFLICT(thread_id, runtime) DO UPDATE SET
-                external_session_id = excluded.external_session_id,
-                metadata = COALESCE(excluded.metadata, thread_external_sessions.metadata),
-                updated_at = excluded.updated_at",
-            params![external_session_id, runtime, metadata, now],
-        )?;
-        tx.execute(
-            "UPDATE agent_conversation_instances
-             SET thread_id = ?1, title = ?2, updated_at = ?3
-             WHERE thread_id = ?4",
-            params![external_session_id, canonical_title, now, thread_id],
+            params![
+                thread_id,
+                runtime,
+                external_session_id,
+                session_metadata_json,
+                now
+            ],
         )?;
         tx.execute(
             "UPDATE agent_conversation_instances
              SET title = ?1, updated_at = max(updated_at, ?2)
              WHERE thread_id = ?3 AND title <> ?1",
-            params![canonical_title, now, external_session_id],
+            params![title, now, thread_id],
         )?;
         self.touch_thread(&tx, thread_id, now)?;
-        self.touch_thread(&tx, external_session_id, now)?;
         tx.commit()?;
         Ok(())
+    }
+
+    pub async fn insert_agent_external_event(
+        &self,
+        event: NewAgentExternalEvent,
+    ) -> Result<i64, ThreadError> {
+        let now = event
+            .created_at
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let conn = self.lock_conn();
+        let thread_id = event.thread_id.clone();
+        conn.execute(
+            "INSERT OR IGNORE INTO threads (thread_id, agent_id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?4)",
+            params![
+                thread_id.as_str(),
+                event.runtime.as_str(),
+                external_default_title(&event.runtime),
+                now,
+            ],
+        )?;
+        conn.execute(
+            "INSERT INTO agent_external_events (
+                runtime, thread_id, normalized_json, raw_json, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event.runtime.as_str(),
+                event.thread_id.as_str(),
+                event.normalized_json.as_str(),
+                event.raw_json.as_deref(),
+                now,
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        self.prune_agent_external_events_for_thread(&conn, &event.thread_id)?;
+        Ok(id)
+    }
+
+    fn prune_agent_external_events_for_thread(
+        &self,
+        conn: &Connection,
+        thread_id: &str,
+    ) -> Result<(), ThreadError> {
+        conn.execute(
+            "DELETE FROM agent_external_events
+             WHERE thread_id = ?1
+               AND id NOT IN (
+                   SELECT id
+                   FROM agent_external_events
+                   WHERE thread_id = ?1
+                   ORDER BY id DESC
+                   LIMIT ?2
+               )",
+            params![thread_id, MAX_EXTERNAL_EVENTS_PER_THREAD],
+        )?;
+        Ok(())
+    }
+
+    pub async fn list_agent_external_events_by_thread(
+        &self,
+        thread_id: &str,
+        after_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<AgentExternalEvent>, ThreadError> {
+        let limit = limit.clamp(1, 1000);
+        let after_id = after_id.unwrap_or(0);
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT
+                id, runtime, thread_id, normalized_json, raw_json, created_at
+             FROM agent_external_events
+             WHERE thread_id = ?1 AND id > ?2
+             ORDER BY id ASC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![thread_id, after_id, limit],
+            Self::row_to_external_event,
+        )?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     pub async fn list_agent_conversation_instances(
@@ -778,12 +1074,8 @@ impl ThreadManager {
             "SELECT
                 i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
-                i.role_memo_id, i.role_name, i.created_at, i.updated_at,
-                r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort,
-                r.last_run_at, r.reason, r.usage_json, r.status_info_json
+                i.role_memo_id, i.role_name, i.created_at, i.updated_at
              FROM agent_conversation_instances i
-             LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              ORDER BY i.updated_at DESC",
         )?;
         let rows = stmt.query_map([], Self::row_to_agent_conversation_instance)?;
@@ -799,12 +1091,8 @@ impl ThreadManager {
             "SELECT
                 i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
-                i.role_memo_id, i.role_name, i.created_at, i.updated_at,
-                r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort,
-                r.last_run_at, r.reason, r.usage_json, r.status_info_json
+                i.role_memo_id, i.role_name, i.created_at, i.updated_at
              FROM agent_conversation_instances i
-             LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              WHERE i.instance_id = ?1",
             [instance_id],
             Self::row_to_agent_conversation_instance,
@@ -822,41 +1110,12 @@ impl ThreadManager {
             "SELECT
                 i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                 i.source_kind, i.source_document_path, i.source_memo_id,
-                i.role_memo_id, i.role_name, i.created_at, i.updated_at,
-                r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort,
-                r.last_run_at, r.reason, r.usage_json, r.status_info_json
+                i.role_memo_id, i.role_name, i.created_at, i.updated_at
              FROM agent_conversation_instances i
-             LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
              WHERE i.thread_id = ?1
              ORDER BY i.updated_at DESC
              LIMIT 1",
             [thread_id],
-            Self::row_to_agent_conversation_instance,
-        )
-        .optional()
-        .map_err(ThreadError::from)
-    }
-
-    pub async fn find_agent_conversation_by_run_id(
-        &self,
-        run_id: &str,
-    ) -> Result<Option<AgentConversationInstance>, ThreadError> {
-        let conn = self.lock_conn();
-        conn.query_row(
-            "SELECT
-                i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
-                i.source_kind, i.source_document_path, i.source_memo_id,
-                i.role_memo_id, i.role_name, i.created_at, i.updated_at,
-                r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                r.model, r.model_id, r.reasoning_effort,
-                r.last_run_at, r.reason, r.usage_json, r.status_info_json
-             FROM agent_conversation_instances i
-             INNER JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
-             WHERE r.run_id = ?1
-             ORDER BY i.updated_at DESC
-             LIMIT 1",
-            [run_id],
             Self::row_to_agent_conversation_instance,
         )
         .optional()
@@ -916,77 +1175,14 @@ impl ThreadManager {
                 "SELECT
                     i.instance_id, i.agent_type, i.title, i.thread_id, i.runtime_config,
                     i.source_kind, i.source_document_path, i.source_memo_id,
-                    i.role_memo_id, i.role_name, i.created_at, i.updated_at,
-                    r.run_id, r.status, r.started_at, r.ended_at, r.current_tool,
-                    r.model, r.model_id, r.reasoning_effort,
-                    r.last_run_at, r.reason, r.usage_json, r.status_info_json
+                    i.role_memo_id, i.role_name, i.created_at, i.updated_at
                  FROM agent_conversation_instances i
-                 LEFT JOIN agent_conversation_run_state r ON r.instance_id = i.instance_id
                  WHERE i.instance_id = ?1",
                 [instance_id.as_str()],
                 Self::row_to_agent_conversation_instance,
             )
             .optional()?;
         instance.ok_or_else(|| ThreadError::NotFound(instance_id))
-    }
-
-    pub async fn upsert_agent_conversation_run_state(
-        &self,
-        instance_id: &str,
-        run: AgentConversationRun,
-    ) -> Result<(), ThreadError> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let usage_json = run
-            .usage
-            .as_ref()
-            .and_then(|u| serde_json::to_string(u).ok());
-        let status_info_json = run
-            .status_info
-            .as_ref()
-            .and_then(|s| serde_json::to_string(s).ok());
-        let conn = self.lock_conn();
-        conn.execute(
-            "INSERT INTO agent_conversation_run_state (
-                instance_id, run_id, status, started_at, ended_at, current_tool,
-                model, model_id, reasoning_effort,
-                last_run_at, reason, usage_json, status_info_json, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
-             ON CONFLICT(instance_id) DO UPDATE SET
-                run_id = excluded.run_id,
-                status = excluded.status,
-                started_at = excluded.started_at,
-                ended_at = excluded.ended_at,
-                current_tool = excluded.current_tool,
-                model = excluded.model,
-                model_id = excluded.model_id,
-                reasoning_effort = excluded.reasoning_effort,
-                last_run_at = excluded.last_run_at,
-                reason = excluded.reason,
-                usage_json = excluded.usage_json,
-                status_info_json = excluded.status_info_json,
-                updated_at = excluded.updated_at",
-            params![
-                instance_id,
-                run.run_id,
-                run.status,
-                run.started_at,
-                run.ended_at,
-                run.current_tool,
-                run.model,
-                run.model_id,
-                run.reasoning_effort,
-                run.last_run_at,
-                run.reason,
-                usage_json,
-                status_info_json,
-                now,
-            ],
-        )?;
-        conn.execute(
-            "UPDATE agent_conversation_instances SET updated_at = ?1 WHERE instance_id = ?2",
-            params![now, instance_id],
-        )?;
-        Ok(())
     }
 
     pub async fn delete_agent_conversation_instance(
@@ -1019,11 +1215,48 @@ impl ThreadManager {
     ) -> Result<bool, ThreadError> {
         let mut conn = self.lock_conn();
         let tx = conn.transaction()?;
+        tx.execute("DROP TABLE IF EXISTS temp.thread_delete_ids", [])?;
         tx.execute(
-            "DELETE FROM agent_conversation_instances WHERE thread_id = ?1",
+            "CREATE TEMP TABLE thread_delete_ids (thread_id TEXT PRIMARY KEY)",
+            [],
+        )?;
+        tx.execute(
+            "INSERT OR IGNORE INTO thread_delete_ids (thread_id) VALUES (?1)",
             [thread_id],
         )?;
-        let deleted = tx.execute("DELETE FROM threads WHERE thread_id = ?1", [thread_id])?;
+        tx.execute(
+            "INSERT OR IGNORE INTO thread_delete_ids (thread_id)
+             SELECT thread_id
+             FROM thread_external_sessions
+             WHERE external_session_id = ?1",
+            [thread_id],
+        )?;
+        tx.execute(
+            "INSERT OR IGNORE INTO thread_delete_ids (thread_id)
+             SELECT s2.thread_id
+             FROM thread_external_sessions s1
+             JOIN thread_external_sessions s2
+               ON s2.runtime = s1.runtime
+              AND s2.external_session_id = s1.external_session_id
+             WHERE s1.thread_id = ?1",
+            [thread_id],
+        )?;
+        tx.execute(
+            "DELETE FROM agent_conversation_instances
+             WHERE thread_id IN (SELECT thread_id FROM thread_delete_ids)",
+            [],
+        )?;
+        tx.execute(
+            "DELETE FROM agent_external_events
+             WHERE thread_id IN (SELECT thread_id FROM thread_delete_ids)",
+            [],
+        )?;
+        let deleted = tx.execute(
+            "DELETE FROM threads
+             WHERE thread_id IN (SELECT thread_id FROM thread_delete_ids)",
+            [],
+        )?;
+        tx.execute("DROP TABLE IF EXISTS temp.thread_delete_ids", [])?;
         tx.commit()?;
         Ok(deleted > 0)
     }
@@ -1037,17 +1270,11 @@ impl ThreadManager {
         let now = chrono::Utc::now().timestamp_millis();
         let mut conn = self.lock_conn();
         let tx = conn.transaction()?;
-        tx.execute(
-            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?4)
-             ON CONFLICT(thread_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
-            params![thread_id, agent_id.0, title, now],
-        )?;
-        let canonical_id = tx
+        let target_thread_id = tx
             .query_row(
-                "SELECT external_session_id
+                "SELECT thread_id
                  FROM thread_external_sessions
-                 WHERE thread_id = ?1 AND external_session_id IS NOT NULL
+                 WHERE external_session_id = ?1
                  ORDER BY updated_at DESC LIMIT 1",
                 [thread_id],
                 |row| row.get::<_, String>(0),
@@ -1055,22 +1282,15 @@ impl ThreadManager {
             .optional()?
             .unwrap_or_else(|| thread_id.to_string());
         tx.execute(
-            "UPDATE threads SET title = ?1, updated_at = ?2
-             WHERE thread_id = ?3
-                OR thread_id IN (
-                    SELECT thread_id FROM thread_external_sessions
-                    WHERE external_session_id = ?3
-                )",
-            params![title, now, canonical_id],
+            "INSERT INTO threads (thread_id, agent_id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(thread_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
+            params![target_thread_id, agent_id.0, title, now],
         )?;
         tx.execute(
             "UPDATE agent_conversation_instances SET title = ?1, updated_at = max(updated_at, ?2)
-             WHERE thread_id = ?3
-                OR thread_id IN (
-                    SELECT thread_id FROM thread_external_sessions
-                    WHERE external_session_id = ?3
-                )",
-            params![title, now, canonical_id],
+             WHERE thread_id = ?3",
+            params![title, now, target_thread_id],
         )?;
         // Keep SELECT inside the same std::sync::MutexGuard. ThreadManager uses
         // synchronous rusqlite calls internally; async signatures are kept for
@@ -1080,7 +1300,7 @@ impl ThreadManager {
                 "SELECT thread_id, agent_id, title, created_at, updated_at
                  FROM threads
                  WHERE thread_id = ?1",
-                [&canonical_id],
+                [&target_thread_id],
                 |row| {
                     Ok(ThreadInfo {
                         thread_id: row.get(0)?,
@@ -1165,6 +1385,17 @@ impl ThreadManager {
         })
     }
 
+    fn row_to_external_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentExternalEvent> {
+        Ok(AgentExternalEvent {
+            id: row.get(0)?,
+            runtime: row.get(1)?,
+            thread_id: row.get(2)?,
+            normalized_json: row.get(3)?,
+            raw_json: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    }
+
     /// Layer 4: same shape as `row_to_message`, but SELECT also returns the
     /// sequence column. Pagination uses it to build `oldest_sequence`; other
     /// paths keep using `row_to_message`.
@@ -1186,28 +1417,6 @@ impl ThreadManager {
         } else {
             None
         };
-        let run_id: Option<String> = row.get(12)?;
-        let run = if let Some(run_id) = run_id {
-            let usage_json: Option<String> = row.get(21)?;
-            let status_info_json: Option<String> = row.get(22)?;
-            Some(AgentConversationRun {
-                run_id,
-                status: row.get(13)?,
-                started_at: row.get(14)?,
-                ended_at: row.get(15)?,
-                current_tool: row.get(16)?,
-                model: row.get(17)?,
-                model_id: row.get(18)?,
-                reasoning_effort: row.get(19)?,
-                last_run_at: row.get(20)?,
-                reason: row.get(23)?,
-                usage: usage_json.and_then(|s| serde_json::from_str(&s).ok()),
-                status_info: status_info_json.and_then(|s| serde_json::from_str(&s).ok()),
-            })
-        } else {
-            None
-        };
-
         Ok(AgentConversationInstance {
             instance_id: row.get(0)?,
             agent_type: row.get(1)?,
@@ -1216,7 +1425,6 @@ impl ThreadManager {
             runtime_config: row.get(4)?,
             source,
             role,
-            run,
             created_at: row.get(10)?,
             updated_at: row.get(11)?,
         })

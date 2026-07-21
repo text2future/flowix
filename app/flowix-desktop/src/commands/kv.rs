@@ -1,4 +1,4 @@
-//! System metadata IPC — reads and writes `~/.flowix/boot/system.json`.
+//! System metadata IPC 鈥?reads and writes `~/.flowix/boot/system.json`.
 //!
 //! Current scope is memo tag navigation state, grouped by notebook.
 

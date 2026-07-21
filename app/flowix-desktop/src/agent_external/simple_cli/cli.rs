@@ -99,6 +99,47 @@ impl SimpleCliManager {
         }
     }
 
+    /// Idle-watchdog hook (called by `app::watchdog`). Mirrors the Claude/Codex
+    /// managers: `reap_inactive` already claimed the StreamEnd slot under its
+    /// lock, so we emit Error + StreamEnd directly. Uses `emit_chunk_with_run_id`
+    /// (not `persist_*`) to match this runtime's own streaming path, which does
+    /// not persist raw events. Without this, a hung Gemini/OpenClaw child would
+    /// never be reaped (the watchdog previously only swept Claude/Codex).
+    pub async fn reap_inactive_runs(
+        &self,
+        app_handle: &tauri::AppHandle,
+        idle_timeout_ms: i64,
+    ) -> usize {
+        let finalized = self
+            .runs
+            .reap_inactive(idle_timeout_ms, self.kind.display_name())
+            .await;
+        for run in &finalized {
+            let run_id = run.run_id.as_deref().unwrap_or(run.thread_id.as_str());
+            if let Some(reason) = run.reason.clone() {
+                emit_chunk_with_run_id(
+                    app_handle,
+                    &AgentChunk::Error {
+                        thread_id: run.thread_id.clone(),
+                        message: reason.clone(),
+                    },
+                    self.kind.key(),
+                    run_id,
+                );
+            }
+            emit_chunk_with_run_id(
+                app_handle,
+                &AgentChunk::StreamEnd {
+                    thread_id: run.thread_id.clone(),
+                    reason: run.reason.clone(),
+                },
+                self.kind.key(),
+                run_id,
+            );
+        }
+        finalized.len()
+    }
+
     pub async fn chat_stream(
         self: &Arc<Self>,
         thread_id: &str,
@@ -116,9 +157,7 @@ impl SimpleCliManager {
         }
 
         tokio::spawn(async move {
-            // 通用 metadata 协议 ── StreamStart 携带该 run 锁定的
-            // model / reasoning_effort, 前端 hover card 等组件可读。
-            // 按 manager 自身 kind 取, 避免 Gemini/OpenClaw 误读 flowix 段。
+            // 閫氱敤 metadata 鍗忚 鈹€鈹€ StreamStart 鎼哄甫璇?run 閿佸畾鐨?            // model / reasoning_effort, 鍓嶇 hover card 绛夌粍浠跺彲璇汇€?            // 鎸?manager 鑷韩 kind 鍙? 閬垮厤 Gemini/OpenClaw 璇 flowix 娈点€?
             let metadata_key = manager.kind.key();
             let model = message.model_for_runtime(metadata_key).map(str::to_string);
             let reasoning_effort = message
@@ -160,8 +199,8 @@ impl SimpleCliManager {
                 }
             };
 
-            // 兜底 emit: 若 stop_chat 还没替我们发过 StreamEnd, 由本路径补发;
-            // 否则 CAS 失败, 跳过避免重复。详见 `shared::emit_stream_end_once`。
+            // 鍏滃簳 emit: 鑻?stop_chat 杩樻病鏇挎垜浠彂杩?StreamEnd, 鐢辨湰璺緞琛ュ彂;
+            // 鍚﹀垯 CAS 澶辫触, 璺宠繃閬垮厤閲嶅銆傝瑙?`shared::emit_stream_end_once`銆?
             emit_stream_end_once(
                 &app_handle,
                 &thread_id,
@@ -469,6 +508,7 @@ fn build_command(kind: SimpleCliKind, cwd: &Path, prompt: &str) -> Command {
     crate::process_window::hide_command_window(&mut cmd);
     cmd.current_dir(cwd);
     cmd.args(command_args(kind, prompt));
+    crate::agent_external::shared::configure_unix_process_group(&mut cmd);
     cmd
 }
 

@@ -56,9 +56,17 @@ fn common_edit_mismatch_hint(needle: &str, candidate: &str) -> Option<&'static s
     {
         return Some("whitespace differs");
     }
-    if needle.replace(['“', '”'], "\"").replace(['‘', '’'], "'")
-        == candidate.replace(['“', '”'], "\"").replace(['‘', '’'], "'")
-    {
+    let normalize_quotes = |value: &str| {
+        value
+            .chars()
+            .map(|ch| match ch {
+                '\u{201c}' | '\u{201d}' => '"',
+                '\u{2018}' | '\u{2019}' => '\'',
+                _ => ch,
+            })
+            .collect::<String>()
+    };
+    if normalize_quotes(needle) == normalize_quotes(candidate) {
         return Some("quote style differs");
     }
     None
@@ -68,25 +76,21 @@ fn is_boundary_punctuation(ch: char) -> bool {
     ch.is_ascii_punctuation()
         || matches!(
             ch,
-            '。' | '，'
-                | '、'
-                | '；'
-                | '：'
-                | '！'
-                | '？'
-                | '）'
-                | '（'
-                | '《'
-                | '》'
-                | '「'
-                | '」'
-                | '『'
-                | '』'
-                | '“'
-                | '”'
-                | '‘'
-                | '’'
-                | '…'
+            '\u{3002}'
+                | '\u{ff1f}'
+                | '\u{ff01}'
+                | '\u{ff0c}'
+                | '\u{ff1b}'
+                | '\u{ff1a}'
+                | '\u{3001}'
+                | '\u{300a}'
+                | '\u{300b}'
+                | '\u{3008}'
+                | '\u{3009}'
+                | '\u{201c}'
+                | '\u{201d}'
+                | '\u{2018}'
+                | '\u{2019}'
         )
 }
 

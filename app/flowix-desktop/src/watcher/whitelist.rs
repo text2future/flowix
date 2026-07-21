@@ -1,21 +1,17 @@
-//! `WhitelistConfig` — watcher 白/黑名单配置。
+//! `WhitelistConfig` 鈥?watcher 鐧?榛戝悕鍗曢厤缃€?//!
+//! 涓夌被瑙勫垯:
+//! - **skip_dirs**: 璺緞鍓嶇紑鍖归厤 (component-level, 涓嶅仛 substring 閬垮厤璇潃)
+//! - **skip_files**: 鏂囦欢鍚?glob 鍖归厤
+//! - **allowed_extensions**: 鎵╁睍鍚嶇櫧鍚嶅崟 (绌?= 鍏ㄩ儴鍏佽)
 //!
-//! 三类规则:
-//! - **skip_dirs**: 路径前缀匹配 (component-level, 不做 substring 避免误杀)
-//! - **skip_files**: 文件名 glob 匹配
-//! - **allowed_extensions**: 扩展名白名单 (空 = 全部允许)
-//!
-//! 附加: `max_file_size` / `watch_hidden` 防止巨型文件和隐藏文件被 watcher
-//! 误处理。
-//!
-//! 配置加载: `preference.json::watcher` 字段, 运行时以 `Arc<RwLock<WhitelistConfig>>`
-//! 热更新 (`MemoWatcher::set_whitelist` + `lib.rs::setup` 中的 `user-config-changed` 监听)。
-//! 未读到该字段时走 `Default::default()`。
-//!
-//! 与旧 watcher 硬编码规则的关系:
-//! - 旧: `if path.components().any(|c| c.as_os_str() == ".metadata")`
-//! - 新: `whitelist.allows(path)?` 一行覆盖, 行为完全一致 (默认 skip_dirs
-//!   包含 `.metadata`)
+//! 闄勫姞: `max_file_size` / `watch_hidden` 闃叉宸ㄥ瀷鏂囦欢鍜岄殣钘忔枃浠惰 watcher
+//! 璇鐞嗐€?//!
+//! 閰嶇疆鍔犺浇: `preference.json::watcher` 瀛楁, 杩愯鏃朵互 `Arc<RwLock<WhitelistConfig>>`
+//! 鐑洿鏂?(`MemoWatcher::set_whitelist` + `lib.rs::setup` 涓殑 `user-config-changed` 鐩戝惉)銆?//! 鏈鍒拌瀛楁鏃惰蛋 `Default::default()`銆?//!
+//! 涓庢棫 watcher 纭紪鐮佽鍒欑殑鍏崇郴:
+//! - 鏃? `if path.components().any(|c| c.as_os_str() == ".metadata")`
+//! - 鏂? `whitelist.allows(path)?` 涓€琛岃鐩? 琛屼负瀹屽叏涓€鑷?(榛樿 skip_dirs
+//!   鍖呭惈 `.metadata`)
 
 use std::path::Path;
 
@@ -25,17 +21,17 @@ use super::event::DropReason;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhitelistConfig {
-    /// 黑名单目录 (component-level prefix)
+    /// 榛戝悕鍗曠洰褰?(component-level prefix)
     pub skip_dirs: Vec<String>,
-    /// 黑名单文件 glob (匹配 file_name 部分)
+    /// 榛戝悕鍗曟枃浠?glob (鍖归厤 file_name 閮ㄥ垎)
     pub skip_files: Vec<String>,
-    /// 扩展名白名单 (小写, 不含 `.`)。空数组 = 全部允许
+    /// 鎵╁睍鍚嶇櫧鍚嶅崟 (灏忓啓, 涓嶅惈 `.`)銆傜┖鏁扮粍 = 鍏ㄩ儴鍏佽
     pub allowed_extensions: Vec<String>,
-    /// 单文件大小上限 (字节), None = 不限
+    /// 鍗曟枃浠跺ぇ灏忎笂闄?(瀛楄妭), None = 涓嶉檺
     pub max_file_size: Option<u64>,
-    /// 隐藏文件 (`.xxx`) 是否监控
+    /// 闅愯棌鏂囦欢 (`.xxx`) 鏄惁鐩戞帶
     pub watch_hidden: bool,
-    /// 文件名 glob 白名单 (与 allowed_extensions 取交集; 空 = 不限)
+    /// 鏂囦欢鍚?glob 鐧藉悕鍗?(涓?allowed_extensions 鍙栦氦闆? 绌?= 涓嶉檺)
     pub allowed_filename_patterns: Vec<String>,
 }
 
@@ -49,11 +45,10 @@ impl Default for WhitelistConfig {
                 "node_modules".into(),
                 ".cache".into(),
                 ".trash".into(),
-                // 附件目录: 用户从附件选择器选了一个 .md 文件时, 后端
-                // save_attachment / save_attachment_content 会把文件复制
-                // 到 <notebook>/attachments/<name>.md. 该目录下的 .md 不
-                // 是 memo, 不应被 watcher 解析为新笔记 (会污染列表,
-                // 产生"无法打开"的孤立记录). attachments-cache 同理.
+                // 闄勪欢鐩綍: 鐢ㄦ埛浠庨檮浠堕€夋嫨鍣ㄩ€変簡涓€涓?.md 鏂囦欢鏃? 鍚庣
+                // save_attachment / save_attachment_content 浼氭妸鏂囦欢澶嶅埗
+                // 鍒?<notebook>/attachments/<name>.md. 璇ョ洰褰曚笅鐨?.md 涓?                // 鏄?memo, 涓嶅簲琚?watcher 瑙ｆ瀽涓烘柊绗旇 (浼氭薄鏌撳垪琛?
+                // 浜х敓"鏃犳硶鎵撳紑"鐨勫绔嬭褰?. attachments-cache 鍚岀悊.
                 "attachments".into(),
                 "attachments-cache".into(),
             ],
@@ -75,16 +70,15 @@ impl Default for WhitelistConfig {
 }
 
 impl WhitelistConfig {
-    /// 加载或返回默认。 实际读取在 `lib.rs::setup` 中完成
-    /// (从 `preference.json::watcher` 读起, 调 `set_whitelist` 注入),
-    /// 本方法仅作 fallback (老配置文件缺字段 → 默认)。
+    /// 鍔犺浇鎴栬繑鍥為粯璁ゃ€?瀹為檯璇诲彇鍦?`lib.rs::setup` 涓畬鎴?    /// (浠?`preference.json::watcher` 璇昏捣, 璋?`set_whitelist` 娉ㄥ叆),
+    /// 鏈柟娉曚粎浣?fallback (鑰侀厤缃枃浠剁己瀛楁 鈫?榛樿)銆?
     pub fn load_or_default() -> Self {
         Self::default()
     }
 
-    /// 路径是否通过白名单检查。返回 `Ok(())` 放行, `Err(DropReason)` 拒绝。
+    /// 璺緞鏄惁閫氳繃鐧藉悕鍗曟鏌ャ€傝繑鍥?`Ok(())` 鏀捐, `Err(DropReason)` 鎷掔粷銆?
     pub fn allows(&self, path: &Path) -> Result<(), DropReason> {
-        // 1. 隐藏文件
+        // 1. 闅愯棌鏂囦欢
         if !self.watch_hidden {
             if path
                 .file_name()
@@ -96,9 +90,9 @@ impl WhitelistConfig {
             }
         }
 
-        // 2. 跳过目录 (component-level)
+        // 2. 璺宠繃鐩綍 (component-level)
         for skip in &self.skip_dirs {
-            // `.metadata` 单独标记 (历史代码显式 skip, 沿用 DropReason::MetadataDirectory)
+            // `.metadata` 鍗曠嫭鏍囪 (鍘嗗彶浠ｇ爜鏄惧紡 skip, 娌跨敤 DropReason::MetadataDirectory)
             let reason = if skip == ".metadata" {
                 DropReason::MetadataDirectory
             } else {
@@ -109,7 +103,7 @@ impl WhitelistConfig {
             }
         }
 
-        // 3. 跳过文件 glob
+        // 3. 璺宠繃鏂囦欢 glob
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             for pattern in &self.skip_files {
                 if glob_match(pattern, name) {
@@ -118,7 +112,7 @@ impl WhitelistConfig {
             }
         }
 
-        // 4. 扩展名白名单
+        // 4. 鎵╁睍鍚嶇櫧鍚嶅崟
         if !self.allowed_extensions.is_empty() {
             let ext = path
                 .extension()
@@ -134,7 +128,7 @@ impl WhitelistConfig {
             }
         }
 
-        // 5. 文件大小 (仅当文件存在)
+        // 5. 鏂囦欢澶у皬 (浠呭綋鏂囦欢瀛樺湪)
         if let Some(max) = self.max_file_size {
             if let Ok(meta) = path.metadata() {
                 if meta.len() > max {
@@ -147,11 +141,10 @@ impl WhitelistConfig {
     }
 }
 
-/// 简易 glob 匹配 — 仅支持 `*` (任意字符序列)。`?` / `[..]` 不支持,
-/// 当前 `skip_files` 列表里用不到。
-///
-/// 替代 `glob` crate 的开销: 文件名长度 < 256, 完全可以用手写 DP,
-/// 但这里 `glob_match` 简单递归, 性能足够 (每秒千次级别)。
+/// 绠€鏄?glob 鍖归厤 鈥?浠呮敮鎸?`*` (浠绘剰瀛楃搴忓垪)銆俙?` / `[..]` 涓嶆敮鎸?
+/// 褰撳墠 `skip_files` 鍒楄〃閲岀敤涓嶅埌銆?///
+/// 鏇夸唬 `glob` crate 鐨勫紑閿€: 鏂囦欢鍚嶉暱搴?< 256, 瀹屽叏鍙互鐢ㄦ墜鍐?DP,
+/// 浣嗚繖閲?`glob_match` 绠€鍗曢€掑綊, 鎬ц兘瓒冲 (姣忕鍗冩绾у埆)銆?
 fn glob_match(pattern: &str, name: &str) -> bool {
     glob_match_inner(pattern.as_bytes(), name.as_bytes())
 }
@@ -160,7 +153,7 @@ fn glob_match_inner(p: &[u8], n: &[u8]) -> bool {
     match (p.first(), n.first()) {
         (None, None) => true,
         (Some(b'*'), _) => {
-            // `*` 匹配任意序列: 尝试跳过 0..n 任意前缀
+            // `*` 鍖归厤浠绘剰搴忓垪: 灏濊瘯璺宠繃 0..n 浠绘剰鍓嶇紑
             for i in 0..=n.len() {
                 if glob_match_inner(&p[1..], &n[i..]) {
                     return true;
@@ -181,7 +174,7 @@ mod tests {
     fn default_allows_md_files() {
         let w = WhitelistConfig::default();
         assert!(w.allows(Path::new("/x/note.md")).is_ok());
-        assert!(w.allows(Path::new("/x/Note.MD")).is_ok()); // 大小写不敏感
+        assert!(w.allows(Path::new("/x/Note.MD")).is_ok()); // 澶у皬鍐欎笉鏁忔劅
         assert!(w.allows(Path::new("/x/note.markdown")).is_ok());
     }
 
@@ -212,12 +205,11 @@ mod tests {
         let w = WhitelistConfig::default();
         assert_eq!(
             w.allows(Path::new("/x/.DS_Store")),
-            Err(DropReason::PathNotWhitelisted) // 隐藏文件优先
+            Err(DropReason::PathNotWhitelisted) // 闅愯棌鏂囦欢浼樺厛
         );
-        // 非隐藏的黑名单文件 - *.tmp 只匹配 ".tmp" 结尾, ".tmp.md" 不匹配
-        // (临时文件场景下, 用户用 *.tmp.md 这种带后缀的, 行为应当放行让 watcher 重命名处理)
+        // 闈為殣钘忕殑榛戝悕鍗曟枃浠?- *.tmp 鍙尮閰?".tmp" 缁撳熬, ".tmp.md" 涓嶅尮閰?        // (涓存椂鏂囦欢鍦烘櫙涓? 鐢ㄦ埛鐢?*.tmp.md 杩欑甯﹀悗缂€鐨? 琛屼负搴斿綋鏀捐璁?watcher 閲嶅懡鍚嶅鐞?
         assert!(w.allows(Path::new("/x/notes.tmp.md")).is_ok());
-        // 纯 .tmp 命中
+        // 绾?.tmp 鍛戒腑
         assert_eq!(
             w.allows(Path::new("/x/notes.tmp")),
             Err(DropReason::PathBlacklisted)
@@ -237,17 +229,17 @@ mod tests {
     fn watch_hidden_true_allows_dots() {
         let mut w = WhitelistConfig::default();
         w.watch_hidden = true;
-        // .metadata 仍然黑名单优先
+        // .metadata 浠嶇劧榛戝悕鍗曚紭鍏?
         assert_eq!(
             w.allows(Path::new("/x/.metadata/x.md")),
             Err(DropReason::MetadataDirectory)
         );
-        // .DS_Store 仍然黑名单
+        // .DS_Store 浠嶇劧榛戝悕鍗?
         assert_eq!(
             w.allows(Path::new("/x/.DS_Store")),
             Err(DropReason::PathBlacklisted)
         );
-        // 普通隐藏 .md 放行
+        // 鏅€氶殣钘?.md 鏀捐
         assert!(w.allows(Path::new("/x/.hidden.md")).is_ok());
     }
 
@@ -265,14 +257,13 @@ mod tests {
     fn file_size_limit() {
         let mut w = WhitelistConfig::default();
         w.max_file_size = Some(10);
-        // 不存在的文件: 跳过 size 检查 (meta 失败不算超额)
+        // 涓嶅瓨鍦ㄧ殑鏂囦欢: 璺宠繃 size 妫€鏌?(meta 澶辫触涓嶇畻瓒呴)
         assert!(w.allows(Path::new("/x/nonexistent.md")).is_ok());
-        // 在 /tmp 下创一个 100 字节的 .md 文件 (临时目录在 macOS 上以 . 开头, 走
-        // skip_dirs 兜底; 这里用 std::env::temp_dir() 显式路径, 跳开隐含假设)
+        // 鍦?/tmp 涓嬪垱涓€涓?100 瀛楄妭鐨?.md 鏂囦欢 (涓存椂鐩綍鍦?macOS 涓婁互 . 寮€澶? 璧?        // skip_dirs 鍏滃簳; 杩欓噷鐢?std::env::temp_dir() 鏄惧紡璺緞, 璺冲紑闅愬惈鍋囪)
         let p = std::env::temp_dir().join("flowix_test_size.md");
         std::fs::write(&p, b"x".repeat(100)).unwrap();
         assert_eq!(w.allows(&p), Err(DropReason::FileTooLarge));
-        // 同样 10 字节 → 放行
+        // 鍚屾牱 10 瀛楄妭 鈫?鏀捐
         std::fs::write(&p, b"1234567890").unwrap();
         assert!(w.allows(&p).is_ok());
         let _ = std::fs::remove_file(&p);

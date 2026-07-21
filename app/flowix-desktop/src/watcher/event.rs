@@ -1,21 +1,13 @@
-//! `RawFsEvent` — `notify` 跨平台 `Event` 的薄抽象。
-//!
-//! 目的: 让下游 Filter / Processor 不直接依赖 `notify::Event` / `EventKind`
-//! 类型 (这俩跨平台签名经常变, 比如 `ModifyKind` 嵌套), 同时保留必要的
-//! 元信息 (path, kind 大类, 时间戳) 给后续做去重 / 防抖 / 业务分派。
-//!
-//! 设计取舍:
-//! - 不做完整事件克隆, `path` 是 `PathBuf` (小) + `kind` 枚举 (1 字节),
-//!   整体 < 256 字节, 可走 `mpsc::channel` 高频发送。
-//! - `time` 用 `Instant` 而非 `SystemTime` (watcher 内部比对都基于
-//!   monotonic clock)。
-//! - 不携带 `notify::EventAttributes` — 当前过滤规则用不到, 后续真需要
-//!   再加 `attrs: BitFlags<u8>` 兼容位。
-
+//! `RawFsEvent` 鈥?`notify` 璺ㄥ钩鍙?`Event` 鐨勮杽鎶借薄銆?//!
+//! 鐩殑: 璁╀笅娓?Filter / Processor 涓嶇洿鎺ヤ緷璧?`notify::Event` / `EventKind`
+//! 绫诲瀷 (杩欎咯璺ㄥ钩鍙扮鍚嶇粡甯稿彉, 姣斿 `ModifyKind` 宓屽), 鍚屾椂淇濈暀蹇呰鐨?//! 鍏冧俊鎭?(path, kind 澶х被, 鏃堕棿鎴? 缁欏悗缁仛鍘婚噸 / 闃叉姈 / 涓氬姟鍒嗘淳銆?//!
+//! 璁捐鍙栬垗:
+//! - 涓嶅仛瀹屾暣浜嬩欢鍏嬮殕, `path` 鏄?`PathBuf` (灏? + `kind` 鏋氫妇 (1 瀛楄妭),
+//!   鏁翠綋 < 256 瀛楄妭, 鍙蛋 `mpsc::channel` 楂橀鍙戦€併€?//! - `time` 鐢?`Instant` 鑰岄潪 `SystemTime` (watcher 鍐呴儴姣斿閮藉熀浜?//!   monotonic clock)銆?//! - 涓嶆惡甯?`notify::EventAttributes` 鈥?褰撳墠杩囨护瑙勫垯鐢ㄤ笉鍒? 鍚庣画鐪熼渶瑕?//!   鍐嶅姞 `attrs: BitFlags<u8>` 鍏煎浣嶃€?
 use std::path::PathBuf;
 use std::time::Instant;
 
-/// 事件大类 — 比 `notify::EventKind` 简单, 业务只关心这 4 类。
+/// 浜嬩欢澶х被 鈥?姣?`notify::EventKind` 绠€鍗? 涓氬姟鍙叧蹇冭繖 4 绫汇€?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FsEventKind {
     Create,
@@ -31,27 +23,23 @@ impl FsEventKind {
         match kind {
             Create(_) => Self::Create,
             Remove(_) => Self::Remove,
-            Modify(ModifyKind::Name(RenameMode::To)) => Self::Create, // rename 视同 create
-            Modify(ModifyKind::Name(RenameMode::From)) => Self::Remove, // rename 视同 remove
+            Modify(ModifyKind::Name(RenameMode::To)) => Self::Create, // rename 瑙嗗悓 create
+            Modify(ModifyKind::Name(RenameMode::From)) => Self::Remove, // rename 瑙嗗悓 remove
             Modify(_) => Self::Modify,
             _ => Self::Other,
         }
     }
 }
 
-/// 单条文件系统事件 — watcher → filter pipeline 的标准输入。
-///
-/// `time` 预留供 filter 之后加 metrics / 路径防涪的 monotonic clock 记号
-/// (当前未使用, 允许 dead_code 避免重复添加者)。
-///
-/// **rename 检测不再依赖 inode_tracker** (Plan A 的 Win32 file_index 走 NTFS,
-/// 仅在 NTFS 上有效, FAT32 / exFAT / 网络盘退化)。重构成
-/// **frontmatter-key-first**: processor 读磁盘 frontmatter 的 `key` 字段
-/// 直接作为 id 真源, fs::rename 拆出的 From + To 两条事件中 To 事件读到的
-/// key 跟旧 entry 的 id 一致 → rename_memo_file 自动保留 id 改 entry.filename。
-///
-/// 跨平台行为统一 — 不再需要 inode / file_index / volume_serial 这些 OS
-/// 层元数据, 在 NTFS / FAT32 / exFAT / 网络盘 / symlink / 跨卷 上行为一致。
+/// 鍗曟潯鏂囦欢绯荤粺浜嬩欢 鈥?watcher 鈫?filter pipeline 鐨勬爣鍑嗚緭鍏ャ€?///
+/// `time` 棰勭暀渚?filter 涔嬪悗鍔?metrics / 璺緞闃叉丢鐨?monotonic clock 璁板彿
+/// (褰撳墠鏈娇鐢? 鍏佽 dead_code 閬垮厤閲嶅娣诲姞鑰?銆?///
+/// **rename 妫€娴嬩笉鍐嶄緷璧?inode_tracker** (Plan A 鐨?Win32 file_index 璧?NTFS,
+/// 浠呭湪 NTFS 涓婃湁鏁? FAT32 / exFAT / 缃戠粶鐩橀€€鍖?銆傞噸鏋勬垚
+/// **frontmatter-key-first**: processor 璇荤鐩?frontmatter 鐨?`key` 瀛楁
+/// 鐩存帴浣滀负 id 鐪熸簮, fs::rename 鎷嗗嚭鐨?From + To 涓ゆ潯浜嬩欢涓?To 浜嬩欢璇诲埌鐨?/// key 璺熸棫 entry 鐨?id 涓€鑷?鈫?rename_memo_file 鑷姩淇濈暀 id 鏀?entry.filename銆?///
+/// 璺ㄥ钩鍙拌涓虹粺涓€ 鈥?涓嶅啀闇€瑕?inode / file_index / volume_serial 杩欎簺 OS
+/// 灞傚厓鏁版嵁, 鍦?NTFS / FAT32 / exFAT / 缃戠粶鐩?/ symlink / 璺ㄥ嵎 涓婅涓轰竴鑷淬€?
 #[derive(Debug, Clone)]
 pub struct RawFsEvent {
     pub kind: FsEventKind,
@@ -61,7 +49,7 @@ pub struct RawFsEvent {
 }
 
 impl RawFsEvent {
-    /// 构造一个事件 — watcher 端无需额外 metadata, processor 自己读磁盘。
+    /// 鏋勯€犱竴涓簨浠?鈥?watcher 绔棤闇€棰濆 metadata, processor 鑷繁璇荤鐩樸€?
     pub fn new(kind: FsEventKind, path: PathBuf) -> Self {
         Self {
             kind,
@@ -71,10 +59,7 @@ impl RawFsEvent {
     }
 }
 
-/// `Filter::decide()` 的返回值 — `Pass` 放行, `Drop` 拒绝 (带原因便于
-/// metrics), `PassMutated` 放行但替换事件 (例如路径规范化后)。
-/// `PassMutated` 作为预留 API 保留, 未来 filter 需要修改事件字段 (如
-/// 路径规范化) 时会走。
+/// `Filter::decide()` 鐨勮繑鍥炲€?鈥?`Pass` 鏀捐, `Drop` 鎷掔粷 (甯﹀師鍥犱究浜?/// metrics), `PassMutated` 鏀捐浣嗘浛鎹簨浠?(渚嬪璺緞瑙勮寖鍖栧悗)銆?/// `PassMutated` 浣滀负棰勭暀 API 淇濈暀, 鏈潵 filter 闇€瑕佷慨鏀逛簨浠跺瓧娈?(濡?/// 璺緞瑙勮寖鍖? 鏃朵細璧般€?
 #[derive(Debug, Clone)]
 pub enum FilterDecision {
     Pass,
@@ -85,27 +70,27 @@ pub enum FilterDecision {
     },
 }
 
-/// 拒绝原因 — 既给 metrics 分类, 也给日志 / 调试面板。
+/// 鎷掔粷鍘熷洜 鈥?鏃㈢粰 metrics 鍒嗙被, 涔熺粰鏃ュ織 / 璋冭瘯闈㈡澘銆?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DropReason {
-    /// 扩展名不在白名单
+    /// 鎵╁睍鍚嶄笉鍦ㄧ櫧鍚嶅崟
     ExtensionMismatch,
-    /// 路径命中 skip_dirs / skip_files 黑名单
+    /// 璺緞鍛戒腑 skip_dirs / skip_files 榛戝悕鍗?
     PathBlacklisted,
-    /// 隐藏文件 (`.xxx`), `watch_hidden = false`
+    /// 闅愯棌鏂囦欢 (`.xxx`), `watch_hidden = false`
     PathNotWhitelisted,
-    /// `.metadata/` 等内部目录
+    /// `.metadata/` 绛夊唴閮ㄧ洰褰?
     MetadataDirectory,
-    /// 后端自写抑制
+    /// 鍚庣鑷啓鎶戝埗
     SelfWriteSuppressed,
-    /// 150ms 同路径防抖
+    /// 150ms 鍚岃矾寰勯槻鎶?
     Debounced,
-    /// 文件超过 `max_file_size`
+    /// 鏂囦欢瓒呰繃 `max_file_size`
     FileTooLarge,
 }
 
 impl DropReason {
-    /// 简短标签, 用于 tracing::debug
+    /// 绠€鐭爣绛? 鐢ㄤ簬 tracing::debug
     pub fn label(&self) -> &'static str {
         match self {
             Self::ExtensionMismatch => "ext-mismatch",

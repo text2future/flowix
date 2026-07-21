@@ -1,14 +1,11 @@
-//! Thread IPC — 对话线程 CRUD。
-//!
-//! `thread_delete` 顺带清 `AgentManager` 的 in-memory 状态 (与该 thread 关联的
-//! read 工具快照 + 卡死检测计数), 否则会无限泄露。
-
+//! Thread IPC 鈥?瀵硅瘽绾跨▼ CRUD銆?//!
+//! `thread_delete` 椤哄甫娓?`AgentManager` 鐨?in-memory 鐘舵€?(涓庤 thread 鍏宠仈鐨?//! read 宸ュ叿蹇収 + 鍗℃妫€娴嬭鏁?, 鍚﹀垯浼氭棤闄愭硠闇层€?
 use serde::Serialize;
 use tauri::State;
 
 use crate::agent_flowix::default_agent_id;
 use crate::agent_session::{
-    AgentConversationInstance, AgentConversationRun, ChatMessage, ThreadInfo, ThreadMessagesPage,
+    AgentConversationInstance, ChatMessage, ThreadInfo, ThreadMessagesPage,
     UpsertAgentConversationInstance,
 };
 
@@ -48,7 +45,7 @@ pub async fn thread_create(
     state: State<'_, AppState>,
 ) -> Result<ThreadInfo, String> {
     let manager = state.thread_manager.read().await;
-    // 所有 thread 都用 default_agent_id() 占位 ── 见 agent.rs。
+    // 鎵€鏈?thread 閮界敤 default_agent_id() 鍗犱綅 鈹€鈹€ 瑙?agent.rs銆?
     manager
         .create_thread(default_agent_id(), title)
         .await
@@ -73,18 +70,17 @@ pub async fn thread_get(
     }
 }
 
-/// Layer 4: 分页加载 thread 历史. 取代 thread_get 在 1MB 级 thread 上的全量
-/// 序列化开销, IPC payload 从 ~1MB 降到 ~100KB (100 条 × 平均 1KB).
+/// Layer 4: 鍒嗛〉鍔犺浇 thread 鍘嗗彶. 鍙栦唬 thread_get 鍦?1MB 绾?thread 涓婄殑鍏ㄩ噺
+/// 搴忓垪鍖栧紑閿€, IPC payload 浠?~1MB 闄嶅埌 ~100KB (100 鏉?脳 骞冲潎 1KB).
 ///
-/// 参数:
-///   - thread_id: 目标 thread
-///   - before_sequence: None → 取最近 limit 条; Some(s) → 取 sequence < s 的最近 limit 条
-///   - limit: 单次返回上限, 服务端 clamp 到 [1, 1000], 默认建议前端传 100
+/// 鍙傛暟:
+///   - thread_id: 鐩爣 thread
+///   - before_sequence: None 鈫?鍙栨渶杩?limit 鏉? Some(s) 鈫?鍙?sequence < s 鐨勬渶杩?limit 鏉?///   - limit: 鍗曟杩斿洖涓婇檺, 鏈嶅姟绔?clamp 鍒?[1, 1000], 榛樿寤鸿鍓嶇浼?100
 ///
-/// 返回 ThreadMessagesPage { messages (ASC), oldest_sequence, has_more }
-/// 前端用 oldest_sequence 作为下一页 cursor, has_more 决定顶部 prefetch.
+/// 杩斿洖 ThreadMessagesPage { messages (ASC), oldest_sequence, has_more }
+/// 鍓嶇鐢?oldest_sequence 浣滀负涓嬩竴椤?cursor, has_more 鍐冲畾椤堕儴 prefetch.
 ///
-/// thread_get 保留 ── 调试 / 全量导出路径仍可能用到。
+/// thread_get 淇濈暀 鈹€鈹€ 璋冭瘯 / 鍏ㄩ噺瀵煎嚭璺緞浠嶅彲鑳界敤鍒般€?
 #[tauri::command]
 pub async fn thread_get_page(
     thread_id: String,
@@ -135,18 +131,6 @@ pub async fn agent_conversation_find_by_thread(
 }
 
 #[tauri::command]
-pub async fn agent_conversation_find_by_run(
-    run_id: String,
-    state: State<'_, AppState>,
-) -> Result<Option<AgentConversationInstance>, String> {
-    let manager = state.thread_manager.read().await;
-    manager
-        .find_agent_conversation_by_run_id(&run_id)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn agent_conversation_upsert(
     instance: UpsertAgentConversationInstance,
     state: State<'_, AppState>,
@@ -154,19 +138,6 @@ pub async fn agent_conversation_upsert(
     let manager = state.thread_manager.read().await;
     manager
         .upsert_agent_conversation_instance(instance)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn agent_conversation_upsert_run_state(
-    instance_id: String,
-    run: AgentConversationRun,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let manager = state.thread_manager.read().await;
-    manager
-        .upsert_agent_conversation_run_state(&instance_id, run)
         .await
         .map_err(|e| e.to_string())
 }
@@ -343,13 +314,11 @@ pub async fn thread_delete(
         tracing::info!("[Thread] stopped running agent before deleting thread {thread_id}");
     }
 
-    // 先清 AgentManager 的 in-memory 状态 ── 与该 thread 关联的 read 工具快照
-    // (HashMap<thread_id, HashMap<path, full_file_content>>, 整本笔记本大小)
-    // 与卡死检测计数, 否则会无限泄露。两张表独立 HashMap.remove, 总是成功。
-    //
-    // `agent_manager` 是 `Arc<AgentManager>`, `cleanup_thread` 是 `&self` 方法,
-    // 直接调用即可, 不再需要 `.write().await` 包装。
-    state.agent_manager.cleanup_thread(&thread_id).await;
+    // 鍏堟竻 AgentManager 鐨?in-memory 鐘舵€?鈹€鈹€ 涓庤 thread 鍏宠仈鐨?read 宸ュ叿蹇収
+    // (HashMap<thread_id, HashMap<path, full_file_content>>, 鏁存湰绗旇鏈ぇ灏?
+    // 涓庡崱姝绘娴嬭鏁? 鍚﹀垯浼氭棤闄愭硠闇层€備袱寮犺〃鐙珛 HashMap.remove, 鎬绘槸鎴愬姛銆?    //
+    // `agent_manager` 鏄?`Arc<AgentManager>`, `cleanup_thread` 鏄?`&self` 鏂规硶,
+    // 鐩存帴璋冪敤鍗冲彲, 涓嶅啀闇€瑕?`.write().await` 鍖呰銆?    state.agent_manager.cleanup_thread(&thread_id).await;
     let manager = state.thread_manager.read().await;
     manager
         .delete_thread_with_agent_conversations(&thread_id)
@@ -357,13 +326,10 @@ pub async fn thread_delete(
         .map_err(|e| e.to_string())
 }
 
-/// 重命名 thread ── 改 SQLite `threads.title` 列, 顺带 bump `updated_at`,
-/// 让历史列表按"最近活动"排序时, 刚被改名的对话能正确顶到顶部。
-///
-/// 返回 `None` 表示 thread 不存在 (UI 应忽略); 返回 `Some(info)` 时 info.title
-/// 已经是新值, 可直接用于更新本地 store。前端 `sendMessageStream` 在首条用户
-/// 消息落地后调一次, 覆盖"点了"新建对话"再发消息"的早期路径(那种情况下
-/// `ensureThread` 走 early return, 不会生成新标题)。
+/// 閲嶅懡鍚?thread 鈹€鈹€ 鏀?SQLite `threads.title` 鍒? 椤哄甫 bump `updated_at`,
+/// 璁╁巻鍙插垪琛ㄦ寜"鏈€杩戞椿鍔?鎺掑簭鏃? 鍒氳鏀瑰悕鐨勫璇濊兘姝ｇ‘椤跺埌椤堕儴銆?///
+/// 杩斿洖 `None` 琛ㄧず thread 涓嶅瓨鍦?(UI 搴斿拷鐣?; 杩斿洖 `Some(info)` 鏃?info.title
+/// 宸茬粡鏄柊鍊? 鍙洿鎺ョ敤浜庢洿鏂版湰鍦?store銆傚墠绔?`sendMessageStream` 鍦ㄩ鏉＄敤鎴?/// 娑堟伅钀藉湴鍚庤皟涓€娆? 瑕嗙洊"鐐逛簡"鏂板缓瀵硅瘽"鍐嶅彂娑堟伅"鐨勬棭鏈熻矾寰?閭ｇ鎯呭喌涓?/// `ensureThread` 璧?early return, 涓嶄細鐢熸垚鏂版爣棰?銆?
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn thread_update_title(

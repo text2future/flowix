@@ -1,7 +1,6 @@
 import type { AgentTypeKey, StatusInfo, UsageInfo } from "@/types/agent";
 import type { I18nKey } from "@features/i18n";
 import type { ThreadState } from "@features/agent/store/chat-store";
-import type { AgentConversationRun } from "@features/agent/store/agent-conversation-store";
 import { selectAgentThreadCardRunStatus } from "@features/editor/extensions/agent-thread-card/agent-thread-card-selectors";
 
 export interface AgentThreadCardBadgeData {
@@ -14,37 +13,20 @@ export interface AgentThreadCardBadgeData {
   statusInfo?: StatusInfo;
 }
 
-export function getConversationRunLastRunAt(
-  run: AgentConversationRun,
-): number | undefined {
-  return run.lastRunAt ?? run.endedAt ?? run.startedAt;
-}
-
 export function computeAgentThreadCardBadgeData(options: {
   threadState: ThreadState | undefined;
-  conversationRun: AgentConversationRun | undefined;
   codexModel: string | undefined;
   typeKey: AgentTypeKey;
 }): AgentThreadCardBadgeData {
-  const { threadState, conversationRun, codexModel, typeKey } = options;
+  const { threadState, codexModel, typeKey } = options;
   let model: string | undefined;
   let lastRunAt: number | undefined;
   let totalTokens: number | undefined;
   let usage: UsageInfo | undefined;
   let statusInfo: StatusInfo | undefined;
 
-  if (conversationRun) {
-    if (conversationRun.model) model = conversationRun.model;
-    if (conversationRun.usage?.total_tokens != null) {
-      totalTokens = conversationRun.usage.total_tokens;
-    }
-    if (conversationRun.usage) usage = conversationRun.usage;
-    if (conversationRun.statusInfo) statusInfo = conversationRun.statusInfo;
-    lastRunAt = getConversationRunLastRunAt(conversationRun);
-  }
-
   const snapshot = threadState?.lastRun;
-  if (!conversationRun && snapshot) {
+  if (snapshot) {
     if (!model && snapshot.model) model = snapshot.model;
     if (totalTokens === undefined && snapshot.status !== "running" && snapshot.usage) {
       totalTokens = snapshot.usage.total_tokens ?? undefined;
@@ -58,7 +40,7 @@ export function computeAgentThreadCardBadgeData(options: {
     }
   }
 
-  if (!conversationRun && !snapshot && threadState?.activeRunId && threadState.runs[threadState.activeRunId]) {
+  if (!snapshot && threadState?.activeRunId && threadState.runs[threadState.activeRunId]) {
     const run = threadState.runs[threadState.activeRunId];
     if (!model && run.model) model = run.model;
     if (totalTokens === undefined && run.status !== "running" && run.usage) {
@@ -71,7 +53,7 @@ export function computeAgentThreadCardBadgeData(options: {
     }
   }
 
-  if (!conversationRun && !snapshot && lastRunAt === undefined) {
+  if (!snapshot && lastRunAt === undefined) {
     const runs = Object.values(threadState?.runs ?? {});
     if (runs.length > 0) {
       const latest = runs.reduce((acc, run) =>
@@ -101,17 +83,15 @@ export function renderAgentThreadCardMetaState(options: {
   metaEl: HTMLElement;
   runStatusEl: HTMLSpanElement;
   state: ThreadState | undefined;
-  conversationRun?: AgentConversationRun;
   isCreating: boolean;
   isLoading: boolean;
   typeKey: AgentTypeKey;
   t: (key: I18nKey) => string;
 }): void {
-  const { dom, metaEl, runStatusEl, state, conversationRun, isCreating, isLoading, typeKey, t } =
+  const { dom, metaEl, runStatusEl, state, isCreating, isLoading, typeKey, t } =
     options;
   const statusView = selectAgentThreadCardRunStatus({
     state,
-    conversationRun,
     isCreating,
     isLoading,
     typeKey,

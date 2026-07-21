@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize)]
 pub(super) struct ChatMessageReq {
     pub(super) role: String,
-    /// OpenAI 允许 assistant 在携带 tool_calls 时 content 为 null / 缺省。
+    /// OpenAI 鍏佽 assistant 鍦ㄦ惡甯?tool_calls 鏃?content 涓?null / 缂虹渷銆?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) content: Option<ChatMessageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,6 +52,13 @@ pub(super) struct ChatCompletionsRequest {
     pub(super) stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) tools: Option<Vec<ToolReq>>,
+    /// Force sequential tool calls. The agent loop in `stream.rs` drains the
+    /// stream on the first `ToolUseComplete` and breaks (`stream.rs` ~937),
+    /// so parallel `tool_calls` emitted in one turn would be silently dropped.
+    /// Pin to `false` whenever tools are present, until the loop is taught to
+    /// consume the full queue (root fix).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) reasoning_split: Option<bool>,
 }
@@ -178,7 +185,7 @@ pub(super) struct ReasoningDetail {
 pub(super) struct ApiStreamToolCall {
     /// The LLM-assigned position of this tool call within the current
     /// assistant turn. Required to disambiguate parallel `tool_calls`
-    /// emitted in a single delta — without it we cannot tell which call
+    /// emitted in a single delta 鈥?without it we cannot tell which call
     /// an `id` / `name` / `arguments` chunk belongs to and would clobber
     /// them into one bucket. The OpenAI spec guarantees `index` is unique
     /// and stable within a turn (0, 1, 2, ...). Some providers omit it on

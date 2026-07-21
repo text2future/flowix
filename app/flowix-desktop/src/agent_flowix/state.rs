@@ -29,8 +29,7 @@ pub(super) fn compute_call_key(tool_name: &str, arguments: &str) -> CallKey {
 }
 
 impl AgentManager {
-    /// 记录本轮 (tool, args) 调用, 返回是否达到熔断阈值。
-    /// 调用次数 > STUCK_THRESHOLD 时返回 true, 第 6 次同调用即触发。
+    /// 璁板綍鏈疆 (tool, args) 璋冪敤, 杩斿洖鏄惁杈惧埌鐔旀柇闃堝€笺€?    /// 璋冪敤娆℃暟 > STUCK_THRESHOLD 鏃惰繑鍥?true, 绗?6 娆″悓璋冪敤鍗宠Е鍙戙€?
     pub(super) async fn record_tool_call(
         &self,
         thread_id: &str,
@@ -45,17 +44,14 @@ impl AgentManager {
         *count > STUCK_THRESHOLD
     }
 
-    /// 清空该 thread 的累计计数。下次 chat_stream 入口会兜底再调一次,
-    /// 这里主要给"LLM 给最终回答"的清空信号使用。
+    /// 娓呯┖璇?thread 鐨勭疮璁¤鏁般€備笅娆?chat_stream 鍏ュ彛浼氬厹搴曞啀璋冧竴娆?
+    /// 杩欓噷涓昏缁?LLM 缁欐渶缁堝洖绛?鐨勬竻绌轰俊鍙蜂娇鐢ㄣ€?
     pub(super) async fn clear_tool_call_attempts(&self, thread_id: &str) {
         let mut attempts = self.tool_call_attempts.write().await;
         attempts.remove(thread_id);
     }
 
-    /// 删除 thread 时清理 AgentManager 内与该 thread 关联的所有 in-memory 状态。
-    /// 解决 "thread_delete 走 ThreadManager 但不通知 AgentManager" 造成的
-    /// read_snapshots / tool_call_attempts HashMap 长期泄露。
-    /// 多次调用幂等, 不存在的 thread_id 静默 no-op。
+    /// 鍒犻櫎 thread 鏃舵竻鐞?AgentManager 鍐呬笌璇?thread 鍏宠仈鐨勬墍鏈?in-memory 鐘舵€併€?    /// 瑙ｅ喅 "thread_delete 璧?ThreadManager 浣嗕笉閫氱煡 AgentManager" 閫犳垚鐨?    /// read_snapshots / tool_call_attempts HashMap 闀挎湡娉勯湶銆?    /// 澶氭璋冪敤骞傜瓑, 涓嶅瓨鍦ㄧ殑 thread_id 闈欓粯 no-op銆?
     pub async fn cleanup_thread(&self, thread_id: &str) {
         let mut snapshots = self.read_snapshots.write().await;
         snapshots.remove(thread_id);
@@ -63,13 +59,11 @@ impl AgentManager {
         attempts.remove(thread_id);
     }
 
-    /// 查询当前所有 in-flight chat ── 供前端 `agent_running_threads`
-    /// IPC 调用。前端启动时调用一次, seed 到 `threadStates[].isLoading`。
-    ///
-    /// 返回值映射 `thread_id -> { started_at, current_tool }` ──
-    /// `current_tool` 暂时是 `None`, 因为 ReAct 循环的 `last_tool_name`
-    /// 是函数局部变量, 不在 manager state 里。Phase 1 不需要, 等
-    /// UI 真用上再补一个 in-flight tool 镜像。
+    /// 鏌ヨ褰撳墠鎵€鏈?in-flight chat 鈹€鈹€ 渚涘墠绔?`agent_running_threads`
+    /// IPC 璋冪敤銆傚墠绔惎鍔ㄦ椂璋冪敤涓€娆? seed 鍒?`threadStates[].isLoading`銆?    ///
+    /// 杩斿洖鍊兼槧灏?`thread_id -> { started_at, current_tool }` 鈹€鈹€
+    /// `current_tool` 鏆傛椂鏄?`None`, 鍥犱负 ReAct 寰幆鐨?`last_tool_name`
+    /// 鏄嚱鏁板眬閮ㄥ彉閲? 涓嶅湪 manager state 閲屻€侾hase 1 涓嶉渶瑕? 绛?    /// UI 鐪熺敤涓婂啀琛ヤ竴涓?in-flight tool 闀滃儚銆?
     pub async fn running_threads(&self) -> HashMap<String, RunInfo> {
         let in_flight = self.in_flight.lock().await;
         in_flight

@@ -9,8 +9,8 @@ use crate::watcher::event::{FilterDecision, RawFsEvent};
 use crate::watcher::filter::{Filter, FilterCtx};
 use crate::watcher::whitelist::WhitelistConfig;
 
-/// 段 1: 路径白名单。集成 WhitelistConfig (扩展名 + skip_dirs + skip_files +
-/// 隐藏文件 + max_file_size) 到一次决定里。
+/// 娈?1: 璺緞鐧藉悕鍗曘€傞泦鎴?WhitelistConfig (鎵╁睍鍚?+ skip_dirs + skip_files +
+/// 闅愯棌鏂囦欢 + max_file_size) 鍒颁竴娆″喅瀹氶噷銆?
 pub struct PathFilter {
     pub whitelist: Arc<std::sync::RwLock<WhitelistConfig>>,
 }

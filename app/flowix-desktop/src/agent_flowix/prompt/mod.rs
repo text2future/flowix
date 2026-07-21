@@ -16,7 +16,7 @@ pub struct SystemPromptConfig<'a> {
     /// between `# Safety` and `# Tools`. Empty slice = section omitted.
     pub skills: &'a [SkillSummary],
     /// Runtime Agent Role override (e.g. user-supplied persona memo).
-    /// When `Some`, **replaces** [`role::section`] — the two are mutually
+    /// When `Some`, **replaces** [`role::section`] 鈥?the two are mutually
     /// exclusive; the default role section is omitted entirely.
     /// When `None`, the default [`role::section`] is injected.
     pub role_override: Option<&'a str>,
@@ -130,7 +130,7 @@ mod tests {
             skills: &[],
             role_override: Some("# Agent Role\ncustom"),
         });
-        // `# Identity` and `## Mission` are in base.rs — must survive
+        // `# Identity` and `## Mission` are in base.rs 鈥?must survive
         // both paths; the role refactor must not touch them.
         for out in [&out_default, &out_override] {
             assert!(out.contains("# Identity"));

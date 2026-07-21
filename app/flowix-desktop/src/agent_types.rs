@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// 智能体 ID newtype ── 替代裸 `&str` / `String`, 防止把任意字符串当成 agent_id
-/// 传进 [`crate::agent_session::ThreadManager::create_thread`]。
-///
-/// `#[serde(transparent)]` 让 wire 形状就是 `String` (例如 `"default"`)。
+/// Agent id newtype used on the wire as a plain string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AgentId(pub String);
@@ -32,10 +29,8 @@ impl From<&str> for AgentId {
     }
 }
 
-/// 线程表 `agent_id` 列的固定占位值。所有新建 thread 都写入 `"default"`。
-///
-/// 用函数而非 `pub const` 是因为 `String` 不能在 const 上下文构造; 调用方
-/// 应缓存返回值, 不要每处都重新分配。
+/// 绾跨▼琛?`agent_id` 鍒楃殑鍥哄畾鍗犱綅鍊笺€傛墍鏈夋柊寤?thread 閮藉啓鍏?`"default"`銆?///
+/// 鐢ㄥ嚱鏁拌€岄潪 `pub const` 鏄洜涓?`String` 涓嶈兘鍦?const 涓婁笅鏂囨瀯閫? 璋冪敤鏂?/// 搴旂紦瀛樿繑鍥炲€? 涓嶈姣忓閮介噸鏂板垎閰嶃€?
 pub fn default_agent_id() -> AgentId {
     AgentId::new("default")
 }

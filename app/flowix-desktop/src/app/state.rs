@@ -12,25 +12,22 @@ use crate::system_data::SystemData;
 use flowix_core::memo_file::MemoFile;
 use flowix_core::search::MemoIndex;
 
-/// 应用状态 — 通过 `tauri::State<AppState>` 注入到 Tauri 命令和运行时服务。
-///
-/// `user_config` / `memo_file` / `thread_manager` 与 `agent_manager` 之间会共享
-/// 引用 (例如 `AgentManager` 需要读写 thread_manager / memo_file), 共享形态是
-/// `Arc<...>`, 不是 `Arc<RwLock<...>>` 套娃。锁的位置在具体字段内部。
-///
-/// `search` / `system_data` 没有跨模块需求, 保持原样 (无 Arc 包装)。
+/// 搴旂敤鐘舵€?鈥?閫氳繃 `tauri::State<AppState>` 娉ㄥ叆鍒?Tauri 鍛戒护鍜岃繍琛屾椂鏈嶅姟銆?///
+/// `user_config` / `memo_file` / `thread_manager` 涓?`agent_manager` 涔嬮棿浼氬叡浜?/// 寮曠敤 (渚嬪 `AgentManager` 闇€瑕佽鍐?thread_manager / memo_file), 鍏变韩褰㈡€佹槸
+/// `Arc<...>`, 涓嶆槸 `Arc<RwLock<...>>` 濂楀▋銆傞攣鐨勪綅缃湪鍏蜂綋瀛楁鍐呴儴銆?///
+/// `search` / `system_data` 娌℃湁璺ㄦā鍧楅渶姹? 淇濇寔鍘熸牱 (鏃?Arc 鍖呰)銆?
 pub struct AppState {
     pub user_config: Arc<UserConfigStore>,
     /// System metadata (notebook tag order/layout/hidden state).
     /// Stored at `~/.flowix/boot/system.json`.
     pub system_data: SystemData,
-    /// External CLI 路径配置 (`~/.flowix/agent-external-config.json`) ──
-    /// codex/claude/gemini/hermes/openclaw 执行路径的唯一参照, 启动探测写入,
-    /// 运行时 `resolve_external_cli` 命中即用。
+    /// External CLI 璺緞閰嶇疆 (`~/.flowix/agent-external-config.json`) 鈹€鈹€
+    /// codex/claude/gemini/hermes/openclaw 鎵ц璺緞鐨勫敮涓€鍙傜収, 鍚姩鎺㈡祴鍐欏叆,
+    /// 杩愯鏃?`resolve_external_cli` 鍛戒腑鍗崇敤銆?
     pub agent_external_config: AgentExternalConfig,
     pub memo_file: Arc<RwLock<MemoFile>>,
-    /// 当前 notebook 的全文搜索索引 (内存倒排). 切换 notebook 时 rebuild;
-    /// 写命令增量 upsert/remove.
+    /// 褰撳墠 notebook 鐨勫叏鏂囨悳绱㈢储寮?(鍐呭瓨鍊掓帓). 鍒囨崲 notebook 鏃?rebuild;
+    /// 鍐欏懡浠ゅ閲?upsert/remove.
     pub search: RwLock<MemoIndex>,
     pub agent_manager: Arc<AgentManager>,
     pub codex_cli_manager: Arc<CodexCliManager>,
@@ -39,9 +36,9 @@ pub struct AppState {
     pub hermes_cli_manager: Arc<HermesCliManager>,
     pub openclaw_cli_manager: Arc<simple_cli::SimpleCliManager>,
     pub thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
-    /// Agent 可访问目录 (notebook + 用户自添加 folder), 持久化在
-    /// `~/.flowix/agent-access.json`。驱动 [`crate::agent_flowix::tools::ToolScope`]
-    /// 的 `allowed_roots` 与 `available_dirs` 工具的过滤。
+    /// Agent 鍙闂洰褰?(notebook + 鐢ㄦ埛鑷坊鍔?folder), 鎸佷箙鍖栧湪
+    /// `~/.flowix/agent-access.json`銆傞┍鍔?[`crate::agent_flowix::tools::ToolScope`]
+    /// 鐨?`allowed_roots` 涓?`available_dirs` 宸ュ叿鐨勮繃婊ゃ€?
     pub agent_access: Arc<AgentAccessStore>,
     pub security_bookmarks: Arc<SecurityBookmarkStore>,
 }

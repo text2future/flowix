@@ -51,14 +51,13 @@ vi.mock("@platform/tauri/client", () => ({
       oldestSequence: null,
       hasMore: false,
     })),
+    externalEvents: vi.fn(async () => []),
     deleteThread: vi.fn(),
     updateThreadTitle: vi.fn(),
     listConversationInstances: vi.fn(async () => []),
     getConversationInstance: vi.fn(async () => null),
     findConversationByThread: vi.fn(async () => null),
-    findConversationByRun: vi.fn(async () => null),
     upsertConversationInstance: vi.fn(async () => undefined),
-    upsertConversationRunState: vi.fn(async () => undefined),
     deleteConversationInstance: vi.fn(async () => undefined),
     deleteConversationInstancesForThread: vi.fn(async () => undefined),
   },
@@ -104,12 +103,6 @@ async function flushAnimationFrame(): Promise<void> {
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => resolve());
   });
-}
-
-async function flushPromises(): Promise<void> {
-  for (let i = 0; i < 50; i += 1) {
-    await Promise.resolve();
-  }
 }
 
 describe("chat-store Agent Thread Card streaming flow", () => {
@@ -531,11 +524,9 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
   it("reconciles Agent conversation instances from backend running snapshot", async () => {
     const { useChatStore } = await import("@features/agent/store/chat-store");
-    const {
-      useAgentConversationStore,
-      selectIsAgentConversationRunning,
-      selectRunningAgentConversationInstances,
-    } = await import("@features/agent/store/agent-conversation-store");
+    const { useAgentConversationStore } = await import(
+      "@features/agent/store/agent-conversation-store"
+    );
     const threadId = "thread-snapshot-instance-running";
 
     useChatStore.getState().setThreadList([
@@ -555,30 +546,19 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       },
     });
 
-    expect(
-      selectRunningAgentConversationInstances(
-        useAgentConversationStore.getState(),
-      ),
-    ).toMatchObject([
-      {
-        agentType: "flowix",
-        title: "Snapshot restored title",
-        threadId,
-        source: { kind: "thread-card" },
-        run: {
-          runId: "run-snapshot-instance-running",
-          status: "running",
-          currentTool: "shell",
-        },
-      },
-    ]);
-    expect(
-      selectIsAgentConversationRunning(
-        selectRunningAgentConversationInstances(
-          useAgentConversationStore.getState(),
-        )[0],
-      ),
-    ).toBe(true);
+    expect(useAgentConversationStore.getState().findByThreadId(threadId)).toMatchObject({
+      agentType: "flowix",
+      title: "Snapshot restored title",
+      threadId,
+      source: { kind: "thread-card" },
+    });
+    expect(useChatStore.getState().threadStates[threadId].runs[
+      "run-snapshot-instance-running"
+    ]).toMatchObject({
+      runId: "run-snapshot-instance-running",
+      status: "running",
+      currentTool: "shell",
+    });
   });
 
   it("does not replace an existing external conversation title with the default snapshot title", async () => {
@@ -648,22 +628,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     });
 
     const threadState = useChatStore.getState().threadStates[threadId];
-    expect(threadState.lastRun?.usage?.total_tokens).toBe(42);
     expect(threadState.runs[runId]?.usage?.total_tokens).toBe(42);
-
-    const runningInstance = useAgentConversationStore
-      .getState()
-      .getInstance(instance.instanceId);
-    expect(runningInstance?.run).toMatchObject({
-      runId,
-      usage: {
-        input_tokens: 30,
-        cached_input_tokens: 10,
-        output_tokens: 12,
-        reasoning_output_tokens: 0,
-        total_tokens: 42,
-      },
-    });
 
     useChatStore.getState().dispatchAgentChunk({
       kind: "stream_end",
@@ -672,20 +637,13 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       agent_type: "codex",
       reason: null,
     });
+    expect(
+      useChatStore.getState().threadStates[threadId].lastRun?.usage?.total_tokens,
+    ).toBe(42);
 
-    const updatedInstance = useAgentConversationStore
-      .getState()
-      .getInstance(instance.instanceId);
-    expect(updatedInstance?.run).toMatchObject({
-      runId,
-      usage: {
-        input_tokens: 30,
-        cached_input_tokens: 10,
-        output_tokens: 12,
-        reasoning_output_tokens: 0,
-        total_tokens: 42,
-      },
-    });
+    expect(
+      useAgentConversationStore.getState().getInstance(instance.instanceId),
+    ).toMatchObject({ threadId, agentType: "codex" });
   });
 
   it("removes stale local running state when backend snapshot is empty", async () => {
@@ -732,214 +690,6 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     });
   });
 
-  it("marks Agent conversation instances idle when backend snapshot no longer reports them", async () => {
-    const { useChatStore } = await import("@features/agent/store/chat-store");
-    const {
-      useAgentConversationStore,
-      selectRunningAgentConversationInstances,
-    } = await import("@features/agent/store/agent-conversation-store");
-    const instanceStore = useAgentConversationStore.getState();
-    const instance = instanceStore.createInstance({
-      agentType: "flowix",
-      title: "Snapshot cleanup",
-      threadId: "thread-snapshot-instance",
-      source: { kind: "thread-card" },
-    });
-    instanceStore.markRunStarted(instance.instanceId, {
-      runId: "run-snapshot-instance",
-      startedAt: 1234,
-    });
-    expect(
-      selectRunningAgentConversationInstances(
-        useAgentConversationStore.getState(),
-      ),
-    ).toHaveLength(1);
-
-    useChatStore.getState().reconcileRunningRunsFromSnapshot({});
-
-    const updated = useAgentConversationStore
-      .getState()
-      .getInstance(instance.instanceId);
-    expect(updated?.run).toMatchObject({
-      runId: "run-snapshot-instance",
-      status: "failed",
-      reason: "missing_from_snapshot",
-    });
-    expect(
-      selectRunningAgentConversationInstances(
-        useAgentConversationStore.getState(),
-      ),
-    ).toEqual([]);
-  });
-
-  it("debounces high-frequency Agent conversation run persistence", async () => {
-    vi.useFakeTimers();
-    try {
-      const { agent } = await import("@platform/tauri/client");
-      const { useAgentConversationStore } = await import(
-        "@features/agent/store/agent-conversation-store"
-      );
-      const instanceStore = useAgentConversationStore.getState();
-      const instanceId = "agent-inst-debounced-run";
-      useAgentConversationStore.setState({
-        instances: {
-          [instanceId]: {
-            instanceId,
-            agentType: "flowix",
-            title: "Debounced run",
-            threadId: "thread-debounced-run",
-            source: { kind: "thread-card" },
-            run: {
-              runId: "run-debounced",
-              startedAt: 1000,
-              status: "running",
-            },
-            createdAt: 1000,
-            updatedAt: 1000,
-          },
-        },
-      });
-      vi.mocked(agent.upsertConversationRunState).mockClear();
-
-      instanceStore.updateRun(instanceId, { currentTool: "read" });
-      instanceStore.updateRun(instanceId, { currentTool: "write" });
-      instanceStore.updateRun(instanceId, {
-        usage: {
-          input_tokens: 30,
-          cached_input_tokens: 10,
-          output_tokens: 12,
-          reasoning_output_tokens: 0,
-          total_tokens: 42,
-        },
-      });
-
-      await vi.advanceTimersByTimeAsync(1999);
-      await flushPromises();
-      expect(agent.upsertConversationRunState).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(1);
-      await flushPromises();
-      expect(agent.upsertConversationRunState).toHaveBeenCalledTimes(1);
-      expect(agent.upsertConversationRunState).toHaveBeenLastCalledWith(
-        instanceId,
-        expect.objectContaining({
-          currentTool: "write",
-          usage: {
-            input_tokens: 30,
-            cached_input_tokens: 10,
-            output_tokens: 12,
-            reasoning_output_tokens: 0,
-            total_tokens: 42,
-          },
-          status: "running",
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("flushes pending run persistence before marking a run ended", async () => {
-    vi.useFakeTimers();
-    try {
-      const { agent } = await import("@platform/tauri/client");
-      const { useAgentConversationStore } = await import(
-        "@features/agent/store/agent-conversation-store"
-      );
-      const instanceStore = useAgentConversationStore.getState();
-      const instanceId = "agent-inst-ended-run";
-      useAgentConversationStore.setState({
-        instances: {
-          [instanceId]: {
-            instanceId,
-            agentType: "flowix",
-            title: "Ended run",
-            threadId: "thread-ended-run",
-            source: { kind: "thread-card" },
-            run: {
-              runId: "run-ended",
-              startedAt: 1000,
-              status: "running",
-            },
-            createdAt: 1000,
-            updatedAt: 1000,
-          },
-        },
-      });
-      vi.mocked(agent.upsertConversationRunState).mockClear();
-
-      instanceStore.updateRun(instanceId, {
-        currentTool: "final-tool",
-        usage: { total_tokens: 100 },
-      });
-      instanceStore.markRunEnded(instanceId, "completed", 2000);
-      await flushPromises();
-
-      expect(agent.upsertConversationRunState).toHaveBeenCalledTimes(2);
-      expect(agent.upsertConversationRunState).toHaveBeenNthCalledWith(
-        1,
-        instanceId,
-        expect.objectContaining({
-          currentTool: "final-tool",
-          usage: { total_tokens: 100 },
-          status: "running",
-        }),
-      );
-      expect(agent.upsertConversationRunState).toHaveBeenNthCalledWith(
-        2,
-        instanceId,
-        expect.objectContaining({
-          currentTool: "final-tool",
-          usage: { total_tokens: 100 },
-          status: "completed",
-          endedAt: 2000,
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("cancels pending run persistence when removing an instance", async () => {
-    vi.useFakeTimers();
-    try {
-      const { agent } = await import("@platform/tauri/client");
-      const { useAgentConversationStore } = await import(
-        "@features/agent/store/agent-conversation-store"
-      );
-      const instanceStore = useAgentConversationStore.getState();
-      const instanceId = "agent-inst-removed-run";
-      useAgentConversationStore.setState({
-        instances: {
-          [instanceId]: {
-            instanceId,
-            agentType: "flowix",
-            title: "Removed run",
-            threadId: "thread-removed-run",
-            source: { kind: "thread-card" },
-            run: {
-              runId: "run-removed",
-              startedAt: 1000,
-              status: "running",
-            },
-            createdAt: 1000,
-            updatedAt: 1000,
-          },
-        },
-      });
-      vi.mocked(agent.upsertConversationRunState).mockClear();
-
-      instanceStore.updateRun(instanceId, { usage: { total_tokens: 55 } });
-      instanceStore.removeInstance(instanceId);
-      await vi.advanceTimersByTimeAsync(2000);
-      await flushPromises();
-
-      expect(agent.upsertConversationRunState).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("keeps optimistic local run during backend snapshot grace window", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/chat-store"
@@ -982,13 +732,13 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(payload.llmContent).not.toContain(CONTEXT_PROMPT_MARKER);
   });
 
-  it("② deleteThread clears in-memory messages and runs", async () => {
+  it("鈶?deleteThread clears in-memory messages and runs", async () => {
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const store = useChatStore.getState();
     const threadId = "thread-delete-clears-state";
 
-    // 创建一个有 content 的 thread, 然后 dispatch 一些 chunk 让 threadStates
-    // 累积 messages / runs ── 这是 deleteThread 之前的状态。
+    // 鍒涘缓涓€涓湁 content 鐨?thread, 鐒跺悗 dispatch 涓€浜?chunk 璁?threadStates
+    // 绱Н messages / runs 鈹€鈹€ 杩欐槸 deleteThread 涔嬪墠鐨勭姸鎬併€?  
     store.bindThreadType(threadId, "flowix");
     store.dispatchAgentChunk({
       kind: "stream_start",
@@ -1012,27 +762,25 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       agent_type: "flowix",
     });
 
-    // rAF flush 让 text chunk 真正落到 messages / pendingAssistantId 上
-    // (与 `routes streamed assistant text` 测试同形 ─ 离这块的话 text
-    // 仍留在 textBuffer 里, before / after 断言会因时序不一致抖动)。
+    // rAF flush 璁?text chunk 鐪熸钀藉埌 messages / pendingAssistantId 涓?    // (涓?`routes streamed assistant text` 娴嬭瘯鍚屽舰 鈹€ 绂昏繖鍧楃殑璇?text
+    // 浠嶇暀鍦?textBuffer 閲? before / after 鏂█浼氬洜鏃跺簭涓嶄竴鑷存姈鍔?銆?  
     await flushAnimationFrame();
 
     const before = useChatStore.getState().threadStates[threadId];
     expect(before.messages.length).toBeGreaterThan(0);
     expect(Object.keys(before.runs)).toContain("run-1");
     expect(before.isLoading).toBe(true);
-    // pendingAssistantId 在 tool_call 之后被重置 ── 这是设计行为:
-    // tool_call 之前到 tool_result 之间的 assistant 行不连续。
-    // 我们关心的是"删除前 has accumulated state",用 messages 数 + runs
-    // 长度已经能验证。 这里只验证 runs 有运行态 (activeRunId + status=running)。
+    // pendingAssistantId 鍦?tool_call 涔嬪悗琚噸缃?鈹€鈹€ 杩欐槸璁捐琛屼负:
+    // tool_call 涔嬪墠鍒?tool_result 涔嬮棿鐨?assistant 琛屼笉杩炵画銆?    // 鎴戜滑鍏冲績鐨勬槸"鍒犻櫎鍓?has accumulated state",鐢?messages 鏁?+ runs
+    // 闀垮害宸茬粡鑳介獙璇併€?杩欓噷鍙獙璇?runs 鏈夎繍琛屾€?(activeRunId + status=running)銆?  
     expect(before.activeRunId).toBe("run-1");
     expect(before.runs["run-1"]?.status).toBe("running");
 
     await store.deleteThread(threadId);
 
-    // deleteThread 之后 (Week 1 #2 修复): entry 保留但 messages 清空,
-    // 释放 24KB tool_data 累积。runs / pendingXxxId / isLoading 也要归零,
-    // 防止 stopStream 后 flush 缓冲把文字写到已删 thread。
+    // deleteThread 涔嬪悗 (Week 1 #2 淇): entry 淇濈暀浣?messages 娓呯┖,
+    // 閲婃斁 24KB tool_data 绱Н銆俽uns / pendingXxxId / isLoading 涔熻褰掗浂,
+    // 闃叉 stopStream 鍚?flush 缂撳啿鎶婃枃瀛楀啓鍒板凡鍒?thread銆?  
     const after = useChatStore.getState().threadStates[threadId];
     expect(after).toBeDefined();
     expect(after.messages).toEqual([]);
@@ -1048,35 +796,35 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   });
 
   it("deleteThread clears threadTypes and reverse-mapped externalSessionResolutions", async () => {
-    // 修复 #7: deleteThread 之前没清 `state.threadTypes[threadId]`, 留下孤儿
-    // 条目 ── 后续 `get().threadTypes[threadId] ?? "flowix"` 会拿到旧 type,
-    // 误判 dispatch 路径。 同时反向映射 `externalSessionResolutions[local] === threadId`
-    // (即 local id 已经被 resolve 到这个被删的 thread) 也要清, 否则 findByThreadId
-    // 会误命中已删 id。
+    // 淇 #7: deleteThread 涔嬪墠娌℃竻 `state.threadTypes[threadId]`, 鐣欎笅瀛ゅ効
+    // 鏉＄洰 鈹€鈹€ 鍚庣画 `get().threadTypes[threadId] ?? "flowix"` 浼氭嬁鍒版棫 type,
+    // 璇垽 dispatch 璺緞銆?鍚屾椂鍙嶅悜鏄犲皠 `externalSessionResolutions[local] === threadId`
+    // (鍗?local id 宸茬粡琚?resolve 鍒拌繖涓鍒犵殑 thread) 涔熻娓? 鍚﹀垯 findByThreadId
+    // 浼氳鍛戒腑宸插垹 id銆?  
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const store = useChatStore.getState();
     const threadId = "thread-delete-cleans-thread-types";
     const localThreadId = "codex-local-agent-inst-orphan";
 
     store.bindThreadType(threadId, "codex");
-    // 模拟一个 local → session 已 resolve 过的状态, 且 session === threadId
-    // (本地 thread id 是 `${type}-local-${instanceId}`,
-    // resolve 后变成真实 session_id, 此时 local id 仍然作为 mapping 留在
-    // externalSessionResolutions 里)。
+    // 妯℃嫙涓€涓?local 鈫?session 宸?resolve 杩囩殑鐘舵€? 涓?session === threadId
+    // (鏈湴 thread id 鏄?`${type}-local-${instanceId}`,
+    // resolve 鍚庡彉鎴愮湡瀹?session_id, 姝ゆ椂 local id 浠嶇劧浣滀负 mapping 鐣欏湪
+    // externalSessionResolutions 閲?銆?  
     useChatStore.setState((state) => ({
       ...state,
       externalSessionResolutions: {
         ...state.externalSessionResolutions,
-        [localThreadId]: threadId, // 反向映射指向被删 thread
+        [localThreadId]: threadId, // 鍙嶅悜鏄犲皠鎸囧悜琚垹 thread
       },
     }));
 
     await store.deleteThread(threadId);
 
     const state = useChatStore.getState();
-    // threadTypes 清理
+    // threadTypes 娓呯悊
     expect(state.threadTypes[threadId]).toBeUndefined();
-    // 反向映射清理 ── `findByThreadId(threadId)` 不再命中已删 entry。
+    // 鍙嶅悜鏄犲皠娓呯悊 鈹€鈹€ `findByThreadId(threadId)` 涓嶅啀鍛戒腑宸插垹 entry銆?  
     expect(
       state.externalSessionResolutions[localThreadId],
     ).toBeUndefined();
@@ -1211,14 +959,11 @@ describe("chat-store Agent Thread Card streaming flow", () => {
         memoId: "memo-running-session",
         documentPath: "/tmp/running-session.md",
       },
-      run: {
-        runId: "run-local-1",
-        status: "running",
-      },
     });
     expect(
       selectRunningAgentConversationThreadIds(
         useAgentConversationStore.getState(),
+        useChatStore.getState().threadStates,
       ),
     ).toEqual([sessionId]);
     store.dispatchAgentChunk({
@@ -1498,7 +1243,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     });
   });
 
-  it("merges Claude history tool rows by toolCallId without appending duplicates", async () => {
+  it("loads Claude history tool rows after external replay has no display events", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const { useAgentConversationStore } = await import(
@@ -1560,16 +1305,17 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const messages =
       useAgentConversationStore.getState().messageStates[threadId].messages;
     expect(messages.map((message) => message.id)).toEqual([
-      "tool-toolu_1",
       "history-user",
+      "history-tool-call",
       "history-assistant",
     ]);
     expect(messages.filter((message) => message.toolCallId === "toolu_1"))
       .toHaveLength(1);
-    expect(messages[0]).toMatchObject({
+    expect(messages.find((message) => message.toolCallId === "toolu_1"))
+      .toMatchObject({
       role: "tool",
       toolCallId: "toolu_1",
-      content: "file contents",
+      content: '{\n  "content": "file contents"\n}',
       isLoading: false,
     });
   });
@@ -1749,17 +1495,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   it("passes the thread agent type when stopping a run", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
-    const { useAgentConversationStore } = await import(
-      "@features/agent/store/agent-conversation-store"
-    );
     const store = useChatStore.getState();
     const threadId = "thread-card-stop-codex";
-    const instance = useAgentConversationStore.getState().createInstance({
-      agentType: "codex",
-      title: "Stop Codex",
-      threadId,
-      source: { kind: "thread-card" },
-    });
 
     store.bindThreadType(threadId, "codex");
     store.dispatchAgentChunk({
@@ -1775,20 +1512,15 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(agent.stopChatStream).toHaveBeenCalledWith(
       threadId,
       "codex",
-      threadState.activeRunId,
+      "run-stop-codex",
     );
     expect(threadState.isLoading).toBe(false);
-    expect(threadState.runs[threadState.activeRunId ?? ""]?.status).toBe(
-      "cancelled",
-    );
-    expect(
-      useAgentConversationStore.getState().getInstance(instance.instanceId)?.run,
-    ).toMatchObject({
+    expect(threadState.activeRunId).toBeNull();
+    expect(threadState.runs["run-stop-codex"]).toBeUndefined();
+    expect(threadState.lastRun).toMatchObject({
       runId: "run-stop-codex",
       status: "cancelled",
-      reason: "cancelled",
     });
-
     store.dispatchAgentChunk({
       kind: "stream_end",
       thread_id: threadId,
@@ -1797,56 +1529,48 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       reason: null,
     });
 
-    expect(
-      useAgentConversationStore.getState().getInstance(instance.instanceId)?.run,
-    ).toMatchObject({
+    expect(useChatStore.getState().threadStates[threadId].lastRun).toMatchObject({
       runId: "run-stop-codex",
       status: "cancelled",
     });
   });
 
   it("setActiveThreadId / setActiveCodexThreadId do not change activeAgentTypeKey", async () => {
-    // 修复 #12: 之前 `activeThreadUpdate` 把 `activeAgentTypeKey: type` 当
-    // 副作用 ── 切到 codex thread 顺带把 activeAgentTypeKey 改成 codex。
-    // 多 panel / 多 instance 并发场景下, 其中一个 panel 的 setActiveThreadId
-    // 会污染另一个 panel 的 send 路径。
-    //
-    // 现在 `activeThreadUpdate` 只更新 activeThreadIds[type], activeAgentTypeKey
-    // 由 setActiveAgentThread / setActiveAgentTypeKey 显式管理。
+    // 淇 #12: 涔嬪墠 `activeThreadUpdate` 鎶?`activeAgentTypeKey: type` 褰?    // 鍓綔鐢?鈹€鈹€ 鍒囧埌 codex thread 椤哄甫鎶?activeAgentTypeKey 鏀规垚 codex銆?    // 澶?panel / 澶?instance 骞跺彂鍦烘櫙涓? 鍏朵腑涓€涓?panel 鐨?setActiveThreadId
+    // 浼氭薄鏌撳彟涓€涓?panel 鐨?send 璺緞銆?    //
+    // 鐜板湪 `activeThreadUpdate` 鍙洿鏂?activeThreadIds[type], activeAgentTypeKey
+    // 鐢?setActiveAgentThread / setActiveAgentTypeKey 鏄惧紡绠＄悊銆?  
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const store = useChatStore.getState();
 
-    // 初始 activeAgentTypeKey (DEFAULT_AGENT_TYPE_KEY 通常是 'flowix', 但不依赖具体值)
+    // 鍒濆 activeAgentTypeKey (DEFAULT_AGENT_TYPE_KEY 閫氬父鏄?'flowix', 浣嗕笉渚濊禆鍏蜂綋鍊?
     const initialType = useChatStore.getState().activeAgentTypeKey;
 
-    // 切到 codex thread ── 仅更新 activeThreadIds.codex, 不动 activeAgentTypeKey。
+    // 鍒囧埌 codex thread 鈹€鈹€ 浠呮洿鏂?activeThreadIds.codex, 涓嶅姩 activeAgentTypeKey銆?  
     store.setActiveCodexThreadId("codex-thread-1");
     expect(useChatStore.getState().activeThreadIds.codex).toBe("codex-thread-1");
     expect(useChatStore.getState().activeAgentTypeKey).toBe(initialType);
 
-    // 切到 flowix thread ── 同样不动 activeAgentTypeKey。
+    // 鍒囧埌 flowix thread 鈹€鈹€ 鍚屾牱涓嶅姩 activeAgentTypeKey銆?  
     store.setActiveThreadId("flowix-thread-1");
     expect(useChatStore.getState().activeThreadIds.flowix).toBe("flowix-thread-1");
     expect(useChatStore.getState().activeAgentTypeKey).toBe(initialType);
 
-    // setActiveAgentThread 仍然同步两者 ── 这是跨 runtime 切换的显式入口。
+    // setActiveAgentThread 浠嶇劧鍚屾涓よ€?鈹€鈹€ 杩欐槸璺?runtime 鍒囨崲鐨勬樉寮忓叆鍙ｃ€?  
     store.setActiveAgentThread("codex", "codex-thread-2");
     expect(useChatStore.getState().activeThreadIds.codex).toBe("codex-thread-2");
     expect(useChatStore.getState().activeAgentTypeKey).toBe("codex");
   });
 
   it("stopThreadRun sends thread-wide IPC when no active run is recorded locally", async () => {
-    // 修复 #9: 之前 `targetRunId` 早 return 后仍发 IPC, 后端走 thread-wide
-    // stop 兜底, 是浪费。 现在 targetRunId 未解析时直接 return, 不发 IPC。
-    // 验证两种情形:
-    //   1. thread 完全没 dispatch 过 stream_start, 内部无 active run。
-    //   2. thread 已 stream_end, activeRunId 被清, 也没东西可停。
+    // 淇 #9: 涔嬪墠 `targetRunId` 鏃?return 鍚庝粛鍙?IPC, 鍚庣璧?thread-wide
+    // stop 鍏滃簳, 鏄氮璐广€?鐜板湪 targetRunId 鏈В鏋愭椂鐩存帴 return, 涓嶅彂 IPC銆?    // 楠岃瘉涓ょ鎯呭舰:
+    //   1. thread 瀹屽叏娌?dispatch 杩?stream_start, 鍐呴儴鏃?active run銆?    //   2. thread 宸?stream_end, activeRunId 琚竻, 涔熸病涓滆タ鍙仠銆?  
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/chat-store");
     const store = useChatStore.getState();
 
-    // ── 情形 1: 全新 thread, 从未跑过。
-    vi.clearAllMocks();
+    // 鈹€鈹€ 鎯呭舰 1: 鍏ㄦ柊 thread, 浠庢湭璺戣繃銆?    vi.clearAllMocks();
     await store.stopThreadRun("thread-stop-empty");
     expect(agent.stopChatStream).toHaveBeenCalledWith(
       "thread-stop-empty",
@@ -1854,7 +1578,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       undefined,
     );
 
-    // ── 情形 2: thread 跑过但已自然结束。
+    // 鈹€鈹€ 鎯呭舰 2: thread 璺戣繃浣嗗凡鑷劧缁撴潫銆?  
     const finishedThreadId = "thread-stop-already-ended";
     store.bindThreadType(finishedThreadId, "flowix");
     store.dispatchAgentChunk({
@@ -2206,3 +1930,4 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   });
 
 });
+

@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// Stub out the Tauri client ── the service imports it at module top, but
-// the unit under test (`buildTagTreeOptions`) is pure and doesn't touch IPC.
+// buildTagTreeOptions / resolveSelectedTagId 是纯函数不碰 IPC; service 模块
+// 顶部 import 了 @platform/tauri/client, 空 mock 防止测试环境加载真实 client。
 vi.mock('@platform/tauri/client', () => ({
   memos: {},
   system: {},
   tags: {},
 }));
 
-import { buildTagTreeOptions, type MemoTagLayoutItem } from './memo-list-metadata-service';
+import {
+  buildTagTreeOptions,
+  resolveSelectedTagId,
+  type MemoTagLayoutItem,
+  type MemoTagTreeItem,
+} from './memo-list-metadata-service';
 
 function makeTagMap(entries: Array<[string, string]>): Map<string, string> {
   return new Map(entries);
@@ -200,5 +205,39 @@ describe('buildTagTreeOptions (segment-node expansion)', () => {
     });
 
     expect(tree.map((t) => t.fullPath)).toEqual(['中国', '中国/北京', '美国']);
+  });
+});
+
+describe('resolveSelectedTagId', () => {
+  // 校验 selectedTagId 是否是 tagOptions 里实际存在的节点 (含路径前缀 segment)。
+  // 重命名后 selectedTagId 可能暂时是旧路径, 调用方回写时用它重新校验当前值。
+  const options = (fullPaths: string[]): MemoTagTreeItem[] =>
+    fullPaths.map((fp) => {
+      const lastSlash = fp.lastIndexOf('/');
+      return {
+        id: fp,
+        parentId: lastSlash > 0 ? fp.slice(0, lastSlash) : null,
+        name: lastSlash > 0 ? fp.slice(lastSlash + 1) : fp,
+        fullPath: fp,
+        depth: (fp.match(/\//g) ?? []).length,
+        count: 0,
+      };
+    });
+
+  it('keeps selectedTagId when it is a path-prefix segment (parent node)', () => {
+    // 真实 tag `Flowix/云存储` 展开出父 segment `Flowix`; 选中 `Flowix` 合法保留。
+    expect(resolveSelectedTagId('Flowix', options(['Flowix', 'Flowix/云存储']))).toBe('Flowix');
+  });
+
+  it('keeps selectedTagId when it is a real (leaf) tag fullPath', () => {
+    expect(resolveSelectedTagId('Flowix/云存储', options(['Flowix', 'Flowix/云存储']))).toBe('Flowix/云存储');
+  });
+
+  it('clears selectedTagId when it is not a node in the tree', () => {
+    expect(resolveSelectedTagId('NonExistent', options(['Flowix', 'Flowix/云存储']))).toBeNull();
+  });
+
+  it('returns null for null selectedTagId', () => {
+    expect(resolveSelectedTagId(null, options(['Flowix']))).toBeNull();
   });
 });

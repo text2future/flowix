@@ -330,6 +330,10 @@ export const useMemoStore = create<MemoStore>()(
         set({
           memos: upsertSortedMemo(get().memos, memo as MemoItem, createFilter, state.activeSort),
         });
+        // 新建 memo 可能引入新 tag (body 派生) ── 主动 bump metadata refresh,
+        // 让侧栏标签树立即出现新节点 / 更新计数。后端 SelfWriteSuppressor 会
+        // 掐掉 desktop 自写的 memo-event, 不会自动触发 refresh, 必须手动调。
+        useTagStore.getState().triggerMetadataRefresh();
         return memo as MemoItem;
       },
 

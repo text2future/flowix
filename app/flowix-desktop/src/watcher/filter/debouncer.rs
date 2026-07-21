@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::watcher::event::{DropReason, FilterDecision, RawFsEvent};
 use crate::watcher::filter::{Filter, FilterCtx, DEBOUNCE};
 
-/// 段 3: 路径防抖。150ms 内同路径事件吞。
+/// 娈?3: 璺緞闃叉姈銆?50ms 鍐呭悓璺緞浜嬩欢鍚炪€?
 pub struct Debouncer;
 
 impl Filter for Debouncer {
@@ -17,8 +17,7 @@ impl Filter for Debouncer {
         let Ok(mut map) = ctx.last_emit.lock() else {
             return FilterDecision::Pass;
         };
-        // 1.5s 滚动窗口 (DEBOUNCE * 10) 保留, 避免防抖表长期增长。
-        map.retain(|_, t| t.elapsed() < DEBOUNCE.saturating_mul(10));
+        // 1.5s 婊氬姩绐楀彛 (DEBOUNCE * 10) 淇濈暀, 閬垮厤闃叉姈琛ㄩ暱鏈熷闀裤€?        map.retain(|_, t| t.elapsed() < DEBOUNCE.saturating_mul(10));
         if let Some(last) = map.get(&key) {
             if last.elapsed() < DEBOUNCE {
                 return FilterDecision::Drop {

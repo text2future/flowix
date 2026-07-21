@@ -6,8 +6,6 @@ import type {
   FilesConfig,
   RuntimeConfig,
   RuntimeConfigPatch,
-  StatusInfo,
-  UsageInfo,
 } from "@/types/agent";
 import type {
   AgentConversationInstance as BackendAgentConversationInstance,
@@ -16,6 +14,7 @@ import { stripSystemBlock } from "@features/agent/message";
 import { agentClient } from "@features/agent/store/agent-client";
 import type { LiveMessageState } from "@features/agent/store/chunk-result";
 import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
+import type { ThreadsMap } from "@features/agent/store/thread-runtime-state";
 import {
   filterRenderableHistoryMessages,
   getHistoryPage,
@@ -37,23 +36,6 @@ export interface AgentConversationRole {
   name?: string | null;
 }
 
-export interface AgentConversationRun {
-  runId: string;
-  status: "running" | "completed" | "failed" | "cancelled";
-  startedAt: number;
-  endedAt?: number | null;
-  currentTool?: string | null;
-  model?: string | null;
-  modelId?: string | null;
-  reasoningEffort?: string | null;
-  lastRunAt?: number | null;
-  reason?: string | null;
-  /** Nested token usage — see [`UsageInfo`] in `@/types/agent`. */
-  usage?: UsageInfo | null;
-  /** Provider-specific status snapshot — see [`StatusInfo`] in `@/types/agent`. */
-  statusInfo?: StatusInfo | null;
-}
-
 export interface AgentConversationInstance {
   instanceId: string;
   agentType: AgentTypeKey;
@@ -62,7 +44,6 @@ export interface AgentConversationInstance {
   runtimeConfig?: RuntimeConfig | null;
   source: AgentConversationSource;
   role?: AgentConversationRole | null;
-  run?: AgentConversationRun | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -105,36 +86,14 @@ export interface AgentConversationStore {
     },
   ) => void;
   renameInstance: (instanceId: string, title: string) => void;
-  markRunStarted: (
-    instanceId: string,
-    run: Omit<AgentConversationRun, "status">,
-  ) => void;
-  markRunEnded: (
-    instanceId: string,
-    status: Exclude<AgentConversationRun["status"], "running">,
-    endedAt: number,
-    reason?: string | null,
-  ) => void;
-  updateRun: (
-    instanceId: string,
-    patch: Partial<Omit<AgentConversationRun, "runId" | "startedAt">>,
-  ) => void;
   removeInstance: (instanceId: string) => void;
   removeInstancesForThread: (threadId: string) => void;
-  markRunningMissingFromSnapshotEnded: (
-    running: Record<
-      string,
-      { runId?: string | null; agentType?: AgentTypeKey | null }
-    >,
-    endedAt: number,
-  ) => void;
   resolveSessionByThreadId: (
     localThreadId: string,
     sessionId: string,
     agentType: AgentTypeKey,
   ) => string | null;
   findByThreadId: (threadId: string) => AgentConversationInstance | null;
-  findByRunId: (runId: string) => AgentConversationInstance | null;
   getMessageState: (
     threadId: string | null | undefined,
   ) => AgentConversationMessageState | null;
@@ -153,6 +112,7 @@ export interface AgentConversationStore {
     threadId: string,
     liveState: LiveMessageState,
   ) => void;
+  resetMessageStates: (threadIds: string[]) => void;
   loadMessages: (agentType: AgentTypeKey, threadId: string) => Promise<void>;
   loadMoreMessages: (agentType: AgentTypeKey, threadId: string) => Promise<void>;
 }
@@ -223,7 +183,6 @@ function normalizeBackendInstance(
     ...instance,
     runtimeConfig: parseRuntimeConfigSnapshot(instance.runtimeConfig),
     role: instance.role ?? undefined,
-    run: instance.run ?? undefined,
   };
 }
 
@@ -241,17 +200,13 @@ function normalizeConversationTitle(title: string | null | undefined): string {
 }
 
 const instanceWriteQueues = new Map<string, Promise<void>>();
-const RUN_PERSIST_DEBOUNCE_MS = 2000;
 
 /**
- * hydrate 后扫一遍, 给 runtime_config 是空 / 不全的 instance 写一份
- * 当前 global store 的快照. 同一 instance 后续 sendMessageToThread
- * 拿到 `conversation.instance.runtimeConfig` 时, cwd 已经有值, 不再
- * 依赖 buildAgentRuntimeConfig 的兜底链.
+ * hydrate 鍚庢壂涓€閬? 缁?runtime_config 鏄┖ / 涓嶅叏鐨?instance 鍐欎竴浠? * 褰撳墠 global store 鐨勫揩鐓? 鍚屼竴 instance 鍚庣画 sendMessageToThread
+ * 鎷垮埌 `conversation.instance.runtimeConfig` 鏃? cwd 宸茬粡鏈夊€? 涓嶅啀
+ * 渚濊禆 buildAgentRuntimeConfig 鐨勫厹搴曢摼.
  *
- * 注意: 仅在 files 为空 OR files.workspace 为空时 backfill. 若用户
- * 已经在 settings popover 里手动改过 runtime_config (cwd/files 不
- * 是空), 不动它, 避免覆盖用户配置.
+ * 娉ㄦ剰: 浠呭湪 files 涓虹┖ OR files.workspace 涓虹┖鏃?backfill. 鑻ョ敤鎴? * 宸茬粡鍦?settings popover 閲屾墜鍔ㄦ敼杩?runtime_config (cwd/files 涓? * 鏄┖), 涓嶅姩瀹? 閬垮厤瑕嗙洊鐢ㄦ埛閰嶇疆.
  */
 function backfillMissingRuntimeConfig(
   backendInstances: BackendAgentConversationInstance[],
@@ -278,20 +233,13 @@ function backfillMissingRuntimeConfig(
     const cwdMissing = !parsed?.cwd;
     if (!filesEmpty && !cwdMissing) continue;
     const seed = tryBackfill(backend.agentType);
-    // 至少要把 cwd 写到顶层, 这样 resetRuntimeConfig(null) + 后续 set 可以救回.
+    // 鑷冲皯瑕佹妸 cwd 鍐欏埌椤跺眰, 杩欐牱 resetRuntimeConfig(null) + 鍚庣画 set 鍙互鏁戝洖.
     useAgentConversationStore.getState().setRuntimeConfig(
       backend.instanceId,
       seed,
     );
   }
 }
-
-type PendingRunWrite = {
-  timer: ReturnType<typeof setTimeout>;
-  run: AgentConversationRun;
-};
-
-const pendingRunWrites = new Map<string, PendingRunWrite>();
 
 function enqueueInstanceWrite(
   instanceId: string,
@@ -318,55 +266,6 @@ function persistInstance(instance: AgentConversationInstance): void {
     instance.instanceId,
     () => agentClient.upsertConversationInstance(toBackendInstance(instance)).then(() => undefined),
     "persist instance",
-  );
-}
-
-function persistRun(instanceId: string, run: AgentConversationRun): void {
-  enqueueInstanceWrite(
-    instanceId,
-    () => agentClient.upsertConversationRunState(instanceId, run),
-    "persist run state",
-  );
-}
-
-function schedulePersistRun(instanceId: string, run: AgentConversationRun): void {
-  const existing = pendingRunWrites.get(instanceId);
-  if (existing) {
-    clearTimeout(existing.timer);
-  }
-
-  const timer = setTimeout(() => {
-    const pending = pendingRunWrites.get(instanceId);
-    if (!pending || pending.timer !== timer) return;
-    pendingRunWrites.delete(instanceId);
-    persistRun(instanceId, pending.run);
-  }, RUN_PERSIST_DEBOUNCE_MS);
-
-  pendingRunWrites.set(instanceId, { timer, run });
-}
-
-function flushPersistRun(instanceId: string): void {
-  const pending = pendingRunWrites.get(instanceId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  pendingRunWrites.delete(instanceId);
-  persistRun(instanceId, pending.run);
-}
-
-function cancelPersistRun(instanceId: string): void {
-  const pending = pendingRunWrites.get(instanceId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  pendingRunWrites.delete(instanceId);
-}
-
-function shouldPersistRunImmediately(
-  patch: Partial<Omit<AgentConversationRun, "runId" | "startedAt">>,
-): boolean {
-  return (
-    patch.status !== undefined ||
-    patch.endedAt !== undefined ||
-    patch.reason !== undefined
   );
 }
 
@@ -404,11 +303,10 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
             }
             return { instances: next };
           });
-          // Backfill 老 instance 的 runtime_config ── 之前 createInstance
-          // 没填, DB 里这些行 runtime_config = NULL, 重启后 chat-stream.ts
-          // 的 buildAgentRuntimeConfig 兜底链可能全断 (selectedNotebook /
-          // agent-access 启动 race 窗口). 用当前 global store 的真值同步
-          // 回填一次, 然后落 SQLite, 之后 cwd 不再依赖 store hydrate 时序.
+          // Backfill 鑰?instance 鐨?runtime_config 鈹€鈹€ 涔嬪墠 createInstance
+          // 娌″～, DB 閲岃繖浜涜 runtime_config = NULL, 閲嶅惎鍚?chat-stream.ts
+          // 鐨?buildAgentRuntimeConfig 鍏滃簳閾惧彲鑳藉叏鏂?(selectedNotebook /
+          // agent-access 鍚姩 race 绐楀彛). 鐢ㄥ綋鍓?global store 鐨勭湡鍊煎悓姝?          // 鍥炲～涓€娆? 鐒跺悗钀?SQLite, 涔嬪悗 cwd 涓嶅啀渚濊禆 store hydrate 鏃跺簭.
           backfillMissingRuntimeConfig(instances);
         } catch (err) {
           console.error("[AgentConversation] Failed to hydrate instances:", err);
@@ -457,7 +355,6 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
                 : existing?.runtimeConfig ?? null,
             source: patch.source ?? existing?.source ?? { kind: "thread-card" },
             role: patch.role ?? existing?.role,
-            run: patch.run ?? existing?.run,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
           };
@@ -481,8 +378,8 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
             existing.runtimeConfig,
             patch,
           );
-          // _frozen 是内部冻结标记, 不能被外部 patch 误删 ── 仅在 lockInstanceFileSeed
-          // 显式调用时设 true, 其它路径保持 sticky。
+          // _frozen 鏄唴閮ㄥ喕缁撴爣璁? 涓嶈兘琚閮?patch 璇垹 鈹€鈹€ 浠呭湪 lockInstanceFileSeed
+          // 鏄惧紡璋冪敤鏃惰 true, 鍏跺畠璺緞淇濇寔 sticky.
           if (existing.runtimeConfig?.files?._frozen) {
             mergedConfig.files = {
               ...(mergedConfig.files ?? { folders: [], notebooks: [] }),
@@ -510,8 +407,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           if (!existing) return state;
           const files = existing.runtimeConfig?.files;
           if (!files) return state;
-          // 已经冻结过就不要无意义重写 ── 同一 thread 在 retry 路径下可能
-          // 第二次进 sendMessageToThread, 这里幂等。
+          // 宸茬粡鍐荤粨杩囧氨涓嶈鏃犳剰涔夐噸鍐?鈹€鈹€ 鍚屼竴 thread 鍦?retry 璺緞涓嬪彲鑳?          // 绗簩娆¤繘 sendMessageToThread, 杩欓噷idempotent.
           if (files._frozen) return state;
           nextInstance = touch({
             ...existing,
@@ -576,96 +472,7 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
         if (nextInstance) persistInstance(nextInstance);
       },
 
-      markRunStarted: (instanceId, run) => {
-        flushPersistRun(instanceId);
-        let nextRun: AgentConversationRun | null = null;
-        let nextInstance: AgentConversationInstance | null = null;
-        set((state) => {
-          const existing = state.instances[instanceId];
-          if (!existing) return state;
-          nextRun = {
-            usage: existing.run?.usage,
-            statusInfo: existing.run?.statusInfo,
-            ...run,
-            status: "running",
-          };
-          nextInstance = touch({
-            ...existing,
-            run: nextRun,
-          });
-          return {
-            instances: {
-              ...state.instances,
-              [instanceId]: nextInstance!,
-            },
-          };
-        });
-        if (nextInstance) persistInstance(nextInstance);
-        if (nextRun) persistRun(instanceId, nextRun);
-      },
-
-      markRunEnded: (instanceId, status, endedAt, reason) => {
-        flushPersistRun(instanceId);
-        let nextRun: AgentConversationRun | null = null;
-        let nextInstance: AgentConversationInstance | null = null;
-        set((state) => {
-          const existing = state.instances[instanceId];
-          if (!existing?.run) return state;
-          nextRun = {
-            ...existing.run,
-            status,
-            endedAt,
-            reason,
-          };
-          nextInstance = touch({
-            ...existing,
-            run: nextRun,
-          });
-          return {
-            instances: {
-              ...state.instances,
-              [instanceId]: nextInstance!,
-            },
-          };
-        });
-        if (nextInstance) persistInstance(nextInstance);
-        if (nextRun) persistRun(instanceId, nextRun);
-      },
-
-      updateRun: (instanceId, patch) => {
-        let nextRun: AgentConversationRun | null = null;
-        let nextInstance: AgentConversationInstance | null = null;
-        set((state) => {
-          const existing = state.instances[instanceId];
-          if (!existing?.run) return state;
-          nextRun = {
-            ...existing.run,
-            ...patch,
-          };
-          nextInstance = touch({
-            ...existing,
-            run: nextRun,
-          });
-          return {
-            instances: {
-              ...state.instances,
-              [instanceId]: nextInstance!,
-            },
-          };
-        });
-        if (nextInstance) persistInstance(nextInstance);
-        if (nextRun) {
-          if (shouldPersistRunImmediately(patch)) {
-            flushPersistRun(instanceId);
-            persistRun(instanceId, nextRun);
-          } else {
-            schedulePersistRun(instanceId, nextRun);
-          }
-        }
-      },
-
       removeInstance: (instanceId) => {
-        cancelPersistRun(instanceId);
         set((state) => {
           if (!state.instances[instanceId]) return state;
           const { [instanceId]: _removed, ...instances } = state.instances;
@@ -695,54 +502,9 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
           return { instances, messageStates };
         });
         for (const instanceId of removedIds) {
-          cancelPersistRun(instanceId);
           deletePersistedInstance(instanceId);
         }
         deletePersistedInstancesForThread(threadId);
-      },
-
-      markRunningMissingFromSnapshotEnded: (running, endedAt) => {
-        const runningRunIds = new Set(
-          Object.values(running)
-            .map((run) => run.runId)
-            .filter((runId): runId is string => Boolean(runId)),
-        );
-        const runningThreadIds = new Set(Object.keys(running));
-        const endedInstances: AgentConversationInstance[] = [];
-        set((state) => {
-          let changed = false;
-          const instances = Object.fromEntries(
-            Object.entries(state.instances).map(([instanceId, instance]) => {
-              if (instance.run?.status !== "running") {
-                return [instanceId, instance];
-              }
-              const stillRunning =
-                runningRunIds.has(instance.run.runId) ||
-                (instance.threadId ? runningThreadIds.has(instance.threadId) : false);
-              if (stillRunning) return [instanceId, instance];
-              changed = true;
-              const nextInstance = touch({
-                ...instance,
-                run: {
-                  ...instance.run,
-                  status: "failed",
-                  endedAt,
-                  reason: "missing_from_snapshot",
-                },
-              });
-              endedInstances.push(nextInstance);
-              return [
-                instanceId,
-                nextInstance,
-              ];
-            }),
-          );
-          return changed ? { instances } : state;
-        });
-        for (const instance of endedInstances) {
-          persistInstance(instance);
-          if (instance.run) persistRun(instance.instanceId, instance.run);
-        }
       },
 
       resolveSessionByThreadId: (localThreadId, sessionId, agentType) => {
@@ -788,11 +550,6 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
       findByThreadId: (threadId) =>
         Object.values(get().instances).find((instance) =>
           matchesThread(instance, threadId),
-        ) ?? null,
-
-      findByRunId: (runId) =>
-        Object.values(get().instances).find(
-          (instance) => instance.run?.runId === runId,
         ) ?? null,
 
       getMessageState: (threadId) =>
@@ -874,6 +631,18 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
               },
             },
           };
+        });
+      },
+
+      resetMessageStates: (threadIds) => {
+        const uniqueThreadIds = Array.from(new Set(threadIds.filter(Boolean)));
+        if (uniqueThreadIds.length === 0) return;
+        set((state) => {
+          const messageStates = { ...state.messageStates };
+          for (const threadId of uniqueThreadIds) {
+            messageStates[threadId] = emptyMessageState();
+          }
+          return { messageStates };
         });
       },
 
@@ -1011,50 +780,61 @@ export const useAgentConversationStore = create<AgentConversationStore>()(
   ),
 );
 
-export function selectRunningAgentConversationInstances(
-  state: Pick<AgentConversationStore, "instances">,
-): AgentConversationInstance[] {
-  return Object.values(state.instances)
-    .filter(selectIsAgentConversationRunning)
-    .sort((a, b) => (a.run?.startedAt ?? 0) - (b.run?.startedAt ?? 0));
-}
-
 export function selectAgentConversationRunStatus(
   instance: AgentConversationInstance | null | undefined,
-): AgentConversationRun["status"] | null {
-  return instance?.run?.status ?? null;
+  threadStates: ThreadsMap,
+): "running" | "completed" | "failed" | "cancelled" | null {
+  const threadId = instance?.threadId;
+  if (!threadId) return null;
+  const state = threadStates[threadId];
+  if (!state) return null;
+  const activeRun = state.activeRunId ? state.runs[state.activeRunId] : undefined;
+  return activeRun?.status ?? state.lastRun?.status ?? null;
 }
 
 export function selectIsAgentConversationRunning(
   instance: AgentConversationInstance | null | undefined,
+  threadStates: ThreadsMap,
 ): boolean {
-  return selectAgentConversationRunStatus(instance) === "running";
+  return selectAgentConversationRunStatus(instance, threadStates) === "running";
+}
+
+export function selectRunningAgentConversationInstances(
+  state: Pick<AgentConversationStore, "instances">,
+  threadStates: ThreadsMap,
+): AgentConversationInstance[] {
+  return Object.values(state.instances)
+    .filter((instance) => selectIsAgentConversationRunning(instance, threadStates))
+    .sort((a, b) => {
+      const aRun = a.threadId ? threadStates[a.threadId]?.activeRunId : null;
+      const bRun = b.threadId ? threadStates[b.threadId]?.activeRunId : null;
+      const aStartedAt = a.threadId && aRun ? threadStates[a.threadId]?.runs[aRun]?.startedAt ?? 0 : 0;
+      const bStartedAt = b.threadId && bRun ? threadStates[b.threadId]?.runs[bRun]?.startedAt ?? 0 : 0;
+      return aStartedAt - bStartedAt;
+    });
 }
 
 export function selectRunningAgentConversationThreadIds(
   state: Pick<AgentConversationStore, "instances">,
+  threadStates: ThreadsMap,
 ): string[] {
   const threadIds = new Set<string>();
-  for (const instance of selectRunningAgentConversationInstances(state)) {
+  for (const instance of selectRunningAgentConversationInstances(state, threadStates)) {
     if (instance.threadId) threadIds.add(instance.threadId);
   }
   return Array.from(threadIds);
 }
 
 /**
- * "上次设过的偏好" 快照 ── 新建 instance 时 `buildInitialInstanceRuntimeConfig`
- * 同步读它作为 workspace 种子的来源:
- *   - 找最近一个 `runtimeConfig.files._frozen === true` 的 instance (按 updatedAt 倒序)
- *   - 只挑出 files.workspace / .folders / .notebooks 这三个字段, 不掺杂
- *     model / access / reasoning 等其它字段
- *   - 找不到冻结 instance 时返回 null, 上游 cascade 退到 selectedNotebook +
- *     agent-access-store firstEnabledFolder 兜底
+ * "涓婃璁捐繃鐨勫亸濂? 蹇収 鈹€鈹€ 鏂板缓 instance 鏃?`buildInitialInstanceRuntimeConfig`
+ * 鍚屾璇诲畠浣滀负 workspace 绉嶅瓙鐨勬潵婧?
+ *   - 鎵炬渶杩戜竴涓?`runtimeConfig.files._frozen === true` 鐨?instance (鎸?updatedAt 鍊掑簭)
+ *   - 鍙寫鍑?files.workspace / .folders / .notebooks 杩欎笁涓瓧娈? 涓嶆幒鏉? *     model / access / reasoning 绛夊叾瀹冨瓧娈? *   - 鎵句笉鍒板喕缁?instance 鏃惰繑鍥?null, 涓婃父 cascade 閫€鍒?selectedNotebook +
+ *     agent-access-store firstEnabledFolder 鍏滃簳
  *
- * 意图: 用户在 instance A 上调整主空间/folder 列表后, 还没发消息之前这些值
- * 不能落到全局 `useAgentAccessStore`, 但下一条 instance B 应当能感知到 --
- * 否则 B 重新走 buildInitialInstanceRuntimeConfig 就只能用 cascade 兜底
- * (很可能拿到 selectedNotebook 这种"全局"值), 与 A 用户的本意不一致。
- */
+ * 鎰忓浘: 鐢ㄦ埛鍦?instance A 涓婅皟鏁翠富绌洪棿/folder 鍒楄〃鍚? 杩樻病鍙戞秷鎭箣鍓嶈繖浜涘€? * 涓嶈兘钀藉埌鍏ㄥ眬 `useAgentAccessStore`, 浣嗕笅涓€鏉?instance B 搴斿綋鑳芥劅鐭ュ埌 --
+ * 鍚﹀垯 B 閲嶆柊璧?buildInitialInstanceRuntimeConfig 灏卞彧鑳界敤 cascade 鍏滃簳
+ * (寰堝彲鑳芥嬁鍒?selectedNotebook 杩欑"鍏ㄥ眬"鍊?, 涓?A 鐢ㄦ埛鐨勬湰鎰忎笉涓€鑷淬€? */
 export function selectLatestFrozenFileSeed(
   state: Pick<AgentConversationStore, "instances">,
 ): FilesConfig | null {
@@ -1070,11 +850,14 @@ export function selectLatestFrozenFileSeed(
   if (!best) return null;
   const files = best.runtimeConfig?.files;
   if (!files) return null;
-  // 剥出 cwd 决策必需的三个字段, _frozen 标记本身不再传递 ── 接收端新建
-  // instance 时不应该是 frozen 状态, 必须由首条 send 时再次 lock。
+  // 鍓ュ嚭 cwd 鍐崇瓥蹇呴渶鐨勪笁涓瓧娈? _frozen 鏍囪鏈韩涓嶅啀浼犻€?鈹€鈹€ 鎺ユ敹绔柊寤?  // instance 鏃朵笉搴旇鏄?frozen 鐘舵€? 蹇呴』鐢遍鏉?send 鏃跺啀娆?lock銆?
   return {
     workspace: files.workspace,
     folders: files.folders,
     notebooks: files.notebooks,
   };
 }
+
+
+
+
