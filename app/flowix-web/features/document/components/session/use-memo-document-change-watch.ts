@@ -44,6 +44,21 @@ export function shouldReloadDocumentForTagsRenamed(
   return true;
 }
 
+/**
+ * `tags_deleted` 事件的 reload 判定 ── 与 tags_renamed 同形, 但语义
+ * 是 "tag token 被移除, 需要重新加载去掉这些 token 后的 body"。
+ */
+export function shouldReloadDocumentForTagsDeleted(
+  event: Extract<MemoEvent, { kind: 'tags_deleted' }>,
+  identity: DocumentIdentity,
+  isDirty: boolean,
+): boolean {
+  if (identity.kind !== 'memo') return false;
+  if (!event.affectedMemoIds.includes(identity.id)) return false;
+  if (isDirty) return false;
+  return true;
+}
+
 export function useMemoDocumentChangeWatch({
   filePath,
   identity,
@@ -78,6 +93,19 @@ export function useMemoDocumentChangeWatch({
           await reloadDocument(filePath, { preservePending: false, showLoading: false });
           return;
         }
+        // tags_deleted: delete_memo_tag 一次性清理 .md body 里的 #tag
+        // token。 当前打开的 memo 如果在 affectedMemoIds 里, 同样要
+        // reload ── 否则编辑器还显示已删除的 #tag。
+        if (event.kind === 'tags_deleted') {
+          const isDirty = hasDocumentUnsavedChanges(identity);
+          if (!shouldReloadDocumentForTagsDeleted(event, identity, isDirty)) {
+            if (isDirty) warnAboutConflict();
+            return;
+          }
+          clearSaveTimer();
+          await reloadDocument(filePath, { preservePending: false, showLoading: false });
+          return;
+        }
         if (event.kind !== 'updated' || event.source === 'user_edit' || !event.path) return;
         const updatedPath = canonicalPath(event.path);
         if (updatedPath !== canonicalPath(filePath)) return;
@@ -90,9 +118,10 @@ export function useMemoDocumentChangeWatch({
         await reloadDocument(filePath, { preservePending: false, showLoading: false });
       },
       (event) =>
-        // tags_renamed: 接收 ── 但内部会按 affectedMemoIds 收窄。
+        // tags_renamed / tags_deleted: 接收 ── 但内部按 affectedMemoIds 收窄。
         // updated: 走 user_edit 排除分支 (与原行为一致)。
         event.kind === 'tags_renamed'
+        || event.kind === 'tags_deleted'
         || (event.kind === 'updated' && event.source !== 'user_edit'),
     );
 

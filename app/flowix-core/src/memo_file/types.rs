@@ -250,3 +250,18 @@ pub struct MoveTagReport {
     #[serde(rename = "renamedTags")]
     pub renamed_tags: Vec<(String, String)>,
 }
+
+/// [`crate::memo_file::MemoFile::delete_memo_tag_locked`] 的返回报告。
+///
+/// - `affected_memos`: 实际被批量改写 `.md` body + 同步 memo index 的 memo
+///   条数; 当 `tag_path` 在任何 memo 都没出现时为 0。
+/// - `deleted_tags`: 操作涉及的 (被删除的) tag 路径, 含 `tag_path` 自身
+///   加上所有以 `tag_path/` 为前缀的子树 tag, **去重**。 前端用它把
+///   memos[*].tags 里命中的 token 移除 + 标签树清理。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeleteTagReport {
+    #[serde(rename = "affectedMemos")]
+    pub affected_memos: usize,
+    #[serde(rename = "deletedTags")]
+    pub deleted_tags: Vec<String>,
+}

@@ -331,6 +331,17 @@ export const tags = {
       { notebookId, oldPath, newPath },
     ),
   /**
+   * Delete a tag subtree: removes `tagPath` itself + every nested
+   * `tagPath/<...>` tag from memo index + document body. Symmetric to
+   * `move` -- returns `{ affectedMemos, deletedTags }` so the caller
+   * can refresh dropdown / tag panel caches without re-querying.
+   */
+  delete: (notebookId: string, tagPath: string) =>
+    invoke<{ affectedMemos: number; deletedTags: string[] }>(
+      'delete_memo_tag',
+      { notebookId, tagPath },
+    ),
+  /**
    * 路径式 tag 树前缀计数: 每个 prefix (e.g. `中国`, `中国/湖南`)
    * 对应挂了"以该 prefix 起始的 tag"的去重 memo 数。按 memo 数算,
    * 同一 memo 多个子 tag 在父 prefix 下只算 1。

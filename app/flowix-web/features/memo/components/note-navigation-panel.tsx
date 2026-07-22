@@ -31,9 +31,11 @@ import {
   type MemoTagLayoutItem,
   type MemoTagTreeItem,
 } from '@features/memo/services/memo-list-metadata-service';
-import { useI18n } from '@features/i18n';
+import { useI18n, type I18nParams } from '@features/i18n';
 import { invalidateMentionTags } from '@features/editor/extensions/tag-mention';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
+import { Button } from '@shared/ui/button';
 import { isWindowsPlatform } from '@features/shortcuts/platform';
 
 interface TagDragGhost {
@@ -164,6 +166,8 @@ export function NoteNavigationPanel({
   // 行内重命名编辑态: editingTagId 命中时标签名 span 替换为 input。
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [editingTagName, setEditingTagName] = useState('');
+  // 删除确认弹窗: `deletingTag` 命中时, 弹 Dialog 提示子树影响范围 + 确认。
+  const [deletingTag, setDeletingTag] = useState<MemoTagTreeItem | null>(null);
 
   // 笔记本列表拖动 ── 完全沿用上方 tag 那套: 独立 state / ref 各自维护,
   // 不抽公共 hook / 函数。两套状态机互不引用、各自只为本列表服务。
@@ -368,6 +372,59 @@ export function NoteNavigationPanel({
       }
     },
     [clearLibraryMetadata, t],
+  );
+
+  /**
+   * 提交删除一个 tag 子树。 与 `commitRename` 对称 ── 但语义不同:
+   * rename 是改写 token, delete 是移除 token。 删除的影响范围**可能**跨
+   * 多级 (子节点也会被一并删), 所以先经 Dialog 确认, 用户明确点确认才
+   * 真正调 IPC。
+   *
+   * 选中态处理: 如果 selectedTagId 命中被删子树 (是 tag 自身或其后代),
+   * 一律 `setSelectedTagId(null)` + 切 `activeFilter='all'` ── 被删的 tag
+   * 已经不存在了, 旧选中态没意义。 这与 rename 的 rebaseSelectedTagId
+   * (跟到新 fullPath) 形成对照。
+   *
+   * 后端 `delete_memo_tag` IPC 同步完成后会 emit `MemoEvent::TagsDeleted`,
+   * frontend handler 走 `handleTagsDeleted` 局部 patch memos[*].tags。
+   */
+  const confirmDeleteTag = useCallback(
+    async (tag: MemoTagTreeItem) => {
+      const notebookId = useMemoStore.getState().selectedNotebook?.id;
+      if (!notebookId) return;
+      // 记下删除前的 selectedTagId ── 同 commitRename 的 beforeSelected
+      // 模式: IPC 期间 memo-event 触发 metadata 重载, 旧 selectedTagId
+      // 会被 validate 掉成 null, await 后取不到原值。
+      const beforeSelected = useTagStore.getState().selectedTagId;
+      // 计算受影响的下游:
+      // - selectedTagId 命中子树 → 重置为 null + 切 activeFilter='all'
+      // - 命中但不在子树的 (前/同级) → 保留不动
+      const selectedInsideSubtree =
+        beforeSelected !== null &&
+        (beforeSelected === tag.fullPath ||
+          beforeSelected.startsWith(`${tag.fullPath}/`));
+      try {
+        const report = await useTagStore.getState().deleteTag(notebookId, tag.fullPath);
+        if (report) {
+          if (selectedInsideSubtree) {
+            // 选中态失效: selectedTagId 校验会立刻清成 null (validate
+            // 失败), 我们主动先写回 null 避免 useEffect 异步路径里出现
+            // 一次 "无效值" 闪烁。 activeFilter 切 'all' 让列表回到
+            // 未筛选状态。
+            setSelectedTagId(null);
+            setActiveFilter('all');
+          }
+          invalidateMentionTags();
+          clearLibraryMetadata();
+          toast.success(t('memo.tag.deletedToast', { path: tag.fullPath } satisfies I18nParams));
+        }
+      } catch (err) {
+        toast.error(
+          `${t('memo.tag.deleteFailed')}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
+    [clearLibraryMetadata, setActiveFilter, setSelectedTagId, t],
   );
 
   const handleShowAllTags = useCallback(() => {
@@ -1114,7 +1171,7 @@ export function NoteNavigationPanel({
               style={{ paddingLeft: 6 }}
               aria-pressed={activeFilter === 'all'}
             >
-              <span className="mr-2 shrink-0 opacity-60">
+              <span className="mr-2 shrink-0 opacity-90">
                 <StackIcon
                   className="h-3.5 w-3.5 text-[var(--muted-foreground)]"
                   weight="bold"
@@ -1144,7 +1201,7 @@ export function NoteNavigationPanel({
               style={{ paddingLeft: 6 }}
               aria-pressed={activeFilter === 'agents'}
             >
-              <span className="mr-2 shrink-0 opacity-60">
+              <span className="mr-2 shrink-0 opacity-90">
                 <StarFourIcon
                   className="h-3.5 w-3.5 text-[var(--muted-foreground)]"
                   weight="bold"
@@ -1174,7 +1231,7 @@ export function NoteNavigationPanel({
               style={{ paddingLeft: 6 }}
               aria-pressed={activeFilter === 'todos'}
             >
-              <span className="mr-2 shrink-0 opacity-60">
+              <span className="mr-2 shrink-0 opacity-90">
                 <CheckSquareIcon
                   className="h-3.5 w-3.5 text-[var(--muted-foreground)]"
                   weight="bold"
@@ -1240,7 +1297,7 @@ export function NoteNavigationPanel({
                     <span
                       data-tag-icon=""
                       className={cn(
-                        'relative mr-2 shrink-0 opacity-60',
+                        'relative mr-2 shrink-0 opacity-90',
                         hasChildren && 'cursor-pointer',
                       )}
                       // `#` 图标当作独立控件: 单击展开/折叠, 不触发行
@@ -1304,7 +1361,7 @@ export function NoteNavigationPanel({
                           }
                         }}
                         onBlur={() => void commitRename(tag, editingTagName)}
-                        className="min-w-0 flex-1 rounded-sm bg-[var(--background)] px-0 text-sm outline-none ring-1 ring-[var(--primary)]"
+                        className="min-w-0 flex-1 rounded-md bg-[var(--background)] px-0 text-sm outline-none ring-1 ring-[var(--primary)]"
                       />
                     ) : (
                       <span
@@ -1336,7 +1393,10 @@ export function NoteNavigationPanel({
                     <ContextMenuItem onClick={() => startRename(tag)}>
                       {t('memo.tag.rename')}
                     </ContextMenuItem>
-                    <ContextMenuItem disabled>
+                    <ContextMenuItem
+                      onClick={() => setDeletingTag(tag)}
+                      className="hover:text-[var(--destructive)] focus:text-[var(--destructive)] hover:bg-[var(--destructive)]/10 focus:bg-[var(--destructive)]/10"
+                    >
                       {t('memo.tag.delete')}
                     </ContextMenuItem>
                   </ContextMenuContent>
@@ -1348,6 +1408,62 @@ export function NoteNavigationPanel({
           </div>
         </OverlayScrollbar>
       </div>
+
+      {/* Tag 删除确认弹窗 ── 右键菜单"删除" 触发。 子树命中时给出更
+          严肃的提示文案, 明确告诉用户删除是整棵子树 + body 里所有
+          #tag 都会被移除, 无法撤销。 */}
+      <Dialog
+        open={deletingTag !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingTag(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('memo.tag.deleteConfirmTitle')}</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const target = deletingTag;
+                if (!target) return '';
+                // 子孙节点数 (含自身=1 之外的层级, 即 tag.<...>) ── 用
+                // tagOptions 派生, 不走后端 IPC。 子树命中 0 个就显示
+                // "leaf" 文案, 1+ 个就显示 "withChildren" 文案。
+                const subtreeCount = tagOptions.filter(
+                  (opt) =>
+                    opt.fullPath !== target.fullPath &&
+                    opt.fullPath.startsWith(`${target.fullPath}/`),
+                ).length;
+                if (subtreeCount === 0) {
+                  return t('memo.tag.deleteConfirmLeaf', { path: target.fullPath } satisfies I18nParams);
+                }
+                return t('memo.tag.deleteConfirmWithChildren', {
+                  path: target.fullPath,
+                  count: subtreeCount,
+                } satisfies I18nParams);
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setDeletingTag(null)}
+            >
+              {t('memo.tag.deleteCancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const target = deletingTag;
+                if (!target) return;
+                setDeletingTag(null);
+                void confirmDeleteTag(target);
+              }}
+            >
+              {t('memo.tag.deleteConfirm')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {dragGhost && (
         <div

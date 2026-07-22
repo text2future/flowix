@@ -13,6 +13,11 @@ export interface MoveTagReport {
   renamedTags: [string, string][];
 }
 
+export interface DeleteTagReport {
+  affectedMemos: number;
+  deletedTags: string[];
+}
+
 interface TagStore {
   tags: MemoTagItem[];
   selectedTagId: string | null;
@@ -32,6 +37,21 @@ interface TagStore {
     oldPath: string,
     newPath: string,
   ) => Promise<MoveTagReport | null>;
+  /**
+   * 删除 subtag: 把 `tagPath` 自身及整棵子树从 memo index + 文档 body
+   * 移除。 调用方负责 UI 副作用:
+   * - 如果 selectedTagId 命中被删子树, 调用方需 setSelectedTagId(null)
+   *   并切 activeFilter 到 'all' (因为旧的 tag 不存在了)
+   * - 调用方在成功后调 invalidateMentionTags + clearLibraryMetadata
+   *
+   * selectedTagId 处理**不**放在 store 里 ── store 不感知 UI 维度
+   * (activeFilter 来自 memo-store), 跟 moveTag 把 selectedTagId 重写
+   * 留在 panel 里是同一原则。
+   */
+  deleteTag: (
+    notebookId: string,
+    tagPath: string,
+  ) => Promise<DeleteTagReport | null>;
 }
 
 export const useTagStore = create<TagStore>()(
@@ -63,6 +83,17 @@ export const useTagStore = create<TagStore>()(
           // 编辑器 `#` mention 缓存的失效由调用方 (note-navigation-panel
           // 的 applyTagMove) 调 invalidateMentionTags, 避免本 store 反向
           // 依赖 editor (memo-store -> tag-store -> editor -> memo-store 循环)。
+          get().triggerMetadataRefresh();
+        }
+        return report;
+      },
+
+      deleteTag: async (
+        notebookId: string,
+        tagPath: string,
+      ) => {
+        const report = await tags.delete(notebookId, tagPath);
+        if (report) {
           get().triggerMetadataRefresh();
         }
         return report;

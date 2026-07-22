@@ -26,7 +26,7 @@ use rusqlite::OptionalExtension;
 use super::derivation::{apply_derived_memo_fields, extract_title_and_preview};
 use super::frontmatter::{build_md_content, merge_frontmatter, MergeOverrides};
 use super::notebook::sqlite_to_io;
-use super::types::{Memo, MoveTagReport, ReconcileReport};
+use super::types::{DeleteTagReport, Memo, MoveTagReport, ReconcileReport};
 use super::MemoFile;
 
 /// title 派生 fallback: 空 body / 不可见首行时用 `untitled-YYYY-MM-DD`。
@@ -2004,6 +2004,180 @@ impl MemoFile {
             // 在释放 memo_file read lock 后据此 emit MemoEvent::Updated,
             // 避免持锁期间递归 read_lock (std RwLock 不支持递归 read)。
             on_after_write(memo_id.as_str(), &before_memo);
+
+            report.affected_memos += 1;
+        }
+
+        Ok(report)
+    }
+
+    /// Delete tag: remove `tag_path` itself + all subtree tags (any depth
+    /// under `tag_path/`) from both memo index and document body.
+    ///
+    /// Semantics:
+    /// - `tag_path` itself: removed from `memo_tags` table; the matching
+    ///   `#tag_path` token (with preceding whitespace) is stripped from
+    ///   every affected .md body.
+    /// - `tag_path/<...>` subtree (any depth): all of them are removed in
+    ///   one shot -- both from `memo_tags` table and from .md bodies.
+    /// - Other tags / plain text: untouched.
+    ///
+    /// Constraints (caller has roughly validated; we re-validate defensively):
+    /// 1. `tag_path` must pass [`normalize_tag_path`] (legal path).
+    /// 2. `tag_path` must exist in this notebook (`memo_tags` table has at
+    ///    least one `tag = tag_path` or `tag LIKE tag_path/%` entry);
+    ///    otherwise we error out.
+    ///
+    /// Locking: same as `move_memo_tag_locked` -- enters holding
+    /// `current_index_io`, serialising with `write_memo` / `create_memo` /
+    /// `rename_memo` / `reconcile_*`. Per-memo write goes through
+    /// `atomic_write_bytes` + `sync_index_on_write_*`, so file write and
+    /// index write are each atomic; mid-flight crash self-heals on next
+    /// `reconcile_with_disk_bidirectional`.
+    pub fn delete_memo_tag_locked(
+        &self,
+        notebook_id: Option<&str>,
+        tag_path: &str,
+    ) -> std::io::Result<DeleteTagReport> {
+        self.delete_memo_tag_locked_with_hooks(notebook_id, tag_path, |_| {}, |_, _| {})
+    }
+
+    /// Hooked variant of [`delete_memo_tag_locked`]. Desktop injects
+    /// `on_before_write` to suppress watcher self-writes and an
+    /// `on_after_write` to collect `(id, before)` pairs for downstream
+    /// emit. Core stays Tauri-free.
+    ///
+    /// Note: unlike `move_memo_tag_locked_with_hooks`, this command does
+    /// NOT call `on_after_write` -- the upstream `TagsDeleted` event does
+    /// not need a `before` snapshot (the only thing that matters is the
+    /// affected id list, already collected up front). Kept the signature
+    /// symmetric so future expansion (e.g. emit per-memo before/after)
+    /// stays possible without breaking the contract.
+    pub fn delete_memo_tag_locked_with_hooks<F, G>(
+        &self,
+        notebook_id: Option<&str>,
+        tag_path: &str,
+        on_before_write: F,
+        _on_after_write: G,
+    ) -> std::io::Result<DeleteTagReport>
+    where
+        F: Fn(&Path),
+        G: FnMut(&str, &Memo),
+    {
+        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
+
+        // 1. validate + normalise
+        let tag_path = match super::derivation::normalize_tag_path(tag_path) {
+            Some(p) => p,
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("invalid tag path: {tag_path}"),
+                ));
+            }
+        };
+
+        // 2. resolve target notebook
+        let notebook_id_owned = notebook_id
+            .map(str::to_string)
+            .unwrap_or_else(|| self.current_notebook_id_for_index());
+
+        let conn = self.open_memo_index_db()?;
+
+        // 3. collect every tag path to delete: `tag_path` itself + every
+        //    subtree tag at any depth.
+        let prefix = format!("{tag_path}/");
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT mt.tag FROM memo_tags mt
+                 JOIN memos m ON m.id = mt.memo_id
+                 WHERE m.notebook_id = ?1
+                   AND (mt.tag = ?2 OR mt.tag LIKE ?3 ESCAPE '\\')",
+            )
+            .map_err(sqlite_to_io)?;
+        let deleted_tags: Vec<String> = stmt
+            .query_map(
+                rusqlite::params![&notebook_id_owned, &tag_path, format!("{prefix}%")],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_to_io)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlite_to_io)?;
+        drop(stmt);
+
+        if deleted_tags.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("tag not found in notebook: {tag_path}"),
+            ));
+        }
+
+        // 4. collect affected memo_ids
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT mt.memo_id FROM memo_tags mt
+                 JOIN memos m ON m.id = mt.memo_id
+                 WHERE m.notebook_id = ?1
+                   AND (mt.tag = ?2 OR mt.tag LIKE ?3 ESCAPE '\\')",
+            )
+            .map_err(sqlite_to_io)?;
+        let affected_ids: Vec<String> = stmt
+            .query_map(
+                rusqlite::params![&notebook_id_owned, &tag_path, format!("{prefix}%")],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_to_io)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlite_to_io)?;
+        drop(stmt);
+
+        // 5. per-memo body rewrite + memo index sync.
+        let mut report = DeleteTagReport {
+            affected_memos: 0,
+            deleted_tags,
+        };
+        for memo_id in &affected_ids {
+            let location = self.resolve_memo_location(memo_id)?.ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("memo {memo_id} not found"),
+                )
+            })?;
+            let path =
+                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename);
+            let body = std::fs::read_to_string(&path)?;
+            let new_body =
+                super::derivation::remove_tag_paths_in_body(&body, &tag_path);
+
+            // body may not change if memo_tags had stale entries for this
+            // tag while body never mentioned it (rare historical dirt).
+            // We still need to write so apply_derived_memo_fields +
+            // sync_index_on_write run, which prunes the stale memo_tags row.
+            let _ = new_body == body;
+
+            let overrides: MergeOverrides =
+                [("key".to_string(), memo_id.clone())].into_iter().collect();
+            let merged = merge_frontmatter(&new_body, &overrides);
+
+            // notify caller to mark_self_write -- otherwise the watcher
+            // would mistake this for an external edit and emit a wave of
+            // reload events.
+            on_before_write(&path);
+
+            atomic_write_bytes(&path, merged.as_bytes())?;
+
+            // re-derive + sync index. apply_derived_memo_fields re-runs
+            // extract_tags_from_body so memo.tags stays in lockstep with
+            // the rewritten body; sync_index_on_write prunes the deleted
+            // memo_tags rows.
+            let mut memo = MemoFile::index_entry_to_memo(&location.memo);
+            apply_derived_memo_fields(&mut memo, &merged);
+            memo.updated_at = chrono::Utc::now().timestamp_millis();
+            MemoFile::sync_index_on_write_for_notebook_id_locked(
+                self,
+                &location.notebook.id,
+                &memo,
+            )?;
 
             report.affected_memos += 1;
         }

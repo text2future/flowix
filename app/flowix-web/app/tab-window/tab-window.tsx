@@ -449,9 +449,10 @@ export function TabWindow() {
       closeTab(`memo:${event.id}`, true);
     }
   }, (event) => {
-    // tags_renamed 不动单 tab 的文档区 ── 它是 metadata 事件, tab 自己
-    // 不持有 tag 状态, 跟 tab 关闭路径无关。 直接放行 (filter=false)。
-    if (event.kind === 'tags_renamed') return false;
+    // tags_renamed / tags_deleted 不动单 tab 的文档区 ── 它们是 metadata
+    // 事件, tab 自己不持有 tag 状态, 跟 tab 关闭路径无关。 直接放行
+    // (filter=false)。 文档内容由 use-memo-document-change-watch 处理。
+    if (event.kind === 'tags_renamed' || event.kind === 'tags_deleted') return false;
     const id = event.kind === 'created' ? event.memo.id : event.id;
     return event.kind !== 'created'
       && useTabWindowStore.getState().tabs.some((tab) => tab.id === `memo:${id}`);

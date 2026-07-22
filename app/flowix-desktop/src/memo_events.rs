@@ -131,6 +131,29 @@ pub enum MemoEvent {
         #[serde(rename = "affectedMemoIds")]
         affected_memo_ids: Vec<String>,
     },
+    /// 整棵 tag 子树删除完成 (delete_memo_tag IPC): 一次性发出, 替代
+    /// 之前每个 affected memo 都发一次 Updated 的方案。后端已经从
+    /// memo_tags + memo index 移除所有相关条目, 也从 .md body 里清理了
+    /// `#tag` token, 这里告诉前端:
+    /// - 哪些 tag 路径被删除 (deleted_tags, 含 tag_path 自身 + 子树)
+    /// - 哪些 memo 的 tags 字段需要被前端局部清理 (affected_memo_ids)
+    ///
+    /// 跟 TagsRenamed 是对称的姊妹事件, 但语义不同: rename 是改写 token,
+    /// delete 是移除 token。 前端 dispatch 路径用同一套 memo.ids 收窄,
+    /// 但处理逻辑不同 (rename → rebase, delete → filter out)。
+    TagsDeleted {
+        #[serde(rename = "notebookId")]
+        notebook_id: String,
+        /// 被删除的 tag 路径列表 (去重), 含 `tag_path` 自身 + 所有以
+        /// `tag_path/` 为前缀的子树 tag。 前端 memos[*].tags 过滤这些值。
+        #[serde(rename = "deletedTags")]
+        deleted_tags: Vec<String>,
+        /// 受影响的 memo id 列表 ── 前端按 id 局部过滤 memos 数组的
+        /// .tags, 不替换整个 memo。 后端 `try_index_upsert` 也基于此
+        /// 逐条刷新搜索索引 (虽然 tag 删了, 但 memo body 内容变了)。
+        #[serde(rename = "affectedMemoIds")]
+        affected_memo_ids: Vec<String>,
+    },
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -174,9 +197,11 @@ impl MemoEvent {
             MemoEvent::Created { memo, .. } => &memo.id,
             MemoEvent::Updated { id, .. } => id,
             MemoEvent::Deleted { id, .. } => id,
-            // TagsRenamed 不是单条 memo 事件; 调用方按 affected_memo_ids
-            // 自行处理。这里返回空串兜底 (不参与 memo-event dedup 的 key)。
+            // TagsRenamed / TagsDeleted 不是单条 memo 事件; 调用方按
+            // affected_memo_ids 自行处理。 这里返回空串兜底 (不参与
+            // memo-event dedup 的 key)。
             MemoEvent::TagsRenamed { .. } => "",
+            MemoEvent::TagsDeleted { .. } => "",
         }
     }
 }

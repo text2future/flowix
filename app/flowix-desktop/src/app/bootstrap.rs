@@ -464,6 +464,7 @@ pub fn run() {
             // tag
             commands::tag::get_all_tags,
             commands::tag::move_memo_tag,
+            commands::tag::delete_memo_tag,
             commands::tag::get_tag_prefix_counts,
             // notebook
             commands::notebook::get_notebooks,

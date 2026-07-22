@@ -10,6 +10,7 @@ export interface MainWindowMemoEventActions {
   handleMemoUpdated: (memo: MemoItem) => void;
   handleMemoDeleted: (memoId: string) => void;
   handleTagsRenamed: (event: Extract<MemoEvent, { kind: 'tags_renamed' }>) => void;
+  handleTagsDeleted: (event: Extract<MemoEvent, { kind: 'tags_deleted' }>) => void;
   replaceActiveMemoPath: (memoId: string, path: string) => void;
   refreshSelectedNotebookMetadata: (event: MemoEvent) => void;
   refreshBackgroundTodoCount: (notebookId: string) => void;
@@ -23,23 +24,29 @@ export interface MainWindowMemoEventActions {
  * cannot present them. List and tag metadata updates remain scoped to the
  * selected notebook, while notebook-keyed todo counts refresh in background.
  *
- * `tags_renamed` 是 move_memo_tag IPC 的一次性收口事件: 后端已经把所有
- * affected memo 的 body 改写完, 这里只走 `handleTagsRenamed` 局部 patch
- * memos 数组的 .tags 字段, **不再**走 handleMemoUpdated /
- * refreshSelectedNotebookMetadata ── 后者会触发 triggerRefresh / loadData
- * / loadMemos 重拉, 让"重命名 B 时 A 的列表闪烁"再次发生。
+ * `tags_renamed` / `tags_deleted` 都是 tag 子树操作的收口事件, 后端已经
+ * 完成所有 affected memo 的 body 改写 + index 同步。 这里只走
+ * `handleTagsRenamed` / `handleTagsDeleted` 局部 patch memos 数组的 .tags
+ * 字段, **不再**走 handleMemoUpdated / refreshSelectedNotebookMetadata ──
+ * 后者会触发 triggerRefresh / loadData / loadMemos 重拉, 让"重命名 / 删除
+ * tag 时无关列表闪烁"再次发生。
  */
 export function handleMainWindowMemoEvent(
   event: MemoEvent,
   actions: MainWindowMemoEventActions,
 ): void {
-  // tags_renamed 不是单条 memo 写入事件, 走独立分支: 局部 patch memos
-  // 数组, 不替换 memo 整体, 不走 triggerMetadataRefresh / loadData。
-  // notebookId 失配也照样 patch (背景 notebook 的 memos 也得跟着重写,
-  // 否则用户切回时看到 stale tag token)。
+  // tags_renamed / tags_deleted 不是单条 memo 写入事件, 走独立分支: 局
+  // 部 patch memos 数组, 不替换 memo 整体, 不走 triggerMetadataRefresh
+  // / loadData。 notebookId 失配也照样 patch (背景 notebook 的 memos 也
+  // 得跟着重写, 否则用户切回时看到 stale tag token)。
   if (event.kind === 'tags_renamed') {
     actions.invalidateMentionCaches();
     actions.handleTagsRenamed(event);
+    return;
+  }
+  if (event.kind === 'tags_deleted') {
+    actions.invalidateMentionCaches();
+    actions.handleTagsDeleted(event);
     return;
   }
 

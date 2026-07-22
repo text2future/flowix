@@ -60,6 +60,7 @@ export function MainWindowEffects() {
           handleMemoUpdated: (memo) => useMemoStore.getState().handleMemoUpdated(memo),
           handleMemoDeleted: (memoId) => useMemoStore.getState().handleMemoDeleted(memoId),
           handleTagsRenamed,
+          handleTagsDeleted,
           replaceActiveMemoPath: (memoId, path) => {
             useDocumentStore.getState().replaceActiveMemoPath(memoId, path);
           },
@@ -88,9 +89,10 @@ export function MainWindowEffects() {
 }
 
 function refreshSelectedNotebookMetadata(event: MemoEvent): void {
-  // tags_renamed 不走这条路径 (handler 早返回了), 但函数类型是 MemoEvent
-  // 联合, 需要在这里收窄 ── 'tags_renamed' 没有 derivedChanged 字段。
-  if (event.kind === 'tags_renamed') return;
+  // tags_renamed / tags_deleted 不走这条路径 (handler 早返回了), 但函
+  // 数类型是 MemoEvent 联合, 需要在这里收窄 ── 这两个 kind 没有
+  // derivedChanged 字段。
+  if (event.kind === 'tags_renamed' || event.kind === 'tags_deleted') return;
   const { notebookId, derivedChanged } = event;
   if (derivedChanged.tags || derivedChanged.agents || derivedChanged.todos) {
     void useTagStore.getState().loadTags(notebookId);
@@ -157,6 +159,77 @@ function handleTagsRenamed(
         current = rebaseSelectedTagId(current, oldPrefix, newPrefix) ?? current;
       }
       return current;
+    });
+    if (
+      newTags.length === memo.tags.length &&
+      newTags.every((t, i) => t === memo.tags[i])
+    ) {
+      return memo;
+    }
+    dirty = true;
+    return { ...memo, tags: newTags };
+  });
+  if (dirty) {
+    useMemoStore.setState({ memos: nextMemos });
+  }
+}
+
+/**
+ * 处理 delete_memo_tag IPC 的一次性 TagsDeleted 事件。 对称于
+ * `handleTagsRenamed`, 但语义是 "从 memos[*].tags 移除" 而不是 "改写"。
+ *
+ * 后端已经:
+ * - 从 memo_tags 表移除 `tag_path` 自身 + 所有子树 tag
+ * - 从 .md body 删除对应的 `#tag_path[/<...>]` token
+ * - 同步 memo index
+ *
+ * 这里只做必要工作:
+ *   1) loadTags + triggerMetadataRefresh ── 重载标签树 (旧 tag 已删,
+ *      tagOptions 必须反映)。
+ *   2) 局部过滤 memos[*].tags 数组: 命中 deleted_tags (精确或子树
+ *      前缀) 的 token 全部移除, 其他保留。 body / preview / todos /
+ *      updatedAt 都没改 (删的是 token, 不是 memo), 不替换整个 memo
+ *      对象 (除非 tags 真变了)。
+ *   3) **不 bump refreshTrigger** ── selectedTagId 是否变由
+ *      note-navigation-panel 的 confirmDeleteTag 自己做 (重置为 null
+ *      + 切到 activeFilter='all'), useEffect [activeTagId] / [activeFilter]
+ *      自动触发 loadMemos。
+ *
+ * 注意: notebookId 失配也照样 patch memos 数组。 失配场景是"用户选中
+ * 了其他 notebook, 后端仍会把 background notebook 的 memos 改写",
+ * 切回时不能看到 stale tag。
+ */
+function handleTagsDeleted(
+  event: Extract<MemoEvent, { kind: 'tags_deleted' }>,
+): void {
+  const { notebookId, deletedTags, affectedMemoIds } = event;
+
+  // 1) reload tag tree metadata ── tagOptions must reflect the deletion,
+  //    otherwise `resolveSelectedTagId` won't be able to clear a selected
+  //    tag that was just removed.
+  void useTagStore.getState().loadTags(notebookId);
+  useTagStore.getState().triggerMetadataRefresh();
+
+  // 2) Local patch memos: drop every tag token that equals a deleted
+  //    tag or starts with a deleted tag + `/` (i.e. lives in a deleted
+  //    subtree).
+  if (affectedMemoIds.length === 0 || deletedTags.length === 0) return;
+  const idSet = new Set(affectedMemoIds);
+  const deletedSet = new Set(deletedTags);
+  // For subtree match, any tag whose closest deleted-prefix ancestor is
+  // in `deletedSet` should also go. The precomputed list `deletedTags`
+  // already contains every prefix that actually had a hit in the corpus
+  // (the backend builds it from memo_tags), so plain equality + "starts
+  // with `${deletedTag}/`" suffices.
+  const memos = useMemoStore.getState().memos;
+  let dirty = false;
+  const nextMemos = memos.map((memo) => {
+    if (!idSet.has(memo.id)) return memo;
+    const newTags = memo.tags.filter((tag) => {
+      for (const deleted of deletedSet) {
+        if (tag === deleted || tag.startsWith(`${deleted}/`)) return false;
+      }
+      return true;
     });
     if (
       newTags.length === memo.tags.length &&

@@ -70,6 +70,12 @@ function installMemoEventBridge(): void {
             : payload.kind === 'updated' || payload.kind === 'deleted'
               ? payload.path
               : null,
+        // tags_renamed / tags_deleted 是 metadata 事件, 顺手把 affected
+        // memo 数打到日志, 排查"重命名 / 删除影响范围"时不用再看 IPC 抓包。
+        affectedMemos:
+          payload.kind === 'tags_renamed' || payload.kind === 'tags_deleted'
+            ? payload.affectedMemoIds.length
+            : null,
       });
     }
     memoDispatcher.dispatch(payload);

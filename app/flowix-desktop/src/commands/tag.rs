@@ -9,7 +9,7 @@ use crate::app::search_index::try_index_upsert;
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoEvent};
 use crate::watcher::runtime::mark_self_write_for;
-use flowix_core::memo_file::types::MoveTagReport;
+use flowix_core::memo_file::types::{DeleteTagReport, MoveTagReport};
 
 use crate::app::state::AppState;
 
@@ -87,6 +87,53 @@ pub fn move_memo_tag(
     );
     Ok(report)
 }
+
+// Delete tag: remove `tag_path` itself + all subtree tags (any depth)
+// from memo index + document body. Symmetric to move_memo_tag: rename
+// re-writes the token, delete removes it. Event strategy is also
+// symmetric -- one-shot emit `MemoEvent::TagsDeleted` (instead of
+// per-memo Updated).
+#[tauri::command]
+pub fn delete_memo_tag(
+    notebook_id: Option<String>,
+    tag_path: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<DeleteTagReport, String> {
+    let mut affected_memo_ids: Vec<String> = Vec::new();
+    let report = {
+        let memo_file = state
+            .memo_file
+            .read()
+            .map_err(|e| format!("memo_file read lock poisoned: {e}"))?;
+        memo_file
+            .delete_memo_tag_locked_with_hooks(
+                notebook_id.as_deref(),
+                &tag_path,
+                |path| mark_self_write_for(&app, path),
+                |id, _before| affected_memo_ids.push(id.to_string()),
+            )
+            .map_err(|e| e.to_string())?
+    };
+
+    // read lock released:
+    // 1) refresh search index per affected memo (tag removed from body,
+    //    search index must follow -- otherwise stale hits leak through).
+    for id in &affected_memo_ids {
+        try_index_upsert(state.inner(), id);
+    }
+    // 2) one-shot emit TagsDeleted to the frontend.
+    memo_events::emit(
+        &app,
+        MemoEvent::TagsDeleted {
+            notebook_id: notebook_id.unwrap_or_else(|| "nb_default".to_string()),
+            deleted_tags: report.deleted_tags.clone(),
+            affected_memo_ids,
+        },
+    );
+    Ok(report)
+}
+
 
 /// 璺緞寮?tag 鏍戝墠缂€璁℃暟: 姣忎釜 prefix (e.g. `涓浗`, `涓浗/婀栧崡`) 瀵瑰簲
 /// 鎸備簡"浠ヨ prefix 璧峰鐨?tag"鐨勫幓閲?memo 鏁般€傜敤浜庝晶鏍忔爲鑺傜偣涓?/// 鏄剧ず鐨勬暟瀛?鈥?蹇呴』鎸?memo 鏁? 涓嶈兘鎸?tag 鏁扮疮鍔?(鍚屼竴 memo 澶氫釜

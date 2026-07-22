@@ -43,6 +43,7 @@ function createActions(selectedNotebookId = 'notebook-a'): MainWindowMemoEventAc
     handleMemoUpdated: vi.fn(),
     handleMemoDeleted: vi.fn(),
     handleTagsRenamed: vi.fn(),
+    handleTagsDeleted: vi.fn(),
     replaceActiveMemoPath: vi.fn(),
     refreshSelectedNotebookMetadata: vi.fn(),
     refreshBackgroundTodoCount: vi.fn(),
@@ -186,6 +187,47 @@ describe('handleMainWindowMemoEvent', () => {
     handleMainWindowMemoEvent(event, actions);
 
     expect(actions.handleTagsRenamed).toHaveBeenCalledWith(event);
+    expect(actions.refreshBackgroundTodoCount).not.toHaveBeenCalled();
+    expect(actions.invalidateMentionCaches).toHaveBeenCalledOnce();
+  });
+
+  it('routes tags_deleted to handleTagsDeleted and bypasses memo/replace/refresh paths', () => {
+    // tags_deleted 是 metadata 事件, 跟 tags_renamed 同形 ── 直接走
+    // handleTagsDeleted, 不走 handleMemoUpdated / replaceActiveMemoPath
+    // / refreshSelectedNotebookMetadata / refreshBackgroundTodoCount。
+    const actions = createActions('notebook-b');
+    const event: MemoEvent = {
+      kind: 'tags_deleted',
+      notebookId: 'notebook-b',
+      deletedTags: ['中国', '中国/湖南'],
+      affectedMemoIds: ['memo-1'],
+    };
+
+    handleMainWindowMemoEvent(event, actions);
+
+    expect(actions.handleTagsDeleted).toHaveBeenCalledWith(event);
+    expect(actions.handleMemoUpdated).not.toHaveBeenCalled();
+    expect(actions.handleMemoCreated).not.toHaveBeenCalled();
+    expect(actions.handleMemoDeleted).not.toHaveBeenCalled();
+    expect(actions.replaceActiveMemoPath).not.toHaveBeenCalled();
+    expect(actions.refreshSelectedNotebookMetadata).not.toHaveBeenCalled();
+    expect(actions.refreshBackgroundTodoCount).not.toHaveBeenCalled();
+    expect(actions.openNoteTab).not.toHaveBeenCalled();
+    expect(actions.invalidateMentionCaches).toHaveBeenCalledOnce();
+  });
+
+  it('routes tags_deleted to handleTagsDeleted even for background notebooks', () => {
+    const actions = createActions('notebook-a');
+    const event: MemoEvent = {
+      kind: 'tags_deleted',
+      notebookId: 'notebook-b',
+      deletedTags: [],
+      affectedMemoIds: [],
+    };
+
+    handleMainWindowMemoEvent(event, actions);
+
+    expect(actions.handleTagsDeleted).toHaveBeenCalledWith(event);
     expect(actions.refreshBackgroundTodoCount).not.toHaveBeenCalled();
     expect(actions.invalidateMentionCaches).toHaveBeenCalledOnce();
   });

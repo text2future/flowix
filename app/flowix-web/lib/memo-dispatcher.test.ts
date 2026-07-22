@@ -30,6 +30,7 @@ describe('memo dispatcher window isolation', () => {
         handleMemoUpdated: vi.fn(),
         handleMemoDeleted: vi.fn(),
         handleTagsRenamed: vi.fn(),
+        handleTagsDeleted: vi.fn(),
         replaceActiveMemoPath: vi.fn(),
         refreshSelectedNotebookMetadata: vi.fn(),
         refreshBackgroundTodoCount: vi.fn(),

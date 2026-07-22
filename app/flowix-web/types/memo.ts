@@ -51,4 +51,10 @@ export type MemoEvent =
       notebookId: string;
       renamedTags: Array<[string, string]>;
       affectedMemoIds: string[];
+    }
+  | {
+      kind: 'tags_deleted';
+      notebookId: string;
+      deletedTags: string[];
+      affectedMemoIds: string[];
     };
