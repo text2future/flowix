@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { cli, type CliLinkStatus } from '@platform/tauri/client';
+import { errorMessage } from '@/lib/error-message';
 
 const CLI_STATUS_TTL_MS = 120_000;
 
@@ -18,10 +19,6 @@ interface CliLinkStatusState {
 
 function isFresh(lastCheckedAt: number | null): boolean {
   return lastCheckedAt !== null && Date.now() - lastCheckedAt < CLI_STATUS_TTL_MS;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export const useCliLinkStatusStore = create<CliLinkStatusState>((set, get) => ({

@@ -986,6 +986,7 @@ export const messages = {
     "shell.emptyDocument": "请选择一个文档",
     "shell.dropOverlay.title": "拖入松开，打开文件",
     "shell.dropOverlay.subtitle": "仅支持 Markdown 格式文件",
+    "shell.dropOverlay.manyOpened": "已打开 {count} 个 Markdown 文档",
 
     // preferences extras
     "preferences.format.fontDownloaded": "字体已下载到本地",
@@ -1995,6 +1996,7 @@ export const messages = {
     "shell.emptyDocument": "Select a note",
     "shell.dropOverlay.title": "Drop a file to open it",
     "shell.dropOverlay.subtitle": "Only .md files are supported",
+    "shell.dropOverlay.manyOpened": "Opened {count} Markdown files",
 
     // preferences extras
     "preferences.format.fontDownloaded": "Font downloaded locally",

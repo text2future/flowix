@@ -20,9 +20,8 @@ import { canonicalPath, getDocumentInstanceKey } from '@/lib/path';
 import { navigateDocumentHistory } from '@/lib/document-navigation';
 import { StatusBar } from '@features/shell/components/status-bar/status-bar';
 import { NotebookDeleteDialog } from '@features/shell/components/notebook-delete-dialog';
-import { FullscreenDragOverlay } from '@features/shell/components/drag-overlay/fullscreen-drag-overlay';
+import { MarkdownFileDropOverlay } from '@features/shell/components/drag-overlay/markdown-file-drop-overlay';
 import { useDocumentCommands } from '@features/document/components/use-document-commands';
-import { useExternalDocumentOpen } from '@features/document/components/use-external-document-open';
 import { useNotebookTodoCount } from '@features/memo/components/use-notebook-todo-count';
 import { useResizablePanels } from '@features/shell/hooks/use-resizable-panels';
 import { useMacosTrackpadSwipe, type MacosTrackpadSwipeDirection } from '@features/shell/hooks/use-macos-trackpad-swipe';
@@ -113,7 +112,6 @@ export function MainLayout() {
     activeMemoSession,
     activeExternalSession,
     isDocumentTransitioning,
-    openExternalDocument: openExternalDocumentSession,
     clearDocument,
   } = useDocumentStore(
     useShallow((s) => ({
@@ -122,7 +120,6 @@ export function MainLayout() {
       activeMemoSession: s.activeMemoSession,
       activeExternalSession: s.activeExternalSession,
       isDocumentTransitioning: s.isDocumentTransitioning,
-      openExternalDocument: s.openExternalDocument,
       clearDocument: s.clearDocument,
     })),
   );
@@ -316,10 +313,6 @@ export function MainLayout() {
       ? activeMemoSession.id
       : activeExternalSession?.id ?? (currentDocumentPath ? getDocumentInstanceKey(currentDocumentPath) : null);
   const todoCount = useNotebookTodoCount(selectedNotebook?.id);
-  const { isDraggingFiles } = useExternalDocumentOpen({
-    openExternalDocumentSession,
-    setSelectedMemo,
-  });
   const getCurrentDocumentContent = useCallback(() => currentDocumentContentRef.current, []);
   const {
     handleCopyFullText,
@@ -480,7 +473,7 @@ export function MainLayout() {
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ backgroundColor: 'var(--document-bg)' }}>
       <WindowsTitlebarControls />
-      <FullscreenDragOverlay visible={isDraggingFiles} />
+      <MarkdownFileDropOverlay />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className="flex flex-1 h-full overflow-hidden">

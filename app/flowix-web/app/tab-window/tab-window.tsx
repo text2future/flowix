@@ -11,8 +11,10 @@ import { useDocumentStore } from '@features/document/store';
 import { useMemoStore } from '@features/memo';
 import { registerMemoEventHandler } from '@/lib/memo-dispatcher';
 import { displayTitleFromFilename } from '@/lib/utils';
+import { errorMessage } from '@/lib/error-message';
 import { toast } from '@/lib/toast';
 import { windows, type WindowPosition, type WindowTab } from '@platform/tauri/client';
+import { MarkdownFileDropOverlay } from '@features/shell/components/drag-overlay/markdown-file-drop-overlay';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Kbd } from '@shared/ui/kbd';
@@ -64,18 +66,6 @@ interface WindowRollbackTabPayload {
 interface TabWindowError {
   message: string;
   tabId: string | null;
-}
-
-function errorMessage(error: unknown): string {
-  if (
-    error
-    && typeof error === 'object'
-    && 'message' in error
-    && typeof error.message === 'string'
-  ) {
-    return error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function TabWindow() {
@@ -532,6 +522,7 @@ export function TabWindow() {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden text-[var(--foreground)]" style={{ backgroundColor: 'var(--document-bg)' }}>
         <WindowsTitlebarControls />
+        <MarkdownFileDropOverlay />
         <div data-tauri-drag-region className={isWindowsPlatform() ? 'h-9 shrink-0 pr-[126px]' : 'h-12 shrink-0'} />
         {errorView}
       </div>
@@ -575,6 +566,7 @@ export function TabWindow() {
       onDrop={handleTabDrop}
     >
       <WindowsTitlebarControls />
+      <MarkdownFileDropOverlay />
       {isWindowsPlatform() ? <DocumentTitlebarWin {...titlebarProps} /> : <DocumentTitlebarMac {...titlebarProps} />}
       {error ? errorView : activeTab ? (
         <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">

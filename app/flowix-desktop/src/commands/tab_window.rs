@@ -116,6 +116,14 @@ impl WindowRegistry {
         Some((entry.label.clone(), entry.ready))
     }
 
+    fn append_to(&mut self, label: &str, tab: WindowTab) -> Option<(String, bool)> {
+        let entry = self.windows.iter_mut().find(|entry| entry.label == label)?;
+        if !entry.tabs.iter().any(|candidate| candidate.id == tab.id) {
+            entry.tabs.push(tab);
+        }
+        Some((entry.label.clone(), entry.ready))
+    }
+
     fn mark_ready(&mut self, label: &str) -> Option<Vec<WindowTab>> {
         let entry = self.windows.iter_mut().find(|entry| entry.label == label)?;
         entry.ready = true;
@@ -498,10 +506,11 @@ impl TabWindowCoordinator {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum OpenDisposition {
     NewWindow,
     LastWindow,
+    Window(String),
 }
 
 enum DetachOperation {
@@ -744,12 +753,7 @@ fn resolve_external_markdown_tab(file_path: &str) -> Result<WindowTab, String> {
     })
 }
 
-pub fn route_markdown_path_tab(
-    app: &tauri::AppHandle,
-    state: &AppState,
-    coordinator: &TabWindowCoordinator,
-    file_path: &str,
-) -> Result<(), String> {
+fn resolve_markdown_path_tab(file_path: &str, state: &AppState) -> Result<WindowTab, String> {
     let memo_tab = if is_direct_registered_notebook_child(file_path, state) {
         crate::open_target::parse_open_target(file_path)
             .ok()
@@ -761,11 +765,46 @@ pub fn route_markdown_path_tab(
     } else {
         None
     };
-    let tab = match memo_tab {
-        Some(tab) => tab,
-        None => resolve_external_markdown_tab(file_path)?,
+    match memo_tab {
+        Some(tab) => Ok(tab),
+        None => resolve_external_markdown_tab(file_path),
+    }
+}
+
+pub fn route_markdown_path_tab(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    coordinator: &TabWindowCoordinator,
+    file_path: &str,
+) -> Result<(), String> {
+    route_tab(
+        app,
+        coordinator,
+        resolve_markdown_path_tab(file_path, state)?,
+        OpenDisposition::LastWindow,
+    )
+}
+
+fn markdown_disposition_for_source(
+    coordinator: &TabWindowCoordinator,
+    window_label: &str,
+) -> OpenDisposition {
+    if !window_label.starts_with("tab-host-") {
+        return OpenDisposition::LastWindow;
+    }
+    let registry = match coordinator.registry.lock() {
+        Ok(registry) => registry,
+        Err(_) => return OpenDisposition::LastWindow,
     };
-    route_tab(app, coordinator, tab, OpenDisposition::LastWindow)
+    if registry
+        .windows
+        .iter()
+        .any(|entry| entry.label == window_label && entry.ready)
+    {
+        OpenDisposition::Window(window_label.to_string())
+    } else {
+        OpenDisposition::LastWindow
+    }
 }
 
 fn is_direct_registered_notebook_child(file_path: &str, state: &AppState) -> bool {
@@ -985,6 +1024,7 @@ fn route_tab(
         .map(|entry| (entry.label.clone(), entry.ready))
         .or_else(|| match disposition {
             OpenDisposition::LastWindow => registry.append_to_last(tab.clone()),
+            OpenDisposition::Window(label) => registry.append_to(&label, tab.clone()),
             OpenDisposition::NewWindow => None,
         });
 
@@ -1076,11 +1116,17 @@ pub async fn open_external_markdown_tab(
 #[tauri::command]
 pub async fn open_markdown_path_tab(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
     coordinator: tauri::State<'_, TabWindowCoordinator>,
     file_path: String,
 ) -> Result<(), String> {
-    route_markdown_path_tab(&app, state.inner(), coordinator.inner(), &file_path)
+    route_tab(
+        &app,
+        coordinator.inner(),
+        resolve_markdown_path_tab(&file_path, state.inner())?,
+        markdown_disposition_for_source(coordinator.inner(), window.label()),
+    )
 }
 
 #[tauri::command]
@@ -1445,6 +1491,68 @@ mod tests {
             Some(("tab-host-1".to_string(), false))
         );
         assert_eq!(registry.find_tab("web:b").unwrap().label, "tab-host-1");
+    }
+
+    #[test]
+    fn registry_routes_a_dropped_tab_to_the_explicit_host() {
+        let mut registry = WindowRegistry::default();
+        registry.add_window("tab-host-1".to_string(), tab("memo:a"));
+        registry.add_window("tab-host-2".to_string(), tab("web:a"));
+        registry.mark_focused("tab-host-2");
+
+        assert_eq!(
+            registry.append_to("tab-host-1", tab("external:a")),
+            Some(("tab-host-1".to_string(), false))
+        );
+        assert_eq!(
+            registry
+                .find_tab("external:a")
+                .map(|entry| entry.label.as_str()),
+            Some("tab-host-1")
+        );
+    }
+
+    #[test]
+    fn markdown_drop_uses_the_source_tab_host_when_available() {
+        let coordinator = TabWindowCoordinator::default();
+        coordinator
+            .registry
+            .lock()
+            .unwrap()
+            .add_window("tab-host-7".to_string(), tab("memo:a"));
+        coordinator
+            .registry
+            .lock()
+            .unwrap()
+            .mark_ready("tab-host-7")
+            .expect("mark ready");
+
+        assert_eq!(
+            markdown_disposition_for_source(&coordinator, "tab-host-7"),
+            OpenDisposition::Window("tab-host-7".to_string())
+        );
+        assert_eq!(
+            markdown_disposition_for_source(&coordinator, "main"),
+            OpenDisposition::LastWindow
+        );
+
+        // 未就绪或不在 registry 中的 tab-host 降级为 LastWindow，避免错过
+        // `WINDOW_OPEN_TAB_EVENT` 后的"静默吞 tab"。
+        assert_eq!(
+            markdown_disposition_for_source(&coordinator, "tab-host-99"),
+            OpenDisposition::LastWindow
+        );
+
+        let pending = TabWindowCoordinator::default();
+        pending
+            .registry
+            .lock()
+            .unwrap()
+            .add_window("tab-host-pending".to_string(), tab("memo:a"));
+        assert_eq!(
+            markdown_disposition_for_source(&pending, "tab-host-pending"),
+            OpenDisposition::LastWindow
+        );
     }
 
     #[test]
