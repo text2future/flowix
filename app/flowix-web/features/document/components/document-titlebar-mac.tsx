@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
 import { Tooltip } from '@shared/ui/tooltip';
 import type { MemoColor, MemoItem } from '@features/memo';
+import { MemoListHoverPreview } from '@features/memo/components/memo-list-hover-preview';
 import {
   type DocumentState,
   ExternalTitlebarBadge,
@@ -78,16 +79,19 @@ export function DocumentTitlebarMac({
     >
       <div className="flex shrink-0 items-center gap-1">
         {isSidebarHidden && (
-          <Tooltip content={t("document.titlebar.showSidebarTooltip")}>
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              aria-label={t("document.titlebar.showSidebar")}
-              className="w-8 h-8 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors"
-            >
-              <SidebarToggleIcon className="w-5 h-5" variant="collapsed" />
-            </button>
-          </Tooltip>
+          <MemoListHoverPreview
+            trigger={
+              <button
+                type="button"
+                onClick={onToggleSidebar}
+                aria-label={t("document.titlebar.showSidebar")}
+                title={t("document.titlebar.showSidebarTooltip")}
+                className="w-8 h-8 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors"
+              >
+                <SidebarToggleIcon className="w-5 h-5" variant="collapsed" />
+              </button>
+            }
+          />
         )}
         {showNavigationButtons && (
           <>

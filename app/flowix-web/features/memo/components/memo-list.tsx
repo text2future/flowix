@@ -328,10 +328,24 @@ function ListLoadingState({ text }: { text: string }) {
   );
 }
 
+// MemoList 窗口事件监听器的实例计数 ── 列内 + 浮层内可同时挂多个 MemoList,
+// 但 window 上的 flowix:* 监听只由首个挂载者注册, 后续实例共享, 避免一份
+// 快捷键触发两份 dialog / setState。具体实现见 useEffect 中的分支。
+let memoListGlobalListenerCount = 0;
+
 const MEMO_LIST_INITIAL_RENDER_COUNT = 120;
 const MEMO_LIST_RENDER_BATCH_SIZE = 80;
 const MEMO_LIST_LOAD_MORE_THRESHOLD_PX = 720;
-export function MemoList() {
+interface MemoListProps {
+  /**
+   * 隐藏顶部的 Memo Tab(笔记本下拉 / 搜索 / 新建按钮等)。浮层视图不需要
+   * 重复展示这些列内已有的工具栏 ── 列内的 Memo Tab 仍然在背后可见, 这里
+   * 只是不渲染第二份。
+   */
+  hideHeader?: boolean;
+}
+
+export function MemoList({ hideHeader = false }: MemoListProps = {}) {
   const { request } = useTauriRpc();
   const { t } = useI18n();
   const { registerCard, prepareForInsert, onListRendered } =
@@ -455,23 +469,29 @@ export function MemoList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Listen for cross-component triggers (e.g. status bar "New Notebook" button)
-  // to open the create-notebook dialog.
+  // 全局事件监听器 ── 跨组件 shortcut / dispatchEvent 解耦点。
+  // 多个 MemoList 实例 (列内 + 浮层内) 共存时, 只让第一个挂载的实例注册监听器,
+  // 否则同一快捷键会触发两个 dialog / 状态变化。 用模块级 refcount 控制:
+  // refcount 0 → 1 时挂载监听器, 1 → 0 时卸载。
+  // ── 仅供 memo-list-hover-preview.tsx 的浮层复用 MemoList 时不产生副作用 ──
   useEffect(() => {
-    const handleOpen = () => {
+    memoListGlobalListenerCount++;
+    if (memoListGlobalListenerCount > 1) {
+      // 已经有别的实例挂着, 这里只占计数, 不重复 addEventListener。
+      return () => {
+        memoListGlobalListenerCount--;
+      };
+    }
+    const cleanups: Array<() => void> = [];
+    const handleOpenNotebook = () => {
       setNewNotebookName('');
       setNewNotebookPath('');
       setNewNotebookIcon(null);
       setCreateNotebookOpen(true);
     };
-    window.addEventListener('flowix:open-create-notebook', handleOpen);
-    return () => window.removeEventListener('flowix:open-create-notebook', handleOpen);
-  }, []);
-
-  // Listen for cross-component triggers to open the edit-notebook dialog
-  // (carries the target notebook in event.detail).
-  useEffect(() => {
-    const handleOpen = (event: Event) => {
+    window.addEventListener('flowix:open-create-notebook', handleOpenNotebook);
+    cleanups.push(() => window.removeEventListener('flowix:open-create-notebook', handleOpenNotebook));
+    const handleEditNotebook = (event: Event) => {
       const ce = event as CustomEvent<Notebook>;
       const notebook = ce.detail;
       if (!notebook) return;
@@ -480,32 +500,27 @@ export function MemoList() {
       setEditNotebookIcon(normalizeNotebookIconId(notebook.icon));
       setEditNotebookOpen(true);
     };
-    window.addEventListener('flowix:open-edit-notebook', handleOpen as EventListener);
-    return () => window.removeEventListener('flowix:open-edit-notebook', handleOpen as EventListener);
-  }, []);
-
-  // Listen for cross-component triggers to open the delete-memo confirmation
-  // dialog (e.g. from the document titlebar's "more" menu). Carries the
-  // target memo in event.detail.
-  useEffect(() => {
-    const handleOpen = (event: Event) => {
+    window.addEventListener('flowix:open-edit-notebook', handleEditNotebook as EventListener);
+    cleanups.push(() => window.removeEventListener('flowix:open-edit-notebook', handleEditNotebook as EventListener));
+    const handleRequestDelete = (event: Event) => {
       const ce = event as CustomEvent<MemoItem>;
       const memo = ce.detail;
       if (!memo) return;
       setDeleteMemo(memo);
     };
-    window.addEventListener('flowix:request-delete-memo', handleOpen as EventListener);
-    return () => window.removeEventListener('flowix:request-delete-memo', handleOpen as EventListener);
-  }, []);
-
-  // 监听全局搜索/命令面板的打开请求 (来自 lib/shortcuts/actions.ts 的
-  // paletteSearchAction 二次触发即关闭。状态仍留在 memo-list 内部, 不 lift
-  // 到 MainLayout — 跟 flowix:open-create-notebook / flowix:request-delete-memo
-  // 同模式, 跨组件解耦。
-  useEffect(() => {
-    const handleToggle = () => setSearchCommandOpen(prev => !prev);
-    window.addEventListener('flowix:toggle-palette', handleToggle);
-    return () => window.removeEventListener('flowix:toggle-palette', handleToggle);
+    window.addEventListener('flowix:request-delete-memo', handleRequestDelete as EventListener);
+    cleanups.push(() => window.removeEventListener('flowix:request-delete-memo', handleRequestDelete as EventListener));
+    const handleTogglePalette = () => setSearchCommandOpen(prev => !prev);
+    window.addEventListener('flowix:toggle-palette', handleTogglePalette);
+    cleanups.push(() => window.removeEventListener('flowix:toggle-palette', handleTogglePalette));
+    return () => {
+      memoListGlobalListenerCount--;
+      // 只有最后一实例卸载时才真正 removeEventListener, 否则会过早解绑,
+      // 后续挂着但非主的 MemoList 实例就收不到事件了。
+      if (memoListGlobalListenerCount === 0) {
+        for (const cleanup of cleanups) cleanup();
+      }
+    };
   }, []);
 
   // Shared delete path for both the dialog button and Enter shortcut.
@@ -877,11 +892,24 @@ export function MemoList() {
   ]);
 
   useEffect(() => {
+    memoListGlobalListenerCount++;
+    if (memoListGlobalListenerCount > 1) {
+      return () => {
+        memoListGlobalListenerCount--;
+      };
+    }
+    const cleanups: Array<() => void> = [];
     const handleRequest = () => {
       void handleCreateMemo();
     };
     window.addEventListener('flowix:create-memo', handleRequest);
-    return () => window.removeEventListener('flowix:create-memo', handleRequest);
+    cleanups.push(() => window.removeEventListener('flowix:create-memo', handleRequest));
+    return () => {
+      memoListGlobalListenerCount--;
+      if (memoListGlobalListenerCount === 0) {
+        for (const cleanup of cleanups) cleanup();
+      }
+    };
   }, [handleCreateMemo]);
 
   // 入场动画入口: 每次 memos 变化时 (含新建/更新/删除) 在 layout 阶段同步
@@ -947,6 +975,8 @@ export function MemoList() {
 
   return (
     <div className="relative flex h-full select-none flex-col bg-[var(--card)]">
+      {!hideHeader && (
+      <>
       {/* Memo Tab */}
       <div className="flex items-center justify-between pl-2 pr-3.5 pb-2 gap-2">
         <div className="min-w-0 flex-1">
@@ -1157,6 +1187,8 @@ export function MemoList() {
           </Tooltip>
         </div>
       </div>
+      </>
+      )}
 
       <OverlayScrollbar
         className="flex min-h-0 flex-1"
