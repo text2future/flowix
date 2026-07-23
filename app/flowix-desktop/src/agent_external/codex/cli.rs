@@ -358,7 +358,7 @@ impl CodexCliManager {
                 thread_id.to_string(),
                 child,
                 Some(run_id.to_string()),
-                stream_end_emitted,
+                stream_end_emitted.clone(),
             )
             .await
         {
@@ -373,6 +373,7 @@ impl CodexCliManager {
             self.thread_manager.clone(),
             self.runs.clone(),
             BufReader::new(stdout),
+            stream_end_emitted.clone(),
         );
         let stderr_task =
             read_stderr_to_string(thread_id, Some(run_id), &self.runs, BufReader::new(stderr));

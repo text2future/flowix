@@ -23,6 +23,7 @@ import {
   closeLoadingToolRows,
   emptyThreadState,
   ensureRunActive,
+  isRunEnded,
   isThreadRunActive,
   releaseThreadRuntimeMessages,
   threadRunUpdate,
@@ -97,6 +98,22 @@ function activeThreadUpdate(
       [type]: threadId,
     },
   };
+}
+
+/**
+ * 是否为承载消息内容的 data chunk ── 这些 chunk 若在一个已终结 run 之后到达
+ * (late chunk), 会被 dispatch 顶部 guard 丢弃, 防止 ensureRunActive 复活 run
+ * 与 pendingAssistantId=null 导致的新建消息碎片化。stream_start / stream_end /
+ * usage / error / session_resolved 是 lifecycle 元数据, 不在此列。
+ */
+function isDataChunk(kind: AgentEvent["kind"]): boolean {
+  return (
+    kind === "text_delta" ||
+    kind === "reasoning_delta" ||
+    kind === "final_message" ||
+    kind === "tool_call" ||
+    kind === "tool_result"
+  );
 }
 
 /**
@@ -337,6 +354,16 @@ export function createStreamEventDispatcher(
       activeRunId: currentThreadState.activeRunId,
       isLoading: currentThreadState.isLoading,
     });
+
+    // Guard: 已终结 run 的 late data chunk 直接丢弃。后端 codex turn.completed
+    // 后提前 emit StreamEnd, 不再发 data chunk; abort 时 kill 残留的 in-flight
+    // data chunk 到达时 run 已 cancelled/completed。丢弃避免 ensureRunActive
+    // 复活 run + pendingAssistantId=null 导致的新建消息碎片化。stream_end /
+    // error / session_resolved / stream_start / usage 不属 data chunk, 不受
+    // 影响; 真源在后端 event log, 下次 loadThread 重放正确。
+    if (isDataChunk(event.kind) && isRunEnded(currentThreadState, event.runId)) {
+      return;
+    }
 
     // Layer 2: text / reasoning 走 rAF 节流; 其它 chunk 进入前先同步
     // flush 缓冲, 保证后端发出的顺序 (text → tool_call → text →

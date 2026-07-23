@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -6,9 +7,9 @@ use tokio::io::BufReader;
 
 use super::events::{codex_event_to_chunks, is_transient_codex_reconnect_event};
 use super::io::read_capped_line;
-use super::runtime::persist_and_emit_codex_chunk;
+use super::runtime::{persist_and_emit_codex_chunk, persist_codex_chunk};
 use super::{truncate_for_log, AGENT_TYPE, MAX_STDOUT_LINE_BYTES, MAX_TOOL_OUTPUT_CHARS};
-use crate::agent_external::ExternalRunRegistry;
+use crate::agent_external::{emit_stream_end_once, ExternalRunRegistry};
 use crate::agent_flowix::AgentChunk;
 use crate::agent_session::ThreadManager;
 use crate::runtime_log;
@@ -20,6 +21,7 @@ pub(crate) async fn read_codex_stdout<R>(
     thread_manager: Arc<tokio::sync::RwLock<ThreadManager>>,
     runs: ExternalRunRegistry,
     reader: BufReader<R>,
+    stream_end_emitted: Arc<AtomicBool>,
 ) -> Result<(), String>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -156,8 +158,38 @@ where
                 .await;
         }
 
-        if codex_run_signal(&value).is_terminal_turn() {
-            terminal_turn_seen = true;
+        match codex_run_signal(&value) {
+            CodexRunSignal::TerminalCompleted => {
+                terminal_turn_seen = true;
+                // turn.completed 的 usage 等 chunk 已在上一行 codex_event_to_chunks
+                // 落库。terminal turn 即内容完整, 立刻发 StreamEnd (CAS 抢占, 与
+                // stop_chat / watchdog 互斥) 并 persist 为该 run 最后一行事件,
+                // 随后 break 丢弃 trailing (session_meta / compacted 等无 UI
+                // payload 的 lifecycle 噪声)。UI 当场收尾, tail 后台继续 join
+                // stderr + wait child 收尸, 不阻塞前端。
+                let stream_end = AgentChunk::StreamEnd {
+                    thread_id: emit_thread_id.clone(),
+                    reason: None,
+                };
+                if emit_stream_end_once(
+                    &app_handle,
+                    &thread_id,
+                    &run_id,
+                    AGENT_TYPE,
+                    None,
+                    &stream_end_emitted,
+                ) {
+                    persist_codex_chunk(&thread_manager, &stream_end, &run_id, None).await;
+                }
+                break;
+            }
+            CodexRunSignal::TerminalFailed => {
+                // turn.failed 不提前: 它需要 Error chunk + 失败 reason, 由
+                // run_codex 末尾据 exit status 发 StreamEnd(reason)。提前发 None
+                // 会把 failed 误标成 completed。
+                terminal_turn_seen = true;
+            }
+            CodexRunSignal::Continue => {}
         }
     }
 
@@ -193,21 +225,27 @@ fn looks_like_codex_json_event_line(line: &str) -> bool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CodexRunSignal {
     Continue,
-    TerminalTurn,
-}
-
-impl CodexRunSignal {
-    fn is_terminal_turn(self) -> bool {
-        matches!(self, Self::TerminalTurn)
-    }
+    /// `turn.completed` / legacy `task_complete`: 成功完成, 内容已完整, 可立即
+    /// 发 StreamEnd 收尾。
+    TerminalCompleted,
+    /// `turn.failed` (非 reconnect): 失败, 需 Error chunk + 失败 reason, 走原
+    /// tail 路径, 不提前结束 (避免把 failed 误标成 completed)。
+    TerminalFailed,
 }
 
 pub(crate) fn codex_run_signal(value: &Value) -> CodexRunSignal {
     if is_transient_codex_reconnect_event(value) {
         return CodexRunSignal::Continue;
     }
+    let event_type = value
+        .get("type")
+        .or_else(|| value.get("kind"))
+        .and_then(Value::as_str);
+    if event_type == Some("turn.failed") {
+        return CodexRunSignal::TerminalFailed;
+    }
     if is_codex_task_complete(value) {
-        return CodexRunSignal::TerminalTurn;
+        return CodexRunSignal::TerminalCompleted;
     }
     CodexRunSignal::Continue
 }
@@ -337,8 +375,15 @@ mod tests {
         });
 
         assert!(is_codex_task_complete(&legacy));
-        assert_eq!(codex_run_signal(&completed), CodexRunSignal::TerminalTurn);
-        assert_eq!(codex_run_signal(&failed), CodexRunSignal::TerminalTurn);
+        assert_eq!(
+            codex_run_signal(&legacy),
+            CodexRunSignal::TerminalCompleted
+        );
+        assert_eq!(
+            codex_run_signal(&completed),
+            CodexRunSignal::TerminalCompleted
+        );
+        assert_eq!(codex_run_signal(&failed), CodexRunSignal::TerminalFailed);
     }
 
     #[test]

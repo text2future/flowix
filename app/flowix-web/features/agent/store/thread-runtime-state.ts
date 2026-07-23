@@ -1,5 +1,9 @@
 import type { ChatMessage } from "@/types";
-import type { AgentEvent, AgentRunState } from "@/types/agent";
+import type {
+  AgentEvent,
+  AgentRunState,
+  AgentRunStatus,
+} from "@/types/agent";
 import type { LastRunSnapshot } from "@/types/agent";
 
 /**
@@ -121,6 +125,31 @@ export function isThreadRunActive(st: ThreadState): boolean {
 }
 
 /**
+ * run status 是否为终结态 (不再 running)。用于判断 late chunk 是否属于一个
+ * 已结束的 run ── 已结束 run 的后续 data chunk 应被丢弃, 不复活 run。
+ */
+export function isTerminalRunStatus(
+  status: AgentRunStatus | undefined,
+): boolean {
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
+}
+
+/**
+ * 判断 event 是否属于一个已终结的 run ── 以 lastRun 快照为准 (applyRunStopped
+ * / applyRunEnded 都会写入 lastRun)。runId 缺失或 lastRun 不匹配时返回 false,
+ * 保守地走原 ensureRunActive 路径, 不误杀。
+ */
+export function isRunEnded(
+  st: ThreadState,
+  runId: string | undefined,
+): boolean {
+  if (!runId || !st.lastRun) return false;
+  return st.lastRun.runId === runId && isTerminalRunStatus(st.lastRun.status);
+}
+
+/**
  * 哪些 event 表明 thread 已经处于 "应当 active" 但 threadStates 还没记录
  * stream_start 的状态 ── 这种情况下 ensureRunActive 会补丁式合成一个
  * stream_start event, 然后调 applyRunStarted 补上 runs[runId] / isLoading。
@@ -147,6 +176,11 @@ export function ensureRunActive(
   event: AgentEvent,
 ): ThreadState {
   if (!shouldEnsureRunActive(event)) return st;
+  // 该 run 已终结 (用户 stop / 自然完成 / 失败) 时不补丁复活 ── 后端 codex
+  // turn.completed 后提前 emit StreamEnd, abort 时 kill 残留的 in-flight chunk
+  // 到达时 run 已 cancelled/completed。复活会把已结束的 run 翻回 running, 导致
+  // UI 卡在 loading。late chunk 由 dispatcher 顶部 guard 统一丢弃。
+  if (isRunEnded(st, event.runId)) return st;
   if (isThreadRunActive(st)) return st;
   return applyRunStartedImpl(st, {
     kind: "stream_start",
