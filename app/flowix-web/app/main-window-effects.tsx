@@ -9,7 +9,10 @@ import { useMemoStore } from "@features/memo/store/memo-store";
 import { useTagStore } from "@features/memo/store/tag-store";
 import { useTodoCountStore } from "@features/memo/store/todo-count-store";
 import { invalidateMentionNotes } from "@features/editor/extensions/note-mention";
-import { invalidateMentionTags, setNotebookIdProvider } from "@features/editor/extensions/tag-mention";
+import {
+  invalidateMentionTags,
+  setNotebookIdProvider,
+} from "@features/editor/extensions/tag-mention";
 import { rebaseSelectedTagId } from "@features/memo/services/memo-list-metadata-service";
 import { toast } from "@/lib/toast";
 import { handleMainWindowMemoEvent } from "./main-window-memo-event-handler";
@@ -24,19 +27,20 @@ export function MainWindowEffects() {
   const mainWindowTitle = t("window.main.title");
 
   useEffect(() => {
+    setNotebookIdProvider(
+      () => useMemoStore.getState().selectedNotebook?.id ?? null,
+    );
+    return () => {
+      setNotebookIdProvider(() => null);
+    };
+  }, []);
+
+  useEffect(() => {
     document.title = mainWindowTitle;
     void getCurrentWindow().setTitle(mainWindowTitle).catch(() => {
       // Browser preview or unavailable Tauri window API.
     });
   }, [mainWindowTitle]);
-
-  // 注入 notebookId 读取函数: tag-mention 的 `#` 补全按当前 notebook 过滤。
-  // 用 provider 解耦, 避免 editor 模块直接 import memo-store (会改变加载链
-  // 顺序, 破坏 composer 等的 mock 时序)。provider 是 live 函数, 每次 `#`
-  // 触发时读最新 selectedNotebook。
-  useEffect(() => {
-    setNotebookIdProvider(() => useMemoStore.getState().selectedNotebook?.id ?? null);
-  }, []);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;

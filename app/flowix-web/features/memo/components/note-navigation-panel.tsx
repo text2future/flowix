@@ -32,11 +32,11 @@ import {
   type MemoTagTreeItem,
 } from '@features/memo/services/memo-list-metadata-service';
 import { useI18n, type I18nParams } from '@features/i18n';
-import { invalidateMentionTags } from '@features/editor/extensions/tag-mention';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Button } from '@shared/ui/button';
 import { isWindowsPlatform } from '@features/shortcuts/platform';
+import { invalidateMentionTags } from '@features/editor/extensions/tag-mention';
 
 interface TagDragGhost {
   id: string;
@@ -363,8 +363,8 @@ export function NoteNavigationPanel({
           if (nextSelected !== useTagStore.getState().selectedTagId) {
             useTagStore.getState().setSelectedTagId(nextSelected);
           }
-          invalidateMentionTags();
           clearLibraryMetadata();
+          invalidateMentionTags();
         }
         setEditingTagId(null);
       } catch (err) {
@@ -414,8 +414,8 @@ export function NoteNavigationPanel({
             setSelectedTagId(null);
             setActiveFilter('all');
           }
-          invalidateMentionTags();
           clearLibraryMetadata();
+          invalidateMentionTags();
           toast.success(t('memo.tag.deletedToast', { path: tag.fullPath } satisfies I18nParams));
         }
       } catch (err) {
@@ -671,8 +671,8 @@ export function NoteNavigationPanel({
               useTagStore.getState().setSelectedTagId(nextSelected);
             }
             // 编辑器 `#` mention 缓存失效 + metadata 重拉 (列表/面板/下拉)。
-            invalidateMentionTags();
             clearLibraryMetadata();
+            invalidateMentionTags();
           }
         } catch (err) {
           // 失败: 给出可见错误提示, 不改变 UI 状态 (memo index 没动)
@@ -718,6 +718,7 @@ export function NoteNavigationPanel({
         console.warn('[NoteNavigationPanel] Failed to persist tag layout:', error);
       });
       clearLibraryMetadata();
+      invalidateMentionTags();
     },
     [clearLibraryMetadata, getSubtreeIds, rebuildTagOptionsFromLayout, tagLayout, tagOptions]
   );

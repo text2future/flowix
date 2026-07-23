@@ -69,7 +69,7 @@ interface MenuInstance<TItem> {
 }
 
 // ─── 模块级单例: 同一时刻只允许一个 suggestion 弹窗 ──────────────────────
-// 两套扩展 (NoteMention / TagMention) 共享同一容器 / 位置 / IME 状态,
+// Mention 扩展共享同一容器 / 位置 / IME 状态,
 // 开新弹窗时主动 close 旧的, 避免两者并存。
 let menuState: MenuState | null = null;
 let menuInstance: MenuInstance<unknown> | null = null;

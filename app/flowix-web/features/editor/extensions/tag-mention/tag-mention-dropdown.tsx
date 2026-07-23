@@ -34,7 +34,7 @@ export function TagMentionDropdown({
   });
   const handleItemMouseMove = (
     event: MouseEvent<HTMLButtonElement>,
-    index: number
+    index: number,
   ) => {
     if (event.movementX === 0 && event.movementY === 0) return;
     onHover(index);
@@ -56,59 +56,62 @@ export function TagMentionDropdown({
         scrollerClassName="mention-note-items"
         scrollerRef={scrollerRef}
         onScroll={(event) => {
-            const el = event.currentTarget;
-            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
-              onLoadMore();
-            }
+          const el = event.currentTarget;
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+            onLoadMore();
+          }
         }}
       >
-          {loading && items.length === 0 ? (
-            <div className="mention-note-empty mention-note-empty--loading">
-              <span className="mention-note-loading-title">{t('editor.tagMention.loading')}</span>
-            </div>
-          ) : items.length === 0 ? (
-            <div className="mention-note-empty">{t('editor.tagMention.empty')}</div>
-          ) : (
-            items.map((item, index) => {
-              const selected = index === selectedIndex;
-              // 新建占位项右侧展示"新建"文案; 已存在标签不展示右侧文案
-              return (
-                <button
-                  key={item.create ? `create:${item.id}` : `tag:${item.id}`}
-                  ref={(node) => {
-                    itemRefs.current[index] = node;
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  className={`mention-note-item${selected ? ' is-selected' : ''}`}
-                  onMouseMove={(event) => handleItemMouseMove(event, index)}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    onSelect(item);
-                  }}
-                >
-                  <span className="mention-note-title mention-tag-title">
-                    <Hash className="mention-tag-icon" aria-hidden="true" />
-                    <span className="mention-tag-name">{item.name}</span>
+        {loading && items.length === 0 ? (
+          <div className="mention-note-empty mention-note-empty--loading">
+            <span className="mention-note-loading-title">{t('editor.tagMention.loading')}</span>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="mention-note-empty">{t('editor.tagMention.empty')}</div>
+        ) : (
+          items.map((item, index) => {
+            const selected = index === selectedIndex;
+            return (
+              <button
+                key={item.create ? `create:${item.id}` : `tag:${item.id}`}
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={`mention-note-item${selected ? ' is-selected' : ''}`}
+                onMouseMove={(event) => handleItemMouseMove(event, index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onSelect(item);
+                }}
+              >
+                <span className="mention-note-title mention-tag-title">
+                  <Hash className="mention-tag-icon" aria-hidden="true" />
+                  <span className="mention-tag-name">{item.name}</span>
+                </span>
+                {item.create && (
+                  <span className="mention-note-notebook">
+                    {t('editor.tagMention.create')}
                   </span>
-                  {item.create && <span className="mention-note-notebook">{t('editor.tagMention.create')}</span>}
-                </button>
-              );
-            })
-          )}
-          {hasMore && (
-            <button
-              type="button"
-              className="mention-note-more"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                onLoadMore();
-              }}
-            >
-              {t('editor.tagMention.loadMore')}
-            </button>
-          )}
+                )}
+              </button>
+            );
+          })
+        )}
+        {hasMore && (
+          <button
+            type="button"
+            className="mention-note-more"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onLoadMore();
+            }}
+          >
+            {t('editor.tagMention.loadMore')}
+          </button>
+        )}
       </OverlayScrollbar>
     </div>
   );
