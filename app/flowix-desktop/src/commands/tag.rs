@@ -1,7 +1,5 @@
-//! Tag IPC 鈥?浠?memo index 娲剧敓 tag + 绉诲姩 / 澧炲垹鏀广€?//!
-//! `get_all_tags` 浠?`memo.tags` 娲剧敓鍘婚噸 tag 鍒楄〃; `move_memo_tag` 瀹炵幇
-//! 璺緞寮?tag 鐨勬暣妫靛瓙鏍戦噸鍛藉悕 (Step 3)銆俙rename_memo_tag` /
-//! `delete_memo_tag` / `create_memo_tag` 浠嶆槸鍗犱綅瀹炵幇 鈹€鈹€ 瀹屾暣鏀寔闇€瑕?//! 鏀瑰啓 .md body, 绛夊悓浜?move_memo_tag 鐨勭壒娈婂舰寮? 鏆備笉琛ュ叏銆?
+//! Tag IPC：从 memo index 的 YAML/正文标签并集派生标签列表，并在用户
+//! 显式重命名或删除标签时同时改写两个真实来源。
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -89,8 +87,7 @@ pub fn move_memo_tag(
 }
 
 // Delete tag: remove `tag_path` itself + all subtree tags (any depth)
-// from memo index + document body. Symmetric to move_memo_tag: rename
-// re-writes the token, delete removes it. Event strategy is also
+// from memo index + frontmatter/body tag sources. Event strategy is
 // symmetric -- one-shot emit `MemoEvent::TagsDeleted` (instead of
 // per-memo Updated).
 #[tauri::command]
@@ -151,4 +148,3 @@ pub fn get_tag_prefix_counts(
         .read_tag_prefix_counts_for_notebook_id(notebook_id.as_deref())
         .unwrap_or_default()
 }
-

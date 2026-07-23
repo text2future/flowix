@@ -93,9 +93,8 @@ export function useMemoDocumentChangeWatch({
           await reloadDocument(filePath, { preservePending: false, showLoading: false });
           return;
         }
-        // tags_deleted: delete_memo_tag 一次性清理 .md body 里的 #tag
-        // token。 当前打开的 memo 如果在 affectedMemoIds 里, 同样要
-        // reload ── 否则编辑器还显示已删除的 #tag。
+        // tags_deleted: delete_memo_tag 一次性清理 YAML 与正文来源。当前
+        // 打开的 memo 如果在 affectedMemoIds 里，需要 reload 最新内容。
         if (event.kind === 'tags_deleted') {
           const isDirty = hasDocumentUnsavedChanges(identity);
           if (!shouldReloadDocumentForTagsDeleted(event, identity, isDirty)) {

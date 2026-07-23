@@ -317,13 +317,13 @@ pub fn run() {
                     tracing::error!("memo_watcher write lock poisoned, recovering");
                     poisoned.into_inner()
                 })
-                .rebind_all(app.handle().clone(), initial_notebooks);
+                .rebind_all(app.handle().clone(), initial_notebooks.clone());
 
             // 鍙湪宸叉湁 current notebook 鏃跺仛鍚姩瀵硅处銆?current=None 鏃?            // `MemoFile` 浼氬洖閫€鍒伴粯璁?notebook 璺緞, 鍦?macOS 涓婂彲鑳借Е鍙?            // Documents 鏉冮檺寮圭獥銆?
-            let should_reconcile = crate::lock_utils::read_lock(&memo_file_arc, "memo_file")
-                .current_notebook_id_value()
-                .is_some();
-            if should_reconcile {
+            let current_notebook_id =
+                crate::lock_utils::read_lock(&memo_file_arc, "memo_file")
+                    .current_notebook_id_value();
+            if current_notebook_id.is_some() {
                 match memo_file_arc
                     .read()
                     .unwrap_or_else(|poisoned| {
@@ -355,6 +355,25 @@ pub fn run() {
                             format!("startup reconcile failed: {e}"),
                         );
                         tracing::warn!("[startup] reconcile failed: {e}");
+                    }
+                }
+
+                if let Some(notebook_id) = current_notebook_id.as_deref() {
+                    match memo_file_arc
+                        .read()
+                        .unwrap_or_else(|poisoned| {
+                            tracing::error!("memo_file read lock poisoned, recovering");
+                            poisoned.into_inner()
+                        })
+                        .ensure_tag_union_index_for_notebook_id(notebook_id)
+                    {
+                        Ok(updated) if updated > 0 => {
+                            tracing::info!("[startup] rebuilt union tags for {updated} memos");
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::warn!("[startup] tag union index upgrade failed: {error}");
+                        }
                     }
                 }
             }

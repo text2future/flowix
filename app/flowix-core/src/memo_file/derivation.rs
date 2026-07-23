@@ -1,11 +1,10 @@
-//! 派生字段提取 — `extract_tags_from_body` / `extract_todos_from_body` /
-//! `extract_title_and_preview` / `apply_derived_memo_fields` / `strip_markdown` /
+//! 派生字段提取 — `extract_todos_from_body` / `extract_title_and_preview` /
+//! `apply_derived_memo_fields` / `strip_markdown` /
 //! `is_blank_line` / `strip_block_node_lines`。
 //!
-//! 派生语义: memo 的 `filename` / `preview` / `tags` / `todos` 都可以从 .md body
-//! 算出来, 写盘后由 [`apply_derived_memo_fields`] 同步回 memo index。这样 UI 列表
-//! 不必每次都读 .md 文件 (大场景下 IO 减半), 同时保证"正文是真相, memo index 是
-//! 派生缓存"。
+//! 派生语义: `tags` / `properties` 来自头部 YAML，其余展示字段来自 Markdown
+//! 正文。写盘后由 [`apply_derived_memo_fields`] 同步回 memo index，使 YAML 成为
+//! 文档属性真源、memo index 仅作为派生缓存。
 //!
 //! ## 块节点过滤档案 (`BLOCK_NODE_FILTERS`)
 //!
@@ -24,7 +23,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
 
-use super::frontmatter::{extract_body_content, extract_frontmatter_properties};
+use super::frontmatter::{extract_body_content, extract_document_metadata};
 use super::types::{AgentThreadItem, Memo, TodoItem};
 
 /// 解码常见 HTML 实体为对应 Unicode 字符。title/preview 派生的最小集:
@@ -344,7 +343,7 @@ pub fn extract_thumbnail(content: &str) -> Option<String> {
         .filter(|url| !url.is_empty())
 }
 
-/// 从 body 抽 `#tag` — 匹配行首或空白后的 `#` 后跟非空白 / 非标点字符。
+/// 仅供一次性旧数据迁移：从 body 抽取历史 `#tag`。
 /// 大小写敏感 (跟 markdown 风格一致); 重复 tag 去重。
 ///
 /// **路径式 tag**: tag 名允许用 `/` 分隔的多段路径 (如 `旅行/泰国/曼谷`),
@@ -356,7 +355,7 @@ pub fn extract_thumbnail(content: &str) -> Option<String> {
 /// 提取 — 块内是代码示例, 不是用户的标签; 行内反引号包裹的内容是"代码"
 /// 语义。两种区域在抽取前先从源文本里"挖空"成 NUL 占位, NUL 不在
 /// `\s` 内且不会被 `#` 误连, 保证原 TAG_RE 不需要任何修改。
-pub fn extract_tags_from_body(content: &str) -> Vec<String> {
+pub(crate) fn extract_tags_from_body(content: &str) -> Vec<String> {
     // 结构: 前缀 (^|空白) + # + (level/)*level
     //   - level: 1+ 个非空白 / 非 `/` / 非 Unicode 标点字符
     //   - 段间用 `/` 分隔
@@ -382,6 +381,108 @@ pub fn extract_tags_from_body(content: &str) -> Vec<String> {
     tags
 }
 
+fn merge_document_tag_sources(mut tags: Vec<String>, content: &str) -> Vec<String> {
+    let mut seen: HashSet<String> = tags.iter().cloned().collect();
+    for tag in extract_tags_from_body(content) {
+        if seen.insert(tag.clone()) {
+            tags.push(tag);
+        }
+    }
+    tags
+}
+
+pub(crate) fn rewrite_body_tag_path(
+    content: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+) -> String {
+    static TAG_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?m)(^|[\s])#((?:[^/\s\p{P}]+/)*[^/\s\p{P}]+)").unwrap());
+
+    let body = extract_body_content(content);
+    let body_offset = body.as_ptr() as usize - content.as_ptr() as usize;
+    let mut rewritten_body = String::with_capacity(body.len());
+    let mut in_fence = false;
+    let mut fence_len = 0usize;
+    let prefix = format!("{old_path}/");
+
+    for line in body.split_inclusive('\n') {
+        if !in_fence {
+            if let Some(length) = fence_open_len(line) {
+                in_fence = true;
+                fence_len = length;
+                rewritten_body.push_str(line);
+                continue;
+            }
+
+            let inline_ranges = inline_code_ranges(line);
+            let mut cursor = 0usize;
+            for captures in TAG_RE.captures_iter(line) {
+                let Some(tag_match) = captures.get(2) else {
+                    continue;
+                };
+                if inline_ranges
+                    .iter()
+                    .any(|(start, end)| tag_match.start() >= *start && tag_match.start() < *end)
+                {
+                    continue;
+                }
+                let tag = tag_match.as_str();
+                let suffix = if tag == old_path {
+                    Some("")
+                } else {
+                    tag.strip_prefix(&prefix)
+                };
+                let Some(suffix) = suffix else {
+                    continue;
+                };
+                let hash_start = tag_match.start().saturating_sub(1);
+                rewritten_body.push_str(&line[cursor..hash_start]);
+                if let Some(new_path) = new_path {
+                    rewritten_body.push('#');
+                    rewritten_body.push_str(new_path);
+                    if !suffix.is_empty() {
+                        rewritten_body.push('/');
+                        rewritten_body.push_str(suffix);
+                    }
+                }
+                cursor = tag_match.end();
+            }
+            rewritten_body.push_str(&line[cursor..]);
+        } else {
+            rewritten_body.push_str(line);
+            if is_fence_close_line(line, fence_len) {
+                in_fence = false;
+                fence_len = 0;
+            }
+        }
+    }
+
+    format!("{}{}", &content[..body_offset], rewritten_body)
+}
+
+fn inline_code_ranges(line: &str) -> Vec<(usize, usize)> {
+    let bytes = line.as_bytes();
+    let mut ranges = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'`' {
+            cursor += 1;
+            continue;
+        }
+        let start = cursor;
+        cursor += 1;
+        while cursor < bytes.len() && bytes[cursor] != b'`' {
+            cursor += 1;
+        }
+        if cursor < bytes.len() {
+            cursor += 1;
+            ranges.push((start, cursor));
+        }
+    }
+    ranges
+}
+
 /// 把 regex 抓到的原始 tag 字符串规范化为合法路径。返回 `None` 表示该
 /// 候选不应作为 tag 入库 (空串、含 `//`、首尾 `/`、存在空段)。
 ///
@@ -392,6 +493,9 @@ pub fn extract_tags_from_body(content: &str) -> Vec<String> {
 /// 防线, 保证入库的 tag 永远是可以被 step 3 的 prefix 替换正确处理
 /// 的合法路径。
 pub fn normalize_tag_path(raw: &str) -> Option<String> {
+    static INVALID_SEGMENT_CHAR: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"[\s\p{P}]").unwrap());
+
     let s = raw.trim();
     if s.is_empty() || s.contains("//") {
         return None;
@@ -400,7 +504,7 @@ pub fn normalize_tag_path(raw: &str) -> Option<String> {
         return None;
     }
     for seg in s.split('/') {
-        if seg.is_empty() {
+        if seg.is_empty() || INVALID_SEGMENT_CHAR.is_match(seg) {
             return None;
         }
     }
@@ -595,99 +699,9 @@ fn decode_markdown_attr(value: &str) -> String {
     decode_html_entities(value)
 }
 
-/// 替换 body 内所有以 `old_path` 为前缀的 `#tag` token ── 用于 `move_memo_tag`
-/// 批量改写正文。规则:
-///
-/// 1. **整段 token 匹配**: 走与 [`extract_tags_from_body`] 同源 regex
-///    `(^|[\s])#((?:[^/\s\p{P}]+/)*[^/\s\p{P}]+)`, 整段 `#path` 作为一个
-///    match, 不会改坏字面的 `泰国/曼谷` (无 `#` 前缀就不被命中)。
-/// 2. **完全匹配**: 捕获的 tag 字符串 `== old_path` → 替换为 `new_path`。
-/// 3. **子树匹配**: 捕获的 tag 以 `old_path/` 开头 → 把 `old_path/` 前缀
-///    替换为 `new_path/`, 后缀段保持不变。例: `old=旅行/曼谷`,
-///    `new=中国/曼谷`, 捕获 `旅行/曼谷/住` → 替换为 `中国/曼谷/住`。
-/// 4. **不动其它**: 跟 `old_path` 不完全相等也不以前缀开头的 tag 保持原样。
-///
-/// **不做** normalize 校验 ── 调用方负责保证 `old_path` / `new_path` 是
-/// 合法路径 (走 [`normalize_tag_path`])。这里只做字符串级替换。
-pub fn replace_tag_paths_in_body(body: &str, old_path: &str, new_path: &str) -> String {
-    // 与 extract_tags_from_body 同源; 整段 #path 作为一个 match。
-    static TOKEN_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?m)(^|[\s])#((?:[^/\s\p{P}]+/)*[^/\s\p{P}]+)").unwrap());
-    if old_path.is_empty() || old_path == new_path {
-        return body.to_string();
-    }
-    let old_prefix = format!("{old_path}/");
-    TOKEN_RE
-        .replace_all(body, |caps: &regex::Captures| {
-            let prefix = &caps[1];
-            let full = &caps[2];
-            let new_full = if full == old_path {
-                new_path.to_string()
-            } else if let Some(suffix) = full.strip_prefix(&old_prefix) {
-                format!("{new_path}/{suffix}")
-            } else {
-                full.to_string()
-            };
-            format!("{prefix}#{new_full}")
-        })
-        .into_owned()
-}
-
-/// 从 body 内移除所有 `tag_path` 自身及其子树前缀的 `#tag` token ──
-/// 用于 `delete_memo_tag` 批量清理正文。规则:
-///
-/// 1. **整段 token 匹配**: 走与 [`extract_tags_from_body`] 同源 regex
-///    `(^|[\s])#((?:[^/\s\p{P}]+/)*[^/\s\p{P}]+)`, 整段 `#path` 作为一个
-///    match, 不会误删字面的 `泰国/曼谷` (无 `#` 前缀就不被命中)。
-/// 2. **完全匹配**: 捕获的 tag 字符串 `== tag_path` → 整段 token 连同
-///    前面的空白一并删除 (保留行尾换行以维持段落)。
-/// 3. **子树匹配**: 捕获的 tag 以 `tag_path/` 开头 → 同样整段删除
-///    (整棵子树都被删, 不留零碎)。
-/// 4. **不动其它**: 跟 `tag_path` 不完全相等也不以前缀开头的 tag 保留。
-///
-/// **不做** normalize 校验 ── 调用方负责保证 `tag_path` 是合法路径 (走
-/// [`normalize_tag_path`])。这里只做字符串级删除。
-pub fn remove_tag_paths_in_body(body: &str, tag_path: &str) -> String {
-    static TOKEN_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?m)(^|[\s])#((?:[^/\s\p{P}]+/)*[^/\s\p{P}]+)").unwrap());
-    if tag_path.is_empty() {
-        return body.to_string();
-    }
-    let prefix_pattern = format!("{tag_path}/");
-    // 先收集所有需要删除的 (start_byte, end_byte) 区间, 然后一次性
-    // replace_range ── 单 pass 删除比回调里累加 buffer 干净。
-    // 用 captures_iter 而不是 find_iter, 因为我们要按 group 2 (#tag 本身)
-    // 的字符串内容判定是否要删 ── Captures 才能拿 group 字符串。
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
-    for caps in TOKEN_RE.captures_iter(body) {
-        // mat 整体 match 的 byte range (含 group 1 的空白前缀): 这就是要删除的区间。
-        let mat = caps.get(0).expect("group 0 always present");
-        let whole = mat.start();
-        let whole_end = mat.end();
-        // group 2 = #tag 本身 (不含 # 和前面的空白), 用它做前缀 / 全等判断。
-        let tag_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        if tag_str == tag_path || tag_str.starts_with(&prefix_pattern) {
-            ranges.push((whole, whole_end));
-        }
-    }
-    if ranges.is_empty() {
-        return body.to_string();
-    }
-    // 从尾到头删, 字节偏移保持稳定。
-    let mut out = body.to_string();
-    for (start, end) in ranges.into_iter().rev() {
-        // 安全: start/end 来自 byte offset (来自 mat.range() 严格按 char
-        // boundary), UTF-8 切分不会 panic。
-        out.replace_range(start..end, "");
-    }
-    // 删除后可能留下行尾多余空白 / 连续空行 ── 收尾 trim: 把连续 3+ 换行
-    // 折叠成 2 个 (段落间留一行空白)。 保守做法, 不动其它空白。
-    static TRIPLE_NL: Lazy<Regex> = Lazy::new(|| Regex::new(r"\n{3,}").unwrap());
-    TRIPLE_NL.replace_all(&out, "\n\n").into_owned()
-}
-
 /// 应用派生字段到 memo。`filename` 仅在为空时从 body 第一行覆盖 (用户显式设的
-/// title 优先), `preview` / `tags` / `todos` / `agents` 总是从 body 重算。
+/// title 优先), `preview` / `todos` / `agents` 从 body 重算; `tags` 是
+/// YAML tags 与正文标签的稳定去重并集, `properties` 仍只来自 YAML。
 pub fn apply_derived_memo_fields(memo: &mut Memo, full_content: &str) {
     let (derived_title, preview) = extract_title_and_preview(full_content);
     if memo.filename.trim().is_empty() && !derived_title.is_empty() {
@@ -695,10 +709,12 @@ pub fn apply_derived_memo_fields(memo: &mut Memo, full_content: &str) {
     }
     memo.preview = preview;
     memo.thumbnail = extract_thumbnail(full_content);
-    memo.tags = extract_tags_from_body(full_content);
     memo.todos = extract_todos_from_body(full_content);
     memo.agents = extract_agent_threads_from_body(full_content);
-    memo.properties = extract_frontmatter_properties(full_content);
+    if let Ok(metadata) = extract_document_metadata(full_content) {
+        memo.tags = merge_document_tag_sources(metadata.tags, full_content);
+        memo.properties = metadata.properties;
+    }
 }
 
 #[cfg(test)]
@@ -1154,163 +1170,6 @@ use `#skip-3` and `#skip-4`
         assert_eq!(normalize_tag_path("/a"), None);
         assert_eq!(normalize_tag_path("a/"), None);
         assert_eq!(normalize_tag_path("/"), None);
-    }
-
-    // ============== replace_tag_paths_in_body (Step 3) ==============
-
-    /// 完全匹配: `#旅行/曼谷` → `#中国/曼谷`。
-    #[test]
-    fn replace_tag_path_exact_match() {
-        let body = "正文 #旅行/曼谷 末尾";
-        let out = replace_tag_paths_in_body(body, "旅行/曼谷", "中国/曼谷");
-        assert_eq!(out, "正文 #中国/曼谷 末尾");
-    }
-
-    /// 子树匹配: `#旅行/曼谷/住` → `#中国/曼谷/住`。
-    #[test]
-    fn replace_tag_path_subtree_match() {
-        let body = "见 #旅行/曼谷/住 这边";
-        let out = replace_tag_paths_in_body(body, "旅行/曼谷", "中国/曼谷");
-        assert_eq!(out, "见 #中国/曼谷/住 这边");
-    }
-
-    /// 完全 + 子树 同时存在, 都正确替换。
-    #[test]
-    fn replace_tag_path_exact_and_subtree() {
-        let body = "#旅行/曼谷 正文 #旅行/曼谷/住 末尾 #旅行/曼谷/吃";
-        let out = replace_tag_paths_in_body(body, "旅行/曼谷", "中国/曼谷");
-        assert_eq!(out, "#中国/曼谷 正文 #中国/曼谷/住 末尾 #中国/曼谷/吃");
-    }
-
-    /// 无关 tag 保持不变。
-    #[test]
-    fn replace_tag_path_leaves_unrelated_intact() {
-        let body = "#旅行 正文 #旅行/曼谷 #泰国";
-        let out = replace_tag_paths_in_body(body, "旅行/曼谷", "中国/曼谷");
-        assert_eq!(out, "#旅行 正文 #中国/曼谷 #泰国");
-    }
-
-    /// 字面 "泰国/曼谷" (无 `#` 前缀) 不应被误改 — 必须有 `#` 锚定。
-    #[test]
-    fn replace_tag_path_does_not_touch_literal_slash_text() {
-        let body = "字面泰国/曼谷 不要改 #泰国/曼谷 但要改";
-        let out = replace_tag_paths_in_body(body, "泰国/曼谷", "中国/曼谷");
-        assert_eq!(out, "字面泰国/曼谷 不要改 #中国/曼谷 但要改");
-    }
-
-    /// old/new 相同 → no-op (避免无谓 String 分配)。
-    #[test]
-    fn replace_tag_path_same_old_new_is_noop() {
-        let body = "#旅行/曼谷 正文";
-        let out = replace_tag_paths_in_body(body, "旅行/曼谷", "旅行/曼谷");
-        assert_eq!(out, body);
-    }
-
-    /// old 为空 → no-op (防御: 调用方应已校验)。
-    #[test]
-    fn replace_tag_path_empty_old_is_noop() {
-        let body = "#旅行/曼谷 正文";
-        let out = replace_tag_paths_in_body(body, "", "中国/曼谷");
-        assert_eq!(out, body);
-    }
-
-    /// 子树不被错误的部分前缀匹配: `曼谷` 不会误改 `泰国/曼谷`。
-    /// (在 `曼谷` → `中国/曼谷` 的场景下, `泰国/曼谷` 不应被改。)
-    #[test]
-    fn replace_tag_path_segment_boundary_protected() {
-        let body = "#曼谷 正文 #泰国/曼谷";
-        let out = replace_tag_paths_in_body(body, "曼谷", "中国/曼谷");
-        assert_eq!(out, "#中国/曼谷 正文 #泰国/曼谷");
-    }
-
-    /// 围栏代码块内的 tag 也应被替换 (Step 3 是 body 整体重写, 不在
-    /// 抽取时区分代码块 — 用户在代码里写的 `#旅行/曼谷` 也会被改写,
-    /// 这是预期行为: 标签是用户语义, 改 tag 是改用户语义)。
-    #[test]
-    fn replace_tag_path_does_apply_inside_fenced_code() {
-        // 围栏内的 #旅行/曼谷 也被替换 — 跟 extract_tags_from_body 不同,
-        // 这里只做字面替换, 不解析 markdown 结构。
-        let body = "```\n#旅行/曼谷\n```\n#旅行/曼谷/住";
-        let out = replace_tag_paths_in_body(body, "旅行/曼谷", "中国/曼谷");
-        assert_eq!(out, "```\n#中国/曼谷\n```\n#中国/曼谷/住");
-    }
-
-    // ===== remove_tag_paths_in_body (delete_memo_tag) =====
-
-    #[test]
-    fn remove_tag_path_exact_match() {
-        // 行中精确命中: token 跟前后空格一并删除。
-        let body = "intro #旅行/曼谷 body";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "intro body");
-    }
-
-    #[test]
-    fn remove_tag_path_at_line_start() {
-        // token 在行首: 整段 token 删除 (regex `^` 锚定 = 前导空白长度 0),
-        // 行尾的 `\n` 保留, 后续内容不变。 行首空一行不算"残留残骸"
-        // ── 整篇文档可能就是要这种结构。
-        let body = "#旅行/曼谷\nrest";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "\nrest");
-    }
-
-    #[test]
-    fn remove_tag_path_subtree_match() {
-        // 子树也一并删: #旅行/曼谷/住 → 删除。
-        let body = "a #旅行/曼谷 b #旅行/曼谷/住 c";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "a b c");
-    }
-
-    #[test]
-    fn remove_tag_path_leaves_unrelated_intact() {
-        // 无关 tag 保留。
-        let body = "#中国/上海 #旅行/曼谷 #中国/北京";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "#中国/上海 #中国/北京");
-    }
-
-    #[test]
-    fn remove_tag_path_segment_boundary_protected() {
-        // #旅行/曼谷斯坦 不会被 #旅行/曼谷 误删 ── 段边界保护。
-        let body = "see #旅行/曼谷斯坦 and #旅行/曼谷";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "see #旅行/曼谷斯坦 and");
-    }
-
-    #[test]
-    fn remove_tag_path_does_not_touch_literal_slash_text() {
-        // 没有 # 前缀的字面 `旅行/曼谷` 不被命中。
-        // 跨行命中时, 整段 token + 前面的换行一并删除, 所以 `\n#旅行/曼谷`
-        // 全部被吃掉, 句子跟 `today` 用单空格连接 (regix 把 `\n` 当
-        // 前导空白删了)。
-        let body = "I went to 旅行/曼谷 last year.\n#旅行/曼谷 today";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "I went to 旅行/曼谷 last year. today");
-    }
-
-    #[test]
-    fn remove_tag_path_collapses_triple_blank_lines() {
-        // 删除 token 后留下的连续空行折叠成 1 行空白, 不留残骸。
-        let body = "intro\n\n#旅行/曼谷\n\n\noutro";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "intro\n\noutro");
-    }
-
-    #[test]
-    fn remove_tag_path_empty_tag_is_noop() {
-        let body = "hello #中国";
-        assert_eq!(remove_tag_paths_in_body(body, ""), body);
-    }
-
-    #[test]
-    fn remove_tag_path_handles_utf8_segment_chars() {
-        // tag 段允许 unicode (regex \p{P}] 限制标点, 中文字符不在内)。
-        // 之前没测试过 ── 确认多字节段字符也按字节 offset 安全处理。
-        let body = "intro #旅行/曼谷/outro body";
-        let out = remove_tag_paths_in_body(body, "旅行/曼谷");
-        assert_eq!(out, "intro body");
     }
 
     /// 路径式 tag 仍走 strip_code_regions, NUL 占位不影响。

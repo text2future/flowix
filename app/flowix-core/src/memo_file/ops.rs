@@ -24,7 +24,10 @@ use std::path::{Path, PathBuf};
 use rusqlite::OptionalExtension;
 
 use super::derivation::{apply_derived_memo_fields, extract_title_and_preview};
-use super::frontmatter::{build_md_content, merge_frontmatter, MergeOverrides};
+use super::frontmatter::{
+    build_md_content, extract_document_metadata, merge_frontmatter, replace_frontmatter_tags,
+    MergeOverrides,
+};
 use super::notebook::sqlite_to_io;
 use super::types::{DeleteTagReport, Memo, MoveTagReport, ReconcileReport};
 use super::MemoFile;
@@ -32,6 +35,12 @@ use super::MemoFile;
 /// title 派生 fallback: 空 body / 不可见首行时用 `untitled-YYYY-MM-DD`。
 fn fallback_filename(now: chrono::DateTime<chrono::Local>) -> String {
     format!("{}.md", now.format("untitled-%Y-%m-%d"))
+}
+
+fn validate_document_frontmatter(content: &str) -> std::io::Result<()> {
+    extract_document_metadata(content)
+        .map(|_| ())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string()))
 }
 
 /// title 清洗: 替换文件系统非法字符 `\ / : * ? " < > |` 为空格,
@@ -288,23 +297,27 @@ impl MemoFile {
             .map(|entry| entry.filename)
             .collect();
 
-        let final_body = match tag {
-            Some(t) if !t.is_empty() => {
-                if body.is_empty() {
-                    format!("#{}", t)
-                } else {
-                    format!("{}\n#{}", body, t)
-                }
-            }
-            _ => body.to_string(),
-        };
-
         let overrides: MergeOverrides = [("key".to_string(), id.clone())].into_iter().collect();
-        let initial_content = if super::frontmatter::FRONTMATTER_RE.is_match(&final_body) {
-            merge_frontmatter(&final_body, &overrides)
+        let content_with_key = if super::frontmatter::FRONTMATTER_RE.is_match(body) {
+            merge_frontmatter(body, &overrides)
         } else {
-            build_md_content(&id, &final_body)
+            build_md_content(&id, body)
         };
+        let initial_content = match tag {
+            Some(tag) if !tag.trim().is_empty() => {
+                let mut tags = extract_document_metadata(&content_with_key)
+                    .map_err(|error| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+                    })?
+                    .tags;
+                tags.push(tag.to_string());
+                replace_frontmatter_tags(&content_with_key, &tags).map_err(|error| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
+                })?
+            }
+            _ => content_with_key,
+        };
+        validate_document_frontmatter(&initial_content)?;
         let persisted_id =
             super::frontmatter::extract_frontmatter_key(&initial_content).unwrap_or(id);
         if mark_external_create {
@@ -443,6 +456,7 @@ impl MemoFile {
         let overrides: MergeOverrides =
             [("key".to_string(), memo.id.clone())].into_iter().collect();
         let merged = merge_frontmatter(body, &overrides);
+        validate_document_frontmatter(&merged)?;
         atomic_write_bytes(&base.join(&memo.filename), merged.as_bytes())?;
 
         memo.updated_at = chrono::Utc::now().timestamp_millis();
@@ -460,6 +474,7 @@ impl MemoFile {
         let overrides: MergeOverrides =
             [("key".to_string(), memo.id.clone())].into_iter().collect();
         let merged = merge_frontmatter(body, &overrides);
+        validate_document_frontmatter(&merged)?;
         let path = self.get_memo_base().join(&memo.filename);
         atomic_write_bytes(&path, merged.as_bytes())?;
 
@@ -568,6 +583,7 @@ impl MemoFile {
         let overrides: MergeOverrides =
             [("key".to_string(), memo.id.clone())].into_iter().collect();
         let merged = merge_frontmatter(body, &overrides);
+        validate_document_frontmatter(&merged)?;
         let path = base.join(&memo.filename);
         atomic_write_bytes(&path, merged.as_bytes())?;
 
@@ -1819,13 +1835,13 @@ impl MemoFile {
     }
 
     /// 移动 subtag: 把 `old_path` 整棵子树重命名 (含 prefix 替换),
-    /// 批量改写所有受影响 memo 的 `.md` body + 同步 memo index。
+    /// 批量改写所有受影响 memo 的 frontmatter `tags` + 同步 memo index。
     ///
     /// **语义**:
     /// - `old_path` 自身: 重命名为 `new_path`。
     /// - `old_path/<...>` 子树 (任意深度): 全部重命名, 把 `old_path/`
     ///   前缀替换为 `new_path/`, 子段保持不变。
-    /// - 其它 tag / 普通文本: 不变。
+    /// - 其它 YAML tag 与正文（包括正文中的 `#tag` 引用）保持不变。
     ///
     /// **约束** (调用方应已大致校验, 这里再兜底):
     /// 1. `old_path` / `new_path` 必须走 [`normalize_tag_path`] 通过
@@ -1838,6 +1854,52 @@ impl MemoFile {
     /// 单条 memo 改写走 `atomic_write_bytes` + `sync_index_on_write_*`,
     /// 文件写和 index 写各自原子, 中途崩溃靠下次 `reconcile_with_disk_bidirectional`
     /// 的派生迁移自愈。
+    pub fn ensure_tag_union_index_for_notebook_id(
+        &self,
+        notebook_id: &str,
+    ) -> std::io::Result<usize> {
+        const MIGRATION_KEY: &str = "yaml-body-tag-union-index";
+        const MIGRATION_VERSION: u32 = 1;
+
+        let _guard = self
+            .current_index_io
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self
+            .notebook_data_migration_version(notebook_id, MIGRATION_KEY)?
+            .unwrap_or_default()
+            >= MIGRATION_VERSION
+        {
+            return Ok(0);
+        }
+
+        let base = self
+            .memo_base_for_notebook_id_result(notebook_id)
+            .map_err(std::io::Error::other)?;
+        let entries = self
+            .read_index_for_notebook_id(Some(notebook_id))?
+            .unwrap_or_default()
+            .memos;
+        let mut updated = 0usize;
+        for entry in entries {
+            let content = std::fs::read_to_string(base.join(&entry.filename))?;
+            let before = entry.tags.clone();
+            let mut memo = MemoFile::index_entry_to_memo(&entry);
+            apply_derived_memo_fields(&mut memo, &content);
+            if memo.tags != before {
+                MemoFile::sync_index_on_write_for_notebook_id_locked(
+                    self,
+                    notebook_id,
+                    &memo,
+                )?;
+                updated += 1;
+            }
+        }
+
+        self.mark_notebook_data_migration(notebook_id, MIGRATION_KEY, MIGRATION_VERSION)?;
+        Ok(updated)
+    }
+
     pub fn move_memo_tag_locked(
         &self,
         notebook_id: Option<&str>,
@@ -1940,7 +2002,7 @@ impl MemoFile {
 
         drop(stmt);
 
-        // 6. 逐 memo 改写 body + 同步 memo index
+        // 6. 逐 memo 改写 YAML 与正文中的真实标签来源，再同步并集索引。
         let mut report = MoveTagReport::default();
         let mut renamed_seen = std::collections::HashSet::new();
         for memo_id in &affected_ids {
@@ -1952,12 +2014,42 @@ impl MemoFile {
             })?;
             let path =
                 std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename);
-            let body = std::fs::read_to_string(&path)?;
-            let new_body =
-                super::derivation::replace_tag_paths_in_body(&body, &old_path, &new_path);
-            if new_body == body {
+            let content = std::fs::read_to_string(&path)?;
+            let metadata = extract_document_metadata(&content).map_err(|error| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+            })?;
+            let mut yaml_changed = false;
+            let next_tags: Vec<String> = metadata
+                .tags
+                .iter()
+                .map(|tag| {
+                    let next = if tag == &old_path {
+                        new_path.clone()
+                    } else if let Some(suffix) = tag.strip_prefix(&prefix) {
+                        format!("{new_path}/{suffix}")
+                    } else {
+                        tag.clone()
+                    };
+                    yaml_changed |= next != *tag;
+                    next
+                })
+                .collect();
+            let content_with_body = super::derivation::rewrite_body_tag_path(
+                &content,
+                &old_path,
+                Some(&new_path),
+            );
+            let body_changed = content_with_body != content;
+            if !yaml_changed && !body_changed {
                 continue;
             }
+            let content_with_tags = if yaml_changed {
+                replace_frontmatter_tags(&content_with_body, &next_tags).map_err(|error| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+                })?
+            } else {
+                content_with_body
+            };
 
             // 改写前的 memo 快照: on_after_write 把它交回调用方, 用于 emit
             // memo-event 时算 derived_changed (before -> after)。
@@ -1982,7 +2074,7 @@ impl MemoFile {
             // 写回 .md: 走 merge_frontmatter 保留 key, atomic_write_bytes
             let overrides: MergeOverrides =
                 [("key".to_string(), memo_id.clone())].into_iter().collect();
-            let merged = merge_frontmatter(&new_body, &overrides);
+            let merged = merge_frontmatter(&content_with_tags, &overrides);
 
             // 写盘前通知调用方 mark_self_write ── 抑制 watcher 把这次自写
             // 误判为外部修改 (否则 N 个 memo 触发 N 次 reload + 事件轰击)。
@@ -2012,15 +2104,13 @@ impl MemoFile {
     }
 
     /// Delete tag: remove `tag_path` itself + all subtree tags (any depth
-    /// under `tag_path/`) from both memo index and document body.
+    /// under `tag_path/`) from YAML, body tokens, and the memo index.
     ///
     /// Semantics:
-    /// - `tag_path` itself: removed from `memo_tags` table; the matching
-    ///   `#tag_path` token (with preceding whitespace) is stripped from
-    ///   every affected .md body.
+    /// - `tag_path` itself: removed from `memo_tags`, YAML, and body tokens.
     /// - `tag_path/<...>` subtree (any depth): all of them are removed in
-    ///   one shot -- both from `memo_tags` table and from .md bodies.
-    /// - Other tags / plain text: untouched.
+    ///   one shot from both sources and the derived index.
+    /// - Other tags and non-tag body text are untouched.
     ///
     /// Constraints (caller has roughly validated; we re-validate defensively):
     /// 1. `tag_path` must pass [`normalize_tag_path`] (legal path).
@@ -2047,18 +2137,12 @@ impl MemoFile {
     /// `on_after_write` to collect `(id, before)` pairs for downstream
     /// emit. Core stays Tauri-free.
     ///
-    /// Note: unlike `move_memo_tag_locked_with_hooks`, this command does
-    /// NOT call `on_after_write` -- the upstream `TagsDeleted` event does
-    /// not need a `before` snapshot (the only thing that matters is the
-    /// affected id list, already collected up front). Kept the signature
-    /// symmetric so future expansion (e.g. emit per-memo before/after)
-    /// stays possible without breaking the contract.
     pub fn delete_memo_tag_locked_with_hooks<F, G>(
         &self,
         notebook_id: Option<&str>,
         tag_path: &str,
         on_before_write: F,
-        _on_after_write: G,
+        mut on_after_write: G,
     ) -> std::io::Result<DeleteTagReport>
     where
         F: Fn(&Path),
@@ -2131,7 +2215,7 @@ impl MemoFile {
             .map_err(sqlite_to_io)?;
         drop(stmt);
 
-        // 5. per-memo body rewrite + memo index sync.
+        // 5. Per-memo YAML/body tag rewrite + union index sync.
         let mut report = DeleteTagReport {
             affected_memos: 0,
             deleted_tags,
@@ -2145,19 +2229,43 @@ impl MemoFile {
             })?;
             let path =
                 std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename);
-            let body = std::fs::read_to_string(&path)?;
-            let new_body =
-                super::derivation::remove_tag_paths_in_body(&body, &tag_path);
-
-            // body may not change if memo_tags had stale entries for this
-            // tag while body never mentioned it (rare historical dirt).
-            // We still need to write so apply_derived_memo_fields +
-            // sync_index_on_write run, which prunes the stale memo_tags row.
-            let _ = new_body == body;
+            let before_memo = MemoFile::index_entry_to_memo(&location.memo);
+            let content = std::fs::read_to_string(&path)?;
+            let metadata = extract_document_metadata(&content).map_err(|error| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+            })?;
+            let next_tags: Vec<String> = metadata
+                .tags
+                .iter()
+                .filter(|tag| *tag != &tag_path && !tag.starts_with(&prefix))
+                .cloned()
+                .collect();
+            let yaml_changed = next_tags != metadata.tags;
+            let content_with_body =
+                super::derivation::rewrite_body_tag_path(&content, &tag_path, None);
+            let body_changed = content_with_body != content;
+            if !yaml_changed && !body_changed {
+                // A stale index row is repaired without changing the document.
+                let mut memo = MemoFile::index_entry_to_memo(&location.memo);
+                apply_derived_memo_fields(&mut memo, &content);
+                MemoFile::sync_index_on_write_for_notebook_id_locked(
+                    self,
+                    &location.notebook.id,
+                    &memo,
+                )?;
+                continue;
+            }
+            let content_with_tags = if yaml_changed {
+                replace_frontmatter_tags(&content_with_body, &next_tags).map_err(|error| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+                })?
+            } else {
+                content_with_body
+            };
 
             let overrides: MergeOverrides =
                 [("key".to_string(), memo_id.clone())].into_iter().collect();
-            let merged = merge_frontmatter(&new_body, &overrides);
+            let merged = merge_frontmatter(&content_with_tags, &overrides);
 
             // notify caller to mark_self_write -- otherwise the watcher
             // would mistake this for an external edit and emit a wave of
@@ -2166,11 +2274,8 @@ impl MemoFile {
 
             atomic_write_bytes(&path, merged.as_bytes())?;
 
-            // re-derive + sync index. apply_derived_memo_fields re-runs
-            // extract_tags_from_body so memo.tags stays in lockstep with
-            // the rewritten body; sync_index_on_write prunes the deleted
-            // memo_tags rows.
-            let mut memo = MemoFile::index_entry_to_memo(&location.memo);
+            // Re-derive the YAML/body union and prune deleted index rows.
+            let mut memo = before_memo.clone();
             apply_derived_memo_fields(&mut memo, &merged);
             memo.updated_at = chrono::Utc::now().timestamp_millis();
             MemoFile::sync_index_on_write_for_notebook_id_locked(
@@ -2179,6 +2284,7 @@ impl MemoFile {
                 &memo,
             )?;
 
+            on_after_write(memo_id, &before_memo);
             report.affected_memos += 1;
         }
 

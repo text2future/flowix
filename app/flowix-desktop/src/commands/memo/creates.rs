@@ -35,13 +35,11 @@ pub fn add_document(
     state: State<AppState>,
     app: AppHandle,
 ) -> Memo {
-    // Create a date-title memo, optionally seeded with a tag.
+    // Create a date-title memo. The selected tag is persisted in YAML
+    // frontmatter; body #tag tokens are references only.
     let now = chrono::Utc::now().timestamp_millis();
     let title = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let body = match tag.as_deref() {
-        Some(t) if !t.is_empty() => format!("# {}\n#{}\n", title, t),
-        _ => format!("# {}\n", title),
-    };
+    let body = format!("# {}\n", title);
 
     // Mark the expected path before create to suppress our own watcher event.
     let abs = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
@@ -50,11 +48,14 @@ pub fn add_document(
     mark_self_write_for(&app, &abs);
 
     // Create the markdown file and memo index row.
-    let memo = match MemoService::new(&read_lock(&state.memo_file, "memo_file")).create_memo_named(
-        notebook_id.as_deref(),
-        &title,
-        &body,
-    ) {
+    let memo = match MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .create_memo_named_with_tag(
+            notebook_id.as_deref(),
+            &title,
+            &body,
+            tag.as_deref().filter(|value| !value.trim().is_empty()),
+        )
+    {
         Ok(created) => created.memo,
         Err(e) => {
             eprintln!("[add_document] create_memo failed: {e}");

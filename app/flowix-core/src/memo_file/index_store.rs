@@ -90,6 +90,13 @@ impl MemoFile {
                 last_updated INTEGER NOT NULL,
                 migrated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS notebook_data_migrations (
+                notebook_id TEXT NOT NULL,
+                migration_key TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                completed_at INTEGER NOT NULL,
+                PRIMARY KEY(notebook_id, migration_key)
+            );
             CREATE TABLE IF NOT EXISTS memos (
                 id TEXT PRIMARY KEY,
                 notebook_id TEXT NOT NULL,
@@ -258,6 +265,50 @@ impl MemoFile {
                 notebook_id,
                 version as i64,
                 last_updated,
+                chrono::Utc::now().timestamp_millis(),
+            ],
+        )
+        .map_err(sqlite_to_io)?;
+        Ok(())
+    }
+
+    pub(crate) fn notebook_data_migration_version(
+        &self,
+        notebook_id: &str,
+        migration_key: &str,
+    ) -> std::io::Result<Option<u32>> {
+        let conn = self.open_memo_index_db()?;
+        self.ensure_memo_tables(&conn)?;
+        conn.query_row(
+            "SELECT version FROM notebook_data_migrations
+             WHERE notebook_id = ?1 AND migration_key = ?2",
+            params![notebook_id, migration_key],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|version| version.map(|value| value.max(0) as u32))
+        .map_err(sqlite_to_io)
+    }
+
+    pub(crate) fn mark_notebook_data_migration(
+        &self,
+        notebook_id: &str,
+        migration_key: &str,
+        version: u32,
+    ) -> std::io::Result<()> {
+        let conn = self.open_memo_index_db()?;
+        self.ensure_memo_tables(&conn)?;
+        conn.execute(
+            "INSERT INTO notebook_data_migrations
+                (notebook_id, migration_key, version, completed_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(notebook_id, migration_key) DO UPDATE SET
+                version = MAX(notebook_data_migrations.version, excluded.version),
+                completed_at = excluded.completed_at",
+            params![
+                notebook_id,
+                migration_key,
+                version as i64,
                 chrono::Utc::now().timestamp_millis(),
             ],
         )

@@ -212,13 +212,25 @@ impl<'a> MemoService<'a> {
         title: &str,
         body: &str,
     ) -> Result<CreatedMemo, FlowixError> {
+        self.create_memo_named_with_tag(notebook_key, title, body, None)
+    }
+
+    /// Create a memo and assign its initial document-membership tag through
+    /// frontmatter. The body is never decorated with a synthetic `#tag`.
+    pub fn create_memo_named_with_tag(
+        &mut self,
+        notebook_key: Option<&str>,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+    ) -> Result<CreatedMemo, FlowixError> {
         let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         let memo = if let Some(key) = notebook_key {
             let notebook = self.resolve_notebook(key)?;
             self.memo_file
-                .create_memo_for_notebook_id(&notebook.id, title, body, None)
+                .create_memo_for_notebook_id(&notebook.id, title, body, tag)
         } else {
-            self.memo_file.create_memo(title, body, None)
+            self.memo_file.create_memo(title, body, tag)
         }
         .map_err(FlowixError::Io)?;
         let location = self

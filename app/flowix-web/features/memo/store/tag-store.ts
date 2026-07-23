@@ -27,10 +27,8 @@ interface TagStore {
   loadTags: (notebookId?: string) => Promise<void>;
   /**
    * 移动 subtag: 把 `oldPath` 整棵子树重命名为 `newPath` (含 prefix
-   * 替换), 批量改写所有受影响 memo 的 .md body + 同步 memo index。
-   * 成功后 triggerMetadataRefresh, 触发面板 / 下拉 / 列表重拉。
-   * 编辑器 `#` mention 缓存的失效由调用方 (applyTagMove) 调
-   * invalidateMentionTags, 避免本 store 反向依赖 editor。
+   * 替换), 批量改写所有受影响 memo 的 YAML `tags` + 同步 memo index。
+   * 成功后 triggerMetadataRefresh, 触发面板 / 属性下拉 / 列表重拉。
    */
   moveTag: (
     notebookId: string,
@@ -38,11 +36,11 @@ interface TagStore {
     newPath: string,
   ) => Promise<MoveTagReport | null>;
   /**
-   * 删除 subtag: 把 `tagPath` 自身及整棵子树从 memo index + 文档 body
+   * 删除 subtag: 把 `tagPath` 自身及整棵子树从 memo index + YAML `tags`
    * 移除。 调用方负责 UI 副作用:
    * - 如果 selectedTagId 命中被删子树, 调用方需 setSelectedTagId(null)
    *   并切 activeFilter 到 'all' (因为旧的 tag 不存在了)
-   * - 调用方在成功后调 invalidateMentionTags + clearLibraryMetadata
+   * - 调用方在成功后清理文档库元数据缓存
    *
    * selectedTagId 处理**不**放在 store 里 ── store 不感知 UI 维度
    * (activeFilter 来自 memo-store), 跟 moveTag 把 selectedTagId 重写
@@ -79,10 +77,7 @@ export const useTagStore = create<TagStore>()(
       ) => {
         const report = await tags.move(notebookId, oldPath, newPath);
         if (report) {
-          // 通知下游: tag 列表 / 标签面板 / 下拉缓存 都需要重新拉。
-          // 编辑器 `#` mention 缓存的失效由调用方 (note-navigation-panel
-          // 的 applyTagMove) 调 invalidateMentionTags, 避免本 store 反向
-          // 依赖 editor (memo-store -> tag-store -> editor -> memo-store 循环)。
+          // 通知下游: tag 列表 / 标签面板 / 属性下拉缓存都需要重新拉。
           get().triggerMetadataRefresh();
         }
         return report;

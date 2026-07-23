@@ -321,7 +321,7 @@ export const tags = {
     invoke<{ tags: { id: string; name: string }[] }>('get_all_tags', { notebookId }),
   /**
    * 移动 subtag: 把 `oldPath` 整棵子树重命名 (含 prefix 替换), 批量
-   * 改写所有受影响 memo 的 .md body + 同步 memo index。
+   * 改写所有受影响 memo 的 YAML `tags` + 同步 memo index。
    * `notebookId` 必须传, IPC 端无默认值 (跟 getAll 的 optional 不同)。
    * 返回值: `{ affectedMemos, renamedTags: [[old, new], ...] }`。
    */
@@ -332,7 +332,7 @@ export const tags = {
     ),
   /**
    * Delete a tag subtree: removes `tagPath` itself + every nested
-   * `tagPath/<...>` tag from memo index + document body. Symmetric to
+   * `tagPath/<...>` tag from memo index + document YAML `tags`. Symmetric to
    * `move` -- returns `{ affectedMemos, deletedTags }` so the caller
    * can refresh dropdown / tag panel caches without re-querying.
    */

@@ -180,7 +180,7 @@ function handleTagsRenamed(
  *
  * 后端已经:
  * - 从 memo_tags 表移除 `tag_path` 自身 + 所有子树 tag
- * - 从 .md body 删除对应的 `#tag_path[/<...>]` token
+ * - 从文档 YAML `tags` 删除对应的 `tag_path[/<...>]`
  * - 同步 memo index
  *
  * 这里只做必要工作:

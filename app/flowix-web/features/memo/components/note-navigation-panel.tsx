@@ -644,7 +644,7 @@ export function NoteNavigationPanel({
       // 子孙) 重命名为 `target.fullPath + '/' + source.name`。
       // 节点是 segment 节点, name 是末段, fullPath 是完整路径, 两
       // 者拼接成新 fullPath 给后端。后端会批量改写所有受影响 memo
-      // 的 .md body, 同步 memo index。
+      // 的 YAML `tags`, 同步 memo index。
       if (position === 'inside') {
         const newPath = `${target.fullPath}/${sourceTag.name}`;
 

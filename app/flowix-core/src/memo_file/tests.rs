@@ -10,7 +10,7 @@
 //! - content: `read_all_memos` / `read_all_memos_filtered` / `read_memo_with_body`
 //! - memo index schema: 无 `path` 字段, `filename` 直存磁盘文件名
 
-use super::frontmatter::build_md_content;
+use super::frontmatter::{build_md_content, extract_document_metadata};
 use super::ops::{
     atomic_write_bytes, base_filename, resolve_filename_conflict, sanitize_filename_component,
 };
@@ -366,7 +366,7 @@ fn pasted_file_with_key_from_other_notebook_gets_new_id_in_current_notebook() {
 fn create_memo_writes_memo_row_to_index_db() {
     let (mf, _tmp) = fresh_memo_file();
     let memo = mf
-        .create_memo("DB Note", "# DB Note\n#tag\n- [ ] todo", None)
+        .create_memo("DB Note", "# DB Note\n#body-only\n- [ ] todo", Some("tag"))
         .unwrap();
 
     let conn = rusqlite::Connection::open(mf.get_index_db_path()).unwrap();
@@ -638,11 +638,15 @@ fn create_memo_handles_title_conflict() {
 }
 
 #[test]
-fn create_memo_with_tag_appends_to_body() {
+fn create_memo_with_tag_writes_frontmatter() {
     let (mf, _base) = fresh_memo_file();
     let memo = mf.create_memo("Tagged", "intro\n", Some("work")).unwrap();
     let content = fs::read_to_string(memo.filename_full_path(&mf)).unwrap();
-    assert!(content.contains("#work"));
+    assert_eq!(
+        extract_document_metadata(&content).unwrap().tags,
+        vec!["work".to_string()]
+    );
+    assert!(!content.contains("#work"));
     assert!(content.contains("intro"));
 }
 
@@ -2161,11 +2165,12 @@ fn read_body(mf: &MemoFile, filename: &str) -> String {
 }
 
 #[test]
-fn move_tag_rewrites_exact_match_in_body() {
+fn move_tag_rewrites_exact_match_in_both_sources() {
     let (mf, _base) = fresh_memo_file();
     let memo = mf
-        .create_memo("Move exact", "正文 #旅行/曼谷 末尾", None)
+        .create_memo("Move exact", "正文 #旅行/曼谷 末尾", Some("旅行/曼谷"))
         .unwrap();
+    let original_body = read_body(&mf, &memo.filename);
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
@@ -2180,10 +2185,13 @@ fn move_tag_rewrites_exact_match_in_body() {
         report.renamed_tags
     );
 
-    // 验证 body 改写
     let body = read_body(&mf, &memo.filename);
-    assert!(body.contains("#中国/曼谷"), "body 应含新路径: {body}");
-    assert!(!body.contains("#旅行/曼谷"), "body 不应再含旧路径: {body}");
+    assert!(body.contains("正文 #中国/曼谷 末尾"));
+    assert_ne!(body, original_body, "两个标签来源都应被更新");
+    assert_eq!(
+        extract_document_metadata(&body).unwrap().tags,
+        vec!["中国/曼谷".to_string()]
+    );
 
     // 验证 memo_tags 同步
     let tags = read_memo_tags(&mf, &memo.id);
@@ -2191,12 +2199,12 @@ fn move_tag_rewrites_exact_match_in_body() {
 }
 
 #[test]
-fn move_tag_rewrites_subtree_in_body() {
+fn move_tag_rewrites_subtree_in_both_sources() {
     let (mf, _base) = fresh_memo_file();
     let memo = mf
         .create_memo(
             "Move subtree",
-            "见 #旅行/曼谷 和 #旅行/曼谷/住 和 #旅行/曼谷/吃/路边摊",
+            "---\ntags:\n  - 旅行/曼谷\n  - 旅行/曼谷/住\n  - 旅行/曼谷/吃/路边摊\n---\n见 #旅行/曼谷",
             None,
         )
         .unwrap();
@@ -2207,13 +2215,14 @@ fn move_tag_rewrites_subtree_in_body() {
     assert_eq!(report.affected_memos, 1);
 
     let body = read_body(&mf, &memo.filename);
-    assert!(body.contains("#中国/曼谷"));
-    assert!(body.contains("#中国/曼谷/住"));
-    assert!(body.contains("#中国/曼谷/吃/路边摊"));
-    assert!(!body.contains("#旅行/曼谷/"));
-    assert!(
-        !body.contains("#旅行/曼谷 "),
-        "单空格的 #旅行/曼谷 也不应残留"
+    assert!(body.contains("见 #中国/曼谷"));
+    assert_eq!(
+        extract_document_metadata(&body).unwrap().tags,
+        vec![
+            "中国/曼谷".to_string(),
+            "中国/曼谷/住".to_string(),
+            "中国/曼谷/吃/路边摊".to_string()
+        ]
     );
 
     let tags = read_memo_tags(&mf, &memo.id);
@@ -2226,25 +2235,71 @@ fn move_tag_rewrites_subtree_in_body() {
 fn move_tag_leaves_unrelated_tags_intact() {
     let (mf, _base) = fresh_memo_file();
     let memo = mf
-        .create_memo("Unrelated", "#旅行/曼谷 正文 #旅行 正文 #泰国/曼谷", None)
+        .create_memo(
+            "Unrelated",
+            "---\ntags: [旅行/曼谷, 旅行, 泰国/曼谷]\n---\n#旅行/曼谷 正文 #旅行 正文 #泰国/曼谷",
+            None,
+        )
         .unwrap();
 
     mf.move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
         .unwrap();
 
     let body = read_body(&mf, &memo.filename);
-    // #旅行 不变 (不是 #旅行/曼谷 的子树)
     assert!(body.contains("#旅行 "), "#旅行 不应被改: {body}");
-    // #泰国/曼谷 不变 (前缀不匹配)
     assert!(body.contains("#泰国/曼谷"), "#泰国/曼谷 不应被改: {body}");
-    // #旅行/曼谷 被改
     assert!(body.contains("#中国/曼谷"));
-    assert!(!body.contains("#旅行/曼谷/") && !body.contains("#旅行/曼谷 "));
 
     let tags = read_memo_tags(&mf, &memo.id);
     assert!(tags.contains(&"中国/曼谷".to_string()));
     assert!(tags.contains(&"旅行".to_string()));
     assert!(tags.contains(&"泰国/曼谷".to_string()));
+}
+
+#[test]
+fn move_tag_rewrites_body_only_membership_but_not_code() {
+    let (mf, _base) = fresh_memo_file();
+    let memo = mf
+        .create_memo(
+            "Body only",
+            "Body #old/path\n`#old/path`\n```md\n#old/path\n```",
+            None,
+        )
+        .unwrap();
+
+    let report = mf
+        .move_memo_tag_locked(Some("nb_test"), "old/path", "new/path")
+        .unwrap();
+    assert_eq!(report.affected_memos, 1);
+
+    let content = read_body(&mf, &memo.filename);
+    assert!(content.contains("Body #new/path"));
+    assert!(content.contains("`#old/path`"));
+    assert!(content.contains("```md\n#old/path\n```"));
+    assert!(extract_document_metadata(&content).unwrap().tags.is_empty());
+    assert_eq!(read_memo_tags(&mf, &memo.id), vec!["new/path"]);
+}
+
+#[test]
+fn delete_tag_removes_body_only_membership_but_not_code() {
+    let (mf, _base) = fresh_memo_file();
+    let memo = mf
+        .create_memo(
+            "Delete body tag",
+            "Body #remove/path remains\n`#remove/path`",
+            None,
+        )
+        .unwrap();
+
+    let report = mf
+        .delete_memo_tag_locked(Some("nb_test"), "remove/path")
+        .unwrap();
+    assert_eq!(report.affected_memos, 1);
+
+    let content = read_body(&mf, &memo.filename);
+    assert!(content.contains("Body  remains"));
+    assert!(content.contains("`#remove/path`"));
+    assert!(read_memo_tags(&mf, &memo.id).is_empty());
 }
 
 #[test]
@@ -2267,8 +2322,8 @@ fn move_tag_rejects_invalid_paths() {
 #[test]
 fn move_tag_rejects_target_conflict() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_memo("A", "#旅行/曼谷", None).unwrap();
-    let _ = mf.create_memo("B", "#中国/曼谷", None).unwrap();
+    let _ = mf.create_memo("A", "正文", Some("旅行/曼谷")).unwrap();
+    let _ = mf.create_memo("B", "正文", Some("中国/曼谷")).unwrap();
 
     // 已有 "中国/曼谷" → 移动 "旅行/曼谷" → "中国/曼谷" 冲突
     let err = mf
@@ -2280,7 +2335,7 @@ fn move_tag_rejects_target_conflict() {
 #[test]
 fn move_tag_same_path_is_noop() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_memo("Same", "#旅行/曼谷", None).unwrap();
+    let _ = mf.create_memo("Same", "正文", Some("旅行/曼谷")).unwrap();
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "旅行/曼谷")
@@ -2292,11 +2347,15 @@ fn move_tag_same_path_is_noop() {
 #[test]
 fn move_tag_handles_multiple_memos() {
     let (mf, _base) = fresh_memo_file();
-    let a = mf.create_memo("A", "#旅行/曼谷", None).unwrap();
+    let a = mf.create_memo("A", "正文", Some("旅行/曼谷")).unwrap();
     let b = mf
-        .create_memo("B", "#旅行 正文 #旅行/曼谷/住", None)
+        .create_memo(
+            "B",
+            "---\ntags: [旅行, 旅行/曼谷/住]\n---\n#旅行 正文 #旅行/曼谷/住",
+            None,
+        )
         .unwrap();
-    let _c = mf.create_memo("C", "#不相关", None).unwrap(); // 不应被影响
+    let _c = mf.create_memo("C", "正文", Some("不相关")).unwrap(); // 不应被影响
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
@@ -2319,7 +2378,9 @@ fn move_tag_handles_multiple_memos() {
 #[test]
 fn move_tag_preserves_frontmatter_key() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf.create_memo("FM", "正文 #旅行/曼谷", None).unwrap();
+    let memo = mf
+        .create_memo("FM", "正文 #旅行/曼谷", Some("旅行/曼谷"))
+        .unwrap();
     let original_key = memo.id.clone();
 
     mf.move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
@@ -2358,7 +2419,7 @@ fn read_all_memos_filtered_tagged_with_path_prefix() {
     let m_thailand = mf.create_memo("TH", "x", None).unwrap();
     let m_unrelated = mf.create_memo("X", "x", None).unwrap();
 
-    let mut assign = |memo: super::types::Memo, tags: &[&str]| {
+    let assign = |memo: super::types::Memo, tags: &[&str]| {
         let mut memo = memo;
         memo.tags = tags.iter().map(|s| s.to_string()).collect();
         mf.sync_metadata_only(&memo).unwrap();
@@ -2429,7 +2490,7 @@ fn tag_prefix_counts_use_distinct_memos_not_tag_sum() {
     //   中国/湖南     = 3 (A, B, C)
     //   中国/广东     = 1 (A only)
     //   中国/湖南/长沙 = 1 (C only)
-    let mut assign = |memo: super::types::Memo, tags: &[&str]| {
+    let assign = |memo: super::types::Memo, tags: &[&str]| {
         let mut memo = memo;
         memo.tags = tags.iter().map(|s| s.to_string()).collect();
         mf.sync_metadata_only(&memo).unwrap();
@@ -2712,4 +2773,64 @@ fn reorder_then_read_preserves_client_supplied_order() {
     let read = mf2.read_notebook_configs().unwrap();
     assert_eq!(read[0].id, "nb_c");
     assert_eq!(read[0].sort, 5);
+}
+
+#[test]
+fn yaml_and_body_tags_form_a_stable_union_without_rewriting_yaml() {
+    let (mf, tmp) = fresh_memo_file();
+    let memo = mf
+        .create_memo("Union", "Body #alpha and #beta", Some("yaml"))
+        .unwrap();
+
+    assert_eq!(memo.tags, vec!["yaml", "alpha", "beta"]);
+
+    let content = fs::read_to_string(tmp.join(&memo.filename)).unwrap();
+    let metadata = extract_document_metadata(&content).unwrap();
+    assert_eq!(metadata.tags, vec!["yaml"]);
+    assert!(content.contains("Body #alpha and #beta"));
+}
+
+#[test]
+fn removing_yaml_tag_keeps_membership_when_body_still_contains_it() {
+    let (mf, _tmp) = fresh_memo_file();
+    let memo = mf
+        .create_memo("Shared", "Body #shared", Some("shared"))
+        .unwrap();
+
+    let updated = mf
+        .write_memo(&memo.id, "---\ntags: []\n---\nBody #shared")
+        .unwrap();
+    assert_eq!(updated.tags, vec!["shared"]);
+
+    let content = read_body(&mf, &updated.filename);
+    assert!(extract_document_metadata(&content).unwrap().tags.is_empty());
+    assert!(content.contains("Body #shared"));
+}
+
+#[test]
+fn tag_union_index_upgrade_rebuilds_index_without_touching_markdown() {
+    let (mf, tmp) = fresh_memo_file();
+    let mut memo = mf
+        .create_memo("Upgrade", "Body #bodytag", Some("yamltag"))
+        .unwrap();
+    let path = tmp.join(&memo.filename);
+    let original = fs::read_to_string(&path).unwrap();
+
+    memo.tags = vec!["yamltag".to_string()];
+    mf.sync_metadata_only(&memo).unwrap();
+    let updated = mf
+        .ensure_tag_union_index_for_notebook_id("nb_test")
+        .unwrap();
+
+    assert_eq!(updated, 1);
+    assert_eq!(
+        read_memo_tags(&mf, &memo.id),
+        vec!["yamltag".to_string(), "bodytag".to_string()]
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(
+        mf.ensure_tag_union_index_for_notebook_id("nb_test")
+            .unwrap(),
+        0
+    );
 }

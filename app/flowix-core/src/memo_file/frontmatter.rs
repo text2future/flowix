@@ -27,10 +27,12 @@
 //! 工具不动。
 
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{Map, Value};
+use thiserror::Error;
 
 pub static FRONTMATTER_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^\u{FEFF}?---\r?\n([\s\S]*?)(?:\r?\n)?---\r?\n?([\s\S]*)$").unwrap());
@@ -43,6 +45,30 @@ pub static FRONTMATTER_RE: Lazy<Regex> =
 /// 3. value (含引号, 替换时由 caller 决定是否重新加引号)
 static FM_LINE_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(\s*)([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*?)\s*$").unwrap());
+static TAGS_LINE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"^(?:tags|'tags'|"tags")\s*:"#).unwrap());
+static LEGACY_TAG_LINE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"^(?:tag|'tag'|"tag")\s*:"#).unwrap());
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocumentMetadata {
+    pub properties: Value,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Error)]
+pub enum FrontmatterMetadataError {
+    #[error("invalid YAML frontmatter: {0}")]
+    InvalidYaml(String),
+    #[error("YAML frontmatter must be a mapping")]
+    NonMapping,
+    #[error("frontmatter tags must be an array of strings")]
+    InvalidTagsType,
+    #[error("frontmatter tag at index {index} must be a string")]
+    InvalidTagValue { index: usize },
+    #[error("invalid frontmatter tag path at index {index}: {value}")]
+    InvalidTagPath { index: usize, value: String },
+}
 
 /// 注入指令集: key → 新 value。**就地替换**语义。
 ///
@@ -106,20 +132,203 @@ pub fn extract_frontmatter_key(content: &str) -> Option<String> {
 }
 
 pub fn extract_frontmatter_properties(content: &str) -> Value {
+    extract_document_metadata(content)
+        .map(|metadata| metadata.properties)
+        .unwrap_or_else(|_| Value::Object(Map::new()))
+}
+
+/// Parse the leading YAML frontmatter once and derive frontmatter-owned fields.
+/// `tags` here contains only the YAML source; the memo derivation layer merges
+/// it with valid body `#tag` tokens.
+pub fn extract_document_metadata(
+    content: &str,
+) -> Result<DocumentMetadata, FrontmatterMetadataError> {
     let Some(caps) = FRONTMATTER_RE.captures(content) else {
-        return Value::Object(Map::new());
+        return Ok(DocumentMetadata {
+            properties: Value::Object(Map::new()),
+            tags: Vec::new(),
+        });
     };
-    let Some(inner) = caps.get(1).map(|m| m.as_str().trim()) else {
-        return Value::Object(Map::new());
-    };
+    let inner = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
     if inner.is_empty() {
-        return Value::Object(Map::new());
+        return Ok(DocumentMetadata {
+            properties: Value::Object(Map::new()),
+            tags: Vec::new(),
+        });
     }
 
-    match serde_yaml::from_str::<Value>(inner) {
-        Ok(Value::Object(map)) => Value::Object(map),
-        _ => Value::Object(Map::new()),
+    let parsed = serde_yaml::from_str::<Value>(inner)
+        .map_err(|error| FrontmatterMetadataError::InvalidYaml(error.to_string()))?;
+    let Value::Object(mut properties) = parsed else {
+        return Err(FrontmatterMetadataError::NonMapping);
+    };
+
+    let tag_value = properties
+        .get("tags")
+        .or_else(|| properties.get("tag"));
+    let tags = match tag_value {
+        None => Vec::new(),
+        Some(Value::Array(values)) => normalize_document_tag_values(values)?,
+        Some(_) => return Err(FrontmatterMetadataError::InvalidTagsType),
+    };
+    if properties.contains_key("tags") || properties.contains_key("tag") {
+        properties.remove("tag");
+        properties.insert(
+            "tags".to_string(),
+            Value::Array(tags.iter().cloned().map(Value::String).collect()),
+        );
     }
+
+    Ok(DocumentMetadata {
+        properties: Value::Object(properties),
+        tags,
+    })
+}
+
+fn normalize_document_tag_values(
+    values: &[Value],
+) -> Result<Vec<String>, FrontmatterMetadataError> {
+    let mut seen = HashSet::new();
+    let mut tags = Vec::new();
+    for (index, value) in values.iter().enumerate() {
+        let Value::String(raw) = value else {
+            return Err(FrontmatterMetadataError::InvalidTagValue { index });
+        };
+        let normalized = super::derivation::normalize_tag_path(raw).ok_or_else(|| {
+            FrontmatterMetadataError::InvalidTagPath {
+                index,
+                value: raw.clone(),
+            }
+        })?;
+        if seen.insert(normalized.clone()) {
+            tags.push(normalized);
+        }
+    }
+    Ok(tags)
+}
+
+pub fn normalize_document_tags(
+    values: &[String],
+) -> Result<Vec<String>, FrontmatterMetadataError> {
+    normalize_document_tag_values(
+        &values
+            .iter()
+            .cloned()
+            .map(Value::String)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn serialized_tags_lines(tags: &[String]) -> Vec<String> {
+    if tags.is_empty() {
+        return vec!["tags: []".to_string()];
+    }
+    let mut lines = vec!["tags:".to_string()];
+    lines.extend(tags.iter().map(|tag| {
+        let scalar = serde_json::to_string(tag).expect("serializing a string cannot fail");
+        format!("  - {scalar}")
+    }));
+    lines
+}
+
+/// Replace only the top-level `tags` node in the leading frontmatter.
+/// Unrelated YAML source, comments and the Markdown body are preserved.
+/// The emitted `tags` node is canonical block-style YAML.
+pub fn replace_frontmatter_tags(
+    content: &str,
+    tags: &[String],
+) -> Result<String, FrontmatterMetadataError> {
+    let tags = normalize_document_tags(tags)?;
+    let replacement = serialized_tags_lines(&tags);
+
+    let Some(caps) = FRONTMATTER_RE.captures(content) else {
+        return Ok(format!(
+            "---\n{}\n---\n{}",
+            replacement.join("\n"),
+            content
+        ));
+    };
+    let inner = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+    let body = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+
+    // Validate the complete mapping before editing it. This also rejects
+    // duplicate YAML keys instead of silently selecting one.
+    let parsed = serde_yaml::from_str::<Value>(inner)
+        .map_err(|error| FrontmatterMetadataError::InvalidYaml(error.to_string()))?;
+    let Value::Object(mut parsed_map) = parsed else {
+        return Err(FrontmatterMetadataError::NonMapping);
+    };
+
+    let mut lines: Vec<String> = inner.lines().map(str::to_string).collect();
+    let canonical_start = lines.iter().position(|line| TAGS_LINE_RE.is_match(line));
+    let legacy_start = lines
+        .iter()
+        .position(|line| LEGACY_TAG_LINE_RE.is_match(line));
+    if let Some(start) = canonical_start.or(legacy_start) {
+        let mut end = start + 1;
+        while end < lines.len() {
+            let line = &lines[end];
+            if line.trim().is_empty() {
+                end += 1;
+                continue;
+            }
+            if line.starts_with(char::is_whitespace) || line.starts_with('-') {
+                end += 1;
+                continue;
+            }
+            break;
+        }
+        lines.splice(start..end, replacement);
+        if canonical_start.is_some() {
+            if let Some(legacy_start) = lines
+                .iter()
+                .position(|line| LEGACY_TAG_LINE_RE.is_match(line))
+            {
+                let mut legacy_end = legacy_start + 1;
+                while legacy_end < lines.len() {
+                    let line = &lines[legacy_end];
+                    if line.trim().is_empty()
+                        || line.starts_with(char::is_whitespace)
+                        || line.starts_with('-')
+                    {
+                        legacy_end += 1;
+                        continue;
+                    }
+                    break;
+                }
+                lines.drain(legacy_start..legacy_end);
+            }
+        }
+    } else if parsed_map.contains_key("tags") {
+        // Inline-map frontmatter (`{ tags: [...] }`) has no independently
+        // replaceable source line. Fall back to a valid full serialization.
+        parsed_map.remove("tag");
+        parsed_map.insert(
+            "tags".to_string(),
+            Value::Array(tags.iter().cloned().map(Value::String).collect()),
+        );
+        let yaml = serde_yaml::to_string(&Value::Object(parsed_map))
+            .map_err(|error| FrontmatterMetadataError::InvalidYaml(error.to_string()))?;
+        lines = yaml.trim_end().lines().map(str::to_string).collect();
+    } else if parsed_map.contains_key("tag") {
+        parsed_map.remove("tag");
+        parsed_map.insert(
+            "tags".to_string(),
+            Value::Array(tags.iter().cloned().map(Value::String).collect()),
+        );
+        let yaml = serde_yaml::to_string(&Value::Object(parsed_map))
+            .map_err(|error| FrontmatterMetadataError::InvalidYaml(error.to_string()))?;
+        lines = yaml.trim_end().lines().map(str::to_string).collect();
+    } else {
+        let insert_at = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("key:"))
+            .map(|index| index + 1)
+            .unwrap_or(lines.len());
+        lines.splice(insert_at..insert_at, replacement);
+    }
+
+    Ok(format!("---\n{}\n---\n{}", lines.join("\n"), body))
 }
 
 /// `create_memo` 第一次创建 .md 时使用。
@@ -478,5 +687,103 @@ mod tests {
         overrides.insert("key".to_string(), "z9y8x7".to_string());
         let out = merge_frontmatter("---\n---\nx", &overrides);
         assert_eq!(out, "---\nkey: z9y8x7\n---\nx");
+    }
+
+    #[test]
+    fn document_metadata_uses_only_frontmatter_tags() {
+        let content = concat!(
+            "---\n",
+            "key: abc12345\n",
+            "tags: [product, product/design, product]\n",
+            "status: draft\n",
+            "---\n",
+            "# body-tag\n"
+        );
+        let metadata = extract_document_metadata(content).unwrap();
+        assert_eq!(metadata.tags, vec!["product", "product/design"]);
+        assert_eq!(metadata.properties["tags"][0], "product");
+        assert_eq!(metadata.properties["status"], "draft");
+    }
+
+    #[test]
+    fn document_metadata_does_not_classify_body_tags() {
+        let metadata = extract_document_metadata("---\nkey: abc12345\n---\n# body-only\n")
+            .unwrap();
+        assert!(metadata.tags.is_empty());
+    }
+
+    #[test]
+    fn legacy_singular_tag_is_read_and_rewritten_as_tags() {
+        let input = "---\nkey: abc12345\ntag: [legacy]\n---\nbody\n";
+        let metadata = extract_document_metadata(input).unwrap();
+        assert_eq!(metadata.tags, vec!["legacy"]);
+        assert!(metadata.properties.get("tag").is_none());
+        assert_eq!(
+            metadata.properties.get("tags"),
+            Some(&serde_json::json!(["legacy"]))
+        );
+
+        let output =
+            replace_frontmatter_tags(input, &["legacy".to_string(), "current".to_string()])
+                .unwrap();
+        assert!(output.contains("\ntags:\n"));
+        assert!(!output.contains("\ntag:"));
+        assert_eq!(
+            extract_document_metadata(&output).unwrap().tags,
+            vec!["legacy", "current"]
+        );
+    }
+
+    #[test]
+    fn document_metadata_rejects_non_array_tags() {
+        let error =
+            extract_document_metadata("---\ntags: product\n---\nbody\n").unwrap_err();
+        assert!(matches!(error, FrontmatterMetadataError::InvalidTagsType));
+    }
+
+    #[test]
+    fn replace_tags_preserves_unrelated_yaml_and_body() {
+        let input = concat!(
+            "---\n",
+            "key: abc12345\n",
+            "# keep this comment\n",
+            "tags:\n",
+            "  - old/path\n",
+            "status: draft\n",
+            "---\n",
+            "# old/path remains body text\n"
+        );
+        let output = replace_frontmatter_tags(
+            input,
+            &["new/path".to_string(), "product".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            output,
+            concat!(
+                "---\n",
+                "key: abc12345\n",
+                "# keep this comment\n",
+                "tags:\n",
+                "  - \"new/path\"\n",
+                "  - \"product\"\n",
+                "status: draft\n",
+                "---\n",
+                "# old/path remains body text\n"
+            )
+        );
+    }
+
+    #[test]
+    fn replace_tags_inserts_after_key_and_keeps_body() {
+        let output = replace_frontmatter_tags(
+            "---\nkey: abc12345\nstatus: draft\n---\nbody\n",
+            &["product".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            output,
+            "---\nkey: abc12345\ntags:\n  - \"product\"\nstatus: draft\n---\nbody\n"
+        );
     }
 }

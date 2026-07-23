@@ -87,6 +87,11 @@ fn switch_notebook(
     }
 
     if prev == notebook_id && idx_nb == notebook_id && idx_loaded {
+        if let Some(notebook_id) = notebook_id.as_deref() {
+            read_lock(&state.memo_file, "memo_file")
+                .ensure_tag_union_index_for_notebook_id(notebook_id)
+                .map_err(|error| format!("tag union index upgrade failed: {error}"))?;
+        }
         return Ok(());
     }
 
@@ -97,7 +102,7 @@ fn switch_notebook(
             tracing::error!("memo_file write lock poisoned, recovering");
             poisoned.into_inner()
         })
-        .set_current_notebook(notebook_id);
+        .set_current_notebook(notebook_id.clone());
 
     match reconcile_mode {
         ReconcileMode::Skip => {}
@@ -112,6 +117,12 @@ fn switch_notebook(
                 .reconcile_with_disk_bidirectional_as_new()
                 .map_err(|e| format!("reconcile_with_disk_bidirectional_as_new failed: {e}"))?;
         }
+    }
+
+    if let Some(notebook_id) = notebook_id.as_deref() {
+        read_lock(&state.memo_file, "memo_file")
+            .ensure_tag_union_index_for_notebook_id(notebook_id)
+            .map_err(|error| format!("tag union index upgrade failed: {error}"))?;
     }
 
     if rebuild_search_now {
