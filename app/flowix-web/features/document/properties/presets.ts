@@ -62,6 +62,7 @@ export type PropertyCategory =
   | 'icon'
   | 'agentRole'
   | 'refUrl'
+  | 'tags'
   | 'keywords'
   | 'custom';
 
@@ -119,6 +120,13 @@ export const PRESETS: readonly PropertyPreset[] = [
     labelKey: 'document.properties.category.refUrl',
     kind: 'URL',
     icon: LinkIcon,
+  },
+  {
+    category: 'tags',
+    key: 'tags',
+    labelKey: 'document.properties.category.tags',
+    kind: 'MultiSelect',
+    icon: HashIcon,
   },
   {
     category: 'keywords',

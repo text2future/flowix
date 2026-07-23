@@ -21,7 +21,8 @@ import {
   looksLikeTsvTable,
   tsvToTableContent,
 } from '@features/editor/extensions/paste-rules/table';
-import { createManagedPasteRules, mergeFrontmatterYaml } from '@features/editor/extensions/paste-rules/rules';
+import { mergeFrontmatterYaml, parseVisibleFrontmatter } from '@features/document/properties/frontmatter-model';
+import { createManagedPasteRules } from '@features/editor/extensions/paste-rules/rules';
 
 function cellText(table: any, row: number, cell: number): string {
   return table.content[row].content[cell].content[0].content?.[0]?.text ?? '';
@@ -95,12 +96,12 @@ describe('paste rule helpers', () => {
       ['name: guizang-ppt-skill', 'description: deck generator', 'key: pasted1'].join('\n'),
     );
 
-    expect(merged.yamlContent).toContain('key: sg8qgwdq');
-    expect(merged.yamlContent).toContain('title: Existing');
-    expect(merged.yamlContent).toContain('name: guizang-ppt-skill');
-    expect(merged.yamlContent).toContain('description: deck generator');
-    expect(merged.yamlContent).not.toContain('key: pasted1');
-    expect(merged.parsedData).toMatchObject({
+    expect(merged).toContain('key: sg8qgwdq');
+    expect(merged).toContain('title: Existing');
+    expect(merged).toContain('name: guizang-ppt-skill');
+    expect(merged).toContain('description: deck generator');
+    expect(merged).not.toContain('key: pasted1');
+    expect(parseVisibleFrontmatter(merged).userData).toMatchObject({
       title: 'Existing',
       name: 'guizang-ppt-skill',
       description: 'deck generator',

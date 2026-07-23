@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import YAML from 'yaml';
 import { Check, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { CalendarBlankIcon, CaretDownIcon } from '@phosphor-icons/react';
 import {
@@ -31,7 +30,14 @@ import {
 import { SelectValueInput } from '@features/document/properties/select-value-input';
 import { MultiSelectValueInput } from '@features/document/properties/multi-select-value-input';
 import { IconValueInput } from '@features/document/properties/icon-value-input';
-import { generatePropertyKey } from '@features/document/properties/property-key';
+import {
+  canonicalizePropertyKey,
+  generatePropertyKey,
+} from '@features/document/properties/property-key';
+import {
+  extractFrontmatter,
+  replaceVisibleFrontmatterProperties,
+} from '@features/document/properties/frontmatter-model';
 import type { PropertyFieldConfig } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
@@ -83,7 +89,6 @@ function clamp(value: number, min: number, max: number) {
 // \u65E7 memo \u52A0\u8F7D\u65F6 rowsFromData \u63A8\u65AD type)\u3002 PresetKeyCell \u5185\u90E8 chip group
 // \u76F4\u63A5\u8D70 presets.ts \u7684 PROPERTY_KINDS, \u4E0D\u7ECF\u8FC7\u672C\u6587\u4EF6\u3002
 
-const FRONTMATTER_RE = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 const URL_RE = /^https?:\/\/\S+$/i;
 let rowIdSeq = 0;
 
@@ -111,61 +116,33 @@ function stringifyValue(value: unknown, type: PropertyType): string {
   return String(value);
 }
 
-function extractFrontmatter(content: string): {
-  yamlContent: string;
-  body: string;
-  hasFrontmatter: boolean;
-  parseError: string | null;
-  data: Record<string, unknown>;
-} {
-  const match = FRONTMATTER_RE.exec(content);
-  const yamlContent = match?.[1]?.trim() ?? '';
-  const body = match ? content.slice(match[0].length) : content;
-
-  if (!match) {
-    return { yamlContent: '', body, hasFrontmatter: false, parseError: null, data: {} };
-  }
-
-  try {
-    const parsed = YAML.parse(yamlContent) || {};
-    const data = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-    return { yamlContent, body, hasFrontmatter: true, parseError: null, data };
-  } catch (error) {
-    return {
-      yamlContent,
-      body,
-      hasFrontmatter: true,
-      parseError: error instanceof Error ? error.message : String(error),
-      data: {},
-    };
-  }
-}
-
 function rowsFromData(
   data: Record<string, unknown>,
   savedFieldsByKey: Map<string, PropertyFieldConfig> = new Map()
 ): PropertyRow[] {
-  return Object.entries(data).filter(([key]) => key.trim() !== 'key').map(([key, value]) => {
-    const preset = resolvePreset(key);
-    const savedField = savedFieldsByKey.get(key);
-    // 预设命中时优先用 preset.kind, 这样 'type' 不会被推断成 Text,
-    // 'agent-role' 也能被识别成预设。 Custom (resolvePreset → null)
-    // 走老路的 inferType, 保持向后兼容。
-    const type: PropertyType = preset
-      ? (preset.kind as PropertyType)
-      : (savedField?.type ?? inferType(value));
-    return {
-      id: createRowId(),
-      key,
-      type,
-      value: stringifyValue(value, type),
-      preset: preset ?? undefined,
-      customLabel: preset ? undefined : savedField?.name,
-      options: preset ? undefined : savedField?.options,
-    };
-  });
+  const hasCanonicalTags = Object.prototype.hasOwnProperty.call(data, 'tags');
+  return Object.entries(data)
+    .filter(([key]) => key.trim() !== 'key' && !(key === 'tag' && hasCanonicalTags))
+    .map(([sourceKey, value]) => {
+      const key = canonicalizePropertyKey(sourceKey);
+      const preset = resolvePreset(key);
+      const savedField = savedFieldsByKey.get(key);
+      // 预设命中时优先用 preset.kind, 这样 'type' 不会被推断成 Text,
+      // 'agent-role' 也能被识别成预设。 Custom (resolvePreset → null)
+      // 走老路的 inferType, 保持向后兼容。
+      const type: PropertyType = preset
+        ? (preset.kind as PropertyType)
+        : (savedField?.type ?? inferType(value));
+      return {
+        id: createRowId(),
+        key,
+        type,
+        value: stringifyValue(value, type),
+        preset: preset ?? undefined,
+        customLabel: preset ? undefined : savedField?.name,
+        options: preset ? undefined : savedField?.options,
+      };
+    });
 }
 
 function convertRowValue(row: PropertyRow): unknown {
@@ -194,13 +171,6 @@ function convertRowValue(row: PropertyRow): unknown {
   }
 }
 
-function tagsFromValue(value: string): string[] {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function normalizeFieldOptions(type: PropertyType, options: string[] | undefined): string[] | undefined {
   if (type !== 'Select' && type !== 'MultiSelect') return undefined;
   const normalized = (options ?? [])
@@ -209,39 +179,16 @@ function normalizeFieldOptions(type: PropertyType, options: string[] | undefined
   return [...new Set(normalized)];
 }
 
-function formatYamlKey(key: string): string {
-  return YAML.stringify(key).trim();
-}
-
-function formatYamlScalarRow(key: string, value: unknown): string {
-  return YAML.stringify({ [key]: value }, { lineWidth: 0 }).trim();
-}
-
 function buildContentWithFrontmatter(content: string, rows: PropertyRow[]): string {
-  const { body, data } = extractFrontmatter(content);
-  const yamlLines: string[] = [];
-
-  if (Object.prototype.hasOwnProperty.call(data, 'key')) {
-    yamlLines.push(formatYamlScalarRow('key', data.key));
-  }
-
-  rows.forEach((row) => {
-    const key = row.key.trim();
-    if (!key) return;
-    const converted = convertRowValue(row);
-    // null = empty Select → 不写入整行, 比 `key: ''` 干净。
-    if (converted === null) return;
-    if (row.type === 'MultiSelect') {
-      const tags = tagsFromValue(row.value);
-      yamlLines.push(`${formatYamlKey(key)}: [${tags.map((tag) => JSON.stringify(tag)).join(', ')}]`);
-      return;
-    }
-    yamlLines.push(formatYamlScalarRow(key, converted));
-  });
-
-  const yamlContent = yamlLines.length > 0 ? yamlLines.join('\n') : '{}';
-
-  return `---\n${yamlContent}\n---\n${body.replace(/^\r?\n/, '')}`;
+  return replaceVisibleFrontmatterProperties(
+    content,
+    rows.flatMap((row) => {
+      const key = row.key.trim();
+      if (!key) return [];
+      const value = convertRowValue(row);
+      return value === null ? [] : [{ key, value }];
+    }),
+  );
 }
 
 function getDuplicateKeys(rows: PropertyRow[]): Set<string> {

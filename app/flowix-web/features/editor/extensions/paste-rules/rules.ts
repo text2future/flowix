@@ -1,5 +1,5 @@
 import type { Editor, JSONContent } from '@tiptap/core';
-import YAML from 'yaml';
+import { mergeFrontmatterYaml } from '@features/document/properties/frontmatter-model';
 import type { ManagedPasteRule } from '@features/editor/extensions/paste-rules/types';
 import { handleFileUpload } from '@features/editor/extensions/attachment-link/upload/plugin';
 import { filterFilesByMimeTypes } from '@features/editor/extensions/attachment-link/upload/file-source';
@@ -26,38 +26,6 @@ import {
 
 const ASSET_MARKDOWN_LINK_RE = /^\s*!?\[[^\]\n]*\]\((?:asset:\/\/|https?:\/\/asset\.localhost\/)[^)]+\)\s*$/i;
 
-function parsedFrontmatterData(yamlContent: string): Record<string, unknown> {
-  try {
-    const parsed = YAML.parse(yamlContent) || {};
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const { key: _ignored, ...rest } = parsed as Record<string, unknown>;
-    return rest;
-  } catch {
-    return {};
-  }
-}
-
-export function mergeFrontmatterYaml(currentYaml: string, pastedYaml: string): {
-  yamlContent: string;
-  parsedData: Record<string, unknown>;
-} {
-  const current = parsedFrontmatterData(currentYaml);
-  const pasted = parsedFrontmatterData(pastedYaml);
-  const currentRaw = YAML.parse(currentYaml) || {};
-  const existingKey = currentRaw && typeof currentRaw === 'object' && !Array.isArray(currentRaw)
-    ? (currentRaw as Record<string, unknown>).key
-    : undefined;
-  const merged = existingKey === undefined
-    ? { ...current, ...pasted }
-    : { key: existingKey, ...current, ...pasted };
-  const yamlContent = YAML.stringify(merged, { lineWidth: 0 }).trimEnd();
-
-  return {
-    yamlContent,
-    parsedData: parsedFrontmatterData(yamlContent),
-  };
-}
-
 function insertMarkdownPaste(markdown: string, editor: Editor): boolean {
   const parsed = parseMarkdownForPaste(markdown, editor);
   return mergePastedFrontmatterIntoExisting(parsed, editor)
@@ -74,14 +42,13 @@ function mergePastedFrontmatterIntoExisting(parsed: JSONContent | string, editor
   const currentFrontmatter = editor.state.doc.firstChild;
   if (currentFrontmatter?.type.name !== 'frontmatter') return false;
 
-  const merged = mergeFrontmatterYaml(
+  const yamlContent = mergeFrontmatterYaml(
     String(currentFrontmatter.attrs.yamlContent ?? ''),
     String(pastedFrontmatter.attrs?.yamlContent ?? ''),
   );
   const tr = editor.state.tr.setNodeMarkup(0, undefined, {
     ...currentFrontmatter.attrs,
-    yamlContent: merged.yamlContent,
-    parsedData: merged.parsedData,
+    yamlContent,
   });
   editor.view.dispatch(tr);
 

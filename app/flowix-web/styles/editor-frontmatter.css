@@ -1,0 +1,761 @@
+.markdown-editor .frontmatter-property-node {
+  /* 临时止血: 内联 YAML 属性条的 key 下拉选择会触发提前提交/自动隐藏
+     (WebKit focusout-on-removal), 先整体隐藏, 改用笔记属性对话框编辑。
+     根因修复见 frontmatter-node-view.ts 的 focusout / saveProperty。 */
+  display: none;
+  margin: 0 0 0.75rem;
+}
+
+.markdown-editor .frontmatter-property {
+  --frontmatter-row-gap: 0.35rem;
+  --frontmatter-padding-block: 0.125rem;
+  --frontmatter-row-padding:
+    var(--frontmatter-padding-block) 0.4rem
+    var(--frontmatter-padding-block) 0;
+  --frontmatter-key-padding-right: 0.2rem;
+  --frontmatter-key-caret-gap: 0.35rem;
+  --frontmatter-key-caret-size: 0.25rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  color: var(--muted-foreground);
+  font-size: 90%;
+  line-height: 1.25rem;
+}
+
+.markdown-editor .frontmatter-property__list {
+  display: grid;
+  width: 100%;
+  grid-template-columns: fit-content(9rem) minmax(0, 1fr);
+  align-items: start;
+  justify-items: stretch;
+  column-gap: var(--frontmatter-row-gap);
+  row-gap: 0.3rem;
+}
+
+.markdown-editor .frontmatter-property__tags {
+  display: flex;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.125rem 0;
+}
+
+.markdown-editor .frontmatter-property__tag-chip {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 12rem;
+  box-sizing: border-box;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--foreground);
+  padding: var(--frontmatter-padding-block) 0.6rem;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.markdown-editor .frontmatter-property__tag-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__tag-remove,
+.markdown-editor .frontmatter-property__tag-add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 0;
+  border-radius: 0.28rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 0;
+  font: inherit;
+  line-height: 1;
+  outline: none;
+}
+
+.markdown-editor .frontmatter-property__tag-remove {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  height: 1rem;
+  border-radius: 9999px;
+  background: var(--document-tag-bg);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.markdown-editor .frontmatter-property__tag-chip:hover
+  .frontmatter-property__tag-remove,
+.markdown-editor .frontmatter-property__tag-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.markdown-editor .frontmatter-property__tag-remove:hover,
+.markdown-editor .frontmatter-property__tag-remove:focus-visible {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.markdown-editor .frontmatter-property__tag-add:hover,
+.markdown-editor .frontmatter-property__tag-add:focus-visible {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.markdown-editor .frontmatter-property__tag-add {
+  height: auto;
+  width: auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: var(--frontmatter-padding-block) 0.6rem;
+  border: 1px dashed color-mix(in oklch, var(--muted-foreground) 36%, transparent);
+  border-radius: 9999px;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__add-property {
+  display: inline-flex;
+  flex: none;
+  height: auto;
+  min-height: 0;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px dashed color-mix(in oklch, var(--muted-foreground) 36%, transparent);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: var(--frontmatter-padding-block) 0.6rem;
+  font: inherit;
+  line-height: inherit;
+  outline: none;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__add-property:hover,
+.markdown-editor .frontmatter-property__add-property:focus-visible {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.markdown-editor .frontmatter-property__tag-input {
+  width: clamp(5rem, 22ch, 12rem);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+  padding: var(--frontmatter-padding-block) 0.4rem;
+  font: inherit;
+  outline: none;
+  box-shadow: none;
+}
+
+.markdown-editor .frontmatter-property__tag-input:focus {
+  background: transparent;
+  box-shadow: none;
+}
+
+.markdown-editor .frontmatter-property__display {
+  display: grid;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  grid-template-columns: subgrid;
+  align-items: center;
+  gap: var(--frontmatter-row-gap);
+  margin: 0;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: inherit;
+  padding: var(--frontmatter-row-padding);
+  font: inherit;
+  text-align: left;
+  transition: box-shadow 140ms ease, color 140ms ease;
+}
+
+.markdown-editor .frontmatter-property__display:hover,
+.markdown-editor .frontmatter-property__display:has(:focus-visible) {
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--foreground);
+}
+
+.markdown-editor .frontmatter-property__display-key,
+.markdown-editor .frontmatter-property__display-value {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  align-items: center;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  outline: none;
+  text-align: left;
+}
+
+.markdown-editor .frontmatter-property__display-key {
+  justify-content: flex-start;
+}
+
+.markdown-editor .frontmatter-property__display-value {
+  overflow: hidden;
+}
+
+.markdown-editor .frontmatter-property__key {
+  min-width: 1rem;
+  max-width: 9rem;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  padding-left: 0;
+  padding-right: calc(
+    var(--frontmatter-key-padding-right)
+    + var(--frontmatter-key-caret-gap)
+    + var(--frontmatter-key-caret-size)
+  );
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  color: color-mix(in oklch, var(--foreground) 78%, var(--muted-foreground));
+}
+
+.markdown-editor .frontmatter-property__value-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__value-text--url {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+  text-underline-offset: 0.14em;
+}
+
+.markdown-editor .frontmatter-property__value-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  object-fit: contain;
+}
+
+.markdown-editor .frontmatter-property__value-chips,
+.markdown-editor .frontmatter-property__multi-chips {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+  overflow: hidden;
+}
+
+.markdown-editor .frontmatter-property__value-chip,
+.markdown-editor .frontmatter-property__multi-chip {
+  display: inline-flex;
+  min-width: 0;
+  height: 1rem;
+  align-items: center;
+  border-radius: 0.3rem;
+  background: var(--document-tag-bg);
+  color: var(--foreground);
+  padding: 0 0.3rem;
+  font-size: inherit;
+  line-height: 1rem;
+}
+
+.markdown-editor .frontmatter-property__value-chip {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__editor {
+  position: relative;
+  display: grid;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  grid-template-columns: subgrid;
+  align-items: center;
+  gap: var(--frontmatter-row-gap);
+  margin: 0;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  box-shadow: none;
+  padding: var(--frontmatter-row-padding);
+  transition: box-shadow 140ms ease;
+}
+
+.markdown-editor .frontmatter-property__editor:hover {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.markdown-editor .frontmatter-property__input {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 -1px transparent;
+  color: var(--foreground);
+  font: inherit;
+  line-height: inherit;
+  outline: none;
+  padding-block: 0;
+}
+
+.markdown-editor .frontmatter-property__input:focus {
+  box-shadow: inset 0 -1px color-mix(in oklch, var(--brand) 55%, transparent);
+}
+
+.markdown-editor .frontmatter-property__date-input {
+  color-scheme: light dark;
+}
+
+.markdown-editor .frontmatter-property__date-input::-webkit-calendar-picker-indicator {
+  width: 0.75rem;
+  height: 0.75rem;
+  cursor: pointer;
+  opacity: 0.58;
+}
+
+.markdown-editor .frontmatter-property__value-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.markdown-editor .frontmatter-property__value-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: inset 0 -1px transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+  outline: none;
+  padding: 0;
+  text-align: left;
+}
+
+.markdown-editor .frontmatter-property__value-trigger:hover,
+.markdown-editor .frontmatter-property__value-trigger:focus-visible,
+.markdown-editor .frontmatter-property__value-trigger[aria-expanded='true'] {
+  box-shadow: inset 0 -1px color-mix(in oklch, var(--brand) 55%, transparent);
+}
+
+.markdown-editor .frontmatter-property__value-trigger-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__value-trigger-icon {
+  width: 0.25rem;
+  height: 0.25rem;
+  flex: none;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  opacity: 0.58;
+  transform: translateY(-0.08rem) rotate(45deg);
+}
+
+.markdown-editor .frontmatter-property__value-trigger[aria-expanded='true']
+  .frontmatter-property__value-trigger-icon {
+  transform: translateY(0.08rem) rotate(225deg);
+}
+
+.markdown-editor .frontmatter-property__value-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 24;
+  width: max(100%, 10rem);
+  max-height: 13rem;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: 0 12px 32px color-mix(in oklch, var(--foreground) 14%, transparent);
+  padding: 0.3rem;
+}
+
+.markdown-editor .frontmatter-property__value-menu[hidden] {
+  display: none;
+}
+
+.markdown-editor .frontmatter-property__value-option {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 1rem;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  outline: none;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+}
+
+.markdown-editor .frontmatter-property__value-option:hover,
+.markdown-editor .frontmatter-property__value-option:focus-visible {
+  background: var(--muted);
+}
+
+.markdown-editor .frontmatter-property__value-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__value-option-check {
+  display: flex;
+  width: 1rem;
+  height: 1rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+}
+
+.markdown-editor .frontmatter-property__value-option-check svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.markdown-editor .frontmatter-property__icon-trigger {
+  justify-content: flex-start;
+}
+
+.markdown-editor .frontmatter-property__icon-placeholder {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  border: 1px dashed var(--border);
+  border-radius: 0.3rem;
+}
+
+.markdown-editor .frontmatter-property__value-menu--icons {
+  right: 0;
+  left: auto;
+  width: min(17.5rem, calc(100vw - 2rem));
+  max-height: 15rem;
+}
+
+.markdown-editor .frontmatter-property__icon-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.markdown-editor .frontmatter-property__icon-option {
+  display: flex;
+  aspect-ratio: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  padding: 0.3rem;
+}
+
+.markdown-editor .frontmatter-property__icon-option:hover,
+.markdown-editor .frontmatter-property__icon-option:focus-visible {
+  border-color: var(--border);
+  background: var(--muted);
+}
+
+.markdown-editor .frontmatter-property__icon-option[aria-selected='true'] {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+}
+
+.markdown-editor .frontmatter-property__icon-option img {
+  width: 1.25rem;
+  height: 1.25rem;
+  object-fit: contain;
+}
+
+.markdown-editor .frontmatter-property__multi-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+  overflow: hidden;
+  box-shadow: inset 0 -1px transparent;
+}
+
+.markdown-editor .frontmatter-property__multi-control:focus-within {
+  box-shadow: inset 0 -1px color-mix(in oklch, var(--brand) 55%, transparent);
+}
+
+.markdown-editor .frontmatter-property__multi-chip {
+  flex: none;
+  gap: 0.15rem;
+}
+
+.markdown-editor .frontmatter-property__multi-chip-label {
+  max-width: 5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__multi-remove {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0;
+}
+
+.markdown-editor .frontmatter-property__multi-input {
+  width: 3rem;
+  min-width: 2rem;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  line-height: inherit;
+  outline: none;
+  padding: 0;
+}
+
+.markdown-editor .frontmatter-property__key-picker {
+  position: relative;
+  min-width: 1rem;
+  max-width: 9rem;
+}
+
+.markdown-editor .frontmatter-property__key-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  align-items: center;
+  gap: var(--frontmatter-key-caret-gap);
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  margin: 0;
+  outline: none;
+  padding: 0 var(--frontmatter-key-padding-right) 0 0;
+  text-align: left;
+}
+
+.markdown-editor .frontmatter-property__key-trigger:hover,
+.markdown-editor .frontmatter-property__key-trigger:focus-visible {
+  background: color-mix(in oklch, var(--muted) 72%, transparent);
+}
+
+.markdown-editor .frontmatter-property__key-trigger-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__key-trigger-icon {
+  width: var(--frontmatter-key-caret-size);
+  height: var(--frontmatter-key-caret-size);
+  flex: none;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  opacity: 0.62;
+  transform: translateY(-0.1rem) rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.markdown-editor .frontmatter-property__key-trigger[aria-expanded='true']
+  .frontmatter-property__key-trigger-icon {
+  transform: translateY(0.1rem) rotate(225deg);
+}
+
+.markdown-editor .frontmatter-property__key-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: -0.4rem;
+  z-index: 20;
+  width: max(100%, 15rem);
+  max-width: min(18rem, calc(100vw - 2rem));
+  max-height: 14rem;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: 0 12px 32px color-mix(in oklch, var(--foreground) 14%, transparent);
+  padding: 0.3rem;
+}
+
+.markdown-editor .frontmatter-property__key-menu[hidden] {
+  display: none;
+}
+
+.markdown-editor .frontmatter-property__key-option {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  outline: none;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+}
+
+.markdown-editor .frontmatter-property__key-option-text {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.45rem;
+  overflow: hidden;
+}
+
+.markdown-editor .frontmatter-property__key-option:hover,
+.markdown-editor .frontmatter-property__key-option:focus-visible {
+  background: var(--muted);
+}
+
+.markdown-editor .frontmatter-property__key-option:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.markdown-editor .frontmatter-property__key-option-label,
+.markdown-editor .frontmatter-property__key-option-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__key-option-label {
+  max-width: 60%;
+  flex: none;
+}
+
+.markdown-editor .frontmatter-property__key-option-code {
+  flex: 1;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  text-align: left;
+}
+
+.markdown-editor .frontmatter-property__key-option-check {
+  display: flex;
+  min-width: 1rem;
+  height: 1rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+}
+
+.markdown-editor .frontmatter-property__key-option-added {
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__key-option-check svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.markdown-editor .frontmatter-property__validation {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0.5rem;
+  z-index: 2;
+  max-width: calc(100% - 1rem);
+  overflow: hidden;
+  color: var(--destructive);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-editor .frontmatter-property__error {
+  max-width: 32rem;
+  overflow: hidden;
+  color: var(--destructive);
+  opacity: 0.8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

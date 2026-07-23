@@ -49,25 +49,6 @@
   margin: 0 3px;
 }
 
-.markdown-editor .frontmatter-container {
-  padding: 0px 0px;
-  border-bottom: 1px solid #ededed;
-  cursor: pointer;
-}
-
-.markdown-editor .frontmatter-container.selected {
-  outline: 2px solid #3b82f6;
-}
-
-.markdown-editor .frontmatter-container.editing {
-  outline: 2px solid #3b82f6;
-  background-color: #fff;
-}
-
-.markdown-editor .frontmatter-container [contenteditable] {
-  outline: none;
-}
-
 .table-bubble-menu .destructive:hover {
   background: color-mix(in oklch, var(--destructive, #ef4444) 12%, transparent);
   color: var(--destructive, #ef4444);

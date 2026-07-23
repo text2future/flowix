@@ -12,6 +12,7 @@
  *   - editor-bubble-menus      selection / table / link / slash 浮层
  *   - editor-attachment-link   附件 (file/video/image) + 上传卡片 + 正文链接 */
 @import './editor.css';
+@import './editor-frontmatter.css';
 @import './editor-agent-thread-card.css';
 @import './editor-note-reference.css';
 @import './editor-code-block.css';

@@ -34,8 +34,14 @@ const KNOWN_PROPERTY_KEYS: Readonly<Record<string, string>> = {
   fuzeren: 'owner',
   assignee: 'assignee',
   biaoqian: 'tags',
+  tag: 'tags',
   tags: 'tags',
 };
+
+export function canonicalizePropertyKey(key: string): string {
+  const trimmed = key.trim();
+  return trimmed.toLowerCase() === 'tag' ? 'tags' : trimmed;
+}
 
 function normalizeKnownKeyInput(value: string) {
   const trimmed = value.trim();

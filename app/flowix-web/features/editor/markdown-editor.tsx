@@ -357,7 +357,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
   }, []);
 
-  const serializePendingChanges = useCallback((options?: { force?: boolean }) => {
+  const serializePendingChanges = useCallback((options?: {
+    force?: boolean;
+  }) => {
     const editor = editorRef.current;
     if (!editor || editor.isDestroyed || !pendingSerializeDirtyRef.current) {
       return null;
