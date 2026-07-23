@@ -9,7 +9,10 @@ use crate::agent_session::ChatMessage as ThreadChatMessage;
 use super::context::{build_llm_context_window, LLM_CONTEXT_RECENT_MESSAGES};
 use super::persistence::tool_call_row_id;
 use super::state::{compute_call_key, STUCK_THRESHOLD};
-use super::stream::{classify_llm_failure, format_llm_unavailable_message, LlmFailureKind};
+use super::stream::{
+    classify_llm_failure, extract_llm_error_message, format_llm_unavailable_message,
+    LlmFailureKind,
+};
 use super::*;
 
 fn test_thread_message(role: &str, content: &str) -> ThreadChatMessage {
@@ -185,12 +188,42 @@ fn llm_unavailable_message_takes_reason_verbatim() {
 
 #[test]
 fn llm_unavailable_message_preserves_chinese_punctuation() {
-    // Chinese half-width comma (`,`) is intentional 鈥?matches the
-    // rest of the codebase. Full-width comma (`锛宍) would also
-    // be valid but is a different code point; this test guards
-    // against accidental character substitution during refactors.
+    // The label uses correct Simplified Chinese + full-width comma (matches the
+    // i18n convention in locales.ts). Guards against accidental mojibake or
+    // half/full-width comma drift during refactors.
     let msg = format_llm_unavailable_message("any reason");
-    assert!(msg.contains("(LLM 鏆傛椂涓嶅彲鐢? 鍘熷洜: "), "got: {msg}");
+    assert!(msg.contains("(LLM 暂时不可用，原因: "), "got: {msg}");
+}
+
+#[test]
+fn llm_unavailable_message_collapses_raw_response_json_to_message() {
+    // rllm/llm ResponseFormatError surfaces the upstream body verbatim after
+    // "Raw response: "; the user-facing message should keep just the JSON's
+    // `error.message`, not the whole envelope + request_id.
+    let reason = "Stream failed: Response format error: API error 400. Raw \
+        response: {\"type\":\"error\",\"error\":{\"type\":\"bad_request_error\",\"message\":\"invalid params, chat content is empty (2013)\",\"http_code\":\"400\"},\"request_id\":\"06b01abbde4a0eda83851fe9e7b584d7\"}";
+    let msg = format_llm_unavailable_message(reason);
+    assert_eq!(msg, "(LLM 暂时不可用，原因: invalid params, chat content is empty (2013))");
+
+    // Extraction is pure and reusable: returns the message, or the reason
+    // verbatim when there is no "Raw response:" JSON to parse.
+    assert_eq!(
+        extract_llm_error_message(reason),
+        "invalid params, chat content is empty (2013)",
+    );
+    assert_eq!(
+        extract_llm_error_message("Stream error: connection reset by peer"),
+        "Stream error: connection reset by peer",
+    );
+    // OpenAI-style {error: {message}} and top-level {message} envelopes.
+    assert_eq!(
+        extract_llm_error_message("Raw response: {\"error\":{\"message\":\"rate limited\"}}"),
+        "rate limited",
+    );
+    assert_eq!(
+        extract_llm_error_message("Raw response: {\"message\":\"no key\"}"),
+        "no key",
+    );
 }
 
 #[test]
