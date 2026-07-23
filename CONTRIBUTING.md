@@ -83,7 +83,7 @@ Releases, run `scripts/rename-dmg.sh` after `tauri build`:
 #    upload` directly — it bypasses the allow-list.
 ./scripts/upload-release.sh v${VERSION} .build/release-${VERSION}
 
-# 4. Edit the draft on github.com to attach release notes, then publish.
+# 4. Edit the draft on GitHub.com to attach release notes, then publish.
 ```
 
 The rename and upload scripts read `version` from `app/Cargo.toml`, so
