@@ -14,8 +14,10 @@
  *   3. undefined                            ── 让 dispatch 拦截
  *
  * folders / notebooks:
- *   - 取最近冻结 instance 的 folders + notebooks 与全局 enabled 的并集。
- *   - 没冻结 instance 时直接走 `useAgentAccessStore.config.entries`。
+ *   - 用户调整过文件下拉窗后，`defaults.files` 是新卡片的权威快照，
+ *     完整继承勾选与取消勾选。
+ *   - 尚无默认快照时，取最近冻结 instance 与全局 enabled 的并集，兼容
+ *     历史数据和首次使用。
  *
  * 关键约束: instance 创建后, 用户在 popover 里的调整写到 instance.files,
  * 直到首次发送 (`sendMessageToThread` 触发 `lockInstanceFileSeed`) 才打
@@ -81,22 +83,28 @@ export function buildInitialInstanceRuntimeConfig(
     else if (entry.kind === "notebook") notebooksFromAccess.push(path);
   }
 
-  const workspace =
-    defaultWorkspace || seedWorkspace || notebookWorkspace || undefined;
-  // 冻结种子里的 folders/notebooks + 全局 enabled ── 只要有一处存在都算上,
-  // dedupe 用 Set, 剔除空串。 用户上次勾的目录 (即便全局 toggle off 了) 也保留。
+  const hasDefaultFiles = defaultFiles !== undefined;
+  const workspace = hasDefaultFiles
+    ? defaultWorkspace || notebookWorkspace || undefined
+    : seedWorkspace || notebookWorkspace || undefined;
+
+  // defaults.files 一旦存在，就代表用户最近一次在文件下拉窗中确认的完整
+  // 选择。此时不能再与全局 enabled 或冻结 seed 取并集，否则被取消勾选的
+  // 路径会在新卡片里重新出现。没有快照时才沿用旧的并集初始化逻辑。
   const folders = Array.from(
     new Set(
-      [...defaultFolders, ...seedFolders, ...foldersFromAccess].filter(
-        (path) => path && path.length,
-      ),
+      (hasDefaultFiles
+        ? defaultFolders
+        : [...seedFolders, ...foldersFromAccess]
+      ).filter((path) => path && path.length),
     ),
   );
   const notebooks = Array.from(
     new Set(
-      [...defaultNotebooks, ...seedNotebooks, ...notebooksFromAccess].filter(
-        (path) => path && path.length,
-      ),
+      (hasDefaultFiles
+        ? defaultNotebooks
+        : [...seedNotebooks, ...notebooksFromAccess]
+      ).filter((path) => path && path.length),
     ),
   );
   const defaultRuntime = accessState.config.defaults?.runtime?.[agentType];

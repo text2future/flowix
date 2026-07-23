@@ -293,7 +293,9 @@ export class AccessPopoverController {
     // 顶部级动作 ── 加 folder 没 entryId, 单独处理。
     if (resolved.kind === "top") {
       void useAgentAccessStore.getState().addFolderFromPicker().then((result) => {
-        if (!result.ok && result.code !== "not-selected") {
+        if (result.ok) {
+          this.selectAddedFolderByThread(result.entry);
+        } else if (result.code !== "not-selected") {
           console.error(`addFolderFromPicker error: ${result.code}`);
         }
       });
@@ -355,6 +357,32 @@ export class AccessPopoverController {
         return;
     }
   };
+
+  /**
+   * A folder picked from this card should immediately belong to this thread's
+   * file scope. Existing threads keep an explicit files snapshot, so adding the
+   * folder to the global access list alone would otherwise render it unchecked.
+   */
+  private selectAddedFolderByThread(entry: AgentAccessEntry): void {
+    const instanceId = this.getInstanceId?.();
+    if (!instanceId) return;
+
+    const conversationState = useAgentConversationStore.getState();
+    const files =
+      conversationState.instances[instanceId]?.runtimeConfig?.files;
+
+    // Without an explicit snapshot the thread inherits the global enabled
+    // state, and newly added folders are already selected there.
+    if (!files || files.folders.includes(entry.path)) return;
+
+    const nextFiles = {
+      workspace: files.workspace,
+      folders: [...files.folders, entry.path],
+      notebooks: files.notebooks,
+    };
+    conversationState.setRuntimeConfig(instanceId, { files: nextFiles });
+    void useAgentAccessStore.getState().setDefaultFiles(nextFiles);
+  }
 
   render(): void {
     const { config, isLoading } = useAgentAccessStore.getState();

@@ -29,6 +29,22 @@ const accessStateMock = vi.hoisted(() => ({
       enabled: boolean;
       missing: boolean;
     }>,
+  } as {
+    version: number;
+    entries: Array<{
+      id: string;
+      kind: "folder" | "notebook";
+      path: string;
+      enabled: boolean;
+      missing: boolean;
+    }>;
+    defaults?: {
+      files?: {
+        workspace?: string;
+        folders: string[];
+        notebooks: string[];
+      };
+    };
   },
 }));
 
@@ -211,6 +227,39 @@ describe("buildInitialInstanceRuntimeConfig", () => {
 
     expect(config.files?.folders).toEqual(["/Users/rop/Desktop/folder-a"]);
     expect(config.files?.notebooks).toEqual(["/Users/rop/Desktop/Notes"]);
+  });
+
+  it("uses defaults.files as an authoritative snapshot so unchecked entries stay unchecked", async () => {
+    accessStateMock.config = {
+      version: 1,
+      entries: [
+        makeEntry({
+          id: "kept",
+          kind: "folder",
+          path: "D:\\kept",
+        }),
+        makeEntry({
+          id: "unchecked",
+          kind: "folder",
+          path: "D:\\unchecked",
+          enabled: true,
+        }),
+      ],
+      defaults: {
+        files: {
+          workspace: "D:\\kept",
+          folders: ["D:\\kept"],
+          notebooks: [],
+        },
+      },
+    };
+    const { buildInitialInstanceRuntimeConfig } =
+      await import("@features/agent/store/initial-runtime-config");
+
+    const config = buildInitialInstanceRuntimeConfig();
+
+    expect(config.files?.folders).toEqual(["D:\\kept"]);
+    expect(config.files?.folders).not.toContain("D:\\unchecked");
   });
 
   it("normalizeWorkspacePath 澶勭悊灏鹃儴鏂滄潬, 閬垮厤 cwd 鎷兼帴婕傜Щ", async () => {
@@ -563,6 +612,4 @@ describe("buildInitialInstanceRuntimeConfig 鈥?extension.insertAgentThreadCard 
     expect(config.files?.folders).toEqual(["D:\\flowix"]);
   });
 });
-
-
 

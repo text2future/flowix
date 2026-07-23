@@ -785,6 +785,78 @@ describe("AccessPopoverController handleClick delegation", () => {
     controller.dispose();
   });
 
+  it("automatically selects a newly added folder for the current thread", async () => {
+    conversationStoreMock.instances = {
+      "instance-1": {
+        runtimeConfig: {
+          files: {
+            workspace: "D:\\first",
+            folders: ["D:\\first"],
+            notebooks: ["D:\\notes"],
+          },
+        },
+      },
+    };
+    const addedFolder = makeFolder({
+      id: "folder-added",
+      path: "D:\\new-project",
+      name: "New project",
+    });
+    agentAccessMock.addFolderFromPicker.mockImplementation(async () => {
+      agentAccessMock.config = {
+        ...agentAccessMock.config,
+        entries: [...agentAccessMock.config.entries, addedFolder],
+      };
+      return addedFolder;
+    });
+
+    const { AccessPopoverController } = await import(
+      "@features/editor/extensions/agent-thread-card/access/access-popover-controller"
+    );
+    const { useAgentAccessStore } = await import(
+      "@features/agent/store/agent-access-store"
+    );
+    useAgentAccessStore.setState({
+      config: { version: 1, entries: agentAccessMock.config.entries },
+      isLoading: false,
+    });
+
+    const button = document.createElement("button");
+    const popover = document.createElement("div");
+    popover.className = "agent-thread-card__access-popover";
+    popover.hidden = true;
+    document.body.append(popover);
+
+    const controller = new AccessPopoverController({
+      button,
+      popover,
+      t: t as never,
+      isDestroyed: () => false,
+      isInsideRelatedTarget: () => false,
+      consumeOutsidePointer: () => {},
+      getInstanceId: () => "instance-1",
+    });
+    controller.setOpen(true);
+
+    popover
+      .querySelector<HTMLButtonElement>(".agent-thread-card__access-add")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(conversationStoreMock.setRuntimeConfig).toHaveBeenCalledWith(
+        "instance-1",
+        {
+          files: {
+            workspace: "D:\\first",
+            folders: ["D:\\first", "D:\\new-project"],
+            notebooks: ["D:\\notes"],
+          },
+        },
+      );
+    });
+
+    controller.dispose();
+  });
+
   it("opens below by default and keeps 26px clear of the viewport bottom", async () => {
     const { AccessPopoverController } = await import(
       "@features/editor/extensions/agent-thread-card/access/access-popover-controller"
