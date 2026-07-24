@@ -26,10 +26,15 @@ import { useDocumentFinalize } from '@features/document/components/session/use-d
 import { useExternalDocumentChangeWatch } from '@features/document/components/session/use-external-document-change-watch';
 import { useMemoDocumentChangeWatch } from '@features/document/components/session/use-memo-document-change-watch';
 import { LazyDocumentEditor } from '@features/document/components/lazy-document-editor';
+import { LazyMarkmapView } from '@features/document/components/lazy-markmap-view';
 import { NotePropertiesDialog } from '@features/document/components/note-properties-dialog';
 import type { MarkdownEditorHandle } from '@features/editor/markdown-editor';
 import backgroundImage from '@/assets/bg.document.png';
 import { useI18n } from '@features/i18n';
+import { FileText, GitFork } from 'lucide-react';
+import { Tooltip } from '@shared/ui/tooltip';
+
+type DocumentViewMode = 'editor' | 'markmap';
 
 export function DocumentContainer({
   filePath,
@@ -104,6 +109,20 @@ export function DocumentContainer({
   });
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesContentSnapshot, setPropertiesContentSnapshot] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<DocumentViewMode>('editor');
+
+  const changeViewMode = useCallback((nextMode: DocumentViewMode) => {
+    if (nextMode === viewMode) return;
+    if (nextMode === 'markmap') {
+      const latestContent = flushPendingEditorChanges();
+      if (latestContent !== null) {
+        handleChange(latestContent);
+        setState((prev) => ({ ...prev, fullContent: latestContent }));
+      }
+      finalizeMemoRename();
+    }
+    setViewMode(nextMode);
+  }, [finalizeMemoRename, flushPendingEditorChanges, handleChange, setState, viewMode]);
 
   useEffect(() => {
     const handleNavigateToMemo = async (e: Event) => {
@@ -326,8 +345,48 @@ export function DocumentContainer({
 
   return (
     <div className="document-container h-full w-full min-w-0 flex flex-col bg-transparent relative overflow-hidden">
+      {state.fullContent && (
+        <div
+          className="absolute right-4 top-3 z-30 flex items-center rounded-xl border border-[color-mix(in_oklch,var(--border)_84%,transparent)] bg-[color-mix(in_oklch,var(--card)_86%,transparent)] p-1 shadow-sm backdrop-blur-xl"
+          role="tablist"
+          aria-label={t('document.viewMode.label')}
+        >
+          <Tooltip content={t('document.viewMode.editor')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'editor'}
+              onClick={() => changeViewMode('editor')}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] ${
+                viewMode === 'editor'
+                  ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                  : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t('document.viewMode.editor')}</span>
+            </button>
+          </Tooltip>
+          <Tooltip content={t('document.viewMode.markmap')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'markmap'}
+              onClick={() => changeViewMode('markmap')}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] ${
+                viewMode === 'markmap'
+                  ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                  : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <GitFork className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t('document.viewMode.markmap')}</span>
+            </button>
+          </Tooltip>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {state.fullContent && (
+        {state.fullContent && viewMode === 'editor' && (
           <LazyDocumentEditor
             ref={editorHandleRef}
             key={documentInstanceKey}
@@ -349,6 +408,9 @@ export function DocumentContainer({
             toolbarCollapsed={toolbarCollapsed}
             onToolbarCollapsedChange={onToolbarCollapsedChange}
           />
+        )}
+        {state.fullContent && viewMode === 'markmap' && (
+          <LazyMarkmapView content={state.fullContent} />
         )}
       </div>
       {!isExternalDocument && memoId && (

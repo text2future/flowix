@@ -20,6 +20,7 @@
 @import './editor-link-tooltip.css';
 @import './editor-bubble-menus.css';
 @import './editor-attachment-link.css';
+@import './document-markmap.css';
 
 /* 自定义滚动条 ── 全局 webkit 滚动条 + .overlay-scrollbar-* 组件样式。
  * 非 Mac 平台门控在文件内部, 详见 overlay-scrollbar.css 顶部注释。 */
