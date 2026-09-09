@@ -13,6 +13,9 @@ pub enum FsEventKind {
     Create,
     Modify,
     Remove,
+    /// A directory was created, removed, moved, or renamed. Child events are
+    /// not reliable across watcher backends, so this triggers reconciliation.
+    DirectoryChange,
     Other,
 }
 

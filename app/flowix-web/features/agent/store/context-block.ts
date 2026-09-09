@@ -47,7 +47,7 @@ export function getCurrentNotePath(): string {
     documentState.currentDocumentPath?.trim() ||
     draft?.path?.trim() ||
     (notebookPath && memoState.selectedMemo?.filename
-      ? joinPath(notebookPath, memoState.selectedMemo.filename)
+      ? joinPath(notebookPath, memoState.selectedMemo.relativePath || memoState.selectedMemo.filename)
       : "")
   );
 }
@@ -167,7 +167,7 @@ export function buildUserLlmContent(content: string, directoryOverride?: string)
   const currentNotePath =
     documentState.currentDocumentPath?.trim() ||
     (memoState.selectedMemo?.filename
-      ? joinPath(currentDirectory, memoState.selectedMemo.filename)
+      ? joinPath(currentDirectory, memoState.selectedMemo.relativePath || memoState.selectedMemo.filename)
       : undefined);
 
   return {

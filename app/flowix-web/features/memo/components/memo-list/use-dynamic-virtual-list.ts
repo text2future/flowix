@@ -293,6 +293,26 @@ export function useDynamicVirtualList<T>({
     if (!enabled) return [];
     if (layout.items.length === 0) return [];
 
+    // A scroller can report a zero height during the first layout pass (for
+    // example while a Tauri/WebKit column is being attached or restored from
+    // a hidden tab).  The normal window calculation would then interpret the
+    // viewport as containing no rows and return only `overscan + 1` items
+    // (nine with the default overscan), leaving the rest of a short notebook
+    // permanently absent if ResizeObserver does not deliver a follow-up
+    // notification.  Until we have a usable viewport, render the loaded
+    // prefix in full; the next measured viewport immediately restores normal
+    // virtualization.  This also avoids losing notes in environments without
+    // reliable element geometry during startup.
+    if (!Number.isFinite(viewport.height) || viewport.height <= 0) {
+      return layout.items.map((item, index) => ({
+        key: keyByIndex[index],
+        index,
+        item,
+        start: layout.offsets[index],
+        size: layout.sizes[index],
+      }));
+    }
+
     const extra = Math.max(0, Math.floor(overscan));
     const firstVisible = firstIndexWhoseEndExceeds(
       layout.offsets,

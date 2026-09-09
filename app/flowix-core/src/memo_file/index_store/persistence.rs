@@ -29,11 +29,12 @@ impl MemoFile {
         tx.execute(
             r#"
             INSERT INTO memos
-                (id, notebook_id, filename, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties)
-            VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6, ?7, ?8, ?9, ?10)
+                (id, notebook_id, filename, relative_path, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(id) DO UPDATE SET
                 notebook_id = excluded.notebook_id,
                 filename = excluded.filename,
+                relative_path = excluded.relative_path,
                 preview = excluded.preview,
                 thumbnail = excluded.thumbnail,
                 thumbnail_checked = 1,
@@ -48,6 +49,7 @@ impl MemoFile {
                 entry.id,
                 notebook_id,
                 entry.filename,
+                entry.relative_path,
                 entry.preview,
                 entry.thumbnail,
                 entry.created_at,
@@ -219,7 +221,7 @@ impl MemoFile {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT id, filename, preview, thumbnail, created_at, updated_at, favorited, icon, properties
+                SELECT id, filename, relative_path, preview, thumbnail, created_at, updated_at, favorited, icon, properties
                 FROM memos
                 WHERE notebook_id = ?1
                 ORDER BY created_at ASC, rowid ASC
@@ -232,18 +234,19 @@ impl MemoFile {
                 Ok(MemoIndexEntry {
                     id,
                     filename: row.get(1)?,
-                    preview: row.get(2)?,
-                    thumbnail: row.get(3)?,
+                    relative_path: row.get(2)?,
+                    preview: row.get(3)?,
+                    thumbnail: row.get(4)?,
                     tags: Vec::new(),
                     todos: Vec::new(),
                     agents: Vec::new(),
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
-                    favorited: row.get::<_, i64>(6)? != 0,
-                    icon: row.get(7)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                    favorited: row.get::<_, i64>(7)? != 0,
+                    icon: row.get(8)?,
                     colors: Vec::new(),
                     properties: serde_json::from_str::<serde_json::Value>(
-                        &row.get::<_, String>(8)?,
+                        &row.get::<_, String>(9)?,
                     )
                     .unwrap_or_else(|_| serde_json::json!({})),
                 })
@@ -310,7 +313,8 @@ impl MemoFile {
                 continue;
             }
 
-            let path = memo_base.join(&entry.filename);
+            let path = super::super::notebook_path_from_relative(memo_base, &entry.relative_path)
+                .unwrap_or_else(|_| memo_base.join(&entry.filename));
             let Ok(content) = fs::read_to_string(path) else {
                 continue;
             };
@@ -362,7 +366,8 @@ impl MemoFile {
                 continue;
             }
 
-            let path = memo_base.join(&entry.filename);
+            let path = super::super::notebook_path_from_relative(memo_base, &entry.relative_path)
+                .unwrap_or_else(|_| memo_base.join(&entry.filename));
             let thumbnail = fs::read_to_string(path)
                 .ok()
                 .and_then(|content| extract_thumbnail(&content));
@@ -402,7 +407,8 @@ impl MemoFile {
                 continue;
             }
 
-            let path = memo_base.join(&entry.filename);
+            let path = super::super::notebook_path_from_relative(memo_base, &entry.relative_path)
+                .unwrap_or_else(|_| memo_base.join(&entry.filename));
             let agents = fs::read_to_string(path)
                 .ok()
                 .map(|content| extract_agent_threads_from_body(&content))

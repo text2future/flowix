@@ -48,5 +48,6 @@ export function formatDateTime(
  */
 export function displayTitleFromFilename(filename: string | null | undefined): string {
   if (!filename) return '';
-  return filename.replace(/\.(md|markdown)$/i, '');
+  const basename = filename.split(/[\\/]/).pop() ?? filename;
+  return basename.replace(/\.(md|markdown)$/i, '');
 }

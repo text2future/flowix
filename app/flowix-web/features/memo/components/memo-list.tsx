@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { ArrowDownUp, Check, ListFilter, Search, SquarePen } from 'lucide-react';
+import { ArrowDownUp, Check, LayoutList, ListFilter, Search, SquarePen } from 'lucide-react';
 import {
   getVisibleCreateFilter,
   MEMO_COLOR_HEX,
@@ -36,6 +36,7 @@ import {
 } from '@features/workspace/use-cases/browser-column-navigation';
 import { useI18n } from '@/lib/i18n';
 import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import type { MemoCardVariant } from '@/lib/constants';
 import { createLogger } from '@/lib/logger';
 
 import {
@@ -97,6 +98,7 @@ export function MemoList({
   const memos = useMemoStore((s) => s.memos);
   const selectedMemo = useMemoStore((s) => s.selectedMemo);
   const memoCardVariant = useUserSettingsStore((s) => s.settings.memoCardVariant);
+  const updateSettings = useUserSettingsStore((s) => s.updateSettings);
   const selectedNotebook = useMemoStore((s) => s.selectedNotebook);
   const refreshTrigger = useMemoStore((s) => s.refreshTrigger);
   const activeFilter = useMemoStore((s) => s.activeFilter);
@@ -151,6 +153,7 @@ export function MemoList({
   const [navigationDrawerOpen, setNavigationDrawerOpen] = useState(false);
   const [colorSubmenuOpen, setColorSubmenuOpen] = useState(false);
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
+  const [viewSubmenuOpen, setViewSubmenuOpen] = useState(false);
   const [tagMap, setTagMap] = useState<Record<string, string>>({});
   const [isMemoListLoading, setIsMemoListLoading] = useState(false);
   const [loadedMemoListQueryKey, setLoadedMemoListQueryKey] = useState<string | null>(null);
@@ -486,11 +489,22 @@ export function MemoList({
     [setActiveSort, setNotebookDropdownOpen],
   );
 
+  // 视图二级弹窗的选中回调: 复用偏好设置中的持久化卡片布局设置。
+  const handleViewFromSubmenu = useCallback(
+    (variant: MemoCardVariant) => {
+      void updateSettings({ memoCardVariant: variant });
+      setViewSubmenuOpen(false);
+      setNotebookDropdownOpen(false);
+    },
+    [setNotebookDropdownOpen, updateSettings],
+  );
+
   // 当 dropdown 关闭时, 同步把 filter / sort submenu 也收掉。
   useEffect(() => {
     if (!notebookDropdownOpen) {
       setColorSubmenuOpen(false);
       setSortSubmenuOpen(false);
+      setViewSubmenuOpen(false);
     }
   }, [notebookDropdownOpen]);
 
@@ -570,6 +584,9 @@ export function MemoList({
   const sortValueAdornment = activeSort === 'updatedAt'
     ? t('memo.list.sortUpdated')
     : t('memo.list.sortCreated');
+  const viewValueAdornment = memoCardVariant === 'compact'
+    ? t('memo.list.viewCompact')
+    : t('memo.list.viewDetailed');
 
   return (
     <div className="memo-list relative flex h-full min-w-0 select-none flex-col bg-[var(--card)]">
@@ -722,6 +739,46 @@ export function MemoList({
                 </div>
               )}
               onOpenChange={setSortSubmenuOpen}
+              onCloseMenu={() => setNotebookDropdownOpen(false)}
+            />
+
+            {/* View — 二级弹窗 */}
+            <MemoNavigationSubmenu
+              label={t('memo.list.viewLabel')}
+              icon={<LayoutList className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              open={viewSubmenuOpen}
+              hideHeader
+              emptyText=""
+              loadingText=""
+              valueAdornment={(
+                <span className="max-w-[100px] truncate text-xs text-[var(--muted-foreground)]">
+                  {viewValueAdornment}
+                </span>
+              )}
+              submenuContent={(
+                <div className="flex flex-col space-y-0.5">
+                  {(['detailed', 'compact'] as const).map((variant) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      onClick={() => handleViewFromSubmenu(variant)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      className={cn(
+                        'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
+                        memoCardVariant === variant && 'is-selected',
+                      )}
+                    >
+                      <span className="mention-note-title">
+                        {variant === 'detailed'
+                          ? t('memo.list.viewDetailed')
+                          : t('memo.list.viewCompact')}
+                      </span>
+                      {memoCardVariant === variant && <Check className="w-4 h-4 text-[var(--brand)]" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              onOpenChange={setViewSubmenuOpen}
               onCloseMenu={() => setNotebookDropdownOpen(false)}
             />
           </div>

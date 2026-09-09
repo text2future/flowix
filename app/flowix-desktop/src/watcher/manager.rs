@@ -34,7 +34,9 @@ use crate::watcher::{
     filter::PathFilter, normalize_for_compare, FsEventKind, MemoEventProcessor,
     NotebookWatchContext, RawFsEvent, WhitelistConfig,
 };
-use flowix_core::memo_file::{MemoFile, NotebookConfig};
+use flowix_core::memo_file::{
+    is_ignored_notebook_relative_path, notebook_relative_path, MemoFile, NotebookConfig,
+};
 
 const REMOVE_TOMBSTONE_DELAY: Duration = Duration::from_millis(450);
 
@@ -259,10 +261,33 @@ fn handle_notify_event(
             tracing::debug!("[MemoWatcher] no notebook root for {}", path.display());
             continue;
         };
+        let relative = match path.strip_prefix(&ctx.root) {
+            Ok(relative) => relative,
+            Err(_) => continue,
+        };
+        if is_ignored_notebook_relative_path(relative) {
+            tracing::debug!(
+                "[MemoWatcher] ignored hidden/internal notebook path: {}",
+                path.display()
+            );
+            continue;
+        }
         // notify callback only performs cheap path filtering. Revision-aware
         // self-write suppression and dedup happen after the worker observes a
         // stable file snapshot.
-        let fs_kind = FsEventKind::from_notify(&event.kind);
+        let mut fs_kind = FsEventKind::from_notify(&event.kind);
+        let relative_prefix = relative.to_string_lossy().replace('\\', "/");
+        let is_indexed_directory_prefix = matches!(fs_kind, FsEventKind::Remove)
+            && memo_file.read().ok().is_some_and(|memo_file| {
+                let prefix = format!("{}/", relative_prefix.trim_end_matches('/'));
+                memo_file
+                    .read_all_memos_for_notebook_id(Some(&ctx.notebook_id))
+                    .iter()
+                    .any(|memo| memo.relative_path.starts_with(&prefix))
+            });
+        if path.is_dir() || is_indexed_directory_prefix {
+            fs_kind = FsEventKind::DirectoryChange;
+        }
         if matches!(fs_kind, FsEventKind::Create | FsEventKind::Modify) {
             // A rename can arrive as Remove(old) followed by Create/Modify(new).
             // The new path may itself be marked as a self-write after the internal
@@ -271,7 +296,11 @@ fn handle_notify_event(
             remove_coalescer.cancel_by_disk_key(&path);
         }
         let raw = RawFsEvent::new(fs_kind, path.clone());
-        match crate::watcher::filter::run_pipeline(&raw, &path_filter) {
+        match if matches!(fs_kind, FsEventKind::DirectoryChange) {
+            crate::watcher::event::FilterDecision::Pass
+        } else {
+            crate::watcher::filter::run_pipeline(&raw, &path_filter)
+        } {
             crate::watcher::event::FilterDecision::Pass => {}
             crate::watcher::event::FilterDecision::PassMutated(_) => {}
             crate::watcher::event::FilterDecision::Drop { reason } => {
@@ -292,7 +321,7 @@ fn handle_notify_event(
                     continue;
                 }
             }
-            FsEventKind::Create | FsEventKind::Modify => {}
+            FsEventKind::Create | FsEventKind::Modify | FsEventKind::DirectoryChange => {}
             FsEventKind::Other => {}
         }
 
@@ -343,6 +372,7 @@ fn should_process_stable_event(
             processed_revisions.remove(&key);
             true
         }
+        FsEventKind::DirectoryChange => true,
         FsEventKind::Other => false,
     }
 }
@@ -370,9 +400,9 @@ fn resolve_removed_memo_id(
     ctx: &NotebookWatchContext,
     path: &Path,
 ) -> Option<String> {
-    let filename = path.file_name().and_then(|n| n.to_str())?;
+    let relative_path = notebook_relative_path(&ctx.root, path).ok()?;
     let mf = memo_file.read().ok()?;
-    mf.find_memo_by_filename_for_notebook_id(&ctx.notebook_id, filename)
+    mf.find_memo_by_relative_path_for_notebook_id(&ctx.notebook_id, &relative_path)
         .map(|memo| memo.id)
 }
 
@@ -502,7 +532,7 @@ mod tests {
                 None,
             )
             .expect("mcp-style create");
-        let expected_file_path = notes.join(&created.filename);
+        let expected_file_path = notes.join(&created.relative_path);
 
         let expected_path = normalize_for_compare(&expected_file_path);
         let deadline = std::time::Instant::now() + Duration::from_secs(5);

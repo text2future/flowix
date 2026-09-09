@@ -56,6 +56,7 @@ export interface AgentRoleMemoItem {
   memoId: string;
   roleName: string;
   filename: string;
+  relativePath: string;
   memoIcon?: string | null;
   notebookId: string;
   notebookName: string;

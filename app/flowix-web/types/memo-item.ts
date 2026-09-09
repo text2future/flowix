@@ -16,6 +16,8 @@ export interface AgentThreadItem {
 export interface MemoItem {
   id: string;
   filename: string;
+  /** Path relative to the notebook root, using `/` separators. */
+  relativePath?: string;
   preview: string;
   thumbnail?: string | null;
   tags: string[];

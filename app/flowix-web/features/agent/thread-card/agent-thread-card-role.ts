@@ -5,6 +5,7 @@ export interface AgentRoleOption {
   memoId: string;
   name: string;
   filename: string;
+  relativePath?: string;
   memoIcon?: string | null;
   notebookId: string;
   notebookName: string;

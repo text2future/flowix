@@ -146,6 +146,8 @@ export type CodexSettingsItemLayout = "list" | "grid";
 
 export interface CodexSettingsItemOptions {
   layout?: CodexSettingsItemLayout;
+  readOnly?: boolean;
+  selectedLabel?: string;
 }
 
 export function createCodexSettingsItem(
@@ -157,17 +159,24 @@ export function createCodexSettingsItem(
 ): HTMLElement {
   const layout: CodexSettingsItemLayout = options?.layout ?? "list";
   const isGrid = layout === "grid";
+  const readOnly = options?.readOnly === true;
   const item = document.createElement("button");
   item.type = "button";
   item.className = isGrid
     ? "agent-thread-card__codex-settings-item agent-thread-card__codex-settings-item--grid"
     : "agent-thread-card__codex-settings-item";
+  if (readOnly) {
+    item.classList.add("agent-thread-card__codex-settings-item--readonly");
+    item.disabled = true;
+  }
   item.setAttribute("role", "menuitemradio");
   item.setAttribute("aria-checked", selected ? "true" : "false");
-  item.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onSelect();
-  });
+  if (!readOnly) {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect();
+    });
+  }
   const content = document.createElement("span");
   content.className = isGrid
     ? "agent-thread-card__codex-settings-item-content agent-thread-card__codex-settings-item-content--grid"
@@ -183,6 +192,15 @@ export function createCodexSettingsItem(
     content.append(descriptionEl);
   }
   item.append(content);
-  if (selected) item.append(createCheckIcon());
+  if (selected) {
+    if (options?.selectedLabel) {
+      const selectedLabel = document.createElement("span");
+      selectedLabel.className = "agent-thread-card__codex-settings-item-selected-label";
+      selectedLabel.textContent = options.selectedLabel;
+      item.append(selectedLabel);
+    } else {
+      item.append(createCheckIcon());
+    }
+  }
   return item;
 }

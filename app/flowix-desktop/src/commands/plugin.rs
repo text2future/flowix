@@ -53,14 +53,8 @@ pub fn plugin_list_notes(
     plugin_id: String,
     notebook_id: String,
     state: State<AppState>,
-    app_handle: AppHandle,
 ) -> Result<Vec<flowix_core::memo_file::Memo>, String> {
-    plugin::list_notes(
-        &plugin_id,
-        &notebook_id,
-        &state.memo_file,
-        Some(&app_handle),
-    )
+    plugin::list_notes(&plugin_id, &notebook_id, &state.memo_file)
 }
 
 #[tauri::command]

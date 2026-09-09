@@ -3,7 +3,7 @@
 import { memo, useEffect, useState, type ReactNode } from 'react';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { ListTodo, MoreHorizontal } from 'lucide-react';
-import { FileTextIcon, PushPin } from '@phosphor-icons/react';
+import { PushPin } from '@phosphor-icons/react';
 import { MEMO_COLOR_HEX, type MemoColor, type MemoItem } from '@features/memo';
 import { cn } from '@/lib/utils';
 import { getAgentType } from '@/lib/agent-types';
@@ -49,6 +49,7 @@ interface MemoCardBodyProps {
   timeLabel: string;
   hasAgents: boolean;
   hasTodos: boolean;
+  relativeDirectory: string;
   runningAgentType?: AgentTypeKey;
   thumbnail: string | null;
   thumbnailFailed: boolean;
@@ -270,6 +271,7 @@ function CompactMemoCardBody({
   title,
   hasTodos,
   runningAgentType,
+  relativeDirectory,
 }: MemoCardBodyProps) {
   return (
     <div className="flex h-5 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden">
@@ -282,10 +284,14 @@ function CompactMemoCardBody({
       {memo.favorited && (
         <PushPin weight="fill" className="h-3.5 w-3.5 shrink-0 text-[var(--foreground)]" />
       )}
-      <FileTextIcon weight="duotone" className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
       <h3 className="w-0 min-w-0 flex-1 truncate text-sm font-normal text-[var(--foreground)]">
         {title}
       </h3>
+      {relativeDirectory && (
+        <span className="max-w-[35%] truncate text-[11px] text-[var(--muted-foreground)]" title={relativeDirectory}>
+          {relativeDirectory}
+        </span>
+      )}
       <ColorDots colors={memo.colors} limit={1} className="mr-1" />
       {hasTodos && (
         <ListTodo className="mr-1 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-opacity group-hover:opacity-0" />
@@ -301,6 +307,7 @@ function DetailedMemoCardBody({
   timeLabel,
   hasTodos,
   runningAgentType,
+  relativeDirectory,
   thumbnail,
   thumbnailFailed,
   onThumbnailFailed,
@@ -323,6 +330,11 @@ function DetailedMemoCardBody({
           />
           <span className="min-w-0">{title}</span>
         </h3>
+        {relativeDirectory && (
+          <p className="truncate text-xs text-[var(--muted-foreground)]" title={relativeDirectory}>
+            {relativeDirectory}
+          </p>
+        )}
         {thumbnail && !thumbnailFailed ? (
           <div className="relative h-16 w-[114px] overflow-hidden rounded-md border border-[color-mix(in_oklch,var(--border)_70%,transparent)] bg-[var(--muted)] shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] group-hover:scale-[1.01] group-hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]">
             <img
@@ -405,6 +417,10 @@ export function MemoCardImpl({
   const hasTodos = (memo.todos?.length ?? 0) > 0;
   const timeLabel = formatTimeAgo(memo.updatedAt || memo.createdAt, t);
   const title = displayTitleFromFilename(memo.filename) || t('memo.untitled');
+  const relativePath = memo.relativePath || memo.filename;
+  const relativeDirectory = relativePath.includes('/')
+    ? relativePath.slice(0, relativePath.lastIndexOf('/'))
+    : '';
   const bodyProps: MemoCardBodyProps = {
     memo,
     tagMap,
@@ -412,6 +428,7 @@ export function MemoCardImpl({
     timeLabel,
     hasAgents,
     hasTodos,
+    relativeDirectory,
     runningAgentType,
     thumbnail,
     thumbnailFailed,

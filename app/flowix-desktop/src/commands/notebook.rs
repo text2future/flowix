@@ -199,12 +199,32 @@ fn create_notebook_registry_with_id(
     {
         return Err("PATH_ALREADY_REGISTERED".to_string());
     }
+    let manifest_id = MemoFile::read_notebook_manifest(Path::new(&normalized_path))
+        .map_err(|error| format!("NOTEBOOK_MANIFEST_READ_FAILED: {error}"))?
+        .map(|manifest| manifest.notebook_id);
+    if let (Some(requested), Some(manifest)) = (requested_id, manifest_id.as_deref()) {
+        if requested != manifest {
+            return Err("NOTEBOOK_MANIFEST_ID_CONFLICT".to_string());
+        }
+    }
+    let requested_id = requested_id.or(manifest_id.as_deref());
     let id = if let Some(id) = requested_id {
         if !is_valid_notebook_id(id) {
             return Err("INVALID_NOTEBOOK_ID".to_string());
         }
-        if configs.iter().any(|notebook| notebook.id == id) {
-            return Err("NOTEBOOK_ID_ALREADY_REGISTERED".to_string());
+        if let Some(existing) = configs.iter_mut().find(|notebook| notebook.id == id) {
+            if Path::new(&existing.path).is_dir() {
+                return Err("NOTEBOOK_ID_ALREADY_REGISTERED".to_string());
+            }
+            existing.path = normalized_path.clone();
+            existing.name = name.to_string();
+            existing.icon = normalized_icon.clone();
+            existing.updated_at = now;
+            let relocated = existing.clone();
+            memo_file
+                .write_notebook_configs(&configs)
+                .map_err(|error| format!("INDEX_WRITE_FAILED: {error}"))?;
+            return Ok(relocated);
         }
         id.to_string()
     } else {

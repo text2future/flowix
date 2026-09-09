@@ -63,6 +63,7 @@ pub fn add_document(
             return Memo {
                 id: String::new(),
                 filename: format!("{}.md", title),
+                relative_path: format!("{}.md", title),
                 preview: String::new(),
                 thumbnail: None,
                 tags: vec![],
@@ -332,8 +333,12 @@ pub fn rename_memo_title(
 
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let mut service = MemoService::new(&memo_file);
-    let before = service.memo_metadata(&id).map_err(|error| error.to_string())?;
-    let resolved = service.resolve_memo(&id).map_err(|error| error.to_string())?;
+    let before = service
+        .memo_metadata(&id)
+        .map_err(|error| error.to_string())?;
+    let resolved = service
+        .resolve_memo(&id)
+        .map_err(|error| error.to_string())?;
     let old_path = resolved.path.to_string_lossy().into_owned();
     mark_self_write_for(&app, &resolved.path);
     let edited = service
@@ -370,7 +375,11 @@ pub fn rename_memo_title(
         Some(window.label()),
     );
 
-    Ok(RenameMemoTitleResult { memo, old_path, path })
+    Ok(RenameMemoTitleResult {
+        memo,
+        old_path,
+        path,
+    })
 }
 
 #[tauri::command]
@@ -381,6 +390,9 @@ pub fn favorite_memo(id: String, state: State<AppState>, app: AppHandle) -> bool
     let before = memo.clone();
     memo.favorited = true;
     memo.updated_at = chrono::Utc::now().timestamp_millis();
+    if let Some(path) = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id) {
+        mark_self_write_for(&app, &path);
+    }
     if MemoService::new(&read_lock(&state.memo_file, "memo_file"))
         .sync_memo_metadata(&memo)
         .is_err()
@@ -399,6 +411,9 @@ pub fn unfavorite_memo(id: String, state: State<AppState>, app: AppHandle) -> bo
     let before = memo.clone();
     memo.favorited = false;
     memo.updated_at = chrono::Utc::now().timestamp_millis();
+    if let Some(path) = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id) {
+        mark_self_write_for(&app, &path);
+    }
     if MemoService::new(&read_lock(&state.memo_file, "memo_file"))
         .sync_memo_metadata(&memo)
         .is_err()
@@ -422,6 +437,9 @@ pub fn set_memo_colors(
     let before = memo.clone();
     memo.colors = colors;
     memo.updated_at = chrono::Utc::now().timestamp_millis();
+    if let Some(path) = read_lock(&state.memo_file, "memo_file").find_memo_file_path(&id) {
+        mark_self_write_for(&app, &path);
+    }
     if MemoService::new(&read_lock(&state.memo_file, "memo_file"))
         .sync_memo_metadata(&memo)
         .is_err()

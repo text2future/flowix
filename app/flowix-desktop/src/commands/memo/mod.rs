@@ -85,6 +85,7 @@ pub struct AgentRoleMemoItem {
     pub memo_id: String,
     pub role_name: String,
     pub filename: String,
+    pub relative_path: String,
     pub memo_icon: Option<String>,
     pub notebook_id: String,
     pub notebook_name: String,

@@ -103,6 +103,39 @@ pub fn resolve_filename_conflict(
     }
 }
 
+/// Resolve a generated filename in a notebook subdirectory.
+/// `occupied_relative_paths` contains notebook-relative paths, while the
+/// filesystem check must happen in the memo's actual parent directory.
+pub fn resolve_relative_filename_conflict(
+    base: &Path,
+    parent_relative: &str,
+    candidate_base: &str,
+    occupied_relative_paths: &[String],
+) -> String {
+    let parent = if parent_relative.is_empty() {
+        base.to_path_buf()
+    } else {
+        notebook_path_from_relative(base, parent_relative).unwrap_or_else(|_| base.to_path_buf())
+    };
+    let occupied_filenames = occupied_relative_paths
+        .iter()
+        .filter_map(|relative| {
+            let path = Path::new(relative);
+            let parent = path
+                .parent()
+                .map(|value| value.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            if parent == parent_relative {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    resolve_filename_conflict(&parent, candidate_base, &occupied_filenames)
+}
+
 /// `.md` / `.markdown` 后缀判定 (大小写不敏感)。
 pub trait IsMd {
     fn is_md(&self) -> bool;
@@ -118,6 +151,75 @@ impl IsMd for Path {
             })
             .unwrap_or(false)
     }
+}
+
+/// Return a stable notebook-relative path for a Markdown file.
+///
+/// The value persisted in the memo index always uses `/`, regardless of the
+/// host platform.  Rejecting `..` and absolute paths here keeps every caller
+/// from accidentally registering a file outside its notebook root.
+pub fn notebook_relative_path(base: &Path, absolute: &Path) -> Result<String, String> {
+    let relative = absolute
+        .strip_prefix(base)
+        .map_err(|_| format!("path is outside notebook root: {}", absolute.display()))?;
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        match component {
+            std::path::Component::Normal(value) => parts.push(value.to_string_lossy().into_owned()),
+            _ => {
+                return Err(format!(
+                    "invalid notebook-relative path: {}",
+                    relative.display()
+                ));
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err("notebook-relative path is empty".to_string());
+    }
+    Ok(parts.join("/"))
+}
+
+/// Validate and materialize a persisted notebook-relative path.
+pub fn notebook_path_from_relative(base: &Path, relative: &str) -> Result<PathBuf, String> {
+    let normalized = relative.replace('\\', "/");
+    if normalized.is_empty() || normalized.starts_with('/') {
+        return Err(format!("invalid notebook-relative path: {relative}"));
+    }
+    let mut path = base.to_path_buf();
+    for component in std::path::Path::new(&normalized).components() {
+        match component {
+            std::path::Component::Normal(value) => path.push(value),
+            _ => return Err(format!("invalid notebook-relative path: {relative}")),
+        }
+    }
+    Ok(path)
+}
+
+pub fn filename_from_notebook_relative_path(relative: &str) -> String {
+    relative
+        .rsplit_once('/')
+        .map(|(_, filename)| filename)
+        .unwrap_or(relative)
+        .to_string()
+}
+
+/// Returns true when a notebook-relative path belongs to an internal,
+/// generated, or hidden location that must never be indexed as a note.
+/// Keep this rule in core so startup reconciliation and the desktop watcher
+/// classify the same path identically.
+pub fn is_ignored_notebook_relative_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        let std::path::Component::Normal(name) = component else {
+            return true;
+        };
+        let name = name.to_string_lossy();
+        name.starts_with('.')
+            || matches!(
+                name.as_ref(),
+                "attachments" | "attachments-cache" | "node_modules"
+            )
+    })
 }
 
 /// 跟 `flowix-desktop::fs_watcher::normalize_for_compare` 同口径的路径归一。

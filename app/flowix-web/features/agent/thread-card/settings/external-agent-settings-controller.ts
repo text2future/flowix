@@ -25,6 +25,8 @@ import { useAgentSessionStore } from "@features/agent/store/agent-session-store"
 import { loadDshModelConfigs } from "@features/agent/store/dsh-model-config-store";
 import { useMemoStore } from "@features/memo/store/memo-store";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
+import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
+import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
 import { agent } from "@platform/tauri/client";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
@@ -41,9 +43,6 @@ import {
   type ExternalAgentEmptyControlKind,
 } from "@features/agent/thread-card/settings/external-agent-settings";
 import { createChevronIcon } from "@features/agent/thread-card/agent-thread-card-icons";
-import {
-  normalizeConversationWorkspaceState,
-} from "@features/agent/runtime/conversation-workspace";
 import { openBrowserColumnFileBrowser } from "@features/workspace/use-cases/browser-column-navigation";
 
 const CODEX_SETTINGS_POPOVER_WIDTH_PX = 212;
@@ -698,23 +697,12 @@ export class ExternalAgentSettingsController {
       "aria-label",
       `${this.t("agent.workspace.title")}: ${value}`,
     );
-    const instance = this.getInstanceId()
-      ? useAgentSessionStore.getState().getInstance(this.getInstanceId()!)
-      : null;
-    const workspaceState = normalizeConversationWorkspaceState(instance?.runtimeConfig);
-    const hasStarted = Boolean(instance?.threadId) || Boolean(workspaceState?.appliedRevision);
-    const capability = getAgentRuntimeSpec(this.getTypeKey()).workspace;
-    // The current turn owns the runtime config it was sent with. Only runtimes
-    // with an explicit resume-with-workspace guarantee may queue a change while
-    // running; DSH currently resumes the old session cwd and must stay locked
-    // after its first run.
-    const allowsInFlightSelection = capability.switchWhileRunning;
-    const disabled =
-      !capability.selectBeforeFirstRun ||
-      (!allowsInFlightSelection && this.isRunning()) ||
-      (hasStarted && !capability.switchBetweenRuns);
-    this.composerWorkspaceButton.disabled = disabled;
-    this.composerWorkspaceButton.setAttribute("aria-disabled", disabled ? "true" : "false");
+    // The workspace is frozen by the conversation runtime after the first run,
+    // but the trigger stays interactive so the read-only popover remains
+    // available for inspection. The popover intentionally exposes no workspace
+    // selection action.
+    this.composerWorkspaceButton.disabled = false;
+    this.composerWorkspaceButton.setAttribute("aria-disabled", "false");
   }
 
   private refreshComposerPermissionButton(): void {
@@ -826,6 +814,65 @@ export class ExternalAgentSettingsController {
     const primary = resolvePrimaryWorkspace({ defaultFiles, notebookPath });
     const path = snapshotPath || (primary.kind === "empty" ? "" : primary.path);
     return path;
+  }
+
+  private getWorkspaceDirectoryChoices(): {
+    cwd: { path: string; label: string } | null;
+    addDirs: Array<{ path: string; label: string }>;
+  } {
+    const instance = this.getInstanceId()
+      ? useAgentSessionStore.getState().getInstance(this.getInstanceId()!)
+      : undefined;
+    const runtimeConfig = instance?.runtimeConfig;
+    const state = normalizeConversationWorkspaceState(runtimeConfig);
+    const snapshot = state?.applied ?? state?.desired ?? runtimeConfig?.workspaceSnapshot;
+    const cwdPath = normalizeWorkspacePath(snapshot?.cwd ?? this.getCurrentWorkspacePath());
+    const configuredNotebookId = runtimeConfig?.notebookId ?? snapshot?.notebookId;
+    const memoState = useMemoStore.getState();
+    const notebook =
+      (configuredNotebookId
+        ? memoState.notebooks.find((item) => item.id === configuredNotebookId)
+        : null) ?? memoState.selectedNotebook;
+    const accessState = useAgentAccessStore.getState();
+    const fallbackFiles = resolveNotebookAgentFiles(
+      accessState.config,
+      accessState.notebookConfigs,
+      configuredNotebookId ?? notebook?.id,
+    );
+    const addDirPaths = snapshot
+      ? snapshot.workspacePaths
+      : (fallbackFiles?.folders ?? []);
+    const notebookAddDirs = configuredNotebookId
+      ? accessState.notebookConfigs[configuredNotebookId]?.addDirs ?? []
+      : [];
+    const labelForPath = (path: string): string => {
+      const key = normalizeWorkspacePath(path).toLowerCase();
+      const local = notebookAddDirs.find(
+        (item) => normalizeWorkspacePath(item.path).toLowerCase() === key,
+      );
+      const entry = accessState.config.entries.find(
+        (item) => normalizeWorkspacePath(item.path).toLowerCase() === key,
+      );
+      if (local?.label?.trim()) return local.label.trim();
+      if (entry?.name?.trim()) return entry.name.trim();
+      if (notebook && normalizeWorkspacePath(notebook.path).toLowerCase() === key) {
+        return notebook.name?.trim() || path;
+      }
+      return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+    };
+    const seen = new Set<string>();
+    if (cwdPath) seen.add(cwdPath.toLowerCase());
+    const addDirs = addDirPaths.flatMap((value) => {
+      const path = normalizeWorkspacePath(value);
+      const key = path.toLowerCase();
+      if (!path || seen.has(key)) return [];
+      seen.add(key);
+      return [{ path, label: labelForPath(path) }];
+    });
+    return {
+      cwd: cwdPath ? { path: cwdPath, label: labelForPath(cwdPath) } : null,
+      addDirs,
+    };
   }
 
   /**
@@ -967,14 +1014,29 @@ export class ExternalAgentSettingsController {
 
   private renderWorkspacePopover(): void {
     this.popover.replaceChildren();
-    const title = document.createElement("div");
-    title.className = "agent-thread-card__codex-settings-title";
-    title.textContent = this.t("agent.workspace.title");
-    this.popover.append(title);
-    const current = document.createElement("div");
-    current.className = "agent-thread-card__codex-settings-empty";
-    current.textContent = this.getCurrentWorkspaceLabel();
-    this.popover.append(current);
+    const choices = this.getWorkspaceDirectoryChoices();
+    const accessTitle = document.createElement("div");
+    accessTitle.className = "agent-thread-card__codex-settings-title";
+    accessTitle.textContent = this.t("agent.workspace.access");
+    this.popover.append(accessTitle);
+    if (choices.cwd) {
+      this.popover.append(
+        createCodexSettingsItem(choices.cwd.label, true, () => {}, undefined, {
+          readOnly: true,
+          selectedLabel: "cwd",
+        }),
+      );
+    }
+
+    if (choices.addDirs.length > 0) {
+      choices.addDirs.forEach((choice) => {
+        this.popover.append(
+          createCodexSettingsItem(choice.label, false, () => {}, undefined, {
+            readOnly: true,
+          }),
+        );
+      });
+    }
 
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";

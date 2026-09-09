@@ -26,6 +26,7 @@ export function fallbackAgentRoleOptionsFromStore(): AgentRoleOption[] {
       memoId: memo.id,
       name,
       filename: memo.filename,
+      relativePath: memo.relativePath,
       memoIcon: getMemoIconValue(memo.icon, memo.properties),
       notebookId: selectedNotebook?.id ?? "",
       notebookName: selectedNotebook?.name ?? "",
@@ -88,7 +89,7 @@ export async function loadAgentRoleBodyFromMemo(options: {
   }
 
   try {
-    const docPath = joinPath(notebook.path, entry.filename);
+    const docPath = joinPath(notebook.path, entry.relativePath || entry.filename);
     const body = await memosClient.readDocument(docPath);
     cache.set(memoId, body ?? null);
     return body ?? null;

@@ -70,6 +70,7 @@ impl MemoFile {
                 SELECT
                     m.id,
                     m.filename,
+                    m.relative_path,
                     m.preview,
                     m.thumbnail,
                     m.created_at,
@@ -92,35 +93,36 @@ impl MemoFile {
                 params![memo_id],
                 |row| {
                     let memo_id: String = row.get(0)?;
-                    let is_default: i64 = row.get(13)?;
+                    let is_default: i64 = row.get(14)?;
                     Ok((
                         MemoIndexEntry {
                             id: memo_id,
                             filename: row.get(1)?,
-                            preview: row.get(2)?,
-                            thumbnail: row.get(3)?,
+                            relative_path: row.get(2)?,
+                            preview: row.get(3)?,
+                            thumbnail: row.get(4)?,
                             tags: Vec::new(),
                             todos: Vec::new(),
                             agents: Vec::new(),
-                            created_at: row.get(4)?,
-                            updated_at: row.get(5)?,
-                            favorited: row.get::<_, i64>(6)? != 0,
-                            icon: row.get(7)?,
+                            created_at: row.get(5)?,
+                            updated_at: row.get(6)?,
+                            favorited: row.get::<_, i64>(7)? != 0,
+                            icon: row.get(8)?,
                             colors: Vec::new(),
                             properties: serde_json::from_str::<serde_json::Value>(
-                                &row.get::<_, String>(8)?,
+                                &row.get::<_, String>(9)?,
                             )
                             .unwrap_or_else(|_| serde_json::json!({})),
                         },
                         NotebookConfig {
-                            id: row.get(9)?,
-                            name: row.get(10)?,
-                            icon: row.get(11)?,
-                            path: row.get(12)?,
+                            id: row.get(10)?,
+                            name: row.get(11)?,
+                            icon: row.get(12)?,
+                            path: row.get(13)?,
                             is_default: is_default != 0,
                             sort: 0,
-                            created_at: row.get(14)?,
-                            updated_at: row.get(15)?,
+                            created_at: row.get(15)?,
+                            updated_at: row.get(16)?,
                         },
                     ))
                 },
@@ -192,6 +194,7 @@ impl MemoFile {
         MemoIndexEntry {
             id: memo.id.clone(),
             filename: memo.filename.clone(),
+            relative_path: memo.relative_path.clone(),
             preview: memo.preview.clone(),
             thumbnail: memo.thumbnail.clone(),
             tags: memo.tags.clone(),
@@ -210,6 +213,7 @@ impl MemoFile {
         Memo {
             id: entry.id.clone(),
             filename: entry.filename.clone(),
+            relative_path: entry.relative_path.clone(),
             preview: entry.preview.clone(),
             thumbnail: entry.thumbnail.clone(),
             tags: entry.tags.clone(),

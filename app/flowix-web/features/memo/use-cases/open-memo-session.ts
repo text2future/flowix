@@ -17,7 +17,8 @@ export interface OpenMemoSessionOptions {
 }
 
 export function resolveMemoSessionPath(memo: MemoItem, notebook: Notebook | null): string | null {
-  return notebook?.path ? joinNotebookMemoPath(notebook.path, memo.filename) : memo.filename ?? null;
+  const relativePath = memo.relativePath || memo.filename;
+  return notebook?.path ? joinNotebookMemoPath(notebook.path, relativePath) : relativePath ?? null;
 }
 
 export async function openMemoSession(

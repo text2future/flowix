@@ -8,7 +8,7 @@ use std::time::Duration;
 use chrono::Utc;
 use flowix_core::memo_file::{
     atomic_write_bytes, extract_frontmatter_key, merge_frontmatter, resolve_filename_conflict,
-    sanitize_filename_component, IsMd, MergeOverrides,
+    notebook_path_from_relative, sanitize_filename_component, IsMd, MergeOverrides,
 };
 use flowix_sync::{
     collect_v2_attachments, v2_content_hash, v2_local_content_diverged, CloudCheckout,
@@ -161,7 +161,8 @@ fn v2_account_snapshot(
             {
                 continue;
             }
-            let path = PathBuf::from(&config.path).join(&memo.filename);
+            let path = notebook_path_from_relative(Path::new(&config.path), &memo.relative_path)
+                .unwrap_or_else(|_| PathBuf::from(&config.path).join(&memo.filename));
             let content = std::fs::read(&path)
                 .map_err(|error| format!("READ_NOTE_FAILED {}: {error}", path.display()))?;
             let attachments =
@@ -259,7 +260,8 @@ fn apply_v2_note_changes(
                 note_id,
                 |path| crate::watcher::runtime::mark_self_write_for(app, path),
             )? {
-                let path = base.join(&memo.filename);
+                let path = notebook_path_from_relative(&base, &memo.relative_path)
+                    .unwrap_or_else(|_| base.join(&memo.filename));
                 let derived_changed = MemoDerivedChanged::from_deleted(&memo);
                 memo_events::emit(
                     app,
@@ -300,7 +302,10 @@ fn apply_v2_note_changes(
                     ));
                 }
             }
-            let old_path = current_memo.as_ref().map(|memo| base.join(&memo.filename));
+            let old_path = current_memo.as_ref().map(|memo| {
+                notebook_path_from_relative(&base, &memo.relative_path)
+                    .unwrap_or_else(|_| base.join(&memo.filename))
+            });
             let mut desired_path = safe_cloud_note_path(&base, filename)?;
             if desired_path.exists() && old_path.as_ref() != Some(&desired_path) {
                 let title = Path::new(filename)
@@ -520,7 +525,8 @@ fn canonicalize_local_keys(
     let mut disk_keys = HashMap::<String, String>::new();
 
     for memo in memos {
-        let path = base.join(&memo.filename);
+        let path = notebook_path_from_relative(&base, &memo.relative_path)
+            .unwrap_or_else(|_| base.join(&memo.filename));
         let content = std::fs::read_to_string(&path)
             .map_err(|error| format!("READ_NOTE_FAILED {}: {error}", path.display()))?;
         if let Some(disk_key) = extract_frontmatter_key(&content) {

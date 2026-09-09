@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use rusqlite::{params, Connection};
 
-use super::types::NotebookConfig;
+use super::file_io::atomic_write_bytes;
+use super::types::{NotebookConfig, NotebookManifest};
 use super::MemoFile;
 
 pub(super) fn sqlite_to_io(error: rusqlite::Error) -> std::io::Error {
@@ -19,6 +20,54 @@ pub(super) fn sqlite_to_io(error: rusqlite::Error) -> std::io::Error {
 }
 
 impl MemoFile {
+    pub const NOTEBOOK_MANIFEST_VERSION: u32 = 1;
+
+    pub fn read_notebook_manifest(
+        path: &std::path::Path,
+    ) -> std::io::Result<Option<NotebookManifest>> {
+        let manifest_path = path.join(".flowix").join("notebook.json");
+        let bytes = match fs::read(&manifest_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let manifest = serde_json::from_slice::<NotebookManifest>(&bytes)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        if manifest.format_version == 0 || manifest.notebook_id.trim().is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid notebook manifest",
+            ));
+        }
+        Ok(Some(manifest))
+    }
+
+    pub fn ensure_notebook_manifest(config: &NotebookConfig) -> std::io::Result<NotebookManifest> {
+        let root = std::path::Path::new(&config.path);
+        if let Some(existing) = Self::read_notebook_manifest(root)? {
+            if existing.notebook_id != config.id {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "notebook manifest id {} conflicts with registry id {}",
+                        existing.notebook_id, config.id
+                    ),
+                ));
+            }
+            return Ok(existing);
+        }
+        fs::create_dir_all(root.join(".flowix"))?;
+        let manifest = NotebookManifest {
+            format_version: Self::NOTEBOOK_MANIFEST_VERSION,
+            notebook_id: config.id.clone(),
+            created_at: config.created_at,
+        };
+        let body = serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        atomic_write_bytes(&root.join(".flowix/notebook.json"), &body)?;
+        Ok(manifest)
+    }
+
     /// Global index database path under the user config directory.
     /// In production this is `~/.flowix/index.db`, located next to the rest of
     /// the user config so notebook registry data stays together.
@@ -267,6 +316,14 @@ impl MemoFile {
     /// notebook ids. Deleting and reinserting every row would trigger
     /// `ON DELETE CASCADE` on memo rows for notebooks that still exist.
     pub fn write_notebook_configs(&self, notebooks: &[NotebookConfig]) -> std::io::Result<()> {
+        // Validate/write portable identities before changing the device-local
+        // catalog, so a manifest conflict cannot leave the registry committed
+        // to a different notebook identity.
+        for notebook in notebooks {
+            if std::path::Path::new(&notebook.path).is_dir() {
+                Self::ensure_notebook_manifest(notebook)?;
+            }
+        }
         let mut conn = self.open_index_db()?;
         let tx = conn.transaction().map_err(sqlite_to_io)?;
         {

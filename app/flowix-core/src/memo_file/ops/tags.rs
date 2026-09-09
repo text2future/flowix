@@ -49,7 +49,21 @@ impl MemoFile {
             .memos;
         let mut updated = 0usize;
         for entry in entries {
-            let content = std::fs::read_to_string(base.join(&entry.filename))?;
+            let path = super::super::notebook_path_from_relative(&base, &entry.relative_path)
+                .map_err(std::io::Error::other)
+                .unwrap_or_else(|_| base.join(&entry.filename));
+            let content = match std::fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::debug!(
+                        notebook = %notebook_id,
+                        path = %path.display(),
+                        "skip tag migration for missing memo file"
+                    );
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let before = entry.tags.clone();
             let mut memo = MemoFile::index_entry_to_memo(&entry);
             apply_derived_memo_fields(&mut memo, &content);
@@ -235,8 +249,13 @@ impl MemoFile {
                     format!("memo {memo_id} not found"),
                 )
             })?;
-            let path =
-                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename);
+            let path = super::super::notebook_path_from_relative(
+                &std::path::PathBuf::from(&location.notebook.path),
+                &location.memo.relative_path,
+            )
+            .unwrap_or_else(|_| {
+                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename)
+            });
             let content = std::fs::read_to_string(&path)?;
             let metadata = extract_document_metadata(&content).map_err(|error| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
@@ -473,8 +492,13 @@ impl MemoFile {
                     format!("memo {memo_id} not found"),
                 )
             })?;
-            let path =
-                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename);
+            let path = super::super::notebook_path_from_relative(
+                &std::path::PathBuf::from(&location.notebook.path),
+                &location.memo.relative_path,
+            )
+            .unwrap_or_else(|_| {
+                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename)
+            });
             let before_memo = MemoFile::index_entry_to_memo(&location.memo);
             let content = std::fs::read_to_string(&path)?;
             let metadata = extract_document_metadata_preserving_invalid_tag_paths(&content)

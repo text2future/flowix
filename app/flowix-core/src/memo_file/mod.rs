@@ -48,6 +48,7 @@ mod file_io;
 pub(crate) mod frontmatter;
 mod index_store;
 mod internal_migration;
+mod migration;
 mod notebook;
 mod onboarding;
 mod ops;
@@ -72,11 +73,16 @@ pub use frontmatter::{
 };
 pub use index_store::{MemoContentCommit, MemoContentRevision};
 pub use internal_migration::{NotebookInternalMigrationReport, NOTEBOOK_INTERNAL_MIGRATION_KEY};
-pub use ops::{base_filename, resolve_filename_conflict, sanitize_filename_component, IsMd};
+pub use migration::{DataMigrationReport, NotebookMigrationReport, LATEST_DATA_MIGRATION_VERSION};
+pub use ops::{
+    base_filename, filename_from_notebook_relative_path, is_ignored_notebook_relative_path,
+    notebook_path_from_relative, notebook_relative_path, resolve_filename_conflict,
+    resolve_relative_filename_conflict, sanitize_filename_component, IsMd,
+};
 pub use types::{
     AgentThreadItem, DeleteTagReport, Memo, MemoColor, MemoIndexEntry, MemoIndexFile, MemoLocation,
     MemoMetadataFile, MemoTag, MemoTodoEntry, MoveTagReport, Notebook, NotebookConfig,
-    ReconcileReport, TodoItem,
+    NotebookManifest, ReconcileReport, TodoItem,
 };
 pub use versions::{
     MemoVersionManifest, MemoVersionMeta, MemoVersionSource, MEMO_AUTO_VERSION_INTERVAL_MS,

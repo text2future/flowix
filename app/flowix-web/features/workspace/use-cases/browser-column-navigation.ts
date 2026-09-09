@@ -175,8 +175,8 @@ export function openBrowserColumnMemo(
   }
 
   const filePath = notebook?.path
-    ? joinNotebookMemoPath(notebook.path, memo.filename) ?? memo.filename
-    : memo.filename;
+    ? joinNotebookMemoPath(notebook.path, memo.relativePath || memo.filename) ?? (memo.relativePath || memo.filename)
+    : memo.relativePath || memo.filename;
 
   return openBrowserColumnTarget({
     kind: 'memo',

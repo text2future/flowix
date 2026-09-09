@@ -133,6 +133,7 @@ impl MemoFile {
         let mut memo = Memo {
             id: persisted_id,
             filename: filename.clone(),
+            relative_path: filename.clone(),
             preview: String::new(),
             thumbnail: None,
             tags: vec![],
@@ -149,7 +150,8 @@ impl MemoFile {
         if let Err(error) =
             MemoFile::sync_index_on_write_for_notebook_id_locked(self, &resolved_notebook_id, &memo)
         {
-            let path = base.join(&memo.filename);
+            let path = notebook_path_from_relative(&base, &memo.relative_path)
+                .map_err(std::io::Error::other)?;
             if fs::read_to_string(&path)
                 .ok()
                 .and_then(|content| super::super::frontmatter::extract_frontmatter_key(&content))
@@ -177,13 +179,19 @@ impl MemoFile {
             std::io::Error::new(std::io::ErrorKind::NotFound, format!("memo {id} not found"))
         })?;
         let old_filename = memo.filename.clone();
+        let old_relative_path = memo.relative_path.clone();
+        let base = self.get_memo_base();
+        let parent_relative = std::path::Path::new(&old_relative_path)
+            .parent()
+            .unwrap_or(std::path::Path::new(""))
+            .to_string_lossy()
+            .replace('\\', "/");
 
         let old_base = old_filename.strip_suffix(".md").unwrap_or(&old_filename);
         let new_candidate = base_filename(new_title);
         let new_filename = if new_candidate == old_base {
             old_filename.clone()
         } else {
-            let base = self.get_memo_base();
             // 锁内读 memo index: 跟 create_memo 同款, 排除本 memo 自身
             // (rename 自己的 entry 也占着 old_filename, 不应触发冲突)。
             let occupied: Vec<String> = self
@@ -192,22 +200,30 @@ impl MemoFile {
                     l.memos
                         .into_iter()
                         .filter(|e| e.id != memo.id)
-                        .map(|e| e.filename)
+                        .map(|e| e.relative_path)
                         .collect()
                 })
                 .unwrap_or_default();
-            resolve_filename_conflict(&base, &new_candidate, &occupied)
+            resolve_relative_filename_conflict(&base, &parent_relative, &new_candidate, &occupied)
         };
 
-        if new_filename != old_filename {
-            let old_path = self.get_memo_base().join(&old_filename);
-            let new_path = self.get_memo_base().join(&new_filename);
+        let parent = std::path::Path::new(&parent_relative);
+        let new_relative_path = parent
+            .join(&new_filename)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if new_relative_path != old_relative_path {
+            let old_path = notebook_path_from_relative(&base, &old_relative_path)
+                .map_err(std::io::Error::other)?;
+            let new_path = notebook_path_from_relative(&base, &new_relative_path)
+                .map_err(std::io::Error::other)?;
             if old_path.exists() {
                 rename_file_noclobber(&old_path, &new_path)?;
             }
         }
 
-        let path = self.get_memo_base().join(&new_filename);
+        let path = notebook_path_from_relative(&base, &new_relative_path)
+            .map_err(std::io::Error::other)?;
         let existing = fs::read_to_string(&path).unwrap_or_default();
         let overrides: MergeOverrides =
             [("key".to_string(), memo.id.clone())].into_iter().collect();
@@ -215,6 +231,7 @@ impl MemoFile {
         atomic_write_bytes(&path, new_content.as_bytes())?;
 
         memo.filename = new_filename;
+        memo.relative_path = new_relative_path;
         memo.updated_at = chrono::Utc::now().timestamp_millis();
         apply_derived_memo_fields(&mut memo, &new_content);
         MemoFile::sync_index_on_write_locked(self, &memo)?;
@@ -248,7 +265,9 @@ impl MemoFile {
             [("key".to_string(), memo.id.clone())].into_iter().collect();
         let merged = merge_frontmatter(body, &overrides);
         validate_document_frontmatter(&merged)?;
-        atomic_write_bytes(&base.join(&memo.filename), merged.as_bytes())?;
+        let path = notebook_path_from_relative(&base, &memo.relative_path)
+            .map_err(std::io::Error::other)?;
+        atomic_write_bytes(&path, merged.as_bytes())?;
 
         memo.updated_at = chrono::Utc::now().timestamp_millis();
         apply_derived_memo_fields(&mut memo, &merged);
@@ -266,7 +285,8 @@ impl MemoFile {
             [("key".to_string(), memo.id.clone())].into_iter().collect();
         let merged = merge_frontmatter(body, &overrides);
         validate_document_frontmatter(&merged)?;
-        let path = self.get_memo_base().join(&memo.filename);
+        let path = notebook_path_from_relative(&self.get_memo_base(), &memo.relative_path)
+            .map_err(std::io::Error::other)?;
         atomic_write_bytes(&path, merged.as_bytes())?;
 
         memo.updated_at = chrono::Utc::now().timestamp_millis();
@@ -296,7 +316,8 @@ impl MemoFile {
         let memo = self.write_memo_inner_locked(id, body)?;
 
         // 抽最终磁盘内容(同锁内, 写盘已完成, 文件可读)
-        let path = self.get_memo_base().join(&memo.filename);
+        let path = notebook_path_from_relative(&self.get_memo_base(), &memo.relative_path)
+            .map_err(std::io::Error::other)?;
         let final_content = fs::read_to_string(&path).unwrap_or_default();
         let (derived_title, _) = extract_title_and_preview(&final_content);
         let derived_title = if derived_title.is_empty() {
@@ -325,23 +346,40 @@ impl MemoFile {
                 l.memos
                     .into_iter()
                     .filter(|e| e.id != memo.id)
-                    .map(|e| e.filename)
+                    .map(|e| e.relative_path)
                     .collect()
             })
             .unwrap_or_default();
-        let new_filename =
-            resolve_filename_conflict(&self.get_memo_base(), &new_candidate, &occupied);
-        let old_filename = memo.filename.clone();
-        if new_filename != old_filename {
-            let old_path = self.get_memo_base().join(&old_filename);
-            let new_path = self.get_memo_base().join(&new_filename);
+        let old_relative_path = memo.relative_path.clone();
+        let parent_relative = std::path::Path::new(&old_relative_path)
+            .parent()
+            .unwrap_or(std::path::Path::new(""))
+            .to_string_lossy()
+            .replace('\\', "/");
+        let new_filename = resolve_relative_filename_conflict(
+            &self.get_memo_base(),
+            &parent_relative,
+            &new_candidate,
+            &occupied,
+        );
+        let parent = std::path::Path::new(&parent_relative);
+        let new_relative_path = parent
+            .join(&new_filename)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if new_relative_path != old_relative_path {
+            let old_path = notebook_path_from_relative(&self.get_memo_base(), &old_relative_path)
+                .map_err(std::io::Error::other)?;
+            let new_path = notebook_path_from_relative(&self.get_memo_base(), &new_relative_path)
+                .map_err(std::io::Error::other)?;
             if old_path.exists() {
                 rename_file_noclobber(&old_path, &new_path)?;
             }
         }
 
         // 重写新路径的 frontmatter, 锁内保证 frontmatter key == id
-        let new_path = self.get_memo_base().join(&new_filename);
+        let new_path = notebook_path_from_relative(&self.get_memo_base(), &new_relative_path)
+            .map_err(std::io::Error::other)?;
         let existing = fs::read_to_string(&new_path).unwrap_or_default();
         let overrides: MergeOverrides =
             [("key".to_string(), memo.id.clone())].into_iter().collect();
@@ -350,6 +388,7 @@ impl MemoFile {
 
         let mut updated = memo;
         updated.filename = new_filename;
+        updated.relative_path = new_relative_path;
         updated.updated_at = chrono::Utc::now().timestamp_millis();
         apply_derived_memo_fields(&mut updated, &new_content);
         MemoFile::sync_index_on_write_locked(self, &updated)?;
@@ -376,7 +415,8 @@ impl MemoFile {
             [("key".to_string(), memo.id.clone())].into_iter().collect();
         let merged = merge_frontmatter(body, &overrides);
         validate_document_frontmatter(&merged)?;
-        let path = base.join(&memo.filename);
+        let path = notebook_path_from_relative(&base, &memo.relative_path)
+            .map_err(std::io::Error::other)?;
         atomic_write_bytes(&path, merged.as_bytes())?;
 
         memo.updated_at = chrono::Utc::now().timestamp_millis();
@@ -407,21 +447,35 @@ impl MemoFile {
                 l.memos
                     .into_iter()
                     .filter(|e| e.id != memo.id)
-                    .map(|e| e.filename)
+                    .map(|e| e.relative_path)
                     .collect()
             })
             .unwrap_or_default();
-        let new_filename = resolve_filename_conflict(&base, &new_candidate, &occupied);
-        let old_filename = memo.filename.clone();
-        if new_filename != old_filename {
-            let old_path = base.join(&old_filename);
-            let new_path = base.join(&new_filename);
+        let old_relative_path = memo.relative_path.clone();
+        let parent_relative = std::path::Path::new(&old_relative_path)
+            .parent()
+            .unwrap_or(std::path::Path::new(""))
+            .to_string_lossy()
+            .replace('\\', "/");
+        let new_filename =
+            resolve_relative_filename_conflict(&base, &parent_relative, &new_candidate, &occupied);
+        let parent = std::path::Path::new(&parent_relative);
+        let new_relative_path = parent
+            .join(&new_filename)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if new_relative_path != old_relative_path {
+            let old_path = notebook_path_from_relative(&base, &old_relative_path)
+                .map_err(std::io::Error::other)?;
+            let new_path = notebook_path_from_relative(&base, &new_relative_path)
+                .map_err(std::io::Error::other)?;
             if old_path.exists() {
                 rename_file_noclobber(&old_path, &new_path)?;
             }
         }
 
-        let new_path = base.join(&new_filename);
+        let new_path = notebook_path_from_relative(&base, &new_relative_path)
+            .map_err(std::io::Error::other)?;
         let existing = fs::read_to_string(&new_path).unwrap_or_default();
         let overrides: MergeOverrides =
             [("key".to_string(), memo.id.clone())].into_iter().collect();
@@ -430,6 +484,7 @@ impl MemoFile {
 
         let mut updated = memo;
         updated.filename = new_filename;
+        updated.relative_path = new_relative_path;
         updated.updated_at = chrono::Utc::now().timestamp_millis();
         apply_derived_memo_fields(&mut updated, &new_content);
         MemoFile::sync_index_on_write_for_notebook_id_locked(self, &notebook_id, &updated)?;
@@ -450,9 +505,9 @@ impl MemoFile {
     pub fn delete_memo_result(&self, id: &str) -> std::io::Result<bool> {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
 
-        let path = self
-            .read_current_memo(id)
-            .map(|m| self.get_memo_base().join(&m.filename));
+        let path = self.read_current_memo(id).and_then(|m| {
+            notebook_path_from_relative(&self.get_memo_base(), &m.relative_path).ok()
+        });
 
         let removed = match path {
             Some(p) if p.exists() => {
@@ -476,7 +531,11 @@ impl MemoFile {
             return Ok(false);
         };
 
-        let path = PathBuf::from(&location.notebook.path).join(&location.memo.filename);
+        let path = notebook_path_from_relative(
+            &PathBuf::from(&location.notebook.path),
+            &location.memo.relative_path,
+        )
+        .map_err(std::io::Error::other)?;
         let removed = if path.exists() {
             fs::remove_file(&path)?;
             true
@@ -506,7 +565,8 @@ impl MemoFile {
         let base = self
             .memo_base_for_notebook_id_result(notebook_id)
             .map_err(std::io::Error::other)?;
-        let path = base.join(&memo.filename);
+        let path = notebook_path_from_relative(&base, &memo.relative_path)
+            .map_err(std::io::Error::other)?;
         if path.exists() {
             fs::remove_file(&path)?;
         }

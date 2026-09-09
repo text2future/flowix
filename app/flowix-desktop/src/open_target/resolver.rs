@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::lock_utils::read_lock;
 use crate::watcher::path::normalize_for_compare;
-use flowix_core::memo_file::{MemoFile, NotebookConfig};
+use flowix_core::memo_file::{notebook_relative_path, MemoFile, NotebookConfig};
 
 use super::parser::OpenTarget;
 
@@ -59,7 +59,7 @@ pub fn resolve_open_target(
             if let Some((cfg, memo)) =
                 find_memo_by_path_in_notebooks(memo_file, &configs, &abs_path, filename)
             {
-                let canonical_abs = build_abs_path(&cfg, &memo.filename);
+                let canonical_abs = build_abs_path(&cfg, &memo.relative_path);
                 return Ok(build_resolved(memo, &cfg, canonical_abs));
             }
         }
@@ -73,7 +73,7 @@ pub fn resolve_open_target(
         .resolve_memo_location(&memo_id)
         .map_err(|_| ResolveError::NotFound(memo_id.clone()))?
         .ok_or_else(|| ResolveError::NotFound(memo_id.clone()))?;
-    let abs = build_abs_path(&location.notebook, &location.memo.filename);
+    let abs = build_abs_path(&location.notebook, &location.memo.relative_path);
     Ok(build_resolved(
         flowix_core::memo_file::MemoFile::index_entry_to_memo(&location.memo),
         &location.notebook,
@@ -97,9 +97,9 @@ fn build_resolved(
     }
 }
 
-fn build_abs_path(cfg: &NotebookConfig, filename: &str) -> String {
+fn build_abs_path(cfg: &NotebookConfig, relative_path: &str) -> String {
     PathBuf::from(&cfg.path)
-        .join(filename)
+        .join(relative_path)
         .display()
         .to_string()
 }
@@ -126,10 +126,13 @@ fn find_memo_by_path_in_notebooks(
             continue;
         };
         if let Some(entry) = list.memos.into_iter().find(|entry| {
-            if entry.filename != filename {
+            let Ok(relative_path) = notebook_relative_path(Path::new(&cfg.path), target) else {
+                return false;
+            };
+            if entry.relative_path != relative_path && entry.filename != filename {
                 return false;
             }
-            let expected = PathBuf::from(&cfg.path).join(&entry.filename);
+            let expected = PathBuf::from(&cfg.path).join(&entry.relative_path);
             normalize_for_compare(&expected) == target_norm
         }) {
             return Some((

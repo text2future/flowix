@@ -50,7 +50,7 @@ async function resolveLatestMemoPathFromBackend(
   const memo = await memosClient.readMemo(memoId);
   if (!memo?.filename) return null;
   useMemoStore.getState().handleMemoUpdated(memo);
-  return joinPath(notebookPath, memo.filename);
+  return joinPath(notebookPath, memo.relativePath || memo.filename);
 }
 
 function logOpenDocPerf(label: string, startedAt: number, meta?: Record<string, unknown>) {

@@ -387,6 +387,7 @@ mod tests {
         Memo {
             id: "abc123".to_string(),
             filename: "Sample.md".to_string(),
+            relative_path: "Sample.md".to_string(),
             preview: "preview text".to_string(),
             thumbnail: Some("https://example.com/cover.png".to_string()),
             tags: vec!["t1".to_string()],

@@ -824,6 +824,17 @@
   color: var(--primary-foreground);
 }
 
+.agent-thread-card__codex-settings-item--readonly {
+  cursor: default;
+  opacity: 1;
+}
+
+.agent-thread-card__codex-settings-item--readonly:hover,
+.agent-thread-card__codex-settings-item--readonly:focus-visible {
+  background: transparent;
+  color: var(--foreground);
+}
+
 .agent-thread-card__codex-settings-settings {
   justify-content: flex-start;
   gap: 4px;
@@ -856,6 +867,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-thread-card__codex-settings-item-selected-label {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
 }
 
 .agent-thread-card__codex-settings-item-content {

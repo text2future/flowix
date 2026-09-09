@@ -7,7 +7,7 @@ use tauri::{AppHandle, State};
 
 use crate::lock_utils::read_lock;
 use crate::watcher::path::normalize_for_compare;
-use flowix_core::memo_file::{Memo, MemoFile, MemoTodoEntry};
+use flowix_core::memo_file::{notebook_path_from_relative, notebook_relative_path, Memo, MemoFile, MemoTodoEntry};
 use flowix_core::{FlowixError, MemoPage, MemoService};
 
 use crate::app::search_index::rebuild_index_in_background;
@@ -102,10 +102,12 @@ pub fn search_mention_notes(
                 continue;
             }
 
-            let original_path = Path::new(&notebook.path)
-                .join(&memo.filename)
-                .to_str()
-                .map(|path| path.to_string());
+            let original_path = notebook_path_from_relative(
+                Path::new(&notebook.path),
+                &memo.relative_path,
+            )
+            .ok()
+            .and_then(|path| path.to_str().map(str::to_string));
 
             items.push(MentionNoteSearchItem {
                 id: memo.id,
@@ -168,6 +170,7 @@ pub fn list_agent_role_memos(state: State<AppState>) -> Vec<AgentRoleMemoItem> {
                 memo_id: memo.id,
                 role_name: role_name.to_string(),
                 filename: memo.filename,
+                relative_path: memo.relative_path,
                 memo_icon,
                 notebook_id: notebook.id.clone(),
                 notebook_name: notebook.name.clone(),
@@ -334,7 +337,7 @@ fn resolve_document_path_for_io(file_path: &str, state: &AppState) -> std::path:
 
 fn resolve_missing_document_path_from_notebook_index(
     requested_path: &Path,
-    file_name: &str,
+    _file_name: &str,
     state: &AppState,
 ) -> Option<PathBuf> {
     let requested_norm = normalize_for_compare(requested_path);
@@ -354,13 +357,15 @@ fn resolve_missing_document_path_from_notebook_index(
     candidates.sort_by(|a, b| b.0.cmp(&a.0));
 
     for (_, cfg) in candidates {
-        if let Some(entry) = service
+        if let Ok(relative_path) = notebook_relative_path(Path::new(&cfg.path), requested_path) {
+            if let Some(entry) = service
             .list_memos(&cfg.id)
             .unwrap_or_default()
             .into_iter()
-            .find(|entry| entry.filename == file_name)
-        {
-            return Some(PathBuf::from(cfg.path).join(entry.filename));
+            .find(|entry| entry.relative_path == relative_path)
+            {
+                return notebook_path_from_relative(Path::new(&cfg.path), &entry.relative_path).ok();
+            }
         }
     }
     None

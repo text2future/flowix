@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use flowix_core::memo_file::{Memo, MemoFile};
+use flowix_core::memo_file::{notebook_path_from_relative, Memo, MemoFile};
 use flowix_sync::{v2_content_hash, v2_local_content_diverged, SyncManager};
 
 pub(super) fn delete_cloud_note_locked(
@@ -19,7 +19,11 @@ pub(super) fn delete_cloud_note_locked(
     if location.notebook.id != notebook_id {
         return Err(format!("CLOUD_NOTE_ID_COLLISION: {note_id}"));
     }
-    let path = Path::new(&location.notebook.path).join(&location.memo.filename);
+    let path = notebook_path_from_relative(
+        Path::new(&location.notebook.path),
+        &location.memo.relative_path,
+    )
+    .unwrap_or_else(|_| Path::new(&location.notebook.path).join(&location.memo.filename));
     let local_hash = match std::fs::read(&path) {
         Ok(bytes) => Some(v2_content_hash(&bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,

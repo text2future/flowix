@@ -161,7 +161,7 @@ function normalizePath(raw: string): string | null {
   return s;
 }
 
-function getDirectChildFilename(path: string, notebookPath: string): string | null {
+function getNotebookRelativePath(path: string, notebookPath: string): string | null {
   const normalizedPath = normalizeFsPath(path);
   const normalizedNotebook = normalizeFsPath(notebookPath);
   if (!normalizedPath || !normalizedNotebook) return null;
@@ -171,7 +171,7 @@ function getDirectChildFilename(path: string, notebookPath: string): string | nu
   if (!comparePath(normalizedPath, caseInsensitive).startsWith(prefix)) return null;
 
   const remainder = normalizedPath.slice(normalizedNotebook.length + 1);
-  if (!remainder || remainder.includes('/')) return null;
+  if (!remainder) return null;
   return remainder;
 }
 
@@ -207,8 +207,8 @@ export function tryMatchPhysicalMemoPath(raw: string): NoteReferenceAttrs | null
   for (const entry of sorted) {
     const nb = entry.notebook;
     if (!nb.path) continue;
-    const directChildFilename = getDirectChildFilename(path, nb.path);
-    if (directChildFilename !== filename) continue;
+    const relativePath = getNotebookRelativePath(path, nb.path);
+    if (!relativePath || relativePath.split('/').pop() !== filename) continue;
 
     // title 璺?filename 鍘诲悗缂€鍚屽舰 (filename 鏄?"Hello.md" 鈫?title "Hello")
     const title = filename.replace(/\.md$/i, '');

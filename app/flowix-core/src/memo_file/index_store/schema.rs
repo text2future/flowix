@@ -1,4 +1,7 @@
 use super::*;
+use std::sync::{LazyLock, Mutex};
+
+static MEMO_RELATIVE_PATH_MIGRATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 impl MemoFile {
     pub fn storage_title_from_filename(filename: &str) -> String {
@@ -61,6 +64,7 @@ impl MemoFile {
                 id TEXT PRIMARY KEY,
                 notebook_id TEXT NOT NULL,
                 filename TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
                 preview TEXT NOT NULL,
                 thumbnail TEXT,
                 thumbnail_checked INTEGER NOT NULL DEFAULT 0,
@@ -71,7 +75,7 @@ impl MemoFile {
                 icon TEXT,
                 properties TEXT NOT NULL DEFAULT '{}',
                 FOREIGN KEY(notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE,
-                UNIQUE(notebook_id, filename)
+                UNIQUE(notebook_id, relative_path)
             );
             CREATE INDEX IF NOT EXISTS idx_memos_notebook_created
                 ON memos(notebook_id, created_at DESC);
@@ -157,6 +161,7 @@ impl MemoFile {
             "#,
         )
         .map_err(sqlite_to_io)?;
+        self.migrate_memo_relative_paths(conn)?;
         conn.execute_batch(
             r#"
             INSERT OR IGNORE INTO notebook_tags
@@ -183,6 +188,173 @@ impl MemoFile {
         )
         .map_err(sqlite_to_io)?;
         Ok(())
+    }
+
+    /// Upgrade the v3 index where filename was the notebook-relative
+    /// location. Keep filename as the basename and make relative_path the
+    /// durable location identity so same-named notes can coexist in folders.
+    fn migrate_memo_relative_paths(&self, conn: &Connection) -> std::io::Result<()> {
+        // Multiple MemoFile instances can open the same index during startup.
+        // The per-instance RMW mutex cannot protect schema setup, so combine a
+        // process-wide guard with SQLite's write transaction. The second
+        // connection re-checks the marker after it acquires the database lock.
+        let _migration_guard = MEMO_RELATIVE_PATH_MIGRATION_LOCK
+            .lock()
+            .expect("memo migration lock poisoned");
+
+        // Existing installations have the old UNIQUE(notebook_id, filename)
+        // constraint, which cannot be dropped in place. Rebuild the metadata
+        // table while preserving child tables and memo ids. SQLite DDL is
+        // transactional, so a crash must leave either the old or new schema.
+        conn.execute_batch("PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE;")
+            .map_err(sqlite_to_io)?;
+        let result = (|| -> std::io::Result<()> {
+            let done: Option<String> = conn
+                .query_row(
+                    "SELECT migration_key FROM schema_migrations WHERE migration_key = 'memo_relative_paths_v1'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(sqlite_to_io)?;
+            if done.is_some() {
+                return Ok(());
+            }
+
+            let has_relative_path = conn
+                .prepare("PRAGMA table_info(memos)")
+                .and_then(|mut statement| {
+                    let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+                    rows.collect::<Result<Vec<_>, _>>()
+                })
+                .map_err(sqlite_to_io)?
+                .into_iter()
+                .any(|name| name == "relative_path");
+
+            let recovery_table_exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memos_relative_paths_v1')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(sqlite_to_io)?;
+
+            // Recover databases left by the earlier non-transactional
+            // migration. It could copy every memo into the replacement table
+            // and leave the live table empty without writing the marker.
+            if has_relative_path {
+                if recovery_table_exists {
+                    let live_count: i64 = conn
+                        .query_row("SELECT COUNT(*) FROM memos", [], |row| row.get(0))
+                        .map_err(sqlite_to_io)?;
+                    let recovery_count: i64 = conn
+                        .query_row("SELECT COUNT(*) FROM memos_relative_paths_v1", [], |row| {
+                            row.get(0)
+                        })
+                        .map_err(sqlite_to_io)?;
+                    if live_count == 0 && recovery_count > 0 {
+                        conn.execute_batch(
+                            r#"
+                            DROP TRIGGER IF EXISTS trg_memo_tags_register_notebook_tag;
+                            DROP TABLE memos;
+                            ALTER TABLE memos_relative_paths_v1 RENAME TO memos;
+                            "#,
+                        )
+                        .map_err(sqlite_to_io)?;
+                    } else {
+                        conn.execute_batch("DROP TABLE memos_relative_paths_v1;")
+                            .map_err(sqlite_to_io)?;
+                    }
+                }
+                Self::finish_memo_relative_path_migration(conn)?;
+                return Ok(());
+            }
+
+            conn.execute_batch("DROP TABLE IF EXISTS memos_relative_paths_v1;")
+                .map_err(sqlite_to_io)?;
+            conn.execute("ALTER TABLE memos ADD COLUMN relative_path TEXT", [])
+                .map_err(sqlite_to_io)?;
+            conn.execute_batch(
+                r#"
+                CREATE TABLE memos_relative_paths_v1 (
+                    id TEXT PRIMARY KEY,
+                    notebook_id TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    relative_path TEXT NOT NULL,
+                    preview TEXT NOT NULL,
+                    thumbnail TEXT,
+                    thumbnail_checked INTEGER NOT NULL DEFAULT 0,
+                    agents_checked INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    favorited INTEGER NOT NULL,
+                    icon TEXT,
+                    properties TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY(notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE,
+                    UNIQUE(notebook_id, relative_path)
+                );
+                INSERT INTO memos_relative_paths_v1
+                    (id, notebook_id, filename, relative_path, preview, thumbnail,
+                     thumbnail_checked, agents_checked, created_at, updated_at,
+                     favorited, icon, properties)
+                SELECT id, notebook_id, filename,
+                    COALESCE(NULLIF(relative_path, ''), filename),
+                    preview, thumbnail, thumbnail_checked, agents_checked,
+                    created_at, updated_at, favorited, icon, properties
+                FROM memos;
+                DROP TRIGGER IF EXISTS trg_memo_tags_register_notebook_tag;
+                DROP TABLE memos;
+                ALTER TABLE memos_relative_paths_v1 RENAME TO memos;
+                "#,
+            )
+            .map_err(sqlite_to_io)?;
+            Self::finish_memo_relative_path_migration(conn)?;
+            Ok(())
+        })();
+        let transaction = match result {
+            Ok(()) => conn.execute_batch("COMMIT;").map_err(sqlite_to_io),
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(error)
+            }
+        };
+        let restore = conn
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(sqlite_to_io);
+        transaction.and(restore)
+    }
+
+    fn finish_memo_relative_path_migration(conn: &Connection) -> std::io::Result<()> {
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_memos_notebook_created
+                ON memos(notebook_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memos_notebook_updated
+                ON memos(notebook_id, updated_at DESC);
+            CREATE TRIGGER IF NOT EXISTS trg_memo_tags_register_notebook_tag
+            AFTER INSERT ON memo_tags
+            BEGIN
+                INSERT OR IGNORE INTO notebook_tags
+                    (notebook_id, path, created_at, updated_at)
+                SELECT
+                    m.notebook_id,
+                    NEW.tag,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                FROM memos m
+                WHERE m.id = NEW.memo_id;
+            END;
+            INSERT OR IGNORE INTO schema_migrations (migration_key, completed_at)
+            VALUES ('memo_relative_paths_v1', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            UPDATE memo_index_state
+            SET version = version + 1,
+                last_updated = MAX(
+                    last_updated + 1,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                );
+            "#,
+        )
+        .map_err(sqlite_to_io)
     }
 
     pub(crate) fn open_memo_index_db(&self) -> std::io::Result<Connection> {

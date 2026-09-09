@@ -715,38 +715,35 @@ fn parser_key(parser: PluginParser) -> &'static str {
     }
 }
 
-pub fn list_notes(
-    id: &str,
+/// Run notebook-scoped plugin migrations during notebook activation/startup.
+/// Keeping this outside `list_notes` makes plugin queries read-only and keeps
+/// all legacy artifact writes behind the notebook migration boundary.
+pub fn migrate_notebook_data(
     notebook_id: &str,
+    notebook: &Path,
     memo_file: &Arc<std::sync::RwLock<flowix_core::memo_file::MemoFile>>,
     app_handle: Option<&tauri::AppHandle>,
-) -> Result<Vec<flowix_core::memo_file::Memo>, String> {
-    let plugin = get_plugin(id)?;
-    let notebook = {
-        let memo_file_guard = read_lock(memo_file, "memo_file");
-        memo_file_guard
-            .get_notebook_config_by_id(notebook_id)
-            .map(|config| PathBuf::from(config.path))
-            .ok_or_else(|| format!("notebook not found: {notebook_id}"))?
-    };
-    static MIGRATION_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+) -> Result<(), String> {
+    static MIGRATION_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
+        std::sync::OnceLock::new();
     let _migration_guard = MIGRATION_LOCK
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .map_err(|_| "plugin output migration lock poisoned".to_string())?;
-    {
-        let memo_guard = read_lock(memo_file, "memo_file");
-        let report = memo_guard
-            .migrate_notebook_internal_data(notebook_id)
-            .map_err(|error| format!("migrate notebook internal data: {error}"))?;
-        if !report.warnings.is_empty() {
-            for warning in report.warnings {
-                tracing::warn!(notebook = %notebook_id, "notebook internal migration: {warning}");
-            }
-        }
+
+    repair_notebook_artifact_pointers(notebook_id, notebook, memo_file)?;
+    for plugin in list_plugins()? {
+        migrate_legacy_outputs(&plugin, notebook_id, notebook, memo_file, app_handle)?;
     }
-    repair_notebook_artifact_pointers(notebook_id, &notebook, memo_file)?;
-    migrate_legacy_outputs(&plugin, notebook_id, &notebook, memo_file, app_handle)?;
+    Ok(())
+}
+
+pub fn list_notes(
+    id: &str,
+    notebook_id: &str,
+    memo_file: &Arc<std::sync::RwLock<flowix_core::memo_file::MemoFile>>,
+) -> Result<Vec<flowix_core::memo_file::Memo>, String> {
+    let plugin = get_plugin(id)?;
     let memo_file = read_lock(memo_file, "memo_file");
     let notes = memo_file
         .read_all_memos_for_notebook_id(Some(notebook_id))

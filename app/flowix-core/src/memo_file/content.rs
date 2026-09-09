@@ -226,7 +226,8 @@ impl MemoFile {
             .into_iter()
             .filter(|e| !e.id.is_empty())
             .map(|entry| {
-                let path = base.join(&entry.filename);
+                let path = super::notebook_path_from_relative(&base, &entry.relative_path)
+                    .unwrap_or_else(|_| base.join(&entry.filename));
                 let body = fs::read_to_string(&path).unwrap_or_default();
                 (entry, body)
             })
@@ -237,7 +238,9 @@ impl MemoFile {
     pub fn read_current_memo_with_body(&self, id: &str) -> Option<(MemoIndexEntry, String)> {
         let list = self.read_index()?;
         let entry = list.memos.iter().find(|e| e.id == id)?.clone();
-        let path = self.get_memo_base().join(&entry.filename);
+        let base = self.get_memo_base();
+        let path = super::notebook_path_from_relative(&base, &entry.relative_path)
+            .unwrap_or_else(|_| base.join(&entry.filename));
         let body = fs::read_to_string(&path).ok()?;
         Some((entry, body))
     }
@@ -250,7 +253,9 @@ impl MemoFile {
     pub fn read_memo_with_body_global(&self, id: &str) -> Option<(MemoIndexEntry, String)> {
         let location = self.resolve_memo_location(id).ok().flatten()?;
         let entry = location.memo;
-        let path = std::path::PathBuf::from(location.notebook.path).join(&entry.filename);
+        let base = std::path::PathBuf::from(location.notebook.path);
+        let path = super::notebook_path_from_relative(&base, &entry.relative_path)
+            .unwrap_or_else(|_| base.join(&entry.filename));
         let body = fs::read_to_string(&path).ok()?;
         Some((entry, body))
     }

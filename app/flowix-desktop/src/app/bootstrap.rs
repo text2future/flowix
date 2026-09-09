@@ -214,6 +214,29 @@ pub fn run() {
         .manage(crate::app_update::AppUpdateState::default())
         .manage(memo_watcher.clone())
         .setup(move |app| {
+            // Structural data migrations are the startup gate. They complete
+            // before AppState, cloud polling, file watchers, or normal Webview
+            // initialization can begin. The Webview keeps its existing static
+            // loading spinner until the regular startup flow is ready.
+            let initial_notebooks = {
+                let memo_file = crate::lock_utils::read_lock(&memo_file_arc, "memo_file");
+                let notebooks = memo_file.read_notebook_configs()?;
+                for notebook in &notebooks {
+                    security_bookmarks_for_state
+                        .start_accessing_for_path(std::path::Path::new(&notebook.path));
+                }
+                let report = memo_file.run_pending_data_migrations()?;
+                if report.applied > 0 {
+                    tracing::info!(
+                        from_version = report.from_version,
+                        to_version = report.to_version,
+                        applied = report.applied,
+                        "startup data migrations completed"
+                    );
+                }
+                notebooks
+            };
+
             // 鈹€鈹€ 0) 鍚姩璁惧鐧昏 / last_seen 鍒锋柊 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
             //   不阻�? spawn 一�?fire-and-forget tokio 任务, �?��内部
             //   �?sleep 10s �?POST, 与产品更�?7s 检查错开。远�?��
@@ -345,17 +368,6 @@ pub fn run() {
             app.manage(commands::file_browser_watch::FileBrowserWatchState::new(
                 app.handle().clone(),
             ));
-            // Watch every configured notebook. MCP/external tools may write to
-            // a background notebook, and those creates must still reach the
-            // main Webview so it can route the note into the browser column.
-            let initial_notebooks = {
-                let memo_file = crate::lock_utils::read_lock(&memo_file_arc, "memo_file");
-                memo_file.read_notebook_configs().unwrap_or_default()
-            };
-            for notebook in &initial_notebooks {
-                security_bookmarks_for_state
-                    .start_accessing_for_path(std::path::Path::new(&notebook.path));
-            }
             // Restore security-scoped access for user-selected reference
             // folders as well. External CLI children inherit the parent's
             // active extensions, so this must happen before any agent spawn.
@@ -368,6 +380,98 @@ pub fn run() {
                 security_bookmarks_for_state
                     .start_accessing_for_path(std::path::Path::new(&entry.path));
             }
+            // Every registered notebook is reconciled from Markdown at
+            // startup. SQLite is only a rebuildable cache, including when the
+            // app was closed while files or whole folders were copied in.
+            let current_notebook_id = crate::lock_utils::read_lock(&memo_file_arc, "memo_file")
+                .current_notebook_id_value();
+            for notebook in &initial_notebooks {
+                match memo_file_arc
+                    .read()
+                    .unwrap_or_else(|poisoned| {
+                        tracing::error!("memo_file read lock poisoned, recovering");
+                        poisoned.into_inner()
+                    })
+                    .reconcile_notebook_with_disk_bidirectional(&notebook.id)
+                {
+                    Ok(report) if report.added > 0 || report.removed > 0 => {
+                        runtime_log::record_event(
+                            "info",
+                            "startup.reconcile",
+                            format!(
+                                "notebook={} reconcile added={}, removed={}",
+                                notebook.id, report.added, report.removed
+                            ),
+                        );
+                        tracing::info!(
+                            "[startup] notebook {} reconcile: +{} added, -{} removed",
+                            notebook.id,
+                            report.added,
+                            report.removed
+                        );
+                    }
+                    Ok(_) => tracing::debug!(notebook = %notebook.id, "[startup] reconcile: no-op"),
+                    Err(e) => {
+                        runtime_log::record_event(
+                            "error",
+                            "startup.reconcile_failed",
+                            format!("notebook={} startup reconcile failed: {e}", notebook.id),
+                        );
+                        tracing::warn!(notebook = %notebook.id, "[startup] reconcile failed: {e}");
+                    }
+                }
+            }
+
+            if current_notebook_id.is_some() {
+                if let Some(notebook_id) = current_notebook_id.as_deref() {
+                    let notebook_path = {
+                        let memo_file = memo_file_arc
+                            .read()
+                            .unwrap_or_else(|poisoned| {
+                                tracing::error!("memo_file read lock poisoned, recovering");
+                                poisoned.into_inner()
+                            });
+                        match memo_file.ensure_notebook_migrations(notebook_id) {
+                            Ok(report) => {
+                                if report.moved_files > 0 || report.rebuilt_tags > 0 {
+                                    tracing::info!(
+                                        notebook = %notebook_id,
+                                        moved_files = report.moved_files,
+                                        rebuilt_tags = report.rebuilt_tags,
+                                        "current notebook migrations completed"
+                                    );
+                                }
+                                memo_file
+                                    .get_notebook_config_by_id(notebook_id)
+                                    .map(|notebook| notebook.path)
+                            }
+                            Err(error) => {
+                                tracing::warn!(
+                                    notebook = %notebook_id,
+                                    "current notebook migration failed: {error}"
+                                );
+                                None
+                            }
+                        }
+                    };
+                    if let Some(notebook_path) = notebook_path {
+                        if let Err(error) = crate::plugin::migrate_notebook_data(
+                            notebook_id,
+                            std::path::Path::new(&notebook_path),
+                            &memo_file_arc,
+                            Some(app.handle()),
+                        ) {
+                            tracing::warn!(
+                                notebook = %notebook_id,
+                                "plugin notebook migration failed: {error}"
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Begin observing notebook changes only after migration and
+            // startup reconciliation have reached a consistent state.
             memo_watcher
                 .write()
                 .unwrap_or_else(|poisoned| {
@@ -375,92 +479,6 @@ pub fn run() {
                     poisoned.into_inner()
                 })
                 .rebind_all(app.handle().clone(), initial_notebooks.clone());
-
-            // Migrate notebook-owned versions and plugin outputs before the
-            // first reconciliation. The migration is file-level and failure
-            // tolerant, so a locked legacy file cannot block normal notes.
-            {
-                let memo_file = crate::lock_utils::read_lock(&memo_file_arc, "memo_file");
-                for notebook in &initial_notebooks {
-                    match memo_file.migrate_notebook_internal_data(&notebook.id) {
-                        Ok(report) => {
-                            if report.moved_files > 0 || !report.warnings.is_empty() {
-                                tracing::info!(
-                                    notebook = %notebook.id,
-                                    moved_files = report.moved_files,
-                                    completed = report.completed,
-                                    "notebook internal data migration finished"
-                                );
-                            }
-                            for warning in report.warnings {
-                                tracing::warn!(notebook = %notebook.id, "notebook internal migration: {warning}");
-                            }
-                        }
-                        Err(error) => tracing::warn!(
-                            notebook = %notebook.id,
-                            "notebook internal migration failed: {error}"
-                        ),
-                    }
-                }
-            }
-
-            // �?��已有 current notebook 时做�?��对账�?current=None �?            // `MemoFile` 会回退到默�?notebook �?��, �?macOS 上可能触�?            // Documents 权限弹窗�?
-            let current_notebook_id = crate::lock_utils::read_lock(&memo_file_arc, "memo_file")
-                .current_notebook_id_value();
-            if current_notebook_id.is_some() {
-                match memo_file_arc
-                    .read()
-                    .unwrap_or_else(|poisoned| {
-                        tracing::error!("memo_file read lock poisoned, recovering");
-                        poisoned.into_inner()
-                    })
-                    .reconcile_with_disk_bidirectional()
-                {
-                    Ok(report) if report.added > 0 || report.removed > 0 => {
-                        runtime_log::record_event(
-                            "info",
-                            "startup.reconcile",
-                            format!(
-                                "reconcile added={}, removed={}",
-                                report.added, report.removed
-                            ),
-                        );
-                        tracing::info!(
-                            "[startup] reconcile: +{} added, -{} removed",
-                            report.added,
-                            report.removed
-                        );
-                    }
-                    Ok(_) => tracing::debug!("[startup] reconcile: no-op"),
-                    Err(e) => {
-                        runtime_log::record_event(
-                            "error",
-                            "startup.reconcile_failed",
-                            format!("startup reconcile failed: {e}"),
-                        );
-                        tracing::warn!("[startup] reconcile failed: {e}");
-                    }
-                }
-
-                if let Some(notebook_id) = current_notebook_id.as_deref() {
-                    match memo_file_arc
-                        .read()
-                        .unwrap_or_else(|poisoned| {
-                            tracing::error!("memo_file read lock poisoned, recovering");
-                            poisoned.into_inner()
-                        })
-                        .ensure_tag_union_index_for_notebook_id(notebook_id)
-                    {
-                        Ok(updated) if updated > 0 => {
-                            tracing::info!("[startup] rebuilt union tags for {updated} memos");
-                        }
-                        Ok(_) => {}
-                        Err(error) => {
-                            tracing::warn!("[startup] tag union index upgrade failed: {error}");
-                        }
-                    }
-                }
-            }
 
             // �?��时把 preference.json::watcher 应用�?MemoWatcher;
             // 同时注册 user-config-changed 监听做热更新 (前�?�?            // update_watcher_config IPC �?settings::update_watcher_config

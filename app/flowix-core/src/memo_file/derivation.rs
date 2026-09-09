@@ -767,6 +767,22 @@ pub fn apply_derived_memo_fields(memo: &mut Memo, full_content: &str) {
             })
             .collect();
         memo.tags = merge_document_tag_sources(yaml_tags, full_content);
+        memo.favorited = metadata
+            .properties
+            .get("flowix_favorited")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        memo.icon = metadata
+            .properties
+            .get("flowix_icon")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        memo.colors = metadata
+            .properties
+            .get("flowix_colors")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
         memo.properties = metadata.properties;
     }
 }

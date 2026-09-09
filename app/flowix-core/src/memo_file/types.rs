@@ -51,7 +51,11 @@ pub enum MemoColor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memo {
     pub id: String,
+    /// 文件名本身，不包含笔记本内的目录部分。
     pub filename: String,
+    /// 相对于所属笔记本根目录的规范化路径，使用 `/` 作为分隔符。
+    #[serde(rename = "relativePath", default)]
+    pub relative_path: String,
     #[serde(rename = "preview")]
     pub preview: String,
     #[serde(default)]
@@ -132,6 +136,16 @@ pub struct NotebookConfig {
     pub updated_at: i64,
 }
 
+/// Portable notebook identity stored in `<notebook>/.flowix/notebook.json`.
+/// It contains no derived memo data; Markdown remains the note source of truth.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookManifest {
+    pub format_version: u32,
+    pub notebook_id: String,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct MemoLocation {
     pub memo: MemoIndexEntry,
@@ -149,6 +163,9 @@ pub struct MemoIndexEntry {
     pub id: String,
     /// 磁盘文件名, 含 `.md` 后缀。冲突时由 ops 层自动追加 `-1` / `-2`。
     pub filename: String,
+    /// 相对于 notebook 根目录的规范化路径，使用 `/` 作为分隔符。
+    #[serde(rename = "relativePath", default)]
+    pub relative_path: String,
     pub preview: String,
     #[serde(default)]
     pub thumbnail: Option<String>,

@@ -13,7 +13,9 @@ use tauri::{AppHandle, Manager};
 
 use crate::memo_events::{emit, MemoChangeSource, MemoDerivedChanged, MemoEvent};
 use crate::watcher::event::{FsEventKind, RawFsEvent};
-use flowix_core::memo_file::{extract_frontmatter_key, Memo, MemoFile};
+use flowix_core::memo_file::{
+    extract_frontmatter_key, notebook_path_from_relative, notebook_relative_path, Memo, MemoFile,
+};
 
 #[derive(Debug, Clone)]
 pub struct NotebookWatchContext {
@@ -71,7 +73,10 @@ fn emit_updated_for_context(
     before: Option<&Memo>,
     memo: Memo,
 ) -> DispatchOutcome {
-    let entry_path = ctx.root.join(&memo.filename).display().to_string();
+    let entry_path = notebook_path_from_relative(&ctx.root, &memo.relative_path)
+        .unwrap_or_else(|_| ctx.root.join(&memo.filename))
+        .display()
+        .to_string();
     let derived_changed = MemoDerivedChanged::from_memos(before, &memo);
     DispatchOutcome::Updated(MemoEvent::Updated {
         id: memo.id.clone(),
@@ -138,11 +143,7 @@ fn dispatch_modify_event_with_mark(
     _event_kind: FsEventKind,
     mark: impl Fn(&Path),
 ) -> Result<DispatchOutcome, String> {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| format!("invalid path: {}", path.display()))?
-        .to_string();
+    let relative_path = notebook_relative_path(&ctx.root, path)?;
 
     // 读�?盘抽 frontmatter key ── id 真源。�?失败 (权限 / 临时消失) 退�?    // filename-based 兜底, 行为等同�?refactor 前�?
     let disk_key = std::fs::read_to_string(path)
@@ -152,7 +153,7 @@ fn dispatch_modify_event_with_mark(
     match disk_key {
         Some(id) => match read_indexed_memo_after_external_marker(memo_file, &ctx.notebook_id, &id)
         {
-            Some(existing) if existing.filename == filename => {
+            Some(existing) if existing.relative_path == relative_path => {
                 if memo_file
                     .has_pending_external_memo_create(&id, &ctx.notebook_id)
                     .unwrap_or(false)
@@ -164,7 +165,7 @@ fn dispatch_modify_event_with_mark(
                     );
                     let refreshed = memo_file.reload_memo_from_disk_by_filename_for_notebook_id(
                         &ctx.notebook_id,
-                        &filename,
+                        &relative_path,
                     )?;
                     if memo_file
                         .consume_pending_external_memo_create(&id, &ctx.notebook_id)
@@ -175,7 +176,7 @@ fn dispatch_modify_event_with_mark(
                         Ok(emit_updated_for_context(ctx, Some(&existing), refreshed))
                     }
                 } else {
-                    reload_existing_memo(memo_file, ctx, &filename)
+                    reload_existing_memo(memo_file, ctx, &relative_path)
                 }
             }
             Some(existing) => {
@@ -183,7 +184,8 @@ fn dispatch_modify_event_with_mark(
                 // update the index before this watcher event obtains the index lock,
                 // so the locked sync below resolves by id and accepts both old->new
                 // and already-new index states.
-                let old_path = ctx.root.join(&existing.filename);
+                let old_path = notebook_path_from_relative(&ctx.root, &existing.relative_path)
+                    .unwrap_or_else(|_| ctx.root.join(&existing.filename));
                 if is_physical_rename_candidate(&old_path) {
                     // sync_renamed_memo_from_key 不写 memo 文件 (只读 + 改 in-memory index),
                     // 无 self-write, 不需要 mark。
@@ -203,10 +205,10 @@ fn dispatch_modify_event_with_mark(
         None => {
             // Disk �?frontmatter key: 不能�?id 反查, 退�?filename-based�?
             if memo_file
-                .find_memo_by_filename_for_notebook_id(&ctx.notebook_id, &filename)
+                .find_memo_by_relative_path_for_notebook_id(&ctx.notebook_id, &relative_path)
                 .is_some()
             {
-                reload_existing_memo(memo_file, ctx, &filename)
+                reload_existing_memo(memo_file, ctx, &relative_path)
             } else {
                 // 新文件无 key: register_existing_file_for_notebook_id �?generate-new-id + stamp �?��
                 mark(path);
@@ -221,11 +223,12 @@ fn dispatch_modify_event_with_mark(
 fn reload_existing_memo(
     memo_file: &MemoFile,
     ctx: &NotebookWatchContext,
-    filename: &str,
+    relative_path: &str,
 ) -> Result<DispatchOutcome, String> {
-    let before = memo_file.find_memo_by_filename_for_notebook_id(&ctx.notebook_id, filename);
-    let updated =
-        memo_file.reload_memo_from_disk_by_filename_for_notebook_id(&ctx.notebook_id, filename)?;
+    let before =
+        memo_file.find_memo_by_relative_path_for_notebook_id(&ctx.notebook_id, relative_path);
+    let updated = memo_file
+        .reload_memo_from_disk_by_filename_for_notebook_id(&ctx.notebook_id, relative_path)?;
     Ok(emit_updated_for_context(ctx, before.as_ref(), updated))
 }
 
@@ -250,16 +253,6 @@ fn is_under_attachments_dir(ctx: &NotebookWatchContext, path: &Path) -> bool {
         crate::watcher::path::normalize_for_compare(&ctx.root.join("attachments"));
     let path_norm = crate::watcher::path::normalize_for_compare(path);
     path_norm.starts_with(&attachments_dir)
-}
-
-/// Memo files live directly under the notebook root. The watcher itself is
-/// recursive because it also observes notebook-owned auxiliary directories,
-/// but Markdown files below arbitrary subdirectories are regular documents,
-/// not memos, and must never be registered in the memo index.
-fn is_direct_notebook_child(ctx: &NotebookWatchContext, path: &Path) -> bool {
-    let root = crate::watcher::path::normalize_for_compare(&ctx.root);
-    let path = crate::watcher::path::normalize_for_compare(path);
-    path.parent().is_some_and(|parent| parent == root)
 }
 
 fn sync_renamed_memo_from_key(
@@ -372,14 +365,6 @@ impl MemoEventProcessor {
         memo_file: &Arc<std::sync::RwLock<MemoFile>>,
         ctx: &NotebookWatchContext,
     ) {
-        if !is_direct_notebook_child(ctx, &event.path) {
-            tracing::debug!(
-                "[MemoWatcher] processor skipped non-root Markdown path: {}",
-                event.path.display()
-            );
-            return;
-        }
-
         // 防御性拦�? 附件�?��下的 .md 文件不是 memo, 一律不处理.
         // 后�? `save_attachment` / `save_attachment_content` 会把任意�?�?        // �?��文件复制�?`<notebook>/attachments/`, 包括用户选了另一�?        // notebook 的笔�?.md —这�?情况 attachment �?��里会出现一�?        // 不�?出现�?memo 列表里的"幽灵笔�?".
         //
@@ -452,10 +437,102 @@ impl MemoEventProcessor {
                 //   从�?盘�?不到原�?时间�? 这是 frontmatter-key-first 在�?�?                //   rename 场景下相�?inode_tracker 的取�?
                 Self::unregister_and_emit(app, memo_file, ctx, &event.path);
             }
+            FsEventKind::DirectoryChange => {
+                Self::reconcile_directory_change(app, memo_file, ctx);
+            }
             FsEventKind::Other => {
                 // Access / Other —忽略
             }
         }
+    }
+
+    fn reconcile_directory_change(
+        app: &AppHandle,
+        memo_file: &Arc<std::sync::RwLock<MemoFile>>,
+        ctx: &NotebookWatchContext,
+    ) {
+        let Ok(mf) = memo_file.read() else {
+            return;
+        };
+        let before = mf.read_all_memos_for_notebook_id(Some(&ctx.notebook_id));
+        let before_by_id = before
+            .iter()
+            .map(|memo| (memo.id.clone(), memo.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let report = match mf.reconcile_notebook_with_disk_bidirectional(&ctx.notebook_id) {
+            Ok(report) => report,
+            Err(error) => {
+                tracing::warn!(
+                    notebook_id = %ctx.notebook_id,
+                    %error,
+                    "directory change reconciliation failed"
+                );
+                return;
+            }
+        };
+        let after = mf.read_all_memos_for_notebook_id(Some(&ctx.notebook_id));
+        let after_ids = after
+            .iter()
+            .map(|memo| memo.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+
+        for memo in &after {
+            match before_by_id.get(&memo.id) {
+                None => {
+                    try_update_search_index(app, &memo.id);
+                    emit(
+                        app,
+                        MemoEvent::Created {
+                            memo: memo.clone(),
+                            notebook_id: ctx.notebook_id.clone(),
+                            derived_changed: MemoDerivedChanged::from_memos(None, memo),
+                            source: MemoChangeSource::ExternalTool,
+                        },
+                    );
+                }
+                Some(previous) if previous.relative_path != memo.relative_path => {
+                    try_update_search_index(app, &memo.id);
+                    let path = notebook_path_from_relative(&ctx.root, &memo.relative_path)
+                        .unwrap_or_else(|_| ctx.root.join(&memo.filename));
+                    emit(
+                        app,
+                        MemoEvent::Updated {
+                            id: memo.id.clone(),
+                            path: path.to_string_lossy().into_owned(),
+                            notebook_id: ctx.notebook_id.clone(),
+                            memo: memo.clone(),
+                            derived_changed: MemoDerivedChanged::from_memos(Some(previous), memo),
+                            source: MemoChangeSource::ExternalTool,
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+        for memo in before
+            .iter()
+            .filter(|memo| !after_ids.contains(memo.id.as_str()))
+        {
+            try_remove_from_search_index(app, &memo.id);
+            let path = notebook_path_from_relative(&ctx.root, &memo.relative_path)
+                .unwrap_or_else(|_| ctx.root.join(&memo.filename));
+            emit(
+                app,
+                MemoEvent::Deleted {
+                    id: memo.id.clone(),
+                    path: path.to_string_lossy().into_owned(),
+                    notebook_id: ctx.notebook_id.clone(),
+                    derived_changed: MemoDerivedChanged::from_deleted(memo),
+                    source: MemoChangeSource::ExternalTool,
+                },
+            );
+        }
+        tracing::info!(
+            notebook_id = %ctx.notebook_id,
+            added = report.added,
+            removed = report.removed,
+            "directory change reconciliation completed"
+        );
     }
 
     pub(crate) fn unregister_and_emit(
@@ -486,14 +563,15 @@ impl MemoEventProcessor {
         // 拿不�?id 的两种情�?
         // - �?��里没有合法的 .md 文件�?(�?`..`): 直接放弃 emit, 反�?
         //   `unregister_memo_by_path` 也会 return false, memo index 没动�?        // - filename 不在 memo index (孤立 .md / 已经�?���?: 同样放弃 emit, 不凭�?        //   generate id, 保持 id 一定来�?memo index 这个不变量�?
-        let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
+        let Ok(relative_path) = notebook_relative_path(&ctx.root, path) else {
             return;
         };
-        let Some(memo) = mf.find_memo_by_filename_for_notebook_id(&ctx.notebook_id, filename)
+        let Some(memo) =
+            mf.find_memo_by_relative_path_for_notebook_id(&ctx.notebook_id, &relative_path)
         else {
             tracing::debug!(
-                "[MemoWatcher] unregister_and_emit: no memo index entry for filename={}, skipping emit (unregister will also no-op)",
-                filename
+                "[MemoWatcher] unregister_and_emit: no memo index entry for relative_path={}, skipping emit (unregister will also no-op)",
+                relative_path
             );
             return;
         };

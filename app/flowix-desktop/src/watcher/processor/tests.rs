@@ -55,17 +55,19 @@ fn watch_ctx(base: &Path) -> NotebookWatchContext {
 }
 
 #[test]
-fn memo_processing_accepts_only_markdown_directly_under_notebook_root() {
-    let (_mf, base) = fresh_memo_file();
+fn memo_processing_registers_markdown_in_nested_directories() {
+    let (mf, base) = fresh_memo_file();
     let ctx = watch_ctx(&base);
-    let root_memo = base.join("Memo.md");
-    let nested_document = base.join("docs").join("Reference.md");
+    let nested_document = base.join("docs/guide/Reference.md");
     fs::create_dir_all(nested_document.parent().unwrap()).unwrap();
-    fs::write(&root_memo, "# Memo\n").unwrap();
     fs::write(&nested_document, "# Reference\n").unwrap();
 
-    assert!(is_direct_notebook_child(&ctx, &root_memo));
-    assert!(!is_direct_notebook_child(&ctx, &nested_document));
+    let outcome = dispatch_modify_event(&mf, &ctx, &nested_document, FsEventKind::Create).unwrap();
+    assert!(matches!(outcome, DispatchOutcome::Created { .. }));
+    assert_eq!(
+        mf.read_all_memos()[0].relative_path,
+        "docs/guide/Reference.md"
+    );
 }
 
 /// 写一�?.md �?notebook 根目�? �?register_existing_file 把它登�?

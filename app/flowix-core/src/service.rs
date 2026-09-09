@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::memo_file::{
-    base_filename, normalize_search_tag_filter, resolve_filename_conflict, Memo, MemoColor,
-    MemoFile, MemoIndexEntry, MemoTodoEntry, MemoVersionMeta, MemoVersionSource, NotebookConfig,
+    base_filename, notebook_path_from_relative, normalize_search_tag_filter,
+    resolve_filename_conflict, Memo, MemoColor, MemoFile, MemoIndexEntry, MemoTodoEntry,
+    MemoVersionMeta, MemoVersionSource, NotebookConfig,
 };
 use crate::search::{self, NotebookSearchResults};
 
@@ -331,7 +332,8 @@ impl<'a> MemoService<'a> {
             body,
             None,
         )?;
-        let path = PathBuf::from(&notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &memo.relative_path)
+            .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&memo.filename));
         Ok(CreatedMemo {
             memo,
             notebook,
@@ -357,7 +359,8 @@ impl<'a> MemoService<'a> {
         let memo =
             self.memo_file
                 .create_external_memo_for_notebook_id(&notebook.id, title, body, None)?;
-        let path = PathBuf::from(&notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &memo.relative_path)
+            .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&memo.filename));
         Ok(CreatedMemo {
             memo,
             notebook,
@@ -405,7 +408,8 @@ impl<'a> MemoService<'a> {
                 ))
             })?;
         let notebook = location.notebook;
-        let path = PathBuf::from(&notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &memo.relative_path)
+            .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&memo.filename));
         Ok(CreatedMemo {
             memo,
             notebook,
@@ -486,7 +490,11 @@ impl<'a> MemoService<'a> {
         let memo = self
             .memo_file
             .write_memo_preserving_filename_global(&resolved.id, &body)?;
-        let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(
+            &PathBuf::from(&resolved.notebook.path),
+            &memo.relative_path,
+        )
+        .unwrap_or_else(|_| PathBuf::from(&resolved.notebook.path).join(&memo.filename));
         Ok(EditedMemo {
             id: resolved.id,
             memo: Some(memo),
@@ -555,7 +563,11 @@ impl<'a> MemoService<'a> {
         let memo = self
             .memo_file
             .write_memo_preserving_filename_global(&resolved.id, body)?;
-        let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(
+            &PathBuf::from(&resolved.notebook.path),
+            &memo.relative_path,
+        )
+        .unwrap_or_else(|_| PathBuf::from(&resolved.notebook.path).join(&memo.filename));
         let content = std::fs::read_to_string(&path)?;
         let content_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
         let commit = match self.memo_file.commit_memo_content_revision(
@@ -606,7 +618,11 @@ impl<'a> MemoService<'a> {
         let memo = self
             .memo_file
             .write_memo_preserving_filename_global(&resolved.id, body)?;
-        let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(
+            &PathBuf::from(&resolved.notebook.path),
+            &memo.relative_path,
+        )
+        .unwrap_or_else(|_| PathBuf::from(&resolved.notebook.path).join(&memo.filename));
         Ok(EditedMemo {
             id: resolved.id,
             memo: Some(memo),
@@ -635,7 +651,11 @@ impl<'a> MemoService<'a> {
         let resolved = self.resolve_memo(id_or_filename)?;
         validate(&resolved)?;
         let memo = self.memo_file.rename_memo(&resolved.id, new_title)?;
-        let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
+        let path = notebook_path_from_relative(
+            &PathBuf::from(&resolved.notebook.path),
+            &memo.relative_path,
+        )
+        .unwrap_or_else(|_| PathBuf::from(&resolved.notebook.path).join(&memo.filename));
         Ok(EditedMemo {
             id: resolved.id,
             memo: Some(memo),
@@ -784,7 +804,11 @@ impl<'a> MemoService<'a> {
 
     pub fn resolve_memo(&mut self, id_or_filename: &str) -> Result<ResolvedMemo, FlowixError> {
         if let Some(location) = self.memo_file.resolve_memo_location(id_or_filename)? {
-            let path = PathBuf::from(&location.notebook.path).join(&location.memo.filename);
+            let path = notebook_path_from_relative(
+                &PathBuf::from(&location.notebook.path),
+                &location.memo.relative_path,
+            )
+            .unwrap_or_else(|_| PathBuf::from(&location.notebook.path).join(&location.memo.filename));
             return Ok(ResolvedMemo {
                 id: location.memo.id.clone(),
                 entry: location.memo,
@@ -806,9 +830,13 @@ impl<'a> MemoService<'a> {
             if let Some(entry) = list
                 .memos
                 .into_iter()
-                .find(|entry| entry.filename == wanted)
+                .find(|entry| entry.relative_path == wanted || entry.filename == wanted)
             {
-                let path = PathBuf::from(&notebook.path).join(&entry.filename);
+                let path = notebook_path_from_relative(
+                    &PathBuf::from(&notebook.path),
+                    &entry.relative_path,
+                )
+                .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&entry.filename));
                 return Ok(ResolvedMemo {
                     id: entry.id.clone(),
                     entry,
