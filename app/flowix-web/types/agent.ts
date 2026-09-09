@@ -130,12 +130,7 @@ export interface AccessConfig {
 }
 
 export interface FilesConfig {
-  /**
-   * 主工作目录 (folder path)。`null` 表示用户**显式取消主空间**──
-   * 当前 notebook 的"资料"列表里没有 folder 充当主空间, runtime 应
-   * fallback 到 notebook 自身的 path (与 `undefined` 不区分, 都视作
-   * "无显式主空间")。老磁盘数据只会落 `string` 或缺失, JSON 兼容。
-   */
+  /** @deprecated Notebook path is always cwd; retained for legacy JSON reads. */
   workspace?: string | null;
   /** 启用目录列表 (path 数组) */
   folders: string[];
@@ -159,7 +154,7 @@ export interface WorkspaceSnapshot {
   version: 1;
   /** Effective process working directory. */
   cwd: string;
-  /** Complete authorized path set; runtime adapters de-duplicate cwd. */
+  /** Notebook-local add-dir roots; cwd is carried separately above. */
   workspacePaths: string[];
   /** Notebook association and path as they existed when the snapshot was made. */
   notebookId?: string;
@@ -198,13 +193,12 @@ export interface RuntimeConfig {
   /**
    * 创建该 instance 时所属 notebook 的 id 快照 (如 `nb_<ts>` / `nb_default`)。
    *
-   * 非运行时配置 ── 它不发给 LLM, 仅用于把"卡片里勾选/设主空间确认的
-   * files"回写到所属 notebook 的默认 (`agent-access.defaults.files[<notebookId>]`),
-   * 让同一 notebook 下后续新建的卡片共享这份默认。 借 `runtimeConfig` 的
+   * 非运行时配置 ── 它不发给 LLM, 仅用于把卡片关联到所属 notebook 的
+   * `.flowix/agent.json` add-dir 配置。借 `runtimeConfig` 的
    * JSON 透传通道一起落 SQLite (后端 `runtime_config` 是裸 TEXT, 不解析内部),
    * 与 `_frozen` 同构 ── 无需 backend schema 升级。
    *
-   * 缺失 (历史 instance / 创建时未选笔记本) 时, 回写 fallback 到 `_global`。
+   * 缺失时仅保留历史会话兼容，不再写入全局资料默认。
    */
   notebookId?: string;
 }

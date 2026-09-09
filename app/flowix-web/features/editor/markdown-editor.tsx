@@ -9,7 +9,7 @@ import { Markdown } from '@tiptap/markdown';
 import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { AttachmentLink } from '@features/editor/extensions/attachment-link';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
@@ -24,7 +24,6 @@ import { LinkSelectionHighlight, MarkdownLink } from '@features/editor/extension
 import { NoteReference } from '@features/editor/extensions/note-link';
 import { NoteMention } from '@features/editor/extensions/note-mention';
 import { TagMention } from '@features/editor/extensions/tag-mention';
-import { DateTimeWidget, updateDateTimeWidget } from '@features/editor/extensions/datetime-widget';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
 import { MathBlock } from '@features/editor/extensions/math-block';
 import { WebCard } from '@features/editor/extensions/web-card';
@@ -50,7 +49,6 @@ interface MarkdownEditorProps {
   className?: string;
   onEditorScroll?: (scrollTop: number) => void;
   autoFocus?: boolean;
-  editorStorageUpdatedAt?: Date | null;
   onBeforeCreate?: (editor: Editor) => void;
   // 搜索面板由父组件控制（titlebar 按钮 / Ctrl+F 共享同一开关）
   searchPanelOpen?: boolean;
@@ -60,11 +58,14 @@ interface MarkdownEditorProps {
   toolbarCollapsed?: boolean;
   onToolbarCollapsedChange?: (collapsed: boolean) => void;
   onEditingFinished?: () => void;
+  /** Content in the document scroller that stays outside ProseMirror. */
+  header?: ReactNode;
 }
 
 export interface MarkdownEditorHandle {
   flushPendingChanges: () => string | null;
   getCurrentMarkdown: () => string;
+  focusStart?: () => void;
 }
 
 interface NestedListMarkdownContext {
@@ -316,13 +317,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   className,
   onEditorScroll,
   autoFocus = false,
-  editorStorageUpdatedAt,
   onBeforeCreate,
   searchPanelOpen = false,
   onSearchPanelOpenChange,
   toolbarCollapsed = false,
   onToolbarCollapsedChange,
   onEditingFinished,
+  header,
 }, ref) {
   const { t } = useI18n();
   const resolvedPlaceholder = placeholder || t('editor.placeholder');
@@ -334,6 +335,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const resolvedPlaceholderRef = useRef(resolvedPlaceholder);
   resolvedPlaceholderRef.current = resolvedPlaceholder;
   const elementRef = useRef<HTMLDivElement>(null);
+  const editorMountRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -420,6 +422,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       }
       return contentRef.current;
     },
+    focusStart: () => {
+      editorRef.current?.commands.focus('start');
+    },
   }), [serializePendingChanges]);
 
   const logEditorPerf = useCallback((label: string, startedAt: number, meta?: Record<string, unknown>) => {
@@ -489,7 +494,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   }, [clearSerializeTimer, findScrollable, logEditorPerf]);
 
   useEffect(() => {
-    if (!elementRef.current || !content) {
+    if (!editorMountRef.current || !content) {
       return;
     }
     const mountStartedAt = performance.now();
@@ -497,7 +502,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     contentRef.current = initialContent;
 
     const editor = new Editor({
-      element: elementRef.current,
+      element: editorMountRef.current,
       // 修复跨多块复制时多余空行：ProseMirror 默认在块间插入 `\n\n`，
       // 改成单个 `\n`，粘贴到纯文本目标时块间只保留一个换行。
       editorProps: {
@@ -553,7 +558,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         Tag,
         ManagedPasteRules,
         MarkdownPaste,
-        DateTimeWidget,
         Frontmatter,
         NoteReference,
         NoteMention,
@@ -626,13 +630,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     // 远小于 MOUNT_QUIET_MS, 第一次 onUpdate 必然被吞。
     mountedAtRef.current = Date.now();
 
-    if (editorStorageUpdatedAt) {
-      updateDateTimeWidget(editor, editorStorageUpdatedAt);
-    }
+    const detachLinkHoverTooltip = attachLinkHoverTooltip(editor, editorMountRef.current);
 
-    const detachLinkHoverTooltip = attachLinkHoverTooltip(editor, elementRef.current);
-
-    const scrollEl = findScrollable(elementRef.current);
+    const scrollEl = elementRef.current ? findScrollable(elementRef.current) : null;
     if (scrollEl) {
       const handleScroll = () => {
         setIsScrolling(true);
@@ -724,12 +724,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       }
     }
   }, [editable]);
-
-  useEffect(() => {
-    if (editorRef.current) {
-      updateDateTimeWidget(editorRef.current, editorStorageUpdatedAt || null);
-    }
-  }, [editorStorageUpdatedAt]);
 
   // 把 editor.find / editor.undo / editor.redo 以及块级格式 action 的实例级
   // handler 注册到全局 handler-registry。组件卸载时 pop 走 — 命令面板
@@ -833,6 +827,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         onClose={() => onSearchPanelOpenChangeRef.current?.(false)}
       />
       <div ref={elementRef} className="editor-content">
+        {header}
+        <div ref={editorMountRef} className="editor-document-body" />
         {editorInstance && <DragContextMenu editor={editorInstance} />}
         {editorInstance && !isScrolling && (
           <>

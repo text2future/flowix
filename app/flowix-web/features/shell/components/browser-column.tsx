@@ -18,7 +18,6 @@ import { openBrowserColumnTabInWorkColumn } from '@features/workspace/use-cases/
 
 export interface BrowserColumnProps {
   width: number;
-  stacked?: boolean;
   layoutKey: string;
   onResize: (width: number) => void;
   toolbarCollapsed: boolean;
@@ -27,7 +26,6 @@ export interface BrowserColumnProps {
 
 export function BrowserColumn({
   width,
-  stacked = false,
   layoutKey,
   onResize,
   toolbarCollapsed,
@@ -144,9 +142,9 @@ export function BrowserColumn({
       onPointerDown={() => focusHost('browser-column')}
       onFocusCapture={() => focusHost('browser-column')}
       className={'relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--divider)] bg-[var(--document-bg)]'}
-      style={stacked ? { width: '100%', minHeight: 0, height: 0, flex: '1 1 0', borderLeftWidth: 0, borderTopWidth: 1 } : { width }}
+      style={{ width }}
     >
-      {!stacked && <div
+      <div
         role="separator"
         aria-label="调整浏览器列宽度"
         aria-orientation="vertical"
@@ -164,7 +162,7 @@ export function BrowserColumn({
           setIsResizing(true);
         }}
         className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize focus-visible:outline-none focus-visible:bg-[var(--brand)]"
-      />}
+      />
       <BrowserColumnHeader
         tabs={tabs}
         activeTabId={activeTabId}

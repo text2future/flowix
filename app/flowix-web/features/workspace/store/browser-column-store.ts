@@ -1,4 +1,4 @@
-import type { FileBrowserTarget } from './file-browser-target';
+import type { FileBrowserContext, FileBrowserTarget } from './file-browser-target';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { STORAGE_KEYS } from '@/lib/constants';
@@ -69,6 +69,7 @@ interface BrowserColumnState {
   webRuntimes: Record<string, BrowserColumnWebRuntime>;
   setVisible: (visible: boolean) => void;
   setSplitRatio: (ratio: number) => void;
+  updateFileBrowserContext: (tabId: string, patch: Partial<FileBrowserContext>) => void;
   selectFileBrowserFile: (tabId: string, filePath: string | null) => void;
   switchFileBrowserFolder: (tabId: string, folderPath: string) => void;
   setFileBrowserTreeVisible: (tabId: string, visible: boolean) => void;
@@ -199,6 +200,7 @@ function updateFileBrowserTabFolder(
         target: {
           ...tab.target,
           folderPath,
+          scopePath: folderPath,
           activeFilePath: null,
         },
       }
@@ -249,6 +251,7 @@ function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
         activeFilePath: value.filePath,
         folderPath: null,
         notebookId: null,
+        restoreNotebookContext: true,
         fileTreeVisible: true,
         fileTreeWidth: BROWSER_COLUMN_FILE_TREE_DEFAULT_WIDTH,
         scopePath: typeof value.scopePath === 'string' && value.scopePath.trim()
@@ -262,6 +265,7 @@ function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
             kind: 'file-browser',
             folderPath: nonEmptyString(value.folderPath) ? value.folderPath : null,
             notebookId: nonEmptyString(value.notebookId) ? value.notebookId : null,
+            ...(value.restoreNotebookContext === true || !('notebookId' in value) ? { restoreNotebookContext: true } : {}),
             scopePath: nonEmptyString(value.scopePath) ? value.scopePath : nonEmptyString(value.folderPath) ? value.folderPath : null,
             activeFilePath: typeof value.activeFilePath === 'string' ? value.activeFilePath : null,
             fileTreeVisible: value.fileTreeVisible !== false,
@@ -315,7 +319,7 @@ function parseBrowserColumnTab(value: unknown): BrowserColumnTab | null {
   };
 }
 
-function normalizePersistedTabs(value: unknown): BrowserColumnTab[] {
+function normalizePersistedTabs(value: unknown, activeTabId: unknown): BrowserColumnTab[] {
   if (!Array.isArray(value)) return [];
 
   const tabs: BrowserColumnTab[] = [];
@@ -325,7 +329,15 @@ function normalizePersistedTabs(value: unknown): BrowserColumnTab[] {
     const tab = parseBrowserColumnTab(candidate);
     if (!tab || seenIds.has(tab.id)) continue;
     const targetKey = browserColumnTargetKey(tab.target);
-    if (!targetKey || seenKeys.has(targetKey)) continue;
+    if (!targetKey) continue;
+    if (seenKeys.has(targetKey)) {
+      // Keep the active duplicate's context and tree preferences at the old slot.
+      if (tab.id === activeTabId) {
+        const index = tabs.findIndex((candidate) => browserColumnTargetKey(candidate.target) === targetKey);
+        tabs[index] = tab;
+      }
+      continue;
+    }
     seenIds.add(tab.id);
     seenKeys.add(targetKey);
     tabs.push(tab);
@@ -374,7 +386,7 @@ function mergePersistedBrowserColumnState(
       : { ...current, splitRatio: legacySplitRatio };
   }
 
-  const tabs = normalizePersistedTabs(persisted.tabs);
+  const tabs = normalizePersistedTabs(persisted.tabs, persisted.activeTabId);
   const requestedActiveTabId = typeof persisted.activeTabId === 'string'
     ? persisted.activeTabId
     : null;
@@ -413,6 +425,9 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
         set({ visible });
       },
       setSplitRatio: (splitRatio) => set({ splitRatio: clampSplitRatio(splitRatio) }),
+      updateFileBrowserContext: (tabId, patch) => {
+        set({ tabs: updateFileBrowserTabTree(get().tabs, tabId, patch) });
+      },
       selectFileBrowserFile: (tabId, filePath) => {
         const tab = get().tabs.find((candidate) => candidate.id === tabId);
         if (!tab || tab.target.kind !== 'file-browser') return;
@@ -456,7 +471,11 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
           return existing.id;
         }
 
-        const id = incoming.id;
+        // A tab keeps its ID when its selected file changes. A later open of
+        // the original file must not reuse that occupied ID.
+        const id = state.tabs.some((tab) => tab.id === incoming.id)
+          ? `${incoming.id}:${crypto.randomUUID()}`
+          : incoming.id;
         const tab = { ...incoming, id };
         const tabs = disposition === 'replace-active' && state.activeTabId
           ? state.tabs.map((candidate) => candidate.id === state.activeTabId ? tab : candidate)
@@ -759,7 +778,7 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
     }),
     {
       name: STORAGE_KEYS.BROWSER_COLUMN,
-      version: 2,
+      version: 3,
       migrate: (persisted) => persisted as PersistedBrowserColumnState,
       storage: browserColumnStorage,
       partialize: (state): PersistedBrowserColumnState => ({

@@ -1,5 +1,5 @@
 import type { RuntimeConfig, WorkspaceSnapshot } from "@/types/agent";
-import { resolveAuthorizedDefaultFiles } from "@/lib/agent-access-defaults";
+import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
@@ -45,10 +45,7 @@ export function normalizeWorkspaceSnapshot(
   return {
     version: 1,
     cwd,
-    workspacePaths: uniquePaths([
-      cwd,
-      ...(candidate.workspacePaths as string[]),
-    ]),
+    workspacePaths: uniquePaths(candidate.workspacePaths as string[]),
     ...(notebookId ? { notebookId } : {}),
     ...(notebookPath ? { notebookPath } : {}),
     capturedAt:
@@ -149,8 +146,10 @@ export function ensureConversationWorkspaceSnapshot(
 
   let snapshot = migrateLegacyWorkspace(runtimeConfig, notebookId, notebookPath);
   if (!snapshot) {
-    const defaultFiles = resolveAuthorizedDefaultFiles(
-      useAgentAccessStore.getState().config,
+    const accessState = useAgentAccessStore.getState();
+    const defaultFiles = resolveNotebookAgentFiles(
+      accessState.config,
+      accessState.notebookConfigs,
       notebookId,
     );
     const primary = resolvePrimaryWorkspace({ defaultFiles, notebookPath });
@@ -161,11 +160,7 @@ export function ensureConversationWorkspaceSnapshot(
     snapshot = {
       version: 1,
       cwd: primary.path,
-      workspacePaths: uniquePaths([
-        primary.path,
-        ...(defaultFiles?.folders ?? []),
-        notebookPath,
-      ]),
+      workspacePaths: uniquePaths(defaultFiles?.folders ?? []),
       ...(notebookId ? { notebookId } : {}),
       ...(notebookPath ? { notebookPath } : {}),
       capturedAt: Date.now(),

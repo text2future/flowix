@@ -1376,7 +1376,7 @@ describe("AgentThreadCard NodeView streaming", () => {
         runtimeConfig: {
           codex: expect.objectContaining({
             cwd: "D:\\workspace\\main",
-            workspacePaths: ["D:\\workspace\\main", "D:\\workspace\\extra"],
+            workspacePaths: ["D:\\workspace\\extra"],
           }),
         },
       }),

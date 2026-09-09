@@ -51,6 +51,26 @@ describe('MarkdownEditor select all', () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it('keeps the header in the shared scroller but outside ProseMirror markdown', async () => {
+    let editor: Editor | null = null;
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content={'Body paragraph'}
+            header={<textarea data-testid="memo-title" defaultValue="File title" />}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    const title = container.querySelector('[data-testid="memo-title"]');
+    expect(title?.parentElement?.classList.contains('editor-content')).toBe(true);
+    expect(editor!.view.dom.contains(title)).toBe(false);
+    expect(editor!.getMarkdown()).toBe('Body paragraph');
+  });
+
   it('keeps focus and selects the current editable document', async () => {
     let editor: Editor | null = null;
     await act(async () => {

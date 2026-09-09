@@ -217,7 +217,7 @@ describe("agent user and assistant Markdown rendering", () => {
 
     const firstBlockSelector =
       ".markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor) " +
-      "> *:not(.editor-datetime-widget, .agent-thread-card):first-of-type";
+      "> *:not(.agent-thread-card, .frontmatter-property-node):first-of-type";
 
     expect(card.matches(firstBlockSelector)).toBe(false);
     expect(paragraph.matches(firstBlockSelector)).toBe(true);

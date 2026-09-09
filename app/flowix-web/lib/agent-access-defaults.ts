@@ -1,15 +1,15 @@
 /**
- * agent-access `defaults.files` 的纯函数工具 ── 与 store 解耦, 便于在
+ * Agent access defaults 的纯函数工具 ── 与 store 解耦, 便于在
  * `buildInitialInstanceRuntimeConfig` 等处直接引用而不被 store mock 影响。
  *
- * `defaults.files` 按 notebook 维度索引: key 为 notebook.id,
+ * Legacy `defaults.files` 按 notebook 维度索引: key 为 notebook.id,
  * `DEFAULT_FILES_GLOBAL_KEY` ("_global") 为兜底 (老版单对象迁移落点 /
  * 历史 instance 无 `runtimeConfig.notebookId` 时的回写目标)。 老版本是单个
  * `FilesConfig` 对象, 读取时由 `normalizeFilesDefaults` 归一化到
  * `{ _global: <old> }`, 无须显式数据迁移。
  */
 import { DEFAULT_FILES_GLOBAL_KEY } from "@/lib/types/agent-access";
-import type { AgentAccessConfig } from "@/lib/types/agent-access";
+import type { AgentAccessConfig, NotebookAgentConfig } from "@/lib/types/agent-access";
 import type { FilesConfig } from "@/types/agent";
 
 /**
@@ -97,4 +97,35 @@ export function resolveAuthorizedDefaultFiles(
   }
 
   return { workspace, folders, notebooks: [...files.notebooks] };
+}
+
+/** Resolve add-dirs from notebook/.flowix/agent.json, intersected with the
+ * device-owned authorization registry. */
+export function resolveNotebookAgentFiles(
+  config: AgentAccessConfig | undefined | null,
+  notebookConfigs: Record<string, NotebookAgentConfig> | undefined,
+  notebookId: string | null | undefined,
+): FilesConfig | undefined {
+  if (!notebookId) return undefined;
+  // An explicitly supplied notebook-config map is authoritative.  Do not
+  // fall back to legacy global defaults when loading it failed or the
+  // notebook has no local config: that could silently widen add-dir access.
+  if (notebookConfigs !== undefined && !notebookConfigs[notebookId]) {
+    return undefined;
+  }
+  const local = notebookConfigs?.[notebookId];
+  if (!local) return resolveAuthorizedDefaultFiles(config, notebookId);
+  const comparable = (path: string) => path.trim().replace(/[\\/]+$/, '').toLowerCase();
+  const allowed = new Set(
+    (config?.entries ?? [])
+      .filter((entry) => entry.kind === 'folder' && entry.enabled && !entry.missing)
+      .map((entry) => comparable(entry.path)),
+  );
+  return {
+    workspace: null,
+    folders: local.addDirs
+      .filter((directory) => directory.enabled && allowed.has(comparable(directory.path)))
+      .map((directory) => directory.path),
+    notebooks: [],
+  };
 }

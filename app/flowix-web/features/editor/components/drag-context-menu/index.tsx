@@ -120,7 +120,7 @@ export function DragContextMenu({ editor }: DragContextMenuProps) {
     if (editor.isDestroyed) return
 
     const editorDom = editor.view.dom as HTMLElement
-    const scrollContainer = editorDom.closest('.markdown-editor') as HTMLElement | null
+    const scrollContainer = editorDom.closest('.editor-content') as HTMLElement | null
     const scrollTarget = scrollContainer || editorDom
     const closeOnScroll = (event: Event) => {
       const target = event.target

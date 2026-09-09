@@ -95,8 +95,7 @@ describe('workspace content activation', () => {
       title: 'A',
       icon: null,
       target: {
-        kind: 'file',
-        filePath: '/notes\\a.md',
+        kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes\\a.md',
         scopePath: '/notes',
       },
     });

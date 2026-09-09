@@ -30,6 +30,7 @@ import { useMemoDocumentChangeWatch } from '@features/document/components/sessio
 import { LazyDocumentEditor } from '@features/document/components/lazy-document-editor';
 import { LazyCodeEditor } from '@features/document/components/lazy-code-editor';
 import { NotePropertiesDialog } from '@features/document/components/note-properties-dialog';
+import { MemoDocumentHeader } from '@features/document/components/memo-document-header';
 import type { MarkdownEditorHandle } from '@features/editor/markdown-editor';
 import { isEditableTextFilePath, isImageFilePath } from '@features/editor/code-file';
 import backgroundImage from '@/assets/bg.document.png';
@@ -54,6 +55,7 @@ export function DocumentContainer({
   onToolbarCollapsedChange,
   documentSessionMode = 'main',
   readOnly: forcedReadOnly = false,
+  initialFocus,
   onFlushReady,
 }: DocumentContainerProps) {
   const { t } = useI18n();
@@ -430,18 +432,26 @@ export function DocumentContainer({
             ref={editorHandleRef}
             key={documentInstanceKey}
             content={state.fullContent}
+            header={!isExternalDocument && memoId && activeMemo ? (
+              <MemoDocumentHeader
+                memoId={memoId}
+                filename={activeMemo.filename}
+                updatedAt={state.updatedAtDate ?? (activeMemo.updatedAt ? new Date(activeMemo.updatedAt) : null)}
+                editable={!readOnly}
+                autoFocus={initialFocus === 'title'}
+                onMoveToBody={() => editorHandleRef.current?.focusStart?.()}
+              />
+            ) : null}
             editable={!readOnly}
             onChange={(content) => {
               handleChange(content);
-              if (state.isNewlyCreated) setState(prev => ({ ...prev, isNewlyCreated: false }));
             }}
             className=""
             onEditorScroll={(scrollTop) => setState(prev => ({ ...prev, isScrolled: scrollTop > 90 }))}
             onEditingFinished={() => {
               flushPendingEditorChanges();
             }}
-            autoFocus={state.isNewlyCreated}
-            editorStorageUpdatedAt={state.updatedAtDate ?? (activeMemo?.updatedAt ? new Date(activeMemo.updatedAt) : null)}
+            autoFocus={initialFocus === 'body'}
             searchPanelOpen={searchPanelOpen}
             onSearchPanelOpenChange={onSearchPanelOpenChange}
             toolbarCollapsed={toolbarCollapsed}

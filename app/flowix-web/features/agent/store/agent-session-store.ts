@@ -131,6 +131,7 @@ export interface AgentSessionStore
   enqueueSteeringMessage: (message: PendingSteeringMessage) => void;
   removeSteeringMessage: (threadId: string, messageId: string) => void;
   removeSteeringMessageByClientId: (threadId: string, clientUserMessageId: string) => void;
+  clearPendingSteeringMessages: (threadId: string) => void;
   stopStream: () => Promise<void>;
   stopThreadRun: (threadId: string, runId?: string) => Promise<void>;
   dispatchAgentEvent: (event: AgentEvent) => void;
@@ -202,6 +203,23 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
         dispatch: (event) => get().dispatch(event),
         applySessionResolved: (event) => get().applySessionResolved(event),
       });
+      const clearPendingSteeringForLifecycleEvent = (event: AgentEvent): void => {
+        if (event.kind !== "error" && event.kind !== "stream_end") return;
+        const state = get();
+        const canonicalThreadId = resolveProductThreadId(
+          event.threadId,
+          state.sessionMeta.externalSessionResolutions,
+        );
+        const projection = state.threadProjections[canonicalThreadId];
+        const activeRunId = projection?.runs.activeRunId;
+        // Ignore a delayed lifecycle event from an older run. The reducer
+        // uses the same active-run ownership rule for known run ids.
+        if (activeRunId && event.runId && activeRunId !== event.runId) return;
+        state.clearPendingSteeringMessages(event.threadId);
+        if (canonicalThreadId !== event.threadId) {
+          state.clearPendingSteeringMessages(canonicalThreadId);
+        }
+      };
       return ({
         ...createSessionMetaSlice(set, get),
         ...createConversationSlice(set, get),
@@ -235,6 +253,14 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           const current = get().pendingSteeringMessages[threadId] ?? [];
           const match = current.find((message) => message.clientUserMessageId === clientUserMessageId);
           if (match) get().removeSteeringMessage(threadId, match.id);
+        },
+        clearPendingSteeringMessages: (threadId) => {
+          set((state) => {
+            if (!state.pendingSteeringMessages[threadId]) return state;
+            const pendingSteeringMessages = { ...state.pendingSteeringMessages };
+            delete pendingSteeringMessages[threadId];
+            return { pendingSteeringMessages };
+          });
         },
 
         sendMessageToThread: async (threadId, content, typeKey, options) => {
@@ -377,7 +403,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
               err,
               translate(getLanguage(), "agent.chat.sendFailed"),
             );
-            get().dispatch({
+            get().dispatchAgentEvent({
               kind: "error",
               agentType: type.key,
               threadId,
@@ -396,6 +422,14 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
         stopThreadRun: async (threadId, runId) => {
           if (!threadId) return;
           streamDispatcher.flushBuffer();
+          // Steering messages belong to the active turn. Once that turn is
+          // explicitly stopped, none of its queued messages can be delivered
+          // safely, so remove them immediately instead of waiting for a
+          // provider user_message acknowledgement that will never arrive.
+          const activeRunIdBeforeStop = get().threadProjections[threadId]?.runs.activeRunId;
+          if (!runId || !activeRunIdBeforeStop || runId === activeRunIdBeforeStop) {
+            get().clearPendingSteeringMessages(threadId);
+          }
           let targetRunId: string | undefined;
           get().setThreadProjection(threadId, (projection) => {
             const candidate = runId ?? projection.runs.activeRunId ?? undefined;
@@ -420,7 +454,10 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             logger.error("Failed to stop stream", { error: String(err) });
           }
         },
-        dispatchAgentEvent: (event) => streamDispatcher.dispatch(event),
+        dispatchAgentEvent: (event) => {
+          clearPendingSteeringForLifecycleEvent(event);
+          streamDispatcher.dispatch(event);
+        },
         flushAgentEventBuffer: () => streamDispatcher.flushBuffer(),
         dispatchAgentChunk: (chunk) => {
           const state = get();
@@ -429,6 +466,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             eventMapperStateForChunk(chunk, state),
           );
           recordAgentChunkMapped(chunk, event);
+          clearPendingSteeringForLifecycleEvent(event);
           streamDispatcher.dispatch(event);
         },
         reconcileRunningRunsFromSnapshot: (running) => {
@@ -529,7 +567,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             ) {
               continue;
             }
-            get().dispatch({
+            get().dispatchAgentEvent({
               kind: "stream_end",
               agentType: activeRun?.agentType ?? DEFAULT_AGENT_TYPE_KEY,
               threadId,

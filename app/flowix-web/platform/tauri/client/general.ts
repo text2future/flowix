@@ -225,6 +225,18 @@ export const agentAccess = {
   set: (config: AgentAccessConfig) => invoke<void>('set_agent_access', { config }),
   addFolderFromPicker: () =>
     invoke<AgentAccessEntry | null>('add_agent_access_folder_from_picker'),
+  getNotebookConfigs: () =>
+    invoke<Record<string, import('@/lib/types/agent-access').NotebookAgentConfig>>(
+      'get_notebook_agent_configs',
+    ),
+  setNotebookConfig: (
+    notebookId: string,
+    expectedRevision: number,
+    config: import('@/lib/types/agent-access').NotebookAgentConfig,
+  ) => invoke<import('@/lib/types/agent-access').NotebookAgentConfig>(
+    'set_notebook_agent_config',
+    { notebookId, expectedRevision, config },
+  ),
 };
 
 export interface SystemTagLayoutItem {

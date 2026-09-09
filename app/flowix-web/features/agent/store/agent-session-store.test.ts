@@ -87,6 +87,75 @@ describe("useAgentSessionStore", () => {
     });
   });
 
+  it("clears pending steering messages when the active run is stopped", async () => {
+    const store = useAgentSessionStore.getState();
+    const threadId = "steer-stop-thread";
+
+    store.bindThreadType(threadId, "deepseek-harness");
+    store.dispatch(streamStart("steer-stop-run", threadId));
+    store.enqueueSteeringMessage({
+      id: "pending-steer-stop",
+      threadId,
+      content: "continue after the current step",
+      queuedAt: 1,
+    });
+
+    await store.stopThreadRun(threadId, "steer-stop-run");
+
+    expect(useAgentSessionStore.getState().pendingSteeringMessages[threadId]).toBeUndefined();
+  });
+
+  it("clears pending steering messages when a run ends abnormally", () => {
+    const store = useAgentSessionStore.getState();
+    const threadId = "steer-error-thread";
+    const runId = "steer-error-run";
+
+    store.bindThreadType(threadId, "deepseek-harness");
+    store.dispatch(streamStart(runId, threadId));
+    store.enqueueSteeringMessage({
+      id: "pending-steer-error",
+      threadId,
+      content: "this must not remain after a failed run",
+      queuedAt: 1,
+    });
+
+    store.dispatchAgentChunk({
+      kind: "stream_end",
+      agent_type: "deepseek-harness",
+      thread_id: threadId,
+      run_id: runId,
+      reason: "provider exited unexpectedly",
+    });
+
+    expect(useAgentSessionStore.getState().pendingSteeringMessages[threadId]).toBeUndefined();
+  });
+
+  it("does not clear steering messages for a newer active run on a delayed old end", () => {
+    const store = useAgentSessionStore.getState();
+    const threadId = "steer-stale-end-thread";
+
+    store.bindThreadType(threadId, "deepseek-harness");
+    store.dispatch(streamStart("steer-old-run", threadId));
+    store.dispatch(streamStart("steer-new-run", threadId));
+    store.enqueueSteeringMessage({
+      id: "pending-steer-new",
+      threadId,
+      content: "keep this for the new run",
+      queuedAt: 1,
+    });
+
+    store.dispatchAgentEvent({
+      kind: "stream_end",
+      agentType: "deepseek-harness",
+      threadId,
+      runId: "steer-old-run",
+      timestamp: 2,
+      reason: null,
+    });
+
+    expect(useAgentSessionStore.getState().pendingSteeringMessages[threadId]).toHaveLength(1);
+  });
+
   it("keeps the completed Codex live turn available until history takes over", () => {
     const threadId = "codex-thread";
     const runId = "codex-run";

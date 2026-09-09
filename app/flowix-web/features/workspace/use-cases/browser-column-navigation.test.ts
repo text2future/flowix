@@ -49,7 +49,7 @@ describe('browser column navigation', () => {
     });
     expect(useBrowserColumnStore.getState().tabs[0]).toMatchObject({
       title: 'plan',
-      target: { kind: 'file', filePath: '/notes/plan.md', scopePath: null },
+      target: { kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/plan.md', scopePath: null },
     });
   });
 
@@ -164,7 +164,7 @@ describe('browser column navigation', () => {
     expect(moved).toBeNull();
     expect(useBrowserColumnStore.getState().tabs[0]).toMatchObject({
       id: 'file:/notes/plan.md',
-      target: { kind: 'file', filePath: '/notes/plan.md' },
+      target: { kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/plan.md' },
     });
   });
 
@@ -237,7 +237,7 @@ describe('browser column navigation', () => {
       alreadyOpen: false,
     });
     expect(useBrowserColumnStore.getState().tabs[0]).toMatchObject({
-      target: { kind: 'file', filePath: '/notes/plan.md', scopePath: '/notes' },
+      target: { kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/plan.md', scopePath: '/notes' },
     });
     expect(useWorkColumnStore.getState().navigation.target).toEqual(target);
     expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('browser-column');
@@ -273,8 +273,7 @@ describe('browser column navigation', () => {
 
     expect(result).toBeNull();
     expect(useBrowserColumnStore.getState().tabs[0].target).toMatchObject({
-      kind: 'file',
-      filePath: '/notes/old.md',
+      kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/old.md',
     });
   });
 
@@ -317,7 +316,12 @@ it('moves a folder selection to the main column even when a separate file tab al
   useDocumentStore.setState({ activeMemoSession: null, activeExternalSession: null, currentDocumentPath: null, currentDocumentSource: null });
   try {
     await openBrowserColumnMarkdown('/workspace/readme.md');
-    await openBrowserColumnFileBrowser('/workspace', '/workspace/readme.md');
+    useBrowserColumnStore.setState((state) => ({
+      tabs: [...state.tabs, { id: 'file-browser:/workspace', title: 'workspace', icon: null,
+        target: { kind: 'file-browser', folderPath: '/workspace', activeFilePath: '/workspace/readme.md',
+          scopePath: '/workspace', notebookId: null, fileTreeVisible: true, fileTreeWidth: 220 } }],
+      activeTabId: 'file-browser:/workspace',
+    }));
     const moving = openBrowserColumnTabInWorkColumn('file-browser:/workspace');
     const result = await Promise.race([
       moving,
@@ -334,4 +338,59 @@ it('moves a folder selection to the main column even when a separate file tab al
     useDocumentStore.setState(previousDocument);
     useBrowserColumnStore.getState().reset();
   }
+});
+
+it('reuses one file identity across standalone and directory opens without resetting tree preferences', async () => {
+  resetWorkspace();
+  resetBrowserColumnCoordinator();
+  useBrowserColumnStore.getState().reset();
+  await openBrowserColumnMarkdown('/workspace/a.md');
+  const first = useBrowserColumnStore.getState().activeTabId!;
+  useBrowserColumnStore.getState().setFileBrowserTreeVisible(first, false);
+  await openBrowserColumnFileBrowser('/workspace', '/workspace/a.md');
+  expect(useBrowserColumnStore.getState().tabs).toHaveLength(1);
+  expect(useBrowserColumnStore.getState().activeTabId).toBe(first);
+  expect(useBrowserColumnStore.getState().tabs[0].target).toMatchObject({ fileTreeVisible: false });
+});
+
+it('upgrades a standalone file tab with its resource folder context in place', async () => {
+  resetWorkspace();
+  resetBrowserColumnCoordinator();
+  useBrowserColumnStore.getState().reset();
+  await openBrowserColumnMarkdown('/workspace/a.md');
+  const tabId = useBrowserColumnStore.getState().activeTabId!;
+  useBrowserColumnStore.getState().setFileBrowserTreeVisible(tabId, false);
+  await openBrowserColumnFileBrowser('/workspace', '/workspace/a.md');
+  const tab = useBrowserColumnStore.getState().tabs[0];
+  expect(tab.id).toBe(tabId);
+  expect(tab.target).toMatchObject({
+    kind: 'file-browser',
+    folderPath: '/workspace',
+    activeFilePath: '/workspace/a.md',
+    fileTreeVisible: false,
+  });
+});
+
+it('keeps the old file when a tree selection cannot be saved and reuses already open files', async () => {
+  const { selectBrowserColumnFile } = await import('./browser-column-navigation');
+  resetWorkspace();
+  resetBrowserColumnCoordinator();
+  useBrowserColumnStore.getState().reset();
+  await openBrowserColumnMarkdown('/workspace/a.md');
+  const first = useBrowserColumnStore.getState().activeTabId!;
+  const flush = vi.fn().mockResolvedValue(false);
+  registerBrowserColumnDocumentFlush(first, flush);
+  expect(await selectBrowserColumnFile(first, '/workspace/b.md')).toBeNull();
+  expect(useBrowserColumnStore.getState().tabs[0].target).toMatchObject({ activeFilePath: '/workspace/a.md' });
+  flush.mockResolvedValue(true);
+  await selectBrowserColumnFile(first, '/workspace/b.md');
+  expect(useBrowserColumnStore.getState().tabs[0]).toMatchObject({ id: first, title: 'b' });
+  await openBrowserColumnMarkdown('/workspace/a.md');
+  const second = useBrowserColumnStore.getState().activeTabId!;
+  expect(second).not.toBe(first);
+  expect(new Set(useBrowserColumnStore.getState().tabs.map((tab) => tab.id)).size).toBe(2);
+  await selectBrowserColumnFile(second, '/workspace/b.md');
+  expect(useBrowserColumnStore.getState().activeTabId).toBe(first);
+  expect(useBrowserColumnStore.getState().tabs).toHaveLength(2);
+  resetBrowserColumnCoordinator();
 });

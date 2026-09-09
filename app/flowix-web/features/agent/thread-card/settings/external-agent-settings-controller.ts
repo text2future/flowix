@@ -1,13 +1,12 @@
 import type { AppLanguage, I18nKey } from "@/lib/i18n";
 import { translate } from "@/lib/i18n";
-import { resolveAuthorizedDefaultFiles } from "@/lib/agent-access-defaults";
+import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
 import type {
   AgentCodexModel,
   AgentCodexReasoningEffort,
   AgentHarnessPreset,
   AgentPermissionMode,
   AgentTypeKey,
-  WorkspaceSnapshot,
 } from "@/types/agent";
 import {
   CODEX_MODEL_OPTIONS,
@@ -26,7 +25,6 @@ import { useAgentSessionStore } from "@features/agent/store/agent-session-store"
 import { loadDshModelConfigs } from "@features/agent/store/dsh-model-config-store";
 import { useMemoStore } from "@features/memo/store/memo-store";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
-import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 import { agent } from "@platform/tauri/client";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
@@ -44,9 +42,7 @@ import {
 } from "@features/agent/thread-card/settings/external-agent-settings";
 import { createChevronIcon } from "@features/agent/thread-card/agent-thread-card-icons";
 import {
-  createInitialWorkspaceState,
   normalizeConversationWorkspaceState,
-  selectDesiredWorkspace,
 } from "@features/agent/runtime/conversation-workspace";
 import { openBrowserColumnFileBrowser } from "@features/workspace/use-cases/browser-column-navigation";
 
@@ -714,6 +710,7 @@ export class ExternalAgentSettingsController {
     // after its first run.
     const allowsInFlightSelection = capability.switchWhileRunning;
     const disabled =
+      !capability.selectBeforeFirstRun ||
       (!allowsInFlightSelection && this.isRunning()) ||
       (hasStarted && !capability.switchBetweenRuns);
     this.composerWorkspaceButton.disabled = disabled;
@@ -820,8 +817,10 @@ export class ExternalAgentSettingsController {
         ? memoState.notebooks.find((item) => item.id === configuredNotebookId)
         : null) ?? memoState.selectedNotebook;
     const notebookPath = notebook?.path?.trim();
-    const defaultFiles = resolveAuthorizedDefaultFiles(
-      useAgentAccessStore.getState().config,
+    const accessState = useAgentAccessStore.getState();
+    const defaultFiles = resolveNotebookAgentFiles(
+      accessState.config,
+      accessState.notebookConfigs,
       configuredNotebookId ?? notebook?.id,
     );
     const primary = resolvePrimaryWorkspace({ defaultFiles, notebookPath });
@@ -966,74 +965,16 @@ export class ExternalAgentSettingsController {
     this.renderPermissionSettings();
   }
 
-  private getWorkspaceChoices(): Array<{ path: string; label: string }> {
-    const instance = this.getInstanceId()
-      ? useAgentSessionStore.getState().getInstance(this.getInstanceId()!)
-      : undefined;
-    const configuredNotebookId = instance?.runtimeConfig?.notebookId;
-    const memoState = useMemoStore.getState();
-    const notebook =
-      (configuredNotebookId
-        ? memoState.notebooks.find((item) => item.id === configuredNotebookId)
-        : null) ?? memoState.selectedNotebook;
-    const defaultFiles = resolveAuthorizedDefaultFiles(
-      useAgentAccessStore.getState().config,
-      configuredNotebookId ?? notebook?.id,
-    );
-    const paths = [
-      ...(defaultFiles?.folders ?? []),
-      notebook?.path,
-      ...(instance?.runtimeConfig?.workspaceSnapshot?.workspacePaths ?? []),
-    ]
-      .map((path) => normalizeWorkspacePath(path))
-      .filter(Boolean);
-    const seen = new Set<string>();
-    return paths.flatMap((path) => {
-      const key = path.toLowerCase();
-      if (seen.has(key)) return [];
-      seen.add(key);
-      const entry = useAgentAccessStore.getState().config.entries.find(
-        (item) =>
-          item.kind === "folder" &&
-          normalizeWorkspacePath(item.path).toLowerCase() === key,
-      );
-      const label =
-        entry?.name?.trim() ||
-        (notebook && normalizeWorkspacePath(notebook.path).toLowerCase() === key
-          ? notebook.name?.trim()
-          : "") ||
-        path.split(/[\\/]/).filter(Boolean).pop() ||
-        path;
-      return [{ path, label }];
-    });
-  }
-
   private renderWorkspacePopover(): void {
     this.popover.replaceChildren();
     const title = document.createElement("div");
     title.className = "agent-thread-card__codex-settings-title";
     title.textContent = this.t("agent.workspace.title");
     this.popover.append(title);
-    const choices = this.getWorkspaceChoices();
-    const current = normalizeWorkspacePath(this.getCurrentWorkspacePath()).toLowerCase();
-    for (const choice of choices) {
-      this.popover.append(
-        createCodexSettingsItem(
-          choice.label,
-          choice.path.toLowerCase() === current,
-          () => {
-            this.selectWorkspace(choice.path);
-            this.setSettingsPopoverOpen(false);
-          },
-        ),
-      );
-    }
-    if (choices.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "agent-thread-card__codex-settings-empty";
-      empty.textContent = this.t("agent.workspace.unset");
-      this.popover.append(empty);
-    }
+    const current = document.createElement("div");
+    current.className = "agent-thread-card__codex-settings-empty";
+    current.textContent = this.getCurrentWorkspaceLabel();
+    this.popover.append(current);
 
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";
@@ -1055,57 +996,6 @@ export class ExternalAgentSettingsController {
     });
     settingsButton.addEventListener("mousedown", (event) => event.stopPropagation());
     this.popover.append(settingsButton);
-  }
-
-  private selectWorkspace(path: string): void {
-    const instanceId = this.getInstanceId();
-    if (!instanceId) return;
-    const instance = useAgentSessionStore.getState().getInstance(instanceId);
-    const normalized = normalizeWorkspacePath(path);
-    if (!instance || !normalized) return;
-    const state = normalizeConversationWorkspaceState(instance.runtimeConfig);
-    const snapshot = state?.desired ?? instance.runtimeConfig?.workspaceSnapshot;
-    const workspacePaths = Array.from(
-      new Set([
-        normalized,
-        ...(snapshot?.workspacePaths ?? []),
-        ...this.getWorkspaceChoices().map((item) => item.path),
-      ]),
-    );
-    const notebook = useMemoStore.getState().notebooks.find(
-      (item) =>
-        normalizeWorkspacePath(item.path).toLowerCase() === normalized.toLowerCase(),
-    );
-    const configuredNotebook = instance.runtimeConfig?.notebookId
-      ? useMemoStore.getState().notebooks.find(
-          (item) => item.id === instance.runtimeConfig?.notebookId,
-        )
-      : useMemoStore.getState().selectedNotebook;
-    const nextSnapshot: WorkspaceSnapshot = {
-      version: 1,
-      cwd: normalized,
-      workspacePaths,
-      ...(instance.runtimeConfig?.notebookId
-        ? { notebookId: instance.runtimeConfig.notebookId }
-        : {}),
-      ...(snapshot?.notebookPath || configuredNotebook?.path || notebook?.path
-        ? {
-            notebookPath: normalizeWorkspacePath(
-              snapshot?.notebookPath || configuredNotebook?.path || notebook?.path,
-            ),
-          }
-        : {}),
-      capturedAt: Date.now(),
-    };
-    const nextState = state
-      ? selectDesiredWorkspace(state, nextSnapshot)
-      : createInitialWorkspaceState(nextSnapshot);
-    useAgentSessionStore.getState().setRuntimeConfig(instanceId, {
-      workspaceState: nextState,
-      // Compatibility mirror while old callers are being migrated.
-      workspaceSnapshot: nextSnapshot,
-    });
-    this.refreshEmptySettings();
   }
 
   schedulePosition(): void {

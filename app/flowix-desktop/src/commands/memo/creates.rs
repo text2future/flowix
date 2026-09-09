@@ -38,7 +38,9 @@ pub fn add_document(
     // frontmatter; body #tag tokens are references only.
     let now = chrono::Utc::now().timestamp_millis();
     let title = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let body = format!("# {}\n", title);
+    // The filename is the note title. Keep it outside Markdown so a new note
+    // starts with an empty editable body (apart from system frontmatter).
+    let body = String::new();
 
     // Mark the expected path before create to suppress our own watcher event.
     let abs = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
@@ -305,125 +307,70 @@ pub fn import_external_document_to_memo(
     Ok(memo)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameMemoTitleResult {
+    pub memo: Memo,
+    pub old_path: String,
+    pub path: String,
+}
+
+/// Rename a memo independently from its Markdown content.
 #[tauri::command]
-#[allow(non_snake_case)]
-pub fn update_memo_db(
+pub fn rename_memo_title(
     id: String,
-    content: Option<String>,
-    filename: Option<String>,
-    preview: Option<String>,
-    defer_rename: Option<bool>,
+    title: String,
+    expected_filename: Option<String>,
     state: State<AppState>,
     app: AppHandle,
     window: tauri::WebviewWindow,
-) -> bool {
-    let defer_rename = defer_rename.unwrap_or(true);
+) -> Result<RenameMemoTitleResult, String> {
+    let title = title.trim().trim_end_matches(".md").trim();
+    if title.is_empty() {
+        return Err("memo title cannot be empty".to_string());
+    }
 
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let mut service = MemoService::new(&memo_file);
-    let Ok(current) = service.memo_metadata(&id) else {
-        return false;
-    };
-
-    if defer_rename {
-        // Metadata-only update: sync index.db without touching the markdown file.
-        let mut updated = current.clone();
-        if let Some(f) = filename {
-            updated.filename = f;
-        }
-        if let Some(p) = preview {
-            updated.preview = p;
-        }
-        // Derive preview/tags/todos from provided content when available.
-        if let Some(ref body) = content {
-            use flowix_core::memo_file::apply_derived_memo_fields;
-            apply_derived_memo_fields(&mut updated, body);
-        }
-        updated.updated_at = chrono::Utc::now().timestamp_millis();
-        let ok = service.sync_memo_metadata(&updated).is_ok();
-        drop(service);
-        drop(memo_file);
-        if ok {
-            let path = abs_path_for(state.inner(), &id);
-            let notebook_id = notebook_id_for_memo(state.inner(), &id);
-            let derived_changed = MemoDerivedChanged::from_memos(Some(&current), &updated);
-            emit_updated_memo_event(
-                state.inner(),
-                &app,
-                &id,
-                path,
-                updated,
-                notebook_id,
-                derived_changed,
-                MemoChangeSource::UserEdit,
-                Some(window.label()),
-            );
-        }
-        return ok;
-    }
-
-    // Non-deferred path renames the memo file by title.
+    let before = service.memo_metadata(&id).map_err(|error| error.to_string())?;
+    let resolved = service.resolve_memo(&id).map_err(|error| error.to_string())?;
+    let old_path = resolved.path.to_string_lossy().into_owned();
+    mark_self_write_for(&app, &resolved.path);
+    let edited = service
+        .rename_memo_with_validation(&id, title, |resolved| {
+            if expected_filename
+                .as_deref()
+                .is_some_and(|expected| expected != resolved.entry.filename)
+            {
+                return Err(flowix_core::FlowixError::Conflict(
+                    "memo filename changed before rename".to_string(),
+                ));
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+    let memo = edited
+        .memo
+        .ok_or_else(|| "rename completed without memo metadata".to_string())?;
+    let path = edited.path.to_string_lossy().into_owned();
+    mark_self_write_for(&app, &edited.path);
+    let notebook_id = notebook_id_for_memo(state.inner(), &id);
+    let derived_changed = MemoDerivedChanged::from_memos(Some(&before), &memo);
     drop(service);
     drop(memo_file);
-    if let Some(new_title) = filename {
-        let new_title = new_title.trim_end_matches(".md").to_string();
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        let mut service = MemoService::new(&memo_file);
-        match service.rename_memo(&id, &new_title) {
-            Ok(_) => {
-                if let Some(body) = content {
-                    let _ = service.save_memo_preserving_filename(&id, &body);
-                }
-                drop(service);
-                drop(memo_file);
-                let _ = emit_updated_after_write(
-                    state.inner(),
-                    &app,
-                    &id,
-                    Some(current),
-                    Some(window.label()),
-                );
-                return true;
-            }
-            Err(e) => {
-                eprintln!("[update_memo_db] rename_memo failed: {e}");
-                return false;
-            }
-        }
-    }
-    // �?content 闁哄洤鐡ㄩ弻?
-    if let Some(body) = content {
-        match MemoService::new(&read_lock(&state.memo_file, "memo_file"))
-            .save_memo_preserving_filename(&id, &body)
-        {
-            Ok(_) => {
-                let _ = emit_updated_after_write(
-                    state.inner(),
-                    &app,
-                    &id,
-                    Some(current),
-                    Some(window.label()),
-                );
-                return true;
-            }
-            Err(e) => {
-                eprintln!("[update_memo_db] write_memo failed: {e}");
-                return false;
-            }
-        }
-    }
-    // 婵?metadata
-    if preview.is_some() {
-        let mut updated = current;
-        if let Some(p) = preview {
-            updated.preview = p;
-        }
-        updated.updated_at = chrono::Utc::now().timestamp_millis();
-        return MemoService::new(&read_lock(&state.memo_file, "memo_file"))
-            .sync_memo_metadata(&updated)
-            .is_ok();
-    }
-    false
+    emit_updated_memo_event(
+        state.inner(),
+        &app,
+        &id,
+        path.clone(),
+        memo.clone(),
+        notebook_id,
+        derived_changed,
+        MemoChangeSource::UserEdit,
+        Some(window.label()),
+    );
+
+    Ok(RenameMemoTitleResult { memo, old_path, path })
 }
 
 #[tauri::command]

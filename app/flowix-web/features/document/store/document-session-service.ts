@@ -7,6 +7,7 @@ import {
   getOrCreateBuffer,
   hasUnsavedLocalChanges,
   notifyDocumentBufferChanged,
+  rebaseCurrentDocumentPath,
   setCurrentDocument,
   type FlushCallbacks,
 } from '@features/document/store/buffer-registry';
@@ -197,4 +198,8 @@ export function applyLoadedDocumentContent(
 
 export function setActiveDocumentPath(identity: DocumentIdentity | null, path: string | null): void {
   setCurrentDocument(identity, path);
+}
+
+export function rebaseActiveDocumentPath(identity: DocumentIdentity, path: string): void {
+  rebaseCurrentDocumentPath(identity, path);
 }

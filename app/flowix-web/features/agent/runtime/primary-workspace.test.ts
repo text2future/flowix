@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 
 describe("resolvePrimaryWorkspace", () => {
-  it("1. 资料主空间 (defaults.files.workspace) 优先", () => {
+  it("资料主空间字段不再影响 cwd", () => {
     expect(
       resolvePrimaryWorkspace({
         defaultFiles: {
@@ -12,10 +12,10 @@ describe("resolvePrimaryWorkspace", () => {
         },
         notebookPath: "D:\\当前笔记本",
       }),
-    ).toEqual({ kind: "default.workspace", path: "D:\\资料主空间" });
+    ).toEqual({ kind: "notebook", path: "D:\\当前笔记本" });
   });
 
-  it("2. 资料主空间空时, 退到资料列表第一个 folder", () => {
+  it("资料列表不影响 cwd", () => {
     expect(
       resolvePrimaryWorkspace({
         defaultFiles: {
@@ -25,7 +25,7 @@ describe("resolvePrimaryWorkspace", () => {
         },
         notebookPath: "D:\\当前笔记本",
       }),
-    ).toEqual({ kind: "default.folders[0]", path: "D:\\第一份资料" });
+    ).toEqual({ kind: "notebook", path: "D:\\当前笔记本" });
   });
 
   it("3. 资料列表为空 (没添加资料), 退到当前笔记本路径", () => {
@@ -46,7 +46,7 @@ describe("resolvePrimaryWorkspace", () => {
     ).toEqual({ kind: "notebook", path: "D:\\当前笔记本" });
   });
 
-  it("5. workspace === null (显式取消主空间) 跳过 folders[0], 退到当前笔记本", () => {
+  it("workspace === null 与普通配置相同", () => {
     expect(
       resolvePrimaryWorkspace({
         defaultFiles: {
@@ -75,7 +75,7 @@ describe("resolvePrimaryWorkspace", () => {
     expect(resolvePrimaryWorkspace({})).toEqual({ kind: "empty" });
   });
 
-  it("尾部斜杠被 normalize", () => {
+  it("没有 notebook 时返回 empty", () => {
     expect(
       resolvePrimaryWorkspace({
         defaultFiles: {
@@ -84,6 +84,6 @@ describe("resolvePrimaryWorkspace", () => {
           notebooks: [],
         },
       }),
-    ).toEqual({ kind: "default.workspace", path: "D:\\with-slash" });
+    ).toEqual({ kind: "empty" });
   });
 });

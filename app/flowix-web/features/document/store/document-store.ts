@@ -22,6 +22,7 @@ export interface MemoDocumentSession {
   notebookPath: string | null;
   openedAt: number;
   transitionId: number;
+  initialFocus?: 'title' | 'body';
 }
 
 export interface ExternalDocumentSession {
@@ -62,6 +63,7 @@ interface DocumentStore {
     notebookPath?: string | null;
     history?: 'push' | 'skip';
     initialContent?: string;
+    initialFocus?: 'title' | 'body';
   }) => Promise<void>;
   openExternalDocument: (path: string | null, options?: {
     history?: 'push' | 'skip';
@@ -222,6 +224,7 @@ export const useDocumentStore = create<DocumentStore>()(
       notebookPath = null,
       history = 'push',
       initialContent,
+      initialFocus,
     }) => {
       const startedAt = performance.now();
       const canonicalNewPath = path ? canonicalPath(path) : null;
@@ -289,6 +292,7 @@ export const useDocumentStore = create<DocumentStore>()(
                 notebookPath,
                 openedAt,
                 transitionId,
+                initialFocus,
               },
               activeExternalSession: null,
               isDocumentTransitioning: true,

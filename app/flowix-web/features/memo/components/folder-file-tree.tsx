@@ -68,6 +68,7 @@ export function FolderFileTree({
   layout = 'fill',
   treeViewportClassName,
   onFileSelect,
+  onFileOpenInNewTab,
   tree,
 }: {
   folderPath: string;
@@ -82,6 +83,7 @@ export function FolderFileTree({
   layout?: 'fill' | 'content';
   treeViewportClassName?: string;
   onFileSelect?: (filePath: string, scopePath: string) => void;
+  onFileOpenInNewTab?: (filePath: string) => void;
   tree: FolderTreeController;
 }) {
   const { t } = useI18n();
@@ -356,6 +358,11 @@ export function FolderFileTree({
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent className={FOLDER_MENU_CLASS}>
+            {!isFolder && onFileOpenInNewTab && (
+              <ContextMenuItem onClick={() => onFileOpenInNewTab(item.fullPath)} className={FOLDER_MENU_ITEM_CLASS}>
+                {t('memo.fileTree.openInNewTab')}
+              </ContextMenuItem>
+            )}
             <div className="select-text rounded-lg px-2 py-1 text-[11px] leading-[1.6] text-[var(--muted-foreground)]">
               <div className="flex items-center gap-0.5">
                 <span className="opacity-70">{t('memo.fileTree.createdAt')}</span>

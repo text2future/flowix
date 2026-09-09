@@ -16,7 +16,7 @@
 //!   候选会被丢弃.
 //!
 //! # 局限性 (v1)
-//! 索引只跟踪 IPC 写命令 (`update_memo_db` / `write_document` / `add_document` /
+//! 索引只跟踪 IPC 写命令 (`rename_memo_title` / `write_document` / `add_document` /
 //! `import_external_document_to_memo` / `clear_memos` / `delete_memo`). 若用户用
 //! 外部编辑器直接改 `.md` 文件, 索引会过期, 需要切换 notebook 触发 rebuild
 //! 才能恢复一致性. 后续可挂 `notify` 监听.

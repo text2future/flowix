@@ -32,13 +32,13 @@ export interface AgentAccessOption {
 
 export interface BuildAgentRuntimeConfigInput {
   typeKey: AgentTypeKey;
-  /** 当前笔记本路径 (= systemReminderDirectory)。无资料时作主空间。 */
+  /** 当前笔记本路径 (= systemReminderDirectory), always used as cwd. */
   notebookPath?: string;
   permissionMode: AgentPermissionMode;
   codexModel: AgentCodexModel;
   codexReasoningEffort: AgentCodexReasoningEffort;
   instanceRuntimeConfig?: RuntimeConfig;
-  /** 当前笔记本的资料默认 (defaults.files[<notebookId>])。 */
+  /** Notebook-local add-dir files; retained as a compatibility input shape. */
   defaultFiles?: FilesConfig;
   /** Conversation-scoped path snapshot; takes precedence over live inputs. */
   workspaceSnapshot?: WorkspaceSnapshot | null;
@@ -110,10 +110,8 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "codex",
     emptySettings: ["model", "reasoning", "permission"],
     accessOptions: CODEX_APP_SERVER_ACCESS_OPTIONS,
-    // The Codex conversation owns the workspace captured when it starts.
-    // Keep the composer workspace selector available before the first run,
-    // then lock it so later turns cannot change the conversation's workspace.
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: true },
+    // The notebook owns cwd; conversation snapshots freeze it at first send.
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: true },
     buildRuntimeConfig: ({
       cwd,
       workspacePaths,
@@ -134,7 +132,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "claude",
     emptySettings: ["model", "permission"],
     accessOptions: CLAUDE_ACCESS_OPTIONS,
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
     buildRuntimeConfig: ({ cwd, workspacePaths, permissionMode, codexModel }) => ({
       // 统一归一化: 持久化或历史数据中的 yolo 视作 danger-full-access,
       // 与 UI 不再提供 yolo 选项保持一致。
@@ -145,7 +143,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "gemini",
     emptySettings: [],
     accessOptions: NO_ACCESS_OPTIONS,
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
     buildRuntimeConfig: ({ cwd, workspacePaths }) => ({
       gemini: { cwd, workspacePaths },
     }),
@@ -154,7 +152,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "hermes",
     emptySettings: ["permission"],
     accessOptions: HERMES_ACCESS_OPTIONS,
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
     buildRuntimeConfig: ({ cwd, workspacePaths, permissionMode }) => ({
       hermes: { cwd, workspacePaths, permissionMode },
     }),
@@ -163,7 +161,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "openclaw",
     emptySettings: [],
     accessOptions: NO_ACCESS_OPTIONS,
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
     buildRuntimeConfig: ({ cwd, workspacePaths }) => ({
       openclaw: { cwd, workspacePaths },
     }),
@@ -172,7 +170,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     typeKey: "opencode",
     emptySettings: ["model", "permission"],
     accessOptions: SHARED_ACCESS_OPTIONS,
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: false, preservesConversationSession: false },
     buildRuntimeConfig: ({ cwd, workspacePaths, permissionMode, codexModel }) => ({
       opencode: { cwd, workspacePaths, permissionMode, model: codexModel },
     }),
@@ -188,7 +186,7 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
     // Harness session resume restores the session's original cwd. Until DSH
     // exposes a resume-with-cwd capability, changing workspace would be
     // misleading, even if Flowix can restart the transport.
-    workspace: { selectBeforeFirstRun: true, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: true, preservesConversationSession: true },
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: true, preservesConversationSession: true },
     buildRuntimeConfig: ({
       cwd,
       workspacePaths,
@@ -240,16 +238,10 @@ export function buildAgentRuntimeConfig({
   defaultFiles,
   workspaceSnapshot,
 }: BuildAgentRuntimeConfigInput): AgentRuntimeConfig {
-  // 文件区域 = 资料列表 (defaults.files[<notebookId>].folders) + 当前笔记本。
-  // 主空间 (cwd) 由 resolvePrimaryWorkspace 决定: 资料主空间 -> 资料首
-  // folder -> 当前笔记本。 主空间本身也留在 workspacePaths 里, 由后端
-  // (claude/command.rs::normalized_additional_workspace_dirs) 去重 cwd,
-  // 不会重复出现在 --add-dir。
-  // Before the first run, workspaceSnapshot.cwd is the already-resolved
-  // notebook workspace candidate (资料主空间 -> 资料首 folder -> 笔记本路径).
-  // Send that exact cwd to the backend; once the run starts, the backend's
-  // dedicated frozen_cwd column becomes the sole authority for later turns.
-  // workspaceSnapshot.workspacePaths follows the same conversation snapshot.
+  // cwd is always the selected notebook path.  `defaultFiles.folders` are
+  // notebook-local add-dir roots from `.flowix/agent.json`; they are sent as
+  // workspacePaths and are kept separate from cwd.  Once a run starts, the
+  // persisted workspace snapshot remains authoritative for later turns.
   const frozenPaths = (workspaceSnapshot?.workspacePaths ?? [])
     .map(normalizeWorkspacePath)
     .filter(Boolean);
@@ -263,12 +255,8 @@ export function buildAgentRuntimeConfig({
   const snapshotPrimary = normalizeWorkspacePath(workspaceSnapshot?.cwd) || undefined;
   const primaryWorkspace = snapshotPrimary ?? livePrimary;
   const workspacePaths = workspaceSnapshot
-    ? Array.from(
-        new Set([primaryWorkspace, ...frozenPaths].filter((p): p is string => Boolean(p))),
-      )
-    : Array.from(
-        new Set([...folderPaths, ...(notebookPathNorm ? [notebookPathNorm] : [])]),
-      );
+    ? Array.from(new Set(frozenPaths.filter((path) => path !== primaryWorkspace)))
+    : Array.from(new Set(folderPaths.filter((path) => path !== notebookPathNorm)));
 
   // DSH 与其他 agent 共用 danger-full-access 默认 (完全访问), 不再单独
   // 走 workspace-write; instance 配置仍优先于全局 / 类型默认。

@@ -1,4 +1,4 @@
-import { useMemoStore } from '@features/memo/store';
+import { captureFileBrowserContext } from './file-browser-context';
 import type { FileBrowserTarget } from '../store/file-browser-target';
 import { canonicalPath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
@@ -11,7 +11,6 @@ import {
   type PluginArtifactRendererId,
 } from '@features/plugin/plugin-note';
 import {
-  BROWSER_COLUMN_FILE_TREE_DEFAULT_WIDTH,
   canMoveBrowserColumnTargetToWorkColumn,
   useBrowserColumnStore,
   type BrowserColumnOpenDisposition,
@@ -109,14 +108,19 @@ export function openBrowserColumnTarget(
       if (existing?.host === 'browser-column') {
         const store = useBrowserColumnStore.getState();
         if (target.kind === 'file-browser') {
-          // `file-browser:<folder>` is the stable tab identity, while the
-          // linked file is view state. The existing-tab fast path below does
-          // not call openTab(), so update that view state explicitly.
-          if (target.activeFilePath) {
-            store.selectFileBrowserFile(existing.tabId, target.activeFilePath);
-          }
-          if (target.fileTreeVisible) {
-            store.setFileBrowserTreeVisible(existing.tabId, true);
+          const existingTab = store.tabs.find((candidate) => candidate.id === existing.tabId);
+          if (existingTab?.target.kind === 'file-browser') {
+            // Upgrade a standalone file tab to a file-browser tab in place.
+            // The tab identity stays stable while the resource context and
+            // tree preferences are added.
+            store.updateFileBrowserContext(existing.tabId, {
+              folderPath: target.folderPath,
+              notebookId: target.notebookId,
+              scopePath: target.scopePath,
+            });
+            if (target.activeFilePath) {
+              store.selectFileBrowserFile(existing.tabId, target.activeFilePath);
+            }
           }
         }
         store.commitTab(existing.tabId);
@@ -131,6 +135,19 @@ export function openBrowserColumnTarget(
       if (existing) {
         store.commitTab(existing.id);
         return { host: 'browser-column', tabId: existing.id, alreadyOpen: true };
+      }
+    }
+    // Directory opens reuse their browsing tab after file-identity lookup.
+    // Independent file opens keep their own stable tabs.
+    if (target.kind === 'file-browser' && target.folderPath && disposition !== 'replace-active') {
+      const store = useBrowserColumnStore.getState();
+      const folderTab = store.tabs.find((tab) => tab.target.kind === 'file-browser'
+        && tab.target.folderPath && canonicalPath(tab.target.folderPath) === canonicalPath(target.folderPath!)
+        && tab.target.notebookId === target.notebookId);
+      if (folderTab) {
+        if (target.activeFilePath) store.selectFileBrowserFile(folderTab.id, target.activeFilePath);
+        store.commitTab(folderTab.id);
+        return { host: 'browser-column', tabId: folderTab.id, alreadyOpen: true };
       }
     }
     const tabId = useBrowserColumnStore.getState().openTab({
@@ -204,11 +221,7 @@ export async function openBrowserColumnMemoById(memoId: string): Promise<Browser
 }
 
 export function createFileBrowserTarget(activeFilePath: string | null, scopePath: string | null = null, folderPath: string | null = null): FileBrowserTarget {
-  return {
-    kind: 'file-browser', activeFilePath, scopePath, folderPath,
-    notebookId: useMemoStore.getState().selectedNotebookId ?? useMemoStore.getState().selectedNotebook?.id ?? null,
-    fileTreeVisible: true, fileTreeWidth: BROWSER_COLUMN_FILE_TREE_DEFAULT_WIDTH,
-  };
+  return { kind: 'file-browser', activeFilePath, ...captureFileBrowserContext(activeFilePath, scopePath, folderPath) };
 }
 
 /** All file changes in an existing tab share the save-before-switch barrier. */
@@ -369,7 +382,7 @@ export function openBrowserColumnTabInWorkColumn(tabId: string): Promise<boolean
             notebookPath: tab.target.notebookPath || null,
           });
           break;
-            case 'file-browser':
+        case 'file-browser':
           if (tab.target.activeFilePath) {
             await openExternalTarget(tab.target.activeFilePath, {
               destination: 'main-third',

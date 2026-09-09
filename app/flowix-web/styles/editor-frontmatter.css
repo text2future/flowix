@@ -24,6 +24,7 @@
 .markdown-editor .frontmatter-property__list {
   display: grid;
   width: 100%;
+  padding-top: 16px;
   grid-template-columns: fit-content(9rem) minmax(0, 1fr);
   align-items: start;
   justify-items: stretch;

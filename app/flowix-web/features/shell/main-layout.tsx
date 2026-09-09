@@ -799,6 +799,7 @@ export function MainLayout() {
             notebookId: activeMemoSession?.notebookId ?? null,
             notebookPath: activeMemoSession?.notebookPath ?? null,
             transitionId: activeMemoSession?.transitionId ?? activeExternalSession?.transitionId ?? null,
+            initialFocus: activeMemoSession?.initialFocus,
             isExternalDocument,
             externalScopePath: activeExternalSession?.scopePath ?? null,
             searchPanelOpen: isSearchPanelOpen,
@@ -977,7 +978,7 @@ export function MainLayout() {
                       (memoListPreviewPhase === 'open'
                         ? 'flowix-hover-preview-enter'
                         : 'flowix-hover-preview-leave')
-                    : 'relative flex-1 min-h-0 min-w-0 w-full'
+                    : 'relative flex flex-1 flex-col min-h-0 min-w-0 w-full'
                 }
                 style={memoListPreviewVisible ? {
                   left: noteNavigationColumnWidth + 2,
@@ -985,46 +986,48 @@ export function MainLayout() {
                   bottom: 0,
                 } : undefined}
               >
-                <div
-                  className={`absolute inset-0 ${
-                    showMemoListSurface
-                      ? 'visible'
-                      : 'invisible pointer-events-none'
-                  }`}
-                  aria-hidden={!showMemoListSurface}
-                >
-                  <MemoList
-                    navigationDrawerEnabled={!noteNavigationVisible}
-                    isActive={!isAgentConversationView}
-                    dataLoadingEnabled={!isAgentConversationView}
-                  />
-                </div>
-                {shouldRenderAgentConversationList && (
+                <div className="relative min-h-0 flex-1">
                   <div
                     className={`absolute inset-0 ${
-                      showAgentConversationSurface
-                        ? 'visible z-10'
+                      showMemoListSurface
+                        ? 'visible'
                         : 'invisible pointer-events-none'
                     }`}
-                    aria-hidden={!showAgentConversationSurface}
+                    aria-hidden={!showMemoListSurface}
                   >
-                    <Suspense fallback={null}>
-                      <AgentConversationListReadySignal
-                        onReady={handleAgentConversationListReady}
-                        isActive={isAgentConversationView}
-                      />
-                    </Suspense>
+                    <MemoList
+                      navigationDrawerEnabled={!noteNavigationVisible}
+                      isActive={!isAgentConversationView}
+                      dataLoadingEnabled={!isAgentConversationView}
+                    />
                   </div>
-                )}
-                {isAgentConversationView && !agentConversationListReady && (
-                  <div
-                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_78%,transparent)] text-sm text-[var(--muted-foreground)] backdrop-blur-[1px]"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {t('status.agent.loadingConversations')}
-                  </div>
-                )}
+                  {shouldRenderAgentConversationList && (
+                    <div
+                      className={`absolute inset-0 ${
+                        showAgentConversationSurface
+                          ? 'visible z-10'
+                          : 'invisible pointer-events-none'
+                      }`}
+                      aria-hidden={!showAgentConversationSurface}
+                    >
+                      <Suspense fallback={null}>
+                        <AgentConversationListReadySignal
+                          onReady={handleAgentConversationListReady}
+                          isActive={isAgentConversationView}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
+                  {isAgentConversationView && !agentConversationListReady && (
+                    <div
+                      className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_78%,transparent)] text-sm text-[var(--muted-foreground)] backdrop-blur-[1px]"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {t('status.agent.loadingConversations')}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1036,15 +1039,13 @@ export function MainLayout() {
             </div>
           )}
           <div
-            data-document-columns-layout={browserColumnVisible && !browserColumnLayout.canSplit ? 'stacked' : 'split'}
-            className={`flex min-h-0 min-w-0 flex-1 ${browserColumnVisible && !browserColumnLayout.canSplit ? 'flex-col' : 'flex-row'}`}
+            data-document-columns-layout="split"
+            className="flex min-h-0 min-w-0 flex-1 flex-row overflow-x-auto overflow-y-hidden"
           >
           {/* Memo detail */}
             <div
               className="h-full min-w-0 relative -left-px flex flex-col"
-              style={browserColumnVisible && !browserColumnLayout.canSplit
-                ? { minWidth: 0, minHeight: 0, height: 0, flex: '1 1 0' }
-                : browserColumnVisible
+              style={browserColumnVisible
                 ? {
                     minWidth: DOCUMENT_PANEL_MIN_WIDTH,
                     flex: `0 0 ${browserColumnLayout.mainColumnWidth}px`,
@@ -1113,7 +1114,6 @@ export function MainLayout() {
           {browserColumnVisible && (
             <Suspense fallback={null}>
               <BrowserColumn
-                stacked={!browserColumnLayout.canSplit}
                 width={browserColumnLayout.browserColumnWidth}
                 layoutKey={browserColumnLayoutKey}
                 onResize={handleBrowserColumnResize}

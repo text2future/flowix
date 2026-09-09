@@ -1,3 +1,4 @@
+import { WorkFileBrowserView } from './work-file-browser-view';
 'use client';
 
 import {
@@ -76,7 +77,7 @@ function defineSurface<K extends WorkColumnSurfaceKind>(
 }
 
 function MarkdownSurfaceView({ surface }: { surface: MarkdownSurface }) {
-  return <DocumentContainer {...surface.props} />;
+  return surface.props.isExternalDocument ? <WorkFileBrowserView props={surface.props} /> : <DocumentContainer {...surface.props} />;
 }
 
 function PluginArtifactSurfaceView({ surface }: { surface: PluginArtifactSurfaceBase }) {

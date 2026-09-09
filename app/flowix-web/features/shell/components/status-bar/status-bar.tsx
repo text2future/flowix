@@ -8,9 +8,6 @@ import type { Notebook } from '@features/memo';
 import { NotebookSelectorPopup } from '@features/shell/components/status-bar/notebook-selector-popup';
 import { AgentRuntimeStatusMenu } from '@features/shell/components/status-bar/agent-runtime-status-menu';
 import { ProductUpdatePill } from '@features/shell/components/status-bar/product-update-pill';
-import { useAgentAccessStore } from '@features/agent/store/agent-access-store';
-import { resolveAuthorizedDefaultFiles } from '@/lib/agent-access-defaults';
-import { resolvePrimaryWorkspace } from '@features/agent/runtime/primary-workspace';
 import { useI18n } from '@/lib/i18n';
 import { useDocumentMetricsStore } from '@features/document';
 import { useMemoStore } from '@features/memo';
@@ -76,14 +73,6 @@ function DshDownloadProgressIcon({ percent }: { percent: number | null | undefin
   );
 }
 
-/** 取路径末尾的文件夹名；`/a/b/c` → `c`，空/纯分隔符时返回原始输入。 */
-function trailingFolderName(path: string): string {
-  const trimmed = path.trim().replace(/[\\/]+$/, '');
-  if (!trimmed) return path;
-  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : trimmed;
-}
-
 /**
  * Bottom status bar for the main window.
  *
@@ -128,19 +117,9 @@ export function StatusBar({
   const setNotebooks = useMemoStore((state) => state.setNotebooks);
   const charCount = useDocumentMetricsStore((state) => state.charCount);
 
-  const agentAccessConfig = useAgentAccessStore((state) => state.config);
   const agentWorkspacePath = useMemo(() => {
-    if (!selectedNotebook?.path) return '';
-    const defaultFiles = resolveAuthorizedDefaultFiles(
-      agentAccessConfig,
-      selectedNotebook.id,
-    );
-    const primary = resolvePrimaryWorkspace({
-      defaultFiles,
-      notebookPath: selectedNotebook.path,
-    });
-    return primary.kind === 'empty' ? '' : trailingFolderName(primary.path);
-  }, [agentAccessConfig, selectedNotebook?.id, selectedNotebook?.path]);
+    return selectedNotebook?.name ?? '';
+  }, [selectedNotebook?.name]);
 
   useEffect(() => {
     const refreshCloudSyncedNotebookIds = () => {

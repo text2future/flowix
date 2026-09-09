@@ -64,14 +64,36 @@ export function computeHandlePosition(
   const contentRect = editorContent.getBoundingClientRect()
   const nodeRect = domNode.getBoundingClientRect()
 
-  // X: fixed offset from proseMirror left edge. Use proseMirrorRect
-  // (.markdown-editor container) as the X reference — contentRect
-  // (.editor-content inner div) scrolls internally, so its viewport-
-  // relative top moves around and breaks Y if used as reference.
-  const x = (proseMirrorRect.left - contentRect.left) + HANDLE_X_OFFSET
-  const y = nodeRect.top - proseMirrorRect.top + getYOffset(info, fontSize, lineHeight)
+  // The handle is absolutely positioned inside `.editor-content`, so both
+  // axes must be expressed in that scroll container's content coordinates.
+  // In particular, subtracting ProseMirror's top loses the height of any
+  // non-ProseMirror header (the memo title) and shifts every handle upward.
+  const x = nodeContentX(proseMirrorRect.left, contentRect.left, editorContent.scrollLeft)
+  const y = nodeContentY(
+    nodeRect.top,
+    contentRect.top,
+    editorContent.scrollTop,
+    getYOffset(info, fontSize, lineHeight),
+  )
 
   return { visible: true, x, y, blockInfo: info }
+}
+
+export function nodeContentX(
+  proseMirrorLeft: number,
+  scrollContainerLeft: number,
+  scrollLeft: number,
+): number {
+  return proseMirrorLeft - scrollContainerLeft + scrollLeft + HANDLE_X_OFFSET
+}
+
+export function nodeContentY(
+  nodeTop: number,
+  scrollContainerTop: number,
+  scrollTop: number,
+  visualOffset: number,
+): number {
+  return nodeTop - scrollContainerTop + scrollTop + visualOffset
 }
 
 function getVisibleBlockElement(info: CurrentBlockInfo): HTMLElement | null {

@@ -265,7 +265,7 @@ export function MemoListServicesHost({
       createFilter === 'thisWeek' ||
       createFilter === 'thisMonth';
     if (shouldSelectNewMemo) {
-      void openMemoSession({ ...created, isOpen: true }, selectedNotebook);
+      void openMemoSession({ ...created, isOpen: true }, selectedNotebook, { initialFocus: 'title' });
     }
   }, [activeFilter, handleMemoCreated, selectedNotebook, selectedTagId, setActiveFilter, setSelectedMemo, setSelectedTagId]);
 

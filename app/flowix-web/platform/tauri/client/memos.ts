@@ -119,6 +119,12 @@ export const memos = {
   }),
   getLaunchOpenFiles: () => invoke<string[]>('get_launch_open_files'),
   addDocument: (tag?: string, notebookId?: string) => invoke<MemoItem>('add_document', { tag, notebookId }),
+  renameMemoTitle: (params: { id: string; title: string; expectedFilename?: string }) =>
+    invoke<{ memo: MemoItem; oldPath: string; path: string }>('rename_memo_title', {
+      id: params.id,
+      title: params.title,
+      expectedFilename: params.expectedFilename,
+    }),
   listTemplates: () => invoke<MemoTemplate[]>('list_memo_templates'),
   saveTemplate: (title: string, content: string) =>
     invoke<MemoTemplate>('save_memo_template', { title, content }),

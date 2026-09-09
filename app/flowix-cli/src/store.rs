@@ -259,8 +259,8 @@ pub(crate) fn note_show_data(id_arg: &str) -> Result<NoteShowData, CliError> {
 ///
 /// 面向 AI agent 的接口 ── body 从明确的输入源读取, 不依赖 $EDITOR。
 ///
-/// title 由 body 首行 (`# xxx`) 自动派生; body 没 `# ` 开头的行时
-/// fallback 到 "untitled" (见 [`derive_title`])。
+/// 标题与正文独立：创建时使用稳定的默认标题 `Untitled`，正文首行不会
+/// 改变文件名。需要改名时使用独立的 rename 能力。
 ///
 /// stdin 为空 → 报错, 不创建 (避免误操作)。
 ///
@@ -305,7 +305,11 @@ pub(crate) fn create_note(
 ) -> Result<NoteCreated, CliError> {
     let created = MemoService::new(mf).create_external_memo(&notebook.id, body)?;
     let memo = created.memo;
-    let title = derive_title(body, None);
+    let title = memo
+        .filename
+        .strip_suffix(".md")
+        .unwrap_or(&memo.filename)
+        .to_string();
     let file_path = created.path;
     let id = memo.id.clone();
     let file = file_path.display().to_string();
@@ -402,29 +406,13 @@ fn reject_empty_text(command: &str, body: &str) -> Result<(), CliError> {
 /// 剥离首部 UTF-8 BOM (U+FEFF)。
 ///
 /// `read_to_string` 不剥 BOM; Windows 上某些重定向 / 编辑器会给 stdin 塞一个,
-/// 不剥会让首行变成 `\u{FEFF}# 标题` ── `derive_title` 派生和 frontmatter 解析
-/// 双双失效。MCP 路径不经此函数 (JSON-RPC 客户端不发 BOM)。
+/// 不剥会让首行变成 `\u{FEFF}# 标题`，影响 Markdown 内容解析。
+/// MCP 路径不经此函数 (JSON-RPC 客户端不发 BOM)。
 fn strip_utf8_bom(s: String) -> String {
     match s.strip_prefix('\u{FEFF}') {
         Some(rest) => rest.to_string(),
         None => s,
     }
-}
-
-/// 从 body 第一行非空内容提取 title, fallback 链:
-/// body 第一行去掉 `# ` 前缀 → name 参数 → "untitled"
-fn derive_title(body: &str, name: Option<&str>) -> String {
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let stripped = trimmed.trim_start_matches('#').trim();
-        if !stripped.is_empty() {
-            return stripped.chars().take(80).collect();
-        }
-    }
-    name.unwrap_or("untitled").to_string()
 }
 
 /// `flowix-cli delete <id>` ── 删除一条笔记 (.md + memo index entry)。
@@ -542,8 +530,8 @@ pub(crate) fn search_results_to_value(
 /// [`providers/tools/filesystem.rs::edit`] 完全同模型:
 /// - `old_string` 必须**唯一**匹配 (0 / >1 都报错, 要求带更多上下文)
 /// - `old_string` 不能为空
-/// - 读当前 body, 校验, 替换, 走 `write_memo_renaming_on_title_change` 写回
-/// - title 联动跟 `write` 一致: 第一行 `# xxx` 改了 → 自动 rename 物理文件
+/// - 读当前 body, 校验, 替换, 按原文件名写回
+/// - 正文改动不会触发文件名变化；改名使用独立的 rename 能力
 ///
 /// `--new` 可以走 stdin (用 `--new-stdin` 显式声明, 避免"stdin 到底给谁"歧义);
 /// `--old` 强制参数 (必须先 read body 校验唯一性, 不能 stdin)。
@@ -626,7 +614,7 @@ pub fn cmd_edit(
 
 /// 精确字符串替换的纯函数 ── 接受 `old: &str, new: &str`, 不读 stdin。
 ///
-/// 唯一性校验、`write_memo_renaming_on_title_change` 写回全在本函数内。
+/// 唯一性校验和按原文件名写回全在本函数内。
 /// `cmd_edit` 负责 human / JSON 打印，MCP 命令层复用返回结果。
 pub(crate) fn edit_note(
     mf: &mut MemoFile,
@@ -705,10 +693,8 @@ fn edit_note_impl(
 ///
 /// `edit` 的非交互等价物 ── 适合脚本化批量改写、管道入内容、CI 注入等场景。
 ///
-/// 跟 `edit` 共用底层 `write_memo` ── 但走的是 `_renaming_on_title_change`
-/// 变体, 首行 `# title` 变化时自动物理 rename + 同步 memo index, 跟
-/// 桌面端 IPC `write_document` 行为完全一致。 用户感觉就是"覆盖整个
-/// 内容, 标题变了文件名也跟着变"。
+/// 跟 `edit` 共用按原文件名写回的底层流程。覆盖 Markdown 内容不会改变
+/// 文件名；标题改名通过独立的 rename 操作完成。
 ///
 /// 不读 $EDITOR, 不 spawn 子进程 ── Windows 上不需要任何额外环境变量。
 ///
@@ -839,7 +825,7 @@ mod tests {
 
     #[test]
     fn strip_utf8_bom_removes_leading_bom_only() {
-        // 首部 BOM 剥掉, 保证 `# 标题` 能被 derive_title 识别
+        // 首部 BOM 剥掉，保证 Markdown 首行内容不带隐藏字符
         assert_eq!(strip_utf8_bom("\u{FEFF}# 标题\n".into()), "# 标题\n");
         // 无 BOM 原样返回
         assert_eq!(strip_utf8_bom("# 标题\n".into()), "# 标题\n");

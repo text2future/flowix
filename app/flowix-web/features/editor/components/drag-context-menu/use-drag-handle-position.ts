@@ -91,7 +91,7 @@ export function useDragHandlePosition(
 
     const editorDom = editor.view.dom as HTMLElement
     if (editor.view.isDestroyed) return
-    const scrollContainer = editorDom.closest('.markdown-editor') as HTMLElement | null
+    const scrollContainer = editorDom.closest('.editor-content') as HTMLElement | null
     const scrollTarget = scrollContainer || editorDom
     const resizeTarget = scrollContainer || editorDom
 
@@ -112,6 +112,18 @@ export function useDragHandlePosition(
 
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(resizeTarget)
+    if (resizeTarget !== editorDom) resizeObserver.observe(editorDom)
+    const handleLoadedAsset = (event: Event) => {
+      if (event.target instanceof HTMLImageElement || event.target instanceof HTMLVideoElement) {
+        scheduleUpdate()
+      }
+    }
+    editorDom.addEventListener('load', handleLoadedAsset, true)
+    editorDom.addEventListener('loadedmetadata', handleLoadedAsset, true)
+    window.addEventListener('resize', scheduleUpdate)
+    void document.fonts?.ready.then(() => {
+      if (mounted) scheduleUpdate()
+    })
     updateDragHandle()
 
     return () => {
@@ -124,6 +136,9 @@ export function useDragHandlePosition(
       editor.off('focus', updateDragHandle)
       editor.off('blur', handleBlur)
       scrollTarget.removeEventListener('scroll', scheduleUpdate)
+      editorDom.removeEventListener('load', handleLoadedAsset, true)
+      editorDom.removeEventListener('loadedmetadata', handleLoadedAsset, true)
+      window.removeEventListener('resize', scheduleUpdate)
       resizeObserver.disconnect()
     }
   }, [editor, fontSize, lineHeight, ignoreBlurRef, keepVisibleRef])

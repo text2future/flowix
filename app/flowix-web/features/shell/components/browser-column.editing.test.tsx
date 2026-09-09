@@ -39,7 +39,7 @@ it('does not force the right document read-only when the same memo is open on th
   }
 });
 
-it('keeps the content host mounted and adjusts resize controls when the layout changes', async () => {
+it('keeps the content host and horizontal resize control mounted at narrow widths', async () => {
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   const element = document.createElement('div');
@@ -54,11 +54,11 @@ it('keeps the content host mounted and adjusts resize controls when the layout c
     expect(divider).not.toBeNull();
     await act(async () => { divider?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); });
     expect(resize).toHaveBeenCalledWith(520);
-    await act(async () => root.render(<BrowserColumn {...props} stacked width={657} layoutKey="narrow" />));
+    await act(async () => root.render(<BrowserColumn {...props} width={360} layoutKey="narrow" />));
     expect(element.querySelector('section')).toBe(host);
     expect(host?.lastElementChild).toBe(content);
-    expect(element.querySelector('[role="separator"]')).toBeNull();
-    expect(host?.style.width).toBe('100%');
+    expect(element.querySelector('[role="separator"]')).not.toBeNull();
+    expect(host?.style.width).toBe('360px');
     await act(async () => root.render(<BrowserColumn {...props} />));
     expect(host?.lastElementChild).toBe(content);
     expect(element.querySelector('[role="separator"]')).not.toBeNull();

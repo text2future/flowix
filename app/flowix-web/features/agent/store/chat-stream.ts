@@ -8,7 +8,7 @@ import type {
 import { buildAgentRuntimeConfig } from "@features/agent/runtime/agent-runtime-spec";
 import { agentClient } from "@features/agent/store/agent-client";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
-import { resolveAuthorizedDefaultFiles } from "@/lib/agent-access-defaults";
+import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
 import type { OutgoingUserPayload } from "@features/agent/store/user-message";
 import { normalizeWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
 import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
@@ -57,13 +57,14 @@ export async function dispatchChatStream({
   conversationTitle,
 }: DispatchChatStreamArgs): Promise<void> {
   // Thread Card 首次运行前会冻结 workspaceSnapshot，后续 turn 只使用快照。
-  // 没有快照的非卡片调用 / 历史调用仍走旧的 notebookId 实时回退。
+  // 没有快照的调用读取 notebook-local `.flowix/agent.json` add-dirs。
   const workspaceSnapshot =
     normalizeConversationWorkspaceState(instanceRuntimeConfig)?.desired ??
     normalizeWorkspaceSnapshot(instanceRuntimeConfig?.workspaceSnapshot);
   const notebookId = instanceRuntimeConfig?.notebookId;
+  const accessState = useAgentAccessStore.getState();
   const defaultFiles = !workspaceSnapshot && notebookId
-    ? resolveAuthorizedDefaultFiles(useAgentAccessStore.getState().config, notebookId)
+    ? resolveNotebookAgentFiles(accessState.config, accessState.notebookConfigs, notebookId)
     : undefined;
   const runtimeConfig = buildAgentRuntimeConfig({
     typeKey: agentType,

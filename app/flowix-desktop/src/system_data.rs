@@ -5,10 +5,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-/// System metadata stored at `~/.flowix/boot/system.json`.
-///
-/// This file is for app-owned runtime state that is not user preference and not
-/// notebook content. Current data is tag navigation state, grouped by notebook.
+/// Legacy app-owned system metadata stored at `~/.flowix/boot/system.json`.
+/// New notebook-scoped state is written through `read_notebook`/
+/// `write_notebook` to `<notebook>/.flowix/system.json`.
 pub struct SystemData {
     path: PathBuf,
     data: RwLock<SystemFile>,
@@ -125,6 +124,86 @@ impl SystemData {
         Ok(())
     }
 
+    /// Read notebook-scoped metadata from `<notebook>/.flowix/system.json`.
+    /// A missing file is returned as `None`; callers may migrate legacy global
+    /// state before creating it.
+    pub fn read_notebook(root: &Path) -> std::io::Result<Option<SystemFile>> {
+        let flowix = root.join(".flowix");
+        if fs::symlink_metadata(&flowix)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("Flowix directory is a symbolic link: {}", flowix.display()),
+            ));
+        }
+        let path = flowix.join("system.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+    }
+
+    /// Atomically write notebook-scoped metadata to `<notebook>/.flowix`.
+    pub fn write_notebook(root: &Path, data: &SystemFile) -> std::io::Result<()> {
+        let flowix = root.join(".flowix");
+        if fs::symlink_metadata(&flowix)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("Flowix directory is a symbolic link: {}", flowix.display()),
+            ));
+        }
+        fs::create_dir_all(&flowix)?;
+        let path = flowix.join("system.json");
+        let temporary = flowix.join("system.json.tmp");
+        if fs::symlink_metadata(&temporary)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "Notebook system temporary file is a symbolic link: {}",
+                    temporary.display()
+                ),
+            ));
+        }
+        if fs::symlink_metadata(&path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "Notebook system file is a symbolic link: {}",
+                    path.display()
+                ),
+            ));
+        }
+        let content = serde_json::to_string_pretty(data)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+        {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&temporary)?;
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+        }
+        set_file_owner_only_perms(&temporary);
+        fs::rename(&temporary, &path)?;
+        set_file_owner_only_perms(&path);
+        Ok(())
+    }
+
     pub fn get_tag_metadata(&self, notebook_id: &str) -> NotebookTagSystemData {
         let data = self.read_data();
         data.tag
@@ -195,3 +274,41 @@ fn set_file_owner_only_perms(path: &Path) {
 
 #[cfg(not(unix))]
 fn set_file_owner_only_perms(_path: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notebook_system_data_round_trips_under_flowix() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(&root).unwrap();
+        let mut notebooks = HashMap::new();
+        notebooks.insert(
+            "nb-1".to_string(),
+            NotebookTagSystemData {
+                hidden: vec!["tag/hidden".to_string()],
+                ..Default::default()
+            },
+        );
+        let file = SystemFile {
+            tag: TagSystemData { notebooks },
+        };
+        SystemData::write_notebook(&root, &file).unwrap();
+        let loaded = SystemData::read_notebook(&root).unwrap().unwrap();
+        assert_eq!(loaded.tag.notebooks["nb-1"].hidden, ["tag/hidden"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn notebook_system_rejects_flowix_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        let target = temp.path().join("target");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        std::os::unix::fs::symlink(&target, root.join(".flowix")).unwrap();
+        assert!(SystemData::write_notebook(&root, &SystemFile::default()).is_err());
+    }
+}

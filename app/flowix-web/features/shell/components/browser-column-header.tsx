@@ -46,7 +46,7 @@ function tabIcon(tab: BrowserColumnTab) {
   }
   if (tab.icon) return <span className="text-sm leading-none">{tab.icon}</span>;
   if (tab.target.kind === 'artifact') return <Blocks className="h-3.5 w-3.5" />;
-  if (tab.target.kind === 'file-browser') return <Folder className="h-3.5 w-3.5" />;
+  if (tab.target.kind === 'file-browser' && !tab.target.activeFilePath) return <Folder className="h-3.5 w-3.5" />;
   if (tab.target.kind === 'agent_conversation') return <MessageSquare className="h-3.5 w-3.5" />;
   if (tab.target.kind === 'web') return <Globe className="h-3.5 w-3.5" />;
   return <FileText className="h-3.5 w-3.5" />;

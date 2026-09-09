@@ -6,7 +6,7 @@
 //!
 //! - [`mod@helpers`]   —跨域 helper (索引 / notebook 切换 / �?�� scope / �?��抑制 / markdown 解析)
 //! - [`mod@settings`]  —`~/.flowix/boot/preference.json` + DSH settings 读写
-//! - [`mod@kv`]        鈥?`~/.flowix/boot/system.json` system metadata
+//! - [`mod@kv`]        鈥? notebook `.flowix/system.json` metadata (legacy global migration)
 //! - [`mod@memo`]      —笔�? CRUD + 搜索 + Doc 合并(�?memo index / .md 文件的全进这)
 //! - [`mod@tag`]       —tag 派生 + (todo: 增删�?stub)
 //! - [`mod@notebook`]  —notebook 切换 / 增删 / CRUD

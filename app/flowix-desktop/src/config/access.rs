@@ -23,7 +23,8 @@ pub struct AgentAccessEntry {
     pub path: String,
     pub name: String,
     pub enabled: bool,
-    #[serde(default)]
+    /// Legacy field; notebook workspace ownership now lives in `.flowix`.
+    #[serde(default, skip_serializing)]
     pub workspace: bool,
     pub added_at: i64,
     pub updated_at: i64,

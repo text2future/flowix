@@ -89,8 +89,8 @@ describe("conversation workspace snapshot", () => {
 
     expect(config.workspaceSnapshot).toMatchObject({
       version: 1,
-      cwd: "/projects/one",
-      workspacePaths: ["/projects/one", "/notes/one"],
+      cwd: "/notes/one",
+      workspacePaths: ["/projects/one"],
       notebookId: "nb-1",
       notebookPath: "/notes/one",
     });
@@ -145,10 +145,10 @@ describe("conversation workspace snapshot", () => {
     const config = ensureConversationWorkspaceSnapshot("instance-1");
 
     expect(config.workspaceSnapshot).toMatchObject({
-      cwd: "/projects/one",
+      cwd: "/notes/one",
       notebookId: "nb-1",
       notebookPath: "/notes/one",
-      workspacePaths: ["/projects/one", "/notes/one"],
+      workspacePaths: ["/projects/one"],
     });
     expect(config.notebookId).toBe("nb-1");
     expect(state.instance.runtimeConfig.notebookId).toBe("nb-1");

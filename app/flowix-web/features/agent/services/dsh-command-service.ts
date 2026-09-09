@@ -6,7 +6,7 @@ import {
   normalizeWorkspaceSnapshot,
 } from "@features/agent/runtime/workspace-snapshot";
 import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
-import { resolveAuthorizedDefaultFiles } from "@/lib/agent-access-defaults";
+import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { useAgentSessionStore } from "@features/agent/store/agent-session-store";
 import { useMemoStore } from "@features/memo/store/memo-store";
@@ -96,8 +96,9 @@ export function buildDshCommandMessage(
   const notebook = notebookId
     ? useMemoStore.getState().notebooks.find((item) => item.id === notebookId)
     : useMemoStore.getState().selectedNotebook;
+  const accessState = useAgentAccessStore.getState();
   const defaultFiles = !workspaceSnapshot && notebookId
-    ? resolveAuthorizedDefaultFiles(useAgentAccessStore.getState().config, notebookId)
+    ? resolveNotebookAgentFiles(accessState.config, accessState.notebookConfigs, notebookId)
     : undefined;
 
   const runtimeConfig = buildAgentRuntimeConfig({

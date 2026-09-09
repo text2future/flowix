@@ -81,7 +81,8 @@ pub fn run() {
     // 首�?�??时建表�?这里不需要任何�?盘迁�?── �?`notebook.json` �?��已废�?
     let memo_file = flowix_core::memo_file::MemoFile::new(user_config_dir.clone());
 
-    // System metadata goes under ~/.flowix/boot/system.json.
+    // Legacy system metadata remains available as a migration source; new
+    // notebook tag state is persisted under each notebook's `.flowix/`.
     let system_data_path = user_config_dir.join("boot").join("system.json");
     let system_data = match SystemData::new(system_data_path.clone()) {
         Ok(store) => store,
@@ -568,6 +569,8 @@ pub fn run() {
             // agent 鍙闂洰褰?(JSON, 璧?agent_access)
             commands::agent_access::get_agent_access,
             commands::agent_access::set_agent_access,
+            commands::agent_access::get_notebook_agent_configs,
+            commands::agent_access::set_notebook_agent_config,
             // System metadata (JSON, ~/.flowix/boot/system.json)
             commands::kv::get_tag_system_metadata,
             commands::kv::set_tag_system_layout,
@@ -593,7 +596,7 @@ pub fn run() {
             commands::memo::reads::search_memos,
             commands::memo::creates::add_document,
             commands::memo::creates::import_external_document_to_memo,
-            commands::memo::creates::update_memo_db,
+            commands::memo::creates::rename_memo_title,
             commands::memo::creates::favorite_memo,
             commands::memo::creates::unfavorite_memo,
             commands::memo::creates::set_memo_colors,

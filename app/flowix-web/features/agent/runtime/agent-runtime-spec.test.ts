@@ -20,7 +20,7 @@ vi.mock("@features/memo/components/notebook-icon", () => ({
 describe("workspace capabilities", () => {
   it("locks the Codex workspace after the conversation starts", () => {
     const codex = getAgentRuntimeSpec("codex").workspace;
-    expect(codex.selectBeforeFirstRun).toBe(true);
+    expect(codex.selectBeforeFirstRun).toBe(false);
     expect(codex.switchWhileRunning).toBe(false);
     expect(codex.switchBetweenRuns).toBe(false);
     expect(codex.switchRequiresRuntimeRestart).toBe(false);
@@ -48,7 +48,7 @@ describe("buildAgentRuntimeConfig — 「资料列表 + 当前笔记本」派生
     expect(result.claude?.workspacePaths).toEqual([]);
   });
 
-  it("资料主空间存在时, cwd = 资料主空间, workspacePaths = 资料 folders + 当前笔记本", () => {
+  it("资料目录始终是 add-dir, cwd 固定为当前笔记本", () => {
     const result = buildAgentRuntimeConfig({
       typeKey: "deepseek-harness",
       notebookPath: "D:\\当前笔记本",
@@ -61,15 +61,14 @@ describe("buildAgentRuntimeConfig — 「资料列表 + 当前笔记本」派生
         notebooks: [],
       },
     });
-    expect(result.deepseekHarness?.cwd).toBe("D:\\资料主空间");
+    expect(result.deepseekHarness?.cwd).toBe("D:\\当前笔记本");
     expect(result.deepseekHarness?.workspacePaths).toEqual([
       "D:\\资料主空间",
       "D:\\第二份资料",
-      "D:\\当前笔记本",
     ]);
   });
 
-  it("没设资料主空间, cwd 取资料 folders[0]", () => {
+  it("没有显式主空间时 cwd 仍固定为笔记本", () => {
     const result = buildAgentRuntimeConfig({
       typeKey: "deepseek-harness",
       notebookPath: "D:\\当前笔记本",
@@ -82,7 +81,8 @@ describe("buildAgentRuntimeConfig — 「资料列表 + 当前笔记本」派生
         notebooks: [],
       },
     });
-    expect(result.deepseekHarness?.cwd).toBe("D:\\第一份");
+    expect(result.deepseekHarness?.cwd).toBe("D:\\当前笔记本");
+    expect(result.deepseekHarness?.workspacePaths).toEqual(["D:\\第一份", "D:\\第二份"]);
   });
 
   it("资料列表为空 (没添加资料), cwd 退到当前笔记本路径", () => {
@@ -95,10 +95,10 @@ describe("buildAgentRuntimeConfig — 「资料列表 + 当前笔记本」派生
       defaultFiles: { folders: [], notebooks: [], workspace: undefined },
     });
     expect(result.deepseekHarness?.cwd).toBe("D:\\当前笔记本");
-    expect(result.deepseekHarness?.workspacePaths).toEqual(["D:\\当前笔记本"]);
+    expect(result.deepseekHarness?.workspacePaths).toEqual([]);
   });
 
-  it("未传 defaultFiles 时, 仅当前笔记本作为 cwd 与 workspacePaths", () => {
+  it("未传 defaultFiles 时, 仅当前笔记本作为 cwd", () => {
     const result = buildAgentRuntimeConfig({
       typeKey: "claude",
       notebookPath: "D:\\当前笔记本",
@@ -107,10 +107,10 @@ describe("buildAgentRuntimeConfig — 「资料列表 + 当前笔记本」派生
       codexReasoningEffort: "low",
     });
     expect(result.claude?.cwd).toBe("D:\\当前笔记本");
-    expect(result.claude?.workspacePaths).toEqual(["D:\\当前笔记本"]);
+    expect(result.claude?.workspacePaths).toEqual([]);
   });
 
-  it("workspaceSnapshot keeps the notebook-configured workspace as first-run cwd", () => {
+  it("workspaceSnapshot preserves legacy cwd but treats notebook as new primary", () => {
     const result = buildAgentRuntimeConfig({
       typeKey: "codex",
       notebookPath: "/notes/changed",
@@ -135,10 +135,7 @@ describe("buildAgentRuntimeConfig — 「资料列表 + 当前笔记本」派生
     // The snapshot was resolved from the notebook's file settings immediately
     // before its first run. Live notebook/default changes must not replace it.
     expect(result.codex?.cwd).toBe("/projects/original");
-    expect(result.codex?.workspacePaths).toEqual([
-      "/projects/original",
-      "/notes/original",
-    ]);
+    expect(result.codex?.workspacePaths).toEqual(["/notes/original"]);
   });
 
   it("instance 里的 model / permission / reasoningEffort 覆盖 chat-store 全局值", () => {

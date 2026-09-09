@@ -128,10 +128,9 @@ export function useDocumentAutosave({
               error: null,
             }));
           }
-          // 内部 memo 走 `key` 反查时, 后端在 first-line change 场景下
-          // 会物理 rename, writtenPath 跟 closure 持有的 path 可能不同 ──
-          // 此时切 buf 到新 path (applyLoadedContent 内部用 setCurrentPath
-          // + 重用或新建 buffer, 保留 buf 内容)。
+          // Internal memo writes normally preserve the filename. Keep the path
+          // reconciliation as a defensive fallback for an external rename that
+          // races this content save.
           if (writtenPath !== path) {
             applyLoadedDocumentContent(identity, writtenPath, writtenContent, { preservePending: true });
             if (!isExternalDocument && memoId) {
@@ -143,9 +142,8 @@ export function useDocumentAutosave({
             // GC。后续 use-external-document-change-watch 看到旧 path
             // 找不到文件, 自然走 ignore 路径。
           }
-          // 写盘后派生同步由后端 `write_document` 单点保证 (含
-          // `write_memo_renaming_on_title_change` 派生 title 改名),
-          // 前端不再需要二次同步 IPC。
+          // 写盘后派生同步由后端 `write_document` 单点保证；标题改名走
+          // 独立的 `rename_memo_title` IPC，不再由正文首行隐式触发。
           void writtenContent;
         },
         onCasRefused: (writtenContent) => {

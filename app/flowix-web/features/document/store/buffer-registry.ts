@@ -96,6 +96,13 @@ export function setCurrentDocument(identity: DocumentIdentity | null, path: stri
   getOrCreateBuffer(normalized);
 }
 
+/** Rebase the active path without treating live editor bytes as a disk load. */
+export function rebaseCurrentDocumentPath(identity: DocumentIdentity, path: string): void {
+  const normalized = normalizeDocumentIdentity(identity);
+  if (!currentIdentity || documentIdentityKey(normalized) !== documentIdentityKey(currentIdentity)) return;
+  currentPath = canonicalPath(path);
+}
+
 export function hasUnsavedLocalChanges(identity?: DocumentIdentity): boolean {
   const target = identity ?? getCurrentIdentity();
   if (!target) return false;

@@ -10,10 +10,9 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot | null {
   const candidate = value as Partial<WorkspaceSnapshot>;
   const cwd = normalizeWorkspacePath(candidate.cwd);
   if (!cwd || !Array.isArray(candidate.workspacePaths)) return null;
-  const workspacePaths = Array.from(new Set([
-    cwd,
-    ...candidate.workspacePaths.map(normalizeWorkspacePath).filter(Boolean),
-  ]));
+  const workspacePaths = Array.from(new Set(
+    candidate.workspacePaths.map(normalizeWorkspacePath).filter(Boolean),
+  ));
   return {
     version: 1,
     cwd,

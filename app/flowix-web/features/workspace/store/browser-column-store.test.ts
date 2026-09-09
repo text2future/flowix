@@ -47,15 +47,14 @@ describe('browser column store', () => {
       id: 'file',
       title: 'A',
       icon: null,
-      target: { kind: 'file', filePath: '/notes/a.md', scopePath: null },
+      target: { kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/a.md', scopePath: null },
     });
     store.openTab({
       id: 'file-with-scope',
       title: 'A',
       icon: null,
       target: {
-        kind: 'file',
-        filePath: '/notes\\a.md',
+        kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes\\a.md',
         scopePath: '/notes',
       },
     });
@@ -266,7 +265,7 @@ describe('browser column store', () => {
       tabs: [
         {
           id: 'legacy-markdown',
-          target: { kind: 'file', filePath: '/notes/README.md', scopePath: null },
+          target: { kind: 'file-browser', folderPath: null, notebookId: null, fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/README.md', scopePath: null },
         },
         {
           id: 'legacy-web',
@@ -275,5 +274,26 @@ describe('browser column store', () => {
       ],
     });
     expect(useBrowserColumnStore.getState().webRuntimes).toEqual({});
+  });
+});
+
+it('migrates v2 file and directory duplicates while retaining the active directory context', async () => {
+  useBrowserColumnStore.getState().reset();
+  localStorage.setItem('flowix-browser-column-storage', JSON.stringify({ version: 2, state: {
+    visible: true, activeTabId: 'directory', tabs: [
+      { id: 'file', title: 'A', icon: null, target: { kind: 'file', filePath: '/workspace/a.md', scopePath: null } },
+      { id: 'directory', title: 'workspace', icon: null, target: {
+        kind: 'file-browser', folderPath: '/workspace', activeFilePath: '/workspace/a.md',
+        fileTreeVisible: false, fileTreeWidth: 300,
+      } },
+    ],
+  } }));
+  await useBrowserColumnStore.persist.rehydrate();
+  const state = useBrowserColumnStore.getState();
+  expect(state.activeTabId).toBe('directory');
+  expect(state.tabs).toHaveLength(1);
+  expect(state.tabs[0].target).toMatchObject({
+    kind: 'file-browser', activeFilePath: '/workspace/a.md', folderPath: '/workspace',
+    scopePath: '/workspace', restoreNotebookContext: true, fileTreeVisible: false, fileTreeWidth: 300,
   });
 });

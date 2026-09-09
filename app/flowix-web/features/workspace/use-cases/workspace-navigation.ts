@@ -1,3 +1,4 @@
+import { captureFileBrowserContext } from './file-browser-context';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import { canonicalPath } from '@/lib/path';
 import { canonicalUrl } from '@features/workspace/store/workspace-content-identity';
@@ -37,6 +38,7 @@ export interface OpenMemoTargetParams {
   notebookPath?: string | null;
   history?: 'push' | 'skip';
   initialContent?: string;
+  initialFocus?: 'title' | 'body';
   /** When supplied, selection is part of this navigation transaction. */
   memo?: MemoItem | null;
   /** Optional authoritative Notebook entity used during a cross-notebook open. */
@@ -425,6 +427,7 @@ function publishExternalTargetIfCurrent(
   requestId: number,
   path: string | null,
   scopePath: string | null,
+  fileBrowser?: import('../store/file-browser-target').FileBrowserContext,
 ): boolean {
   const document = useDocumentStore.getState();
   const session = document.activeExternalSession;
@@ -438,6 +441,7 @@ function publishExternalTargetIfCurrent(
   return commitNavigation(requestId, {
     kind: 'external',
     path: session.path,
+    ...(fileBrowser ? { fileBrowser } : {}),
     scopePath: session.scopePath,
     transitionId: session.transitionId,
   });
@@ -546,6 +550,8 @@ export async function openExternalTarget(
   path: string | null,
   options?: OpenExternalTargetOptions,
 ): Promise<WorkspaceContentLocation | null> {
+  const fileBrowser = options?.fileBrowser ?? captureFileBrowserContext(path, options?.scopePath);
+  options = { ...options, fileBrowser, scopePath: options?.scopePath ?? fileBrowser.scopePath };
   const existing = path && options?.destination !== 'main-third'
     ? activateExistingContentForNavigation({ kind: 'external', path })
     : null;
@@ -575,7 +581,7 @@ export async function openExternalTarget(
       const scopePath = options?.scopePath ? canonicalPath(options.scopePath) : null;
       if (path === null && !useDocumentStore.getState().activeExternalSession) {
         commitNavigation(requestId, EMPTY_WORK_COLUMN_TARGET);
-      } else if (!publishExternalTargetIfCurrent(requestId, path, scopePath)) {
+      } else if (!publishExternalTargetIfCurrent(requestId, path, scopePath, fileBrowser)) {
         throw new Error(`External document session was not committed: ${path}`);
       }
       if (previousArtifactHistory && options?.history !== 'skip') {

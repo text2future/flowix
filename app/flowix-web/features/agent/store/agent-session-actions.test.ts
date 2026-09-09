@@ -2421,7 +2421,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       runtimeConfig: {
         codex: {
           cwd: "D:\\projects\\flowix",
-          workspacePaths: ["D:\\notes\\main", "D:\\projects\\flowix"],
+          workspacePaths: ["D:\\notes\\main"],
         },
       },
     });
@@ -2466,7 +2466,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       runtimeConfig: {
         codex: {
           cwd: "D:\\projects\\flowix",
-          workspacePaths: ["D:\\projects\\flowix"],
+        workspacePaths: [],
         },
       },
     });
@@ -2532,10 +2532,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       runtimeConfig: {
         codex: {
           cwd: "D:\\projects\\original",
-          workspacePaths: [
-            "D:\\projects\\original",
-            "D:\\notes\\original",
-          ],
+          workspacePaths: ["D:\\notes\\original"],
         },
       },
     });

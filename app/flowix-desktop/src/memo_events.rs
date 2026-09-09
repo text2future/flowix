@@ -21,7 +21,7 @@ pub enum MemoChangeSource {
     UserNew,
     /// "Save to Memo" 鎸夐挳瀵煎叆澶栭儴鏂囦欢
     UserImport,
-    /// 用户在编辑器保存, �?`update_memo_db` / `write_document`
+    /// 用户在编辑器保存或改名 (`write_document` / `rename_memo_title`).
     UserEdit,
     /// User explicitly deleted a note.
     UserDelete,

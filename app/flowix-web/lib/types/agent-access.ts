@@ -18,10 +18,9 @@ import type {
 /**
  * Responsibility split for `~/.flowix/agent-access.json`:
  *
- * - `defaults`: default runtime/files values copied into a newly created
- *   agent-thread-card instance.
- * - `entries`: legacy/global access registry and default candidates used by
- *   old instances or instances without `runtimeConfig.files`.
+ * - `defaults`: default runtime values copied into a newly created
+ *   agent-thread-card instance; file defaults are legacy read-only data.
+ * - `entries`: global access registry used to authorize notebook add-dirs.
  * - actual per-run file permission: instance `runtimeConfig.files`, sent as
  *   IPC `runtimeConfig.{agent}.workspacePaths`.
  */
@@ -34,6 +33,7 @@ export interface AgentAccessEntry {
   path: string;
   name: string;
   enabled: boolean;
+  /** @deprecated Workspace selection is notebook-owned; retained for v1 JSON. */
   workspace?: boolean;
   addedAt: number;
   updatedAt: number;
@@ -51,16 +51,14 @@ export interface AgentAccessDefaultRuntime {
 }
 
 /**
- * `defaults.files` 的全局兜底 key ── 老版本单对象 `defaults.files` 迁移落点,
- * 以及创建时未选笔记本 / 历史 instance (无 `runtimeConfig.notebookId`) 回写
- * 时的 fallback 目标。
+ * Legacy `defaults.files` global key retained for read-only migration of old
+ * installations. New writes always target notebook `.flowix/agent.json`.
  */
 export const DEFAULT_FILES_GLOBAL_KEY = "_global";
 
 /**
- * 按 notebook 维度索引的 files 默认 ── key 为 notebook.id,
- * `DEFAULT_FILES_GLOBAL_KEY` ("_global") 为兜底。 同一 notebook 下新建的
- * agent 卡片共享该 notebook 的默认文件列表; 不同 notebook 互不影响。
+ * Legacy notebook-indexed files defaults. This type is retained so old config
+ * files can be read and migrated; it is no longer the write target.
  *
  * 老版本 `defaults.files` 是单个 `FilesConfig` 对象, 读取时由
  * `normalizeFilesDefaults` 归一化到 `{ _global: <old> }`, 写入时始终落索引。
@@ -76,4 +74,19 @@ export interface AgentAccessConfig {
   version: number; // 当前 = 1
   entries: AgentAccessEntry[];
   defaults?: AgentAccessDefaults;
+}
+
+/** Notebook-local `.flowix/agent.json`. The notebook itself is always cwd;
+ * `addDirs` contains only additional runtime roots. */
+export interface NotebookAddDir {
+  id: string;
+  path: string;
+  label: string;
+  enabled: boolean;
+}
+
+export interface NotebookAgentConfig {
+  version: 1;
+  revision: number;
+  addDirs: NotebookAddDir[];
 }

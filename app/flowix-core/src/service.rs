@@ -308,8 +308,7 @@ impl<'a> MemoService<'a> {
                 "empty body, note not created".into(),
             ));
         }
-        let title = derive_title(body);
-        self.create_memo_named(Some(notebook_key), &title, body)
+        self.create_memo_named(Some(notebook_key), "Untitled", body)
     }
 
     /// Create from CLI/MCP and mark the operation for Desktop's watcher before
@@ -324,12 +323,11 @@ impl<'a> MemoService<'a> {
                 "empty body, note not created".into(),
             ));
         }
-        let title = derive_title(body);
         let notebook = self.resolve_notebook(notebook_key)?;
         let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         let memo = self.memo_file.create_external_memo_for_notebook_id(
             &notebook.id,
-            &title,
+            "Untitled",
             body,
             None,
         )?;
@@ -487,7 +485,7 @@ impl<'a> MemoService<'a> {
         let body = current.replacen(old, new, 1);
         let memo = self
             .memo_file
-            .write_memo_renaming_on_title_change_global(&resolved.id, &body)?;
+            .write_memo_preserving_filename_global(&resolved.id, &body)?;
         let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
         Ok(EditedMemo {
             id: resolved.id,
@@ -556,7 +554,7 @@ impl<'a> MemoService<'a> {
         let old_bytes = current.len();
         let memo = self
             .memo_file
-            .write_memo_renaming_on_title_change_global(&resolved.id, body)?;
+            .write_memo_preserving_filename_global(&resolved.id, body)?;
         let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
         let content = std::fs::read_to_string(&path)?;
         let content_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
@@ -624,8 +622,18 @@ impl<'a> MemoService<'a> {
         id_or_filename: &str,
         new_title: &str,
     ) -> Result<EditedMemo, FlowixError> {
+        self.rename_memo_with_validation(id_or_filename, new_title, |_| Ok(()))
+    }
+
+    pub fn rename_memo_with_validation(
+        &mut self,
+        id_or_filename: &str,
+        new_title: &str,
+        validate: impl FnOnce(&ResolvedMemo) -> Result<(), FlowixError>,
+    ) -> Result<EditedMemo, FlowixError> {
         let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         let resolved = self.resolve_memo(id_or_filename)?;
+        validate(&resolved)?;
         let memo = self.memo_file.rename_memo(&resolved.id, new_title)?;
         let path = PathBuf::from(&resolved.notebook.path).join(&memo.filename);
         Ok(EditedMemo {
@@ -843,16 +851,6 @@ fn memo_is_after_cursor(memo: &Memo, cursor: &MemoListCursor, sort: &str) -> boo
                 || (memo_sort_value(memo, sort) == cursor.sort_value && memo.id < cursor.id)))
 }
 
-fn derive_title(body: &str) -> String {
-    body.lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(|line| line.trim_start_matches('#').trim())
-        .filter(|line| !line.is_empty())
-        .map(|line| line.chars().take(80).collect())
-        .unwrap_or_else(|| "untitled".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1040,7 +1038,7 @@ mod tests {
             .unwrap();
         assert!(created.path.exists());
 
-        let document = service.get_memo("Service note").unwrap();
+        let document = service.get_memo(&created.memo.id).unwrap();
         assert_eq!(document.entry.id, created.memo.id);
         assert!(document.body.contains("old text"));
 
@@ -1057,6 +1055,23 @@ mod tests {
         let deleted = service.delete_memo(&created.memo.id).unwrap();
         assert!(deleted.file_removed);
         assert!(!deleted.path.exists());
+    }
+
+    #[test]
+    fn create_memo_keeps_filename_independent_from_markdown_first_line() {
+        let (_temp, memo_file) = service_fixture();
+        let mut service = MemoService::new(&memo_file);
+        let created = service
+            .create_memo("work", "# Body heading\n\ncontent")
+            .unwrap();
+
+        assert!(created.memo.filename.starts_with("Untitled"));
+        assert!(!created.memo.filename.starts_with("Body heading"));
+        assert!(service
+            .get_memo(&created.memo.id)
+            .unwrap()
+            .body
+            .contains("# Body heading"));
     }
 
     #[test]
@@ -1210,7 +1225,7 @@ mod tests {
         assert_eq!(created.memo.filename, "Imported title.md");
 
         let saved = service.save_memo(&created.memo.id, "").unwrap();
-        assert_eq!(saved.memo.unwrap().filename, "Untitled Memo.md");
+        assert_eq!(saved.memo.unwrap().filename, "Imported title.md");
 
         let mut metadata = service.memo_metadata(&created.memo.id).unwrap();
         metadata.favorited = true;
@@ -1225,6 +1240,31 @@ mod tests {
             service.read_memo_version(&created.memo.id, &version.id),
             Some("version body".to_string())
         );
+    }
+
+    #[test]
+    fn rename_validation_rejects_a_stale_filename_before_mutation() {
+        let (_temp, memo_file) = service_fixture();
+        let mut service = MemoService::new(&memo_file);
+        let created = service
+            .create_memo_named(Some("work"), "Original", "body")
+            .unwrap();
+
+        let error = service
+            .rename_memo_with_validation(&created.memo.id, "Renamed", |resolved| {
+                if resolved.entry.filename != "Stale.md" {
+                    return Err(FlowixError::Conflict("stale filename".into()));
+                }
+                Ok(())
+            })
+            .unwrap_err();
+
+        assert!(matches!(error, FlowixError::Conflict(_)));
+        assert_eq!(
+            service.memo_metadata(&created.memo.id).unwrap().filename,
+            "Original.md"
+        );
+        assert!(created.path.exists());
     }
 
     #[test]

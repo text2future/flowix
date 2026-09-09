@@ -6,9 +6,8 @@
  * 避免插入阶段 store 尚未 hydrate 的 race，也保证后续 turn 不随全局配置变化。
  *
  * 这里只种子 model / access / reasoningEffort 的全局默认, 以及创建时所属
- * notebookId ── 提交时据此 resolveDefaultFiles(config, notebookId) 取该
- * 笔记本的资料默认 (defaults.files[<notebookId>])。 未选笔记本时 notebookId
- * 为 undefined, 提交侧 defaultFiles 为 undefined, 主空间回落当前笔记本路径。
+ * notebookId ── 提交时据此读取该笔记本 `.flowix/agent.json` 中的 add-dir
+ * 配置。未选笔记本时 notebookId 为 undefined，提交侧不会附加资料目录。
  */
 import type { AgentTypeKey, RuntimeConfig } from "@/types/agent";
 import { DEFAULT_AGENT_TYPE_KEY } from "@/lib/agent-types";

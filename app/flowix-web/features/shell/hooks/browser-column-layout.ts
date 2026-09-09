@@ -37,8 +37,8 @@ export function resolveBrowserColumnLayout({
     return {
       canSplit: false,
       availableDocumentWidth,
-      mainColumnWidth: availableDocumentWidth,
-      browserColumnWidth: availableDocumentWidth,
+      mainColumnWidth: BROWSER_COLUMN_MIN_WIDTH,
+      browserColumnWidth: BROWSER_COLUMN_MIN_WIDTH,
     };
   }
 

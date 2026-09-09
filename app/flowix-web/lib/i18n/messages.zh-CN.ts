@@ -986,6 +986,7 @@ const zhCN = {
     "memo.fileTree.deleteFailed": "删除失败",
     "memo.fileTree.createFailed": "创建失败",
     "memo.fileTree.nameConflict": "同名文件已存在，请使用其他名称",
+    "memo.fileTree.openInNewTab": "在新标签打开",
     "memo.fileTree.copyPath": "复制路径",
     "memo.fileTree.pathCopied": "路径已复制",
     "memo.fileTree.copyFailed": "复制失败",

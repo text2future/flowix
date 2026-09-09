@@ -1011,6 +1011,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "memo.fileTree.deleteFailed": "Delete failed",
     "memo.fileTree.createFailed": "Create failed",
     "memo.fileTree.nameConflict": "A file with this name already exists. Choose another name.",
+    "memo.fileTree.openInNewTab": "Open in new tab",
     "memo.fileTree.copyPath": "Copy path",
     "memo.fileTree.pathCopied": "Path copied",
     "memo.fileTree.copyFailed": "Copy failed",

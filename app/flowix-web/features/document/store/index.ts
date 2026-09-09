@@ -23,6 +23,7 @@ export {
   consumeStagedDocumentSnapshot,
   stageDocumentSnapshot,
   setActiveDocumentPath,
+  rebaseActiveDocumentPath,
 } from '@features/document/store/document-session-service';
 export {
   documentIdentityKey,

@@ -58,7 +58,7 @@ pub enum Cli {
         json: bool,
     },
     /// 覆盖整个笔记内容 (从 stdin 读) ── `edit` 的非交互等价物。
-    /// 第一行 `# title` 变了 → 自动 rename 物理文件 + 同步 memo index。
+    /// 覆盖 Markdown 内容，不改变物理文件名；标题改名使用独立操作。
     Write {
         id: String,
         file: Option<String>,

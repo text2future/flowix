@@ -535,7 +535,7 @@ export function MemoList({
     handleMemoCreated(newMemo, { select: false });
 
     if (shouldSelectNewMemo) {
-      openMemoSession({ ...newMemo, isOpen: true }, selectedNotebook);
+      openMemoSession({ ...newMemo, isOpen: true }, selectedNotebook, { initialFocus: 'title' });
     }
   }, [
     activeFilter,

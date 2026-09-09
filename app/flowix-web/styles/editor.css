@@ -20,6 +20,55 @@
   scrollbar-gutter: stable;
 }
 
+.markdown-editor .memo-document-header {
+  width: 100%;
+  max-width: var(--app-document-width, 680px);
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 0 2.5rem;
+}
+
+.markdown-editor .memo-date-line {
+  padding: 4px 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0.7;
+  user-select: none;
+  pointer-events: none;
+}
+
+.markdown-editor .memo-title-shell {
+  width: 100%;
+}
+
+.markdown-editor .memo-title-editor {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: hidden;
+  resize: none;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--document-foreground);
+  caret-color: var(--brand);
+  font-family: var(--app-font-family, var(--font-sans));
+  font-size: calc(1.9rem * (var(--app-font-size, 15px) / 16px));
+  font-weight: 600;
+  line-height: 1.32;
+}
+
+.markdown-editor .memo-title-editor::placeholder {
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .memo-title-editor[data-saving="true"] {
+  opacity: 0.72;
+}
+
 .markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor) {
   display: block;
   width: 100%;
@@ -54,7 +103,7 @@
   outline: none;
 }
 
-.markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor) > *:not(.editor-datetime-widget, .agent-thread-card):first-of-type {
+.markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor) > *:not(.agent-thread-card, .frontmatter-property-node):first-of-type {
   margin-top: 0.5rem;
 }
 

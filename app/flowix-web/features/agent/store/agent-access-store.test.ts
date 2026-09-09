@@ -92,9 +92,7 @@ describe("agent-access-store workspace selection", () => {
   });
 
 
-  it("addFolder keeps new folders as non-workspace even when no workspace exists", async () => {
-    // 不再隐式 promote: 加文件夹不会"顺手"抢占空缺的 workspace 槽位, 用
-    // 户必须显式触发 setWorkspace 才能指派。
+  it("addFolder does not persist the removed workspace field", async () => {
     const { useAgentAccessStore } =
       await import("@features/agent/store/agent-access-store");
     useAgentAccessStore.setState({
@@ -110,6 +108,19 @@ describe("agent-access-store workspace selection", () => {
     const entries = useAgentAccessStore.getState().config.entries;
     expect(entries).toHaveLength(1);
     expect(entries[0]?.enabled).toBe(true);
-    expect(entries[0]?.workspace).toBe(false);
+    expect(entries[0]?.workspace).toBeUndefined();
+  });
+
+  it("does not write legacy global file defaults without a notebook id", async () => {
+    const { useAgentAccessStore } =
+      await import("@features/agent/store/agent-access-store");
+    const result = await useAgentAccessStore.getState().setDefaultFiles(undefined, {
+      workspace: null,
+      folders: ["D:\\projects\\legacy"],
+      notebooks: [],
+    });
+    expect(result).toBe(false);
+    expect(agentAccessMock.set).not.toHaveBeenCalled();
+    expect(useAgentAccessStore.getState().config.defaults?.files).toBeUndefined();
   });
 });

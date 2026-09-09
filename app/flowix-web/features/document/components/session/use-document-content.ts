@@ -91,7 +91,10 @@ export function useDocumentContent({
       const updatedAt = memo?.updatedAt ? formatDateTime(memo.updatedAt, useUserSettingsStore.getState().settings.language) : '';
       const updatedAtDate = memo?.updatedAt ? new Date(memo.updatedAt) : null;
       const isFavorited = memo?.favorited || false;
-      const isNew = fullContent.trimStart().startsWith('# ');
+      // New memo focus is explicit navigation metadata now.  Inferring it
+      // from the first Markdown heading would make an existing document look
+      // newly created and is invalid once the title lives outside Markdown.
+      const isNew = false;
       const initialContent = buf.content;
       const initialBody = extractBodyContent(initialContent);
       const initialCharCount = countTextUnits(initialBody);

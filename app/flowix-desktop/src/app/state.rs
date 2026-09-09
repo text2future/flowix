@@ -23,8 +23,8 @@ pub struct AppState {
     pub export_access: crate::app::export_access::ExportAccess,
     pub user_config: Arc<UserConfigStore>,
     pub cloud_sync: Arc<flowix_sync::SyncManager>,
-    /// System metadata (notebook tag order/layout/hidden state).
-    /// Stored at `~/.flowix/boot/system.json`.
+    /// Legacy system metadata reader used to migrate notebook tag state into
+    /// each notebook's `.flowix/system.json`.
     pub system_data: SystemData,
     /// External CLI 路径配置 (`~/.flowix/agent-external-config.json`) ──
     /// codex/claude/hermes/opencode 执行路径的唯一参照, 启动探测写入,
