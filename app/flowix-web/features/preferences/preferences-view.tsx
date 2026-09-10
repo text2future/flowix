@@ -14,6 +14,7 @@ import {
 	NoteSettingsSection,
 	AgentsSection,
 	DshSettingsSection,
+	CodexSettingsSection,
 	ShortcutsSection,
 	CliSection,
 	McpSection,
@@ -57,9 +58,14 @@ const TAB_GROUPS: { labelKey: I18nKey; tabs: PreferencesTabItem[] }[] = [
 		labelKey: 'preferences.groups.ai',
 		tabs: [
 			{
+				id: 'codex',
+				labelKey: 'preferences.tabs.codex',
+				icon: <AgentIcon typeKey="codex" alt="" className="h-4 w-4 object-contain" />,
+			},
+			{
 				id: 'dsh',
 				labelKey: 'preferences.tabs.dsh',
-					icon: <AgentIcon typeKey="deepseek-harness" alt="" className="h-4 w-4 object-contain" />,
+				icon: <AgentIcon typeKey="deepseek-harness" alt="" className="h-4 w-4 object-contain" />,
 			},
 			// 模型配置整段塞到 aiAgent 的 Flowix 卡片里, 不再独立成 tab。
 			{ id: 'aiAgent', labelKey: 'preferences.tabs.aiAgent', icon: <StarFourIcon className="w-4 h-4" weight="regular" /> },
@@ -201,7 +207,7 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 
 						    底部间距放在这个子元素上 (mb), 不放在外层滚动容器的 pb ──
 						    WKWebView 会忽略 flex 滚动容器的 padding-bottom, margin 则正常生效 */}
-						<div className={cn('mb-10 w-full', activeTab === 'dsh' ? 'max-w-[680px]' : 'max-w-[500px]')}>
+						<div className={cn('mb-10 w-full', ['dsh', 'codex'].includes(activeTab) ? 'max-w-[760px]' : 'max-w-[500px]')}>
 							{activeTab === 'general' && (
 								<GeneralSettingsSection />
 							)}
@@ -214,6 +220,7 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 							{activeTab === 'noteSettings' && <NoteSettingsSection />}
 							{activeTab === 'aiAgent' && <AgentsSection />}
 							{activeTab === 'dsh' && <DshSettingsSection />}
+							{activeTab === 'codex' && <CodexSettingsSection />}
 							{activeTab === 'shortcuts' && <ShortcutsSection />}
 							{activeTab === 'cli' && <CliSection />}
 							{activeTab === 'mcp' && <McpSection />}

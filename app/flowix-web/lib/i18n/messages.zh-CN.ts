@@ -30,6 +30,7 @@ const zhCN = {
     "preferences.tabs.documentProperties": "笔记属性",
     "preferences.tabs.noteSettings": "笔记设置",
     "preferences.tabs.dsh": "Deepseek Harness",
+    "preferences.tabs.codex": "Codex",
     "preferences.tabs.aiAgent": "Agents",
     "preferences.tabs.agents": "Agents",
     "preferences.tabs.agent": "模型配置",

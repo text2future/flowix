@@ -25,6 +25,7 @@ export function PluginNavItems({
       if (active) {
         setItems(next.filter(
           (item) => item.manifest.ui.placement === 'sidebar'
+            && item.enabled
             && !HIDDEN_SIDEBAR_PLUGIN_IDS.has(item.manifest.id),
         ));
       }

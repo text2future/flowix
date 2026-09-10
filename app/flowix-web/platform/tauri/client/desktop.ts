@@ -109,6 +109,9 @@ export interface PluginManifest {
   } | null;
   discovery?: { noteType?: string | null };
   execution?: { runtime?: string | null };
+  engines?: { flowix?: string | null };
+  permissions?: Array<'agent.invoke' | 'notebook.read' | 'artifact.write'>;
+  integrity?: { algorithm: 'sha256'; files: Record<string, string> } | null;
   output: {
     format: string;
     directory: string;
@@ -137,6 +140,21 @@ export interface PluginDescriptor {
   installedPath: string;
   skill: string;
   isSystem: boolean;
+  enabled: boolean;
+  permissions: string[];
+  integrityStatus: 'verified' | 'unverified';
+}
+
+export interface PluginDiagnostic {
+  pluginId?: string | null;
+  path: string;
+  status: 'ready' | 'disabled' | 'invalid';
+  message?: string | null;
+}
+
+export interface PluginCatalogSnapshot {
+  plugins: PluginDescriptor[];
+  diagnostics: PluginDiagnostic[];
 }
 
 export interface PluginArtifact {
@@ -188,9 +206,15 @@ export interface PluginRunEvent {
 export const plugins = {
   list: () => invoke<PluginDescriptor[]>('plugin_list'),
   refresh: () => invoke<PluginDescriptor[]>('plugin_refresh'),
+  catalog: () => invoke<PluginCatalogSnapshot>('plugin_catalog'),
+  validate: (sourceDirectory: string) =>
+    invoke<PluginDescriptor>('plugin_validate', { sourceDirectory }),
   install: (sourceDirectory: string) =>
     invoke<PluginDescriptor>('plugin_install', { sourceDirectory }),
   uninstall: (pluginId: string) => invoke<void>('plugin_uninstall', { pluginId }),
+  setEnabled: (pluginId: string, enabled: boolean) =>
+    invoke<void>('plugin_set_enabled', { pluginId, enabled }),
+  diagnostics: () => invoke<PluginDiagnostic[]>('plugin_diagnostics'),
   get: (pluginId: string) => invoke<PluginDescriptor>('plugin_get', { pluginId }),
   preparePrompt: (pluginId: string, userPrompt: string, context: string) =>
     invoke<string>('plugin_prepare_prompt', { pluginId, userPrompt, context }),

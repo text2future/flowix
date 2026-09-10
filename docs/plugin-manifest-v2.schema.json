@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flowix.app/schemas/plugin-manifest-v2.json",
+  "title": "Flowix plugin manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "version", "kind", "ui", "input", "output"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "kind": { "enum": ["artifact-tool", "agent-markdown"] },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placement", "order", "icon"],
+      "properties": {
+        "placement": { "const": "sidebar" },
+        "order": { "type": "integer" },
+        "icon": { "type": "string", "minLength": 1 }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields"],
+      "properties": {
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
+        "prompt": { "$ref": "#/$defs/field" },
+        "agentType": { "$ref": "#/$defs/field" }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill"],
+      "properties": { "skill": { "$ref": "#/$defs/relativePath" } }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "input", "contentType", "instructions"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "input": { "const": "stdin" },
+        "contentType": { "type": "string", "minLength": 1 },
+        "instructions": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "noteType": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" } }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "runtime": { "enum": ["codex", "claude", "hermes", "opencode"] } }
+    },
+    "engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "flowix": { "type": "string", "minLength": 1 } }
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["agent.invoke", "notebook.read", "artifact.write"] }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "files"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "files": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "pattern": "^[0-9A-Fa-f]{64}$" }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "directory", "extension", "renderer"],
+      "properties": {
+        "format": { "enum": ["markdown", "json", "html", "text"] },
+        "directory": { "$ref": "#/$defs/relativePath" },
+        "extension": { "type": "string", "pattern": "^\\.?[A-Za-z0-9]{1,16}$" },
+        "renderer": { "enum": ["markmap", "json-viewer", "html", "webpage", "markdown", "text"] },
+        "parser": { "enum": ["mindmap-markdown", "markdown", "json", "html", "text"] }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "artifact-tool" } } },
+      "then": { "required": ["tool"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "agent-markdown" } } },
+      "then": { "required": ["agent"] }
+    }
+  ],
+  "$defs": {
+    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$" },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["text", "input", "textarea", "select", "agent-select", "number", "checkbox"] },
+        "label": { "type": "string" },
+        "required": { "type": "boolean" },
+        "placeholder": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "label"],
+            "properties": { "value": { "type": "string" }, "label": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

@@ -6,7 +6,11 @@ export {
   type PluginNoteInfo,
 } from './plugin-note';
 export { PluginWorkbench } from './plugin-workbench';
-export { PluginArtifactRenderer } from './plugin-artifact-renderer';
+export {
+  PluginArtifactRenderer,
+  getPluginArtifactRendererDefinition,
+  pluginArtifactRendererRegistry,
+} from './plugin-artifact-renderer';
 export {
   ensurePluginRunStoreSubscription,
   isPluginRunning,

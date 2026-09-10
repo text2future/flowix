@@ -67,6 +67,9 @@ function plugin(id = 'mindmap'): PluginDescriptor {
     installedPath: '/plugins/mindmap',
     skill: '',
     isSystem: true,
+    enabled: true,
+    permissions: [],
+    integrityStatus: 'unverified',
   };
 }
 

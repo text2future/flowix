@@ -225,6 +225,26 @@ export interface CodexRuntimeInfo {
   usage?: UsageInfo | null;
 }
 
+export interface CodexCapabilityResult {
+  ok: boolean;
+  value?: unknown;
+  error?: string;
+}
+
+export interface CodexProjectCapabilities {
+  cwd: string;
+  skills: CodexCapabilityResult;
+  config: CodexCapabilityResult;
+  requirements: CodexCapabilityResult;
+  models: CodexCapabilityResult;
+  mcp: CodexCapabilityResult;
+  plugins: CodexCapabilityResult;
+  pluginCatalog: CodexCapabilityResult;
+  agents: CodexCapabilityResult;
+  experiments: CodexCapabilityResult;
+  projectConfigPath: string;
+  refreshedAt: number;
+}
 export type AgentExternalSource = 'auto' | 'user';
 
 export interface AgentExternalEntry {
@@ -362,6 +382,19 @@ export const agent = {
     invoke<string>('codex_default_model'),
   getCodexRuntimeInfo: (threadId?: string | null) =>
     invoke<CodexRuntimeInfo>('codex_runtime_info', { threadId: threadId ?? null }),
+  getCodexProjectCapabilities: (cwd: string, forceReload = false) =>
+    invoke<CodexProjectCapabilities>('codex_project_capabilities', { cwd, forceReload }),
+  writeCodexProjectConfig: (cwd: string, edits: Array<{ keyPath: string; value: unknown; mergeStrategy: 'replace' | 'upsert' }>, expectedVersion?: string | null) =>
+    invoke<{ status: string; version: string; filePath: string; overriddenMetadata?: unknown }>('codex_project_config_write', { cwd, edits, expectedVersion: expectedVersion ?? null }),
+  setCodexSkillEnabled: (cwd: string, name: string, enabled: boolean) =>
+    invoke<{ effectiveEnabled: boolean }>('codex_skill_enabled_set', { cwd, name, enabled }),
+  setCodexPluginInstalled: (cwd: string, pluginId: string, installed: boolean) =>
+    invoke<unknown>('codex_plugin_installed_set', { cwd, pluginId, installed }),
+  reloadCodexMcp: (cwd: string) => invoke<unknown>('codex_mcp_reload', { cwd }),
+  upsertCodexProjectMcp: (cwd: string, name: string, definition: Record<string, unknown>, expectedVersion?: string | null) =>
+    invoke<unknown>('codex_project_mcp_upsert', { cwd, name, definition, expectedVersion: expectedVersion ?? null }),
+  writeCodexProjectSkill: (cwd: string, name: string, description: string, instructions: string) =>
+    invoke<{ path: string }>('codex_project_skill_write', { cwd, name, description, instructions }),
   updateCodexThreadSettings: (args: {
     threadId: string;
     model?: string;

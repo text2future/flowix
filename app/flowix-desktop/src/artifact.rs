@@ -65,6 +65,18 @@ fn sha256_hex(content: &str) -> String {
     format!("{:x}", Sha256::digest(content.as_bytes()))
 }
 
+fn artifact_hash_matches(expected: &str, content: &str) -> bool {
+    if expected.is_empty() || expected == format!("sha256:{}", sha256_hex(content)) {
+        return true;
+    }
+
+    // Older writers appended one newline after hashing the canonical content.
+    // Keep those artifacts readable without accepting arbitrary differences.
+    content.strip_suffix('\n').is_some_and(|legacy| {
+        expected == format!("sha256:{}", sha256_hex(legacy.trim_end_matches('\r')))
+    })
+}
+
 fn is_valid_plugin_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
@@ -175,8 +187,7 @@ pub fn resolve(
         Some(path) => match fs::read_to_string(&path) {
             Ok(raw_artifact) => {
                 let content = artifact_body(&raw_artifact);
-                let hash_matches = pointer.content_hash.is_empty()
-                    || pointer.content_hash == format!("sha256:{}", sha256_hex(&content));
+                let hash_matches = artifact_hash_matches(&pointer.content_hash, &content);
                 if !hash_matches {
                     (
                         Some(content),
@@ -273,7 +284,7 @@ pub fn remove_path(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{artifact_body, artifact_candidates};
+    use super::{artifact_body, artifact_candidates, artifact_hash_matches, sha256_hex};
     use std::path::Path;
 
     #[test]
@@ -299,5 +310,16 @@ mod tests {
             artifact_candidates(notebook, "mindmap", ".flowix/plugin/mindmap/../secret.md")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn accepts_legacy_trailing_newline_but_rejects_content_changes() {
+        let content = "# Root\n\n## Branch";
+        let expected = format!("sha256:{}", sha256_hex(content));
+
+        assert!(artifact_hash_matches(&expected, content));
+        assert!(artifact_hash_matches(&expected, &format!("{content}\n")));
+        assert!(!artifact_hash_matches(&expected, "# Changed"));
+        assert!(!artifact_hash_matches(&expected, &format!("{content}\n\n")));
     }
 }

@@ -11,6 +11,7 @@ export { DocumentPropertiesSection } from '@features/preferences/sections/docume
 export { AgentSection } from '@features/preferences/sections/agent';
 export { AgentsSection } from '@features/preferences/sections/agents';
 export { DshSettingsSection } from '@features/preferences/sections/dsh';
+export { CodexSettingsSection } from '@features/preferences/sections/codex';
 export { ShortcutsSection } from '@features/preferences/sections/shortcuts';
 export { CliSection } from '@features/preferences/sections/cli';
 export { McpSection } from '@features/preferences/sections/mcp';

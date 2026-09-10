@@ -8,7 +8,12 @@ use flowix_core::memo_file::{atomic_write_bytes, MemoFile, NotebookConfig};
 use flowix_core::MemoService;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
+
+mod manifest;
+pub use manifest::*;
 
 pub const MINDMAP_PLUGIN_ID: &str = "mindmap";
 pub const MINDMAP_VERSION: &str = "0.2.0";
@@ -107,17 +112,17 @@ Input contract:
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginToolDescription {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub version: &'static str,
-    pub kind: &'static str,
-    pub command: &'static str,
-    pub input: &'static str,
-    pub content_type: &'static str,
-    pub parser: &'static str,
-    pub renderer: &'static str,
-    pub output_directory: &'static str,
-    pub instructions: &'static str,
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub kind: String,
+    pub command: String,
+    pub input: String,
+    pub content_type: String,
+    pub parser: String,
+    pub renderer: String,
+    pub output_directory: String,
+    pub instructions: String,
 }
 
 pub fn builtin_tools() -> Vec<PluginToolDescription> {
@@ -134,40 +139,279 @@ pub fn describe_tool(id: &str) -> Option<PluginToolDescription> {
 
 fn webpage_description() -> PluginToolDescription {
     PluginToolDescription {
-        id: WEBPAGE_PLUGIN_ID,
-        name: "网页",
-        version: WEBPAGE_VERSION,
-        kind: "artifact-tool",
-        command: "flowix plugin create webpage --notebook <name|id|path>",
-        input: "stdin",
-        content_type: "text/html",
-        parser: WEBPAGE_PARSER,
-        renderer: WEBPAGE_RENDERER,
-        output_directory: WEBPAGE_OUTPUT_DIRECTORY,
-        instructions: WEBPAGE_SKILL,
+        id: WEBPAGE_PLUGIN_ID.into(),
+        name: "网页".into(),
+        version: WEBPAGE_VERSION.into(),
+        kind: "artifact-tool".into(),
+        command: "flowix plugin create webpage --notebook <name|id|path>".into(),
+        input: "stdin".into(),
+        content_type: "text/html".into(),
+        parser: WEBPAGE_PARSER.into(),
+        renderer: WEBPAGE_RENDERER.into(),
+        output_directory: WEBPAGE_OUTPUT_DIRECTORY.into(),
+        instructions: WEBPAGE_SKILL.into(),
     }
 }
 
 fn mindmap_description() -> PluginToolDescription {
     PluginToolDescription {
-        id: MINDMAP_PLUGIN_ID,
-        name: "思维导图",
-        version: MINDMAP_VERSION,
-        kind: "artifact-tool",
-        command: "flowix plugin create mindmap --notebook <name|id|path>",
-        input: "stdin",
-        content_type: "text/markdown",
-        parser: MINDMAP_PARSER,
-        renderer: MINDMAP_RENDERER,
-        output_directory: MINDMAP_OUTPUT_DIRECTORY,
-        instructions: MINDMAP_SKILL,
+        id: MINDMAP_PLUGIN_ID.into(),
+        name: "思维导图".into(),
+        version: MINDMAP_VERSION.into(),
+        kind: "artifact-tool".into(),
+        command: "flowix plugin create mindmap --notebook <name|id|path>".into(),
+        input: "stdin".into(),
+        content_type: "text/markdown".into(),
+        parser: MINDMAP_PARSER.into(),
+        renderer: MINDMAP_RENDERER.into(),
+        output_directory: MINDMAP_OUTPUT_DIRECTORY.into(),
+        instructions: MINDMAP_SKILL.into(),
     }
+}
+
+#[derive(Debug, Clone)]
+struct ArtifactDefinition {
+    description: PluginToolDescription,
+    note_type: String,
+    extension: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct InstalledPluginState {
+    #[serde(default)]
+    disabled: HashSet<String>,
+}
+
+pub fn plugin_is_enabled(config_dir: &Path, id: &str) -> bool {
+    fs::read_to_string(config_dir.join("plugin").join("state.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<InstalledPluginState>(&raw).ok())
+        .is_none_or(|state| !state.disabled.contains(id))
+}
+
+/// Discover declaration-only artifact tools from `<config>/plugin`.
+/// Invalid packages are ignored so one broken third-party plugin cannot make
+/// the CLI unavailable.
+pub fn installed_tools(config_dir: &Path) -> Vec<PluginToolDescription> {
+    let root = config_dir.join("plugin");
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut tools = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| load_installed_definition(&entry.path()).ok())
+        .filter(|definition| plugin_is_enabled(config_dir, &definition.description.id))
+        .map(|definition| definition.description)
+        .collect::<Vec<_>>();
+    tools.sort_by(|left, right| left.name.cmp(&right.name));
+    tools
+}
+
+pub fn describe_installed_tool(config_dir: &Path, id: &str) -> Option<PluginToolDescription> {
+    if !plugin_is_enabled(config_dir, id) {
+        return None;
+    }
+    load_installed_definition(&config_dir.join("plugin").join(id))
+        .ok()
+        .map(|definition| definition.description)
+}
+
+fn load_installed_definition(path: &Path) -> Result<ArtifactDefinition, String> {
+    let root = path
+        .parent()
+        .ok_or_else(|| "plugin path is invalid".to_string())?;
+    let root_metadata =
+        fs::symlink_metadata(root).map_err(|error| format!("inspect plugin directory: {error}"))?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        return Err("plugin directory is invalid".into());
+    }
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| format!("inspect plugin: {error}"))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("plugin path is invalid".into());
+    }
+    let expected_id = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "plugin path is invalid".to_string())?;
+    let raw = fs::read_to_string(path.join("plugin.json"))
+        .map_err(|error| format!("read plugin manifest: {error}"))?;
+    let manifest: PluginManifest =
+        serde_json::from_str(&raw).map_err(|error| format!("parse plugin manifest: {error}"))?;
+    let validated = validate_manifest(&manifest)?;
+    verify_plugin_integrity(path, &manifest)?;
+    if manifest.schema_version != 2 || manifest.kind != "artifact-tool" {
+        return Err("CLI supports schema v2 artifact-tool plugins".into());
+    }
+    if expected_id != manifest.id || !valid_plugin_id(&manifest.id) {
+        return Err("plugin id does not match its installation directory".into());
+    }
+    let tool = manifest
+        .tool
+        .ok_or_else(|| "artifact-tool requires tool".to_string())?;
+    let instruction_path = path.join(&tool.instructions);
+    let instruction_metadata = fs::symlink_metadata(&instruction_path)
+        .map_err(|error| format!("inspect plugin instructions: {error}"))?;
+    if instruction_metadata.file_type().is_symlink()
+        || !instruction_metadata.is_file()
+        || !path_is_inside(&instruction_path, path)
+    {
+        return Err("plugin instructions are invalid".into());
+    }
+    let instructions = fs::read_to_string(&instruction_path)
+        .map_err(|error| format!("read plugin instructions: {error}"))?;
+    let parser = validated.parser.key().to_string();
+    let extension = validated.extension.trim_start_matches('.').to_string();
+    let note_type = validated.note_type;
+    let output_directory = format!(".flowix/plugin/{}", manifest.id);
+    Ok(ArtifactDefinition {
+        description: PluginToolDescription {
+            id: manifest.id,
+            name: manifest.name,
+            version: manifest.version,
+            kind: manifest.kind,
+            command: tool.command,
+            input: tool.input,
+            content_type: tool.content_type,
+            parser,
+            renderer: manifest.output.renderer,
+            output_directory,
+            instructions,
+        },
+        note_type,
+        extension,
+    })
+}
+
+fn verify_plugin_integrity(path: &Path, manifest: &PluginManifest) -> Result<(), String> {
+    let Some(integrity) = &manifest.integrity else {
+        return Ok(());
+    };
+    for (relative, expected) in &integrity.files {
+        let file = path.join(relative);
+        let metadata = fs::symlink_metadata(&file)
+            .map_err(|error| format!("inspect integrity file {relative}: {error}"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() || !path_is_inside(&file, path)
+        {
+            return Err(format!("plugin integrity file is invalid: {relative}"));
+        }
+        let actual = format!(
+            "{:x}",
+            Sha256::digest(
+                &fs::read(&file)
+                    .map_err(|error| format!("read integrity file {relative}: {error}"))?,
+            )
+        );
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Err(format!("plugin integrity mismatch: {relative}"));
+        }
+    }
+    Ok(())
+}
+
+fn path_is_inside(path: &Path, root: &Path) -> bool {
+    let Ok(path) = path.canonicalize() else {
+        return false;
+    };
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    path.starts_with(root)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMindmap {
     pub content: String,
     pub title: String,
+}
+
+/// Normalize Agent output before applying the artifact contract. Direct CLI
+/// input remains strict; Agent output may contain a short explanation and a
+/// single Markdown code fence.
+pub fn parse_agent_artifact(parser: PluginParser, raw: &str) -> Result<ParsedMindmap, String> {
+    let normalized = raw.trim().replace("\r\n", "\n");
+    let content = if let Some(start) = normalized.find("```") {
+        let after_open = normalized[start..]
+            .find('\n')
+            .map(|offset| start + offset + 1)
+            .ok_or_else(|| "plugin response has an invalid code fence".to_string())?;
+        let end = normalized[after_open..]
+            .find("```")
+            .ok_or_else(|| "plugin response has an unclosed code fence".to_string())?;
+        normalized[after_open..after_open + end].trim().to_string()
+    } else {
+        normalized
+    };
+    match parser {
+        PluginParser::MindmapMarkdown => {
+            let root = content
+                .lines()
+                .position(|line| line.trim_start().starts_with("# "))
+                .ok_or_else(|| "mindmap response must contain a level-one heading".to_string())?;
+            let content = content
+                .lines()
+                .skip(root)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+            if content.len() > 200_000 {
+                return Err("mindmap response is too large".into());
+            }
+            let title = artifact_title(&content, "mindmap");
+            Ok(ParsedMindmap { content, title })
+        }
+        PluginParser::Markdown => {
+            if content.is_empty() {
+                return Err("plugin markdown output is empty".into());
+            }
+            if content.len() > 200_000 {
+                return Err("plugin markdown output is too large".into());
+            }
+            let title = artifact_title(&content, "output");
+            Ok(ParsedMindmap { content, title })
+        }
+        PluginParser::Json => {
+            let value: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|error| format!("plugin output is invalid JSON: {error}"))?;
+            let title = value
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("JSON output")
+                .to_string();
+            let content = serde_json::to_string_pretty(&value)
+                .map_err(|error| format!("format plugin JSON output: {error}"))?;
+            Ok(ParsedMindmap { content, title })
+        }
+        PluginParser::Html | PluginParser::Text => {
+            if content.is_empty() {
+                return Err("plugin output is empty".into());
+            }
+            if content.len() > 1_000_000 {
+                return Err("plugin output is too large".into());
+            }
+            Ok(ParsedMindmap {
+                content,
+                title: if parser == PluginParser::Html {
+                    "HTML output"
+                } else {
+                    "Plugin output"
+                }
+                .into(),
+            })
+        }
+    }
+}
+
+fn artifact_title(content: &str, fallback: &str) -> String {
+    content
+        .lines()
+        .find(|line| line.trim_start().starts_with("# "))
+        .map(|line| line.trim_start_matches('#').trim())
+        .filter(|title| !title.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 /// Validate final tool input. Unlike the legacy agent-output parser, this is
@@ -291,30 +535,52 @@ pub fn create_artifact(
     memo_file: &MemoFile,
     request: CreateArtifactRequest<'_>,
 ) -> Result<CreatedPluginArtifact, String> {
-    let (parsed, version, note_type, renderer, parser, output_directory, format, extension) =
-        match request.plugin_id {
-            MINDMAP_PLUGIN_ID => (
-                parse_mindmap_input(request.content)?,
-                MINDMAP_VERSION,
-                MINDMAP_NOTE_TYPE,
-                MINDMAP_RENDERER,
-                MINDMAP_PARSER,
-                MINDMAP_OUTPUT_DIRECTORY,
-                "markdown",
-                "md",
-            ),
-            WEBPAGE_PLUGIN_ID => (
-                parse_webpage_input(request.content)?,
-                WEBPAGE_VERSION,
-                WEBPAGE_NOTE_TYPE,
-                WEBPAGE_RENDERER,
-                WEBPAGE_PARSER,
-                WEBPAGE_OUTPUT_DIRECTORY,
-                "html",
-                "html",
-            ),
-            _ => return Err(format!("plugin tool not found: {}", request.plugin_id)),
-        };
+    let definition = match request.plugin_id {
+        MINDMAP_PLUGIN_ID => ArtifactDefinition {
+            description: mindmap_description(),
+            note_type: MINDMAP_NOTE_TYPE.into(),
+            extension: "md".into(),
+        },
+        WEBPAGE_PLUGIN_ID => ArtifactDefinition {
+            description: webpage_description(),
+            note_type: WEBPAGE_NOTE_TYPE.into(),
+            extension: "html".into(),
+        },
+        _ => return Err(format!("plugin tool not found: {}", request.plugin_id)),
+    };
+    create_artifact_from_definition(memo_file, request, definition)
+}
+
+pub fn create_installed_artifact(
+    memo_file: &MemoFile,
+    config_dir: &Path,
+    request: CreateArtifactRequest<'_>,
+) -> Result<CreatedPluginArtifact, String> {
+    if !plugin_is_enabled(config_dir, request.plugin_id) {
+        return Err(format!("plugin is disabled: {}", request.plugin_id));
+    }
+    let definition = load_installed_definition(&config_dir.join("plugin").join(request.plugin_id))
+        .map_err(|error| format!("load plugin '{}': {error}", request.plugin_id))?;
+    create_artifact_from_definition(memo_file, request, definition)
+}
+
+fn create_artifact_from_definition(
+    memo_file: &MemoFile,
+    request: CreateArtifactRequest<'_>,
+    definition: ArtifactDefinition,
+) -> Result<CreatedPluginArtifact, String> {
+    let description = &definition.description;
+    let parsed = parse_final_input(&description.parser, &description.renderer, request.content)?;
+    let version = description.version.as_str();
+    let note_type = definition.note_type.as_str();
+    let renderer = description.renderer.as_str();
+    let parser = description.parser.as_str();
+    let output_directory = description.output_directory.as_str();
+    let format = match parser {
+        "mindmap-markdown" | "markdown" => "markdown",
+        other => other,
+    };
+    let extension = definition.extension.as_str();
     let notebook = resolve_notebook(memo_file, request.notebook)?;
     let notebook_path = PathBuf::from(&notebook.path);
     if !notebook_path.is_dir() {
@@ -338,7 +604,7 @@ pub fn create_artifact(
         return Err("plugin output directory escaped notebook root".to_string());
     }
     let artifact_path = output_file_path(&output_dir, &parsed.title, extension);
-    let artifact_document = artifact_document(
+    let artifact_document = serialize_artifact_document(
         request.plugin_id,
         version,
         format,
@@ -361,7 +627,7 @@ pub fn create_artifact(
         parser: parser.to_string(),
         renderer: renderer.to_string(),
         title: parsed.title.clone(),
-        content_hash: format!("sha256:{:x}", Sha256::digest(parsed.content.as_bytes())),
+        content_hash: artifact_content_hash(&parsed.content),
         created_at: now,
         source_note: request
             .source_note
@@ -369,7 +635,7 @@ pub fn create_artifact(
             .filter(|value| !value.is_empty())
             .map(str::to_string),
     };
-    let pointer_body = pointer_document(request.plugin_id, version, note_type, &pointer)?;
+    let pointer_body = serialize_pointer_document(request.plugin_id, version, note_type, &pointer)?;
     let created = MemoService::new(memo_file)
         .create_external_memo_named(&notebook.id, &parsed.title, &pointer_body)
         .map_err(|error| {
@@ -389,6 +655,59 @@ pub fn create_artifact(
         artifact_path: artifact_path.to_string_lossy().to_string(),
         note_path: created.path.to_string_lossy().to_string(),
     })
+}
+
+fn parse_final_input(parser: &str, renderer: &str, raw: &str) -> Result<ParsedMindmap, String> {
+    match parser {
+        "mindmap-markdown" => parse_mindmap_input(raw),
+        "html" if renderer == "webpage" => parse_webpage_input(raw),
+        "html" => {
+            let content = raw.trim().replace("\r\n", "\n");
+            if content.is_empty() {
+                return Err("html input is empty".into());
+            }
+            if content.len() > 1_000_000 {
+                return Err("html input is too large".into());
+            }
+            Ok(ParsedMindmap {
+                content,
+                title: "HTML output".into(),
+            })
+        }
+        "markdown" | "text" => {
+            let content = raw.trim().replace("\r\n", "\n");
+            if content.is_empty() {
+                return Err(format!("{parser} input is empty"));
+            }
+            if content.len() > 1_000_000 {
+                return Err(format!("{parser} input is too large"));
+            }
+            if content.contains("```") {
+                return Err(format!("{parser} input must not use code fences"));
+            }
+            let title = content
+                .lines()
+                .find_map(|line| line.strip_prefix("# ").map(str::trim))
+                .filter(|title| !title.is_empty())
+                .unwrap_or("Plugin output")
+                .to_string();
+            Ok(ParsedMindmap { content, title })
+        }
+        "json" => {
+            let value: serde_json::Value = serde_json::from_str(raw.trim())
+                .map_err(|error| format!("json input is invalid: {error}"))?;
+            let title = value
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or("JSON output")
+                .to_string();
+            let content = serde_json::to_string_pretty(&value)
+                .map_err(|error| format!("format json input: {error}"))?;
+            Ok(ParsedMindmap { content, title })
+        }
+        _ => Err(format!("unsupported plugin output parser: {parser}")),
+    }
 }
 
 fn resolve_notebook(memo_file: &MemoFile, key: &str) -> Result<NotebookConfig, String> {
@@ -452,7 +771,11 @@ fn output_file_path(output_dir: &Path, title: &str, extension: &str) -> PathBuf 
     ))
 }
 
-fn artifact_document(
+pub fn artifact_content_hash(content: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(content.as_bytes()))
+}
+
+pub fn serialize_artifact_document(
     plugin_id: &str,
     plugin_version: &str,
     format: &str,
@@ -488,10 +811,10 @@ fn artifact_document(
         source_note,
     };
     let yaml = serde_yaml::to_string(&metadata).expect("artifact metadata is serializable");
-    format!("---\n{yaml}---\n\n{content}\n")
+    format!("---\n{yaml}---\n\n{content}")
 }
 
-fn pointer_document(
+pub fn serialize_pointer_document(
     plugin_id: &str,
     plugin_version: &str,
     note_type: &str,
@@ -510,7 +833,11 @@ fn pointer_document(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_artifact, parse_mindmap_input, parse_webpage_input, CreateArtifactRequest};
+    use super::{
+        create_artifact, create_installed_artifact, describe_installed_tool, installed_tools,
+        parse_mindmap_input, parse_webpage_input, serialize_artifact_document,
+        CreateArtifactRequest,
+    };
     use flowix_core::memo_file::{MemoFile, NotebookConfig};
     use std::path::Path;
 
@@ -524,6 +851,15 @@ mod tests {
     fn rejects_multiple_roots_and_explanation() {
         assert!(parse_mindmap_input("# One\n# Two").is_err());
         assert!(parse_mindmap_input("Here it is\n# Root").is_err());
+    }
+
+    #[test]
+    fn serializes_markdown_artifact_without_extra_trailing_newline() {
+        let content = "# Root\n\n## Branch";
+        let document =
+            serialize_artifact_document("mindmap", "0.2.0", "markdown", content, "codex", None);
+        assert!(document.ends_with(content));
+        assert!(!document.ends_with(&format!("{content}\n")));
     }
 
     #[test]
@@ -581,6 +917,72 @@ mod tests {
             memo_file.read_all_memos_for_notebook_id(Some("work")).len(),
             1
         );
+    }
+
+    #[test]
+    fn discovers_and_creates_a_third_party_declaration_tool() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_dir = temp.path().join("config");
+        let plugin_dir = config_dir.join("plugin").join("plain-report");
+        let notebook_path = temp.path().join("notes");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        std::fs::create_dir_all(&notebook_path).unwrap();
+        std::fs::write(plugin_dir.join("SKILL.md"), "# Plain report\n").unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.json"),
+            r#"{
+              "schemaVersion": 2,
+              "id": "plain-report",
+              "name": "Plain Report",
+              "version": "1.0.0",
+              "kind": "artifact-tool",
+              "ui": { "placement": "sidebar", "order": 200, "icon": "document" },
+              "input": { "fields": [] },
+              "tool": { "command": "flowix plugin create plain-report", "input": "stdin", "contentType": "text/plain", "instructions": "SKILL.md" },
+              "discovery": { "noteType": "plain-report" },
+              "output": { "format": "text", "directory": "ignored-by-host", "extension": "txt", "renderer": "text", "parser": "text" }
+            }"#,
+        )
+        .unwrap();
+
+        let tools = installed_tools(&config_dir);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].id, "plain-report");
+        assert_eq!(
+            describe_installed_tool(&config_dir, "plain-report")
+                .unwrap()
+                .renderer,
+            "text"
+        );
+
+        let memo_file = MemoFile::new(&config_dir);
+        memo_file
+            .write_notebook_configs(&[NotebookConfig {
+                id: "work".into(),
+                name: "Work".into(),
+                icon: None,
+                path: format!("{}/", notebook_path.display()),
+                is_default: true,
+                sort: 0,
+                created_at: 1,
+                updated_at: 1,
+            }])
+            .unwrap();
+        let created = create_installed_artifact(
+            &memo_file,
+            &config_dir,
+            CreateArtifactRequest {
+                plugin_id: "plain-report",
+                notebook: "work",
+                content: "# Weekly report\nDone",
+                source_note: None,
+                producer: "test",
+            },
+        )
+        .unwrap();
+        assert_eq!(created.plugin_id, "plain-report");
+        assert_eq!(created.renderer, "text");
+        assert!(Path::new(&created.artifact_path).is_file());
     }
 
     #[test]

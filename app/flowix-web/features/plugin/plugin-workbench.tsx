@@ -40,6 +40,8 @@ function ArtifactToolWorkbench({
   const [notes, setNotes] = useState<MemoItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const command = plugin.manifest.tool?.command
+    ?? `flowix plugin create ${plugin.manifest.id} --notebook <name|id|path>`;
 
   const load = useCallback(async () => {
     if (!selectedNotebook) return;
@@ -79,7 +81,7 @@ function ArtifactToolWorkbench({
           onClick={() => { void load(); }}
           disabled={loading}
           title="刷新"
-          aria-label="刷新思维导图列表"
+          aria-label={`刷新${plugin.manifest.name}列表`}
         >
           <ArrowClockwiseIcon size={16} weight="bold" className={loading ? 'animate-spin' : undefined} />
         </button>
@@ -91,12 +93,12 @@ function ArtifactToolWorkbench({
             <div className="flex items-start gap-3">
               <TerminalWindowIcon size={18} weight="bold" className="mt-0.5 shrink-0 text-[var(--muted-foreground)]" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-[var(--foreground)]">在 Agent 会话中创建思维导图</p>
+                <p className="text-sm font-medium text-[var(--foreground)]">在 Agent 会话中创建{plugin.manifest.name}</p>
                 <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
-                  直接告诉文档内 Agent“生成思维导图”。Agent 会整理内容并调用插件工具，完成后文档会出现在下方列表。
+                  直接告诉文档内 Agent 创建{plugin.manifest.name}。Agent 会按照插件说明调用工具，完成后文档会出现在下方列表。
                 </p>
                 <code className="mt-3 block overflow-x-auto rounded-lg bg-[var(--muted)] px-3 py-2 text-xs text-[var(--foreground)]">
-                  flowix plugin create mindmap --notebook &lt;name|id|path&gt; --json
+                  {command}
                 </code>
               </div>
             </div>
@@ -131,7 +133,7 @@ function ArtifactToolWorkbench({
                 </button>
               ))}
               {!loading && notes.length === 0 && (
-                <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">当前笔记本还没有思维导图</p>
+                <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">当前笔记本还没有{plugin.manifest.name}</p>
               )}
               {loading && notes.length === 0 && (
                 <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">正在加载…</p>

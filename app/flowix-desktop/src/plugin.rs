@@ -5,7 +5,9 @@
 //! code. This keeps `~/.flowix/plugin/` safe to scan while leaving room for a
 //! sandboxed runtime later.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,6 +35,10 @@ const MINDMAP_SKILL: &str = flowix_plugin_runtime::MINDMAP_SKILL;
 const WEBPAGE_MANIFEST: &str = flowix_plugin_runtime::WEBPAGE_MANIFEST;
 const WEBPAGE_SKILL: &str = flowix_plugin_runtime::WEBPAGE_SKILL;
 
+fn is_builtin_plugin_id(id: &str) -> bool {
+    matches!(id, "mindmap" | "webpage")
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginDescriptor {
@@ -40,8 +46,33 @@ pub struct PluginDescriptor {
     pub installed_path: String,
     pub skill: String,
     pub is_system: bool,
+    pub enabled: bool,
+    pub permissions: Vec<String>,
+    pub integrity_status: String,
     #[serde(skip)]
     definition: PluginDefinition,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginDiagnostic {
+    pub plugin_id: Option<String>,
+    pub path: String,
+    pub status: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCatalogSnapshot {
+    pub plugins: Vec<PluginDescriptor>,
+    pub diagnostics: Vec<PluginDiagnostic>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct PluginStateFile {
+    #[serde(default)]
+    disabled: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,11 +86,6 @@ pub struct PluginArtifact {
     pub renderer: String,
     pub content: Option<String>,
     pub note_id: Option<String>,
-}
-
-fn sha256_hex(content: &str) -> String {
-    use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(content.as_bytes()))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,7 +123,37 @@ fn plugin_root() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "Home directory is unavailable".to_string())?;
     let root = get_user_config_dir(&home).join("plugin");
     fs::create_dir_all(&root).map_err(|e| format!("create plugin directory: {e}"))?;
+    let metadata = fs::symlink_metadata(&root)
+        .map_err(|error| format!("inspect plugin directory: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("plugin directory must be a real directory".into());
+    }
     Ok(root)
+}
+
+fn plugin_state_path() -> Result<PathBuf, String> {
+    Ok(plugin_root()?.join("state.json"))
+}
+
+fn read_plugin_state_result() -> Result<PluginStateFile, String> {
+    let path = plugin_state_path()?;
+    match fs::read_to_string(&path) {
+        Ok(raw) => {
+            serde_json::from_str(&raw).map_err(|error| format!("parse plugin state: {error}"))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(PluginStateFile::default())
+        }
+        Err(error) => Err(format!("read plugin state: {error}")),
+    }
+}
+
+fn write_plugin_state(state: &PluginStateFile) -> Result<(), String> {
+    let path = plugin_state_path()?;
+    let bytes = serde_json::to_vec_pretty(state)
+        .map_err(|error| format!("serialize plugin state: {error}"))?;
+    flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
+        .map_err(|error| format!("write plugin state: {error}"))
 }
 
 pub fn ensure_builtin_plugins() -> Result<(), String> {
@@ -114,7 +170,16 @@ fn ensure_builtin_plugin(
     expected_skill: &str,
 ) -> Result<(), String> {
     let plugin = root.join(plugin_id);
-    fs::create_dir_all(&plugin).map_err(|e| format!("create {plugin_id} plugin: {e}"))?;
+    match fs::symlink_metadata(&plugin) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(format!("built-in {plugin_id} plugin path is invalid"));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(&plugin).map_err(|e| format!("create {plugin_id} plugin: {e}"))?;
+        }
+        Err(error) => return Err(format!("inspect {plugin_id} plugin: {error}")),
+    }
     let manifest = plugin.join("plugin.json");
     // The built-in plugin is versioned with the host application.  Older
     // installations may still have the pre-declaration manifest (including
@@ -145,23 +210,46 @@ fn ensure_builtin_plugin(
 }
 
 fn read_plugin(path: &Path) -> Result<PluginDescriptor, String> {
+    let expected_id = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    read_plugin_as(path, expected_id)
+}
+
+/// Read a source directory before it has been installed. Its directory name
+/// is not authoritative; the manifest id becomes the final installation id.
+fn read_plugin_source(path: &Path) -> Result<PluginDescriptor, String> {
+    let raw = fs::read_to_string(path.join("plugin.json"))
+        .map_err(|error| format!("read plugin source manifest: {error}"))?;
+    let manifest: PluginManifest = serde_json::from_str(&raw)
+        .map_err(|error| format!("parse plugin source manifest: {error}"))?;
+    let id = manifest.id.clone();
+    read_plugin_as(path, &id)
+}
+
+/// Read a plugin while validating it against its final published id. Staging
+/// directories deliberately have random names, so they must use this helper
+/// with the intended id instead of the staging directory basename.
+fn read_plugin_as(path: &Path, expected_id: &str) -> Result<PluginDescriptor, String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("inspect plugin {}: {error}", path.display()))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(format!("plugin path is invalid: {}", path.display()));
+    }
     let manifest_path = path.join("plugin.json");
     let raw = fs::read_to_string(&manifest_path)
         .map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
     let manifest: PluginManifest = serde_json::from_str(&raw)
         .map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
-    if manifest.id
-        != path
-            .file_name()
-            .and_then(|v| v.to_str())
-            .unwrap_or_default()
-    {
+    if manifest.id != expected_id {
         return Err(format!(
             "plugin id does not match directory: {}",
             path.display()
         ));
     }
     let definition = validate_manifest(&manifest)?;
+    let integrity_status = verify_plugin_integrity(path, &manifest)?;
     let instructions_path = manifest
         .tool
         .as_ref()
@@ -169,42 +257,81 @@ fn read_plugin(path: &Path) -> Result<PluginDescriptor, String> {
         .or_else(|| manifest.agent.as_ref().map(|agent| agent.skill.as_str()))
         .ok_or_else(|| format!("plugin has no instructions: {}", manifest.id))?;
     let skill_path = path.join(instructions_path);
+    let skill_metadata = fs::symlink_metadata(&skill_path)
+        .map_err(|error| format!("inspect {}: {error}", skill_path.display()))?;
+    if skill_metadata.file_type().is_symlink()
+        || !skill_metadata.is_file()
+        || !plugin_path_is_inside(&skill_path, path)
+    {
+        return Err(format!(
+            "plugin instructions are invalid: {}",
+            skill_path.display()
+        ));
+    }
     let skill = fs::read_to_string(&skill_path)
         .map_err(|e| format!("read {}: {e}", skill_path.display()))?;
-    let is_system = matches!(manifest.id.as_str(), "mindmap" | "webpage");
+    let is_system = is_builtin_plugin_id(&manifest.id);
+    let permissions = if manifest.permissions.is_empty() {
+        vec![
+            "agent.invoke".to_string(),
+            "notebook.read".to_string(),
+            "artifact.write".to_string(),
+        ]
+    } else {
+        manifest.permissions.clone()
+    };
     Ok(PluginDescriptor {
         manifest,
         installed_path: path.to_string_lossy().to_string(),
         skill,
         is_system,
+        enabled: true,
+        permissions,
+        integrity_status,
         definition,
     })
 }
 
-fn is_relative_plugin_path(raw: &str) -> bool {
-    let path = Path::new(raw);
-    !raw.trim().is_empty()
-        && !path.is_absolute()
-        && path
-            .components()
-            .all(|component| !matches!(component, std::path::Component::ParentDir))
+fn verify_plugin_integrity(path: &Path, manifest: &PluginManifest) -> Result<String, String> {
+    let Some(integrity) = &manifest.integrity else {
+        return Ok("unverified".into());
+    };
+    for (relative, expected) in &integrity.files {
+        let file = path.join(relative);
+        let metadata = fs::symlink_metadata(&file)
+            .map_err(|error| format!("inspect integrity file {relative}: {error}"))?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || !plugin_path_is_inside(&file, path)
+        {
+            return Err(format!("plugin integrity file is invalid: {relative}"));
+        }
+        let bytes =
+            fs::read(&file).map_err(|error| format!("read integrity file {relative}: {error}"))?;
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Err(format!("plugin integrity mismatch: {relative}"));
+        }
+    }
+    Ok("verified".into())
 }
 
-fn is_valid_output_extension(raw: &str) -> bool {
-    let extension = raw.trim().trim_start_matches('.');
-    !extension.is_empty()
-        && extension.len() <= 16
-        && extension.chars().all(|ch| ch.is_ascii_alphanumeric())
+fn plugin_path_is_inside(path: &Path, root: &Path) -> bool {
+    let Ok(path) = dunce::canonicalize(path) else {
+        return false;
+    };
+    let Ok(root) = dunce::canonicalize(root) else {
+        return false;
+    };
+    path.starts_with(root)
+}
+
+fn is_relative_plugin_path(raw: &str) -> bool {
+    flowix_plugin_runtime::is_relative_plugin_path(raw)
 }
 
 fn valid_plugin_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id.chars().enumerate().all(|(index, ch)| {
-            (ch.is_ascii_lowercase() || ch.is_ascii_digit() || (ch == '-' || ch == '_'))
-                && (index > 0 || ch.is_ascii_lowercase())
-        })
-        && !id.starts_with('.')
+    flowix_plugin_runtime::valid_plugin_id(id)
 }
 
 fn copy_plugin_tree(source: &Path, destination: &Path) -> Result<(), String> {
@@ -228,48 +355,119 @@ fn copy_plugin_tree(source: &Path, destination: &Path) -> Result<(), String> {
 }
 
 pub fn refresh_plugins() -> Result<Vec<PluginDescriptor>, String> {
-    list_plugins()
+    Ok(plugin_catalog_snapshot()?.plugins)
 }
 
-pub fn install_from_directory(source_directory: &str) -> Result<PluginDescriptor, String> {
-    ensure_builtin_plugins()?;
+fn validate_plugin_tree(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|e| format!("inspect plugin source: {e}"))?;
+    if metadata.file_type().is_symlink() {
+        return Err("plugin source cannot contain symbolic links".to_string());
+    }
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path).map_err(|e| format!("read plugin source: {e}"))? {
+            let entry = entry.map_err(|e| format!("read plugin source entry: {e}"))?;
+            validate_plugin_tree(&entry.path())?;
+        }
+    } else if !metadata.is_file() {
+        return Err("plugin source contains an unsupported filesystem entry".to_string());
+    }
+    Ok(())
+}
+
+pub fn validate_plugin_directory(source_directory: &str) -> Result<PluginDescriptor, String> {
     let source = PathBuf::from(source_directory);
     let source_meta =
         fs::symlink_metadata(&source).map_err(|e| format!("inspect plugin source: {e}"))?;
     if !source_meta.is_dir() || source_meta.file_type().is_symlink() {
         return Err("plugin source must be a real directory".to_string());
     }
-    let source_descriptor = read_plugin(&source)?;
-    let id = source_descriptor.manifest.id.clone();
-    if !valid_plugin_id(&id) {
-        return Err("plugin id must use lowercase letters, numbers, '-' or '_'".to_string());
+    validate_plugin_tree(&source)?;
+    let descriptor = read_plugin_source(&source)?;
+    if !valid_plugin_id(&descriptor.manifest.id) {
+        return Err("plugin id must use lowercase letters, numbers, '-' or '_'".into());
     }
+    Ok(descriptor)
+}
+
+pub fn install_from_directory(source_directory: &str) -> Result<PluginDescriptor, String> {
+    ensure_builtin_plugins()?;
+    let source = PathBuf::from(source_directory);
+    let source_descriptor = validate_plugin_directory(source_directory)?;
+    let id = source_descriptor.manifest.id.clone();
     let root = plugin_root()?;
     let destination = root.join(&id);
-    if destination.exists() {
-        return Err(format!("plugin is already installed: {id}"));
+    if is_builtin_plugin_id(&id) {
+        return Err(format!("the built-in {id} plugin is managed by Flowix"));
+    }
+    let replacing = match fs::symlink_metadata(&destination) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink()
+                || !metadata.is_dir()
+                || !path_is_inside(&destination, &root)
+            {
+                return Err("existing plugin installation is invalid".into());
+            }
+            let existing = read_plugin(&destination)?;
+            let current = semver::Version::parse(&existing.manifest.version)
+                .map_err(|error| format!("installed plugin version is invalid: {error}"))?;
+            let incoming = semver::Version::parse(&source_descriptor.manifest.version)
+                .map_err(|error| format!("incoming plugin version is invalid: {error}"))?;
+            if incoming < current {
+                return Err(format!(
+                    "plugin downgrade is not allowed: {id} {current} -> {incoming}"
+                ));
+            }
+            true
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(format!("inspect existing plugin: {error}")),
+    };
+    if !path_is_inside(&destination, &root) {
+        return Err("plugin installation path escaped plugin directory".into());
     }
     let staging = root.join(format!(".{id}.installing-{}", uuid::Uuid::new_v4()));
-    copy_plugin_tree(&source, &staging)?;
-    if let Err(error) = read_plugin(&staging) {
+    if let Err(error) = copy_plugin_tree(&source, &staging) {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
     }
-    if destination.exists() {
+    if let Err(error) = read_plugin_as(&staging, &id) {
         let _ = fs::remove_dir_all(&staging);
-        return Err(format!("plugin is already installed: {id}"));
+        return Err(error);
+    }
+
+    let backup = root.join(format!(".{id}.backup-{}", uuid::Uuid::new_v4()));
+    if replacing {
+        if let Err(error) = fs::rename(&destination, &backup) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!("stage existing plugin for upgrade: {error}"));
+        }
     }
     if let Err(error) = fs::rename(&staging, &destination) {
+        if replacing {
+            let _ = fs::rename(&backup, &destination);
+        }
         let _ = fs::remove_dir_all(&staging);
         return Err(format!("publish plugin installation: {error}"));
     }
-    read_plugin(&destination)
+    let descriptor = match read_plugin(&destination) {
+        Ok(descriptor) => descriptor,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&destination);
+            if replacing {
+                let _ = fs::rename(&backup, &destination);
+            }
+            return Err(format!("verify published plugin: {error}"));
+        }
+    };
+    if replacing {
+        if let Err(error) = fs::remove_dir_all(&backup) {
+            tracing::warn!(plugin = %id, path = %backup.display(), "plugin upgraded but old version cleanup failed: {error}");
+        }
+    }
+    Ok(descriptor)
 }
 
 pub fn uninstall(id: &str) -> Result<(), String> {
-    if id == "mindmap" {
-        return Err("the built-in mindmap plugin cannot be uninstalled".to_string());
-    }
     if !valid_plugin_id(id) {
         return Err("invalid plugin id".to_string());
     }
@@ -279,26 +477,96 @@ pub fn uninstall(id: &str) -> Result<(), String> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() || !path_is_inside(&target, &root) {
         return Err("invalid plugin installation".to_string());
     }
-    read_plugin(&target)?;
-    fs::remove_dir_all(&target).map_err(|e| format!("uninstall plugin: {e}"))
+    let plugin = read_plugin(&target)?;
+    if plugin.is_system {
+        return Err(format!("the built-in {} plugin cannot be uninstalled", id));
+    }
+    fs::remove_dir_all(&target).map_err(|e| format!("uninstall plugin: {e}"))?;
+    let mut state = read_plugin_state_result()?;
+    if state.disabled.remove(id) {
+        write_plugin_state(&state)?;
+    }
+    Ok(())
 }
 
 pub fn list_plugins() -> Result<Vec<PluginDescriptor>, String> {
+    Ok(plugin_catalog_snapshot()?.plugins)
+}
+
+fn scan_plugin_catalog() -> Result<PluginCatalogSnapshot, String> {
     ensure_builtin_plugins()?;
     let root = plugin_root()?;
     let mut plugins = Vec::new();
+    let mut diagnostics = Vec::new();
+    let state = match read_plugin_state_result() {
+        Ok(state) => state,
+        Err(error) => {
+            diagnostics.push(PluginDiagnostic {
+                plugin_id: None,
+                path: plugin_state_path()?.to_string_lossy().to_string(),
+                status: "invalid".into(),
+                message: Some(error),
+            });
+            PluginStateFile::default()
+        }
+    };
     for entry in fs::read_dir(&root).map_err(|e| format!("scan plugins: {e}"))? {
         let entry = entry.map_err(|e| format!("scan plugin entry: {e}"))?;
         if !entry.path().is_dir() || entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
         match read_plugin(&entry.path()) {
-            Ok(plugin) => plugins.push(plugin),
-            Err(error) => tracing::warn!("[plugin] ignored {}: {error}", entry.path().display()),
+            Ok(mut plugin) => {
+                plugin.enabled = !state.disabled.contains(&plugin.manifest.id);
+                diagnostics.push(PluginDiagnostic {
+                    plugin_id: Some(plugin.manifest.id.clone()),
+                    path: entry.path().to_string_lossy().to_string(),
+                    status: if plugin.enabled { "ready" } else { "disabled" }.into(),
+                    message: None,
+                });
+                plugins.push(plugin);
+            }
+            Err(error) => diagnostics.push(PluginDiagnostic {
+                plugin_id: None,
+                path: entry.path().to_string_lossy().to_string(),
+                status: "invalid".into(),
+                message: Some(error),
+            }),
         }
     }
     plugins.sort_by_key(|plugin| (plugin.manifest.ui.order, plugin.manifest.name.clone()));
-    Ok(plugins)
+    diagnostics.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(PluginCatalogSnapshot {
+        plugins,
+        diagnostics,
+    })
+}
+
+pub fn plugin_catalog_snapshot() -> Result<PluginCatalogSnapshot, String> {
+    scan_plugin_catalog()
+}
+
+pub fn plugin_diagnostics() -> Result<Vec<PluginDiagnostic>, String> {
+    Ok(plugin_catalog_snapshot()?.diagnostics)
+}
+
+pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
+    if !valid_plugin_id(id) {
+        return Err("invalid plugin id".into());
+    }
+    let root = plugin_root()?;
+    let plugin = read_plugin(&root.join(id))?;
+    if plugin.is_system && !enabled {
+        return Err(format!("the built-in {id} plugin cannot be disabled"));
+    }
+    let mut state = read_plugin_state_result()?;
+    if enabled {
+        state.disabled.remove(id);
+    } else {
+        state.disabled.insert(id.to_string());
+    }
+    write_plugin_state(&state)?;
+    Ok(())
 }
 
 pub fn get_plugin(id: &str) -> Result<PluginDescriptor, String> {
@@ -306,6 +574,9 @@ pub fn get_plugin(id: &str) -> Result<PluginDescriptor, String> {
         .into_iter()
         .find(|plugin| plugin.manifest.id == id)
         .ok_or_else(|| format!("plugin not found: {id}"))?;
+    if !plugin.enabled {
+        return Err(format!("plugin is disabled: {id}"));
+    }
     Ok(plugin)
 }
 
@@ -471,7 +742,7 @@ pub fn write_output(
         .to_string(),
         renderer: plugin.manifest.output.renderer.clone(),
         title: title.clone(),
-        content_hash: format!("sha256:{}", sha256_hex(&clean)),
+        content_hash: flowix_plugin_runtime::artifact_content_hash(&clean),
         created_at: chrono::Local::now().to_rfc3339(),
         source_note: source_note.map(str::to_string),
     };
@@ -606,7 +877,7 @@ fn migrate_legacy_outputs(
             parser: parser_key(plugin.definition.parser).to_string(),
             renderer: plugin.manifest.output.renderer.clone(),
             title: parsed.title.clone(),
-            content_hash: format!("sha256:{}", sha256_hex(&parsed.content)),
+            content_hash: flowix_plugin_runtime::artifact_content_hash(&parsed.content),
             created_at: fs::metadata(&path)
                 .and_then(|metadata| metadata.modified())
                 .map(chrono::DateTime::<chrono::Local>::from)
@@ -724,8 +995,7 @@ pub fn migrate_notebook_data(
     memo_file: &Arc<std::sync::RwLock<flowix_core::memo_file::MemoFile>>,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<(), String> {
-    static MIGRATION_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
-        std::sync::OnceLock::new();
+    static MIGRATION_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     let _migration_guard = MIGRATION_LOCK
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
@@ -768,7 +1038,8 @@ mod tests {
     use super::manifest::PluginField;
     use super::{
         clean_markdown, is_relative_plugin_path, parse_html, parse_json, parse_mindmap_markdown,
-        valid_plugin_id, validate_manifest, PluginManifest, PluginRuntime, MINDMAP_MANIFEST,
+        read_plugin_as, read_plugin_source, valid_plugin_id, validate_manifest, PluginManifest,
+        PluginRuntime, MINDMAP_MANIFEST, MINDMAP_SKILL,
     };
 
     #[test]
@@ -895,5 +1166,29 @@ mod tests {
         );
         assert_eq!(definition.extension, ".md");
         assert_eq!(definition.runtime.map(PluginRuntime::key), None);
+    }
+
+    #[test]
+    fn validates_a_plugin_from_an_install_staging_directory() {
+        let temp = tempfile::tempdir().expect("temp plugin directory");
+        let staging = temp.path().join(".mindmap.installing-random");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("plugin.json"), MINDMAP_MANIFEST).unwrap();
+        std::fs::write(staging.join("SKILL.md"), MINDMAP_SKILL).unwrap();
+
+        let plugin = read_plugin_as(&staging, "mindmap").expect("staging plugin is valid");
+        assert_eq!(plugin.manifest.id, "mindmap");
+    }
+
+    #[test]
+    fn accepts_a_source_directory_whose_name_differs_from_the_plugin_id() {
+        let temp = tempfile::tempdir().expect("temp plugin directory");
+        let source = temp.path().join("downloaded-package");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("plugin.json"), MINDMAP_MANIFEST).unwrap();
+        std::fs::write(source.join("SKILL.md"), MINDMAP_SKILL).unwrap();
+
+        let plugin = read_plugin_source(&source).expect("source manifest determines plugin id");
+        assert_eq!(plugin.manifest.id, "mindmap");
     }
 }

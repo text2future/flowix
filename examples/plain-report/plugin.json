@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "plain-report",
+  "name": "Plain Report",
+  "version": "1.0.0",
+  "kind": "artifact-tool",
+  "ui": { "placement": "sidebar", "order": 200, "icon": "document" },
+  "input": { "fields": [] },
+  "tool": {
+    "command": "flowix plugin create plain-report",
+    "input": "stdin",
+    "contentType": "text/plain",
+    "instructions": "SKILL.md"
+  },
+  "discovery": { "noteType": "plain-report" },
+  "output": {
+    "format": "text",
+    "directory": "ignored-by-host",
+    "extension": "txt",
+    "renderer": "text",
+    "parser": "text"
+  }
+}

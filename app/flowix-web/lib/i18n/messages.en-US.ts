@@ -35,6 +35,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "preferences.tabs.documentProperties": "Note Properties",
     "preferences.tabs.noteSettings": "Note Settings",
     "preferences.tabs.dsh": "Deepseek Harness",
+    "preferences.tabs.codex": "Codex",
     "preferences.tabs.aiAgent": "Agents",
     "preferences.tabs.agents": "Agents",
     "preferences.tabs.agent": "Model settings",

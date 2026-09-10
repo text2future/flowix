@@ -219,6 +219,321 @@ impl CodexAppServerManager {
             .await
     }
 
+    async fn request_all_pages(&self, method: &str, params: Value) -> Result<Value, String> {
+        let mut cursor: Option<String> = None;
+        let mut seen_cursors = HashSet::new();
+        let mut data = Vec::new();
+        const MAX_PAGES: usize = 100;
+        for _ in 0..MAX_PAGES {
+            let mut page_params = params.clone();
+            if let Some(object) = page_params.as_object_mut() {
+                object.insert("cursor".to_string(), json!(cursor));
+            }
+            let page = self.request(method, page_params).await?;
+            data.extend(
+                page.get("data")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
+            cursor = page
+                .get("nextCursor")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let Some(next_cursor) = cursor.as_ref() else {
+                return Ok(json!({ "data": data }));
+            };
+            if !seen_cursors.insert(next_cursor.clone()) {
+                return Err(format!(
+                    "Codex app-server returned a repeated cursor for {method}"
+                ));
+            }
+        }
+        Err(format!(
+            "Codex app-server pagination exceeded {MAX_PAGES} pages for {method}"
+        ))
+    }
+
+    /// Read the Codex capabilities that are effective for one project root.
+    /// This is a metadata-only operation: it does not create a thread or spend
+    /// model tokens. Keep the cwd explicit so project-local config and skills
+    /// cannot leak across notebooks in the preferences UI.
+    pub async fn project_capabilities(
+        &self,
+        cwd: &std::path::Path,
+        force_reload: bool,
+    ) -> Result<Value, String> {
+        self.ensure_connection().await?;
+        let cwd = cwd.to_string_lossy().to_string();
+
+        let (
+            skills,
+            config,
+            requirements,
+            models,
+            mcp,
+            plugins,
+            plugin_catalog,
+            agents,
+            experiments,
+        ) = tokio::join!(
+            self.request(
+                "skills/list",
+                json!({ "cwds": [cwd.clone()], "forceReload": force_reload }),
+            ),
+            self.request("config/read", json!({ "cwd": cwd.clone() })),
+            self.request("configRequirements/read", json!({})),
+            self.request_all_pages("model/list", json!({ "limit": 100 })),
+            self.request_all_pages(
+                "mcpServerStatus/list",
+                json!({ "limit": 100, "detail": "full" }),
+            ),
+            self.request("plugin/installed", json!({ "cwds": [cwd.clone()] }),),
+            self.request(
+                "plugin/list",
+                json!({ "cwds": [cwd.clone()], "forceRefetch": force_reload }),
+            ),
+            // Descendant threads are Codex's durable representation of
+            // spawned sub-agents. Filtering by cwd keeps this repo-scoped.
+            self.request_all_pages(
+                "thread/list",
+                json!({
+                    "cwd": cwd.clone(),
+                    "limit": 100,
+                    "sortKey": "recency_at",
+                    "sortDirection": "desc",
+                    "sourceKinds": [
+                        "subAgent",
+                        "subAgentReview",
+                        "subAgentCompact",
+                        "subAgentThreadSpawn",
+                        "subAgentOther"
+                    ]
+                }),
+            ),
+            self.request_all_pages("experimentalFeature/list", json!({ "limit": 100 })),
+        );
+
+        fn result_or_error(result: Result<Value, String>) -> Value {
+            match result {
+                Ok(value) => json!({ "ok": true, "value": value }),
+                Err(error) => json!({ "ok": false, "error": error }),
+            }
+        }
+
+        Ok(json!({
+            "cwd": cwd,
+            "skills": result_or_error(skills),
+            "config": result_or_error(config),
+            "requirements": result_or_error(requirements),
+            "models": result_or_error(models),
+            "mcp": result_or_error(mcp),
+            "plugins": result_or_error(plugins),
+            "pluginCatalog": result_or_error(plugin_catalog),
+            "agents": result_or_error(agents),
+            "experiments": result_or_error(experiments),
+            "projectConfigPath": std::path::Path::new(&cwd).join(".codex").join("config.toml"),
+            "refreshedAt": chrono::Utc::now().timestamp_millis(),
+        }))
+    }
+
+    pub async fn write_project_config(
+        &self,
+        cwd: &std::path::Path,
+        edits: Value,
+        expected_version: Option<String>,
+    ) -> Result<Value, String> {
+        self.ensure_connection().await?;
+        let edits = edits
+            .as_array()
+            .ok_or_else(|| "config edits must be an array".to_string())?;
+        if edits.is_empty() || edits.len() > 20 {
+            return Err("config write requires between 1 and 20 edits".to_string());
+        }
+        const ALLOWED_KEYS: &[&str] = &[
+            "model",
+            "model_reasoning_effort",
+            "model_reasoning_summary",
+            "model_verbosity",
+            "review_model",
+            "service_tier",
+            "approval_policy",
+            "approvals_reviewer",
+            "sandbox_mode",
+            "sandbox_workspace_write.network_access",
+            "web_search",
+            "instructions",
+            "developer_instructions",
+        ];
+        for edit in edits {
+            let key = edit
+                .get("keyPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !ALLOWED_KEYS.contains(&key) {
+                return Err(format!("Codex setting is not editable from Flowix: {key}"));
+            }
+            if edit.get("mergeStrategy").and_then(Value::as_str) != Some("replace") {
+                return Err("Codex settings UI only supports replace writes".to_string());
+            }
+            let value = edit.get("value").unwrap_or(&Value::Null);
+            let valid = match key {
+                "sandbox_workspace_write.network_access" => value.is_boolean(),
+                "model_reasoning_effort" => {
+                    matches!(value.as_str(), Some("low" | "medium" | "high" | "xhigh"))
+                }
+                "model_verbosity" => matches!(value.as_str(), Some("low" | "medium" | "high")),
+                "service_tier" => matches!(
+                    value.as_str(),
+                    Some("auto" | "default" | "flex" | "priority")
+                ),
+                "approval_policy" => matches!(
+                    value.as_str(),
+                    Some("untrusted" | "on-failure" | "on-request" | "never")
+                ),
+                "approvals_reviewer" => matches!(value.as_str(), Some("user" | "auto_review")),
+                "sandbox_mode" => matches!(
+                    value.as_str(),
+                    Some("read-only" | "workspace-write" | "danger-full-access")
+                ),
+                "web_search" => matches!(
+                    value.as_str(),
+                    Some("disabled" | "cached" | "indexed" | "live")
+                ),
+                "instructions" | "developer_instructions" => {
+                    value.as_str().is_some_and(|text| text.len() <= 50_000)
+                }
+                _ => value
+                    .as_str()
+                    .is_some_and(|text| !text.is_empty() && text.len() <= 200),
+            };
+            if !valid {
+                return Err(format!("Invalid value for Codex setting: {key}"));
+            }
+        }
+        let dot_codex = cwd.join(".codex");
+        std::fs::create_dir_all(&dot_codex)
+            .map_err(|error| format!("failed to create project Codex config folder: {error}"))?;
+        if !crate::config::path_is_inside(&dot_codex, cwd) {
+            return Err("project Codex config folder resolves outside the notebook".to_string());
+        }
+        self.request(
+            "config/batchWrite",
+            json!({
+                "filePath": dot_codex.join("config.toml"),
+                "expectedVersion": expected_version,
+                "edits": edits,
+                "reloadUserConfig": true
+            }),
+        )
+        .await
+    }
+
+    pub async fn set_skill_enabled(&self, name: &str, enabled: bool) -> Result<Value, String> {
+        self.ensure_connection().await?;
+        self.request(
+            "skills/config/write",
+            json!({ "name": name, "enabled": enabled }),
+        )
+        .await
+    }
+
+    pub async fn set_plugin_installed(
+        &self,
+        plugin_id: &str,
+        installed: bool,
+    ) -> Result<Value, String> {
+        self.ensure_connection().await?;
+        let (method, params) = if installed {
+            ("plugin/install", json!({ "pluginName": plugin_id }))
+        } else {
+            ("plugin/uninstall", json!({ "pluginId": plugin_id }))
+        };
+        self.request(method, params).await
+    }
+
+    pub async fn reload_mcp_servers(&self) -> Result<Value, String> {
+        self.ensure_connection().await?;
+        self.request("config/mcpServer/reload", json!({})).await
+    }
+
+    pub async fn upsert_project_mcp(
+        &self,
+        cwd: &std::path::Path,
+        name: &str,
+        definition: Value,
+        expected_version: Option<String>,
+    ) -> Result<Value, String> {
+        self.ensure_connection().await?;
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err("MCP name may only contain letters, numbers, '-' and '_'".to_string());
+        }
+        let definition = definition
+            .as_object()
+            .ok_or_else(|| "MCP definition must be an object".to_string())?;
+        if definition
+            .keys()
+            .any(|key| !matches!(key.as_str(), "command" | "args" | "url" | "enabled"))
+        {
+            return Err("MCP definition contains unsupported fields".to_string());
+        }
+        let has_command = definition
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.is_empty());
+        let has_url = definition
+            .get("url")
+            .and_then(Value::as_str)
+            .is_some_and(|v| v.starts_with("http://") || v.starts_with("https://"));
+        if has_command == has_url {
+            return Err("MCP definition must contain either command or http(s) url".to_string());
+        }
+        if definition
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|v| v.len() > 4_096)
+            || definition
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|v| v.len() > 2_048)
+            || definition.get("enabled").is_some_and(|v| !v.is_boolean())
+        {
+            return Err("MCP definition contains an invalid value".to_string());
+        }
+        if let Some(args) = definition.get("args") {
+            let args = args
+                .as_array()
+                .ok_or_else(|| "MCP args must be an array".to_string())?;
+            if args.len() > 100
+                || args
+                    .iter()
+                    .any(|arg| arg.as_str().map_or(true, |v| v.len() > 4_096))
+            {
+                return Err("MCP args exceed the allowed size".to_string());
+            }
+        }
+        let dot_codex = cwd.join(".codex");
+        std::fs::create_dir_all(&dot_codex)
+            .map_err(|e| format!("failed to create project Codex config folder: {e}"))?;
+        if !crate::config::path_is_inside(&dot_codex, cwd) {
+            return Err("project Codex config folder resolves outside the notebook".to_string());
+        }
+        let result = self.request("config/batchWrite", json!({
+            "filePath": dot_codex.join("config.toml"),
+            "expectedVersion": expected_version,
+            "edits": [{ "keyPath": format!("mcp_servers.{name}"), "value": definition, "mergeStrategy": "replace" }],
+            "reloadUserConfig": true
+        })).await?;
+        self.request("config/mcpServer/reload", json!({})).await?;
+        Ok(result)
+    }
+
     async fn resolve_codex_thread(
         &self,
         flowix_thread_id: &str,

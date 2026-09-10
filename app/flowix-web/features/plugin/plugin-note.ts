@@ -1,27 +1,13 @@
 import type { MemoItem } from '@/types/memo-item';
+import { isPluginArtifactRendererId, type PluginArtifactRendererId } from './plugin-renderer-ids';
+
+export type { PluginArtifactRendererId } from './plugin-renderer-ids';
 
 export interface PluginNoteInfo {
   pluginId: string;
   noteType: string;
   renderer: PluginArtifactRendererId | null;
 }
-
-export type PluginArtifactRendererId =
-  | 'markmap'
-  | 'html'
-  | 'webpage'
-  | 'json-viewer'
-  | 'markdown'
-  | 'text';
-
-const PLUGIN_ARTIFACT_RENDERERS = new Set<PluginArtifactRendererId>([
-  'markmap',
-  'html',
-  'webpage',
-  'json-viewer',
-  'markdown',
-  'text',
-]);
 
 export function normalizePluginArtifactRenderer(value: unknown): PluginArtifactRendererId | null {
   const renderer = typeof value === 'string'
@@ -30,9 +16,7 @@ export function normalizePluginArtifactRenderer(value: unknown): PluginArtifactR
       ? (value as Record<string, unknown>).renderer
       : null;
   if (typeof renderer !== 'string') return null;
-  return PLUGIN_ARTIFACT_RENDERERS.has(renderer as PluginArtifactRendererId)
-    ? renderer as PluginArtifactRendererId
-    : null;
+  return isPluginArtifactRendererId(renderer) ? renderer : null;
 }
 
 export function getPluginNoteInfo(memo: MemoItem | null | undefined): PluginNoteInfo | null {

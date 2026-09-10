@@ -215,6 +215,13 @@ pub(crate) fn is_registered_notebook_path(path: &Path, state: &State<AppState>) 
     is_registered_notebook_path_with_state(path, state.inner())
 }
 
+pub(crate) fn is_registered_notebook_root(path: &Path, state: &State<AppState>) -> bool {
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    memo_file.registered_notebook_paths().iter().any(|root| {
+        path_is_inside(path, root) && path_is_inside(root, path)
+    })
+}
+
 pub(crate) fn is_registered_notebook_path_with_state(path: &Path, state: &AppState) -> bool {
     let memo_file = read_lock(&state.memo_file, "memo_file");
     memo_file

@@ -17,117 +17,34 @@ pub(super) fn parse_plugin_output(
     plugin: &PluginDescriptor,
     raw: &str,
 ) -> Result<ParsedPluginOutput, String> {
-    match plugin.definition.parser {
-        PluginParser::MindmapMarkdown => parse_mindmap_markdown(raw),
-        PluginParser::Markdown => parse_markdown(raw),
-        PluginParser::Json => parse_json(raw),
-        PluginParser::Html => parse_html(raw),
-        PluginParser::Text => parse_text(raw),
-    }
-}
-
-fn normalize_output(raw: &str) -> String {
-    raw.trim().replace("\r\n", "\n")
-}
-
-fn strip_code_fence(raw: &str) -> Result<String, String> {
-    let content = normalize_output(raw);
-    let Some(start) = content.find("```") else {
-        return Ok(content);
-    };
-    let after_open = content[start..]
-        .find('\n')
-        .map(|offset| start + offset + 1)
-        .ok_or_else(|| "plugin response has an invalid code fence".to_string())?;
-    let relative_end = content[after_open..]
-        .find("```")
-        .ok_or_else(|| "plugin response has an unclosed code fence".to_string())?;
-    Ok(content[after_open..after_open + relative_end]
-        .trim()
-        .to_string())
-}
-
-fn title_from_content(content: &str, fallback: &str) -> String {
-    content
-        .lines()
-        .find(|line| line.trim_start().starts_with("# "))
-        .map(|line| line.trim_start_matches('#').trim().to_string())
-        .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| fallback.to_string())
-}
-
-pub(super) fn parse_mindmap_markdown(raw: &str) -> Result<ParsedPluginOutput, String> {
-    let mut content = strip_code_fence(raw)?;
-    let root_start = content
-        .lines()
-        .position(|line| line.trim_start().starts_with("# "))
-        .ok_or_else(|| "mindmap response must contain a level-one heading".to_string())?;
-    content = content
-        .lines()
-        .skip(root_start)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
-    if content.len() > 200_000 {
-        return Err("mindmap response is too large".to_string());
-    }
-    let title = title_from_content(&content, "mindmap");
-    Ok(ParsedPluginOutput { content, title })
-}
-
-fn parse_markdown(raw: &str) -> Result<ParsedPluginOutput, String> {
-    let content = strip_code_fence(raw)?;
-    if content.is_empty() {
-        return Err("plugin markdown output is empty".to_string());
-    }
-    if content.len() > 200_000 {
-        return Err("plugin markdown output is too large".to_string());
-    }
-    let title = title_from_content(&content, "output");
-    Ok(ParsedPluginOutput { content, title })
-}
-
-pub(super) fn parse_json(raw: &str) -> Result<ParsedPluginOutput, String> {
-    let content = strip_code_fence(raw)?;
-    let value = serde_json::from_str::<serde_json::Value>(&content)
-        .map_err(|error| format!("plugin output is invalid JSON: {error}"))?;
-    let content = serde_json::to_string_pretty(&value)
-        .map_err(|error| format!("format plugin JSON output: {error}"))?;
-    let title = value
-        .get("title")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("JSON output")
-        .to_string();
-    Ok(ParsedPluginOutput { content, title })
-}
-
-pub(super) fn parse_html(raw: &str) -> Result<ParsedPluginOutput, String> {
-    let content = normalize_output(raw);
-    if content.is_empty() {
-        return Err("plugin HTML output is empty".to_string());
-    }
-    if content.len() > 1_000_000 {
-        return Err("plugin HTML output is too large".to_string());
-    }
+    let parsed = flowix_plugin_runtime::parse_agent_artifact(plugin.definition.parser, raw)?;
     Ok(ParsedPluginOutput {
-        content,
-        title: "HTML output".to_string(),
+        content: parsed.content,
+        title: parsed.title,
     })
 }
 
-fn parse_text(raw: &str) -> Result<ParsedPluginOutput, String> {
-    let content = normalize_output(raw);
-    if content.is_empty() {
-        return Err("plugin output is empty".to_string());
-    }
-    if content.len() > 1_000_000 {
-        return Err("plugin output is too large".to_string());
-    }
+#[cfg(test)]
+pub(super) fn parse_mindmap_markdown(raw: &str) -> Result<ParsedPluginOutput, String> {
+    shared_parse(PluginParser::MindmapMarkdown, raw)
+}
+
+#[cfg(test)]
+pub(super) fn parse_json(raw: &str) -> Result<ParsedPluginOutput, String> {
+    shared_parse(PluginParser::Json, raw)
+}
+
+#[cfg(test)]
+pub(super) fn parse_html(raw: &str) -> Result<ParsedPluginOutput, String> {
+    shared_parse(PluginParser::Html, raw)
+}
+
+#[cfg(test)]
+fn shared_parse(parser: PluginParser, raw: &str) -> Result<ParsedPluginOutput, String> {
+    let parsed = flowix_plugin_runtime::parse_agent_artifact(parser, raw)?;
     Ok(ParsedPluginOutput {
-        content,
-        title: "Plugin output".to_string(),
+        content: parsed.content,
+        title: parsed.title,
     })
 }
 
@@ -179,21 +96,13 @@ pub(super) fn artifact_document(
     agent_type: &str,
     source_note: Option<&str>,
 ) -> String {
-    if plugin.manifest.output.format != "markdown" {
-        return clean.to_string();
-    }
-    let source_note_line = source_note
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| format!("sourceNote: {value}\n"))
-        .unwrap_or_default();
-    format!(
-        "---\nflowixPlugin: {}\npluginVersion: {}\nagentType: {}\ncreatedAt: {}\n{}---\n\n{}\n",
-        plugin.manifest.id,
-        plugin.manifest.version,
-        agent_type,
-        chrono::Local::now().to_rfc3339(),
-        source_note_line,
+    flowix_plugin_runtime::serialize_artifact_document(
+        &plugin.manifest.id,
+        &plugin.manifest.version,
+        &plugin.manifest.output.format,
         clean,
+        agent_type,
+        source_note,
     )
 }
 
@@ -201,15 +110,22 @@ pub(super) fn pointer_document(
     plugin: &PluginDescriptor,
     pointer: &PluginArtifactPointer,
 ) -> Result<String, String> {
-    let frontmatter = PluginNoteFrontmatter {
-        flowix_note_type: plugin.definition.note_type.clone(),
-        flowix_plugin: plugin.manifest.id.clone(),
-        flowix_plugin_version: plugin.manifest.version.clone(),
-        flowix_artifact: pointer.clone(),
+    let shared_pointer = flowix_plugin_runtime::PluginArtifactPointer {
+        path: pointer.path.clone(),
+        format: pointer.format.clone(),
+        parser: pointer.parser.clone(),
+        renderer: pointer.renderer.clone(),
+        title: pointer.title.clone(),
+        content_hash: pointer.content_hash.clone(),
+        created_at: pointer.created_at.clone(),
+        source_note: pointer.source_note.clone(),
     };
-    let yaml = serde_yaml::to_string(&frontmatter)
-        .map_err(|error| format!("serialize plugin note metadata: {error}"))?;
-    Ok(format!("---\n{yaml}---\n"))
+    flowix_plugin_runtime::serialize_pointer_document(
+        &plugin.manifest.id,
+        &plugin.manifest.version,
+        &plugin.definition.note_type,
+        &shared_pointer,
+    )
 }
 
 #[cfg(test)]
@@ -235,6 +151,9 @@ mod tests {
             installed_path: "/tmp/mindmap".to_string(),
             skill: String::new(),
             is_system: true,
+            enabled: true,
+            permissions: Vec::new(),
+            integrity_status: "unverified".to_string(),
             definition,
         };
         let pointer = PluginArtifactPointer {

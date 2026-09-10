@@ -178,6 +178,12 @@ export function createToolGroupElement(options: {
   };
 
   const label = document.createElement("span");
+  label.className = "agent-thread-card__tool-group-label";
+  const headerLoadingIcon = createToolRunningLoadingIcon();
+  headerLoadingIcon.classList.add(
+    "agent-thread-card__tool-group-header-loading-icon",
+  );
+  headerLoadingIcon.setAttribute("aria-hidden", "true");
 
   const syncLabel = () => {
     const baseLabel = getToolGroupLabel(currentGroup, currentContext.language);
@@ -228,6 +234,9 @@ export function createToolGroupElement(options: {
       toggle,
       label,
     );
+    if (currentGroup.status === "running") {
+      header.append(headerLoadingIcon);
+    }
     syncCompletedTools();
     syncRunningTools();
     syncDurationTimer();

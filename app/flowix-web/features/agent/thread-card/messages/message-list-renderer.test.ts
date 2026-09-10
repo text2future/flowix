@@ -24,10 +24,10 @@ function message(
   };
 }
 
-function context(): AgentThreadCardMessageRenderContext {
+function context(isLoading = false): AgentThreadCardMessageRenderContext {
   return {
     language: "zh-CN",
-    isLoading: false,
+    isLoading,
     getReasoningCollapsed: () => false,
     setReasoningCollapsed: () => undefined,
     getDisplayExpanded: () => false,
@@ -367,6 +367,52 @@ describe("continuous tool group rendering", () => {
       tool("running-only", { isLoading: true, content: "" }),
     ], context());
     expect(runningList.textContent).toContain("已完成 0 个步骤");
+  });
+
+  it("shows the running spinner in the title bar while waiting for assistant content", () => {
+    const { list } = createRenderedAgentMessageList(
+      [tool("tool-1", { isLoading: false })],
+      context(true),
+    );
+    const group = list.firstElementChild as HTMLElement;
+    const header = group.querySelector<HTMLElement>(
+      ".agent-thread-card__tool-group-header",
+    );
+
+    expect(group.classList.contains("agent-thread-card__tool-group--running")).toBe(true);
+    expect(
+      header?.querySelector(
+        ".agent-thread-card__tool-group-header-loading-icon",
+      ),
+    ).not.toBeNull();
+    expect(
+      group.querySelector(
+        ".agent-thread-card__tool-group-running-tools",
+      )?.children,
+    ).toHaveLength(0);
+  });
+
+  it("stops the title spinner once assistant content follows the tool group", () => {
+    const { list } = createRenderedAgentMessageList(
+      [
+        tool("tool-1", { isLoading: false }),
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "done",
+          timestamp: "2026-09-03T00:00:00.000Z",
+        },
+      ],
+      context(true),
+    );
+    const group = list.firstElementChild as HTMLElement;
+
+    expect(group.classList.contains("agent-thread-card__tool-group--completed")).toBe(true);
+    expect(
+      group.querySelector(
+        ".agent-thread-card__tool-group-header-loading-icon",
+      ),
+    ).toBeNull();
   });
 
   it("shows duration from tool timestamps", () => {

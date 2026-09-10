@@ -81,6 +81,31 @@ describe("groupAgentMessages", () => {
     }
   });
 
+  it("keeps a completed tool group running until the active turn has assistant content", () => {
+    const [waiting] = groupAgentMessages(
+      [message("t1", "tool", { isLoading: false })],
+      true,
+    );
+    expect(waiting.kind === "tool-group" && waiting.status).toBe("running");
+
+    const [answered] = groupAgentMessages(
+      [
+        message("t1", "tool", { isLoading: false }),
+        message("a1", "assistant", { content: "result" }),
+      ],
+      true,
+    );
+    expect(answered.kind === "tool-group" && answered.status).toBe("completed");
+  });
+
+  it("does not infer a running group for a completed non-streaming turn", () => {
+    const [item] = groupAgentMessages(
+      [message("t1", "tool", { isLoading: false })],
+      false,
+    );
+    expect(item.kind === "tool-group" && item.status).toBe("completed");
+  });
+
   it("does not call an orphaned or failed tool completed", () => {
     const [orphaned] = groupAgentMessages([
       message("t1", "tool", { content: "ok" }),

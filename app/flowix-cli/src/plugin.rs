@@ -3,8 +3,9 @@
 use crate::errors::CliError;
 use crate::output::print_pretty_json;
 use flowix_plugin_runtime::{
-    builtin_tools, create_artifact, describe_tool, CreateArtifactRequest, CreatedPluginArtifact,
-    PluginToolDescription,
+    builtin_tools, create_artifact, create_installed_artifact, describe_installed_tool,
+    describe_tool, installed_tools, plugin_is_enabled, CreateArtifactRequest,
+    CreatedPluginArtifact, PluginToolDescription,
 };
 
 pub fn cmd_list(json: bool) -> Result<(), CliError> {
@@ -64,11 +65,30 @@ pub fn cmd_create(
 }
 
 pub(crate) fn list_data() -> Vec<PluginToolDescription> {
-    builtin_tools()
+    let mut tools = builtin_tools();
+    if let Ok(paths) = crate::paths::resolve() {
+        tools.retain(|tool| plugin_is_enabled(&paths.config_dir, &tool.id));
+        for installed in installed_tools(&paths.config_dir) {
+            if !tools.iter().any(|tool| tool.id == installed.id) {
+                tools.push(installed);
+            }
+        }
+    }
+    tools
 }
 
 pub(crate) fn describe_data(plugin_id: &str) -> Result<PluginToolDescription, CliError> {
+    if let Ok(paths) = crate::paths::resolve() {
+        if !plugin_is_enabled(&paths.config_dir, plugin_id) {
+            return Err(CliError::Usage(format!("plugin is disabled: {plugin_id}")));
+        }
+    }
     describe_tool(plugin_id)
+        .or_else(|| {
+            crate::paths::resolve()
+                .ok()
+                .and_then(|paths| describe_installed_tool(&paths.config_dir, plugin_id))
+        })
         .ok_or_else(|| CliError::NotFound(format!("plugin tool not found: {plugin_id}")))
 }
 
@@ -80,17 +100,23 @@ pub(crate) fn create_data(
     content: &str,
 ) -> Result<CreatedPluginArtifact, CliError> {
     let memo_file = crate::store::open()?;
-    create_artifact(
-        &memo_file,
-        CreateArtifactRequest {
-            plugin_id,
-            notebook,
-            content,
-            source_note,
-            producer,
-        },
-    )
-    .map_err(map_runtime_error)
+    let paths = crate::paths::resolve()?;
+    if !plugin_is_enabled(&paths.config_dir, plugin_id) {
+        return Err(CliError::Usage(format!("plugin is disabled: {plugin_id}")));
+    }
+    let request = CreateArtifactRequest {
+        plugin_id,
+        notebook,
+        content,
+        source_note,
+        producer,
+    };
+    let result = if describe_tool(plugin_id).is_some() {
+        create_artifact(&memo_file, request)
+    } else {
+        create_installed_artifact(&memo_file, &paths.config_dir, request)
+    };
+    result.map_err(map_runtime_error)
 }
 
 fn map_runtime_error(message: String) -> CliError {
@@ -98,6 +124,8 @@ fn map_runtime_error(message: String) -> CliError {
         CliError::NotFound(message)
     } else if message.starts_with("mindmap ")
         || message.starts_with("webpage ")
+        || message.starts_with("load plugin '")
+        || message.starts_with("plugin is disabled:")
         || message.starts_with("plugin create requires")
     {
         CliError::Usage(message)

@@ -25,13 +25,20 @@ export function isFailedToolMessage(message: ChatMessage): boolean {
   return /^\s*\[error\]/i.test(message.content || message.toolData || "");
 }
 
-function getToolGroupStatus(tools: ChatMessage[]): AgentToolGroupStatus {
+function getToolGroupStatus(
+  tools: ChatMessage[],
+  waitingForAssistantContent: boolean,
+): AgentToolGroupStatus {
   if (tools.some((tool) => tool.isLoading)) return "running";
+  if (waitingForAssistantContent) return "running";
   if (tools.some(isFailedToolMessage)) return "failed";
   return "completed";
 }
 
-function createToolGroup(tools: ChatMessage[]): AgentRenderItem {
+function createToolGroup(
+  tools: ChatMessage[],
+  waitingForAssistantContent: boolean,
+): AgentRenderItem {
   const id = `tool-group:${tools[0].id}`;
   const completedTools = tools.filter((tool) => !tool.isLoading);
   const runningTools = tools.filter((tool) => tool.isLoading);
@@ -42,8 +49,17 @@ function createToolGroup(tools: ChatMessage[]): AgentRenderItem {
     completedTools,
     runningTools,
     totalCount: tools.length,
-    status: getToolGroupStatus(tools),
+    status: getToolGroupStatus(tools, waitingForAssistantContent),
   };
+}
+
+function hasAssistantContent(message: ChatMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    Boolean(
+      (message.content || "").trim() || (message.llmContent || "").trim(),
+    )
+  );
 }
 
 /**
@@ -54,20 +70,46 @@ function createToolGroup(tools: ChatMessage[]): AgentRenderItem {
  */
 export function groupAgentMessages(
   messages: ChatMessage[],
+  /** Whether the current thread turn is still producing output. */
+  isLoading = false,
 ): AgentRenderItem[] {
   const items: AgentRenderItem[] = [];
   let toolRun: ChatMessage[] = [];
+  let lastToolIndex = -1;
+
+  // A tool result can arrive before the next assistant delta. Keep the group
+  // in its progress state throughout that gap, but only for the active run.
+  // Walking backwards also makes an empty assistant placeholder count as no
+  // content while respecting the next user message as a turn boundary.
+  const hasAssistantContentAfter = new Array<boolean>(messages.length).fill(false);
+  let seenAssistantContent = false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    hasAssistantContentAfter[index] = seenAssistantContent;
+    if (messages[index].role === "user") {
+      seenAssistantContent = false;
+    } else if (hasAssistantContent(messages[index])) {
+      seenAssistantContent = true;
+    }
+  }
 
   const flushTools = () => {
     if (toolRun.length > 0) {
-      items.push(createToolGroup(toolRun));
+      items.push(
+        createToolGroup(
+          toolRun,
+          isLoading && !hasAssistantContentAfter[lastToolIndex],
+        ),
+      );
     }
     toolRun = [];
+    lastToolIndex = -1;
   };
 
-  for (const message of messages) {
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
     if (message.role === "tool") {
       toolRun.push(message);
+      lastToolIndex = index;
       continue;
     }
     flushTools();

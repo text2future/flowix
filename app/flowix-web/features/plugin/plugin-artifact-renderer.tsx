@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ComponentType, type Ref } from 'react';
 import type { Markmap } from 'markmap-view';
+import type { PluginArtifactRendererId } from './plugin-renderer-ids';
 
 const MARKMAP_BRANCH_COLORS = [
   'var(--plugin-markmap-branch-1)',
@@ -16,10 +17,12 @@ export interface PluginArtifactRendererHandle {
   zoomOut?: () => void;
 }
 
-type RendererProps = {
+export type PluginArtifactRendererProps = {
   content: string;
   rendererRef?: Ref<PluginArtifactRendererHandle>;
 };
+
+type RendererProps = PluginArtifactRendererProps;
 
 function MarkmapRenderer({ content, rendererRef }: RendererProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -195,6 +198,31 @@ function TextRenderer({ content }: RendererProps) {
   return <pre className="h-full overflow-auto whitespace-pre-wrap p-6 text-sm">{content}</pre>;
 }
 
+export interface PluginArtifactRendererDefinition {
+  component: ComponentType<RendererProps>;
+}
+
+/** Host-owned Renderer registry. Manifest values select audited components;
+ * third-party plugins do not inject React or editor implementations. */
+export const pluginArtifactRendererRegistry = Object.freeze({
+  markmap: { component: MarkmapRenderer },
+  'json-viewer': { component: JsonRenderer },
+  html: { component: HtmlRenderer },
+  webpage: { component: WebpageRenderer },
+  markdown: { component: TextRenderer },
+  text: { component: TextRenderer },
+} satisfies Record<PluginArtifactRendererId, PluginArtifactRendererDefinition>);
+
+export type RegisteredPluginArtifactRendererId = keyof typeof pluginArtifactRendererRegistry;
+
+export function getPluginArtifactRendererDefinition(
+  renderer: string,
+): PluginArtifactRendererDefinition | null {
+  return Object.prototype.hasOwnProperty.call(pluginArtifactRendererRegistry, renderer)
+    ? pluginArtifactRendererRegistry[renderer as RegisteredPluginArtifactRendererId]
+    : null;
+}
+
 export const PluginArtifactRenderer = ({
   renderer,
   content,
@@ -204,17 +232,7 @@ export const PluginArtifactRenderer = ({
   content: string;
   rendererRef?: Ref<PluginArtifactRendererHandle>;
 }) => {
-  if (renderer === 'markmap') {
-    return <MarkmapRenderer content={content} rendererRef={rendererRef} />;
-  }
-  if (renderer === 'json-viewer') {
-    return <JsonRenderer content={content} rendererRef={rendererRef} />;
-  }
-  if (renderer === 'html') {
-    return <HtmlRenderer content={content} rendererRef={rendererRef} />;
-  }
-  if (renderer === 'webpage') {
-    return <WebpageRenderer content={content} rendererRef={rendererRef} />;
-  }
-  return <TextRenderer content={content} rendererRef={rendererRef} />;
+  const definition = getPluginArtifactRendererDefinition(renderer);
+  const Renderer = definition?.component ?? TextRenderer;
+  return <Renderer content={content} rendererRef={rendererRef} />;
 };

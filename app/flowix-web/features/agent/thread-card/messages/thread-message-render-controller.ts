@@ -176,7 +176,7 @@ export class ThreadMessageRenderController {
     this.pruneDisplayExpandedOverrides(input.messages);
     this.pruneToolGroupExpandedOverrides(input.messages);
 
-    if (this.canReuseRenderedMessages(input.messages)) {
+    if (this.canReuseRenderedMessages(input.messages, input.isLoading)) {
       if (loadingJustEnded) {
         const finalized = this.tryPatchLastRenderedMessage(
           input.messages,
@@ -258,7 +258,7 @@ export class ThreadMessageRenderController {
     this.body.insertBefore(list, this.loadingIndicator);
     this.rememberRenderedMessages(
       list,
-      getRenderedAgentItems(input.messages),
+      getRenderedAgentItems(input.messages, input.isLoading),
     );
     this.applyBodyScrollAfterRender({
       isLoading: input.isLoading,
@@ -269,7 +269,7 @@ export class ThreadMessageRenderController {
   private shouldRenderProgressively(input: ThreadMessageRenderInput): boolean {
     if (input.isLoading || !input.shouldRenderMessages) return false;
     if (input.messages.length === 0) return false;
-    if (this.canReuseRenderedMessages(input.messages)) return false;
+    if (this.canReuseRenderedMessages(input.messages, input.isLoading)) return false;
     // Progressive rendering is an initial-history optimization. Once a
     // message list is on screen, a completed turn or history reconcile must
     // keep that list mounted; removing it to show the skeleton causes a
@@ -278,7 +278,7 @@ export class ThreadMessageRenderController {
     // The progressive path renders one top-level node per item. A tool group
     // owns several nested rows and must be built atomically by the full list
     // renderer to keep the cache's top-level indexes aligned.
-    if (getRenderedAgentItems(input.messages).some((item) => item.kind === "tool-group")) {
+    if (getRenderedAgentItems(input.messages, input.isLoading).some((item) => item.kind === "tool-group")) {
       return false;
     }
     return input.messages.length >= PROGRESSIVE_RENDER_MESSAGE_THRESHOLD;
@@ -305,6 +305,7 @@ export class ThreadMessageRenderController {
 
     const renderedItems = getRenderedAgentItems(
       input.messages,
+      input.isLoading,
     );
     const list = document.createElement("div");
     list.className = "agent-thread-card__messages";
@@ -574,10 +575,13 @@ export class ThreadMessageRenderController {
     };
   }
 
-  private canReuseRenderedMessages(messages: ThreadState["messages"]): boolean {
+  private canReuseRenderedMessages(
+    messages: ThreadState["messages"],
+    isLoading: boolean,
+  ): boolean {
     const list = this.renderedMessagesList;
     if (!list || !this.body.contains(list)) return false;
-    const renderedItems = getRenderedAgentItems(messages);
+    const renderedItems = getRenderedAgentItems(messages, isLoading);
     if (
       renderedItems.length !== this.renderedMessageRefs.length ||
       list.children.length !== renderedItems.length
