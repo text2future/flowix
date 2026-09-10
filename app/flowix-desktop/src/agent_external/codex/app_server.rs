@@ -555,7 +555,6 @@ impl CodexAppServerManager {
             return Ok((codex_thread_id, cwd));
         }
 
-        let sandbox = app_server_sandbox(message.permission_mode_for_runtime(AGENT_TYPE));
         // Writable threads use the interactive server-request approval path;
         // unsupported server requests remain fail-closed in read_loop.
         let approval = app_server_approval_policy(message.permission_mode_for_runtime(AGENT_TYPE));
@@ -566,7 +565,12 @@ impl CodexAppServerManager {
                 json!({
                     "cwd": cwd,
                     "model": message.codex_model_for_runtime(),
-                    "sandboxPolicy": sandbox,
+                    // `thread/start` still uses the legacy string field.
+                    // The object-form `sandboxPolicy` is for turn/start and
+                    // thread/settings/update; passing it here is accepted by
+                    // some server versions but silently leaves the thread
+                    // read-only.
+                    "sandbox": app_server_legacy_sandbox(message.permission_mode_for_runtime(AGENT_TYPE)),
                     "approvalPolicy": approval,
                     "approvalsReviewer": "user",
                     // Persist the paginated transcript so thread/read and
@@ -1860,6 +1864,17 @@ fn app_server_sandbox(permission: Option<&str>) -> Value {
     }
 }
 
+/// `thread/start` uses the legacy kebab-case sandbox field. Keep this mapping
+/// separate from the object form used by `turn/start` and settings updates.
+fn app_server_legacy_sandbox(permission: Option<&str>) -> &'static str {
+    match permission.map(str::trim) {
+        Some("read-only") => "read-only",
+        Some("danger-full-access" | "yolo") => "danger-full-access",
+        None | Some("workspace-write") => "workspace-write",
+        _ => "read-only",
+    }
+}
+
 fn app_server_approval_policy(permission: Option<&str>) -> &'static str {
     match permission.map(str::trim) {
         None | Some("workspace-write") => "on-request",
@@ -2251,6 +2266,25 @@ mod tests {
                 "writableRoots": [],
                 "networkAccess": false
             })
+        );
+    }
+
+    #[test]
+    fn serializes_legacy_thread_start_sandbox_values() {
+        assert_eq!(app_server_legacy_sandbox(Some("unknown-mode")), "read-only");
+        assert_eq!(app_server_legacy_sandbox(Some("read-only")), "read-only");
+        assert_eq!(
+            app_server_legacy_sandbox(Some("workspace-write")),
+            "workspace-write"
+        );
+        assert_eq!(app_server_legacy_sandbox(None), "workspace-write");
+        assert_eq!(
+            app_server_legacy_sandbox(Some("danger-full-access")),
+            "danger-full-access"
+        );
+        assert_eq!(
+            app_server_legacy_sandbox(Some("yolo")),
+            "danger-full-access"
         );
     }
 

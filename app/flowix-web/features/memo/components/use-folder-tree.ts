@@ -207,20 +207,6 @@ export function useFolderTree(folderPath: string) {
     }
   }, [folderPath, loadChildren]);
 
-  /** 局部刷新某个目录的子级 (新建/删除/重命名后调用)。 */
-  const refresh = useCallback(async (dirPath?: string) => {
-    try {
-      if (dirPath && canonicalDirectoryPath(dirPath) !== rootKey) {
-        await refreshDirectory(dirPath);
-        return;
-      }
-      await loadRoot();
-      lastRefreshAtRef.current.set(rootKey, Date.now());
-    } catch (err) {
-      logger.warn('refresh failed', { dirPath, err });
-    }
-  }, [loadRoot, refreshDirectory, rootKey]);
-
   /** Watcher-only root refresh; unlike the manual reload it preserves expansion. */
   const refreshRootPreservingExpansion = useCallback(() => {
     if (rootRefreshRef.current) return rootRefreshRef.current;
@@ -269,6 +255,22 @@ export function useFolderTree(folderPath: string) {
     );
     return request;
   }, [folderPath, rootKey]);
+
+  /** 局部刷新某个目录的子级 (新建/删除/重命名后调用)。 */
+  const refresh = useCallback(async (dirPath?: string) => {
+    try {
+      if (dirPath && canonicalDirectoryPath(dirPath) !== rootKey) {
+        await refreshDirectory(dirPath);
+        return;
+      }
+      // Mutations at the notebook root should not collapse the user's tree.
+      // A full reload remains available through `reload` for path changes and
+      // explicit recovery, while routine create/move/delete reconciles data.
+      await refreshRootPreservingExpansion();
+    } catch (err) {
+      logger.warn('refresh failed', { dirPath, err });
+    }
+  }, [refreshDirectory, refreshRootPreservingExpansion, rootKey]);
 
   /**
    * Reconcile native watcher notifications without throwing away expansion

@@ -14,6 +14,8 @@
  */
 
 export interface ResolvedOpenTarget {
+  /** 完整 memo 元数据，解析目标时由后端一并返回。 */
+  memo: MemoItem;
   memoId: string;
   notebookId: string;
   notebookName: string;
@@ -26,3 +28,4 @@ export interface ResolvedOpenTarget {
 
 /** Tauri event 名 — 跟后端 `handler.rs` 的 emit("flowix:open-target", ...) 同步 */
 export const FLOWIX_OPEN_TARGET_EVENT = 'flowix:open-target';
+import type { MemoItem } from '@/types/memo-item';

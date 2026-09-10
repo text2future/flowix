@@ -34,22 +34,7 @@ import { openMemoTarget } from '@features/workspace/use-cases/workspace-navigati
  */
 export async function openNoteByTarget(resolved: ResolvedOpenTarget): Promise<void> {
   const store = useMemoStore.getState();
-
-  const memoItem: MemoItem = {
-    id: resolved.memoId,
-    filename: resolved.memoTitle,
-    preview: '',
-    tags: [],
-    todos: [],
-    agents: [],
-    createdAt: 0,
-    updatedAt: 0,
-    favorited: false,
-    icon: null,
-    colors: [],
-    properties: {},
-    isOpen: true,
-  };
+  const memoItem: MemoItem = { ...resolved.memo, isOpen: true };
 
   // The navigation facade owns notebook switching, list hydration, memo
   // selection, document opening, commit, and rollback.

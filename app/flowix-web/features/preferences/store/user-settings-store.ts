@@ -6,7 +6,7 @@ import {
   FONT_FAMILY_OPTIONS,
   type PersonalizeConfig,
   type FormatConfig,
-  type MemoCardVariant,
+  type MemoListView,
   type ProductUpdatesConfig,
   type PropertiesConfig,
   type UserSettings,
@@ -71,10 +71,9 @@ function normalizePreferredLanguage(preferredLanguage: string): string {
     : DEFAULT_USER_SETTINGS.personalize.preferredLanguage;
 }
 
-function normalizeMemoCardVariant(value: unknown): MemoCardVariant {
-  return value === 'compact' || value === 'detailed'
-    ? value
-    : DEFAULT_USER_SETTINGS.memoCardVariant;
+function normalizeMemoListView(value: unknown): MemoListView {
+  // `cards` is the legacy persisted value for the detailed list.
+  return value === 'folders' ? 'folders' : DEFAULT_USER_SETTINGS.memoListView;
 }
 
 /**
@@ -109,7 +108,7 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
     language: sanitizeAppLanguage(updates.language ?? base.language),
     // region 不接受 patch, 只在 loadInitial 时由系统检测写入, 后续走 base。
     region: base.region,
-    memoCardVariant: normalizeMemoCardVariant(updates.memoCardVariant ?? base.memoCardVariant),
+    memoListView: normalizeMemoListView(updates.memoListView ?? base.memoListView),
     shortcuts: { ...base.shortcuts, ...(updates.shortcuts ?? {}) },
     properties: {
       ...base.properties,
@@ -204,7 +203,7 @@ function sanitizeSettings(settings: UserSettings): UserSettings {
     theme: settings.theme,
     language: sanitizeAppLanguage(settings.language),
     region: sanitizeRegion(settings.region),
-    memoCardVariant: normalizeMemoCardVariant(settings.memoCardVariant),
+    memoListView: normalizeMemoListView(settings.memoListView),
     shortcuts: { ...DEFAULT_USER_SETTINGS.shortcuts, ...(settings.shortcuts ?? {}) },
     properties: sanitizePropertiesConfig(settings.properties),
     agents: sanitizeAgentsConfig(settings.agents),
@@ -267,7 +266,7 @@ export interface UserSettingsUpdate {
   format?: Partial<FormatConfig>;
   theme?: ThemeId;
   language?: AppLanguage;
-  memoCardVariant?: MemoCardVariant;
+  memoListView?: MemoListView;
   properties?: Partial<PropertiesConfig>;
   productUpdates?: Partial<ProductUpdatesConfig>;
   /**

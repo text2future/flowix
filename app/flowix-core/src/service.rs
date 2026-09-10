@@ -389,12 +389,38 @@ impl<'a> MemoService<'a> {
         body: &str,
         tag: Option<&str>,
     ) -> Result<CreatedMemo, FlowixError> {
+        self.create_memo_named_with_tag_in_directory(notebook_key, None, title, body, tag)
+    }
+
+    pub fn create_memo_named_with_tag_in_directory(
+        &mut self,
+        notebook_key: Option<&str>,
+        parent_relative_path: Option<&str>,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+    ) -> Result<CreatedMemo, FlowixError> {
         let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         let memo = if let Some(key) = notebook_key {
             let notebook = self.resolve_notebook(key)?;
-            self.memo_file
-                .create_memo_for_notebook_id(&notebook.id, title, body, tag)
+            match parent_relative_path.filter(|path| !path.is_empty()) {
+                Some(parent) => self.memo_file.create_memo_for_notebook_id_in_directory(
+                    &notebook.id,
+                    parent,
+                    title,
+                    body,
+                    tag,
+                ),
+                None => self
+                    .memo_file
+                    .create_memo_for_notebook_id(&notebook.id, title, body, tag),
+            }
         } else {
+            if parent_relative_path.is_some_and(|path| !path.is_empty()) {
+                return Err(FlowixError::InvalidInput(
+                    "a parent directory requires an explicit notebook".into(),
+                ));
+            }
             self.memo_file.create_memo(title, body, tag)
         }
         .map_err(FlowixError::Io)?;
@@ -417,11 +443,52 @@ impl<'a> MemoService<'a> {
         })
     }
 
+    pub fn move_memo_to_directory(
+        &mut self,
+        memo_id: &str,
+        notebook_key: &str,
+        parent_relative_path: &str,
+    ) -> Result<EditedMemo, FlowixError> {
+        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
+        let resolved = self.resolve_memo(memo_id)?;
+        let notebook = self.resolve_notebook(notebook_key)?;
+        if resolved.notebook.id != notebook.id {
+            return Err(FlowixError::Conflict(
+                "memo does not belong to the selected notebook".into(),
+            ));
+        }
+        let (memo, _old_path, path) = self
+            .memo_file
+            .move_memo_to_directory_for_notebook_id(
+                &notebook.id,
+                memo_id,
+                parent_relative_path,
+            )
+            .map_err(FlowixError::InvalidInput)?;
+        Ok(EditedMemo {
+            id: memo_id.to_string(),
+            memo: Some(memo),
+            path,
+            old_bytes: 0,
+            new_bytes: 0,
+            dry_run: false,
+        })
+    }
+
     /// Resolve the path that the next named create is expected to use. Desktop uses
     /// this immediately before creation to suppress its own filesystem watcher event.
     pub fn preview_create_path(
         &mut self,
         notebook_key: Option<&str>,
+        title: &str,
+    ) -> Result<PathBuf, FlowixError> {
+        self.preview_create_path_in_directory(notebook_key, None, title)
+    }
+
+    pub fn preview_create_path_in_directory(
+        &mut self,
+        notebook_key: Option<&str>,
+        parent_relative_path: Option<&str>,
         title: &str,
     ) -> Result<PathBuf, FlowixError> {
         let (base, entries) = if let Some(key) = notebook_key {
@@ -438,12 +505,29 @@ impl<'a> MemoService<'a> {
                 self.memo_file.read_index().unwrap_or_default().memos,
             )
         };
+        let create_base = match parent_relative_path.filter(|path| !path.is_empty()) {
+            Some(relative) => {
+                notebook_path_from_relative(&base, relative).map_err(FlowixError::InvalidInput)?
+            }
+            None => base,
+        };
         let candidate = base_filename(title);
         let occupied = entries
             .into_iter()
+            .filter(|entry| {
+                let parent = entry
+                    .relative_path
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent);
+                parent == parent_relative_path.filter(|path| !path.is_empty())
+            })
             .map(|entry| entry.filename)
             .collect::<Vec<_>>();
-        Ok(base.join(resolve_filename_conflict(&base, &candidate, &occupied)))
+        Ok(create_base.join(resolve_filename_conflict(
+            &create_base,
+            &candidate,
+            &occupied,
+        )))
     }
 
     pub fn edit_memo_exact(
@@ -1100,6 +1184,78 @@ mod tests {
             .unwrap()
             .body
             .contains("# Body heading"));
+    }
+
+    #[test]
+    fn creates_memo_in_existing_notebook_subdirectory() {
+        let (temp, memo_file) = service_fixture();
+        std::fs::create_dir_all(temp.path().join("notes/projects/alpha")).unwrap();
+        let mut service = MemoService::new(&memo_file);
+
+        let created = service
+            .create_memo_named_with_tag_in_directory(
+                Some("work"),
+                Some("projects/alpha"),
+                "Nested",
+                "",
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(created.memo.relative_path, "projects/alpha/Nested.md");
+        assert_eq!(
+            created.path,
+            temp.path().join("notes/projects/alpha/Nested.md")
+        );
+        assert!(created.path.is_file());
+        assert_eq!(
+            service
+                .resolve_memo(&created.memo.id)
+                .unwrap()
+                .entry
+                .relative_path,
+            "projects/alpha/Nested.md"
+        );
+    }
+
+    #[test]
+    fn rejects_create_parent_outside_notebook() {
+        let (_temp, memo_file) = service_fixture();
+        let mut service = MemoService::new(&memo_file);
+
+        let error = service
+            .create_memo_named_with_tag_in_directory(
+                Some("work"),
+                Some("../outside"),
+                "Escaped",
+                "",
+                None,
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, FlowixError::Io(ref source)
+            if source.kind() == std::io::ErrorKind::InvalidInput));
+    }
+
+    #[test]
+    fn moves_memo_to_directory_and_updates_index_path() {
+        let (temp, memo_file) = service_fixture();
+        std::fs::create_dir_all(temp.path().join("notes/projects")).unwrap();
+        let mut service = MemoService::new(&memo_file);
+        let created = service.create_memo("work", "# Move me\n").unwrap();
+        let old_path = created.path.clone();
+
+        let moved = service
+            .move_memo_to_directory(&created.memo.id, "work", "projects")
+            .unwrap();
+
+        assert_eq!(moved.path, temp.path().join("notes/projects/Untitled.md"));
+        assert!(!old_path.exists());
+        assert!(moved.path.exists());
+        assert_eq!(
+            moved.memo.unwrap().relative_path,
+            "projects/Untitled.md"
+        );
     }
 
     #[test]

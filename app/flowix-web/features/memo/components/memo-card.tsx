@@ -25,11 +25,9 @@ import {
 } from '@shared/ui/context-menu';
 import { MemoCardActions } from '@features/memo/components/memo-card-actions';
 import { assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
-import type { MemoCardVariant } from '@/lib/constants';
 
 interface MemoCardProps {
   memo: MemoItem;
-  variant?: MemoCardVariant;
   tagMap: Record<string, string>;
   isSelected: boolean;
   isDropdownOpen: boolean;
@@ -49,7 +47,6 @@ interface MemoCardBodyProps {
   timeLabel: string;
   hasAgents: boolean;
   hasTodos: boolean;
-  relativeDirectory: string;
   runningAgentType?: AgentTypeKey;
   thumbnail: string | null;
   thumbnailFailed: boolean;
@@ -59,7 +56,6 @@ interface MemoCardBodyProps {
 
 interface MemoCardShellProps {
   memo: MemoItem;
-  variant: MemoCardVariant;
   isSelected: boolean;
   isDropdownOpen: boolean;
   moreLabel: string;
@@ -137,7 +133,6 @@ function ColorDots({ colors, limit, className }: { colors: MemoItem['colors']; l
 
 function MemoCardMoreMenu({
   memo,
-  variant,
   isDropdownOpen,
   moreLabel,
   onOpenDropdown,
@@ -147,7 +142,7 @@ function MemoCardMoreMenu({
   onColorsChange,
 }: Pick<
   MemoCardShellProps,
-  'memo' | 'variant' | 'isDropdownOpen' | 'moreLabel' | 'onOpenDropdown' | 'onOpenInWindow' | 'onFavoriteToggle' | 'onDelete' | 'onColorsChange'
+  'memo' | 'isDropdownOpen' | 'moreLabel' | 'onOpenDropdown' | 'onOpenInWindow' | 'onFavoriteToggle' | 'onDelete' | 'onColorsChange'
 >) {
   return (
     <div className="absolute right-3 top-2 z-100 shrink-0 items-center gap-1">
@@ -164,7 +159,6 @@ function MemoCardMoreMenu({
             aria-label={moreLabel}
             className={cn(
               'rounded p-1 text-[var(--muted-foreground)] opacity-0 transition-[opacity,color] group-hover:opacity-100 hover:text-[var(--foreground)]',
-              variant === 'compact' && 'bg-[var(--accent)]',
             )}
           >
             <MoreHorizontal className="h-4 w-4" />
@@ -210,7 +204,6 @@ function MemoCardMoreMenu({
 
 function MemoCardShell({
   memo,
-  variant,
   isSelected,
   isDropdownOpen,
   moreLabel,
@@ -229,8 +222,7 @@ function MemoCardShell({
           onClick={() => onSelect(memo)}
           className={cn(
             'group memo-card relative min-w-0 w-full cursor-pointer rounded-lg px-2 transition-all',
-            variant === 'compact' ? 'py-[9px]' : 'py-3',
-            variant === 'compact' && !isSelected && 'hover:bg-[var(--muted)]',
+            'py-3',
             isSelected && 'bg-[var(--accent)]',
           )}
         >
@@ -241,7 +233,6 @@ function MemoCardShell({
           </div>
           <MemoCardMoreMenu
             memo={memo}
-            variant={variant}
             isDropdownOpen={isDropdownOpen}
             moreLabel={moreLabel}
             onOpenDropdown={onOpenDropdown}
@@ -266,40 +257,6 @@ function MemoCardShell({
   );
 }
 
-function CompactMemoCardBody({
-  memo,
-  title,
-  hasTodos,
-  runningAgentType,
-  relativeDirectory,
-}: MemoCardBodyProps) {
-  return (
-    <div className="flex h-5 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden">
-      {runningAgentType && (
-        <AgentTodoIcons
-          hasTodos={false}
-          runningAgentType={runningAgentType}
-        />
-      )}
-      {memo.favorited && (
-        <PushPin weight="fill" className="h-3.5 w-3.5 shrink-0 text-[var(--foreground)]" />
-      )}
-      <h3 className="w-0 min-w-0 flex-1 truncate text-sm font-normal text-[var(--foreground)]">
-        {title}
-      </h3>
-      {relativeDirectory && (
-        <span className="max-w-[35%] truncate text-[11px] text-[var(--muted-foreground)]" title={relativeDirectory}>
-          {relativeDirectory}
-        </span>
-      )}
-      <ColorDots colors={memo.colors} limit={1} className="mr-1" />
-      {hasTodos && (
-        <ListTodo className="mr-1 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-opacity group-hover:opacity-0" />
-      )}
-    </div>
-  );
-}
-
 function DetailedMemoCardBody({
   memo,
   tagMap,
@@ -307,7 +264,6 @@ function DetailedMemoCardBody({
   timeLabel,
   hasTodos,
   runningAgentType,
-  relativeDirectory,
   thumbnail,
   thumbnailFailed,
   onThumbnailFailed,
@@ -330,11 +286,6 @@ function DetailedMemoCardBody({
           />
           <span className="min-w-0">{title}</span>
         </h3>
-        {relativeDirectory && (
-          <p className="truncate text-xs text-[var(--muted-foreground)]" title={relativeDirectory}>
-            {relativeDirectory}
-          </p>
-        )}
         {thumbnail && !thumbnailFailed ? (
           <div className="relative h-16 w-[114px] overflow-hidden rounded-md border border-[color-mix(in_oklch,var(--border)_70%,transparent)] bg-[var(--muted)] shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] group-hover:scale-[1.01] group-hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]">
             <img
@@ -398,7 +349,6 @@ function DetailedMemoCardBody({
 
 export function MemoCardImpl({
   memo,
-  variant = 'detailed',
   tagMap,
   isSelected,
   isDropdownOpen,
@@ -417,10 +367,6 @@ export function MemoCardImpl({
   const hasTodos = (memo.todos?.length ?? 0) > 0;
   const timeLabel = formatTimeAgo(memo.updatedAt || memo.createdAt, t);
   const title = displayTitleFromFilename(memo.filename) || t('memo.untitled');
-  const relativePath = memo.relativePath || memo.filename;
-  const relativeDirectory = relativePath.includes('/')
-    ? relativePath.slice(0, relativePath.lastIndexOf('/'))
-    : '';
   const bodyProps: MemoCardBodyProps = {
     memo,
     tagMap,
@@ -428,7 +374,6 @@ export function MemoCardImpl({
     timeLabel,
     hasAgents,
     hasTodos,
-    relativeDirectory,
     runningAgentType,
     thumbnail,
     thumbnailFailed,
@@ -443,7 +388,6 @@ export function MemoCardImpl({
   return (
     <MemoCardShell
       memo={memo}
-      variant={variant}
       isSelected={isSelected}
       isDropdownOpen={isDropdownOpen}
       moreLabel={t('document.titlebar.moreTooltip')}
@@ -454,11 +398,7 @@ export function MemoCardImpl({
       onDelete={onDelete}
       onColorsChange={onColorsChange}
     >
-      {variant === 'compact' ? (
-        <CompactMemoCardBody {...bodyProps} />
-      ) : (
-        <DetailedMemoCardBody {...bodyProps} />
-      )}
+      <DetailedMemoCardBody {...bodyProps} />
     </MemoCardShell>
   );
 }

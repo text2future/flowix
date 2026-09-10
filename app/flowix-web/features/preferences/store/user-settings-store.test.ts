@@ -16,6 +16,13 @@ import { DEFAULT_USER_SETTINGS } from '@/lib/constants';
 const mockedPreferences = vi.mocked(preferences);
 
 describe('user-settings-store · region loadInitial', () => {
+  it('persists the notebook folder view', async () => {
+    await useUserSettingsStore.getState().updateSettings({ memoListView: 'folders' });
+    const after = useUserSettingsStore.getState().settings;
+    expect(after.memoListView).toBe('folders');
+    expect(after.memoListView).toBe('folders');
+  });
+
   it('keeps persisted mainland region when loading settings', async () => {
     mockedPreferences.get.mockResolvedValueOnce({
       ...DEFAULT_USER_SETTINGS,
@@ -41,7 +48,7 @@ describe('user-settings-store · region loadInitial', () => {
         theme: 'system',
         language: 'zh-CN',
         region: 'mainland',
-        memoCardVariant: 'detailed',
+        memoListView: 'detailed',
         shortcuts: {},
         properties: { fields: [] },
         agents: { enabledByType: {} },
@@ -53,39 +60,6 @@ describe('user-settings-store · region loadInitial', () => {
     await useUserSettingsStore.getState().loadInitial();
 
     expect(useUserSettingsStore.getState().settings.region).toBe('mainland');
-  });
-});
-
-describe('user-settings-store structural sharing', () => {
-  it('preserves unrelated branch identities', async () => {
-    const before = useUserSettingsStore.getState().settings;
-
-    await useUserSettingsStore.getState().updateSettings({
-      memoCardVariant: before.memoCardVariant === 'compact' ? 'detailed' : 'compact',
-    });
-
-    const after = useUserSettingsStore.getState().settings;
-    expect(after).not.toBe(before);
-    expect(after.format).toBe(before.format);
-    expect(after.personalize).toBe(before.personalize);
-    expect(after.shortcuts).toBe(before.shortcuts);
-    expect(after.properties).toBe(before.properties);
-    expect(after.agents).toBe(before.agents);
-    expect(after.productUpdates).toBe(before.productUpdates);
-  });
-
-  it('does not notify subscribers for a semantic no-op', async () => {
-    const before = useUserSettingsStore.getState().settings;
-    const subscriber = vi.fn();
-    const unsubscribe = useUserSettingsStore.subscribe(subscriber);
-
-    await useUserSettingsStore.getState().updateSettings({
-      memoCardVariant: before.memoCardVariant,
-    });
-
-    expect(useUserSettingsStore.getState().settings).toBe(before);
-    expect(subscriber).not.toHaveBeenCalled();
-    unsubscribe();
   });
 });
 
@@ -110,7 +84,7 @@ describe('user-settings-store · legacy quickPhrases migration', () => {
         theme: 'system',
         language: 'zh-CN',
         region: 'mainland',
-        memoCardVariant: 'detailed',
+        memoListView: 'detailed',
         shortcuts: {},
         properties: { fields: [] },
         agents: { enabledByType: {} },

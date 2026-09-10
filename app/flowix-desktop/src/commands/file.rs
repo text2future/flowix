@@ -399,6 +399,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         fs::write(directory.path().join("note.md"), "body").unwrap();
         fs::create_dir(directory.path().join("folder")).unwrap();
+        fs::create_dir(directory.path().join(".flowix")).unwrap();
+        fs::write(directory.path().join(".hidden.md"), "hidden").unwrap();
         let items = read_dir_single_level(directory.path());
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].name, "folder");

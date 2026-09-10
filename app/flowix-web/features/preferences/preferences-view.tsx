@@ -34,6 +34,7 @@ import { useI18n, type I18nKey } from '@/lib/i18n';
 import { getCurrentWindow } from '@platform/tauri/window';
 import { useExperimentalMode } from '@platform/tauri/use-experimental-mode';
 import { AgentIcon } from '@features/agent/components/agent-icon';
+import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 
 function isWindowsPlatform(): boolean {
 	return /Windows/i.test(navigator.userAgent) || /Win/i.test(navigator.platform);
@@ -101,14 +102,12 @@ function GeneralSettingsSection() {
 	const personalize = useUserSettings((settings) => settings.personalize);
 	const language = useUserSettings((settings) => settings.language);
 	const region = useUserSettings((settings) => settings.region);
-	const memoCardVariant = useUserSettings((settings) => settings.memoCardVariant);
 	const { updateSettings } = useUserSettingsActions();
 	return (
 		<GeneralSection
 			settings={personalize}
 			language={language}
 			region={region}
-			memoCardVariant={memoCardVariant}
 			updateSettings={updateSettings}
 		/>
 	);
@@ -133,8 +132,15 @@ interface PreferencesViewProps {
 export function PreferencesView({ initialTab }: PreferencesViewProps) {
 	const { t } = useI18n();
 	const experimental = useExperimentalMode();
+	const codexAvailable = useAgentRuntimeStore((state) => state.statusByType.codex?.available === true);
+	const refreshRuntimeStatus = useAgentRuntimeStore((state) => state.refreshIfStale);
 	const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 	const title = t('preferences.title');
+
+	useEffect(() => {
+		void refreshRuntimeStatus();
+	}, [refreshRuntimeStatus]);
+
 	const visibleTabGroups = useMemo(
 		() => TAB_GROUPS.map((group) => ({
 			...group,
@@ -144,21 +150,30 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 		})),
 		[experimental],
 	);
+	const tabsWithRuntimeAvailability = useMemo(
+		() => visibleTabGroups.map((group) => ({
+			...group,
+			tabs: group.tabs.filter((tab) => tab.id !== 'codex' || codexAvailable),
+		})),
+		[visibleTabGroups, codexAvailable],
+	);
 
 	useEffect(() => {
 		if (initialTab) {
 			const normalizedTab = normalizeInitialTab(initialTab);
-			if (normalizedTab && (normalizedTab !== 'cloudSync' || experimental)) {
+			if (normalizedTab === 'codex') {
+				setActiveTab(codexAvailable ? 'codex' : 'general');
+			} else if (normalizedTab && (normalizedTab !== 'cloudSync' || experimental)) {
 				setActiveTab(normalizedTab);
 			}
 		}
-	}, [experimental, initialTab]);
+	}, [codexAvailable, experimental, initialTab]);
 
 	useEffect(() => {
-		if (!experimental && ['cloudSync', 'connections', 'tools', 'history'].includes(activeTab)) {
+		if ((activeTab === 'codex' && !codexAvailable) || (!experimental && ['cloudSync', 'connections', 'tools', 'history'].includes(activeTab))) {
 			setActiveTab('general');
 		}
-	}, [activeTab, experimental]);
+	}, [activeTab, codexAvailable, experimental]);
 
 	useEffect(() => {
 		document.title = title;
@@ -174,7 +189,7 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 			<div className="flex-1 flex min-h-0">
 				{/* Left sidebar */}
 				<div className="w-[204px] min-h-0 overflow-y-auto [scrollbar-gutter:stable] border-r border-solid border-[var(--divider)] bg-[var(--card)] shrink-0 px-2 pt-5 pb-2 flex flex-col gap-4">
-					{visibleTabGroups.map((group) => (
+					{tabsWithRuntimeAvailability.map((group) => (
 						<div key={group.labelKey} className="space-y-1">
 							<div className="px-2 pb-1 text-xs font-medium text-[var(--muted-foreground)]">
 								{t(group.labelKey)}

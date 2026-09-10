@@ -98,21 +98,43 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 	const { open, position, setOpen } = useContextMenuContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
 
-	// Clamp the position so the menu never spills off-screen. We measure the
-	// content after the first paint (the menu mounts hidden, so we can't read
-	// its dimensions synchronously).
-	React.useLayoutEffect(() => {
+	// Clamp the position so the menu never spills off-screen. The content can
+	// change size after opening (for example, a tree menu first renders a
+	// loading item and then replaces it with the full memo actions), so this is
+	// deliberately a reusable measurement pass rather than a one-time effect.
+	const clampToViewport = React.useCallback(() => {
 		if (!open || !contentRef.current || !position) return;
 		const el = contentRef.current;
-		const rect = el.getBoundingClientRect();
 		const margin = 4;
-		const maxX = window.innerWidth - rect.width - margin;
-		const maxY = window.innerHeight - rect.height - margin;
+		const viewportWidth = window.innerWidth;
+		const viewportHeight = window.innerHeight;
+
+		// A very tall menu must become internally scrollable. Otherwise a menu
+		// larger than the viewport has no valid top coordinate that can keep it
+		// inside the window.
+		el.style.maxWidth = `${Math.max(0, viewportWidth - margin * 2)}px`;
+		el.style.maxHeight = `${Math.max(0, viewportHeight - margin * 2)}px`;
+		el.style.overflowY = 'auto';
+
+		const rect = el.getBoundingClientRect();
+		const maxX = Math.max(margin, viewportWidth - rect.width - margin);
+		const maxY = Math.max(margin, viewportHeight - rect.height - margin);
 		const x = Math.max(margin, Math.min(position.x, maxX));
 		const y = Math.max(margin, Math.min(position.y, maxY));
 		el.style.left = `${x}px`;
 		el.style.top = `${y}px`;
 	}, [open, position]);
+
+	// ResizeObserver keeps the menu aligned when asynchronous content changes
+	// its height, while the layout effect handles the initial open before paint.
+	React.useLayoutEffect(() => {
+		clampToViewport();
+		if (!open || !contentRef.current || typeof ResizeObserver === 'undefined') return;
+
+		const observer = new ResizeObserver(() => clampToViewport());
+		observer.observe(contentRef.current);
+		return () => observer.disconnect();
+	}, [clampToViewport, open]);
 
 	// Close on any pointerdown outside the menu content.
 	// 听 `pointerdown` 而不是 `mousedown`: tag / notebook 行上挂了

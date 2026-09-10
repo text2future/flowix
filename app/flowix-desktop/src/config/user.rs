@@ -176,6 +176,9 @@ pub struct PreferenceFile {
     /// Memo list card presentation ("detailed" | "compact").
     #[serde(default)]
     pub memo_card_variant: String,
+    /// Memo list surface ("cards" | "folders").
+    #[serde(default)]
+    pub memo_list_view: String,
     /// User shortcut overrides keyed by action id.
     #[serde(default)]
     pub shortcuts: HashMap<String, String>,
@@ -1505,6 +1508,7 @@ apiKey = "k"
         let store = UserConfigStore::new(home.path().to_path_buf());
         let mut pref = PreferenceFile::default();
         pref.language = "en".to_string();
+        pref.memo_list_view = "folders".to_string();
 
         store.set_preference(pref).unwrap();
 
@@ -1517,6 +1521,7 @@ apiKey = "k"
         let content = std::fs::read_to_string(new_path).unwrap();
         let saved: PreferenceFile = serde_json::from_str(&content).unwrap();
         assert_eq!(saved.language, "en");
+        assert_eq!(saved.memo_list_view, "folders");
     }
 
     #[test]

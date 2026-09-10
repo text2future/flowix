@@ -39,6 +39,26 @@ impl MemoFile {
         self.create_memo_inner(Some(notebook_id), title, body, tag, false)
     }
 
+    /// Create in an existing notebook subdirectory. The directory is expressed
+    /// relative to the notebook root and is validated before any write occurs.
+    pub fn create_memo_for_notebook_id_in_directory(
+        &self,
+        notebook_id: &str,
+        parent_relative_path: &str,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+    ) -> std::io::Result<Memo> {
+        self.create_memo_inner_in_directory(
+            Some(notebook_id),
+            Some(parent_relative_path),
+            title,
+            body,
+            tag,
+            false,
+        )
+    }
+
     /// Create from a separate CLI/MCP process and leave an explicit marker for
     /// Desktop's filesystem watcher before the markdown file becomes visible.
     pub fn create_external_memo_for_notebook_id(
@@ -59,6 +79,25 @@ impl MemoFile {
         tag: Option<&str>,
         mark_external_create: bool,
     ) -> std::io::Result<Memo> {
+        self.create_memo_inner_in_directory(
+            notebook_id,
+            None,
+            title,
+            body,
+            tag,
+            mark_external_create,
+        )
+    }
+
+    fn create_memo_inner_in_directory(
+        &self,
+        notebook_id: Option<&str>,
+        parent_relative_path: Option<&str>,
+        title: &str,
+        body: &str,
+        tag: Option<&str>,
+        mark_external_create: bool,
+    ) -> std::io::Result<Memo> {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
         let (base, resolved_notebook_id) = if let Some(notebook_id) = notebook_id {
             let base = self
@@ -73,6 +112,30 @@ impl MemoFile {
             (self.get_memo_base(), self.current_notebook_id_for_index())
         };
 
+        let create_base = match parent_relative_path.filter(|path| !path.is_empty()) {
+            Some(relative) => {
+                let path = notebook_path_from_relative(&base, relative).map_err(|error| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, error)
+                })?;
+                if !path.is_dir() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("memo parent directory does not exist: {}", path.display()),
+                    ));
+                }
+                let canonical_base = fs::canonicalize(&base)?;
+                let canonical_path = fs::canonicalize(&path)?;
+                if !canonical_path.starts_with(&canonical_base) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "memo parent directory is outside the notebook root",
+                    ));
+                }
+                path
+            }
+            None => base.clone(),
+        };
+
         let id = self.generate_global_memo_id();
         let now = chrono::Utc::now().timestamp_millis();
         let candidate = base_filename(title);
@@ -84,6 +147,13 @@ impl MemoFile {
             .unwrap_or_default()
             .memos
             .into_iter()
+            .filter(|entry| {
+                let parent = entry
+                    .relative_path
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent);
+                parent == parent_relative_path.filter(|path| !path.is_empty())
+            })
             .map(|entry| entry.filename)
             .collect();
 
@@ -114,8 +184,8 @@ impl MemoFile {
             self.mark_pending_external_memo_create(&persisted_id, &resolved_notebook_id)?;
         }
         let filename = loop {
-            let filename = resolve_filename_conflict(&base, &candidate, &occupied);
-            let path = base.join(&filename);
+            let filename = resolve_filename_conflict(&create_base, &candidate, &occupied);
+            let path = create_base.join(&filename);
             match atomic_create_bytes(&path, initial_content.as_bytes()) {
                 Ok(()) => break filename,
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -133,7 +203,10 @@ impl MemoFile {
         let mut memo = Memo {
             id: persisted_id,
             filename: filename.clone(),
-            relative_path: filename.clone(),
+            relative_path: parent_relative_path
+                .filter(|path| !path.is_empty())
+                .map(|parent| format!("{parent}/{filename}"))
+                .unwrap_or_else(|| filename.clone()),
             preview: String::new(),
             thumbnail: None,
             tags: vec![],

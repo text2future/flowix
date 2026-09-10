@@ -25,7 +25,7 @@ interface DynamicVirtualListOptions<T> {
   estimateSize: (item: T, index: number) => number;
   scrollerRef: RefObject<HTMLDivElement | null>;
   enabled: boolean;
-  /** Changes when row structure changes (for example compact/detailed mode). */
+  /** Changes when the row structure changes. */
   resetKey?: string;
   overscan?: number;
   keepAliveKeys?: readonly string[];

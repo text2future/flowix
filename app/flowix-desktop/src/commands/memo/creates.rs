@@ -31,6 +31,7 @@ use super::*;
 pub fn add_document(
     tag: Option<String>,
     notebook_id: Option<String>,
+    parent_relative_path: Option<String>,
     state: State<AppState>,
     app: AppHandle,
 ) -> Memo {
@@ -44,14 +45,19 @@ pub fn add_document(
 
     // Mark the expected path before create to suppress our own watcher event.
     let abs = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
-        .preview_create_path(notebook_id.as_deref(), &title)
+        .preview_create_path_in_directory(
+            notebook_id.as_deref(),
+            parent_relative_path.as_deref(),
+            &title,
+        )
         .unwrap_or_default();
     mark_self_write_for(&app, &abs);
 
     // Create the markdown file and memo index row.
     let memo = match MemoService::new(&read_lock(&state.memo_file, "memo_file"))
-        .create_memo_named_with_tag(
+        .create_memo_named_with_tag_in_directory(
             notebook_id.as_deref(),
+            parent_relative_path.as_deref(),
             &title,
             &body,
             tag.as_deref().filter(|value| !value.trim().is_empty()),
@@ -314,6 +320,62 @@ pub struct RenameMemoTitleResult {
     pub memo: Memo,
     pub old_path: String,
     pub path: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveMemoResult {
+    pub memo: Memo,
+    pub old_path: String,
+    pub path: String,
+}
+
+/// Move a memo to an existing directory in its notebook while preserving its id.
+#[tauri::command]
+pub fn move_memo_to_directory(
+    id: String,
+    notebook_id: String,
+    parent_relative_path: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<MoveMemoResult, String> {
+    let before = read_memo_or_none(state.inner(), &id)
+        .ok_or_else(|| format!("memo not found: {id}"))?;
+    let (old_path, edited) = {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let mut service = MemoService::new(&memo_file);
+        let old_path = service
+            .resolve_memo(&id)
+            .map_err(|error| error.to_string())?
+            .path;
+        mark_self_write_for(&app, &old_path);
+        let edited = service
+            .move_memo_to_directory(&id, &notebook_id, &parent_relative_path)
+            .map_err(|error| error.to_string())?;
+        (old_path, edited)
+    };
+    let memo = edited
+        .memo
+        .ok_or_else(|| "move completed without memo metadata".to_string())?;
+    mark_self_write_for(&app, &edited.path);
+    let notebook_id = notebook_id_for_memo(state.inner(), &id);
+    let derived_changed = MemoDerivedChanged::from_memos(Some(&before), &memo);
+    emit_updated_memo_event(
+        state.inner(),
+        &app,
+        &id,
+        edited.path.to_string_lossy().into_owned(),
+        memo.clone(),
+        notebook_id,
+        derived_changed,
+        MemoChangeSource::UserEdit,
+        None,
+    );
+    Ok(MoveMemoResult {
+        memo,
+        old_path: old_path.to_string_lossy().into_owned(),
+        path: edited.path.to_string_lossy().into_owned(),
+    })
 }
 
 /// Rename a memo independently from its Markdown content.

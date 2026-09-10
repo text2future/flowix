@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { ArrowDownUp, Check, LayoutList, ListFilter, Search, SquarePen } from 'lucide-react';
+import {
+  ArrowDownUp,
+  Check,
+  FolderPlus,
+  LayoutList,
+  ListFilter,
+  Search,
+  SquarePen,
+} from 'lucide-react';
 import {
   getVisibleCreateFilter,
   MEMO_COLOR_HEX,
@@ -36,8 +44,9 @@ import {
 } from '@features/workspace/use-cases/browser-column-navigation';
 import { useI18n } from '@/lib/i18n';
 import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
-import type { MemoCardVariant } from '@/lib/constants';
 import { createLogger } from '@/lib/logger';
+import { useDocumentStore } from '@features/document/store';
+import { memos as memoApi } from '@platform/tauri/client';
 
 import {
   COLOR_LABEL_KEYS,
@@ -46,6 +55,9 @@ import {
 import { MemoNavigationDropdown, MemoNavigationSubmenu } from './memo-navigation-dropdown';
 import { MemoListViewTabs } from './memo-list-view-tabs';
 import { MemoListNavigationDrawer } from './memo-list-navigation-drawer';
+import { NotebookFolderView } from './notebook-folder-view';
+import type { NotebookNoteCreateRequest } from './notebook-file-tree';
+import { parentRelativePathForTreeCreate } from './memo-create-location';
 import { useMemoListWindow } from './memo-list/use-memo-list-window';
 import { useDynamicVirtualList } from './memo-list/use-dynamic-virtual-list';
 import {
@@ -97,7 +109,7 @@ export function MemoList({
   // 用 Object.is 比对, 同一个 memos 引用相等就跳过, 不需要 useMemo。
   const memos = useMemoStore((s) => s.memos);
   const selectedMemo = useMemoStore((s) => s.selectedMemo);
-  const memoCardVariant = useUserSettingsStore((s) => s.settings.memoCardVariant);
+  const memoListView = useUserSettingsStore((s) => s.settings.memoListView);
   const updateSettings = useUserSettingsStore((s) => s.updateSettings);
   const selectedNotebook = useMemoStore((s) => s.selectedNotebook);
   const refreshTrigger = useMemoStore((s) => s.refreshTrigger);
@@ -154,11 +166,21 @@ export function MemoList({
   const [colorSubmenuOpen, setColorSubmenuOpen] = useState(false);
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
   const [viewSubmenuOpen, setViewSubmenuOpen] = useState(false);
+  const [createFolderRequest, setCreateFolderRequest] = useState<{
+    id: number;
+    parentPath: string;
+  } | null>(null);
+  const [createNoteRequest, setCreateNoteRequest] = useState<NotebookNoteCreateRequest | null>(null);
   const [tagMap, setTagMap] = useState<Record<string, string>>({});
   const [isMemoListLoading, setIsMemoListLoading] = useState(false);
   const [loadedMemoListQueryKey, setLoadedMemoListQueryKey] = useState<string | null>(null);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+
+  useEffect(() => {
+    setCreateFolderRequest(null);
+    setCreateNoteRequest(null);
+  }, [selectedNotebook?.id]);
 
   useEffect(() => {
     if (!navigationDrawerEnabled) setNavigationDrawerOpen(false);
@@ -314,14 +336,8 @@ export function MemoList({
     memoVirtualizationEnabled && typeof ResizeObserver !== 'undefined';
   const getMemoKey = useCallback((memo: MemoItem) => memo.id, []);
   const estimateMemoSize = useCallback(
-    (memo: MemoItem) => {
-      if (memoCardVariant === 'compact') return 40;
-      // Detailed cards have a fixed thumbnail box when a thumbnail exists;
-      // this estimate gets the first viewport close enough before the first
-      // ResizeObserver pass, while the measured value remains authoritative.
-      return memo.thumbnail ? 208 : 136;
-    },
-    [memoCardVariant],
+    (memo: MemoItem) => memo.thumbnail ? 208 : 136,
+    [],
   );
   const {
     totalSize: virtualListTotalSize,
@@ -334,7 +350,7 @@ export function MemoList({
     estimateSize: estimateMemoSize,
     scrollerRef: listContainerRef,
     enabled: shouldVirtualizeMemos,
-    resetKey: memoCardVariant,
+    resetKey: 'detailed',
     keepAliveKeys: [selectedMemo?.id, openDropdown].filter(
       (id): id is string => Boolean(id),
     ),
@@ -424,7 +440,6 @@ export function MemoList({
         <div data-insert-anim className="min-w-0 w-full">
           <MemoCard
             memo={memo}
-            variant={memoCardVariant}
             tagMap={tagMap}
             isSelected={selectedMemo?.id === memo.id}
             isDropdownOpen={openDropdown === memo.id}
@@ -489,10 +504,10 @@ export function MemoList({
     [setActiveSort, setNotebookDropdownOpen],
   );
 
-  // 视图二级弹窗的选中回调: 复用偏好设置中的持久化卡片布局设置。
+  // 视图二级弹窗的选中回调。
   const handleViewFromSubmenu = useCallback(
-    (variant: MemoCardVariant) => {
-      void updateSettings({ memoCardVariant: variant });
+    (view: 'detailed' | 'folders') => {
+      void updateSettings({ memoListView: view });
       setViewSubmenuOpen(false);
       setNotebookDropdownOpen(false);
     },
@@ -508,7 +523,10 @@ export function MemoList({
     }
   }, [notebookDropdownOpen]);
 
-  const handleCreateMemo = useCallback(async () => {
+  const handleCreateMemo = useCallback(async (
+    parentRelativePathOverride?: string,
+    titleOverride?: string,
+  ) => {
     if (!selectedNotebook) return;
     const previousSelectedMemo = useMemoStore.getState().selectedMemo;
     const createFilter = getVisibleCreateFilter(activeFilter);
@@ -520,7 +538,18 @@ export function MemoList({
 
     let result: MemoItem;
     try {
-      result = await memoRepository.create(activeTagId ?? undefined, selectedNotebook.id);
+      const parentRelativePath = parentRelativePathOverride ?? (memoListView === 'folders'
+        ? parentRelativePathForTreeCreate(
+          useDocumentStore.getState().activeMemoSession,
+          selectedNotebook.id,
+          selectedNotebook.path,
+        )
+        : undefined);
+      result = await memoRepository.create(
+        activeTagId ?? undefined,
+        selectedNotebook.id,
+        parentRelativePath,
+      );
     } catch (error) {
       setSelectedMemo(previousSelectedMemo);
       throw error;
@@ -531,7 +560,21 @@ export function MemoList({
       return;
     }
 
-    const newMemo = result;
+    let newMemo = result;
+    const requestedTitle = titleOverride?.trim();
+    if (requestedTitle && requestedTitle !== result.filename.replace(/\.md$/i, '')) {
+      try {
+        const renamed = await memoApi.renameMemoTitle({
+          id: result.id,
+          title: requestedTitle,
+          expectedFilename: result.filename,
+        });
+        newMemo = renamed.memo;
+      } catch (error) {
+        setSelectedMemo(previousSelectedMemo);
+        throw error;
+      }
+    }
     const shouldSelectNewMemo =
       createFilter === 'all' ||
       (createFilter === 'tagged' && Boolean(activeTagId)) ||
@@ -556,11 +599,56 @@ export function MemoList({
     activeTagId,
     handleMemoCreated,
     prepareForInsert,
+    memoListView,
     selectedNotebook,
     setActiveFilter,
     setSelectedMemo,
     setSelectedTagId,
   ]);
+
+  const handleCreateNoteInFolder = useCallback((parentPath: string, title: string) => {
+    if (!selectedNotebook) return;
+    const root = selectedNotebook.path.replace(/\/+$/, '');
+    const parent = parentPath.replace(/\/+$/, '');
+    if (parent !== root && !parent.startsWith(`${root}/`)) return;
+    const relative = parent === root ? '' : parent.slice(root.length + 1);
+    return handleCreateMemo(relative, title).catch((error) => {
+      logger.warn('create memo in notebook folder failed', { error, parentPath });
+      throw error;
+    });
+  }, [handleCreateMemo, selectedNotebook]);
+
+  const handleRequestCreateNote = useCallback(() => {
+    if (!selectedNotebook) return;
+    const parentRelativePath = parentRelativePathForTreeCreate(
+      useDocumentStore.getState().activeMemoSession,
+      selectedNotebook.id,
+      selectedNotebook.path,
+    );
+    const notebookRoot = selectedNotebook.path.replace(/\/+$/, '');
+    setCreateNoteRequest({
+      id: Date.now(),
+      parentPath: parentRelativePath
+        ? `${notebookRoot}/${parentRelativePath}`
+        : notebookRoot,
+    });
+  }, [selectedNotebook]);
+
+  const handleCreateFolder = useCallback(() => {
+    if (!selectedNotebook) return;
+    const parentRelativePath = parentRelativePathForTreeCreate(
+      useDocumentStore.getState().activeMemoSession,
+      selectedNotebook.id,
+      selectedNotebook.path,
+    );
+    const notebookRoot = selectedNotebook.path.replace(/\/+$/, '');
+    setCreateFolderRequest({
+      id: Date.now(),
+      parentPath: parentRelativePath
+        ? `${notebookRoot}/${parentRelativePath}`
+        : notebookRoot,
+    });
+  }, [selectedNotebook]);
 
   // 入场动画入口: 每次 memos 变化时 (含新建/更新/删除) 在 layout 阶段同步
   // 询问 useMemoInsertAnimation 是否有 pending 新 card, 有就跑一次入场
@@ -584,8 +672,9 @@ export function MemoList({
   const sortValueAdornment = activeSort === 'updatedAt'
     ? t('memo.list.sortUpdated')
     : t('memo.list.sortCreated');
-  const viewValueAdornment = memoCardVariant === 'compact'
-    ? t('memo.list.viewCompact')
+  const activeView = memoListView;
+  const viewValueAdornment = activeView === 'folders'
+    ? t('memo.list.viewFolders')
     : t('memo.list.viewDetailed');
 
   return (
@@ -757,23 +846,26 @@ export function MemoList({
               )}
               submenuContent={(
                 <div className="flex flex-col space-y-0.5">
-                  {(['detailed', 'compact'] as const).map((variant) => (
+                  <div className="px-2 pb-1 pt-1 text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
+                    {t('memo.list.viewCardGroup')}
+                  </div>
+                  {(['detailed', 'folders'] as const).map((view) => (
                     <button
-                      key={variant}
+                      key={view}
                       type="button"
-                      onClick={() => handleViewFromSubmenu(variant)}
+                      onClick={() => handleViewFromSubmenu(view)}
                       onMouseDown={(event) => event.preventDefault()}
                       className={cn(
                         'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
-                        memoCardVariant === variant && 'is-selected',
+                        activeView === view && 'is-selected',
                       )}
                     >
                       <span className="mention-note-title">
-                        {variant === 'detailed'
+                        {view === 'detailed'
                           ? t('memo.list.viewDetailed')
-                          : t('memo.list.viewCompact')}
+                          : t('memo.list.viewFolders')}
                       </span>
-                      {memoCardVariant === variant && <Check className="w-4 h-4 text-[var(--brand)]" />}
+                      {activeView === view && <Check className="w-4 h-4 text-[var(--brand)]" />}
                     </button>
                   ))}
                 </div>
@@ -796,13 +888,29 @@ export function MemoList({
               <Search className="w-4 h-4" />
             </Button>
           </Tooltip>
+          {memoListView === 'folders' && (
+            <Tooltip content={t('memo.fileTree.newFolder')}>
+              <Button
+                size="icon"
+                variant="outline"
+                className={cn(HEADER_ICON_BTN_CLASS, 'bg-[var(--card)]')}
+                onClick={handleCreateFolder}
+                aria-label={t('memo.fileTree.newFolder')}
+              >
+                <FolderPlus className="h-4 w-4" />
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip content={t("memo.list.newMemoTooltip")} shortcut="memo.create">
             <Button
               size="icon"
-              className="h-8 w-8 justify-center bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 rounded-xl p-0 border border-transparent"
-              onClick={handleCreateMemo}
+              className="h-8 w-8 justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
+              onClick={() => {
+                if (memoListView === 'folders') handleRequestCreateNote();
+                else void handleCreateMemo();
+              }}
             >
-              <SquarePen className="w-4 h-4 text-[var(--primary-foreground)]" />
+              <SquarePen className="h-4 w-4 text-[var(--primary-foreground)]" />
             </Button>
           </Tooltip>
         </div>
@@ -834,6 +942,18 @@ export function MemoList({
             </div>
           </div>
         )}
+        {memoListView === 'folders' && selectedNotebook ? (
+          <div className="min-h-0 min-w-0 w-full flex-1">
+            <NotebookFolderView
+              key={selectedNotebook.id}
+              notebook={selectedNotebook}
+              createFolderRequest={createFolderRequest}
+              createNoteRequest={createNoteRequest}
+              sort={activeSort}
+              onCreateNote={handleCreateNoteInFolder}
+            />
+          </div>
+        ) : (
         <OverlayScrollbar
           className="flex min-h-0 min-w-0 w-full flex-1"
           scrollerClassName="min-w-0 w-full flex-1 overflow-y-auto px-1 py-2"
@@ -865,14 +985,15 @@ export function MemoList({
             <EmptyState />
           )}
         </OverlayScrollbar>
+        )}
 
-        <div
+        {memoListView !== 'folders' && <div
           aria-hidden="true"
           className={cn(
             'pointer-events-none absolute inset-x-0 top-0 z-[3] h-3 bg-gradient-to-b from-[color-mix(in_oklch,var(--foreground)_3%,transparent)] to-transparent transition-opacity duration-200',
             showScrollTopHint ? 'opacity-100' : 'opacity-0',
           )}
-        />
+        />}
 
       </div>
     </div>

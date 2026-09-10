@@ -2,6 +2,8 @@
   <a href="./README.md"><b>English</b></a> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
+<!-- Codex write-access test: 2026-09-10 -->
+
 <p align="center">
   <img src="./docs/images/app-icon.png" width="120" alt="Flowix" />
 </p>

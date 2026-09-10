@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { MemoColor, MemoItem } from '@/types/memo-item';
 import type { MemoContentCommit } from '@/types/memo';
 import type { AgentRoleMemoItem } from './general';
+import type { ResolvedOpenTarget } from '@platform/open-target/types';
 
 export type FilterType = 'all' | 'todos' | 'agents' | 'favorited' | 'tagged' | 'thisWeek' | 'thisMonth';
 export type SortType = 'createdAt' | 'updatedAt';
@@ -118,7 +119,14 @@ export const memos = {
     expectedContent: params.expectedContent,
   }),
   getLaunchOpenFiles: () => invoke<string[]>('get_launch_open_files'),
-  addDocument: (tag?: string, notebookId?: string) => invoke<MemoItem>('add_document', { tag, notebookId }),
+  addDocument: (tag?: string, notebookId?: string, parentRelativePath?: string) =>
+    invoke<MemoItem>('add_document', { tag, notebookId, parentRelativePath }),
+  moveMemoToDirectory: (id: string, notebookId: string, parentRelativePath: string) =>
+    invoke<{
+      memo: MemoItem;
+      oldPath: string;
+      path: string;
+    }>('move_memo_to_directory', { id, notebookId, parentRelativePath }),
   renameMemoTitle: (params: { id: string; title: string; expectedFilename?: string }) =>
     invoke<{ memo: MemoItem; oldPath: string; path: string }>('rename_memo_title', {
       id: params.id,
@@ -160,14 +168,10 @@ export const memos = {
   // `lib/openByTarget/listener.ts` 鐩戝惉 `flowix:open-target` 浜嬩欢 鈹€鈹€ 涓诲姩
   // 璋冪敤 (noteReference 鍙屽嚮 / Agent 宸ュ叿) 璧?await, 琚姩娲惧彂 (澶栭儴娣遍摼 /
   // single-instance 浜屾鍚姩) 璧颁簨浠躲€?涓ゆ潯璺緞姹囧悎鍒板悓涓€ `openNoteByTarget`銆?
-  openMemoByTarget: (raw: string, options?: { emitEvent?: boolean }) => invoke<{
-    memoId: string;
-    notebookId: string;
-    notebookName: string;
-    notebookPath: string;
-    absolutePath: string;
-    memoTitle: string;
-  } | null>('open_memo_by_target', { raw, emitEvent: options?.emitEvent ?? true }),
+  openMemoByTarget: (raw: string, options?: { emitEvent?: boolean }) => invoke<ResolvedOpenTarget | null>(
+    'open_memo_by_target',
+    { raw, emitEvent: options?.emitEvent ?? true },
+  ),
 };
 
 export type ExternalDocumentWriteOutcome =

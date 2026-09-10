@@ -99,6 +99,24 @@ describe('useFolderTree', () => {
     await vi.waitFor(() => expect(lastState?.error).toBe('unreadable'));
     expect(lastState?.rootChildren).toHaveLength(0);
   });
+
+  it('根目录局部刷新保留已展开目录', async () => {
+    getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
+    getDirChildrenMock.mockResolvedValue([file('/root/sub/x.md', 'x.md')]);
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    act(() => lastState?.toggle('/root/sub'));
+    await vi.waitFor(() => expect(lastState?.expanded.has('/root/sub')).toBe(true));
+
+    getTreeMock.mockResolvedValue([
+      dir('/root/sub', 'sub'),
+      file('/root/new.md', 'new.md'),
+    ]);
+    await act(async () => { await lastState?.refresh('/root'); });
+
+    expect(lastState?.expanded.has('/root/sub')).toBe(true);
+    expect(lastState?.rootChildren.map((item) => item.name)).toContain('new.md');
+  });
 });
 
 describe('flattenVisibleTree', () => {

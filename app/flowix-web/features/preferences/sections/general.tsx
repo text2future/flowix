@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check } from 'lucide-react';
 import { useAppUpdater } from '@features/shell/hooks/use-app-updater';
-import { CheckSquareIcon, PushPin, StarFourIcon } from '@phosphor-icons/react';
 import {
   Select,
   SelectTrigger,
@@ -26,7 +24,6 @@ import {
   FIELD_TITLE_CLASS,
 } from '@features/preferences/sections/primitives';
 import { LANGUAGE_OPTIONS, useI18n, type AppLanguage, type Region } from '@/lib/i18n';
-import type { MemoCardVariant } from '@/lib/constants';
 
 interface GeneralSectionProps {
   settings: {
@@ -38,7 +35,6 @@ interface GeneralSectionProps {
   };
   language: AppLanguage;
   region: Region;
-  memoCardVariant: MemoCardVariant;
   updateSettings: (updates: {
     personalize?: Partial<{
       customInstruction: string;
@@ -48,139 +44,11 @@ interface GeneralSectionProps {
       showConversationEntry: boolean;
     }>;
     language?: AppLanguage;
-    memoCardVariant?: MemoCardVariant;
     productUpdates?: Partial<{ lastCheckedAt: number }>;
   }) => Promise<void>;
 }
 
-function MemoCardVariantOption({
-  variant,
-  active,
-  title,
-  onSelect,
-}: {
-  variant: MemoCardVariant;
-  active: boolean;
-  title: string;
-  onSelect: () => void;
-}) {
-  const isCompact = variant === 'compact';
-  const previewTitle = 'Flowix release plan';
-  const previewText = 'Review this week\'s scope, desktop app icon updates, and memo card display settings.';
-  const previewTime = '2h ago';
-
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onSelect}
-      className={cn(
-        'group relative min-w-0 rounded-xl border border-transparent p-2 text-left transition-all',
-        'hover:bg-white hover:shadow-sm',
-        active
-          ? 'border-[var(--primary)] bg-white'
-          : '',
-      )}
-    >
-      {active && (
-        <span className="absolute right-2 top-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] ring-2 ring-[var(--card)]">
-          <Check className="h-3 w-3" />
-        </span>
-      )}
-
-      <div
-        className={cn(
-          'h-[128px] overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--background)]',
-          isCompact ? 'p-2' : 'p-1',
-        )}
-      >
-        {isCompact ? (
-          <div className="space-y-1.5">
-            {[
-              {
-                title: previewTitle,
-                color: 'var(--memo-color-green)',
-                selected: true,
-                pinned: true,
-                hasAgent: false,
-                hasTodo: true,
-              },
-              {
-                title: 'CLI setup notes',
-                color: 'var(--memo-color-blue)',
-                selected: false,
-                pinned: false,
-                hasAgent: true,
-                hasTodo: false,
-              },
-              {
-                title: 'Interface review',
-                color: 'var(--memo-color-orange)',
-                selected: false,
-                pinned: false,
-                hasAgent: false,
-                hasTodo: true,
-              },
-            ].map(({ title: itemTitle, color, selected, pinned, hasAgent, hasTodo }) => (
-              <div
-                key={itemTitle}
-                className={cn(
-                  'flex h-8 min-w-0 items-center gap-1.5 rounded-xl px-3 py-2 transition-colors',
-                  selected && 'bg-[var(--accent)]',
-                )}
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-                {hasAgent && (
-                  <StarFourIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" weight="regular" />
-                )}
-                {pinned && <PushPin weight="fill" className="h-3.5 w-3.5 shrink-0 text-[var(--foreground)]" />}
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--foreground)]">
-                  {itemTitle}
-                </span>
-                {hasTodo && (
-                  <CheckSquareIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" weight="regular" />
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="group relative rounded-lg px-1.5 py-1">
-            <h3 className="mr-3 line-clamp-1 text-xs font-medium text-[var(--foreground)]">
-              <span className="min-w-0">{previewTitle}</span>
-            </h3>
-            <div className="mt-1.5 h-8 w-[58px] overflow-hidden rounded-md bg-[var(--muted)]">
-              <div className="h-full w-full bg-[color-mix(in_oklch,var(--muted-foreground)_16%,transparent)]" />
-            </div>
-            <p className="mt-1 line-clamp-2 text-[11px] leading-3.5 text-[var(--foreground)] opacity-50">
-              {previewText}
-            </p>
-            <div className="flex w-full items-center justify-between gap-2 pt-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex flex-wrap items-center gap-1">
-                  <span className="inline-flex items-center rounded-[6px] border border-[var(--border)] px-1 py-0 text-xs text-[var(--muted-foreground)]">
-                    #project
-                  </span>
-                  <span className="inline-flex items-center rounded-[6px] border border-[var(--border)] px-1 py-0 text-xs text-[var(--muted-foreground)]">
-                    #design
-                  </span>
-                </div>
-              </div>
-              <span className="shrink-0 text-xs tabular-nums text-[var(--muted-foreground)]">
-                {previewTime}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-2">
-        <div className={FIELD_TITLE_CLASS}>{title}</div>
-      </div>
-    </button>
-  );
-}
-
-export function GeneralSection({ settings, language, memoCardVariant, updateSettings }: GeneralSectionProps) {
+export function GeneralSection({ settings, language, updateSettings }: GeneralSectionProps) {
   const { t } = useI18n();
   const customInstruction = useComposingValue(
     settings.customInstruction,
@@ -272,26 +140,6 @@ export function GeneralSection({ settings, language, memoCardVariant, updateSett
           </SelectContent>
         </Select>
       </FieldRow>
-
-      <Field
-        title={t('preferences.general.memoCardVariant.title')}
-        description={t('preferences.general.memoCardVariant.description')}
-      >
-        <div className="grid grid-cols-2 gap-3 pt-1">
-          <MemoCardVariantOption
-            variant="detailed"
-            active={memoCardVariant === 'detailed'}
-            title={t('preferences.general.memoCardVariant.detailed')}
-            onSelect={() => updateSettings({ memoCardVariant: 'detailed' })}
-          />
-          <MemoCardVariantOption
-            variant="compact"
-            active={memoCardVariant === 'compact'}
-            title={t('preferences.general.memoCardVariant.compact')}
-            onSelect={() => updateSettings({ memoCardVariant: 'compact' })}
-          />
-        </div>
-      </Field>
 
       <FieldRow title={t('preferences.general.showConversationEntry.title')}>
         <button

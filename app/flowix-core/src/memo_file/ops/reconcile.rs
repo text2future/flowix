@@ -727,6 +727,59 @@ impl MemoFile {
         self.rename_memo_file_for_notebook_id_locked(notebook_id, old_path, new_path)
     }
 
+    /// Move one indexed memo into an existing notebook directory while keeping
+    /// its frontmatter key and memo id unchanged.
+    pub fn move_memo_to_directory_for_notebook_id(
+        &self,
+        notebook_id: &str,
+        memo_id: &str,
+        parent_relative_path: &str,
+    ) -> Result<(Memo, PathBuf, PathBuf), String> {
+        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
+        let base = self.memo_base_for_notebook_id_result(notebook_id)?;
+        let memo = self
+            .read_memo_for_notebook_id(notebook_id, memo_id)
+            .ok_or_else(|| format!("memo id not in notebook {notebook_id}: {memo_id}"))?;
+        let old_path = notebook_path_from_relative(&base, &memo.relative_path)?;
+        let parent = if parent_relative_path.trim().is_empty() {
+            base.clone()
+        } else {
+            notebook_path_from_relative(&base, parent_relative_path)?
+        };
+        if !parent.is_dir() {
+            return Err(format!("memo destination directory does not exist: {}", parent.display()));
+        }
+        let destination_relative = if parent_relative_path.trim().is_empty() {
+            memo.filename.clone()
+        } else {
+            format!("{parent_relative_path}/{filename}", filename = memo.filename)
+        };
+        if !parent_relative_path.trim().is_empty()
+            && is_internal_notebook_path(Path::new(parent_relative_path))
+        {
+            return Err("memo destination is an internal notebook directory".to_string());
+        }
+        let new_path = notebook_path_from_relative(&base, &destination_relative)?;
+        if old_path == new_path {
+            return Ok((memo, old_path, new_path));
+        }
+        if new_path.exists() {
+            return Err(format!(
+                "FILE_EXISTS: destination file already exists: {}",
+                new_path.display()
+            ));
+        }
+
+        fs::rename(&old_path, &new_path).map_err(|error| format!("move memo failed: {error}"))?;
+        match self.rename_memo_file_for_notebook_id_locked(notebook_id, &old_path, &new_path) {
+            Ok(moved) => Ok((moved, old_path, new_path)),
+            Err(error) => {
+                let _ = fs::rename(&new_path, &old_path);
+                Err(error)
+            }
+        }
+    }
+
     pub(super) fn rename_memo_file_for_notebook_id_locked(
         &self,
         notebook_id: &str,
