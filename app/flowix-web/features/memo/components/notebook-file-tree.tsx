@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   CaretRightIcon,
   FilePlusIcon,
@@ -191,17 +191,78 @@ export function NotebookFileTree({
     setDraft({ requestId: Date.now(), parentPath, kind, value: '' });
   }, [tree.expandTo]);
 
-  const draftDepth = draft
-    ? findParentDepth(visibleNodes, draft.parentPath) + 1
-    : 0;
-  const draftInsertIndex = draft
-    ? canonicalPath(draft.parentPath) === canonicalPath(notebookPath)
-      ? 0
-      : (() => {
-        const parentIndex = visibleNodes.findIndex(({ item }) => canonicalPath(item.fullPath) === canonicalPath(draft.parentPath));
-        return parentIndex >= 0 ? parentIndex + 1 : visibleNodes.length;
-      })()
-    : -1;
+  const renderDraft = (depth: number) => draft ? (
+    <NotebookTreeDraft
+      draft={draft}
+      depth={depth}
+      onChange={(value) => setDraft({ ...draft, value })}
+      onSubmit={() => void submitDraft()}
+      onCancel={cancelDraft}
+    />
+  ) : null;
+
+  const renderTreeItems = (items: DocTreeItem[], depth: number): ReactNode[] => items.map((item) => {
+    const expanded = item.type === 'folder' && tree.expanded.has(canonicalPath(item.fullPath));
+    const itemIndex = visibleNodes.findIndex(({ item: visibleItem }) => visibleItem.id === item.id);
+    const children = item.type === 'folder'
+      ? (tree.nodes.get(canonicalPath(item.fullPath))?.children ?? [])
+      : [];
+    return (
+      <Fragment key={item.id}>
+        <NotebookTreeRow
+          item={item}
+          depth={depth}
+          expanded={expanded}
+          active={item.type === 'document' && Boolean(activeFilePath)
+            && canonicalPath(item.fullPath) === canonicalPath(activeFilePath!)}
+          onToggle={() => tree.toggle(item.fullPath)}
+          onOpen={() => {
+            if (suppressOpenPathRef.current === item.fullPath) {
+              suppressOpenPathRef.current = null;
+              return;
+            }
+            onNoteSelect(item.fullPath);
+          }}
+          onOpenInNewTab={onNoteOpenInNewTab
+            ? () => onNoteOpenInNewTab(item.fullPath)
+            : undefined}
+          dragOver={isFolderDropZoneHighlighted(visibleNodes, itemIndex, dragOverFolderPath)}
+          dropTargetPath={item.type === 'folder' ? item.fullPath : isFolderParent(item, notebookPath)}
+          onCreateNote={() => requestCreateDraft(isFolderParent(item, notebookPath), 'note')}
+          onCreateFolder={() => requestCreateDraft(isFolderParent(item, notebookPath), 'folder')}
+          onPointerDown={(event) => {
+            if (item.type !== 'document') return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            pointerDragRef.current = {
+              sourcePath: item.fullPath,
+              sourceName: displayTitleFromFilename(item.name),
+              pointerId: event.pointerId,
+              captureElement: event.currentTarget,
+              startX: event.clientX,
+              startY: event.clientY,
+              active: false,
+              targetDirectoryPath: null,
+            };
+          }}
+        />
+        {item.type === 'folder' && (
+          <div
+            className="folder-file-tree__subtree"
+            data-expanded={expanded}
+            aria-hidden={!expanded}
+            style={{ '--folder-file-tree-guide-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL + 8}px` } as CSSProperties}
+          >
+            <div className="folder-file-tree__subtree-inner">
+              <div className="folder-file-tree__subtree-items">
+                {draft && canonicalPath(draft.parentPath) === canonicalPath(item.fullPath) && renderDraft(depth + 1)}
+                {renderTreeItems(children, depth + 1)}
+              </div>
+            </div>
+          </div>
+        )}
+      </Fragment>
+    );
+  });
 
   const handleDrop = useCallback(async (
     targetDirectoryPath: string,
@@ -307,71 +368,8 @@ export function NotebookFileTree({
                 {t('memo.fileTree.dropToRoot')}
               </div>
             )}
-            {visibleNodes.map(({ item, depth }, index) => (
-              <Fragment key={item.id}>
-                {draft && index === draftInsertIndex && (
-                  <NotebookTreeDraft
-                    draft={draft}
-                    depth={draftDepth}
-                    onChange={(value) => setDraft({ ...draft, value })}
-                    onSubmit={() => void submitDraft()}
-                    onCancel={cancelDraft}
-                  />
-                )}
-                <NotebookTreeRow
-                  item={item}
-                  depth={depth}
-                  expanded={item.type === 'folder' && tree.expanded.has(canonicalPath(item.fullPath))}
-                  active={item.type === 'document' && Boolean(activeFilePath)
-                    && canonicalPath(item.fullPath) === canonicalPath(activeFilePath!)}
-                  onToggle={() => tree.toggle(item.fullPath)}
-                  onOpen={() => {
-                    if (suppressOpenPathRef.current === item.fullPath) {
-                      suppressOpenPathRef.current = null;
-                      return;
-                    }
-                    onNoteSelect(item.fullPath);
-                  }}
-                  onOpenInNewTab={onNoteOpenInNewTab
-                    ? () => onNoteOpenInNewTab(item.fullPath)
-                    : undefined}
-                  dragOver={isFolderDropZoneHighlighted(
-                    visibleNodes,
-                    index,
-                    dragOverFolderPath,
-                  )}
-                  dropTargetPath={item.type === 'folder'
-                    ? item.fullPath
-                    : isFolderParent(item, notebookPath)}
-                  onCreateNote={() => requestCreateDraft(isFolderParent(item, notebookPath), 'note')}
-                  onCreateFolder={() => requestCreateDraft(isFolderParent(item, notebookPath), 'folder')}
-                  onPointerDown={(event) => {
-                    if (item.type !== 'document') return;
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    pointerDragRef.current = {
-                      sourcePath: item.fullPath,
-                      sourceName: displayTitleFromFilename(item.name),
-                      pointerId: event.pointerId,
-                      captureElement: event.currentTarget,
-                      startX: event.clientX,
-                      startY: event.clientY,
-                      active: false,
-                      targetDirectoryPath: null,
-                    };
-                  }}
-                />
-              </Fragment>
-            ))}
-
-            {draft && draftInsertIndex >= visibleNodes.length && (
-              <NotebookTreeDraft
-                draft={draft}
-                depth={draftDepth}
-                onChange={(value) => setDraft({ ...draft, value })}
-                onSubmit={() => void submitDraft()}
-                onCancel={cancelDraft}
-              />
-            )}
+            {draft && canonicalPath(draft.parentPath) === canonicalPath(notebookPath) && renderDraft(0)}
+            {renderTreeItems(tree.rootChildren, 0)}
           </div>
         </OverlayScrollbar>
         {dragPreview && (
@@ -529,7 +527,7 @@ function NotebookTreeRow({
           className={cn(
             'group relative flex h-8 cursor-pointer items-center rounded-lg px-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]',
             active
-              ? 'bg-[color-mix(in_oklch,var(--brand)_12%,var(--card))] font-medium text-[var(--foreground)] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-[var(--brand)]'
+              ? 'bg-[var(--muted)] font-medium text-[var(--foreground)]'
               : 'hover:bg-[var(--muted)]',
             dragOver && 'bg-[color-mix(in_oklch,var(--brand)_15%,transparent)]',
           )}
@@ -603,11 +601,6 @@ function NotebookTreeRow({
 function isFolderParent(item: DocTreeItem, notebookPath: string): string {
   if (item.type === 'folder') return item.fullPath;
   return item.fullPath.slice(0, item.fullPath.lastIndexOf('/')) || notebookPath;
-}
-
-function findParentDepth(nodes: VisibleTreeNode[], parentPath: string): number {
-  const target = canonicalPath(parentPath).replace(/\/+$/, '');
-  return nodes.find(({ item }) => canonicalPath(item.fullPath) === target)?.depth ?? -1;
 }
 
 function isFolderDropZoneHighlighted(
