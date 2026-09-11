@@ -3,10 +3,9 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ErrorBoundary } from "@shared/error-boundary";
 import { Toaster } from "sonner";
-import { useUserSettings } from "@features/preferences/hooks/use-user-settings";
-import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
-import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
-import { useApplyFontSettings } from "@features/preferences/hooks/use-apply-font-settings";
+import { useAppPreferencesViewModel } from "@features/preferences/public/app-api";
+import { useAppAgentRuntimeViewModel } from "@features/agent/public/app-api";
+import { useApplyFontSettings } from "@features/preferences/public/app-api";
 import { ThemeProvider } from "@features/theme";
 import { NativeSelectAllBridge, ShortcutsProvider } from "@features/shortcuts";
 import { I18nProvider } from "@/lib/i18n";
@@ -14,14 +13,14 @@ import { TooltipProvider } from "@shared/ui/tooltip";
 import "@features/shortcuts/actions";
 import { listenToUserConfigChanges, windows } from "@platform/tauri/client";
 import { syncUserConfigChange } from "./user-config-sync";
-import { invalidateDshModelConfigs } from "@features/agent/store/dsh-model-config-store";
+import { invalidateDshModelConfigs } from "@features/agent/public/app-api";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("app");
 
-const MainLayout = lazy(() =>
-  import("@features/shell")
-    .then((module) => ({ default: module.MainLayout }))
+const MainWindow = lazy(() =>
+  import("./main-window/main-window")
+    .then((module) => ({ default: module.MainWindow }))
     .catch((error) => {
       // A packaged Tauri WebView can fail to resolve a lazy chunk while the
       // root document itself has already loaded. Do not leave the static
@@ -79,12 +78,14 @@ function MainWindowReadySignal() {
 
 function App() {
   const [hash, setHash] = useState(() => window.location.hash);
-  const language = useUserSettings((settings) => settings.language);
-  const format = useUserSettings((settings) => settings.format);
-  const shortcutOverrides = useUserSettings((settings) => settings.shortcuts);
-  const loadInitial = useUserSettingsStore((s) => s.loadInitial);
-  const flushPending = useUserSettingsStore((s) => s.flushPending);
-  const refreshAgentRuntime = useAgentRuntimeStore((s) => s.refresh);
+  const {
+    language,
+    format,
+    shortcutOverrides,
+    loadInitial,
+    flushPending,
+  } = useAppPreferencesViewModel();
+  const { refreshAgentRuntime } = useAppAgentRuntimeViewModel();
   useApplyFontSettings(format);
 
   useEffect(() => {
@@ -166,7 +167,7 @@ function App() {
             <ShortcutsProvider overrides={shortcutOverrides}>
               <NativeSelectAllBridge />
               <Suspense fallback={null}>
-                <MainLayout />
+                <MainWindow />
                 <MainWindowReadySignal />
               </Suspense>
             </ShortcutsProvider>

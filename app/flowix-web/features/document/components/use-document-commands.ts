@@ -4,7 +4,7 @@ import { displayTitleFromFilename } from '@/lib/utils';
 import { sanitizeFileName, stripFrontmatter } from '@/lib/export-utils';
 import { memos as memosClient, dialogs, type SaveFileFilter } from '@platform/tauri/client';
 import { translate } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { toast } from '@/lib/toast';
 import type { MemoColor, MemoItem } from '@features/memo';
 
@@ -30,7 +30,7 @@ type CommandKey =
   | 'document.command.exportWord.failed';
 
 function tCmd(key: CommandKey, params?: Record<string, string | number>): string {
-  const language = useUserSettingsStore.getState().settings.language;
+  const language = getCurrentAppLanguage();
   return translate(language, key, params);
 }
 
@@ -222,7 +222,7 @@ export function useDocumentCommands({
       return;
     }
 
-    const language = useUserSettingsStore.getState().settings.language;
+    const language = getCurrentAppLanguage();
     const ok = await dialogs.writeExportFile(target, exportModule.buildWordHtml(doc.title, bodyHtml, language));
     toast[ok ? 'success' : 'error'](tCmd(ok ? 'document.command.exportWord.success' : 'document.command.exportWord.failed'));
   }, [promptExportTarget, requireExportableDocument]);

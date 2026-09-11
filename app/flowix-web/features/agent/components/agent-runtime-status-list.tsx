@@ -7,7 +7,7 @@ import { useI18n, type I18nKey } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
 import type { AgentRuntimeAvailability } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { useAgentVisibilityPreferences } from '@features/preferences/public/runtime-api';
 import { AgentIcon } from '@features/agent/components/agent-icon';
 
 type AgentRuntimeStatusByType = Partial<Record<AgentTypeKey, AgentRuntimeAvailability>>;
@@ -88,8 +88,7 @@ export function AgentRuntimeStatusList({
     !hiddenKeys?.has(typeKey);
   const visibleAgentTypes = AGENT_TYPES.filter((type) => isVisible(type.key));
   const { t } = useI18n();
-  const agentVisibility = useUserSettingsStore((s) => s.settings.agents.enabledByType);
-  const updateSettings = useUserSettingsStore((s) => s.updateSettings);
+  const { enabledByType: agentVisibility, setEnabled } = useAgentVisibilityPreferences();
 
   // 解析 i18n 文案 ── 卡片有 nameKey/descKey 就走 t(), 缺省回退到 type.name
   // / type.desc 的硬编码英文 (供编辑器节点等非 React 上下文用)。
@@ -99,14 +98,7 @@ export function AgentRuntimeStatusList({
     type.descKey ? t(type.descKey as Parameters<typeof t>[0]) : type.desc;
 
   const setAgentSlashEnabled = (typeKey: AgentTypeKey, enabled: boolean) => {
-    void updateSettings({
-      agents: {
-        enabledByType: {
-          ...agentVisibility,
-          [typeKey]: enabled,
-        },
-      },
-    });
+    void setEnabled(typeKey, enabled);
   };
 
   if (variant === 'preferences') {

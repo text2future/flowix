@@ -228,6 +228,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
 }
 
 export function AgentConversationTitlebar({
+  reserveWindowsControls = true,
   instanceId,
   isMiddleColumnCollapsed,
   isSidebarVisible,
@@ -240,6 +241,7 @@ export function AgentConversationTitlebar({
   onNavigateForward,
 }: {
   instanceId: string;
+  reserveWindowsControls?: boolean;
   isMiddleColumnCollapsed: boolean;
   isSidebarVisible: boolean;
   onExpandSidebar: () => void;
@@ -259,27 +261,30 @@ export function AgentConversationTitlebar({
   return (
     <WorkColumnTitlebarShell
       isWindows={isWindows}
+      reserveWindowsControls={reserveWindowsControls}
       showTrafficLightSpacer={isMiddleColumnCollapsed && !isSidebarVisible}
       className="agent-conversation-titlebar"
     >
       <div className="flex shrink-0 items-center gap-1">
         {isMiddleColumnCollapsed && (
-          <button
-            type="button"
-            onClick={onExpandSidebar}
-            onMouseEnter={onSidebarPreviewEnter}
-            onMouseLeave={onSidebarPreviewLeave}
-            aria-label={t('document.titlebar.showSidebar')}
-            title={t('document.titlebar.showSidebarTooltip')}
-            className={`flex h-5 w-5 shrink-0 items-center justify-center text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] [-webkit-app-region:no-drag] ${
-              isWindows ? 'rounded-lg' : 'rounded-xl'
-            }`}
-          >
-            <SidebarToggleIcon
-              className={isWindows ? 'h-4 w-4' : 'h-5 w-5'}
-              variant="collapsed"
-            />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onExpandSidebar}
+              onMouseEnter={onSidebarPreviewEnter}
+              onMouseLeave={onSidebarPreviewLeave}
+              aria-label={t('document.titlebar.showSidebar')}
+              title={t('document.titlebar.showSidebarTooltip')}
+              className={`flex h-5 w-5 shrink-0 items-center justify-center text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] [-webkit-app-region:no-drag] ${
+                isWindows ? 'rounded-lg' : 'rounded-xl'
+              }`}
+            >
+              <SidebarToggleIcon
+                className={isWindows ? 'h-4 w-4' : 'h-5 w-5'}
+                variant="collapsed"
+              />
+            </button>
+          </>
         )}
         <Tooltip content={t('document.titlebar.backTooltip')} shortcut="history.back">
           <button

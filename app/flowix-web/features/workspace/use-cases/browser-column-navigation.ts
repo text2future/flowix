@@ -4,12 +4,12 @@ import { canonicalPath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { canonicalUrl, contentIdentityKey } from '@features/workspace/store/workspace-content-identity';
-import type { MemoItem, Notebook } from '@features/memo';
+import type { MemoItem, Notebook } from '@features/memo/public/workspace-api';
 import { memos as memosClient } from '@platform/tauri/client';
 import {
   getPluginNoteInfo,
   type PluginArtifactRendererId,
-} from '@features/plugin/plugin-note';
+} from '@features/plugin/public/workspace-api';
 import {
   canMoveBrowserColumnTargetToWorkColumn,
   useBrowserColumnStore,

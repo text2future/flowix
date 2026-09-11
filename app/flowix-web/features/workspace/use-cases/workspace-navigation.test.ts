@@ -67,6 +67,7 @@ vi.mock('@features/document/store/document-session-service', () => ({
 }));
 
 vi.mock('@platform/tauri/client', () => ({
+  agent: {},
   notebooks: { setCurrent: mocks.setCurrentNotebook },
 }));
 
@@ -209,6 +210,7 @@ describe('workspace navigation', () => {
     expect(mocks.flushDocumentPath).toHaveBeenCalledWith(
       { kind: 'memo', id: 'memo-1' },
       '/notes/memo-1.md',
+      undefined,
     );
     expect(mocks.clearDocument).not.toHaveBeenCalled();
   });
@@ -246,6 +248,7 @@ describe('workspace navigation', () => {
     expect(mocks.flushDocumentPath).toHaveBeenCalledWith(
       { kind: 'memo', id: 'memo-1' },
       '/notes/one/memo-1.md',
+      undefined,
     );
     expect(mocks.clearDocument).not.toHaveBeenCalled();
     expect(mocks.setCurrentNotebook).toHaveBeenCalledWith(nextNotebook.id);

@@ -123,3 +123,23 @@ export async function resolveMemoByPath(rawPath: string): Promise<ResolvedOpenTa
   if (!rawPath) return null;
   return memosClient.openMemoByTarget(rawPath, { emitEvent: false });
 }
+
+/** Resolve an Obsidian wiki/relative Markdown target through the memo index. */
+export async function resolveMemoByObsidianTarget(rawTarget: string): Promise<ResolvedOpenTarget | null> {
+  let target = rawTarget.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  try { target = decodeURIComponent(target); } catch { /* preserve malformed input */ }
+  const targetLower = target.toLowerCase();
+  const targetWithMd = targetLower.endsWith('.md') ? targetLower : `${targetLower}.md`;
+  const basename = targetWithMd.split('/').pop() ?? targetWithMd;
+  const title = basename.replace(/\.md$/i, '');
+  const items = await memosClient.searchMentionNotes(title, 200);
+  const match = items.find((item) => {
+    const filename = String(item.filename ?? '').replace(/\\/g, '/').toLowerCase();
+    const path = String(item.originalPath ?? '').replace(/\\/g, '/').toLowerCase();
+    return filename === targetWithMd
+      || filename.endsWith(`/${targetWithMd}`)
+      || path.endsWith(`/${targetWithMd}`)
+      || (basename === filename.split('/').pop() && String(item.title ?? '').toLowerCase() === title);
+  });
+  return match?.id ? resolveMemoById(match.id) : null;
+}

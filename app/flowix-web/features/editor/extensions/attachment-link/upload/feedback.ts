@@ -1,6 +1,6 @@
 import { toast } from '@/lib/toast';
 import { translate, type I18nKey } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 
 export function reportUploadFailure(error: unknown): void {
     const message = String(error);
@@ -9,9 +9,9 @@ export function reportUploadFailure(error: unknown): void {
         : message.includes('ATTACHMENT_BUSY') ? 'editor.attachment.uploadBusy'
         : message.includes('OWNER_REQUIRED') ? 'editor.attachment.uploadOwnerRequired'
         : 'editor.attachment.uploadFailed';
-    toast.error(translate(useUserSettingsStore.getState().settings.language, key));
+    toast.error(translate(getCurrentAppLanguage(), key));
 }
 
 export function reportUninsertedAttachments(): void {
-    toast.error(translate(useUserSettingsStore.getState().settings.language, 'editor.attachment.uploadUninserted'));
+    toast.error(translate(getCurrentAppLanguage(), 'editor.attachment.uploadUninserted'));
 }

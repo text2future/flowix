@@ -128,6 +128,11 @@ export class ThreadMessageRenderController {
   dispose(): void {
     this.cancelPendingRender();
     this.cancelProgressiveRender();
+    // The standalone conversation detail can recreate this controller while
+    // React reuses the same body element (for example during StrictMode
+    // effect replay). Do not leave an owned placeholder behind for the next
+    // controller instance, whose renderedEmptyState reference starts empty.
+    this.removeRenderedEmptyState();
     if (this.loadingIndicatorHideTimer !== null) {
       window.clearTimeout(this.loadingIndicatorHideTimer);
       this.loadingIndicatorHideTimer = null;
@@ -469,8 +474,22 @@ export class ThreadMessageRenderController {
   private removeRenderedEmptyState(): void {
     const emptyState = this.renderedEmptyState;
     this.renderedEmptyState = null;
-    if (emptyState?.parentNode === this.body) {
-      this.body.removeChild(emptyState);
+
+    // Usually the reference above is enough. A controller can be recreated
+    // against the same body, though, so also remove orphaned placeholders
+    // from the previous controller. Keep the loading indicator and message
+    // list untouched; both are owned by the current render path.
+    for (const child of Array.from(this.body.children)) {
+      if (!(child instanceof HTMLElement) || child === this.loadingIndicator) {
+        continue;
+      }
+      if (
+        child === emptyState ||
+        child.classList.contains("agent-thread-card__empty") ||
+        child.classList.contains("agent-thread-card__skeleton")
+      ) {
+        child.remove();
+      }
     }
   }
 

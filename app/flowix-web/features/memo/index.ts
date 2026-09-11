@@ -10,5 +10,10 @@ export {
   type NotebookIconOption,
 } from '@features/memo/components/notebook-icon';
 export { openMemoSession } from '@features/memo/use-cases/open-memo-session';
+export {
+  getWorkspaceMemoState,
+  setCurrentWorkspaceNotebook,
+  type WorkspaceMemoState,
+} from '@features/memo/public/workspace-api';
 export * from '@features/memo/hooks';
 export * from '@features/memo/store';

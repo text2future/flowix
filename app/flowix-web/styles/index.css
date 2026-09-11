@@ -38,6 +38,14 @@
 @import './theme/mist.css';
 @import './theme/ember.css';
 
+@font-face {
+	font-family: 'FlowixSeti';
+	src: url('../assets/seti/seti.woff') format('woff');
+	font-display: block;
+	font-style: normal;
+	font-weight: normal;
+}
+
 @import "shadcn/tailwind.css";
 
 
@@ -161,6 +169,29 @@
 	grid-template-rows: 1fr;
 }
 
+/* 拖放到文件夹时, 背景只覆盖与文件夹行相同的左右范围。
+ * 使用绝对定位的伪元素, 不改变子项自身按 depth 计算的布局位置。 */
+.folder-file-tree__group[data-drag-over='true'] {
+	position: relative;
+}
+
+.folder-file-tree__group[data-drag-over='true']::before {
+	position: absolute;
+	top: 0;
+	right: var(--folder-file-tree-drop-right);
+	bottom: 0;
+	left: var(--folder-file-tree-drop-left);
+	border-radius: 0.5rem;
+	background: color-mix(in oklch, var(--brand) 15%, transparent);
+	content: '';
+	pointer-events: none;
+}
+
+.folder-file-tree__group[data-drag-over='true'] > .folder-file-tree__item,
+.folder-file-tree__group[data-drag-over='true'] > .folder-file-tree__subtree {
+	z-index: 1;
+}
+
 .folder-file-tree__subtree-inner {
 	position: relative;
 	min-height: 0;
@@ -183,18 +214,26 @@
 
 /* hover 子 item 时, 提亮该 item 所在列表(子树)左侧的层级引导线。
  * 用 --foreground 而非主题色: 浅色主题为黑、深色主题为白。 */
-.folder-file-tree__subtree-inner:has(> .folder-file-tree__subtree-items > .folder-file-tree__item:hover)::before {
+.folder-file-tree__subtree-inner:has(> .folder-file-tree__subtree-items > :is(.folder-file-tree__item, .folder-file-tree__group):hover)::before {
 	background: color-mix(in srgb, var(--foreground) 35%, transparent);
 }
 
 .folder-file-tree__subtree-items {
-	padding-top: 1px;
+	padding-top: 0.125rem;
 	animation: folder-file-tree-subtree-in 180ms ease-out both;
 }
 
 .folder-file-tree__items > .folder-file-tree__item:not(:first-child),
-.folder-file-tree__subtree-items > .folder-file-tree__item:not(:first-child) {
+.folder-file-tree__items > .folder-file-tree__group:not(:first-child),
+.folder-file-tree__subtree-items > .folder-file-tree__item:not(:first-child),
+.folder-file-tree__subtree-items > .folder-file-tree__group:not(:first-child) {
 	margin-top: 1px;
+}
+
+/* 笔记树的 root 与 folder 子列表统一使用 space-y-0.5 (2px)。 */
+.notebook-file-tree__subtree-items > .folder-file-tree__item:not(:first-child),
+.notebook-file-tree__subtree-items > .folder-file-tree__group:not(:first-child) {
+	margin-top: 2px;
 }
 
 .folder-file-tree__subtree[data-expanded='false'] .folder-file-tree__subtree-items {

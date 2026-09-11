@@ -24,6 +24,7 @@ const NAV_BTN =
 const ICON_BTN = DOCUMENT_TITLEBAR_ICON_BUTTON_MAC;
 
 export function DocumentTitlebarMac({
+  reserveWindowsControls: _reserveWindowsControls = true,
   document: { currentMemo, externalFilePath = null },
   sidebar: {
     hidden: isSidebarHidden,
@@ -77,17 +78,19 @@ export function DocumentTitlebarMac({
     >
       <div className="flex shrink-0 items-center gap-1">
         {isSidebarHidden && (
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            onMouseEnter={onPreviewTriggerEnter}
-            onMouseLeave={onPreviewTriggerLeave}
-            aria-label={t("document.titlebar.showSidebar")}
-            title={t("document.titlebar.showSidebarTooltip")}
-            className="w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors"
-          >
-            <SidebarToggleIcon className="w-5 h-5" variant="collapsed" />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              onMouseEnter={onPreviewTriggerEnter}
+              onMouseLeave={onPreviewTriggerLeave}
+              aria-label={t("document.titlebar.showSidebar")}
+              title={t("document.titlebar.showSidebarTooltip")}
+              className="w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors"
+            >
+              <SidebarToggleIcon className="w-5 h-5" variant="collapsed" />
+            </button>
+          </>
         )}
         {showNavigationButtons && (
           <>

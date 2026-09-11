@@ -19,6 +19,7 @@ export {
   flushDocumentPath,
   getDocumentBuffer,
   hasDocumentUnsavedChanges,
+  discardDocumentDraft,
   applyLoadedDocumentContent,
   consumeStagedDocumentSnapshot,
   stageDocumentSnapshot,

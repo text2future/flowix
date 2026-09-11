@@ -7,7 +7,7 @@ import { displayTitleFromFilename } from '@/lib/utils';
 import {
   normalizePluginArtifactRenderer,
   type PluginArtifactRendererId,
-} from '@features/plugin/plugin-note';
+} from '@features/plugin/public/workspace-api';
 import { canonicalUrl, contentIdentityKey } from './workspace-content-identity';
 import { useWorkspaceFocusStore } from './workspace-focus-store';
 

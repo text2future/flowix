@@ -8,7 +8,7 @@ import {
   type DocumentIdentity,
 } from '@features/document';
 import { translate } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { toast } from '@/lib/toast';
 import { registerMemoEventHandler } from '@/lib/memo-dispatcher';
 import type { MemoEvent, MemoChangeSource } from '@/types/memo';
@@ -126,7 +126,7 @@ export function useMemoDocumentChangeWatch({
       if (!hasDocumentUnsavedChanges(identity)) return;
       if (Date.now() - lastConflictWarningAtRef.current < CONFLICT_WARNING_COOLDOWN_MS) return;
       lastConflictWarningAtRef.current = Date.now();
-      const language = useUserSettingsStore.getState().settings.language;
+      const language = getCurrentAppLanguage();
       const messageKey = source === 'cloud_sync'
         ? 'document.cloud.updateAvailable'
         : 'document.external.changeWarning';

@@ -61,7 +61,86 @@ for (const file of files) {
     if (!isTest(file) && isMidLayer(layer) && spec.startsWith('@tauri-apps/')) {
       violations.push(`${r}: 直接 import ${spec}  (须走 @platform/tauri/* 封装)`);
     }
-    // Rule C: foundational Agent session services receive Store capabilities
+    // Rule C: migrated cross-feature seams use the owning module's public
+    // entrypoint. Add files here only after their deep imports are removed;
+    // this keeps the migration incremental without grandfathering new debt.
+    if (
+      !isTest(file)
+      && r.startsWith('features/workspace/')
+      && /^@features\/(agent|document|editor|memo|plugin|preferences|shell|surface)\//.test(spec)
+      && !/^@features\/(agent|document|editor|memo|plugin|preferences|shell|surface)\/public\//.test(spec)
+    ) {
+      violations.push(`${r}: 跨模块依赖必须走公开入口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && r.startsWith('app/main-window/')
+      && /^@features\/[a-z0-9-]+\//.test(spec)
+      && !/^@features\/[a-z0-9-]+\/public\//.test(spec)
+    ) {
+      violations.push(`${r}: Main Window 组合必须走模块公开入口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && r === 'app/app.tsx'
+      && /^@features\/(agent|preferences)\//.test(spec)
+      && !/^@features\/(agent|preferences)\/public\//.test(spec)
+    ) {
+      violations.push(`${r}: App 组合必须走公开入口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && ['app/main-window-effects.tsx', 'app/main-window-startup.ts'].includes(r)
+      && /^@features\/(agent|document|memo|workspace)\//.test(spec)
+      && !/^@features\/(agent|document|memo|workspace)\/public\//.test(spec)
+    ) {
+      violations.push(`${r}: Main Window effects 必须走公开入口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && (
+        r.startsWith('features/shell/components/prompts/')
+        || r === 'features/shell/components/main-status-bar-host.tsx'
+        || r === 'features/shell/components/main-prompt-host.tsx'
+        || r === 'features/shell/hooks/use-main-middle-column-controller.tsx'
+        || r === 'features/shell/hooks/use-main-panel-controller.ts'
+        || r === 'features/shell/hooks/browser-column-layout.ts'
+        || r === 'features/shell/components/browser-column.tsx'
+        || r === 'features/shell/components/browser-column-header.tsx'
+        || r === 'features/shell/components/work-column-titlebar-shell.tsx'
+        || r === 'features/shell/components/drag-overlay/markdown-file-drop-overlay.tsx'
+        || r === 'features/shell/components/global-search-command.tsx'
+      )
+      && /^@features\/(agent|document|memo|plugin|preferences|surface|workspace)\//.test(spec)
+      && !/^@features\/(agent|document|memo|plugin|preferences|surface|workspace)\/public\//.test(spec)
+    ) {
+      violations.push(`${r}: Shell 展示协调层跨模块依赖必须走公开入口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && r === 'features/preferences/components/dsh-install-prompt.tsx'
+      && /^@features\/agent\//.test(spec)
+      && !spec.startsWith('@features/agent/public/')
+    ) {
+      violations.push(`${r}: DSH onboarding 必须走 Agent 公开入口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && /^(features\/(agent|document|editor|memo|shortcuts|theme)\/)/.test(r)
+      && /^@features\/preferences\//.test(spec)
+      && !spec.startsWith('@features/preferences/public/')
+    ) {
+      violations.push(`${r}: Preferences 配置必须走公开运行时接口，禁止 import ${spec}`);
+    }
+    if (
+      !isTest(file)
+      && r === 'features/shell/main-layout.tsx'
+      && /^@features\/(agent|document|memo|plugin|preferences|surface|workspace)\//.test(spec)
+      && !/^@features\/(agent|document|memo|plugin|preferences|surface|workspace)\/public\//.test(spec)
+    ) {
+      violations.push(`${r}: MainLayout 跨模块依赖必须走 Shell 专用公开入口，禁止 import ${spec}`);
+    }
+    // Rule D: foundational Agent session services receive Store capabilities
     // through ports. Importing the Zustand singleton here recreates a static
     // cycle with the composition root.
     if (
@@ -112,6 +191,15 @@ if (agentSessionStoreCreations !== 1) {
   violations.push(
     `AgentSessionStore create 数量必须为 1，当前为 ${agentSessionStoreCreations}`,
   );
+}
+
+for (const file of files) {
+  const r = rel(file);
+  if (!r.endsWith('/public/app-api.ts')) continue;
+  const source = readFileSync(file, 'utf8');
+  if (/export\s*\{[^}]*\buse[A-Za-z0-9]*Store\b[^}]*\}/s.test(source)) {
+    violations.push(`${r}: App 公共 API 不得导出完整 Store`);
+  }
 }
 
 if (violations.length) {

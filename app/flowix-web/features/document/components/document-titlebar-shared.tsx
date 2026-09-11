@@ -66,6 +66,7 @@ export const DOCUMENT_TITLEBAR_ICON_BUTTON_WIN =
   'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg transition-colors';
 
 export interface DocumentTitlebarProps {
+  reserveWindowsControls?: boolean;
   document: {
     currentMemo: MemoItem | null;
     externalFilePath?: string | null;

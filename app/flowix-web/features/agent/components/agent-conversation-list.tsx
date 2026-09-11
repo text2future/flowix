@@ -139,6 +139,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
     }
   });
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [newConversationMenuOpen, setNewConversationMenuOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<AgentConversationInstance | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [renameSaving, setRenameSaving] = useState(false);
@@ -148,12 +149,19 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
     // Keep list data, filters, and scroll position alive, but never leave a
     // portal-backed menu or dialog visible after this surface is hidden.
     setOpenMenuId(null);
+    setNewConversationMenuOpen(false);
     setRenameTarget(null);
     setRenameDraft('');
     setRenameSaving(false);
     setShowScrollTopHint(false);
     setJustEndedIds((current) => (current.size === 0 ? current : new Set()));
   }, [isActive]);
+
+  useEffect(() => {
+    const handleOpenCreateMenu = () => setNewConversationMenuOpen(true);
+    window.addEventListener('flowix:open-agent-create-menu', handleOpenCreateMenu);
+    return () => window.removeEventListener('flowix:open-agent-create-menu', handleOpenCreateMenu);
+  }, []);
 
   const toggleFavorite = useCallback((instanceId: string) => {
     setFavoriteIds((current) => {
@@ -607,7 +615,10 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
             )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <DropdownMenu>
+            <DropdownMenu
+              open={newConversationMenuOpen}
+              onOpenChange={setNewConversationMenuOpen}
+            >
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"

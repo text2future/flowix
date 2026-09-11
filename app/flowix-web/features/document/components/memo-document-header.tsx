@@ -1,4 +1,4 @@
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { useAppLanguage } from '@features/preferences/public/runtime-api';
 import { translate } from '@/lib/i18n';
 
 import { MemoTitleEditor } from './memo-title-editor';
@@ -44,7 +44,7 @@ export function MemoDocumentHeader({
   autoFocus = false,
   onMoveToBody,
 }: MemoDocumentHeaderProps) {
-  const language = useUserSettingsStore((state) => state.settings.language);
+  const language = useAppLanguage();
 
   return (
     <div className="memo-document-header">

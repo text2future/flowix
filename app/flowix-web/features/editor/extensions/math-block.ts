@@ -1,6 +1,6 @@
 import { Node as TiptapNode, mergeAttributes, type JSONContent, type MarkdownToken } from '@tiptap/core';
 import { translate, type I18nKey } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 
 // katex + 其 CSS 动态 import (独立 chunk, 首个数学块渲染时加载)。
 // 参照 codeblock-shiki/mermaid-renderer.ts 的懒加载模式。
@@ -36,7 +36,7 @@ const BLOCK_MATH_RE = /^\$\$\s*\n?([\s\S]*?)\n?\s*\$\$(?:\n|$)/;
 
 // NodeView 不在 React 树内, 不能用 useI18n, 走 user-settings-store 直读当前语言。
 function tKey(key: I18nKey, params?: Record<string, string | number>): string {
-  return translate(useUserSettingsStore.getState().settings.language, key, params);
+  return translate(getCurrentAppLanguage(), key, params);
 }
 
 function normalizeLatex(value: unknown): string {

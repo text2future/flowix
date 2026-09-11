@@ -43,7 +43,10 @@ import {
   openBrowserColumnMemo,
 } from '@features/workspace/use-cases/browser-column-navigation';
 import { useI18n } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import {
+  setMemoListViewPreference,
+  useMemoListViewPreference,
+} from '@features/preferences/public/runtime-api';
 import { createLogger } from '@/lib/logger';
 import { useDocumentStore } from '@features/document/store';
 import { memos as memoApi } from '@platform/tauri/client';
@@ -109,8 +112,7 @@ export function MemoList({
   // 用 Object.is 比对, 同一个 memos 引用相等就跳过, 不需要 useMemo。
   const memos = useMemoStore((s) => s.memos);
   const selectedMemo = useMemoStore((s) => s.selectedMemo);
-  const memoListView = useUserSettingsStore((s) => s.settings.memoListView);
-  const updateSettings = useUserSettingsStore((s) => s.updateSettings);
+  const memoListView = useMemoListViewPreference();
   const selectedNotebook = useMemoStore((s) => s.selectedNotebook);
   const refreshTrigger = useMemoStore((s) => s.refreshTrigger);
   const activeFilter = useMemoStore((s) => s.activeFilter);
@@ -507,11 +509,11 @@ export function MemoList({
   // 视图二级弹窗的选中回调。
   const handleViewFromSubmenu = useCallback(
     (view: 'detailed' | 'folders') => {
-      void updateSettings({ memoListView: view });
+      void setMemoListViewPreference(view);
       setViewSubmenuOpen(false);
       setNotebookDropdownOpen(false);
     },
-    [setNotebookDropdownOpen, updateSettings],
+    [setNotebookDropdownOpen],
   );
 
   // 当 dropdown 关闭时, 同步把 filter / sort submenu 也收掉。

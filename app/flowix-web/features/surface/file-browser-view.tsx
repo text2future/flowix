@@ -19,6 +19,7 @@ import { subscribe } from '@platform/tauri/event-bus';
 import { canonicalPath } from '@/lib/path';
 import { createLogger } from '@/lib/logger';
 import { resolveFileBrowserRoot, type FileBrowserTarget } from '@features/workspace/store/file-browser-target';
+import { ResourceFileIcon, ResourceFolderIcon } from './resource-file-icon';
 
 const FILE_BROWSER_DIRECTORIES_CHANGED_EVENT = 'file-browser-directories-changed';
 const fileBrowserLogger = createLogger('file-browser-watch');
@@ -56,6 +57,8 @@ function BrowserBreadcrumbFolderTree({
       <FolderFileTree
         folderPath={folderPath}
         folderName={folderName}
+        fileIcon={ResourceFileIcon}
+        folderIcon={ResourceFolderIcon}
         activeFilePath={activeFilePath}
         expandToActiveFile={false}
         layout="content"
@@ -474,6 +477,8 @@ function BrowserFileBrowserTreePane({
       <FolderFileTree
         folderPath={surface.folderPath}
         folderName={surface.folderPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? surface.folderPath}
+        fileIcon={ResourceFileIcon}
+        folderIcon={ResourceFolderIcon}
         embedded
         activeFilePath={surface.activeFilePath}
         tree={tree}

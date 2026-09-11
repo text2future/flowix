@@ -38,17 +38,12 @@ import {
   mapAgentChunkToEvent,
 } from "@features/agent/events/agent-event-mapper";
 import { completedRunUserMessageId } from "@features/agent/events/message-identity";
-import {
-  resolveExternalChunkThreadId,
-  resolveProductThreadId,
-} from "@features/agent/store/external-session";
+import { resolveProductThreadId } from "@features/agent/store/external-session";
 import { eventMapperStateForChunk } from "@features/agent/store/agent-chunk-routing";
 import {
   recordAgentChunkMapped,
   recordAgentStopRequested,
 } from "@features/agent/diagnostics/agent-run-trace";
-import { createAgentChunkBridge } from "@features/agent/store/agent-chunk-bridge";
-import { hasThreadInterest } from "@features/agent/store/thread-interest";
 import {
   defaultExternalThreadTitle,
   getConversationTitleForThread,
@@ -62,7 +57,7 @@ import { createLogger } from "@/lib/logger";
 import { applyRunStopped } from "@features/agent/store/run-lifecycle";
 import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import { createAgentSessionStateStorage } from "@features/agent/store/window-session-storage";
-import { installGlobalAgentSettingsSync } from "@features/agent/store/global-agent-settings-sync";
+import { installAgentSessionRuntimeBridges } from "@features/agent/store/agent-session-runtime-bridges";
 import { DEFAULT_AGENT_SESSION_META } from "@features/agent/store/session-state";
 import { rehydrateSessionMeta } from "@features/agent/store/session-persistence";
 import {
@@ -619,69 +614,4 @@ export const selectSessionMeta = (state: AgentSessionStore) => state.sessionMeta
 
 export const selectConversationRegistry = (state: AgentSessionStore) =>
   state.conversationRegistry;
-installGlobalAgentSettingsSync((updater) =>
-  useAgentSessionStore.getState().setSessionMeta(updater),
-);
-
-export const acquireAgentChunkBridge = createAgentChunkBridge((chunk) => {
-  const stateBeforeDispatch = useAgentSessionStore.getState();
-  useAgentSessionStore.getState().dispatchAgentChunk(chunk);
-  if (chunk.kind === "user_message") {
-    const enrichedChunk = chunk as AgentChunk & {
-      client_user_message_id?: string;
-      message_id?: string;
-    };
-    const clientId = enrichedChunk.client_user_message_id ?? enrichedChunk.message_id;
-    if (clientId) stateBeforeDispatch.removeSteeringMessageByClientId(chunk.thread_id, clientId);
-  }
-  if (chunk.kind !== "stream_end") return;
-
-  const state = useAgentSessionStore.getState();
-  const canonicalThreadId = resolveExternalChunkThreadId(
-    chunk,
-    state.sessionMeta.externalSessionResolutions,
-  );
-  const projection = state.threadProjections[canonicalThreadId];
-  const runId =
-    chunk.run_id ?? projection?.runs.lastRun?.runId;
-  const hasResidentRun = !!projection && (
-    !chunk.run_id ||
-    projection.runs.activeRunId === chunk.run_id ||
-    projection.runs.lastRun?.runId === chunk.run_id
-  );
-  const ownsThread =
-    hasThreadInterest(canonicalThreadId) ||
-    // A conversation can be switched away from while its run is still
-    // streaming. The card then releases its interest, but the canonical
-    // projection remains resident and still needs the completion snapshot
-    // reconciliation; otherwise reopening the card can show the last
-    // persisted (older) turn while the provider is catching up.
-    hasResidentRun ||
-    Object.values(state.sessionMeta.activeThreadIds).some(
-      (threadId) =>
-        threadId === canonicalThreadId ||
-        (threadId
-          ? state.sessionMeta.externalSessionResolutions[threadId] ===
-            canonicalThreadId
-          : false),
-    );
-  if (!ownsThread) return;
-
-  const agentType =
-    state.sessionMeta.threadTypes[canonicalThreadId] ??
-    state.sessionMeta.threadTypes[chunk.thread_id] ??
-    state.sessionMeta.activeAgentTypeKey;
-  if (runId) {
-    if (agentType === "opencode") return;
-    // Let the stream-end render settle first. The persisted history can lag
-    // the event by a short window, and reconciliation is a consistency check,
-    // not part of the interactive completion path.
-    globalThis.setTimeout(() => {
-      const latest = useAgentSessionStore.getState();
-      if (latest.threadTombstones[canonicalThreadId]) return;
-      void latest.reconcileCompletedRun(agentType, canonicalThreadId, runId);
-    }, 300);
-  } else {
-    void state.loadMessages(agentType, canonicalThreadId);
-  }
-});
+export const acquireAgentChunkBridge = installAgentSessionRuntimeBridges(useAgentSessionStore);

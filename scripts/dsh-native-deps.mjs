@@ -26,11 +26,16 @@ export async function repairDshNativePackages(runtimeRoot, workspaceRoot, {
   if (!nativeSource) throw missingDependency(`${nativeName}@${expectedVersion}`, platform, arch)
   await repairOptionalNativePackage(runtimeRoot, nativeSource, nativeName, expectedVersion)
 
-  const systemNativeName = `@deepseek-ai/node-addon-system-${platform}-${arch}`
-  const systemSource = await findInstalledPackage(workspaceRoot, systemNativeName)
-  if (!systemSource) throw missingDependency(systemNativeName, platform, arch)
-  const systemManifest = await readPackageManifest(systemSource)
-  await repairOptionalNativePackage(runtimeRoot, systemSource, systemNativeName, systemManifest.version, true)
+  // The system addon currently ships only POSIX (Linux/macOS) binaries.
+  // Windows does not declare a platform package and must not be treated as a
+  // missing dependency during a local desktop build.
+  if (platform !== 'win32') {
+    const systemNativeName = `@deepseek-ai/node-addon-system-${platform}-${arch}`
+    const systemSource = await findInstalledPackage(workspaceRoot, systemNativeName)
+    if (!systemSource) throw missingDependency(systemNativeName, platform, arch)
+    const systemManifest = await readPackageManifest(systemSource)
+    await repairOptionalNativePackage(runtimeRoot, systemSource, systemNativeName, systemManifest.version, true)
+  }
 }
 
 /**

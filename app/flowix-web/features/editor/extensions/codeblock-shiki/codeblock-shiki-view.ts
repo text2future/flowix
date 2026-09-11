@@ -2,7 +2,7 @@ import type { NodeView, ViewMutationRecord } from '@tiptap/pm/view'
 import type { NodeViewRendererProps } from '@tiptap/core'
 import svgPanZoom from 'svg-pan-zoom'
 import { translate, type I18nKey } from '@/lib/i18n'
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store'
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api'
 import { CodeBlockClipboardController } from './clipboard-controller'
 import { setLanguageButtonContent } from './language-button'
 import { SHIKI_LANGUAGE_LABEL_BY_ID, SHIKI_LANGUAGE_OPTIONS } from './shiki/shiki-languages'
@@ -70,7 +70,7 @@ export interface CodeBlockShikiViewOptions {
 // NodeView 不在 React 树内 ── 走 user-settings-store 读最新 AppLanguage,
 // 与 agent-thread-card 的 `t(key)` 模式同源 (跨窗口同步跟 I18nProvider 一致)。
 function t(key: I18nKey): string {
-  const language = useUserSettingsStore.getState().settings.language
+  const language = getCurrentAppLanguage()
   return translate(language, key)
 }
 

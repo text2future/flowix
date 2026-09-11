@@ -19,7 +19,7 @@ import { getAction } from '@/lib/shortcuts/registry';
 import { RotateCcw } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
-import { getShortcutActionTitle } from '@features/preferences/sections/shortcut-i18n';
+import { getShortcutActionTitle } from '@features/preferences/public/shortcuts-api';
 
 /**
  * 快捷键录制弹窗 — 用户改键时弹出, 捕获下一个非修饰键的组合。

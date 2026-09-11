@@ -1,8 +1,8 @@
 import type {
   ExternalDocumentSession,
   MemoDocumentSession,
-} from '@features/document/store/document-store';
-import { useDocumentStore } from '@features/document/store/document-store';
+} from '@features/document/public/workspace-api';
+import { getWorkspaceDocumentState } from '@features/document/public/workspace-api';
 
 import { useWorkColumnStore } from './work-column-store';
 import type {
@@ -91,7 +91,6 @@ export function resolveWorkColumnContentState(
 export function getWorkColumnContentState(): WorkColumnContentState {
   return resolveWorkColumnContentState(
     useWorkColumnStore.getState().navigation,
-    useDocumentStore.getState(),
+    getWorkspaceDocumentState(),
   );
 }
-

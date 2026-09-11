@@ -26,7 +26,7 @@ import { agent } from "@platform/tauri/client/agent";
 import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-link";
 import { isEditableTextFilePath } from "@features/editor/code-file";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
-import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
+import { getCurrentAppLanguage } from "@features/preferences/public/runtime-api";
 import type { AgentRuntimeSettingKind } from "@features/agent/runtime/agent-runtime-spec";
 import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import {
@@ -268,7 +268,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   /** 当前 AppLanguage ── NodeView 不在 React 树里, 不能用 useI18n,
    *  走 user-settings-store 读最新值 (跨窗口同步跟 I18nProvider 一致)。 */
   private get language(): AppLanguage {
-    return useUserSettingsStore.getState().settings.language;
+    return getCurrentAppLanguage();
   }
 
   /** 翻译: NodeView 内部所有面向用户的字符串走这里, 切换语言时由

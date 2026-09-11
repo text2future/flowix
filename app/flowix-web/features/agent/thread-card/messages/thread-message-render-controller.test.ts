@@ -7,9 +7,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => {}),
 }));
 
-function createController(typeKey: AgentTypeKey) {
-  const body = document.createElement("div");
-  const loadingIndicator = document.createElement("div");
+function createController(
+  typeKey: AgentTypeKey,
+  existing?: { body: HTMLElement; loadingIndicator: HTMLDivElement },
+) {
+  const body = existing?.body ?? document.createElement("div");
+  const loadingIndicator = existing?.loadingIndicator ?? document.createElement("div");
   loadingIndicator.className = "agent-thread-card__loading";
   /*
    * 4 个 cell 的内联 --cell-step 对应 DOM 顺序 0..3。若不写,
@@ -25,7 +28,7 @@ function createController(typeKey: AgentTypeKey) {
     '<span class="agent-thread-card__loading-cell" style="--cell-step:3"></span>' +
     '</span>' +
     '<span class="agent-thread-card__loading-text"></span>';
-  body.append(loadingIndicator);
+  if (loadingIndicator.parentNode !== body) body.append(loadingIndicator);
 
   const messageViewport = new MessageViewportController({
     body,
@@ -62,7 +65,12 @@ function createController(typeKey: AgentTypeKey) {
     createExternalAgentEmptySettings,
   });
 
-  return { body, controller, createExternalAgentEmptySettings };
+  return {
+    body,
+    loadingIndicator,
+    controller,
+    createExternalAgentEmptySettings,
+  };
 }
 
 describe("ThreadMessageRenderController empty settings", () => {
@@ -275,6 +283,28 @@ describe("ThreadMessageRenderController empty settings", () => {
     expect(
       body.querySelectorAll(".agent-thread-card__empty--codex-settings"),
     ).toHaveLength(1);
+  });
+
+  it("removes an empty settings card left by a previous controller instance", () => {
+    const first = createController("codex");
+    const input = {
+      messages: [],
+      isLoading: false,
+      shouldRenderMessages: true,
+      isThreadCachePresentationHidden: false,
+      isThreadCacheLoading: false,
+    };
+
+    first.controller.render(input);
+    first.controller.dispose();
+
+    const second = createController("codex", first);
+    second.controller.render(input);
+
+    expect(
+      first.body.querySelectorAll(".agent-thread-card__empty--codex-settings"),
+    ).toHaveLength(1);
+    second.controller.dispose();
   });
 
   it("removes the empty settings card when the first message renders", () => {

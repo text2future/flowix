@@ -4,3 +4,5 @@ export { PreferencesTitlebarWin } from '@features/preferences/preferences-titleb
 export * from '@features/preferences/sections';
 export * from '@features/preferences/hooks';
 export * from '@features/preferences/store';
+export * from '@features/preferences/public/system-api';
+export * from '@features/preferences/public/dsh-install-prompt';

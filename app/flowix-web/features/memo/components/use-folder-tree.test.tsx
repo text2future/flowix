@@ -117,6 +117,44 @@ describe('useFolderTree', () => {
     expect(lastState?.expanded.has('/root/sub')).toBe(true);
     expect(lastState?.rootChildren.map((item) => item.name)).toContain('new.md');
   });
+
+  it('刷新父目录时保留已加载的同级文件夹子树', async () => {
+    const parent = '/root/parent';
+    const left = `${parent}/left`;
+    const right = `${parent}/right`;
+    let parentReadCount = 0;
+    getTreeMock.mockResolvedValue([dir(parent, 'parent')]);
+    getDirChildrenMock.mockImplementation(async (path) => {
+      if (path === parent) {
+        parentReadCount += 1;
+        return [
+          dir(left, 'left'),
+          dir(right, 'right'),
+          ...(parentReadCount > 1 ? [file(`${parent}/moved.md`, 'moved.md')] : []),
+        ];
+      }
+      if (path === left) return [file(`${left}/left-note.md`, 'left-note.md')];
+      if (path === right) return [file(`${right}/right-note.md`, 'right-note.md')];
+      return [];
+    });
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+
+    act(() => lastState?.toggle(parent));
+    await vi.waitFor(() => expect(lastState?.nodes.get(parent)?.children).toHaveLength(2));
+    act(() => lastState?.toggle(left));
+    act(() => lastState?.toggle(right));
+    await vi.waitFor(() => {
+      expect(lastState?.nodes.get(left)?.children).toHaveLength(1);
+      expect(lastState?.nodes.get(right)?.children).toHaveLength(1);
+    });
+
+    await act(async () => { await lastState?.refresh(parent); });
+
+    expect(lastState?.nodes.get(left)?.children?.map((item) => item.name)).toEqual(['left-note.md']);
+    expect(lastState?.nodes.get(right)?.children?.map((item) => item.name)).toEqual(['right-note.md']);
+    expect(lastState?.nodes.get(parent)?.children?.map((item) => item.name)).toContain('moved.md');
+  });
 });
 
 describe('flattenVisibleTree', () => {

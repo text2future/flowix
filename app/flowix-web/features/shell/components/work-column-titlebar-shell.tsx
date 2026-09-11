@@ -4,8 +4,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { isMac } from '@features/shortcuts';
 import { useI18n } from '@/lib/i18n';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { openWorkColumnTargetInBrowserColumn } from '@features/workspace/use-cases/browser-column-navigation';
+import { useWorkColumnTransferViewModel } from '@features/workspace/public/shell-api';
 
 /** Shared titlebar fade used by the work column and browser-column tabs. */
 export const WORK_COLUMN_TITLEBAR_GRADIENT =
@@ -13,6 +12,7 @@ export const WORK_COLUMN_TITLEBAR_GRADIENT =
 
 interface WorkColumnTitlebarShellProps {
   isWindows: boolean;
+  reserveWindowsControls?: boolean;
   showTrafficLightSpacer?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -22,15 +22,14 @@ interface WorkColumnTitlebarShellProps {
 /** Shared frame for the work-column document and Agent titlebars. */
 export function WorkColumnTitlebarShell({
   isWindows,
+  reserveWindowsControls = true,
   showTrafficLightSpacer = false,
   className = '',
   style,
   children,
 }: WorkColumnTitlebarShellProps) {
   const { t } = useI18n();
-  const workColumnTarget = useWorkColumnStore((state) => state.navigation.target);
-  const canOpenInBrowserColumn = workColumnTarget.kind !== 'empty'
-    && workColumnTarget.kind !== 'plugin-workbench';
+  const { canOpenInBrowserColumn, openInBrowserColumn } = useWorkColumnTransferViewModel();
 
   return (
     <ContextMenu>
@@ -38,7 +37,9 @@ export function WorkColumnTitlebarShell({
         <div
           data-tauri-drag-region
           className={`z-[50] flex shrink-0 select-none items-center pl-2 ${
-            isWindows ? 'h-9 pr-[126px]' : 'h-12'
+            isWindows
+              ? `h-9 ${reserveWindowsControls ? 'pr-[126px]' : 'pr-0'}`
+              : 'h-12'
           } ${className}`}
           style={style}
         >
@@ -53,7 +54,7 @@ export function WorkColumnTitlebarShell({
           disabled={!canOpenInBrowserColumn}
           onClick={() => {
             if (canOpenInBrowserColumn) {
-              void openWorkColumnTargetInBrowserColumn(workColumnTarget);
+              void openInBrowserColumn();
             }
           }}
           className="h-7 items-center justify-start gap-0 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"

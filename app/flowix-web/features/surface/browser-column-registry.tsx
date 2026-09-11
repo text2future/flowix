@@ -94,8 +94,13 @@ export interface BrowserColumnSurfaceDefinition {
   render: (surface: BrowserColumnSurface) => ReactNode;
 }
 
-export type BrowserColumnDocumentFlush = (() => Promise<boolean>) | null;
-export type BrowserColumnFlushRegistration = (flush: BrowserColumnDocumentFlush) => void;
+export type BrowserColumnDocumentFlush = (
+  (options?: { silent?: boolean }) => Promise<boolean>
+) | null;
+export type BrowserColumnFlushRegistration = (
+  flush: BrowserColumnDocumentFlush,
+  discard?: (() => void) | null,
+) => void;
 
 let externalWebviewSequence = 0;
 

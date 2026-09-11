@@ -53,8 +53,10 @@ export function useFolderTree(folderPath: string) {
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
   const directoryRefreshesRef = useRef(new Map<string, Promise<void>>());
+  const directoryRefreshSequenceRef = useRef(new Map<string, number>());
   const lastRefreshAtRef = useRef(new Map<string, number>());
   const rootRefreshRef = useRef<Promise<void> | null>(null);
+  const rootRefreshSequenceRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -103,19 +105,37 @@ export function useFolderTree(folderPath: string) {
   }, [loadRoot]);
 
   /** Coalesce concurrent reads of the same directory (manual action + watcher). */
-  const refreshDirectory = useCallback((dirPath: string) => {
+  const refreshDirectory = useCallback((dirPath: string, force = false) => {
     const key = canonicalDirectoryPath(dirPath);
     const pending = directoryRefreshesRef.current.get(key);
-    if (pending) return pending;
+    if (pending && !force) return pending;
+
+    const requestSequence = (directoryRefreshSequenceRef.current.get(key) ?? 0) + 1;
+    directoryRefreshSequenceRef.current.set(key, requestSequence);
 
     const generation = generationRef.current;
     const request = files.getDirChildren(dirPath)
       .then((children) => {
-        if (!mountedRef.current || generation !== generationRef.current) return;
+        if (
+          !mountedRef.current
+          || generation !== generationRef.current
+          || directoryRefreshSequenceRef.current.get(key) !== requestSequence
+        ) return;
         setNodes((prev) => {
           const next = new Map(prev);
           for (const child of children) {
-            next.set(canonicalPath(child.fullPath), child);
+            const childKey = canonicalPath(child.fullPath);
+            const cached = prev.get(childKey);
+            // Single-level directory reads return folders with `children: []`
+            // placeholders. Preserve an already-loaded subtree when its parent
+            // refreshes, otherwise expanded sibling folders appear empty until
+            // they are collapsed and expanded again.
+            next.set(
+              childKey,
+              child.type === 'folder' && cached?.children
+                ? { ...child, children: cached.children }
+                : child,
+            );
           }
           // 回写父节点 children 占位 (flattenVisibleTree 按它递归拍平)。
           const parent = next.get(key);
@@ -208,12 +228,18 @@ export function useFolderTree(folderPath: string) {
   }, [folderPath, loadChildren]);
 
   /** Watcher-only root refresh; unlike the manual reload it preserves expansion. */
-  const refreshRootPreservingExpansion = useCallback(() => {
-    if (rootRefreshRef.current) return rootRefreshRef.current;
+  const refreshRootPreservingExpansion = useCallback((force = false) => {
+    if (rootRefreshRef.current && !force) return rootRefreshRef.current;
+    const requestSequence = rootRefreshSequenceRef.current + 1;
+    rootRefreshSequenceRef.current = requestSequence;
     const generation = generationRef.current;
     const request = files.getTree(folderPath)
       .then((items) => {
-        if (!mountedRef.current || generation !== generationRef.current) return;
+        if (
+          !mountedRef.current
+          || generation !== generationRef.current
+          || rootRefreshSequenceRef.current !== requestSequence
+        ) return;
         if (items === null) {
           setRootChildren([]);
           setNodes(new Map());
@@ -260,13 +286,13 @@ export function useFolderTree(folderPath: string) {
   const refresh = useCallback(async (dirPath?: string) => {
     try {
       if (dirPath && canonicalDirectoryPath(dirPath) !== rootKey) {
-        await refreshDirectory(dirPath);
+        await refreshDirectory(dirPath, true);
         return;
       }
       // Mutations at the notebook root should not collapse the user's tree.
       // A full reload remains available through `reload` for path changes and
       // explicit recovery, while routine create/move/delete reconciles data.
-      await refreshRootPreservingExpansion();
+      await refreshRootPreservingExpansion(true);
     } catch (err) {
       logger.warn('refresh failed', { dirPath, err });
     }
@@ -303,7 +329,7 @@ export function useFolderTree(folderPath: string) {
         return;
       }
 
-      await refresh(key);
+      await refreshDirectory(key);
     }));
   }, [expanded, refresh, refreshRootPreservingExpansion, rootKey]);
 

@@ -22,7 +22,7 @@ import MarkdownPaste from '@features/editor/extensions/markdown-paste';
 import ManagedPasteRules from '@features/editor/extensions/paste-rules';
 import { LinkSelectionHighlight, MarkdownLink } from '@features/editor/extensions/markdown-link';
 import { NoteReference } from '@features/editor/extensions/note-link';
-import { NoteMention } from '@features/editor/extensions/note-mention';
+import { NoteMention, WikiNoteMention } from '@features/editor/extensions/note-mention';
 import { TagMention } from '@features/editor/extensions/tag-mention';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
 import { MathBlock } from '@features/editor/extensions/math-block';
@@ -561,6 +561,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         Frontmatter,
         NoteReference,
         NoteMention,
+        WikiNoteMention,
         TagMention,
         AgentThreadCard,
         SlashMenu,

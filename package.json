@@ -69,6 +69,7 @@
     "cmdk": "^1.1.1",
     "codemirror": "^6.0.2",
     "date-fns": "^4.1.0",
+    "github-slugger": "^2.0.0",
     "katex": "^0.17.0",
     "lucide-react": "^1.33.0",
     "markmap-lib": "^0.18.12",

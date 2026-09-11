@@ -2,7 +2,7 @@ import { defineAction } from '@/lib/shortcuts/registry';
 import { invokeHandler } from '@/lib/shortcuts/handler-registry';
 import { windows } from '@platform/tauri/client';
 import { useSettingsStore } from '@/lib/store/settings-store';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getThemePreference, setThemePreference } from '@features/preferences/public/runtime-api';
 import { navigateDocumentHistory } from '@features/document/use-cases/document-navigation';
 import { resolveSystemTheme, type ResolvedThemeId, type ThemeId } from '@features/theme';
 
@@ -457,11 +457,10 @@ defineAction({
     linux: 'Mod+Alt+T',
   },
   run: () => {
-    const state = useUserSettingsStore.getState();
-    const current = state.settings.theme;
+    const current = getThemePreference();
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const next = nextVisibleTheme(current, prefersDark);
-    void state.updateSettings({ theme: next });
+    void setThemePreference(next);
   },
 });
 

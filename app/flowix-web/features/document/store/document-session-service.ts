@@ -1,5 +1,6 @@
 import {
   applyLoadedContent,
+  discardUnsavedLocalChanges,
   flushDocument,
   getBuffer,
   getCurrentIdentity,
@@ -185,6 +186,10 @@ export function getDocumentBuffer(identity: DocumentIdentity): DocumentBuffer {
 
 export function hasDocumentUnsavedChanges(identity?: DocumentIdentity): boolean {
   return hasUnsavedLocalChanges(identity);
+}
+
+export function discardDocumentDraft(identity: DocumentIdentity): void {
+  discardUnsavedLocalChanges(identity);
 }
 
 export function applyLoadedDocumentContent(

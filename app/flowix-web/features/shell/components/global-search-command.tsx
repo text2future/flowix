@@ -17,7 +17,7 @@ import {
   PencilSimpleLineIcon,
   PushPin,
 } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Command,
   CommandDialog,
@@ -29,23 +29,23 @@ import {
   CommandShortcut,
 } from '@shared/ui/command';
 import {
-  useMemoStore,
+  NotebookIcon,
+  openMemoSession,
+  useGlobalSearchMemoViewModel,
   type Notebook,
-} from '@features/memo/store/memo-store';
-import { useTagStore } from '@features/memo/store/tag-store';
-import { NotebookIcon } from '@features/memo/components/notebook-icon';
+} from '@features/memo/public/global-search-api';
 import type { MemoItem } from '@/types/memo-item';
-import { selectAndOpenAgentConversation } from '@features/workspace/use-cases/agent-conversation-navigation';
-import { selectNotebook } from '@features/workspace/use-cases/workspace-navigation';
 import {
-  type AgentConversationInstance,
-} from '@features/agent/store/agent-conversation-types';
-import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
+  selectAndOpenAgentConversation,
+  selectNotebook,
+} from '@features/workspace/public/search-navigation-api';
 import {
+  AgentIcon,
   getConversationRunSummary,
-  selectRunningAgentConversations,
-  useConversationRunIndex,
-} from '@features/agent/store/conversation-run-index';
+  prepareAgentConversationSelection,
+  useRunningAgentConversations,
+  type AgentConversationInstance,
+} from '@features/agent/public/global-search-api';
 import { getAgentType } from '@/lib/agent-types';
 import {
   memos,
@@ -54,11 +54,9 @@ import {
   type MemoSearchHit,
   type MemoTemplate,
 } from '@platform/tauri/client';
-import { openMemoSession } from '@features/memo/use-cases/open-memo-session';
 import { ShortcutKbd } from '@shared/ui/shortcut-kbd';
 import { useI18n } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
-import { AgentIcon } from '@features/agent/components/agent-icon';
 
 const logger = createLogger('global-search');
 
@@ -123,8 +121,7 @@ export function GlobalSearchCommand({ open, onOpenChange }: GlobalSearchCommandP
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reqIdRef = useRef(0);
 
-  const selectedNotebook = useMemoStore((s) => s.selectedNotebook);
-  const memosInStore = useMemoStore((s) => s.memos);
+  const { selectedNotebook, memosInStore } = useGlobalSearchMemoViewModel();
 
   // 关闭弹窗时清空 query
   useEffect(() => {
@@ -350,30 +347,15 @@ interface RunningAgentConversationsGroupProps {
 
 function RunningAgentConversationsGroup({ onClose }: RunningAgentConversationsGroupProps) {
   const { t } = useI18n();
-  const instances = useAgentSessionStore((s) => s.conversationRegistry.instances);
-  const conversationRunIndex = useConversationRunIndex(instances);
-  const runningInstances = useMemo(
-    () => selectRunningAgentConversations({ instances }, conversationRunIndex),
-    [conversationRunIndex, instances],
-  );
+  const {
+    runningInstances,
+    runIndex: conversationRunIndex,
+  } = useRunningAgentConversations();
 
   if (runningInstances.length === 0) return null;
 
   const openRunningInstance = async (instance: AgentConversationInstance) => {
-    const threadId = instance.threadId;
-    if (threadId) {
-      // Phase 4 (2026-08-02): session-store.sessionMeta.activeThreadIds 是真源.
-      const session = useAgentSessionStore.getState();
-      session.setSessionMeta((meta) => ({
-        ...meta,
-        activeThreadIds: {
-          ...meta.activeThreadIds,
-          [instance.agentType]: threadId,
-        },
-        activeAgentTypeKey: instance.agentType,
-      }));
-    }
-
+    prepareAgentConversationSelection(instance);
     await selectAndOpenAgentConversation(instance.instanceId);
     onClose();
   };
@@ -535,13 +517,15 @@ function StaticGroups({ onClose }: StaticGroupsProps) {
   const { t } = useI18n();
   // 全部状态 / 动作从全局 store 拿 — StaticGroups 自身不持数据, 关闭后下次
   // 打开会随 store 当前值自然反映最新状态.
-  const notebooks = useMemoStore((s) => s.notebooks);
-  const selectedNotebook = useMemoStore((s) => s.selectedNotebook);
-  const activeFilter = useMemoStore((s) => s.activeFilter);
-  const setActiveFilter = useMemoStore((s) => s.setActiveFilter);
-  const createMemo = useMemoStore((s) => s.createMemo);
-  const handleMemoCreated = useMemoStore((s) => s.handleMemoCreated);
-  const setSelectedTagId = useTagStore((s) => s.setSelectedTagId);
+  const {
+    notebooks,
+    selectedNotebook,
+    activeFilter,
+    setActiveFilter,
+    createMemo,
+    handleMemoCreated,
+    setSelectedTagId,
+  } = useGlobalSearchMemoViewModel();
 
   // 标签不在全局 store (只在 memo-list 局部 useState), 这里按需拉一次.
   // 切 notebook 不会让旧 tag 消失 — 后端 derived_tags() 返回跨 notebook 全集.
@@ -601,11 +585,10 @@ function StaticGroups({ onClose }: StaticGroupsProps) {
   /** 新建 memo — store createMemo 已把新 memo 加到 memos[], 这里再选上,
    *  这里需要显式打开文档会话，避免依赖列表选中态副作用。 */
   const handleNewMemo = async () => {
-    const state = useMemoStore.getState();
-    if (!state.selectedNotebook) return;
+    if (!selectedNotebook) return;
     try {
-      const memo = await createMemo(undefined, state.selectedNotebook.id);
-      openMemoSession({ ...memo, isOpen: true }, state.selectedNotebook);
+      const memo = await createMemo(undefined, selectedNotebook.id);
+      openMemoSession({ ...memo, isOpen: true }, selectedNotebook);
     } catch (err) {
       logger.error('create memo failed', { error: err });
     }
@@ -615,12 +598,11 @@ function StaticGroups({ onClose }: StaticGroupsProps) {
   /** 新建笔记本 — MemoListServicesHost 监听了 flowix:open-create-notebook 事件, 会打开
    *  现有 Dialog 走选路径 + 命名流程. 直接 dispatch 复用. */
   const handleCreateFromTemplate = async (template: MemoTemplate) => {
-    const state = useMemoStore.getState();
-    if (!state.selectedNotebook) return;
+    if (!selectedNotebook) return;
     try {
-      const memo = await memos.createFromTemplate(template.id, state.selectedNotebook.id);
+      const memo = await memos.createFromTemplate(template.id, selectedNotebook.id);
       handleMemoCreated(memo, { select: true });
-      openMemoSession({ ...memo, isOpen: true }, state.selectedNotebook);
+      openMemoSession({ ...memo, isOpen: true }, selectedNotebook);
     } catch (err) {
       logger.error('create from template failed', { error: err });
     }

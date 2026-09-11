@@ -108,6 +108,7 @@ export function DocumentContainer({
   const {
     clearSaveTimer,
     flushDocument,
+    discardDocument,
     handleChange,
     saveDoc,
   } = useDocumentAutosave({
@@ -162,9 +163,9 @@ export function DocumentContainer({
   }, [documentIdentity, flushPendingEditorChanges, hostId, setState]);
 
   useEffect(() => {
-    onFlushReady?.(flushDocument);
-    return () => onFlushReady?.(null);
-  }, [flushDocument, onFlushReady]);
+    onFlushReady?.(flushDocument, discardDocument);
+    return () => onFlushReady?.(null, null);
+  }, [discardDocument, flushDocument, onFlushReady]);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [propertiesContentSnapshot, setPropertiesContentSnapshot] = useState<string | null>(null);
 

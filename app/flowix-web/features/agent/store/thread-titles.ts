@@ -2,11 +2,11 @@ import type { AgentTypeKey } from "@/types/agent";
 import type { ThreadListItem } from "@/types";
 import { translate, type AppLanguage, type I18nKey } from "@/lib/i18n";
 import { stripSystemBlock } from "@features/agent/message";
-import { useUserSettingsStore } from "@features/preferences/store/user-settings-store";
+import { getCurrentAppLanguage } from "@features/preferences/public/runtime-api";
 
 /** 读取当前 AppLanguage ── zustand store 不在 React 树里也能用 .getState()。 */
 function getLanguage(): AppLanguage {
-  return useUserSettingsStore.getState().settings.language;
+  return getCurrentAppLanguage();
 }
 
 function isExternalAgentType(_type: AgentTypeKey): boolean {

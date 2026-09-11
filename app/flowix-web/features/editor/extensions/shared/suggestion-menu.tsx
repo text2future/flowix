@@ -459,7 +459,15 @@ export function createSuggestionExtension<TItem>(config: SuggestionMenuConfig<TI
 
           props: {
             handleTextInput(view, from, _to, text) {
-              if (text !== trigger) return false;
+              if (!trigger.endsWith(text)) return false;
+              const prefix = trigger.slice(0, -text.length);
+              if (prefix) {
+                const prefixFrom = from - prefix.length;
+                if (prefixFrom < 0 || view.state.doc.textBetween(prefixFrom, from, '\n', '\n') !== prefix) {
+                  return false;
+                }
+                from = prefixFrom;
+              }
               if (!editor.isEditable || !view.state.selection.empty) {
                 closeMenu();
                 return false;

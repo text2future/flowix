@@ -1,20 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  useBrowserColumnStore,
-} from '@features/workspace/store/browser-column-store';
+  closeAllBrowserColumnTabs,
+  closeBrowserColumnTab,
+  closeBrowserColumnTabsToRight,
+  closeOtherBrowserColumnTabs,
+  openBrowserColumnTabInMainWorkColumn,
+  registerBrowserColumnFlush,
+  reorderBrowserColumnTab,
+  selectBrowserColumnTab,
+  useBrowserColumnFocusViewModel,
+  useBrowserColumnViewModel,
+} from '@features/workspace/public/browser-column-api';
 import { BrowserColumnHeader } from './browser-column-header';
-import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
+import { useI18n } from '@/lib/i18n';
 import {
   BrowserColumnSurfaceHost,
   type BrowserColumnFlushRegistration,
   resolveBrowserColumnSurface,
-} from '@features/surface/browser-column-registry';
-import {
-  activateBrowserColumnTab,
-  enqueueBrowserColumnNavigation,
-  registerBrowserColumnDocumentFlush,
-} from '@features/workspace/use-cases/browser-column-coordinator';
-import { openBrowserColumnTabInWorkColumn } from '@features/workspace/use-cases/browser-column-navigation';
+} from '@features/surface/public/shell-api';
 
 export interface BrowserColumnProps {
   width: number;
@@ -31,63 +34,52 @@ export function BrowserColumn({
   toolbarCollapsed,
   onToolbarCollapsedChange,
 }: BrowserColumnProps) {
+  const { t } = useI18n();
   const [isTabMenuOpen, setIsTabMenuOpen] = useState(false);
   const [contextMenuTabId, setContextMenuTabId] = useState<string | null>(null);
-  const tabs = useBrowserColumnStore((state) => state.tabs);
-  const activeTabId = useBrowserColumnStore((state) => state.activeTabId);
-  const activeTab = useMemo(
-    () => tabs.find((tab) => tab.id === activeTabId) ?? null,
-    [activeTabId, tabs],
-  );
-  const closeTab = useBrowserColumnStore((state) => state.closeTab);
-  const closeOtherTabs = useBrowserColumnStore((state) => state.closeOtherTabs);
-  const closeTabsToRight = useBrowserColumnStore((state) => state.closeTabsToRight);
-  const closeAllTabs = useBrowserColumnStore((state) => state.closeAllTabs);
-  const reorderTab = useBrowserColumnStore((state) => state.reorderTab);
-  const focusHost = useWorkspaceFocusStore((state) => state.focusHost);
-  const focusedHostId = useWorkspaceFocusStore((state) => state.focusedHostId);
-  const activeMemoId = activeTab?.target.kind === 'memo' ? activeTab.target.memoId : null;
-  const activeWebRuntime = useBrowserColumnStore((state) => (
-    activeTabId && activeTab?.target.kind === 'web'
-      ? state.webRuntimes[activeTabId] ?? null
-      : null
-  ));
-  const activeMemoHasDuplicateTab = activeMemoId !== null
-    && tabs.filter((tab) => tab.target.kind === 'memo' && tab.target.memoId === activeMemoId).length > 1;
-  const registerActiveFlush = useCallback<BrowserColumnFlushRegistration>((flush) => {
+  const {
+    tabs,
+    activeTabId,
+    activeTab,
+    activeWebRuntime,
+    activeMemoHasDuplicateTab,
+  } = useBrowserColumnViewModel();
+  const { isFocused, focusBrowserColumn } = useBrowserColumnFocusViewModel();
+  const registerActiveFlush = useCallback<BrowserColumnFlushRegistration>((flush, discard) => {
     if (activeTabId === null) return;
-    registerBrowserColumnDocumentFlush(activeTabId, flush);
+    registerBrowserColumnFlush(activeTabId, flush, discard);
   }, [activeTabId]);
   const handleSelectTab = useCallback((tabId: string) => {
-    return activateBrowserColumnTab(tabId);
+    return selectBrowserColumnTab(tabId);
   }, []);
-  const handleCloseTab = useCallback((tabId: string) => {
-    void enqueueBrowserColumnNavigation(() => {
-      const state = useBrowserColumnStore.getState();
-      if (!state.tabs.some((tab) => tab.id === tabId)) return;
-      closeTab(tabId);
-    });
-  }, [closeTab]);
-  const handleCloseOtherTabs = useCallback((tabId: string) => {
-    void enqueueBrowserColumnNavigation(() => {
-      const state = useBrowserColumnStore.getState();
-      if (!state.tabs.some((tab) => tab.id === tabId)) return;
-      closeOtherTabs(tabId);
-    });
-  }, [closeOtherTabs]);
-  const handleCloseTabsToRight = useCallback((tabId: string) => {
-    void enqueueBrowserColumnNavigation(() => {
-      const state = useBrowserColumnStore.getState();
-      const tabIndex = state.tabs.findIndex((tab) => tab.id === tabId);
-      if (tabIndex < 0) return;
-      closeTabsToRight(tabId);
-    });
-  }, [closeTabsToRight]);
-  const handleCloseAllTabs = useCallback(() => {
-    void enqueueBrowserColumnNavigation(() => {
-      closeAllTabs();
-    });
-  }, [closeAllTabs]);
+  const closeWithDiscardFallback = useCallback(async (
+    close: (discardChanges: boolean) => Promise<boolean | null>,
+  ) => {
+    const closed = await close(false);
+    if (closed !== null) return;
+    if (!window.confirm(t('tabWindow.confirmDiscardChanges'))) return;
+    await close(true);
+  }, [t]);
+  const handleCloseTab = useCallback((tabId: string) => (
+    closeWithDiscardFallback((discardChanges) => (
+      closeBrowserColumnTab(tabId, { discardChanges })
+    ))
+  ), [closeWithDiscardFallback]);
+  const handleCloseOtherTabs = useCallback((tabId: string) => (
+    closeWithDiscardFallback((discardChanges) => (
+      closeOtherBrowserColumnTabs(tabId, { discardChanges })
+    ))
+  ), [closeWithDiscardFallback]);
+  const handleCloseTabsToRight = useCallback((tabId: string) => (
+    closeWithDiscardFallback((discardChanges) => (
+      closeBrowserColumnTabsToRight(tabId, { discardChanges })
+    ))
+  ), [closeWithDiscardFallback]);
+  const handleCloseAllTabs = useCallback(() => (
+    closeWithDiscardFallback((discardChanges) => (
+      closeAllBrowserColumnTabs({ discardChanges })
+    ))
+  ), [closeWithDiscardFallback]);
   const handleContextMenuOpenChange = useCallback((tabId: string, open: boolean) => {
     setContextMenuTabId((current) => {
       if (open) return tabId;
@@ -137,10 +129,10 @@ export function BrowserColumn({
   return (
     <section
       data-workspace-host="browser-column"
-      data-workspace-focused={focusedHostId === 'browser-column' ? '' : undefined}
+      data-workspace-focused={isFocused ? '' : undefined}
       aria-label="浏览器列辅助工作区"
-      onPointerDown={() => focusHost('browser-column')}
-      onFocusCapture={() => focusHost('browser-column')}
+      onPointerDown={focusBrowserColumn}
+      onFocusCapture={focusBrowserColumn}
       className={'relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--divider)] bg-[var(--document-bg)]'}
       style={{ width }}
     >
@@ -171,11 +163,12 @@ export function BrowserColumn({
         onCloseOtherTabs={handleCloseOtherTabs}
         onCloseTabsToRight={handleCloseTabsToRight}
         onCloseAllTabs={handleCloseAllTabs}
-        onOpenTabInWorkColumn={(tabId) => { void openBrowserColumnTabInWorkColumn(tabId); }}
-        onReorderTab={reorderTab}
+        onOpenTabInWorkColumn={(tabId) => { void openBrowserColumnTabInMainWorkColumn(tabId); }}
+        onReorderTab={reorderBrowserColumnTab}
         isTabMenuOpen={isTabMenuOpen}
         onTabMenuOpenChange={setIsTabMenuOpen}
         onContextMenuOpenChange={handleContextMenuOpenChange}
+        isFocused={isFocused}
       />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {activeSurface ? (

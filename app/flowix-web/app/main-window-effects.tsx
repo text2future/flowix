@@ -3,33 +3,38 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useI18n } from "@/lib/i18n";
-import { useDocumentStore } from "@features/document/store/document-store";
-import { useMemoStore } from "@features/memo/store/memo-store";
-import { useTagStore } from "@features/memo/store/tag-store";
-import { useTodoCountStore } from "@features/memo/store/todo-count-store";
+import { subscribeAppActiveAgentConversation } from "@features/document/public/app-api";
+import {
+  applyAppMemoCreated,
+  applyAppMemoDeleted,
+  applyAppMemoUpdated,
+  applyAppTagsDeleted,
+  applyAppTagsRenamed,
+  getAppSelectedNotebookId,
+  refreshAppDerivedMetadata,
+  refreshAppTodoCount,
+} from "@features/memo/public/app-api";
 import { invalidateMentionNotes } from "@features/editor/extensions/note-mention";
 import {
   invalidateMentionTags,
   setNotebookIdProvider,
 } from "@features/editor/extensions/tag-mention";
-import { rebaseSelectedTagId } from "@features/memo/services/memo-list-metadata-service";
 import { toast } from "@/lib/toast";
 import { handleMainWindowMemoEvent } from "./main-window-memo-event-handler";
-import type { MemoEvent, MemoDerivedRefresh } from "@/types/memo";
+import type { MemoEvent } from "@/types/memo";
 import {
   mountOpenTargetListener,
   unmountOpenTargetListener,
-} from "@features/memo/use-cases/open-target-listener";
+} from "@features/memo/public/app-api";
 import { initializeMainWindowStartup } from './main-window-startup';
 import { createLogger } from '@/lib/logger';
-import { useWorkspaceRestoreStore } from '@features/workspace/store/workspace-restore-store';
 import {
+  syncAppAgentConversationRestore,
   replaceActiveMemoPath,
-} from '@features/workspace/use-cases/workspace-navigation';
-import {
+  openBrowserColumnMemoById,
   removeBrowserColumnTabsByMemoId,
   replaceBrowserColumnMemoPath,
-} from '@features/workspace/use-cases/browser-column-navigation';
+} from '@features/workspace/public/app-api';
 
 const logger = createLogger('main-window-effects');
 
@@ -39,7 +44,7 @@ export function MainWindowEffects() {
 
   useEffect(() => {
     setNotebookIdProvider(
-      () => useMemoStore.getState().selectedNotebook?.id ?? null,
+      getAppSelectedNotebookId,
     );
     return () => {
       setNotebookIdProvider(() => null);
@@ -47,19 +52,7 @@ export function MainWindowEffects() {
   }, []);
 
   useEffect(() => {
-    let previousId = useDocumentStore.getState().activeAgentConversationId;
-    return useDocumentStore.subscribe((state) => {
-      const nextId = state.activeAgentConversationId;
-      if (nextId === previousId) return;
-      previousId = nextId;
-      if (nextId) {
-        useWorkspaceRestoreStore.getState().selectAgentConversation(nextId);
-      } else {
-        // A document transition, history navigation, or an explicit close all
-        // close the detail without discarding the list's last selection.
-        useWorkspaceRestoreStore.getState().closeAgentConversationDetail();
-      }
-    });
+    return subscribeAppActiveAgentConversation(syncAppAgentConversationRestore);
   }, []);
 
   useEffect(() => {
@@ -89,35 +82,32 @@ export function MainWindowEffects() {
       unsubscribeDerived = registerMemoDerivedRefreshHandler((event) => {
         invalidateMentionNotes();
         invalidateMentionTags();
-        if (useMemoStore.getState().selectedNotebook?.id === event.notebookId) {
-          refreshDerivedNotebookMetadata(event);
+        if (getAppSelectedNotebookId() === event.notebookId) {
+          refreshAppDerivedMetadata(event);
         } else if (event.derivedChanged.todos) {
-          void useTodoCountStore.getState().loadTodoCount(event.notebookId);
+          refreshAppTodoCount(event.notebookId);
         }
       });
       unsubscribe = registerMemoEventHandler((event) => {
         handleMainWindowMemoEvent(event, {
-          getSelectedNotebookId: () => useMemoStore.getState().selectedNotebook?.id ?? null,
+          getSelectedNotebookId: getAppSelectedNotebookId,
           invalidateMentionCaches: () => {
             invalidateMentionNotes();
             invalidateMentionTags();
           },
           openMemoInBrowserColumn: async (memoId) => {
-            const { openBrowserColumnMemoById } = await import(
-              '@features/workspace/use-cases/browser-column-navigation'
-            );
             await openBrowserColumnMemoById(memoId);
           },
           reportOpenFailure: (error) => {
             logger.warn('open created note in browser column failed', { error });
             toast.error(error instanceof Error ? error.message : String(error));
           },
-          handleMemoCreated: (memo) => useMemoStore.getState().handleMemoCreated(memo),
-          handleMemoUpdated: (memo) => useMemoStore.getState().handleMemoUpdated(memo),
-          handleMemoDeleted: (memoId) => useMemoStore.getState().handleMemoDeleted(memoId),
+          handleMemoCreated: applyAppMemoCreated,
+          handleMemoUpdated: applyAppMemoUpdated,
+          handleMemoDeleted: applyAppMemoDeleted,
           removeBrowserColumnTabsByMemoId: (memoId) => removeBrowserColumnTabsByMemoId(memoId),
-          handleTagsRenamed,
-          handleTagsDeleted,
+          handleTagsRenamed: applyAppTagsRenamed,
+          handleTagsDeleted: applyAppTagsDeleted,
           replaceActiveMemoPath: (memoId, path) => {
             replaceActiveMemoPath(memoId, path);
           },
@@ -125,9 +115,7 @@ export function MainWindowEffects() {
             replaceBrowserColumnMemoPath(memoId, path);
           },
           refreshSelectedNotebookMetadata,
-          refreshBackgroundTodoCount: (notebookId) => {
-            void useTodoCountStore.getState().loadTodoCount(notebookId);
-          },
+          refreshBackgroundTodoCount: refreshAppTodoCount,
         });
       });
     });
@@ -154,158 +142,5 @@ function refreshSelectedNotebookMetadata(event: MemoEvent): void {
   // 数类型是 MemoEvent 联合, 需要在这里收窄 ── 这两个 kind 没有
   // derivedChanged 字段。
   if (event.kind === 'tags_renamed' || event.kind === 'tags_deleted') return;
-  refreshDerivedNotebookMetadata(event);
-}
-
-function refreshDerivedNotebookMetadata(event: MemoDerivedRefresh): void {
-  const { notebookId, derivedChanged } = event;
-  if (derivedChanged.tags || derivedChanged.agents || derivedChanged.todos) {
-    void useTagStore.getState().loadTags(notebookId);
-    useTagStore.getState().triggerMetadataRefresh();
-  }
-  if (derivedChanged.todos) {
-    void useTodoCountStore.getState().loadTodoCount(notebookId);
-  }
-}
-
-/**
- * 处理 move_memo_tag IPC 的一次性 TagsRenamed 事件。
- *
- * 旧实现: 每个 affected memo 各发一次 MemoEvent::Updated, 触发 N 次
- *   handleMemoUpdated (整个 memo 对象被替换) + refreshSelectedNotebookMetadata
- *   (loadTags + triggerMetadataRefresh) + bump refreshTrigger
- *   (loadData + loadMemos 全量重拉)。 即使用户选中的是与重命名无关的
- *   标签 A, 列表也会闪烁一次, 卡片 tag token 全部更新 ── "列表内容
- *   变化"的根因。
- *
- * 新实现: 后端只发一次 TagsRenamed, 这里只做必要工作:
- *   1) loadTags + triggerMetadataRefresh ── 重载标签树 (后端 derived
- *      tagOptions 已不含旧路径, 不能缺)
- *   2) 局部 patch memos 数组里命中 affectedMemoIds 的行, 把 .tags
- *      数组按 renamedTags 做前缀替换 (复用 rebaseSelectedTagId 的核心
- *      逻辑)。 body / preview / todos / updatedAt 都没动, 不替换整个
- *      memo 对象 (除非 tags 真变了)。
- *   3) **不 bump refreshTrigger** ── selectedTagId 是否变由
- *      note-navigation-panel 的 commitRename / applyTagMove 自己 rebase,
- *      useEffect [activeTagId] 自动触发 loadMemos 走新 tagId 重拉。
- *      所以这里不需要 triggerRefresh。
- *
- * 注意: notebookId 失配也照样 patch memos 数组。 失配场景是"用户选中了
- * 其他 notebook, 后端仍会把 background notebook 的 memos 改写", 切回
- * 时看到的就是新 tag, 不会 stale。
- */
-function handleTagsRenamed(
-  event: Extract<MemoEvent, { kind: 'tags_renamed' }>,
-): void {
-  const { notebookId, renamedTags, affectedMemoIds } = event;
-
-  // 1) 重载标签树 metadata ── tagOptions 必须反映新路径 (旧路径被
-  //    renameSelectedTagId 校验会判 null, 触发"重命名后选中态丢失")。
-  void useTagStore.getState().loadTags(notebookId);
-  useTagStore.getState().triggerMetadataRefresh();
-
-  // 2) 局部 patch memos 数组: 只动命中 affectedMemoIds 的行, 每个
-  //    memo 只重写 .tags 字段, 其他字段引用保持不变。
-  //
-  //    复用 `rebaseSelectedTagId`: 对每个 tag token 依次跑一遍
-  //    renamedTags ── 不匹配时该函数原样返回 (但类型是 `string | null`),
-  //    所以链式累加用 `?? current` 兜底, 保证 TS 不会把 accumulator 推到
-  //    `string | null`。 这也意味着 renamedTags 即使有前缀嵌套 / 互不
-  //    重叠, 都能顺序尝试。
-  if (affectedMemoIds.length === 0 || renamedTags.length === 0) return;
-  const idSet = new Set(affectedMemoIds);
-  const memos = useMemoStore.getState().memos;
-  let dirty = false;
-  const nextMemos = memos.map((memo) => {
-    if (!idSet.has(memo.id)) return memo;
-    const newTags = memo.tags.map((tag) => {
-      let current = tag;
-      for (const [oldPrefix, newPrefix] of renamedTags) {
-        current = rebaseSelectedTagId(current, oldPrefix, newPrefix) ?? current;
-      }
-      return current;
-    });
-    if (
-      newTags.length === memo.tags.length &&
-      newTags.every((t, i) => t === memo.tags[i])
-    ) {
-      return memo;
-    }
-    dirty = true;
-    return { ...memo, tags: newTags };
-  });
-  if (dirty) {
-    useMemoStore.setState({ memos: nextMemos });
-  }
-}
-
-/**
- * 处理 delete_memo_tag IPC 的一次性 TagsDeleted 事件。 对称于
- * `handleTagsRenamed`, 但语义是 "从 memos[*].tags 移除" 而不是 "改写"。
- *
- * 后端已经:
- * - 从 memo_tags 表移除 `tag_path` 自身 + 所有子树 tag
- * - 从文档 YAML `tags` 删除对应的 `tag_path[/<...>]`
- * - 同步 memo index
- *
- * 这里只做必要工作:
- *   1) loadTags + triggerMetadataRefresh ── 重载标签树 (旧 tag 已删,
- *      tagOptions 必须反映)。
- *   2) 局部过滤 memos[*].tags 数组: 命中 deleted_tags (精确或子树
- *      前缀) 的 token 全部移除, 其他保留。 body / preview / todos /
- *      updatedAt 都没改 (删的是 token, 不是 memo), 不替换整个 memo
- *      对象 (除非 tags 真变了)。
- *   3) **不 bump refreshTrigger** ── selectedTagId 是否变由
- *      note-navigation-panel 的 confirmDeleteTag 自己做 (重置为 null
- *      + 切到 activeFilter='all'), useEffect [activeTagId] / [activeFilter]
- *      自动触发 loadMemos。
- *
- * 注意: notebookId 失配也照样 patch memos 数组。 失配场景是"用户选中
- * 了其他 notebook, 后端仍会把 background notebook 的 memos 改写",
- * 切回时不能看到 stale tag。
- */
-function handleTagsDeleted(
-  event: Extract<MemoEvent, { kind: 'tags_deleted' }>,
-): void {
-  const { notebookId, deletedTags, affectedMemoIds } = event;
-
-  // 1) reload tag tree metadata ── tagOptions must reflect the deletion,
-  //    otherwise `resolveSelectedTagId` won't be able to clear a selected
-  //    tag that was just removed.
-  void useTagStore.getState().loadTags(notebookId);
-  useTagStore.getState().triggerMetadataRefresh();
-
-  // 2) Local patch memos: drop every tag token that equals a deleted
-  //    tag or starts with a deleted tag + `/` (i.e. lives in a deleted
-  //    subtree).
-  if (affectedMemoIds.length === 0 || deletedTags.length === 0) return;
-  const idSet = new Set(affectedMemoIds);
-  const deletedSet = new Set(deletedTags);
-  // For subtree match, any tag whose closest deleted-prefix ancestor is
-  // in `deletedSet` should also go. The precomputed list `deletedTags`
-  // already contains every prefix that actually had a hit in the corpus
-  // (the backend builds it from memo_tags), so plain equality + "starts
-  // with `${deletedTag}/`" suffices.
-  const memos = useMemoStore.getState().memos;
-  let dirty = false;
-  const nextMemos = memos.map((memo) => {
-    if (!idSet.has(memo.id)) return memo;
-    const newTags = memo.tags.filter((tag) => {
-      for (const deleted of deletedSet) {
-        if (tag === deleted || tag.startsWith(`${deleted}/`)) return false;
-      }
-      return true;
-    });
-    if (
-      newTags.length === memo.tags.length &&
-      newTags.every((t, i) => t === memo.tags[i])
-    ) {
-      return memo;
-    }
-    dirty = true;
-    return { ...memo, tags: newTags };
-  });
-  if (dirty) {
-    useMemoStore.setState({ memos: nextMemos });
-  }
+  refreshAppDerivedMetadata(event);
 }

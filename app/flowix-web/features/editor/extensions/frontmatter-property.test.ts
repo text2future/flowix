@@ -330,30 +330,33 @@ describe('frontmatter property helpers', () => {
       expect(input.hasAttribute('placeholder')).toBe(false);
       expect(input.getAttribute('aria-label')).toBe('输入标签后回车');
       expect(input.style.width).toBe('88px');
-      expect(host.querySelector<HTMLElement>(
+      const tagMenu = document.body.querySelector<HTMLElement>(
         '.frontmatter-property__tag-suggestions',
-      )?.hidden).toBe(false);
-      expect([...host.querySelectorAll('.mention-tag-name')]
+      );
+      expect(tagMenu?.hidden).toBe(false);
+      expect(tagMenu?.parentElement).toBe(document.body);
+      expect(tagMenu?.style.position).toBe('fixed');
+      expect([...document.body.querySelectorAll('.mention-tag-name')]
         .map((element) => element.textContent)).toEqual(['gammaLongTag', 'work/path']);
-      const hierarchicalTag = [...host.querySelectorAll<HTMLElement>('.mention-tag-name')]
+      const hierarchicalTag = [...document.body.querySelectorAll<HTMLElement>('.mention-tag-name')]
         .find((element) => element.textContent === 'work/path');
       expect([...hierarchicalTag?.querySelectorAll('.mention-tag-segment') ?? []]
         .map((element) => element.textContent)).toEqual(['work', 'path']);
       expect(hierarchicalTag?.querySelector('.mention-tag-name-content')?.textContent)
         .toBe('work/path');
       expect(hierarchicalTag?.querySelector('.mention-tag-separator')?.textContent).toBe('/');
-      expect(host.querySelector('.frontmatter-property__tag-suggestions .mention-tag-icon')
+      expect(document.body.querySelector('.frontmatter-property__tag-suggestions .mention-tag-icon')
         ?.textContent).toBe('');
-      expect(host.querySelector(
+      expect(document.body.querySelector(
         '.frontmatter-property__tag-suggestions .overlay-scrollbar-frame',
       )).not.toBeNull();
-      expect(host.querySelector(
+      expect(document.body.querySelector(
         '.frontmatter-property__tag-suggestions .overlay-scrollbar-thumb',
       )).not.toBeNull();
-      const suggestionItems = host.querySelector<HTMLElement>(
+      const suggestionItems = document.body.querySelector<HTMLElement>(
         '.frontmatter-property__tag-suggestion-items',
       );
-      const initialOptions = host.querySelectorAll<HTMLButtonElement>(
+      const initialOptions = document.body.querySelectorAll<HTMLButtonElement>(
         '.mention-note-item',
       );
       if (suggestionItems && initialOptions[1]) {
@@ -396,9 +399,9 @@ describe('frontmatter property helpers', () => {
       input.value = 'gamma';
       input.dispatchEvent(new Event('input', { bubbles: true }));
       expect(input.style.width).toBe('141px');
-      expect([...host.querySelectorAll('.mention-tag-name')]
+      expect([...document.body.querySelectorAll('.mention-tag-name')]
         .map((element) => element.textContent)).toEqual(['gamma', 'gammaLongTag']);
-      host.querySelectorAll<HTMLButtonElement>('.mention-note-item')[1]?.dispatchEvent(
+      document.body.querySelectorAll<HTMLButtonElement>('.mention-note-item')[1]?.dispatchEvent(
         new MouseEvent('pointerdown', { bubbles: true, cancelable: true }),
       );
     }

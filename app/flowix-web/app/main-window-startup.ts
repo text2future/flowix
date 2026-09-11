@@ -1,6 +1,8 @@
-import { initializeMemoLibrary } from '@features/memo/use-cases/initialize-memo-library';
-import { restorePersistedMemoSession } from '@features/memo/use-cases/open-memo-session';
-import { restoreAgentConversationWorkspace } from '@features/workspace/use-cases/agent-conversation-navigation';
+import {
+  initializeMemoLibrary,
+  restorePersistedMemoSession,
+} from '@features/memo/public/app-api';
+import { restoreAgentConversationWorkspace } from '@features/workspace/public/startup-api';
 
 /**
  * Run the main-window startup stages in one failure-aware transaction.

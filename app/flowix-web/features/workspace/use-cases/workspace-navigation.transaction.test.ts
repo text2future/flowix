@@ -66,6 +66,7 @@ vi.mock('@features/document/store/document-store', () => ({
 }));
 
 vi.mock('@platform/tauri/client', () => ({
+  agent: {},
   notebooks: { setCurrent: mocks.setCurrentNotebook },
 }));
 

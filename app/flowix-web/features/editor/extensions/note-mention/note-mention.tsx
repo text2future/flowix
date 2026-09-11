@@ -72,3 +72,36 @@ export function openNoteMention(editor: Editor): boolean {
  * inline card that can navigate to the target memo.
  */
 export const NoteMention = createSuggestionExtension<MentionNoteItem>(noteMentionConfig);
+
+const wikiNoteMentionConfig: SuggestionMenuConfig<MentionNoteItem> = {
+  ...noteMentionConfig,
+  trigger: '[[',
+  parseQuery: (view: EditorView, triggerFrom, trigger) => {
+    const { selection } = view.state;
+    if (!selection.empty || selection.from < triggerFrom + trigger.length) return null;
+    const $trigger = view.state.doc.resolve(triggerFrom);
+    const $cursor = view.state.doc.resolve(selection.from);
+    if (!$trigger.sameParent($cursor)) return null;
+    const text = view.state.doc.textBetween(triggerFrom, selection.from, '\n', '\n');
+    if (!text.startsWith(trigger)) return null;
+    const query = text.slice(trigger.length);
+    if (query.includes(']') || query.includes('\n')) return null;
+    return query;
+  },
+  onSelect: ({ editor, item, deleteTriggerText }) => {
+    deleteTriggerText();
+    if (!editor.schema.nodes.noteReference) return;
+    editor.commands.insertContent({
+      type: 'noteReference',
+      attrs: {
+        ...toNoteReferenceAttrs(item),
+        linkStyle: 'wiki',
+        linkTarget: item.filename || `${item.title}.md`,
+        heading: null,
+      },
+    });
+  },
+};
+
+/** Obsidian-style `[[` note picker. */
+export const WikiNoteMention = createSuggestionExtension<MentionNoteItem>(wikiNoteMentionConfig);

@@ -11,7 +11,11 @@ import {
   type AgentThreadSlashMenuItemId,
   type SlashMenuItem,
 } from '@features/editor/components/slash-menu-dropdown';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import {
+  getCurrentAppLanguage,
+  isAgentTypeEnabled,
+  subscribeEditorRuntimePreferences,
+} from '@features/preferences/public/runtime-api';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import { windows } from '@platform/tauri/client';
 import { translate } from '@/lib/i18n';
@@ -69,7 +73,7 @@ function isAgentRuntimeAvailable(typeKey: AgentTypeKey): boolean {
 }
 
 function isAgentSlashEnabled(typeKey: AgentTypeKey): boolean {
-  return useUserSettingsStore.getState().settings.agents.enabledByType[typeKey] ?? true;
+  return isAgentTypeEnabled(typeKey);
 }
 
 function getAvailableSlashMenuItems(): SlashMenuItem[] {
@@ -87,7 +91,7 @@ function filterItems(query: string): SlashMenuItem[] {
   const availableItems = getAvailableSlashMenuItems();
   if (!normalizedQuery) return availableItems;
 
-  const language = useUserSettingsStore.getState().settings.language;
+  const language = getCurrentAppLanguage();
 
   return availableItems.filter((item) => {
     const labelText = getSlashMenuItemLabel(item, language);
@@ -351,7 +355,7 @@ function renderMenu(view: EditorView) {
 
   root.render(
     <SlashMenuDropdown
-      language={useUserSettingsStore.getState().settings.language}
+      language={getCurrentAppLanguage()}
       items={instance.items}
       selectedIndex={instance.selectedIndex}
       scrollSelectedItem={instance.scrollSelectedItem}
@@ -413,13 +417,7 @@ function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteF
     if (!isCurrentMenuView(view, openId) || activeEditor !== editor) return;
     refreshMenuFromEditor(view);
   });
-  unsubscribeUserSettings = useUserSettingsStore.subscribe((state, previous) => {
-    if (
-      state.settings.agents === previous.settings.agents &&
-      state.settings.language === previous.settings.language
-    ) {
-      return;
-    }
+  unsubscribeUserSettings = subscribeEditorRuntimePreferences(() => {
     if (!isCurrentMenuView(view, openId) || activeEditor !== editor) return;
     refreshMenuFromEditor(view);
   });
@@ -447,7 +445,7 @@ function memoTitleFromFilename(filename: string): string {
   const stripped = filename.replace(/\.md$/i, '').trim();
   if (stripped) return stripped;
   // 同步命名兜底走当前语言的 memo.untitled (zh-CN "未命名的笔记" / en-US "Untitled memo")。
-  const language = useUserSettingsStore.getState().settings.language;
+  const language = getCurrentAppLanguage();
   return translate(language, 'memo.untitled');
 }
 

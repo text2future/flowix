@@ -1,7 +1,7 @@
 import {
   BROWSER_COLUMN_DEFAULT_SPLIT_RATIO,
   BROWSER_COLUMN_MIN_WIDTH,
-} from '@features/workspace/store/browser-column-store';
+} from '@features/workspace/public/shell-api';
 
 export interface BrowserColumnLayoutInput {
   viewportWidth: number;

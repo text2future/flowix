@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { Blocks, Check, ChevronDown, FileText, Folder, Globe, MessageSquare, X } from 'lucide-react';
-import { canMoveBrowserColumnTargetToWorkColumn, type BrowserColumnTab } from '@features/workspace/store/browser-column-store';
+import {
+  canMoveBrowserColumnTargetToWorkColumn,
+  type BrowserColumnTab,
+} from '@features/workspace/public/browser-column-api';
 import {
   AgentThreadCardFullscreenExitButton,
   useFullscreenAgentThreadCardInfo,
-} from '@features/document/components/document-titlebar-shared';
-import { AgentIcon } from '@features/agent/components/agent-icon';
+} from '@features/document/public/shell-api';
+import { AgentIcon } from '@features/agent/public/shell-api';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { WORK_COLUMN_TITLEBAR_GRADIENT } from './work-column-titlebar-shell';
 import {
   ContextMenu,
@@ -65,6 +67,7 @@ export interface BrowserColumnHeaderProps {
   isTabMenuOpen: boolean;
   onTabMenuOpenChange: (open: boolean) => void;
   onContextMenuOpenChange: (tabId: string, open: boolean) => void;
+  isFocused: boolean;
 }
 
 export function BrowserColumnHeader({
@@ -80,6 +83,7 @@ export function BrowserColumnHeader({
   isTabMenuOpen,
   onTabMenuOpenChange,
   onContextMenuOpenChange,
+  isFocused,
 }: BrowserColumnHeaderProps) {
   const { t } = useI18n();
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
@@ -109,7 +113,6 @@ export function BrowserColumnHeader({
   };
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const isWindows = isWindowsPlatform();
-  const isFocused = useWorkspaceFocusStore((state) => state.focusedHostId === 'browser-column');
   // A fullscreen Thread Card keeps its DOM position inside this column, so the
   // host-scoped info hook only fires for cards mounted in the browser column —
   // work-column fullscreen never reaches this header.

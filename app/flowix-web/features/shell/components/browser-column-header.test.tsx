@@ -2,14 +2,14 @@ import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { BrowserColumnHeader } from './browser-column-header';
-import type { BrowserColumnTab } from '@features/workspace/store/browser-column-store';
+import type { BrowserColumnTab } from '@features/workspace/public/browser-column-api';
 
 vi.mock('@/lib/i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/i18n')>(),
   useI18n: () => ({ t: (key: string) => key }),
 }));
 vi.mock('./work-column-titlebar-shell', () => ({ WORK_COLUMN_TITLEBAR_GRADIENT: 'none' }));
-vi.mock('@features/document/components/document-titlebar-shared', () => ({
+vi.mock('@features/document/public/shell-api', () => ({
   AgentThreadCardFullscreenExitButton: () => null,
   useFullscreenAgentThreadCardInfo: () => null,
 }));
@@ -28,7 +28,8 @@ it('moves actual focus across successive arrow presses and Home/End, and shows t
     return <BrowserColumnHeader tabs={tabs} activeTabId={activeTabId} onSelectTab={setActiveTabId}
       onCloseTab={vi.fn()} onCloseOtherTabs={vi.fn()} onCloseTabsToRight={vi.fn()}
       onCloseAllTabs={vi.fn()} onOpenTabInWorkColumn={vi.fn()} onReorderTab={vi.fn()}
-      isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onContextMenuOpenChange={vi.fn()} />;
+      isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onContextMenuOpenChange={vi.fn()}
+      isFocused={false} />;
   }
   try {
     await act(async () => root.render(<Harness />));
@@ -67,7 +68,8 @@ async function withHeader(
     await act(async () => root.render(<BrowserColumnHeader tabs={tabs} activeTabId="one" onSelectTab={onSelectTab}
       onCloseTab={vi.fn()} onCloseOtherTabs={vi.fn()} onCloseTabsToRight={vi.fn()}
       onCloseAllTabs={vi.fn()} onOpenTabInWorkColumn={vi.fn()} onReorderTab={vi.fn()}
-      isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onContextMenuOpenChange={vi.fn()} />));
+      isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onContextMenuOpenChange={vi.fn()}
+      isFocused={false} />));
     await check(Array.from(element.querySelectorAll<HTMLButtonElement>('[role="tab"]')), outside);
   } finally {
     await act(async () => root.unmount());

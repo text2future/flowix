@@ -6,7 +6,7 @@ import { StarFourIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useMemoStore } from '@features/memo';
 import { useI18n } from '@/lib/i18n';
-import { useUserSettings } from '@features/preferences/hooks/use-user-settings';
+import { useMemoNavigationPreferences } from '@features/preferences/public/runtime-api';
 
 interface NavFilterButtonsProps {
   totalMemoCount: number;
@@ -25,7 +25,7 @@ export function NavFilterButtons({
   const { t } = useI18n();
   const activeFilter = useMemoStore((s) => s.activeFilter);
   const setActiveFilter = useMemoStore((s) => s.setActiveFilter);
-  const showConversationEntry = useUserSettings((settings) => settings.personalize.showConversationEntry);
+  const showConversationEntry = useMemoNavigationPreferences();
   // 文件夹浏览是和全部 / 对话 / 待办 / 标签并列的一个入口。浏览资料时
   // activeFilter 为 all 只是中间列的数据兜底，不能让“全部”也显示选中。
   const isFilterActive = (filter: typeof activeFilter) =>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { ChevronRight, FoldVertical, MoreHorizontal } from 'lucide-react';
 import { CaretRightIcon, FolderOpenIcon, FolderSimpleIcon } from '@phosphor-icons/react';
 import { toast } from '@/lib/toast';
@@ -34,6 +34,9 @@ const FOLDER_MENU_CLASS =
 const FOLDER_MENU_ITEM_CLASS =
   'h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
 const FOLDER_MENU_DIVIDER_CLASS = 'mx-1 my-1 h-px bg-[var(--border-popup)] opacity-60';
+
+type FileTreeFileIcon = ComponentType<{ path: string; className?: string }>;
+type FileTreeFolderIcon = ComponentType<{ expanded: boolean; className?: string }>;
 
 /** Unix epoch 毫秒 → "YYYY-MM-DD HH:mm" (本地时区)；null → "—"。 */
 function formatTimestamp(ms: number | null): string {
@@ -70,6 +73,8 @@ export function FolderFileTree({
   onFileSelect,
   onFileOpenInNewTab,
   tree,
+  fileIcon: FileIcon = FileTypeIcon,
+  folderIcon: FolderIcon,
 }: {
   folderPath: string;
   folderName: string;
@@ -85,6 +90,9 @@ export function FolderFileTree({
   onFileSelect?: (filePath: string, scopePath: string) => void;
   onFileOpenInNewTab?: (filePath: string) => void;
   tree: FolderTreeController;
+  /** Optional icon renderers let the resource tree use its own visual language. */
+  fileIcon?: FileTreeFileIcon;
+  folderIcon?: FileTreeFolderIcon;
 }) {
   const { t } = useI18n();
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
@@ -199,7 +207,7 @@ export function FolderFileTree({
     const openable = !isFolder;
     const isActive = !isFolder && !!activeFilePath
       && canonicalPath(activeFilePath) === canonicalPath(item.fullPath);
-    const FolderIcon = isExpanded ? FolderOpenIcon : FolderSimpleIcon;
+    const DefaultFolderIcon = isExpanded ? FolderOpenIcon : FolderSimpleIcon;
     const isRenamingRow = renaming?.item.id === item.id;
     const creationParentPath = isFolder
       ? item.fullPath
@@ -237,9 +245,16 @@ export function FolderFileTree({
               {isRenamingRow ? (
                 <>
                   {isFolder ? (
-                    <FolderIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                    FolderIcon ? (
+                      <FolderIcon
+                        expanded={isExpanded}
+                        className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
+                      />
+                    ) : (
+                      <DefaultFolderIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                    )
                   ) : (
-                    <FileTypeIcon
+                    <FileIcon
                       path={item.name}
                       className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
                     />
@@ -268,10 +283,17 @@ export function FolderFileTree({
                           isExpanded && 'rotate-90',
                         )}
                       />
-                      <FolderIcon className="absolute inset-0 h-4 w-4 text-[var(--muted-foreground)] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+                      {FolderIcon ? (
+                        <FolderIcon
+                          expanded={isExpanded}
+                          className="absolute inset-0 h-4 w-4 text-[var(--muted-foreground)] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
+                        />
+                      ) : (
+                        <DefaultFolderIcon className="absolute inset-0 h-4 w-4 text-[var(--muted-foreground)] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+                      )}
                     </span>
                   ) : (
-                    <FileTypeIcon
+                    <FileIcon
                       path={item.name}
                       className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
                     />
@@ -413,7 +435,7 @@ export function FolderFileTree({
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-        {isFolder && (
+        {isFolder && children.length > 0 && (
           <div
             className="folder-file-tree__subtree"
             data-expanded={isExpanded}
@@ -511,9 +533,16 @@ export function FolderFileTree({
                 }}
               >
                 {draftRow.kind === 'folder' ? (
-                  <FolderSimpleIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                  FolderIcon ? (
+                    <FolderIcon
+                      expanded={false}
+                      className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
+                    />
+                  ) : (
+                    <FolderSimpleIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                  )
                 ) : (
-                  <FileTypeIcon
+                  <FileIcon
                     path={draftRow.value}
                     className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
                   />

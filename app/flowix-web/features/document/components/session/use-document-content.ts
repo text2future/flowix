@@ -12,7 +12,7 @@ import {
 import { translate } from '@/lib/i18n';
 import { replaceActiveMemoPath } from '@features/workspace/use-cases/workspace-navigation';
 import { replaceBrowserColumnMemoPath } from '@features/workspace/use-cases/browser-column-navigation';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { formatDateTime } from '@/lib/utils';
 import {
   initialDocumentContainerState,
@@ -87,8 +87,8 @@ export function useDocumentContent({
         setAsCurrent: !isolatedSession,
       });
       const memo = isExternalDocument ? null : getMemoSnapshot(memoId);
-      const createdAt = memo?.createdAt ? formatDateTime(memo.createdAt, useUserSettingsStore.getState().settings.language) : '';
-      const updatedAt = memo?.updatedAt ? formatDateTime(memo.updatedAt, useUserSettingsStore.getState().settings.language) : '';
+      const createdAt = memo?.createdAt ? formatDateTime(memo.createdAt, getCurrentAppLanguage()) : '';
+      const updatedAt = memo?.updatedAt ? formatDateTime(memo.updatedAt, getCurrentAppLanguage()) : '';
       const updatedAtDate = memo?.updatedAt ? new Date(memo.updatedAt) : null;
       const isFavorited = memo?.favorited || false;
       // New memo focus is explicit navigation metadata now.  Inferring it
@@ -217,7 +217,7 @@ export function useDocumentContent({
 
         if (fullContent === null || fullContent === undefined) {
           if (currentLoadId !== counter.current) return;
-          const language = useUserSettingsStore.getState().settings.language;
+          const language = getCurrentAppLanguage();
           setState((prev) => ({ ...prev, isLoading: false, error: translate(language, 'document.load.failed') }));
           if (!isolatedSession && transitionId !== null) {
             useDocumentStore.getState().finishDocumentTransition(transitionId);
@@ -237,7 +237,7 @@ export function useDocumentContent({
         }
       } catch (err) {
         if (currentLoadId !== counter.current) return;
-        const language = useUserSettingsStore.getState().settings.language;
+        const language = getCurrentAppLanguage();
         setState((prev) => ({ ...prev, isLoading: false, error: translate(language, 'document.load.failed') }));
         logOpenDocPerf('reloadDocument:error', startedAt, {
           memoId,

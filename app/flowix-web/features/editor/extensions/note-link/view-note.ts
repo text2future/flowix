@@ -22,11 +22,13 @@ import { Node, nodeInputRule, nodePasteRule, type InputRuleMatch, type JSONConte
 import { NodeSelection, Plugin, type EditorState } from '@tiptap/pm/state';
 
 import { readMarkdownLinkDestination } from '@features/editor/extensions/shared/markdown-link-destination';
-import { openNoteByMemoId, openNoteByPhysicalPath, resolveMemoById, resolveMemoByPath } from '@features/editor/extensions/note-link/memo-resolver';
+import { openNoteByMemoId, openNoteByPhysicalPath, resolveMemoById, resolveMemoByObsidianTarget, resolveMemoByPath } from '@features/editor/extensions/note-link/memo-resolver';
 import { escapeHtml, parseBooleanAttr, pickAttr, splitDisplay, stripMdSuffix, unescapeHtml } from '@features/editor/extensions/note-link/markdown';
 import { translate, type I18nKey } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { createTerminalInlineAtomCaretDecorations } from '@features/editor/extensions/shared/terminal-inline-atom-caret';
+import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
+import GithubSlugger from 'github-slugger';
 
 // ─── Attrs ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +38,9 @@ export interface NoteReferenceAttrs {
   notebookName: string;
   title: string;
   originalPath: string | null;
+  linkStyle: 'flowix' | 'wiki' | 'markdown';
+  linkTarget: string | null;
+  heading: string | null;
   /** 渲染态: memoId 缺失 或 后端按 memoId/originalPath 都解析不到时为 true;
    *  不写入 markdown */
   stale: boolean;
@@ -48,7 +53,7 @@ const VALID_MEMO_ID_RE = /^([0-9a-z]{6}|[0-9a-z]{8})$/;
 
 // NodeView 不在 React 树内, 不能用 useI18n, 走 user-settings-store 直读当前语言。
 function tKey(key: I18nKey, params?: Record<string, string | number>): string {
-  return translate(useUserSettingsStore.getState().settings.language, key, params);
+  return translate(getCurrentAppLanguage(), key, params);
 }
 
 type ParsedMarkdownNoteLink = {
@@ -56,6 +61,56 @@ type ParsedMarkdownNoteLink = {
   text: string;
   href: string;
 };
+
+type ParsedWikiNoteLink = {
+  raw: string;
+  target: string;
+  heading: string | null;
+  title: string;
+};
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function splitObsidianTarget(rawTarget: string): { target: string; heading: string | null } {
+  const hash = rawTarget.indexOf('#');
+  if (hash < 0) return { target: safeDecode(rawTarget.trim()), heading: null };
+  const target = safeDecode(rawTarget.slice(0, hash).trim());
+  // Also accept the commonly typed `## Heading`, while Obsidian itself uses
+  // one `#` regardless of heading level.
+  const heading = safeDecode(rawTarget.slice(hash).replace(/^#+\s*/, '').trim());
+  return { target, heading: heading || null };
+}
+
+export function parseWikiNoteLinkAtStart(src: string): ParsedWikiNoteLink | null {
+  if (!src.startsWith('[[')) return null;
+  const end = src.indexOf(']]', 2);
+  if (end < 0 || src.slice(2, end).includes('\n')) return null;
+  const body = src.slice(2, end);
+  const aliasAt = body.indexOf('|');
+  const rawTarget = aliasAt < 0 ? body : body.slice(0, aliasAt);
+  const { target, heading } = splitObsidianTarget(rawTarget);
+  if (!target) return null;
+  const fallbackTitle = target.split('/').pop()?.replace(/\.md$/i, '') || target;
+  return {
+    raw: src.slice(0, end + 2),
+    target,
+    heading,
+    title: (aliasAt < 0 ? fallbackTitle : body.slice(aliasAt + 1).trim()) || fallbackTitle,
+  };
+}
+
+export function isRelativeNoteDestination(href: string): boolean {
+  const value = href.trim();
+  if (!value || /^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
+  if (value.startsWith('/') || value.startsWith('#') || value.startsWith('?') || value.startsWith('//')) return false;
+  return /\.md(?:#|$)/i.test(value) || /%20/i.test(value);
+}
 
 function findMarkdownLinkCloseBracket(src: string): number {
   for (let i = 1; i < src.length; i += 1) {
@@ -76,7 +131,7 @@ function parseMarkdownNoteLinkAtStart(src: string): ParsedMarkdownNoteLink | nul
   if (closeBracket < 0 || src[closeBracket + 1] !== '(') return null;
 
   const destination = readMarkdownLinkDestination(src, closeBracket + 1);
-  if (!destination || !FLOWIX_MEMO_URL_RE.test(destination.url)) return null;
+  if (!destination || (!FLOWIX_MEMO_URL_RE.test(destination.url) && !isRelativeNoteDestination(destination.url))) return null;
 
   return {
     raw: src.slice(0, destination.end + 1),
@@ -120,6 +175,23 @@ function findMarkdownNotePasteMatches(text: string): PasteRuleMatch[] {
   return matches;
 }
 
+function findLastWikiNoteLink(text: string): InputRuleMatch | null {
+  const index = text.lastIndexOf('[[');
+  if (index < 0) return null;
+  const parsed = parseWikiNoteLinkAtStart(text.slice(index));
+  if (!parsed || index + parsed.raw.length !== text.length) return null;
+  return { index, text: parsed.raw, data: parsed };
+}
+
+function findWikiNotePasteMatches(text: string): PasteRuleMatch[] {
+  const matches: PasteRuleMatch[] = [];
+  for (let index = text.indexOf('[['); index >= 0; index = text.indexOf('[[', index + 2)) {
+    const parsed = parseWikiNoteLinkAtStart(text.slice(index));
+    if (parsed) matches.push({ index, text: parsed.raw, data: parsed });
+  }
+  return matches;
+}
+
 function parseFlowixMemoHrefForAttrs(href: string): { memoId: string | null; stale: boolean } {
   if (!FLOWIX_MEMO_URL_RE.test(href)) return { memoId: null, stale: true };
   const strict = href.match(STRICT_FLOWIX_MEMO_HREF_RE);
@@ -157,6 +229,20 @@ function serializeLegacyNoteReference(a: NoteReferenceAttrs): string {
 }
 
 function attrsFromMarkdownNoteLink(titleText: string, href: string): NoteReferenceAttrs {
+  if (!FLOWIX_MEMO_URL_RE.test(href)) {
+    const { target, heading } = splitObsidianTarget(href);
+    return {
+      memoId: null,
+      notebookId: null,
+      notebookName: '',
+      title: unescapeMarkdownLinkText(titleText).trim(),
+      originalPath: null,
+      linkStyle: 'markdown',
+      linkTarget: target,
+      heading,
+      stale: false,
+    };
+  }
   const parsed = parseFlowixMemoHrefForAttrs(href);
   return {
     memoId: parsed.memoId,
@@ -164,7 +250,24 @@ function attrsFromMarkdownNoteLink(titleText: string, href: string): NoteReferen
     notebookName: '',
     title: unescapeMarkdownLinkText(titleText).trim(),
     originalPath: null,
+    linkStyle: 'flowix',
+    linkTarget: null,
+    heading: null,
     stale: parsed.stale,
+  };
+}
+
+function attrsFromWikiNoteLink(parsed: ParsedWikiNoteLink): NoteReferenceAttrs {
+  return {
+    memoId: null,
+    notebookId: null,
+    notebookName: '',
+    title: parsed.title,
+    originalPath: null,
+    linkStyle: 'wiki',
+    linkTarget: parsed.target,
+    heading: parsed.heading,
+    stale: false,
   };
 }
 
@@ -204,7 +307,6 @@ function removeHardBreaksAroundNoteReferences(state: EditorState) {
     if (nodeBefore?.type.name === 'hardBreak') {
       pushDeletion(pos - nodeBefore.nodeSize, pos);
     }
-
     const afterPos = pos + node.nodeSize;
     const $after = state.doc.resolve(afterPos);
     const nodeAfter = $after.nodeAfter;
@@ -356,14 +458,31 @@ class NoteReferenceView implements ProseMirrorNodeView {
       return;
     }
 
-    const attrs = this.node.attrs as NoteReferenceAttrs;
+    let attrs = this.node.attrs as NoteReferenceAttrs;
 
     // memoId 是 memo 的稳定 id, 跨改名 / 跨笔记本移动都不变;
     // 是 noteReference 卡片的第一公民 ── 必须保存, 缺失即视为无效链接.
     if (!attrs.memoId) {
-      this.applyAttrs({ stale: true });
-      return;
+      const resolved = attrs.linkTarget
+        ? await resolveMemoByObsidianTarget(attrs.linkTarget)
+        : attrs.originalPath
+          ? await resolveMemoByPath(attrs.originalPath)
+          : null;
+      if (!resolved) {
+        this.applyAttrs({ stale: true });
+        return;
+      }
+      this.applyAttrs({
+        memoId: resolved.memoId,
+        notebookId: resolved.notebookId,
+        notebookName: resolved.notebookName,
+        originalPath: resolved.absolutePath,
+        stale: false,
+      });
+      attrs = { ...attrs, memoId: resolved.memoId, stale: false };
     }
+    const memoId = attrs.memoId;
+    if (!memoId) return;
 
     // 优先用 memoId 反查 (flowix://memo/<id> 深链), 后端走 memo index 扫
     // 所有 notebook 找匹配 id 的 .md; 笔记改名 / 被搬都不会断链,
@@ -372,7 +491,7 @@ class NoteReferenceView implements ProseMirrorNodeView {
     // 只有 memoId 反查失败时, 才回退到 originalPath 兜底 (粘贴进来的卡片
     // 历史数据里 memoId 已被解析过, originalPath 通常有效).
     try {
-      const opened = await openNoteByMemoId(attrs.memoId);
+      const opened = await openNoteByMemoId(memoId);
       if (!opened) {
         // memoId 反查失败 → 尝试用 originalPath 再开一次 (兜底)
         if (attrs.originalPath) {
@@ -384,6 +503,16 @@ class NoteReferenceView implements ProseMirrorNodeView {
       }
       if (attrs.stale) {
         this.applyAttrs({ stale: false });
+      }
+      if (attrs.heading) {
+        const slug = new GithubSlugger().slug(attrs.heading);
+        let attempts = 0;
+        const navigate = () => {
+          if (this.destroyed || navigateToHeadingAnchor(this.view.dom, `#${slug}`)) return;
+          attempts += 1;
+          if (attempts < 10) window.setTimeout(navigate, 50);
+        };
+        window.setTimeout(navigate, 0);
       }
     } catch (err) {
       this.applyAttrs({ stale: true });
@@ -459,7 +588,7 @@ class NoteReferenceView implements ProseMirrorNodeView {
     //   1. memoId     — 稳定主键, 跨改名/跨笔记本移动不断链
     //   2. originalPath — 物理路径粘贴场景下 memoId 缺失, 用来反查补 memoId
     //   都没有 → 无可解析, 直接 return (createCard 已按 !memoId && !originalPath 落 stale)
-    if (!initialAttrs.memoId && !initialAttrs.originalPath) {
+    if (!initialAttrs.memoId && !initialAttrs.originalPath && !initialAttrs.linkTarget) {
       return Promise.resolve();
     }
 
@@ -467,7 +596,9 @@ class NoteReferenceView implements ProseMirrorNodeView {
       try {
         const resolved = initialAttrs.memoId
           ? await resolveMemoById(initialAttrs.memoId)
-          : await resolveMemoByPath(initialAttrs.originalPath!);
+          : initialAttrs.originalPath
+            ? await resolveMemoByPath(initialAttrs.originalPath)
+            : await resolveMemoByObsidianTarget(initialAttrs.linkTarget!);
         // refresh 跑完前, 节点可能已经被销毁 / 替换; 用当前 this.node 取最新 attrs.
         const current = this.node.attrs as NoteReferenceAttrs;
         if (!resolved) {
@@ -565,6 +696,9 @@ export const NoteReference = Node.create({
       notebookName: { default: '' },
       title:        { default: '' },
       originalPath: { default: null },
+      linkStyle:    { default: 'flowix' },
+      linkTarget:   { default: null },
+      heading:      { default: null },
       stale:        { default: false },
     };
   },
@@ -579,7 +713,7 @@ export const NoteReference = Node.create({
           const originalPath = el.getAttribute('path') || null;
           const stale        = parseBooleanAttr(el.getAttribute('stale'));
           const { notebookName, title } = splitDisplay(el.textContent ?? '');
-          return { memoId, notebookId, notebookName, title, originalPath, stale };
+          return { memoId, notebookId, notebookName, title, originalPath, linkStyle: 'flowix', linkTarget: null, heading: null, stale };
         },
       },
     ];
@@ -613,12 +747,18 @@ export const NoteReference = Node.create({
     start(src: string) {
       const noteIndex = src.indexOf('<note ');
       const linkHrefIndex = src.indexOf('(flowix://memo/');
-      if (noteIndex < 0 && linkHrefIndex < 0) return -1;
-      if (noteIndex < 0) return Math.max(0, src.lastIndexOf('[', linkHrefIndex));
-      if (linkHrefIndex < 0) return noteIndex;
-      return Math.min(noteIndex, Math.max(0, src.lastIndexOf('[', linkHrefIndex)));
+      const wikiIndex = src.indexOf('[[');
+      const markdownIndex = /\[[^\]\n]+\]\((?![a-z][a-z0-9+.-]*:)[^)\n]*(?:\.md|%20)[^)\n]*\)/i.exec(src)?.index ?? -1;
+      const indexes = [noteIndex, linkHrefIndex < 0 ? -1 : Math.max(0, src.lastIndexOf('[', linkHrefIndex)), wikiIndex, markdownIndex]
+        .filter(index => index >= 0);
+      if (indexes.length === 0) return -1;
+      return Math.min(...indexes);
     },
     tokenize(src: string) {
+      const wiki = parseWikiNoteLinkAtStart(src);
+      if (wiki) {
+        return { type: 'noteReference', raw: wiki.raw, wiki };
+      }
       const link = parseMarkdownNoteLinkAtStart(src);
       if (link) {
         return {
@@ -636,8 +776,12 @@ export const NoteReference = Node.create({
   },
 
   parseMarkdown(token: MarkdownToken) {
+    const wiki = token.wiki as ParsedWikiNoteLink | undefined;
+    if (wiki) {
+      return { type: 'noteReference', attrs: attrsFromWikiNoteLink(wiki) };
+    }
     const href = String(token.href ?? '');
-    if (FLOWIX_MEMO_URL_RE.test(href)) {
+    if (FLOWIX_MEMO_URL_RE.test(href) || isRelativeNoteDestination(href)) {
       return {
         type: 'noteReference',
         attrs: attrsFromMarkdownNoteLink(String(token.text ?? ''), href),
@@ -660,6 +804,9 @@ export const NoteReference = Node.create({
         notebookName,
         title,
         originalPath: pickAttr(attrsStr, 'path'),
+        linkStyle:    'flowix',
+        linkTarget:   null,
+        heading:      null,
         stale:        parseBooleanAttr(pickAttr(attrsStr, 'stale')),
       },
     };
@@ -667,6 +814,15 @@ export const NoteReference = Node.create({
 
   renderMarkdown(node: JSONContent) {
     const a = (node?.attrs ?? {}) as NoteReferenceAttrs;
+    if (a.linkStyle === 'wiki' && a.linkTarget) {
+      const target = `${a.linkTarget}${a.heading ? `#${a.heading}` : ''}`;
+      const naturalTitle = a.linkTarget.split('/').pop()?.replace(/\.md$/i, '') ?? a.linkTarget;
+      return `[[${target}${a.title && a.title !== naturalTitle ? `|${a.title}` : ''}]]`;
+    }
+    if (a.linkStyle === 'markdown' && a.linkTarget) {
+      const target = `${a.linkTarget}${a.heading ? `#${a.heading}` : ''}`.replace(/ /g, '%20');
+      return `[${escapeMarkdownLinkText(a.title || stripMdSuffix(a.linkTarget))}](${target})`;
+    }
     if (!a.memoId) {
       // 物理路径粘贴刚生成、尚未异步反查出 memoId 时保留旧格式兜底,
       // 避免保存时丢掉 originalPath。
@@ -712,6 +868,11 @@ export const NoteReference = Node.create({
   addInputRules() {
     return [
       nodeInputRule({
+        find: findLastWikiNoteLink,
+        type: this.type,
+        getAttributes: match => attrsFromWikiNoteLink(match.data as unknown as ParsedWikiNoteLink),
+      }),
+      nodeInputRule({
         find: findLastMarkdownNoteLink,
         type: this.type,
         getAttributes: match => attrsFromMarkdownNoteLink(
@@ -724,6 +885,11 @@ export const NoteReference = Node.create({
 
   addPasteRules() {
     return [
+      nodePasteRule({
+        find: findWikiNotePasteMatches,
+        type: this.type,
+        getAttributes: match => attrsFromWikiNoteLink(match.data as unknown as ParsedWikiNoteLink),
+      }),
       nodePasteRule({
         find: findMarkdownNotePasteMatches,
         type: this.type,

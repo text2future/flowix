@@ -1,5 +1,5 @@
 import { translate, type AppLanguage } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 
 export type StoredAsset = {
     kind: 'image' | 'video' | 'file';
@@ -74,7 +74,7 @@ export function mimeTypeFromName(name: string): string {
  * user-settings-store (与 errors.ts 的 getLanguage() 同源)。
  */
 export function fileNameFromPath(path: string, language?: AppLanguage): string {
-    const lang = language ?? useUserSettingsStore.getState().settings.language;
+    const lang = language ?? getCurrentAppLanguage();
     return path.split(/[\\/]/).pop() || translate(lang, 'editor.attachment.fallback');
 }
 

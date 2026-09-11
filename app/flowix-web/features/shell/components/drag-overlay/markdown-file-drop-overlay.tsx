@@ -1,17 +1,23 @@
 import { useCallback } from 'react';
 
 import { toast } from '@/lib/toast';
-import { markdownPaths as filterMarkdownPaths, useMarkdownFileDrop } from '@features/document/components/use-markdown-file-drop';
-import { openBrowserColumnMarkdown } from '@features/workspace/use-cases/browser-column-navigation';
+import {
+  markdownPaths as filterMarkdownPaths,
+  useMarkdownFileDrop,
+} from '@features/document/public/shell-api';
+import { openMarkdownInBrowserColumn } from '@features/workspace/public/browser-column-api';
 import { useI18n } from '@/lib/i18n';
 import { errorMessage } from '@/lib/error-message';
+import { createLogger } from '@/lib/logger';
 import { FullscreenDragOverlay } from './fullscreen-drag-overlay';
+
+const logger = createLogger('markdown-file-drop-overlay');
 
 export function MarkdownFileDropOverlay() {
   const { t } = useI18n();
-  const openMarkdownPath = useCallback((path: string) => openBrowserColumnMarkdown(path), []);
+  const openMarkdownPath = useCallback((path: string) => openMarkdownInBrowserColumn(path), []);
   const handleDropError = useCallback((error: unknown) => {
-    console.warn('[MarkdownFileDropOverlay] Failed to open dropped Markdown:', error);
+    logger.warn('failed to open dropped Markdown', { error });
     toast.error(errorMessage(error));
   }, []);
   const handleDropPaths = useCallback(async (paths: string[]) => {

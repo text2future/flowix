@@ -1,4 +1,4 @@
-import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
+import { hydrateWorkspaceAgentConversation } from '@features/agent/public/workspace-api';
 import { useWorkspaceRestoreStore } from '@features/workspace/store/workspace-restore-store';
 import { closeAgentTarget, openAgentTarget } from './workspace-navigation';
 
@@ -30,7 +30,7 @@ export async function restoreAgentConversationWorkspace(): Promise<void> {
   const instanceId = restore.selectedInstanceId?.trim() ?? '';
   if (!instanceId) return;
 
-  const instance = await useAgentSessionStore.getState().hydrateInstance(instanceId);
+  const instance = await hydrateWorkspaceAgentConversation(instanceId);
   if (!instance) {
     useWorkspaceRestoreStore.getState().clearAgentConversation(instanceId);
     return;

@@ -5,6 +5,7 @@ export {
   type PluginArtifactRendererId,
   type PluginNoteInfo,
 } from './plugin-note';
+export * from './public/workspace-api';
 export { PluginWorkbench } from './plugin-workbench';
 export {
   PluginArtifactRenderer,

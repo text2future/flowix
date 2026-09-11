@@ -4,6 +4,7 @@ import { externalDocuments, memos as memosClient } from '@platform/tauri/client'
 import {
   getDocumentDraft,
   applyLoadedDocumentContent,
+  discardDocumentDraft,
   getDocumentBuffer,
   markSelfDocumentPathUpdate,
   hasDocumentUnsavedChanges,
@@ -14,7 +15,7 @@ import {
 import { translate } from '@/lib/i18n';
 import { replaceActiveMemoPath } from '@features/workspace/use-cases/workspace-navigation';
 import { replaceBrowserColumnMemoPath } from '@features/workspace/use-cases/browser-column-navigation';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { toast } from '@/lib/toast';
 import { formatDateTime } from '@/lib/utils';
 import {
@@ -68,6 +69,7 @@ export function useDocumentAutosave({
   const derivedStatsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const derivedStatsVersionRef = useRef(0);
   const isMountedRef = useRef(true);
+  const sourceMissingAfterSaveRef = useRef(false);
 
   const clearSaveTimer = useCallback(() => {
     if (saveTimerRef.current) {
@@ -103,13 +105,19 @@ export function useDocumentAutosave({
     }, DERIVED_STATS_DEBOUNCE_MS);
   }, [clearDerivedStatsTimer, setState]);
 
-  const saveDoc = useCallback(async (content: string, path: string, options?: { force?: boolean }): Promise<boolean> => {
+  const saveDoc = useCallback(async (
+    content: string,
+    path: string,
+    options?: { force?: boolean; silent?: boolean },
+  ): Promise<boolean> => {
     if (!path) return false;
+    sourceMissingAfterSaveRef.current = false;
+    let casRefused = false;
     const buf = getDocumentBuffer(identity);
     // Another surface may have edited since this save was scheduled.
     content = buf.content;
 
-    return saveDocumentContent({
+    const saved = await saveDocumentContent({
       path,
       identity,
       content,
@@ -123,7 +131,7 @@ export function useDocumentAutosave({
           if (isMountedRef.current) {
             setState(prev => ({
               ...prev,
-              updatedAt: formatDateTime(now, useUserSettingsStore.getState().settings.language),
+              updatedAt: formatDateTime(now, getCurrentAppLanguage()),
               updatedAtDate: new Date(now),
               error: null,
             }));
@@ -158,32 +166,19 @@ export function useDocumentAutosave({
             callerHead: writtenContent.slice(0, 200),
             lastSavedHead: buf.lastSavedContent.slice(0, 200),
           });
-          // 简化策略: 不做前端语义自愈, 不覆盖用户当前编辑内容。
-          // 只主动读一次磁盘刷新 CAS 基线, 然后提示冲突。
-          if (!isMountedRef.current) {
-            return;
-          }
+          casRefused = true;
           buf.pendingContent = null;
-          void (async () => {
-            const onDisk = await (isExternalDocument
-              ? externalDocuments.read(path, externalScopePath)
-              : memosClient.readDocument(path)).catch(() => null);
-            if (!isMountedRef.current) return;
-            if (onDisk !== null) {
-              buf.lastSavedContent = onDisk;
-            }
-            const language = useUserSettingsStore.getState().settings.language;
-            toast.error(translate(language, 'document.save.casRefused'), { duration: 5000 });
-          })();
           void writtenContent;
         },
         onError: (_writtenContent, err) => {
           console.error('[DocumentContainer] Failed to save memo:', err);
-          const language = useUserSettingsStore.getState().settings.language;
+          const language = getCurrentAppLanguage();
           const message = err instanceof Error ? err.message : String(err);
-          toast.error(translate(language, 'document.save.failed', { message }), {
-            duration: 5000,
-          });
+          if (!options?.silent) {
+            toast.error(translate(language, 'document.save.failed', { message }), {
+              duration: 5000,
+            });
+          }
           if (isMountedRef.current) {
             // 错误展示在 document-container 里的 state.error (ghost 兜底视图);
             // 此处承载 save 失败语义 ── 用 document.save.failed + 实际 error
@@ -193,6 +188,33 @@ export function useDocumentAutosave({
         },
       },
     });
+    if (saved || !casRefused || !isMountedRef.current) return saved;
+
+    // A deleted source and a genuine CAS conflict both arrive as a refused
+    // internal write. Resolve that ambiguity before showing a conflict toast.
+    let onDisk: string | null;
+    try {
+      onDisk = isExternalDocument
+        ? await externalDocuments.read(path, externalScopePath)
+        : await memosClient.readDocument(path);
+    } catch {
+      const language = getCurrentAppLanguage();
+      if (!options?.silent) {
+        toast.error(translate(language, 'document.save.casRefused'), { duration: 5000 });
+      }
+      return false;
+    }
+    if (!isMountedRef.current) return false;
+    if (onDisk === null) {
+      sourceMissingAfterSaveRef.current = true;
+      return false;
+    }
+    buf.lastSavedContent = onDisk;
+    const language = getCurrentAppLanguage();
+    if (!options?.silent) {
+      toast.error(translate(language, 'document.save.casRefused'), { duration: 5000 });
+    }
+    return false;
   }, [
     isExternalDocument,
     externalScopePath,
@@ -203,15 +225,33 @@ export function useDocumentAutosave({
   ]);
 
   /** Flush an isolated browser tab before React unmounts its editor. */
-  const flushDocument = useCallback(async (): Promise<boolean> => {
+  const flushDocument = useCallback(async (
+    options?: { silent?: boolean },
+  ): Promise<boolean> => {
     const flushedContent = flushPendingContent?.() ?? null;
     const draft = getDocumentDraft(identity, filePath);
     const content = flushedContent ?? draft?.content;
     const path = draft?.path ?? filePath;
     clearSaveTimer();
     if (content == null || !path || !hasDocumentUnsavedChanges(identity)) return true;
-    return saveDoc(content, path);
+    const saved = await saveDoc(content, path, options);
+    if (saved || !sourceMissingAfterSaveRef.current) return saved;
+
+    // The backing file was removed outside Flowix. There is nothing left to
+    // save safely, so clear the dirty barrier and allow this isolated tab to
+    // close instead of trapping the user in a retry loop.
+    discardDocumentDraft(identity);
+    const language = getCurrentAppLanguage();
+    toast.warning(translate(language, 'document.save.sourceMissingDiscarded'), {
+      duration: 5000,
+    });
+    return true;
   }, [clearSaveTimer, filePath, flushPendingContent, identity, saveDoc]);
+
+  const discardDocument = useCallback(() => {
+    clearSaveTimer();
+    discardDocumentDraft(identity);
+  }, [clearSaveTimer, identity]);
   // visibilitychange 强保存的 disk-aware 版本 ── 设计动机见 hook 顶部注释。
   // 触发点是 "切走前", 因为内部要引用 saveDoc, 所以定义在 saveDoc 之后。
   const maybeSaveOrReloadOnHide = useCallback(async (content: string, path: string) => {
@@ -243,7 +283,7 @@ export function useDocumentAutosave({
     if (!isMountedRef.current) return;
     if (hasDocumentUnsavedChanges(identity)) {
       // 用户有本地未保存改动 + 磁盘被外部改 ── 提示冲突, 不覆盖
-      const language = useUserSettingsStore.getState().settings.language;
+      const language = getCurrentAppLanguage();
       toast.warning(translate(language, 'document.save.externalChanged'), { duration: 5000 });
       return;
     }
@@ -344,6 +384,7 @@ export function useDocumentAutosave({
   return {
     clearSaveTimer,
     flushDocument,
+    discardDocument,
     handleChange,
     maybeSaveOrReloadOnHide,
     saveDoc,

@@ -3,4 +3,10 @@ export { DocumentTitlebarMac } from '@features/document/components/document-titl
 export { DocumentTitlebarWin } from '@features/document/components/document-titlebar-win';
 export { LazyDocumentEditor } from '@features/document/components/lazy-document-editor';
 export { useDocumentCommands } from '@features/document/components/use-document-commands';
+export {
+  flushWorkspaceDocumentPath,
+  getWorkspaceDocumentState,
+  pushWorkspaceDocumentHistory,
+  type WorkspaceDocumentState,
+} from '@features/document/public/workspace-api';
 export * from '@features/document/store';

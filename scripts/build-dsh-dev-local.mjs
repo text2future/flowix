@@ -77,6 +77,7 @@ await mkdir(nodeDir, { recursive: true })
 await cp(process.execPath, resolve(nodeDir, process.platform === 'win32' ? 'node.exe' : 'node'))
 await writeFile(resolve(bundle, 'dsh-runtime.json'), `${JSON.stringify({
   target,
+  nodeExecutable: `node/${process.platform === 'win32' ? 'node.exe' : 'node'}`,
   version: process.env.FLOWIX_DSH_VERSION || '1.5.2',
   nodeVersion: process.version,
   nodeAbi: process.versions.modules,

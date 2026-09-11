@@ -2,8 +2,9 @@ import { openUrl } from '@platform/tauri/opener';
 import type { Editor } from '@tiptap/core';
 import { normalizePlainLinkHref } from '@features/editor/extensions/markdown-link';
 import { isLinkEditPopupOpen, openLinkEditPopup } from '@features/editor/components/link-edit-popup';
+import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
 import { translate } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 
 interface LinkRange {
   from: number;
@@ -219,7 +220,7 @@ export function attachLinkHoverTooltip(editor: Editor, root: HTMLElement): () =>
     tooltip.dataset.href = href;
     tooltip.innerHTML = '';
 
-    const language = useUserSettingsStore.getState().settings.language;
+    const language = getCurrentAppLanguage();
     const editLabel = translate(language, 'editor.link.edit');
     const removeLabel = translate(language, 'editor.link.remove');
 
@@ -317,6 +318,13 @@ export function attachLinkHoverTooltip(editor: Editor, root: HTMLElement): () =>
     if (!link) return;
 
     const href = normalizePlainLinkHref(link.getAttribute('href'));
+
+    if (event.type === 'click' && href.startsWith('#')) {
+      event.preventDefault();
+      hide();
+      navigateToHeadingAnchor(editor.view.dom, href);
+      return;
+    }
 
     if (event.type === 'click' && href) {
       event.preventDefault();

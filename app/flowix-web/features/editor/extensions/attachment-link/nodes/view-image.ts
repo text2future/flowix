@@ -11,7 +11,7 @@ import {
 import { invoke } from '@platform/tauri/core';
 import { assetMarkdownUrl, assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
 import { translate, type I18nKey } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 
 export { decodeStorageKey };
 
@@ -37,7 +37,7 @@ function stringAttribute(value: unknown): string {
 
 // NodeView 不在 React 树内, 不能用 useI18n, 走 user-settings-store 直读当前语言。
 function tKey(key: I18nKey, params?: Record<string, string | number>): string {
-    return translate(useUserSettingsStore.getState().settings.language, key, params);
+    return translate(getCurrentAppLanguage(), key, params);
 }
 
 function isAttachmentImageHref(href: string | null | undefined): boolean {

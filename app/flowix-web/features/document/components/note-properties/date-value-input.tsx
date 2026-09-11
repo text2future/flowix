@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { CalendarBlankIcon } from '@phosphor-icons/react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { translate, useI18n, type AppLanguage, type I18nKey, type I18nParams } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { useAppLanguage } from '@features/preferences/public/runtime-api';
 import { cn } from '@/lib/utils';
 
 function getWeekdayKeys(): Array<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'> {
@@ -68,7 +68,7 @@ export function DateValueInput({
   onChange: (value: string) => void;
 }) {
   const { t, language } = useI18n();
-  const settingsLanguage = useUserSettingsStore((store) => store.settings.language);
+  const settingsLanguage = useAppLanguage();
   // 同步当前 user settings 语言; 跟 i18n provider 同源 ── 即便 Provider
   // 因为 react 批处理有微小延迟, 这里也能拿到最新值。
   const effectiveLanguage = (settingsLanguage ?? language) as AppLanguage;
@@ -205,4 +205,3 @@ export function DateValueInput({
     </Popover>
   );
 }
-

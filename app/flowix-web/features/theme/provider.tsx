@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { useAppTheme } from '@features/preferences/public/runtime-api';
 import { applyTheme, sanitizeTheme } from '@/lib/theme';
 
 /**
@@ -17,7 +17,7 @@ import { applyTheme, sanitizeTheme } from '@/lib/theme';
  * 不订阅 mq 会让 'system' 模式不会响应系统切换。 都在 useEffect 里, 卸载时清理。
  */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const theme = useUserSettingsStore((s) => s.settings.theme);
+  const theme = useAppTheme();
 
   useEffect(() => {
     const id = sanitizeTheme(theme);

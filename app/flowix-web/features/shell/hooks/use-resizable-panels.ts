@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouse
 
 type UseResizablePanelsOptions = {
   documentPanelMinWidth: number;
+  layoutWidth: number;
   memoListVisible: boolean;
   noteNavigationWidth: number;
 };
@@ -13,13 +14,12 @@ const PANEL_DIVIDER_WIDTH = 1;
 
 export function useResizablePanels({
   documentPanelMinWidth,
+  layoutWidth,
   memoListVisible,
   noteNavigationWidth,
 }: UseResizablePanelsOptions) {
   const [memoColWidth, setMemoColWidth] = useState(MEMO_LIST_DEFAULT_WIDTH);
   const [isDraggingListDivider, setIsDraggingListDivider] = useState(false);
-  const [layoutWidth, setLayoutWidth] = useState(() => window.innerWidth);
-
   const listDividerStartRef = useRef({ x: 0, width: 0 });
 
   const isMemoListHidden = !memoListVisible;
@@ -43,12 +43,6 @@ export function useResizablePanels({
   const clampMemoListWidth = useCallback((width: number) => (
     Math.min(getMemoListMaxWidth(), Math.max(MEMO_LIST_MIN_WIDTH, width))
   ), [getMemoListMaxWidth]);
-
-  useEffect(() => {
-    const handleResize = () => setLayoutWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   useEffect(() => {
     setMemoColWidth((width) => clampMemoListWidth(width));

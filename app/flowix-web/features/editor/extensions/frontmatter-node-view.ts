@@ -6,7 +6,7 @@ import {
   parseVisibleFrontmatter,
   updateVisibleFrontmatterProperty,
 } from '@features/document/properties/frontmatter-model';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage, subscribeAppLanguage } from '@features/preferences/public/runtime-api';
 import { useTagStore } from '@features/memo/store/tag-store';
 import { canonicalizePropertyKey } from '@features/document/properties/property-key';
 import {
@@ -39,12 +39,18 @@ export class FrontmatterPropertyNodeView implements NodeView {
   private tagInputBaseWidth: number | null = null;
   private validationError: string | null = null;
   private cleanupTagMenuPosition: (() => void) | null = null;
+  private cleanupTagMenu: (() => void) | null = null;
   private cleanupTagScrollbar: (() => void) | null = null;
+  private tagMenu: HTMLElement | null = null;
   private readonly unsubscribeSettings: () => void;
   private readonly handleDocumentPointerDown = (event: Event) => {
     if (!this.isAddingTag) return;
     const target = event.target;
-    if (!(target instanceof globalThis.Node) || this.dom.contains(target)) return;
+    if (
+      !(target instanceof globalThis.Node)
+      || this.dom.contains(target)
+      || this.tagMenu?.contains(target)
+    ) return;
     this.saveTagAddition();
   };
 
@@ -56,11 +62,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
     this.node = node;
     this.dom = createElement('div', 'frontmatter-property-node');
     this.dom.contentEditable = 'false';
-    this.unsubscribeSettings = useUserSettingsStore.subscribe((state, previous) => {
-      if (state.settings.language !== previous.settings.language) {
-        this.render();
-      }
-    });
+    this.unsubscribeSettings = subscribeAppLanguage(() => this.render());
     this.dom.ownerDocument.addEventListener(
       'pointerdown',
       this.handleDocumentPointerDown,
@@ -70,7 +72,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
   }
 
   private t(key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) {
-    return translate(useUserSettingsStore.getState().settings.language, key, params);
+    return translate(getCurrentAppLanguage(), key, params);
   }
 
   private errorMessage(error: unknown): string {
@@ -177,6 +179,11 @@ export class FrontmatterPropertyNodeView implements NodeView {
         'div',
         'mention-note-dropdown tag-mention-dropdown frontmatter-property__tag-suggestions',
       );
+      // Keep the property picker out of the editor's overflow clip. The body
+      // portal mirrors the editor mention menu and lets the picker use the
+      // viewport for collision detection.
+      menu.style.position = 'fixed';
+      menu.style.zIndex = '2147483647';
       menu.hidden = true;
       menu.setAttribute('role', 'listbox');
       menu.setAttribute('aria-label', this.t('editor.tagMention.header'));
@@ -192,6 +199,12 @@ export class FrontmatterPropertyNodeView implements NodeView {
       const items = overlayScrollbar.scroller;
       menu.append(overlayScrollbar.frame);
       this.cleanupTagScrollbar = overlayScrollbar.destroy;
+      this.tagMenu = menu;
+      this.cleanupTagMenu = () => {
+        menu.remove();
+        if (this.tagMenu === menu) this.tagMenu = null;
+      };
+      menu.ownerDocument.body.append(menu);
 
       let menuOpen = false;
       let suggestions: MentionTagItem[] = [];
@@ -201,19 +214,42 @@ export class FrontmatterPropertyNodeView implements NodeView {
         const ownerWindow = menu.ownerDocument.defaultView;
         if (!ownerWindow) return;
         const anchorRect = input.getBoundingClientRect();
-        const wrapRect = inputWrap.getBoundingClientRect();
-        const menuWidth = menu.getBoundingClientRect().width;
+        const menuWidth = menu.getBoundingClientRect().width || 172;
+        const spaceAbove = anchorRect.top - 8;
+        const spaceBelow = ownerWindow.innerHeight - anchorRect.bottom - 8;
+        const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+        const availableHeight = Math.max(
+          96,
+          (placeAbove ? spaceAbove : spaceBelow) - 6,
+        );
         const viewportLeft = clampSuggestionMenuLeft(
           anchorRect.left,
           menuWidth,
           ownerWindow.innerWidth,
         );
-        menu.style.left = `${viewportLeft - wrapRect.left}px`;
+
+        menu.style.setProperty(
+          '--mention-note-max-height',
+          `${Math.min(288, availableHeight)}px`,
+        );
+        menu.style.left = `${viewportLeft}px`;
+        if (placeAbove) {
+          menu.style.top = '';
+          menu.style.bottom = `${Math.max(8, ownerWindow.innerHeight - anchorRect.top + 6)}px`;
+        } else {
+          menu.style.bottom = '';
+          menu.style.top = `${Math.min(
+            anchorRect.bottom + 6,
+            ownerWindow.innerHeight - 8 - Math.min(96, availableHeight),
+          )}px`;
+        }
       };
       const ownerWindow = menu.ownerDocument.defaultView;
       ownerWindow?.addEventListener('resize', updateMenuPosition);
+      ownerWindow?.addEventListener('scroll', updateMenuPosition, true);
       this.cleanupTagMenuPosition = () => {
         ownerWindow?.removeEventListener('resize', updateMenuPosition);
+        ownerWindow?.removeEventListener('scroll', updateMenuPosition, true);
       };
 
       const selectSuggestion = (item: MentionTagItem) => {
@@ -353,7 +389,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
       input.addEventListener('blur', () => {
         queueMicrotask(() => this.saveTagAddition());
       });
-      inputWrap.append(input, menu);
+      inputWrap.append(input);
       tagArea.append(inputWrap);
       queueMicrotask(() => {
         resizeInput();
@@ -384,6 +420,8 @@ export class FrontmatterPropertyNodeView implements NodeView {
     this.cleanupTagMenuPosition = null;
     this.cleanupTagScrollbar?.();
     this.cleanupTagScrollbar = null;
+    this.cleanupTagMenu?.();
+    this.cleanupTagMenu = null;
     const parsed = parseVisibleFrontmatter(String(this.node.attrs.yamlContent ?? ''));
     const container = createElement('div', 'frontmatter-property');
 
@@ -442,6 +480,8 @@ export class FrontmatterPropertyNodeView implements NodeView {
     this.cleanupTagMenuPosition = null;
     this.cleanupTagScrollbar?.();
     this.cleanupTagScrollbar = null;
+    this.cleanupTagMenu?.();
+    this.cleanupTagMenu = null;
     this.dom.ownerDocument.removeEventListener(
       'pointerdown',
       this.handleDocumentPointerDown,

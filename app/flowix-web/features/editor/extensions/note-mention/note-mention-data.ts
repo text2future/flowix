@@ -53,6 +53,9 @@ export function toNoteReferenceAttrs(item: MentionNoteItem): NoteReferenceAttrs 
     notebookName: item.notebookName,
     title: item.title,
     originalPath: item.originalPath,
+    linkStyle: 'flowix',
+    linkTarget: null,
+    heading: null,
     stale: false,
   };
 }

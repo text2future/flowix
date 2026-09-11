@@ -19,7 +19,7 @@ import { HANDLE_SIZE } from '@features/editor/components/drag-context-menu/style
 import { useDragHandlePosition } from '@features/editor/components/drag-context-menu/use-drag-handle-position'
 import { BlockActionMenu } from '@features/editor/components/drag-context-menu/block-action-menu'
 import { useBlockMenuActions } from '@features/editor/components/drag-context-menu/block-menu-actions'
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store'
+import { useEditorTypography } from '@features/preferences/public/runtime-api'
 
 interface DragContextMenuProps {
   editor: Editor
@@ -48,8 +48,7 @@ export function DragContextMenu({ editor }: DragContextMenuProps) {
   // 字体/行高 (Preferences → Format) — 走窄 selector, 只在这两值变化时
   // 重渲染, 避免 theme / personalize / shortcuts 改动把整个组件拉一遍。
   // 这两个值进 useEffect deps, slider 拖动时 handle 跟着重新锚定。
-  const fontSize = useUserSettingsStore((s) => s.settings.format.fontSize)
-  const lineHeight = useUserSettingsStore((s) => s.settings.format.lineHeight)
+  const { fontSize, lineHeight } = useEditorTypography()
 
   const [showMenu, setShowMenu] = useState(false)
   const [isHovered, setIsHovered] = useState(false)

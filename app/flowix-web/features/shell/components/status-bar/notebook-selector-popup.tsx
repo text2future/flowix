@@ -352,7 +352,7 @@ export function NotebookSelectorPopup({
             <NotebookIcon
               icon={selectedNotebook?.icon}
               name={selectedNotebook?.name}
-              className="h-4 w-4 rounded bg-[color-mix(in_oklch,var(--primary-foreground)_10%,transparent)] text-[12px] font-semibold text-[var(--primary-foreground)]"
+              className="h-4 w-4 rounded text-[12px] font-semibold text-[var(--primary-foreground)]"
             />
             <ChevronsUpDown className="h-3 w-3 shrink-0 text-[var(--primary-foreground)]" />
           </button>

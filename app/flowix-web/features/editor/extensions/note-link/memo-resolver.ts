@@ -3,6 +3,7 @@
   openNoteByPhysicalPath,
   resolveMemoById,
   resolveMemoByPath,
+  resolveMemoByObsidianTarget,
 } from '@features/memo/use-cases/open-by-target';
 
 // 鐗╃悊璺緞绮樿创 鈫?noteReference 鍗＄墖銆?//

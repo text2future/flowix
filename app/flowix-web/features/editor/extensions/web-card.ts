@@ -2,7 +2,7 @@ import { Node as TiptapNode, mergeAttributes, type JSONContent, type MarkdownTok
 import { openUrl } from '@platform/tauri/opener';
 import { web, type WebPageMetadata } from '@platform/tauri/client';
 import { translate, type I18nKey } from '@/lib/i18n';
-import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -93,7 +93,7 @@ async function parsePage(url: string): Promise<WebPageMetadata> {
 // NodeView 不在 React 树内 ── 走 user-settings-store 读最新 AppLanguage,
 // 与 agent-thread-card 的 `t(key)` 模式同源 (跨窗口同步跟 I18nProvider 一致)。
 function t(key: I18nKey): string {
-  const language = useUserSettingsStore.getState().settings.language;
+  const language = getCurrentAppLanguage();
   return translate(language, key);
 }
 
