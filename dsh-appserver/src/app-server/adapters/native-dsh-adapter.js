@@ -9,6 +9,18 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 
+function serviceFrom(ctx, name) {
+  return ctx?.[name] || ctx?.get?.(name)
+}
+
+function numericValue(value, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function disposeObservation(observation) {
+  observation?.[Symbol.dispose]?.()
+}
+
 // Find the event range containing the requested number of complete turns.
 // This scans boundaries backwards, then projects only the selected range;
 // it does not materialize/project every historical turn on every page.
@@ -460,7 +472,13 @@ export class NativeDshAdapter {
       let handle
       try {
         handle = await persistence.open(id, 'read')
-        snapshot = { header: handle.header, events: [...await handle.read()] }
+        const result = await handle.read()
+        // DSH 1.6.x returns the event-state envelope. Older adapters/tests
+        // returned the bare event array, so keep that shape as a narrow
+        // compatibility fallback while using the current contract first.
+        const events = Array.isArray(result) ? result : result?.events
+        if (!Array.isArray(events)) throw new TypeError(`invalid session read result for ${id}`)
+        snapshot = { header: handle.header || result?.header, events: [...events] }
       } finally {
         await handle?.close?.()
       }
@@ -660,7 +678,10 @@ export class NativeDshAdapter {
     if (session) {
       try { return { flushed: await this.ctx.sessions.flush(session) } } catch { /* fall back to committed persistence below */ }
     }
-    const snapshot = await this.ctx.get?.('sessionPersistence')?.inspect?.(id)
+    const persistence = serviceFrom(this.ctx, 'sessionPersistence')
+    const snapshot = typeof persistence?.stat === 'function'
+      ? await persistence.stat(id)
+      : await persistence?.inspect?.(id)
     if (!snapshot) throw new Error(`Session not found: ${id}`)
     return { flushed: true }
   }
@@ -668,8 +689,14 @@ export class NativeDshAdapter {
   async ensureSession(id) {
     const live = this.ctx.agents.get(id)
     if (live) return this.thread(live)
-    const persistence = this.ctx.get?.('sessionPersistence')
-    if (persistence?.inspect) {
+    const persistence = serviceFrom(this.ctx, 'sessionPersistence')
+    if (typeof persistence?.stat === 'function') {
+      const metadata = await persistence.stat(id)
+      if (metadata) {
+        const snapshot = await this.eventSnapshot(id)
+        return this.snapshotThread(id, snapshot, true)
+      }
+    } else if (persistence?.inspect) {
       const snapshot = await persistence.inspect(id)
       if (snapshot) return this.snapshotThread(id, snapshot, true)
     }
@@ -727,21 +754,49 @@ export class NativeDshAdapter {
   }
 
   async sessionUsage(id) {
-    const snapshot = await this.eventSnapshot(id)
+    const query = serviceFrom(this.ctx, 'sessionQuery')
+    let observation
+    let snapshot
+    let projections
+    if (typeof query?.observeSession === 'function') {
+      observation = await query.observeSession(id, { projectionMode: 'all' })
+      snapshot = { header: observation.header, events: observation.events }
+      projections = observation.projections?.values || {}
+    } else {
+      snapshot = await this.eventSnapshot(id)
+    }
+    projections ||= {}
     const events = snapshot?.events || []
-    const usage = events.filter(event => event.type === 'assistant/message' && event.data?.usage).reduce((total, event) => {
-      const data = event.data.usage
-      total.inputTokens += Number(data.inputTokens || data.input_tokens || 0)
-      total.outputTokens += Number(data.outputTokens || data.output_tokens || 0)
-      total.cacheReadTokens += Number(data.cacheReadTokens || data.cache_read_tokens || 0)
-      total.cacheWriteTokens += Number(data.cacheWriteTokens || data.cache_write_tokens || 0)
-      return total
-    }, { sessionId: id, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, contextTokens: null, contextWindow: null, modelId: null })
-    const context = [...events].reverse().find(event => event.type === 'request/context')?.data || {}
-    usage.contextTokens = context.contextTokens ?? null
-    usage.contextWindow = context.contextWindow ?? null
-    usage.modelId = context.model ?? context.modelId ?? null
-    return usage
+    try {
+      const legacyUsage = events.filter(event => event.type === 'assistant/message' && event.data?.usage).reduce((total, event) => {
+        const data = event.data.usage
+        total.inputTokens += Number(data.inputTokens || data.input_tokens || 0)
+        total.outputTokens += Number(data.outputTokens || data.output_tokens || 0)
+        total.cacheReadTokens += Number(data.cacheReadTokens || data.cache_read_tokens || 0)
+        total.cacheWriteTokens += Number(data.cacheWriteTokens || data.cache_write_tokens || 0)
+        return total
+      }, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+      const context = [...events].reverse().find(event => event.type === 'request/context')?.data || {}
+      const tokenTotals = projections.tokenUsage?.totals || projections.tokenUsage || {}
+      const contextPressure = projections.contextPressure || {}
+      return {
+        sessionId: id,
+        // DSH 1.6.x exposes canonical cumulative values through the
+        // tokenUsage projection. Fall back to the legacy event fold for older
+        // runtimes or profiles without the token-meter plugin.
+        inputTokens: numericValue(tokenTotals.uncachedInputTokens, legacyUsage.inputTokens),
+        outputTokens: numericValue(tokenTotals.outputTokens, legacyUsage.outputTokens),
+        cacheReadTokens: numericValue(tokenTotals.cacheReadTokens, legacyUsage.cacheReadTokens),
+        cacheWriteTokens: numericValue(tokenTotals.cacheWriteTokens, legacyUsage.cacheWriteTokens),
+        // projectedTokens is the occupancy for the next request, including
+        // surface movement after the latest provider usage sample.
+        contextTokens: contextPressure.projectedTokens ?? context.contextTokens ?? null,
+        contextWindow: contextPressure.contextWindow ?? context.contextWindow ?? null,
+        modelId: context.model ?? context.modelId ?? null,
+      }
+    } finally {
+      disposeObservation(observation)
+    }
   }
 
   listPlugins() {

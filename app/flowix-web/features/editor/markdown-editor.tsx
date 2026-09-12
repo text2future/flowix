@@ -1,4 +1,6 @@
 import { Editor, Extension, renderNestedMarkdownContent } from '@tiptap/core';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Highlight from '@tiptap/extension-highlight';
 import { TaskList } from '@tiptap/extension-task-list';
@@ -58,6 +60,10 @@ interface MarkdownEditorProps {
   toolbarCollapsed?: boolean;
   onToolbarCollapsedChange?: (collapsed: boolean) => void;
   onEditingFinished?: () => void;
+  /** Move focus from the first editable body block to the title. */
+  onFocusTitle?: () => void;
+  /** Append the first editable body line to the existing title. */
+  onAppendToTitle?: (title: string) => void;
   /** Content in the document scroller that stays outside ProseMirror. */
   header?: ReactNode;
 }
@@ -66,6 +72,7 @@ export interface MarkdownEditorHandle {
   flushPendingChanges: () => string | null;
   getCurrentMarkdown: () => string;
   focusStart?: () => void;
+  moveTitleToBody?: (trailingContent: string) => void;
 }
 
 interface NestedListMarkdownContext {
@@ -308,6 +315,38 @@ function normalizeTaskItemPlaceholders(editor: Editor): void {
   }
 }
 
+interface EditableBodyStart {
+  block: ProseMirrorNode | null;
+  blockIndex: number;
+  position: number;
+}
+
+/**
+ * Find the first real body block without treating the protected frontmatter
+ * node (which renders the tag row) as document content.
+ */
+function getEditableBodyStart(editor: Editor): EditableBodyStart {
+  let position = 0;
+  for (let index = 0; index < editor.state.doc.childCount; index += 1) {
+    const block = editor.state.doc.child(index);
+    if (block.type.name !== 'frontmatter') {
+      return { block, blockIndex: index, position };
+    }
+    position += block.nodeSize;
+  }
+
+  return {
+    block: null,
+    blockIndex: editor.state.doc.childCount,
+    position,
+  };
+}
+
+function createEmptyParagraph(editor: Editor, text?: string): ProseMirrorNode {
+  const paragraph = editor.state.schema.nodes.paragraph;
+  return paragraph.create(null, text ? editor.state.schema.text(text) : undefined);
+}
+
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   memoId,
   content,
@@ -323,6 +362,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   toolbarCollapsed = false,
   onToolbarCollapsedChange,
   onEditingFinished,
+  onFocusTitle,
+  onAppendToTitle,
   header,
 }, ref) {
   const { t } = useI18n();
@@ -362,10 +403,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const onChangeRef = useRef(onChange);
   const onSearchPanelOpenChangeRef = useRef(onSearchPanelOpenChange);
   const onEditingFinishedRef = useRef(onEditingFinished);
+  const onFocusTitleRef = useRef(onFocusTitle);
+  const onAppendToTitleRef = useRef(onAppendToTitle);
   onEditorScrollRef.current = onEditorScroll;
   onChangeRef.current = onChange;
   onSearchPanelOpenChangeRef.current = onSearchPanelOpenChange;
   onEditingFinishedRef.current = onEditingFinished;
+  onFocusTitleRef.current = onFocusTitle;
+  onAppendToTitleRef.current = onAppendToTitle;
 
   const clearSerializeTimer = useCallback(() => {
     if (serializeTimerRef.current) {
@@ -413,19 +458,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       serializePendingChanges();
     }, SERIALIZE_DEBOUNCE_MS);
   }, [clearSerializeTimer, serializePendingChanges]);
-
-  useImperativeHandle(ref, () => ({
-    flushPendingChanges: () => serializePendingChanges({ force: true }),
-    getCurrentMarkdown: () => {
-      if (pendingSerializeDirtyRef.current) {
-        return serializePendingChanges({ force: true }) ?? contentRef.current;
-      }
-      return contentRef.current;
-    },
-    focusStart: () => {
-      editorRef.current?.commands.focus('start');
-    },
-  }), [serializePendingChanges]);
 
   const logEditorPerf = useCallback((label: string, startedAt: number, meta?: Record<string, unknown>) => {
     console.info('[perf:open-doc]', label, {
@@ -493,6 +525,81 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
   }, [clearSerializeTimer, findScrollable, logEditorPerf]);
 
+  const focusBodyStart = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) return;
+    // The frontmatter protection plugin corrects `focus('start')` to the
+    // first editable position when a tags/property row is present.
+    editor.commands.focus('start');
+  }, []);
+
+  const moveTitleToBody = useCallback((trailingContent: string) => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed || !editor.isEditable) return;
+
+    const { position } = getEditableBodyStart(editor);
+    const text = trailingContent.trim().length > 0 ? trailingContent : undefined;
+    const tr = editor.state.tr.insert(position, createEmptyParagraph(editor, text));
+    // The moved title tail is the existing content at the new body start;
+    // keep the caret before it so typing continues at the split point.
+    const cursorPosition = position + 1;
+    tr.setSelection(TextSelection.near(tr.doc.resolve(cursorPosition), 1));
+    tr.scrollIntoView();
+    editor.view.dispatch(tr);
+    editor.view.focus();
+  }, []);
+
+  const handleBackspaceAtBodyStart = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+
+    const { block, blockIndex, position } = getEditableBodyStart(editor);
+    const { selection } = editor.state;
+    if (
+      !block
+      || !selection.empty
+      || !selection.$from.parent.isTextblock
+      || selection.from !== position + 1
+      || (block.type.name !== 'paragraph' && block.type.name !== 'heading')
+    ) {
+      return false;
+    }
+
+    const title = block.textContent.trim();
+    if (!title) {
+      // An empty paragraph created by title-Enter is still part of the
+      // title/body boundary. Backspace should cross that boundary instead of
+      // being swallowed by the default paragraph handler.
+      if (blockIndex < editor.state.doc.childCount - 1) {
+        const tr = editor.state.tr.delete(position, position + block.nodeSize);
+        tr.scrollIntoView();
+        editor.view.dispatch(tr);
+      }
+      onFocusTitleRef.current?.();
+      return true;
+    }
+
+    const tr = blockIndex === editor.state.doc.childCount - 1
+      ? editor.state.tr.replaceWith(position, position + block.nodeSize, createEmptyParagraph(editor))
+      : editor.state.tr.delete(position, position + block.nodeSize);
+    tr.scrollIntoView();
+    editor.view.dispatch(tr);
+    onAppendToTitleRef.current?.(title);
+    return true;
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    flushPendingChanges: () => serializePendingChanges({ force: true }),
+    getCurrentMarkdown: () => {
+      if (pendingSerializeDirtyRef.current) {
+        return serializePendingChanges({ force: true }) ?? contentRef.current;
+      }
+      return contentRef.current;
+    },
+    focusStart: focusBodyStart,
+    moveTitleToBody,
+  }), [focusBodyStart, moveTitleToBody, serializePendingChanges]);
+
   useEffect(() => {
     if (!editorMountRef.current || !content) {
       return;
@@ -514,6 +621,27 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             },
         clipboardTextSerializer(content) {
           return content.content.textBetween(0, content.content.size, '\n', '\n');
+        },
+        handleKeyDown: (_view, event) => {
+          if (!editable || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) {
+            return false;
+          }
+
+          if (event.key === 'Backspace' && handleBackspaceAtBodyStart()) {
+            event.preventDefault();
+            return true;
+          }
+
+          const { selection } = editor.state;
+          if (!(selection instanceof TextSelection) || !selection.empty) return false;
+
+          if (event.key === 'ArrowUp' && selection.from === getEditableBodyStart(editor).position + 1) {
+            event.preventDefault();
+            onFocusTitleRef.current?.();
+            return true;
+          }
+
+          return false;
         },
       },
       extensions: [
@@ -672,7 +800,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       editorRef.current = null;
       setEditorInstance(null);
     };
-  }, [applyExternalContent, findScrollable, schedulePendingSerialization, serializePendingChanges]);
+  }, [
+    applyExternalContent,
+    findScrollable,
+    handleBackspaceAtBodyStart,
+    schedulePendingSerialization,
+    serializePendingChanges,
+  ]);
 
   // 语言切换时，原地把 Placeholder extension 的 placeholder 字符串换掉，
   // 再 dispatch 一条带 'placeholder-update' meta 的空事务触发装饰重算。

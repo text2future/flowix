@@ -1,7 +1,12 @@
+import type { RefObject } from 'react';
 import { useAppLanguage } from '@features/preferences/public/runtime-api';
 import { translate } from '@/lib/i18n';
 
-import { MemoTitleEditor } from './memo-title-editor';
+import {
+  MemoTitleEditor,
+  type MemoTitleBodyNavigation,
+  type MemoTitleEditorHandle,
+} from './memo-title-editor';
 
 interface MemoDocumentHeaderProps {
   memoId: string;
@@ -9,7 +14,8 @@ interface MemoDocumentHeaderProps {
   updatedAt: Date | null;
   editable: boolean;
   autoFocus?: boolean;
-  onMoveToBody: () => void;
+  onMoveToBody: (request: MemoTitleBodyNavigation) => void;
+  titleRef?: RefObject<MemoTitleEditorHandle | null>;
 }
 
 function formatDocumentDateTime(date: Date, language: 'zh-CN' | 'en-US'): string {
@@ -43,6 +49,7 @@ export function MemoDocumentHeader({
   editable,
   autoFocus = false,
   onMoveToBody,
+  titleRef,
 }: MemoDocumentHeaderProps) {
   const language = useAppLanguage();
 
@@ -54,6 +61,7 @@ export function MemoDocumentHeader({
         </div>
       )}
       <MemoTitleEditor
+        ref={titleRef}
         memoId={memoId}
         filename={filename}
         editable={editable}

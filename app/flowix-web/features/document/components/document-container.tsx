@@ -31,6 +31,7 @@ import { LazyDocumentEditor } from '@features/document/components/lazy-document-
 import { LazyCodeEditor } from '@features/document/components/lazy-code-editor';
 import { NotePropertiesDialog } from '@features/document/components/note-properties-dialog';
 import { MemoDocumentHeader } from '@features/document/components/memo-document-header';
+import type { MemoTitleEditorHandle } from '@features/document/components/memo-title-editor';
 import type { MarkdownEditorHandle } from '@features/editor/markdown-editor';
 import { isEditableTextFilePath, isImageFilePath } from '@features/editor/code-file';
 import backgroundImage from '@/assets/bg.document.png';
@@ -81,6 +82,7 @@ export function DocumentContainer({
   const loadedDocumentInstanceKeyRef = useRef<string | null>(null);
   const prevFilePathRef = useRef<string | null>(null);
   const editorHandleRef = useRef<MarkdownEditorHandle | null>(null);
+  const titleEditorRef = useRef<MemoTitleEditorHandle | null>(null);
   // 切片订阅: 替代原来的 `useMemoStore()` 全量订阅 —— 任何 set 都会让本组件重渲,
   // 包括 doc 内容 / charCount 这些高频变化。切到 selector 后, 只在用到的
   // 仅订阅当前 memo 实体，避免按 memo 数组长度变化而重渲。
@@ -435,12 +437,19 @@ export function DocumentContainer({
             content={state.fullContent}
             header={!isExternalDocument && memoId && activeMemo ? (
               <MemoDocumentHeader
+                titleRef={titleEditorRef}
                 memoId={memoId}
                 filename={activeMemo.filename}
                 updatedAt={state.updatedAtDate ?? (activeMemo.updatedAt ? new Date(activeMemo.updatedAt) : null)}
                 editable={!readOnly}
                 autoFocus={initialFocus === 'title'}
-                onMoveToBody={() => editorHandleRef.current?.focusStart?.()}
+                onMoveToBody={({ trailingContent, insertEmptyLine }) => {
+                  if (!insertEmptyLine) {
+                    editorHandleRef.current?.focusStart?.();
+                    return;
+                  }
+                  editorHandleRef.current?.moveTitleToBody?.(trailingContent ?? '');
+                }}
               />
             ) : null}
             editable={!readOnly}
@@ -452,6 +461,8 @@ export function DocumentContainer({
             onEditingFinished={() => {
               flushPendingEditorChanges();
             }}
+            onFocusTitle={() => titleEditorRef.current?.focusEnd()}
+            onAppendToTitle={(title) => titleEditorRef.current?.appendBodyLine(title)}
             autoFocus={initialFocus === 'body'}
             searchPanelOpen={searchPanelOpen}
             onSearchPanelOpenChange={onSearchPanelOpenChange}

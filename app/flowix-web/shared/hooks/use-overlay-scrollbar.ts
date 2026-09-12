@@ -12,6 +12,11 @@ export function useOverlayScrollbar() {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
+  const syncFrameRef = useRef<number | null>(null);
+  const pendingSyncRef = useRef<{
+    scroller: HTMLElement;
+    options: OverlayScrollbarSyncOptions;
+  } | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startY: number;
@@ -81,6 +86,37 @@ export function useOverlayScrollbar() {
     options?: OverlayScrollbarSyncOptions,
   ) => {
     syncOverlayScrollbar(scroller, options);
+  }, [syncOverlayScrollbar]);
+
+  // Scroll events can arrive faster than layout can be measured. Keep only
+  // the latest geometry request and perform the synchronous DOM reads/writes
+  // once per animation frame.
+  const scheduleOverlayScrollbar = useCallback((
+    scroller: HTMLElement,
+    options: OverlayScrollbarSyncOptions = {},
+  ) => {
+    const previous = pendingSyncRef.current;
+    pendingSyncRef.current = {
+      scroller,
+      options: {
+        reveal: (previous?.options.reveal ?? false) || (options.reveal ?? true),
+        schedule: (previous?.options.schedule ?? false) || (options.schedule ?? true),
+      },
+    };
+    if (options.reveal !== false) frameRef.current?.setAttribute('data-scrolling', 'true');
+    if (syncFrameRef.current !== null) return;
+
+    const flush = () => {
+      syncFrameRef.current = null;
+      const pending = pendingSyncRef.current;
+      pendingSyncRef.current = null;
+      if (pending) syncOverlayScrollbar(pending.scroller, pending.options);
+    };
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      flush();
+      return;
+    }
+    syncFrameRef.current = window.requestAnimationFrame(flush);
   }, [syncOverlayScrollbar]);
 
   const finishDrag = useCallback((event: PointerEvent<HTMLDivElement>) => {
@@ -185,6 +221,11 @@ export function useOverlayScrollbar() {
   useEffect(() => {
     return () => {
       clearHideTimer();
+      pendingSyncRef.current = null;
+      if (syncFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(syncFrameRef.current);
+        syncFrameRef.current = null;
+      }
     };
   }, [clearHideTimer]);
 
@@ -192,5 +233,6 @@ export function useOverlayScrollbar() {
     overlayScrollbarFrameRef: frameRef,
     overlayScrollbarThumbProps,
     updateOverlayScrollbar,
+    scheduleOverlayScrollbar,
   };
 }

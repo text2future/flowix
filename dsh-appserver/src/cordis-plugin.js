@@ -8,7 +8,16 @@ export const name = 'dsh-appserver'
 // first JSON-RPC request. Without this dependency a just-started host can
 // answer `initialize` and then race `credential/set`, yielding the misleading
 // "DSH credentials service is unavailable" error.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'credentials', 'approval', 'commands']
+export const inject = [
+  'agents',
+  'sessions',
+  'sessionPersistence',
+  'sessionQuery',
+  'sessionProjections',
+  'credentials',
+  'approval',
+  'commands',
+]
 
 export default function dshAppServer(ctx, config = {}) {
   if (!ctx.get?.('approval')) throw new Error('dsh-appserver requires the native DSH approval service')

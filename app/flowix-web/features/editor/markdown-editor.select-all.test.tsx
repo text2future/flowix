@@ -1,9 +1,9 @@
-import { act } from 'react';
+import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Editor } from '@tiptap/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MarkdownEditor } from './markdown-editor';
+import { MarkdownEditor, type MarkdownEditorHandle } from './markdown-editor';
 import { ShortcutsProvider } from '@features/shortcuts';
 import '@features/shortcuts/actions';
 
@@ -229,4 +229,161 @@ describe('MarkdownEditor select all', () => {
       expect(editor!.state.selection.to).toBe(editor!.state.doc.content.size - 1);
     },
   );
+
+  it('inserts title overflow as a new body paragraph after frontmatter', async () => {
+    let editor: Editor | null = null;
+    const handle = createRef<MarkdownEditorHandle>();
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            ref={handle}
+            content={'---\nkey: abc12345\ntags: [work]\n---\nExisting body'}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    act(() => handle.current?.moveTitleToBody?.('Moved from title'));
+
+    expect(editor!.getMarkdown()).toContain('Moved from title\n\nExisting body');
+    expect(editor!.state.doc.firstChild?.type.name).toBe('frontmatter');
+    expect(editor!.state.selection.from).toBe(editor!.state.doc.firstChild!.nodeSize + 1);
+  });
+
+  it('inserts an empty body paragraph when title has no overflow', async () => {
+    let editor: Editor | null = null;
+    const handle = createRef<MarkdownEditorHandle>();
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            ref={handle}
+            content={'---\nkey: abc12345\n---\nExisting body'}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    act(() => handle.current?.moveTitleToBody?.(''));
+
+    expect(editor!.getMarkdown()).toContain('&nbsp;\n\nExisting body');
+  });
+
+  it('keeps the first body paragraph on Enter at its leading edge', async () => {
+    let editor: Editor | null = null;
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content={'---\nkey: abc12345\ntags: [work]\n---\nFirst line\n\nRemaining'}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    const frontmatter = editor!.state.doc.firstChild!;
+    act(() => {
+      editor!.commands.setTextSelection(frontmatter.nodeSize + 1);
+      editor!.view.dom.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    expect(editor!.getMarkdown()).toContain('Remaining');
+    expect(editor!.getMarkdown()).toContain('First line');
+  });
+
+  it('moves from the body leading edge to the title on ArrowUp', async () => {
+    let editor: Editor | null = null;
+    const onFocusTitle = vi.fn();
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content={'---\nkey: abc12345\n---\nFirst line'}
+            onFocusTitle={onFocusTitle}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    const frontmatter = editor!.state.doc.firstChild!;
+    act(() => {
+      editor!.commands.setTextSelection(frontmatter.nodeSize + 1);
+      editor!.view.dom.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowUp',
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    expect(onFocusTitle).toHaveBeenCalledTimes(1);
+  });
+
+  it('promotes the first body paragraph on Backspace at the body leading edge', async () => {
+    let editor: Editor | null = null;
+    const onAppendToTitle = vi.fn();
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content={'---\nkey: abc12345\ntags: [work]\n---\nFirst line\n\nRemaining'}
+            onAppendToTitle={onAppendToTitle}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    const frontmatter = editor!.state.doc.firstChild!;
+    act(() => {
+      editor!.commands.setTextSelection(frontmatter.nodeSize + 1);
+      editor!.view.dom.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Backspace',
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    expect(onAppendToTitle).toHaveBeenCalledWith('First line');
+    expect(editor!.getMarkdown()).toContain('Remaining');
+    expect(editor!.getMarkdown()).not.toContain('First line');
+  });
+
+  it('returns to the title when Backspace starts on an empty first body line', async () => {
+    let editor: Editor | null = null;
+    const onFocusTitle = vi.fn();
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content={'---\nkey: abc12345\ntags: [work]\n---\n&nbsp;\n\nRemaining'}
+            onFocusTitle={onFocusTitle}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    const frontmatter = editor!.state.doc.firstChild!;
+    act(() => {
+      editor!.commands.setTextSelection(frontmatter.nodeSize + 1);
+      editor!.view.dom.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Backspace',
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    expect(onFocusTitle).toHaveBeenCalledTimes(1);
+    expect(editor!.getMarkdown()).toContain('Remaining');
+    expect(editor!.getMarkdown()).not.toContain('&nbsp;');
+  });
 });

@@ -532,7 +532,9 @@ export function MainLayout({
                 }
                 className={
                   memoListPreviewVisible
-                      ? 'absolute z-[120] mb-1 flex w-[280px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] pt-3 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] ' +
+                      // Keep the hover preview below the click-opened note
+                      // navigation drawer (z-index 100).
+                      ? 'absolute z-[90] mb-1 flex w-[280px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] pt-3 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] ' +
                       (memoListPreviewPhase === 'open'
                         ? 'flowix-hover-preview-enter'
                         : 'flowix-hover-preview-leave')

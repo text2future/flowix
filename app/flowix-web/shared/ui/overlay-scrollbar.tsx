@@ -41,6 +41,7 @@ export const OverlayScrollbar = forwardRef<OverlayScrollbarHandle, OverlayScroll
       overlayScrollbarFrameRef,
       overlayScrollbarThumbProps,
       updateOverlayScrollbar,
+      scheduleOverlayScrollbar,
     } = useOverlayScrollbar();
 
     const setScrollerRef = useCallback((node: HTMLDivElement | null) => {
@@ -66,13 +67,15 @@ export const OverlayScrollbar = forwardRef<OverlayScrollbarHandle, OverlayScroll
     useLayoutEffect(() => {
       // 渲染期同步几何 (thumb 高度 / 位置 / 可滚动状态), 不触发 fade-in:
       // 数据集属性写回淡出完全交给「用户主动滚动」这条路径。
-      update({ reveal: false, schedule: false });
+      if (internalScrollerRef.current) {
+        scheduleOverlayScrollbar(internalScrollerRef.current, { reveal: false, schedule: false });
+      }
     });
 
     const handleScroll: UIEventHandler<HTMLDivElement> = useCallback((event) => {
-      updateOverlayScrollbar(event.currentTarget);
+      scheduleOverlayScrollbar(event.currentTarget);
       onScroll?.(event);
-    }, [onScroll, updateOverlayScrollbar]);
+    }, [onScroll, scheduleOverlayScrollbar]);
 
     return (
       <div

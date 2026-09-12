@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject, type UIEvent } from 'react';
 import {
   FilePlusIcon,
   FolderPlusIcon,
@@ -35,7 +35,8 @@ const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
 const TREE_HEADER_HEIGHT = 24;
 const TREE_ROW_HEIGHT = 34;
-const TREE_VIRTUAL_OVERSCAN = 8;
+const TREE_VIRTUAL_OVERSCAN = 24;
+const TREE_VIRTUAL_MAX_FORWARD_OVERSCAN = 96;
 // Row gutter (6px) + inline padding (6px) + half of the 12px caret.
 const FOLDER_CARET_CENTER_OFFSET = 12;
 const TREE_MENU_CLASS =
@@ -55,23 +56,59 @@ interface NotebookTreeVirtualItem {
   start: number;
 }
 
+interface NotebookTreeViewport {
+  scrollTop: number;
+  height: number;
+  direction: 1 | -1;
+  scrollDeltaRows: number;
+}
+
 function useNotebookTreeVirtualList(
   itemCount: number,
   scrollerRef: RefObject<HTMLDivElement | null>,
 ) {
-  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
+  const [viewport, setViewport] = useState<NotebookTreeViewport>({
+    scrollTop: 0,
+    height: 0,
+    direction: 1,
+    scrollDeltaRows: 0,
+  });
   const frameRef = useRef<number | null>(null);
+  const lastScrollTopRef = useRef(0);
+  const directionRef = useRef<1 | -1>(1);
+
+  const updateViewport = useCallback((scrollTop: number, height: number, fromScroll: boolean) => {
+    const previousScrollTop = lastScrollTopRef.current;
+    const delta = scrollTop - previousScrollTop;
+    if (delta !== 0) directionRef.current = delta > 0 ? 1 : -1;
+    lastScrollTopRef.current = scrollTop;
+    const scrollDeltaRows = fromScroll
+      ? Math.min(
+        TREE_VIRTUAL_MAX_FORWARD_OVERSCAN - TREE_VIRTUAL_OVERSCAN,
+        Math.ceil(Math.abs(delta) / TREE_ROW_HEIGHT),
+      )
+      : 0;
+    const next = {
+      scrollTop,
+      height,
+      direction: directionRef.current,
+      scrollDeltaRows,
+    } satisfies NotebookTreeViewport;
+    setViewport((previous) => (
+      previous.scrollTop === next.scrollTop
+      && previous.height === next.height
+      && previous.direction === next.direction
+      && previous.scrollDeltaRows === next.scrollDeltaRows
+        ? previous
+        : next
+    ));
+  }, []);
 
   const syncViewport = useCallback(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    const next = { scrollTop: scroller.scrollTop, height: scroller.clientHeight };
-    setViewport((previous) => (
-      previous.scrollTop === next.scrollTop && previous.height === next.height
-        ? previous
-        : next
-    ));
-  }, [scrollerRef]);
+    updateViewport(scroller.scrollTop, scroller.clientHeight, false);
+  }, [scrollerRef, updateViewport]);
 
   const scheduleViewportSync = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -94,6 +131,17 @@ function useNotebookTreeVirtualList(
     return () => observer.disconnect();
   }, [scheduleViewportSync, scrollerRef, syncViewport]);
 
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const maxScrollTop = Math.max(
+      0,
+      TREE_HEADER_HEIGHT + itemCount * TREE_ROW_HEIGHT - scroller.clientHeight,
+    );
+    if (scroller.scrollTop > maxScrollTop) scroller.scrollTop = maxScrollTop;
+    syncViewport();
+  }, [itemCount, scrollerRef, syncViewport]);
+
   useLayoutEffect(() => () => {
     if (frameRef.current !== null && typeof window !== 'undefined') {
       window.cancelAnimationFrame(frameRef.current);
@@ -114,14 +162,21 @@ function useNotebookTreeVirtualList(
     }
 
     const listScrollTop = Math.max(0, viewport.scrollTop - TREE_HEADER_HEIGHT);
+    const forwardOverscan = Math.min(
+      TREE_VIRTUAL_MAX_FORWARD_OVERSCAN,
+      TREE_VIRTUAL_OVERSCAN + viewport.scrollDeltaRows * 2,
+    );
+    const backwardOverscan = TREE_VIRTUAL_OVERSCAN;
+    const beforeOverscan = viewport.direction < 0 ? forwardOverscan : backwardOverscan;
+    const afterOverscan = viewport.direction > 0 ? forwardOverscan : backwardOverscan;
     const first = Math.max(
       0,
-      Math.floor(listScrollTop / TREE_ROW_HEIGHT) - TREE_VIRTUAL_OVERSCAN,
+      Math.floor(listScrollTop / TREE_ROW_HEIGHT) - beforeOverscan,
     );
     const last = Math.min(
       itemCount,
       Math.ceil((listScrollTop + viewport.height) / TREE_ROW_HEIGHT)
-        + TREE_VIRTUAL_OVERSCAN,
+        + afterOverscan,
     );
     return Array.from({ length: Math.max(0, last - first) }, (_, offset) => {
       const index = first + offset;
@@ -132,7 +187,9 @@ function useNotebookTreeVirtualList(
   return {
     totalHeight: itemCount * TREE_ROW_HEIGHT,
     virtualItems,
-    onScroll: scheduleViewportSync,
+    onScroll: (event: UIEvent<HTMLDivElement>) => {
+      updateViewport(event.currentTarget.scrollTop, event.currentTarget.clientHeight, true);
+    },
   };
 }
 
@@ -493,7 +550,7 @@ export function NotebookFileTree({
           scrollerRef={treeScrollerRef}
           onScroll={(event) => {
             setShowScrollTopHint(event.currentTarget.scrollTop > 0);
-            handleTreeScroll();
+            handleTreeScroll(event);
           }}
         >
           <div className="flex h-6 items-center gap-1 px-3">
@@ -835,7 +892,10 @@ function NotebookTreeRow({
         </span>
       )}
       {!isFolder && memo && memo.colors.length > 0 && (
-        <span aria-label="Note colors" className="ml-2 inline-flex shrink-0 items-center gap-0.5">
+        <span
+          aria-label="Note colors"
+          className="ml-2 inline-flex h-6 shrink-0 items-center justify-center gap-0.5 px-2"
+        >
           {memo.colors.map((color) => (
             <span
               key={color}

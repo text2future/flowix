@@ -433,7 +433,8 @@ describe('NativeDshAdapter thread launch', () => {
       sessions: { get: () => undefined },
       get: (name: string) => name === 'sessionPersistence' ? {
         open: async () => ({
-          read: async () => events,
+          header: { id: 'session-1' },
+          read: async () => ({ eventState: 'committed', events }),
           close: async () => { closed = true },
         }),
       } : undefined,
@@ -447,6 +448,38 @@ describe('NativeDshAdapter thread launch', () => {
       ],
     })
     expect(closed).toBe(true)
+  })
+
+  it('reads token and context usage from DSH projection snapshots', async () => {
+    let disposed = false
+    const ctx = {
+      on: () => () => {},
+      agents: { get: () => undefined },
+      sessions: { get: () => undefined },
+      get: (name: string) => name === 'sessionQuery' ? {
+        observeSession: async () => ({
+          header: { id: 'session-1' },
+          events: [{ type: 'request/context', data: { model: 'MiniMax-M3' } }],
+          projections: {
+            values: {
+              tokenUsage: {
+                totals: { uncachedInputTokens: 5183, outputTokens: 636, cacheReadTokens: 100864, cacheWriteTokens: 0 },
+              },
+              contextPressure: { projectedTokens: 13125, contextWindow: 1048576 },
+              contextBreakdown: { systemTokens: 1102, toolsTokens: 7379, messageTokens: 1144 },
+            },
+          },
+          [Symbol.dispose]: () => { disposed = true },
+        }),
+      } : undefined,
+    }
+    const adapter = new NativeDshAdapter(ctx)
+
+    await expect(adapter.sessionUsage('session-1')).resolves.toEqual({
+      sessionId: 'session-1', modelId: 'MiniMax-M3', inputTokens: 5183, outputTokens: 636,
+      cacheReadTokens: 100864, cacheWriteTokens: 0, contextTokens: 13125, contextWindow: 1048576,
+    })
+    expect(disposed).toBe(true)
   })
 
   it('copies live session events when creating a history snapshot', async () => {
