@@ -38,6 +38,7 @@ export class MessageViewportController {
 
   private prevCollapsed = false;
   private shouldFollowBottom = true;
+  private userDetachedFromBottom = false;
   private pendingHistoryScrollRestore: {
     threadId: string;
     scrollHeight: number;
@@ -57,8 +58,33 @@ export class MessageViewportController {
   }
 
   handleScroll(): void {
-    this.shouldFollowBottom = this.isNearBottom();
+    if (this.userDetachedFromBottom) {
+      // Keep an explicit upward gesture detached even if the first scroll
+      // event arrives before scrollTop has moved outside the follow margin.
+      // Only reaching the actual bottom re-arms automatic following.
+      if (this.getBottomDistance() <= this.scrollDeltaEpsilonPx) {
+        this.userDetachedFromBottom = false;
+        this.shouldFollowBottom = true;
+      } else {
+        this.shouldFollowBottom = false;
+      }
+    } else {
+      this.shouldFollowBottom = this.isNearBottom();
+    }
     this.requestMoreHistoryIfNeeded();
+  }
+
+  /**
+   * Records explicit upward scrolling before the browser dispatches the
+   * resulting scroll event. This is intentionally separate from
+   * handleScroll(): scroll events can be caused by our own scrollTop writes,
+   * while a wheel-up event is unambiguously user intent.
+   */
+  handleUserScrollIntent(deltaY: number): void {
+    if (deltaY < 0) {
+      this.userDetachedFromBottom = true;
+      this.shouldFollowBottom = false;
+    }
   }
 
   captureRenderScrollState(): MessageRenderScrollState {
@@ -71,15 +97,20 @@ export class MessageViewportController {
     }
     return {
       previousScrollTop: this.body.scrollTop,
-      shouldFollowStreaming: this.isNearBottom(),
+      // This is the latched follow decision, not a fresh distance check.
+      // A user gesture may have detached us while the viewport is still
+      // inside the bottom margin.
+      shouldFollowStreaming: this.shouldFollowBottom,
     };
   }
 
   resetForHiddenMessages(): void {
+    this.userDetachedFromBottom = false;
     this.shouldFollowBottom = true;
   }
 
   resetForEmptyMessages(): void {
+    this.userDetachedFromBottom = false;
     this.shouldFollowBottom = true;
   }
 
@@ -100,8 +131,13 @@ export class MessageViewportController {
     } else if (this.prevCollapsed) {
       this.body.scrollTop = 0;
       this.shouldFollowBottom = this.isNearBottom();
-    } else {
+    } else if (options.shouldFollowStreaming) {
+      // Keep following only when the user was already following the bottom.
+      // If they scrolled up while the response was streaming, preserve that
+      // reading position when the run-end render finalizes the last message.
       this.scrollToBottom();
+    } else {
+      this.preserveScrollTop(options.previousScrollTop);
     }
 
     this.prevCollapsed = this.isCollapsed();
@@ -117,6 +153,7 @@ export class MessageViewportController {
     // captureRenderScrollState 跟随态跳过两次 layout 读取。
     this.body.scrollTop = this.body.scrollHeight;
     if (forceFollow) {
+      this.userDetachedFromBottom = false;
       this.shouldFollowBottom = true;
     }
   }
@@ -134,7 +171,9 @@ export class MessageViewportController {
 
   private preserveScrollTop(scrollTop: number): void {
     this.body.scrollTop = scrollTop;
-    this.shouldFollowBottom = this.isNearBottom();
+    this.shouldFollowBottom = this.userDetachedFromBottom
+      ? false
+      : this.isNearBottom();
   }
 
   private requestMoreHistoryIfNeeded(): void {

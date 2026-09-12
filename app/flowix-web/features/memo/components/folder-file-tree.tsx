@@ -446,7 +446,7 @@ export function FolderFileTree({
           >
             <div className="folder-file-tree__subtree-inner">
               <div className="folder-file-tree__subtree-items">
-                {renderTreeItems(children, depth + 1)}
+                {isExpanded ? renderTreeItems(children, depth + 1) : null}
               </div>
             </div>
           </div>
@@ -463,7 +463,7 @@ export function FolderFileTree({
       embedded && 'border-l-0',
     )}>
       {/* 标题行 ── 标题右侧下拉菜单用于在访达中显示当前资料文件夹。 */}
-      <div className="flex items-center justify-between pl-3 pr-2 py-1.5 gap-2">
+      <div className="flex items-center justify-between px-2 py-1.5 gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-0">
           {embedded && onRequestClose && (
             <button

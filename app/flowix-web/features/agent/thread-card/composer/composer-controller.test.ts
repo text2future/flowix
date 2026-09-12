@@ -57,6 +57,47 @@ afterEach(() => {
 });
 
 describe("ComposerController note references", () => {
+  it("keeps boundary cursor navigation inside the nested composer", () => {
+    const { controller } = setup();
+    const editor = controller.editorInstance;
+    editor.commands.setContent("重启", { contentType: "markdown" });
+    editor.commands.focus("end");
+    let parentKeydownCount = 0;
+    const parentKeydown = () => {
+      parentKeydownCount += 1;
+    };
+    const parent = controller.getInputElement().parentElement?.parentElement;
+    parent?.addEventListener("keydown", parentKeydown);
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    controller.getInputElement().dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(parentKeydownCount).toBe(0);
+    parent?.removeEventListener("keydown", parentKeydown);
+  });
+
+  it("blocks WebView control characters emitted by modified cursor keys", () => {
+    const { controller } = setup();
+    const editor = controller.editorInstance;
+    editor.commands.setContent("重启", { contentType: "markdown" });
+    editor.commands.focus("start");
+
+    const event = new InputEvent("beforeinput", {
+      inputType: "insertText",
+      data: String.fromCharCode(0x1c),
+      bubbles: true,
+      cancelable: true,
+    });
+    controller.getInputElement().dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(controller.getPrompt()).toBe("重启");
+  });
+
   it("routes native select-all to the focused composer including rich text references", () => {
     const { controller } = setup();
     const editor = controller.editorInstance;

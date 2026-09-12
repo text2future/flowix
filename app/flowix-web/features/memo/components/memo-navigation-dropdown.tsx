@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, ChevronRight, Hash, Layers, ListTodo } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Hash, Layers, ListTodo, X } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -127,7 +127,7 @@ export function MemoNavigationSubmenu({
         </span>
       </button>
       {open && (
-        <div className="absolute left-full top-0 z-[1501] flex max-h-[min(560px,calc(100vh-16px))] w-[220px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <div className="absolute left-full top-0 z-[151] flex max-h-[min(560px,calc(100vh-16px))] w-[220px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
           {!hideHeader && (
             <div
               className="mention-note-header"
@@ -201,6 +201,8 @@ interface MemoNavigationDropdownProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onNavigate?: (target: MemoNavigationTarget) => void;
+  showClear?: boolean;
+  onClear?: () => void;
   className?: string;
 }
 
@@ -218,6 +220,8 @@ export function MemoNavigationDropdown({
   open,
   onOpenChange,
   onNavigate,
+  showClear = false,
+  onClear,
   className,
 }: MemoNavigationDropdownProps) {
   const { t } = useI18n();
@@ -274,26 +278,36 @@ export function MemoNavigationDropdown({
 
   return (
     <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={ariaLabel}
-          title={titleTooltip}
-          className={cn(
-            'group flex max-w-full min-w-0 items-center gap-0.5 overflow-hidden rounded-md py-0.5 pl-0 pr-2 transition-colors',
-            className,
-          )}
-        >
-          <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--foreground)] transition-colors duration-150 group-hover:text-[color-mix(in_oklch,var(--foreground)_80%,white)]">
-            {title}
-          </span>
-          <ChevronDown
-            aria-hidden="true"
-            className="h-3.5 w-3 shrink-0 text-[var(--foreground)]"
-            strokeWidth={2.5}
-          />
-        </button>
-      </DropdownMenuTrigger>
+      <div className={cn('group flex min-w-0 items-center', className)}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={ariaLabel}
+            title={titleTooltip}
+            className="flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden rounded-md py-0.5 pl-0 pr-1 transition-colors"
+          >
+            <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--foreground)] transition-colors duration-150 group-hover:text-[color-mix(in_oklch,var(--foreground)_80%,white)]">
+              {title}
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className="h-3.5 w-3 shrink-0 text-[var(--foreground)]"
+              strokeWidth={2.5}
+            />
+          </button>
+        </DropdownMenuTrigger>
+        {showClear && onClear && (
+          <button
+            type="button"
+            aria-label={t('memo.navigation.clearFilter')}
+            title={t('memo.navigation.clearFilter')}
+            className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] group-hover:opacity-100"
+            onClick={onClear}
+          >
+            <X aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={2.5} />
+          </button>
+        )}
+      </div>
       <DropdownMenuContent align="start" side="bottom" className={MEMO_NAVIGATION_MENU_CLASS}>
         <DropdownMenuItem
           onClick={() => handleNavigate('all')}
@@ -304,7 +318,7 @@ export function MemoNavigationDropdown({
         >
           <span className="flex min-w-0 items-center gap-2">
             <Layers className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{t('memo.navigation.allNotes')}</span>
+            <span>{t('memo.navigation.all')}</span>
           </span>
           {isActive('all') && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--brand)] group-hover:text-[var(--primary-foreground)]" aria-hidden="true" />}
         </DropdownMenuItem>

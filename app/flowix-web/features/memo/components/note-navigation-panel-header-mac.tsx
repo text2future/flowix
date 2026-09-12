@@ -13,7 +13,7 @@ interface NoteNavigationPanelHeaderMacProps {
  * macOS header for the note navigation panel.
  *
  * Design rules:
- * - `h-12` (48px) ── macOS uses frameless Tauri window; this header doubles
+ * - `h-10` (40px) ── macOS uses frameless Tauri window; this header doubles
  *   as the OS title bar so it must be tall enough for comfortable drag and
  *   to match the other Mac title bars in the app.
  * - `pl-[90px]` ── reserves space for the macOS traffic-light cluster
@@ -31,7 +31,7 @@ export function NoteNavigationPanelHeaderMac({
   return (
     <div
       data-tauri-drag-region
-      className="shrink-0 h-12 pl-[90px] flex items-center justify-end"
+      className="shrink-0 h-10 pl-[90px] flex items-center justify-end"
     >
       <Tooltip content={t("memo.navigation.collapsePanelTooltip")}>
         <button

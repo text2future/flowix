@@ -117,11 +117,11 @@ const Tooltip = React.forwardRef<HTMLElement, TooltipProps>(function Tooltip({
           side={side}
           align={align}
           sideOffset={sideOffset}
-          className="z-[1600]"
+          className="z-[160]"
         >
           <TooltipPrimitive.Popup
             className={cn(
-              "relative z-[1600] rounded-md bg-[var(--inverse-background)] px-2 py-1 text-xs text-[var(--inverse-foreground)] shadow-md",
+              "relative z-[160] rounded-md bg-[var(--inverse-background)] px-2 py-1 text-xs text-[var(--inverse-foreground)] shadow-md",
               "transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
               "flex items-center gap-0.5",
               className

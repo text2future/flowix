@@ -2,10 +2,11 @@ import { invoke } from '@tauri-apps/api/core';
 import type { MemoColor, MemoItem } from '@/types/memo-item';
 import type { MemoContentCommit } from '@/types/memo';
 import type { AgentRoleMemoItem } from './general';
+import type { NotebookImportStatus } from './agent';
 import type { ResolvedOpenTarget } from '@platform/open-target/types';
 
 export type FilterType = 'all' | 'todos' | 'agents' | 'favorited' | 'tagged' | 'thisWeek' | 'thisMonth';
-export type SortType = 'createdAt' | 'updatedAt';
+export type SortType = 'createdAt' | 'updatedAt' | 'filenameAsc' | 'filenameDesc';
 export type MemoColorFilter = 'any' | 'none' | MemoColor;
 
 export interface MemoListPage {
@@ -259,6 +260,10 @@ export const notebooks = {
     invoke<NotebookRecord>('create_notebook', { name, path, icon }),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null) =>
     invoke<NotebookRecord>('create_notebook_from_cloud', { id, name, path, icon }),
+  startImport: (notebookId: string) =>
+    invoke<void>('start_notebook_import', { notebookId }),
+  getImportStatus: (notebookId: string) =>
+    invoke<NotebookImportStatus | null>('get_notebook_import_status', { notebookId }),
   update: (id: string, name?: string, icon?: string | null) =>
     invoke<NotebookRecord | null>('update_notebook', { id, name, icon }),
   delete: (id: string) => invoke<boolean>('delete_notebook', { id }),

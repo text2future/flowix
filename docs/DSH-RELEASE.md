@@ -1,3 +1,7 @@
+---
+key: d5t924hj
+---
+
 # DSH runtime release
 
 DSH is released as a self-contained Node 24 runtime. Every target must be

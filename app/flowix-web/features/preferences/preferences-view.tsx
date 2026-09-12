@@ -14,7 +14,6 @@ import {
 	NoteSettingsSection,
 	AgentsSection,
 	DshSettingsSection,
-	CodexSettingsSection,
 	ShortcutsSection,
 	CliSection,
 	McpSection,
@@ -58,11 +57,6 @@ const TAB_GROUPS: { labelKey: I18nKey; tabs: PreferencesTabItem[] }[] = [
 	{
 		labelKey: 'preferences.groups.ai',
 		tabs: [
-			{
-				id: 'codex',
-				labelKey: 'preferences.tabs.codex',
-				icon: <AgentIcon typeKey="codex" alt="" className="h-4 w-4 object-contain" />,
-			},
 			{
 				id: 'dsh',
 				labelKey: 'preferences.tabs.dsh',
@@ -132,7 +126,6 @@ interface PreferencesViewProps {
 export function PreferencesView({ initialTab }: PreferencesViewProps) {
 	const { t } = useI18n();
 	const experimental = useExperimentalMode();
-	const codexAvailable = useAgentRuntimeStore((state) => state.statusByType.codex?.available === true);
 	const refreshRuntimeStatus = useAgentRuntimeStore((state) => state.refreshIfStale);
 	const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 	const title = t('preferences.title');
@@ -150,30 +143,22 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 		})),
 		[experimental],
 	);
-	const tabsWithRuntimeAvailability = useMemo(
-		() => visibleTabGroups.map((group) => ({
-			...group,
-			tabs: group.tabs.filter((tab) => tab.id !== 'codex' || codexAvailable),
-		})),
-		[visibleTabGroups, codexAvailable],
-	);
+	const tabsWithRuntimeAvailability = visibleTabGroups;
 
 	useEffect(() => {
 		if (initialTab) {
 			const normalizedTab = normalizeInitialTab(initialTab);
-			if (normalizedTab === 'codex') {
-				setActiveTab(codexAvailable ? 'codex' : 'general');
-			} else if (normalizedTab && (normalizedTab !== 'cloudSync' || experimental)) {
+			if (normalizedTab && (normalizedTab !== 'cloudSync' || experimental)) {
 				setActiveTab(normalizedTab);
 			}
 		}
-	}, [codexAvailable, experimental, initialTab]);
+	}, [experimental, initialTab]);
 
 	useEffect(() => {
-		if ((activeTab === 'codex' && !codexAvailable) || (!experimental && ['cloudSync', 'connections', 'tools', 'history'].includes(activeTab))) {
+		if (!experimental && ['cloudSync', 'connections', 'tools', 'history'].includes(activeTab)) {
 			setActiveTab('general');
 		}
-	}, [activeTab, codexAvailable, experimental]);
+	}, [activeTab, experimental]);
 
 	useEffect(() => {
 		document.title = title;
@@ -235,7 +220,6 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 							{activeTab === 'noteSettings' && <NoteSettingsSection />}
 							{activeTab === 'aiAgent' && <AgentsSection />}
 							{activeTab === 'dsh' && <DshSettingsSection />}
-							{activeTab === 'codex' && <CodexSettingsSection />}
 							{activeTab === 'shortcuts' && <ShortcutsSection />}
 							{activeTab === 'cli' && <CliSection />}
 							{activeTab === 'mcp' && <McpSection />}

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocTreeItem } from '@platform/tauri/client';
 import type { FolderTreeController } from './use-folder-tree';
 import { NotebookFileTree } from './notebook-file-tree';
+import { resolveMemoByPath } from '@features/memo/use-cases/open-by-target';
 
 vi.mock('@/lib/i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/i18n')>(),
@@ -19,6 +20,7 @@ vi.mock('@shared/ui/context-menu', () => ({
   ContextMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useContextMenuContext: () => ({ openAt: vi.fn() }),
 }));
 vi.mock('@features/memo/components/file-type-icon', () => ({ FileTypeIcon: () => null }));
 vi.mock('@features/memo/components/memo-card-actions', () => ({ MemoCardActions: () => null }));
@@ -96,6 +98,13 @@ describe('NotebookFileTree pointer dragging', () => {
     return { root, refresh };
   }
 
+  it('loads note metadata while the tree is mounted for color indicators', async () => {
+    const { root } = await mount(async () => {});
+
+    expect(resolveMemoByPath).toHaveBeenCalledWith('/notes/a.md');
+    await act(async () => root.unmount());
+  });
+
   async function mountDraft(kind: 'folder' | 'note', parentPath: string) {
     const rootFolder = item('/notes/projects', 'folder');
     const childFolder = item('/notes/projects/archive', 'folder');
@@ -131,14 +140,9 @@ describe('NotebookFileTree pointer dragging', () => {
     return { root };
   }
 
-  function directRows(list: Element): Element[] {
-    return Array.from(list.children).flatMap((child) => {
-      if (child.hasAttribute('data-notebook-tree-kind')) return [child];
-      if (child.classList.contains('folder-file-tree__group')) {
-        return Array.from(child.children).filter((nested) => nested.hasAttribute('data-notebook-tree-kind'));
-      }
-      return [];
-    });
+  function directRows(list: Element, depth: number): Element[] {
+    return Array.from(list.querySelectorAll<HTMLElement>('[data-notebook-tree-kind]'))
+      .filter((row) => row.parentElement?.dataset.notebookTreeDepth === String(depth));
   }
 
   it.each([
@@ -149,10 +153,9 @@ describe('NotebookFileTree pointer dragging', () => {
   ] as const)('places the %s draft before the first matching item in %s', async (kind, parentPath) => {
     const { root } = await mountDraft(kind, parentPath);
     const input = host.querySelector('input')!;
-    const list = parentPath === '/notes'
-      ? host.querySelector('[role="tree"]')!
-      : input.closest('.folder-file-tree__subtree-items')!;
-    const rows = directRows(list);
+    const list = host.querySelector('[role="tree"]')!;
+    const depth = parentPath === '/notes' ? 0 : 1;
+    const rows = directRows(list, depth);
     const draftIndex = Array.from(list.children).indexOf(input.parentElement!);
     const firstFolderIndex = rows.findIndex((row) => row.getAttribute('data-notebook-tree-kind') === 'folder');
     const firstNoteIndex = rows.findIndex((row) => row.getAttribute('data-notebook-tree-kind') === 'note');
@@ -166,9 +169,7 @@ describe('NotebookFileTree pointer dragging', () => {
 
     expect(draftIndex).toBe(rowIndex(kind === 'folder' ? firstFolderIndex : firstNoteIndex) - 1);
     expect(input.parentElement?.style.marginLeft).toBe(
-      parentPath === '/notes'
-        ? '22px'
-        : kind === 'folder' ? '42px' : '42px',
+      parentPath === '/notes' ? '6px' : '26px',
     );
     if (kind === 'note') expect(draftIndex).toBeGreaterThan(rowIndex(firstFolderIndex));
     await act(async () => root.unmount());
@@ -180,6 +181,10 @@ describe('NotebookFileTree pointer dragging', () => {
     const noteRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="note"]')!;
     const folderRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="folder"]')!;
     const folderGroup = folderRow.closest<HTMLElement>('.folder-file-tree__group')!;
+    expect(noteRow.classList.contains('folder-file-tree__item')).toBe(true);
+    expect(folderRow.classList.contains('folder-file-tree__item')).toBe(true);
+    expect(noteRow.querySelector('button[aria-label="memo.fileTree.moreActions"]')).not.toBeNull();
+    expect(folderRow.querySelector('button[aria-label="memo.fileTree.moreActions"]')).not.toBeNull();
     vi.mocked(document.elementFromPoint).mockReturnValue(folderRow);
 
     await act(async () => noteRow.dispatchEvent(pointerEvent('pointerdown', 10, 10)));

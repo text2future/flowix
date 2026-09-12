@@ -21,6 +21,7 @@ import type { AgentTypeKey } from "@/types/agent";
 import type { WorkspaceHostId } from "@features/workspace/store/workspace-focus-store";
 import { deriveThreadTitleFromPrompt, defaultThreadTitle } from "@features/agent/store/thread-titles";
 import { toast } from "@/lib/toast";
+import { useMemoStore } from "@features/memo/store/memo-store";
 import { openNoteByDeepLink } from "@features/memo/use-cases/open-by-target";
 import { agent } from "@platform/tauri/client/agent";
 import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-link";
@@ -48,6 +49,7 @@ import {
 import { createAgentThreadCardDom } from "@features/agent/thread-card/view/agent-thread-card-dom-factory";
 import { AgentThreadCardChromeController } from "@features/agent/thread-card/chrome";
 import { ExternalAgentSettingsController } from "@features/agent/thread-card/settings/external-agent-settings-controller";
+import { CodexSettingsDialogController } from "@features/agent/thread-card/settings/codex-settings-dialog";
 import { AgentRolePickerController } from "@features/agent/thread-card/role/agent-role-picker-controller";
 import { FullscreenLayoutController } from "@features/agent/thread-card/fullscreen/fullscreen-layout-controller";
 import {
@@ -178,6 +180,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private externalSettingsLoadedTypeKey: AgentTypeKey | null = null;
   private agentRolePicker: AgentRolePickerController;
   private composerAddMenu: ComposerAddMenuController;
+  private codexSettingsDialog = new CodexSettingsDialogController();
   private isCreating = false;
   private isDestroyed = false;
   // Guards late async completions (thread creation / role loading) from
@@ -313,6 +316,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       },
       onBodyClick: (event) => this.handleBodyClick(event),
       onBodyScroll: this.boundHandleBodyScroll,
+      onBodyWheel: (event) => this.messages.handleUserScrollIntent(event.deltaY),
       // composer 空区域 → 输入框 focus 已由 createAgentComposerDom
       // 工厂内部挂的 pointerdown 委托统一处理 (详见
       // composer-dom-factory.ts COMPOSER_FOCUS_INTERACTIVE_SELECTOR),
@@ -452,6 +456,11 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       images: this.composerImages,
       t: (key) => this.t(key),
       isDestroyed: () => this.isDestroyed,
+      getAgentType: () => this.typeKey,
+      openCodexSettings: () => {
+        const notebookPath = this.cwd ?? useMemoStore.getState().selectedNotebook?.path;
+        if (notebookPath) this.codexSettingsDialog.open(notebookPath);
+      },
     });
     this.runtime = new AgentThreadCardRuntimeController({
       getCurrentThreadId: () => this.threadId,
@@ -1812,6 +1821,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.externalAgentSettings.dispose();
     this.agentRolePicker.dispose();
     this.composerAddMenu.dispose();
+    this.codexSettingsDialog.close();
     this.fullscreenLayout.dispose();
     this.composerImages.dispose();
   }

@@ -258,6 +258,21 @@ pub fn delete_file(file_path: String, space_path: Option<String>, state: State<A
         .is_ok()
 }
 
+#[tauri::command]
+pub fn delete_folder(folder_path: String, space_path: String, state: State<AppState>) -> bool {
+    let folder = Path::new(&folder_path);
+    let scope = Path::new(&space_path);
+    // Never allow the notebook root itself to be removed. The folder command
+    // is intentionally recursive because a notebook folder may contain notes
+    // and nested folders.
+    if !path_is_inside(folder, scope) || folder == scope || !is_browsable_scope(scope, &state) {
+        eprintln!("[delete_folder] refused out-of-scope or notebook-root path: {}", folder_path);
+        return false;
+    }
+    start_security_bookmark_access(&state, folder);
+    fs::remove_dir_all(folder).is_ok()
+}
+
 fn file_mutation_error(error: std::io::Error) -> String {
     let code = match error.kind() {
         std::io::ErrorKind::AlreadyExists => "FILE_EXISTS",

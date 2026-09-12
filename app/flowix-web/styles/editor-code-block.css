@@ -397,7 +397,7 @@
   left: var(--ccb-fullscreen-left, 0px);
   width: var(--ccb-fullscreen-width, 100vw);
   height: var(--ccb-fullscreen-height, 100vh);
-  z-index: 7999;
+  z-index: 799;
   background: var(--document-bg);
   pointer-events: auto;
 }
@@ -431,7 +431,7 @@
  *   - border: 1px solid var(--border)           ← 1px border (base 继承)
  *   - background: var(--card)                   ← var(--card) (base 继承)
  *   - margin: 0.6rem                            ← backdrop 内 0.6rem 边距
- *   - z-index: 8000                             ← 8000 (在 backdrop 7999 之上)
+ *   - z-index: 800                             ← 800 (在 backdrop 799 之上)
  *   - overflow: hidden                          ← hidden (base 继承)
  *
  * --ccb-fullscreen-* 由 NodeView 在 mountFullscreenOverlay 时
@@ -446,7 +446,7 @@
   width: 100%;
   height: 100%;
   margin: 0;
-  z-index: 8000;
+  z-index: 800;
   display: flex;
   align-items: center;
   justify-content: center;

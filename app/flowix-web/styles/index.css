@@ -157,8 +157,8 @@
 	width: 100%;
 }
 
-/* 资料文件树的子树展开/收起: 用 grid 行高从 0fr 过渡到 1fr,
- * 这样收起时子节点不会瞬间从 DOM 消失, 高度和内容能一起顺滑收回。 */
+/* 资料文件树的子树展开/收起: 用 grid 行高从 0fr 过渡到 1fr。
+ * 收起时由渲染层卸载子节点，避免隐藏分支继续参与 React 更新和布局。 */
 .folder-file-tree__subtree {
 	display: grid;
 	grid-template-rows: 0fr;
@@ -171,10 +171,6 @@
 
 /* 拖放到文件夹时, 背景只覆盖与文件夹行相同的左右范围。
  * 使用绝对定位的伪元素, 不改变子项自身按 depth 计算的布局位置。 */
-.folder-file-tree__group[data-drag-over='true'] {
-	position: relative;
-}
-
 .folder-file-tree__group[data-drag-over='true']::before {
 	position: absolute;
 	top: 0;
@@ -209,13 +205,16 @@
 	background: color-mix(in srgb, var(--border) 72%, transparent);
 	content: '';
 	pointer-events: none;
-	transition: background-color 150ms ease;
+	transition: background-color 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* hover 子 item 时, 提亮该 item 所在列表(子树)左侧的层级引导线。
+/* hover 直接子 item 时, 提亮该 item 所在列表(子树)左侧的层级引导线。
  * 用 --foreground 而非主题色: 浅色主题为黑、深色主题为白。 */
-.folder-file-tree__subtree-inner:has(> .folder-file-tree__subtree-items > :is(.folder-file-tree__item, .folder-file-tree__group):hover)::before {
-	background: color-mix(in srgb, var(--foreground) 35%, transparent);
+.folder-file-tree__subtree-inner:has(
+	> .folder-file-tree__subtree-items > .folder-file-tree__item:hover,
+	> .folder-file-tree__subtree-items > .folder-file-tree__group > .folder-file-tree__item:hover
+)::before {
+	background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
 .folder-file-tree__subtree-items {
@@ -258,6 +257,10 @@
 
 	.folder-file-tree__subtree-items {
 		animation: none;
+	}
+
+	.folder-file-tree__subtree[data-expanded='true'] > .folder-file-tree__subtree-inner::before {
+		transition-duration: 0ms;
 	}
 }
 
@@ -743,6 +746,26 @@
 
 .agent-conversation-list__icon--running {
   animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
+}
+
+/* 对话列表标题不显示省略号: 末尾保留一小段向内渐隐, 避免文字在时间
+ * 标签前突然截断。mask 只作用于标题文本, 不会覆盖 item 的背景或右侧操作。 */
+.agent-conversation-list__title {
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
 }
 
 /* 中间列“新建对话”菜单进入品牌色背景时, Agent 图标与 slash 菜单一致变白。 */

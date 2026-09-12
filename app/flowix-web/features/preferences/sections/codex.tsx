@@ -5,7 +5,7 @@ import { Check, CircleAlert, Gauge, Loader2, LockKeyhole, Plug, Settings2, Spark
 import { agent, type CodexProjectCapabilities } from '@platform/tauri/client';
 import { useMemoStore, type Notebook } from '@features/memo';
 import { Button } from '@shared/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/ui/select';
 import { SectionHeader } from '@features/preferences/sections/primitives';
 import { cn } from '@/lib/utils';
 
@@ -19,8 +19,17 @@ const bool = (v: unknown, fallback = false) => typeof v === 'boolean' ? v : fall
 const resultValue = (v: unknown) => obj(obj(v).value);
 const resultError = (v: unknown) => obj(v).ok === false ? str(obj(v).error, 'Codex App Server 查询失败') : '';
 const selectClass = 'h-9 w-full rounded-lg border border-[var(--divider)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]';
+type SelectOption = { value: string; label: string };
+const optionLabels: Record<string, string> = {
+  low: '低', medium: '中', high: '高', xhigh: '极高', auto: '自动', default: '默认', flex: '灵活', priority: '优先',
+  disabled: '禁用', cached: '缓存结果', indexed: '索引搜索', live: '实时搜索', untrusted: '不受信任时询问',
+  'on-failure': '失败时询问', 'on-request': '按需询问', never: '从不询问', user: '用户确认', auto_review: '自动审核',
+  'read-only': '只读', 'workspace-write': '工作区读写', 'danger-full-access': '完全访问', stdio: '本地命令（stdio）', http: '远程服务（HTTP）',
+};
+const options = (values: string[]): SelectOption[] => values.map((value) => ({ value, label: optionLabels[value] ?? value }));
+const normalizeNotebookPath = (path: string) => path.replace(/[\\/]+$/, '').toLowerCase();
 
-export function CodexSettingsSection() {
+export function CodexSettingsSection({ notebookPath }: { notebookPath?: string } = {}) {
   const currentNotebook = useMemoStore((s) => s.selectedNotebook);
   const notebooks = useMemoStore((s) => s.notebooks);
   const initialized = useMemoStore((s) => s.notebooksInitialized);
@@ -40,7 +49,10 @@ export function CodexSettingsSection() {
   useEffect(() => {
     if (currentNotebook?.id) setSelectedNotebookId(currentNotebook.id);
   }, [currentNotebook?.id]);
-  const notebook = notebooks.find((item) => item.id === selectedNotebookId) ?? currentNotebook;
+  const notebook = notebookPath
+    ? notebooks.find((item) => normalizeNotebookPath(item.path) === normalizeNotebookPath(notebookPath))
+      ?? (currentNotebook && normalizeNotebookPath(currentNotebook.path) === normalizeNotebookPath(notebookPath) ? currentNotebook : null)
+    : notebooks.find((item) => item.id === selectedNotebookId) ?? currentNotebook;
   const refresh = useCallback(async (force = false) => {
     if (!notebook?.path) return;
     const request = ++generation.current;
@@ -120,7 +132,7 @@ export function CodexSettingsSection() {
       onNotebookChange={setSelectedNotebookId}
     />
     <div className="grid grid-cols-4 gap-1 rounded-lg border border-[var(--divider)] bg-[var(--muted)]/40 p-1" role="tablist">
-      {pageTabs.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs', tab === id ? 'bg-[var(--card)] font-medium text-[var(--primary)] shadow-sm' : 'text-[var(--muted-foreground)]')}><Icon className="h-3.5 w-3.5" />{label}</button>)}
+      {pageTabs.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs transition-colors', tab === id ? 'bg-[var(--card)] font-medium text-[var(--primary)] shadow-sm' : 'text-[var(--muted-foreground)] hover:bg-[var(--card)]/70 hover:text-[var(--foreground)]')}><Icon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{label}</span></button>)}
     </div>
     {notice && <Banner icon={Check} text={notice} />}{error && <Banner icon={CircleAlert} text={error} destructive />}
     {loading && !catalog ? <Loading /> : catalog && <>
@@ -136,11 +148,12 @@ function General({ form, setForm, models, disabled, onSave }: FormProps & { mode
   const set = (key: string, value: string | boolean) => setForm((x) => ({ ...x, [key]: value }));
   const model = models.find((x) => str(x.model, str(x.id)) === form.model);
   const efforts = arr(model?.supportedReasoningEfforts).map((x) => str(obj(x).reasoningEffort)).filter(Boolean);
+  const modelOptions = models.map((x) => { const value = str(x.model, str(x.id)); return { value, label: str(x.displayName, value) }; });
   return <Panel title="模型与运行参数" description="设置写入当前笔记本的 .codex/config.toml。模型和推理设置对新会话生效。">
-    <Field label="默认模型"><select className={selectClass} value={str(form.model)} onChange={(e) => set('model', e.target.value)}>{models.map((x) => { const id = str(x.model, str(x.id)); return <option key={id} value={id}>{str(x.displayName, id)}</option>; })}</select></Field>
-    <div className="grid gap-3 sm:grid-cols-2"><Field label="推理强度"><OptionSelect value={str(form.model_reasoning_effort)} values={efforts.length ? efforts : ['low', 'medium', 'high', 'xhigh']} onChange={(v) => set('model_reasoning_effort', v)} /></Field><Field label="输出详细度"><OptionSelect value={str(form.model_verbosity)} values={['low', 'medium', 'high']} onChange={(v) => set('model_verbosity', v)} /></Field></div>
-    <div className="grid gap-3 sm:grid-cols-2"><Field label="Review 模型"><select className={selectClass} value={str(form.review_model)} onChange={(e) => set('review_model', e.target.value)}><option value="">跟随默认模型</option>{models.map((x) => { const id = str(x.model, str(x.id)); return <option key={id} value={id}>{str(x.displayName, id)}</option>; })}</select></Field><Field label="Service tier"><OptionSelect value={str(form.service_tier)} values={['auto', 'default', 'flex', 'priority']} onChange={(v) => set('service_tier', v)} /></Field></div>
-    <Field label="Web Search"><OptionSelect value={str(form.web_search)} values={['disabled', 'cached', 'indexed', 'live']} onChange={(v) => set('web_search', v)} /></Field>
+    <Field label="默认模型"><OptionSelect value={str(form.model)} options={modelOptions} onChange={(v) => set('model', v)} /></Field>
+    <div className="grid gap-3 sm:grid-cols-2"><Field label="推理强度"><OptionSelect value={str(form.model_reasoning_effort)} options={options(efforts.length ? efforts : ['low', 'medium', 'high', 'xhigh'])} onChange={(v) => set('model_reasoning_effort', v)} /></Field><Field label="输出详细度"><OptionSelect value={str(form.model_verbosity)} options={options(['low', 'medium', 'high'])} onChange={(v) => set('model_verbosity', v)} /></Field></div>
+    <div className="grid gap-3 sm:grid-cols-2"><Field label="Review 模型"><OptionSelect value={str(form.review_model)} options={[{ value: '', label: '跟随默认模型' }, ...modelOptions]} onChange={(v) => set('review_model', v)} /></Field><Field label="服务级别"><OptionSelect value={str(form.service_tier)} options={options(['auto', 'default', 'flex', 'priority'])} onChange={(v) => set('service_tier', v)} /></Field></div>
+    <Field label="联网搜索"><OptionSelect value={str(form.web_search)} options={options(['disabled', 'cached', 'indexed', 'live'])} onChange={(v) => set('web_search', v)} /></Field>
     <Save disabled={disabled} onClick={onSave} />
   </Panel>;
 }
@@ -149,8 +162,8 @@ function Security({ form, setForm, requirements, disabled, onSave }: FormProps &
   const set = (key: string, value: string | boolean) => setForm((x) => ({ ...x, [key]: value }));
   return <Panel title="审批与 Sandbox" description="保存时 Codex 会再次校验组织策略；高优先级策略可以覆盖项目值。">
     {resultValue(requirements).requirements != null && <Banner icon={LockKeyhole} text="已载入 Codex 管理策略约束。" />}
-    <div className="grid gap-3 sm:grid-cols-2"><Field label="审批策略"><OptionSelect value={str(form.approval_policy)} values={['untrusted', 'on-failure', 'on-request', 'never']} onChange={(v) => set('approval_policy', v)} /></Field><Field label="审批处理者"><OptionSelect value={str(form.approvals_reviewer)} values={['user', 'auto_review']} onChange={(v) => set('approvals_reviewer', v)} /></Field></div>
-    <Field label="Sandbox 模式"><OptionSelect value={str(form.sandbox_mode)} values={['read-only', 'workspace-write', 'danger-full-access']} onChange={(v) => set('sandbox_mode', v)} /></Field>
+    <div className="grid gap-3 sm:grid-cols-2"><Field label="审批策略"><OptionSelect value={str(form.approval_policy)} options={options(['untrusted', 'on-failure', 'on-request', 'never'])} onChange={(v) => set('approval_policy', v)} /></Field><Field label="审批处理者"><OptionSelect value={str(form.approvals_reviewer)} options={options(['user', 'auto_review'])} onChange={(v) => set('approvals_reviewer', v)} /></Field></div>
+    <Field label="Sandbox 模式"><OptionSelect value={str(form.sandbox_mode)} options={options(['read-only', 'workspace-write', 'danger-full-access'])} onChange={(v) => set('sandbox_mode', v)} /></Field>
     <label className="flex items-center justify-between rounded-lg border border-[var(--divider)] px-3 py-3"><span><span className="block text-sm font-medium">允许 Sandbox 网络访问</span><span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">仅影响 workspace-write Sandbox。</span></span><input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={bool(form.network_access)} onChange={(e) => set('network_access', e.target.checked)} /></label>
     <Save disabled={disabled} onClick={onSave} />
   </Panel>;
@@ -160,7 +173,7 @@ type FormProps = { form: Record<string, string | boolean>; setForm: React.Dispat
 function Integrations({ active, setActive, skills, mcp, agents, installed, available, installedIds, saving, cwd, projectVersion, form, setForm, save, run }: { active: IntegrationTab; setActive: (v: IntegrationTab) => void; skills: JsonObject[]; mcp: JsonObject[]; agents: JsonObject[]; installed: JsonObject[]; available: JsonObject[]; installedIds: Set<string>; saving: string | null; cwd: string; projectVersion: string | null; form: Record<string, string | boolean>; setForm: React.Dispatch<React.SetStateAction<Record<string, string | boolean>>>; save: (keys: string[], preserveEmpty?: boolean) => Promise<void>; run: ActionRunner }) {
   const tabs: Array<[IntegrationTab, string, number | null]> = [['skills', 'Skills', skills.length], ['mcp', 'MCP', mcp.length], ['prompts', 'Prompt', null], ['agents', '子 Agent', agents.length], ['plugins', '插件', installed.length]];
   return <Panel title="集成管理" description="MCP 与子 Agent 按当前项目展示；Skill 启停和插件安装由 Codex 管理，可能影响其他项目。">
-    <div className="flex flex-wrap gap-1 border-b border-[var(--divider)] pb-2">{tabs.map(([id, label, count]) => <button key={id} type="button" onClick={() => setActive(id)} className={cn('rounded-md px-2.5 py-1.5 text-xs', active === id ? 'bg-[var(--muted)] font-medium text-[var(--primary)]' : 'text-[var(--muted-foreground)]')}>{label}{count == null ? '' : ` ${count}`}</button>)}</div>
+    <div className="flex flex-wrap gap-1 border-b border-[var(--divider)] pb-2" role="tablist">{tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={active === id} onClick={() => setActive(id)} className={cn('rounded-md px-2.5 py-1.5 text-xs transition-colors', active === id ? 'bg-[var(--muted)] font-medium text-[var(--primary)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)]/70 hover:text-[var(--foreground)]')}>{label}{count == null ? '' : ` ${count}`}</button>)}</div>
     {active === 'skills' && <><ProjectSkillEditor cwd={cwd} saving={saving} run={run} /><List items={skills} empty="未发现 Skill">{(x) => { const name = str(x.name); const key = `skill:${name}`; return <Row key={`${name}:${str(x.path)}`} title={name} text={str(x.description)} meta={str(x.path)} action={<Button size="sm" variant="outline" disabled={saving !== null} onClick={() => void run(key, () => agent.setCodexSkillEnabled(cwd, name, x.enabled === false), x.enabled === false ? 'Skill 已启用。' : 'Skill 已停用。', true)}>{saving === key ? '处理中…' : x.enabled === false ? '启用' : '停用'}</Button>} />; }}</List></>}
     {active === 'mcp' && <><ProjectMcpEditor cwd={cwd} projectVersion={projectVersion} saving={saving} run={run} /><div className="flex justify-end"><Button size="sm" variant="outline" disabled={saving !== null} onClick={() => void run('mcp', () => agent.reloadCodexMcp(cwd), 'MCP Server 已重新加载。')}>{saving === 'mcp' ? '重新加载中…' : '重新加载全部'}</Button></div><List items={mcp} empty="当前项目没有配置 MCP Server">{(x) => <Row key={str(x.name)} title={str(x.name)} text={str(obj(x.serverInfo).description, '项目 MCP Server')} meta={str(x.runtimeStatus, str(x.authStatus, '已配置'))} />}</List></>}
     {active === 'prompts' && <ProjectPromptEditor form={form} setForm={setForm} disabled={saving !== null} onSave={() => void save(['instructions', 'developer_instructions'], true)} />}
@@ -184,7 +197,7 @@ function ProjectMcpEditor({ cwd, projectVersion, saving, run }: { cwd: string; p
   };
   return <div className="rounded-lg border border-dashed border-[var(--divider)] p-3">
     <div className="flex items-center justify-between"><div><div className="text-sm font-medium">添加项目 MCP</div><div className="text-xs text-[var(--muted-foreground)]">写入当前 repo 的 .codex/config.toml。</div></div><Button size="sm" variant="outline" onClick={() => setOpen((x) => !x)}>{open ? '收起' : '添加'}</Button></div>
-    {open && <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><Field label="名称"><input className={selectClass} value={name} placeholder="例如 docs-search" onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))} /></Field><Field label="连接方式"><OptionSelect value={transport} values={['stdio', 'http']} onChange={(v) => setTransport(v as 'stdio' | 'http')} /></Field></div><Field label={transport === 'stdio' ? '启动命令' : '服务 URL'}><input className={selectClass} value={endpoint} placeholder={transport === 'stdio' ? '例如 npx' : 'https://example.com/mcp'} onChange={(e) => setEndpoint(e.target.value)} /></Field>{transport === 'stdio' && <Field label="参数（每行一个）"><textarea className="min-h-20 w-full rounded-lg border border-[var(--divider)] bg-[var(--background)] p-3 font-mono text-xs outline-none" value={args} placeholder={'-y\n@scope/mcp-server'} onChange={(e) => setArgs(e.target.value)} /></Field>}<div className="flex justify-end"><Button disabled={saving !== null || !name || !endpoint.trim()} onClick={submit}>{saving === 'mcp-write' ? '保存中…' : '保存并加载'}</Button></div></div>}
+    {open && <div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><Field label="名称"><input className={selectClass} value={name} placeholder="例如 docs-search" onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))} /></Field><Field label="连接方式"><OptionSelect value={transport} options={options(['stdio', 'http'])} onChange={(v) => setTransport(v as 'stdio' | 'http')} /></Field></div><Field label={transport === 'stdio' ? '启动命令' : '服务 URL'}><input className={selectClass} value={endpoint} placeholder={transport === 'stdio' ? '例如 npx' : 'https://example.com/mcp'} onChange={(e) => setEndpoint(e.target.value)} /></Field>{transport === 'stdio' && <Field label="参数（每行一个）"><textarea className="min-h-20 w-full rounded-lg border border-[var(--divider)] bg-[var(--background)] p-3 font-mono text-xs outline-none" value={args} placeholder={'-y\n@scope/mcp-server'} onChange={(e) => setArgs(e.target.value)} /></Field>}<div className="flex justify-end"><Button disabled={saving !== null || !name || !endpoint.trim()} onClick={submit}>{saving === 'mcp-write' ? '保存中…' : '保存并加载'}</Button></div></div>}
   </div>;
 }
 
@@ -229,7 +242,17 @@ function ProjectHeader({ notebook, notebooks, selectedNotebookId, onNotebookChan
 }
 function Panel({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="space-y-4 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-4"><div><h3 className="text-sm font-semibold">{title}</h3><p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)]">{description}</p></div>{children}</section>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block space-y-1.5"><span className="text-xs font-medium">{label}</span>{children}</label>; }
-function OptionSelect({ value, values, onChange }: { value: string; values: string[]; onChange: (v: string) => void }) { return <select className={selectClass} value={value} onChange={(e) => onChange(e.target.value)}>{values.map((x) => <option key={x}>{x}</option>)}</select>; }
+function OptionSelect({ value, options: optionList, onChange }: { value: string; options: SelectOption[]; onChange: (v: string) => void }) {
+  const selected = optionList.find((option) => option.value === value);
+  return <Select value={value} onValueChange={onChange}>
+    <SelectTrigger className="h-9 w-full bg-[var(--background)]">
+      <SelectValue>{selected?.label ?? value}</SelectValue>
+    </SelectTrigger>
+    <SelectContent align="start" fitViewport className="flowix-preferences-select-content">
+      {optionList.map((option) => <SelectItem key={option.value || '__default__'} value={option.value}>{option.label}</SelectItem>)}
+    </SelectContent>
+  </Select>;
+}
 function Save({ disabled, onClick }: { disabled: boolean; onClick: () => void }) { return <div className="flex justify-end"><Button disabled={disabled} onClick={onClick}>{disabled ? '保存中…' : '保存到当前项目'}</Button></div>; }
 function Row({ title, text, meta, action }: { title: string; text?: string; meta?: string; action?: React.ReactNode }) { return <div className="flex items-start gap-3 rounded-lg border border-[var(--divider)] px-3 py-2.5"><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{title}</div>{text && <div className="mt-0.5 line-clamp-2 text-xs text-[var(--muted-foreground)]">{text}</div>}{meta && <div className="mt-1 truncate font-mono text-[10px] text-[var(--muted-foreground)]">{meta}</div>}</div>{action}</div>; }
 function List({ items, empty, children }: { items: JsonObject[]; empty: string; children: (item: JsonObject, index: number) => React.ReactNode }) { return <div className="space-y-2">{items.length ? items.map(children) : <div className="py-10 text-center text-sm text-[var(--muted-foreground)]">{empty}</div>}</div>; }

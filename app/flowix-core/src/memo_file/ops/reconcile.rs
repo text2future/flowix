@@ -152,6 +152,24 @@ impl MemoFile {
         &self,
         notebook_id: &str,
     ) -> Result<ReconcileReport, String> {
+        self.reconcile_notebook_with_disk_bidirectional_inner(notebook_id, true)
+    }
+
+    /// Reconcile a newly imported notebook without modifying existing
+    /// Markdown files. The index receives generated IDs for documents that do
+    /// not already have a Flowix key, but their frontmatter/body is preserved.
+    pub fn reconcile_notebook_with_disk_bidirectional_for_import(
+        &self,
+        notebook_id: &str,
+    ) -> Result<ReconcileReport, String> {
+        self.reconcile_notebook_with_disk_bidirectional_inner(notebook_id, false)
+    }
+
+    fn reconcile_notebook_with_disk_bidirectional_inner(
+        &self,
+        notebook_id: &str,
+        stamp_missing_key: bool,
+    ) -> Result<ReconcileReport, String> {
         let base = self.memo_base_for_notebook_id_result(notebook_id)?;
         if !base.exists() {
             return Ok(ReconcileReport::default());
@@ -182,7 +200,12 @@ impl MemoFile {
         let mut added = 0;
         for relative_path in disk_paths.difference(&known) {
             let path = notebook_path_from_relative(&base, relative_path)?;
-            match self.register_existing_file_for_notebook_id(notebook_id, &path) {
+            let registered = if stamp_missing_key {
+                self.register_existing_file_for_notebook_id(notebook_id, &path)
+            } else {
+                self.register_existing_file_for_notebook_id_without_frontmatter(notebook_id, &path)
+            };
+            match registered {
                 Ok(_) => added += 1,
                 Err(error) => tracing::warn!(
                     notebook_id,

@@ -16,11 +16,20 @@ const mocks = vi.hoisted(() => ({
       mocks.memoState.selectedNotebook = notebook;
       mocks.memoState.selectedNotebookId = notebook?.id ?? null;
     }),
-    setNotebooks: vi.fn((notebooks: Array<{ id: string; path: string }>) => {
+    setNotebooks: vi.fn((
+      notebooks: Array<{ id: string; path: string }>,
+      selectedNotebookId?: string | null,
+    ) => {
       mocks.memoState.notebooks = notebooks;
-      if (!notebooks.some((item) => item.id === mocks.memoState.selectedNotebookId)) {
+      const nextSelectedId = selectedNotebookId === undefined
+        ? mocks.memoState.selectedNotebookId
+        : selectedNotebookId;
+      if (!notebooks.some((item) => item.id === nextSelectedId)) {
         mocks.memoState.selectedNotebook = null;
         mocks.memoState.selectedNotebookId = null;
+      } else {
+        mocks.memoState.selectedNotebook = notebooks.find((item) => item.id === nextSelectedId) ?? null;
+        mocks.memoState.selectedNotebookId = nextSelectedId;
       }
     }),
     setMemos: vi.fn(),
@@ -493,6 +502,10 @@ describe('workspace navigation transaction', () => {
     await reconcileDeletedNotebook(deletedNotebook.id, [remainingNotebook]);
 
     expect(mocks.clearDocument).toHaveBeenCalledOnce();
+    expect(mocks.memoState.setNotebooks).toHaveBeenCalledWith(
+      [remainingNotebook],
+      remainingNotebook.id,
+    );
     expect(mocks.setCurrentNotebook).toHaveBeenCalledWith(remainingNotebook.id);
     expect(mocks.memoState.selectedNotebook?.id).toBe(remainingNotebook.id);
     expect(mocks.memoState.selectedMemo).toBeNull();

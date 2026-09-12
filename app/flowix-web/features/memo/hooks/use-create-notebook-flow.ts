@@ -13,6 +13,8 @@ import { useMemoStore, useTagStore, type Notebook } from '@features/memo/store';
 import { clearWorkspaceDocument } from '@features/workspace/use-cases/workspace-navigation';
 
 const NOTEBOOK_CREATE_SCAN_TIMEOUT_MS = 30_000;
+const NOTEBOOK_IMPORT_POLL_INTERVAL_MS = 500;
+const NOTEBOOK_IMPORT_POLL_MAX_ATTEMPTS = 1_200;
 
 interface CreateNotebookInput {
   name: string;
@@ -38,6 +40,9 @@ export function useCreateNotebookFlow({
   });
   const [blockingLoadingText, setBlockingLoadingText] = useState<string | null>(null);
   const createNotebookScanTimeoutRef = useRef<number | null>(null);
+  const createInFlightRef = useRef(false);
+  const activeImportNotebookIdRef = useRef<string | null>(null);
+  const importMonitorGenerationRef = useRef(0);
 
   const clearCreateNotebookScanTimeout = useCallback(() => {
     if (createNotebookScanTimeoutRef.current === null) return;
@@ -47,11 +52,12 @@ export function useCreateNotebookFlow({
 
   useEffect(() => clearCreateNotebookScanTimeout, [clearCreateNotebookScanTimeout]);
 
-  useEffect(() => {
-    return listenToNotebookImportStatus((importStatus) => {
-      const state = useMemoStore.getState();
+  const handleImportStatus = useCallback(
+    (importStatus: Parameters<typeof resolveNotebookImportStatusEffect>[1]) => {
+      const trackedNotebookId = activeImportNotebookIdRef.current;
+      if (!trackedNotebookId) return;
       const effect = resolveNotebookImportStatusEffect(
-        state.selectedNotebook?.id,
+        trackedNotebookId,
         importStatus,
         t('memo.list.createFailed'),
       );
@@ -67,14 +73,49 @@ export function useCreateNotebookFlow({
       if (effect.errorMessage) {
         toast.error(effect.errorMessage);
       }
-    });
-  }, [onMemoListLoadingChange, onMemoListReloadNeeded, t]);
+      if (importStatus.status !== 'started') {
+        activeImportNotebookIdRef.current = null;
+      }
+    },
+    [onMemoListLoadingChange, onMemoListReloadNeeded, t],
+  );
+
+  useEffect(() => {
+    return listenToNotebookImportStatus(handleImportStatus);
+  }, [handleImportStatus]);
+
+  const monitorImportStatus = useCallback(async (notebookId: string, generation: number) => {
+    for (let attempt = 0; attempt < NOTEBOOK_IMPORT_POLL_MAX_ATTEMPTS; attempt += 1) {
+      if (
+        importMonitorGenerationRef.current !== generation
+        || activeImportNotebookIdRef.current !== notebookId
+      ) return;
+
+      try {
+        const status = await notebookRepository.getImportStatus(notebookId);
+        if (status && status.status !== 'started') {
+          handleImportStatus(status);
+          return;
+        }
+      } catch (error) {
+        // Events remain the primary path. A transient status query failure
+        // should not turn a running import into a false error.
+        console.warn('[MemoList] Failed to query notebook import status:', error);
+      }
+
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, NOTEBOOK_IMPORT_POLL_INTERVAL_MS);
+      });
+    }
+  }, [handleImportStatus]);
 
   const createNotebook = useCallback(
     async ({ name, path, icon, cloudNotebookId }: CreateNotebookInput): Promise<Notebook | null> => {
       const notebookName = name.trim();
       const notebookPath = path?.trim() || undefined;
       if (!notebookName || (cloudNotebookId && !notebookPath)) return null;
+      if (createInFlightRef.current) return null;
+      createInFlightRef.current = true;
 
       setCreationState({ status: 'creating' });
       setBlockingLoadingText(t('memo.list.scanningLibrary'));
@@ -100,31 +141,59 @@ export function useCreateNotebookFlow({
           return null;
         }
 
-        const notebooksResult = await notebookRepository.list();
-        const nextNotebooks = notebooksResult?.length ? notebooksResult as Notebook[] : [created];
-        const nextNotebook = nextNotebooks.find((notebook) => notebook.id === created.id) ?? created;
         const memoStore = useMemoStore.getState();
+        const existingNotebooks = memoStore.notebooks;
+        const nextNotebooks = existingNotebooks.some((notebook) => notebook.id === created.id)
+          ? existingNotebooks.map((notebook) => notebook.id === created.id ? created : notebook)
+          : [...existingNotebooks, created];
 
         memoStore.setNotebooks(nextNotebooks);
-        memoStore.setSelectedNotebook(nextNotebook);
+        memoStore.setSelectedNotebook(created);
         memoStore.setSelectedMemo(null);
         memoStore.setMemos([]);
         void clearWorkspaceDocument();
         useTagStore.getState().setSelectedTagId(null);
         onMemoListQueryReset();
         onMemoListLoadingChange(true);
-        setCreationState(cloudNotebookId
-          ? { status: 'idle' }
-          : { status: 'importing', notebookId: created.id });
         onMemoListReloadNeeded();
+
+        if (cloudNotebookId) {
+          setCreationState({ status: 'idle' });
+        } else {
+          const generation = ++importMonitorGenerationRef.current;
+          activeImportNotebookIdRef.current = created.id;
+          setCreationState({ status: 'importing', notebookId: created.id });
+          try {
+            await notebookRepository.startImport(created.id);
+            void monitorImportStatus(created.id, generation);
+          } catch (error) {
+            const message = notebookCreateErrorMessage(error, t);
+            activeImportNotebookIdRef.current = null;
+            onMemoListLoadingChange(false);
+            setCreationState({ status: 'failed', message });
+            toast.error(message);
+          }
+        }
+
+        // The returned notebook is authoritative for the critical path. The
+        // complete list refresh is best-effort and must not delay selection.
+        void notebookRepository.list()
+          .then((freshNotebooks) => {
+            useMemoStore.getState().setNotebooks(freshNotebooks as Notebook[]);
+          })
+          .catch((error) => {
+            console.warn('[MemoList] Failed to refresh notebook list:', error);
+          });
         return created;
       } catch (error) {
         console.warn('[MemoList] Failed to create notebook:', error);
         const message = notebookCreateErrorMessage(error, t);
         toast.error(message);
         setCreationState({ status: 'failed', message });
+        onMemoListLoadingChange(false);
         return null;
       } finally {
+        createInFlightRef.current = false;
         clearCreateNotebookScanTimeout();
         setBlockingLoadingText(null);
       }

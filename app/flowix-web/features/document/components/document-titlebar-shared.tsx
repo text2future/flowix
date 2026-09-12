@@ -633,7 +633,7 @@ function VersionHistorySubmenu({
       </button>
 
       {open && (
-        <div className="absolute right-full top-0 z-[1501] w-[300px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <div className="absolute right-full top-0 z-[151] w-[300px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
           <div
             className="flex items-center justify-between"
             style={{ padding: '0.15rem 0.375rem 0.35rem' }}

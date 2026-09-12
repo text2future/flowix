@@ -10,15 +10,13 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
 
 use crate::lock_utils::{read_lock, write_lock};
-use flowix_core::memo_file::{MemoFile, MemoIndexFile, Notebook, NotebookConfig};
+use flowix_core::memo_file::{MemoFile, Notebook, NotebookConfig};
 use flowix_core::MemoService;
 use flowix_sync::V2LocalNotebook;
 
 use super::agent_access::AGENT_ACCESS_CHANGED_EVENT;
-use super::helpers::{
-    refresh_watcher_roots, switch_notebook_importing_disk_as_new, switch_notebook_trusting_index,
-};
-use crate::app::state::AppState;
+use super::helpers::{refresh_watcher_roots, switch_notebook_trusting_index};
+use crate::app::state::{AppState, NotebookImportStatus, NotebookImportStatusKind};
 
 const NOTEBOOK_IMPORT_COMPLETE_EVENT: &str = "notebook-import-complete";
 /// 笔�?�?��表发生变�?(reorder / create / update / delete) �?emit, 其它窗口
@@ -26,38 +24,22 @@ const NOTEBOOK_IMPORT_COMPLETE_EVENT: &str = "notebook-import-complete";
 pub(crate) const NOTEBOOKS_CHANGED_EVENT: &str = "notebooks-changed";
 const NOTEBOOK_IMPORT_STATUS_EVENT: &str = "notebook-import-status";
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-enum NotebookImportStatusKind {
-    Started,
-    Skipped,
-    Completed,
-    Failed,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NotebookImportStatus {
-    notebook_id: String,
-    status: NotebookImportStatusKind,
-    message: Option<String>,
-}
-
 fn emit_notebook_import_status(
+    state: &AppState,
     app: &AppHandle,
     notebook_id: &str,
     status: NotebookImportStatusKind,
     message: Option<String>,
 ) {
-    dispatcher::emit_to(
-        app,
-        NOTEBOOK_IMPORT_STATUS_EVENT,
-        NotebookImportStatus {
-            notebook_id: notebook_id.to_string(),
-            status,
-            message,
-        },
-    );
+    let payload = NotebookImportStatus {
+        notebook_id: notebook_id.to_string(),
+        status,
+        message,
+    };
+    if let Ok(mut imports) = state.notebook_imports.lock() {
+        imports.insert(notebook_id.to_string(), payload.clone());
+    }
+    dispatcher::emit_to(app, NOTEBOOK_IMPORT_STATUS_EVENT, payload);
 }
 
 fn notebook_path_missing(path: &str) -> bool {
@@ -277,12 +259,52 @@ fn sync_notebook_agent_access(config: &NotebookConfig, state: &AppState, app: &A
     }
 }
 
-fn activate_created_notebook(config: &NotebookConfig, state: &AppState, app: &AppHandle) {
-    if let Err(e) = switch_notebook_trusting_index(state, app, Some(config.id.clone())) {
-        tracing::warn!("[create_notebook] failed to select new notebook after registry write: {e}");
-    } else {
-        tracing::info!("[create_notebook] selected notebook id={}", config.id);
+fn set_current_notebook_inner(
+    notebook_id: Option<String>,
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<(), String> {
+    let previous_id = read_lock(&state.memo_file, "memo_file").current_notebook_id_value();
+
+    // Fast path for ordinary switching: trust memo index and avoid synchronous
+    // disk reconciliation. Search index rebuild is lazy, triggered by search.
+    if let Err(error) = switch_notebook_trusting_index(state, app, notebook_id.clone()) {
+        if let Err(restore_error) = switch_notebook_trusting_index(state, app, previous_id) {
+            tracing::error!(
+                "[set_current_notebook] failed to restore previous notebook after switch error: {restore_error}"
+            );
+        }
+        return Err(error);
     }
+
+    if let Err(error) = read_lock(&state.memo_file, "memo_file")
+        .write_selected_notebook_id(notebook_id.as_deref())
+        .map_err(|error| format!("persist selected notebook failed: {error}"))
+    {
+        // Keep the process-local and persisted selection aligned if the second
+        // half of the switch fails. The original error remains authoritative.
+        if let Err(restore_error) = switch_notebook_trusting_index(state, app, previous_id) {
+            tracing::error!(
+                "[set_current_notebook] failed to restore previous notebook after persistence error: {restore_error}"
+            );
+        }
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn activate_created_notebook(
+    config: &NotebookConfig,
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<(), String> {
+    set_current_notebook_inner(Some(config.id.clone()), state, app)?;
+    // A newly registered root must be watched immediately; otherwise changes
+    // made before the next app restart are invisible to the memo index.
+    refresh_watcher_roots(state, app);
+    tracing::info!("[create_notebook] selected notebook id={}", config.id);
+    Ok(())
 }
 
 fn run_notebook_import(app: AppHandle, notebook_id: String) {
@@ -290,70 +312,51 @@ fn run_notebook_import(app: AppHandle, notebook_id: String) {
         "[create_notebook] background import start id={}",
         notebook_id
     );
-    emit_notebook_import_status(&app, &notebook_id, NotebookImportStatusKind::Started, None);
     let app_state = app.state::<AppState>();
-    let current_id = read_lock(&app_state.memo_file, "memo_file").current_notebook_id_value();
-    if current_id.as_deref() != Some(notebook_id.as_str()) {
+
+    let import_result = (|| {
+        let memo_file = read_lock(&app_state.memo_file, "memo_file");
         tracing::info!(
-            "[create_notebook] skip background import because current notebook changed: {}",
+            "[create_notebook] import/reconcile start id={}",
             notebook_id
         );
-        emit_notebook_import_status(&app, &notebook_id, NotebookImportStatusKind::Skipped, None);
-        return;
-    }
 
-    {
-        let memo_file = read_lock(&app_state.memo_file, "memo_file");
+        // Reconcile by explicit notebook ID. This keeps the background job
+        // independent from whichever notebook the user currently views and
+        // avoids switching the global MemoFile context from a worker thread.
+        let report =
+            memo_file.reconcile_notebook_with_disk_bidirectional_for_import(&notebook_id)?;
+        tracing::info!(
+            "[create_notebook] import/reconcile done id={} added={} removed={}",
+            notebook_id,
+            report.added,
+            report.removed
+        );
+
         tracing::info!("[create_notebook] seed onboarding start id={}", notebook_id);
-        match memo_file.seed_onboarding_docs() {
+        match memo_file.seed_onboarding_docs_for_notebook_id(&notebook_id) {
             Ok(true) => tracing::info!("[create_notebook] seeded onboarding documents"),
             Ok(false) => tracing::debug!(
-                "[create_notebook] onboarding documents skipped (notebook already has memos)"
+                "[create_notebook] onboarding documents skipped (notebook already has documents)"
             ),
-            Err(e) => {
-                tracing::warn!("[create_notebook] failed to seed onboarding documents: {e}")
-            }
+            Err(error) => return Err(format!("seed onboarding documents failed: {error}")),
         }
-    }
+        Ok::<(), String>(())
+    })();
 
-    // 空目录也写出�?memo index, �?新建 notebook 已建立索�?这个状态可观察�?
-    {
-        let memo_file = read_lock(&app_state.memo_file, "memo_file");
-        tracing::info!(
-            "[create_notebook] empty index init check id={}",
-            notebook_id
-        );
-        if memo_file.read_index().is_none() {
-            if let Err(e) = memo_file.write_index(&MemoIndexFile::default()) {
-                tracing::warn!("[create_notebook] failed to initialize empty memo index: {e}");
-            } else {
-                tracing::info!(
-                    "[create_notebook] initialized empty memo index id={}",
-                    notebook_id
-                );
-            }
-        }
-    }
-
-    tracing::info!(
-        "[create_notebook] import/reconcile start id={}",
-        notebook_id
-    );
-    if let Err(e) =
-        switch_notebook_importing_disk_as_new(app_state.inner(), &app, Some(notebook_id.clone()))
-    {
-        tracing::warn!("[create_notebook] background import failed: {e}");
+    if let Err(error) = import_result {
+        tracing::warn!("[create_notebook] background import failed: {error}");
         emit_notebook_import_status(
+            app_state.inner(),
             &app,
             &notebook_id,
             NotebookImportStatusKind::Failed,
-            Some(e),
+            Some(error),
         );
         return;
-    } else {
-        tracing::info!("[create_notebook] import/reconcile done id={}", notebook_id);
     }
     emit_notebook_import_status(
+        app_state.inner(),
         &app,
         &notebook_id,
         NotebookImportStatusKind::Completed,
@@ -431,10 +434,66 @@ pub fn create_notebook(
         create_notebook_registry(trimmed_name, trimmed_path, icon, &memo_file)?
     };
     sync_notebook_agent_access(&config, state.inner(), &app);
-    activate_created_notebook(&config, state.inner(), &app);
-    spawn_notebook_import(app.clone(), config.id.clone());
+    activate_created_notebook(&config, state.inner(), &app)?;
+    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
 
     Ok(notebook_from_config(config))
+}
+
+/// Start importing an ordinary local notebook after the frontend has applied
+/// the newly created notebook to its local selection state. Keeping this as a
+/// separate command closes the event race where the worker could finish before
+/// the frontend had selected the returned notebook.
+#[tauri::command]
+pub fn start_notebook_import(
+    notebook_id: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let exists = read_lock(&state.memo_file, "memo_file")
+        .get_notebook_config_by_id(&notebook_id)
+        .is_some();
+    if !exists {
+        return Err("NOTEBOOK_NOT_FOUND".to_string());
+    }
+
+    // The command is idempotent while a job is running. This also prevents a
+    // double click or duplicate IPC request from importing the same notebook
+    // concurrently and racing its index updates.
+    let already_running = state
+        .notebook_imports
+        .lock()
+        .map(|imports| {
+            imports
+                .get(&notebook_id)
+                .is_some_and(|status| matches!(status.status, NotebookImportStatusKind::Started))
+        })
+        .unwrap_or(false);
+    if already_running {
+        return Ok(());
+    }
+
+    emit_notebook_import_status(
+        state.inner(),
+        &app,
+        &notebook_id,
+        NotebookImportStatusKind::Started,
+        None,
+    );
+    spawn_notebook_import(app, notebook_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_notebook_import_status(
+    notebook_id: String,
+    state: State<AppState>,
+) -> Option<NotebookImportStatus> {
+    state
+        .notebook_imports
+        .lock()
+        .ok()
+        .and_then(|imports| imports.get(&notebook_id).cloned())
 }
 
 /// Register an empty local mount for a Cloud notebook while preserving the
@@ -482,7 +541,7 @@ pub fn create_notebook_from_cloud(
         create_notebook_registry_with_id(trimmed_name, trimmed_path, icon, Some(&id), &memo_file)?
     };
     sync_notebook_agent_access(&config, state.inner(), &app);
-    activate_created_notebook(&config, state.inner(), &app);
+    activate_created_notebook(&config, state.inner(), &app)?;
     dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
 
     Ok(notebook_from_config(config))
@@ -536,18 +595,53 @@ pub fn update_notebook(
 
 #[tauri::command]
 pub fn delete_notebook(id: String, state: State<AppState>, app: AppHandle) -> Result<bool, String> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let mut configs = memo_file.read_notebook_configs().unwrap_or_default();
+    let (was_current, next_notebook_id) = {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let mut configs = memo_file.read_notebook_configs().unwrap_or_default();
 
-    let index = match configs.iter().position(|c| c.id == id) {
-        Some(idx) => idx,
-        None => return Err("NOTEBOOK_NOT_FOUND".to_string()),
+        let index = match configs.iter().position(|c| c.id == id) {
+            Some(idx) => idx,
+            None => return Err("NOTEBOOK_NOT_FOUND".to_string()),
+        };
+        let was_current = memo_file.current_notebook_id_value().as_deref() == Some(id.as_str());
+        configs.remove(index);
+        let next_notebook_id = if was_current {
+            configs.first().map(|config| config.id.clone())
+        } else {
+            None
+        };
+
+        memo_file
+            .write_notebook_configs(&configs)
+            .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
+        (was_current, next_notebook_id)
     };
-    configs.remove(index);
 
-    memo_file
-        .write_notebook_configs(&configs)
-        .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
+    // Keep the native operation context and the persisted selection valid even
+    // when the deletion is initiated outside the main Webview. The frontend
+    // performs the same transition for its workspace state, but the backend
+    // must not retain an id that has just been removed.
+    if was_current {
+        if let Err(error) =
+            set_current_notebook_inner(next_notebook_id.clone(), state.inner(), &app)
+        {
+            tracing::error!(
+                deleted_notebook = %id,
+                next_notebook = ?next_notebook_id,
+                %error,
+                "failed to select first remaining notebook after deletion"
+            );
+            // `set_current_notebook_inner` may fail while running migrations;
+            // still repair the cross-process selection record so a restart
+            // cannot resurrect the deleted notebook.
+            if let Err(persist_error) = read_lock(&state.memo_file, "memo_file")
+                .write_selected_notebook_id(next_notebook_id.as_deref())
+            {
+                tracing::error!(%persist_error, "failed to persist deletion fallback notebook");
+            }
+        }
+    }
+
     if let Err(error) = state.cloud_sync.record_v2_notebook_delete(&id) {
         tracing::warn!("failed to persist cloud notebook deletion {id}: {error}");
     } else {
@@ -559,6 +653,7 @@ pub fn delete_notebook(id: String, state: State<AppState>, app: AppHandle) -> Re
         dispatcher::emit_to(&app, AGENT_ACCESS_CHANGED_EVENT, ());
     }
     refresh_watcher_roots(state.inner(), &app);
+    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
     Ok(true)
 }
 
@@ -655,18 +750,12 @@ pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> bool {
 }
 
 #[tauri::command]
-pub fn set_current_notebook(notebook_id: Option<String>, state: State<AppState>, app: AppHandle) {
-    // Fast path for ordinary switching: trust memo index and avoid synchronous
-    // disk reconciliation. Search index rebuild is lazy, triggered by search.
-    if let Err(e) = switch_notebook_trusting_index(state.inner(), &app, notebook_id.clone()) {
-        tracing::warn!("[set_current_notebook] switch failed: {e}");
-        return;
-    }
-    if let Err(e) =
-        read_lock(&state.memo_file, "memo_file").write_selected_notebook_id(notebook_id.as_deref())
-    {
-        tracing::warn!("[set_current_notebook] persist selection failed: {e}");
-    }
+pub fn set_current_notebook(
+    notebook_id: Option<String>,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    set_current_notebook_inner(notebook_id, state.inner(), &app)
 }
 
 #[cfg(test)]

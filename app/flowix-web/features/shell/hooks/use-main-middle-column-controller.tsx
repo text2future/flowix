@@ -92,8 +92,11 @@ export function useMainMiddleColumnController({
   return {
     agentConversationListReady,
     shouldRenderAgentConversationList,
-    showMemoListSurface: !isAgentConversationView || !agentConversationListReady,
-    showAgentConversationSurface: isAgentConversationView && agentConversationListReady,
+    // The selected surface must follow the store immediately.  Readiness is
+    // only a loading concern for the lazy conversation chunk; it must not keep
+    // the previous notes surface visible after the user has switched views.
+    showMemoListSurface: !isAgentConversationView,
+    showAgentConversationSurface: isAgentConversationView,
     memoListPreviewVisible,
     memoListPreviewPhase: preview.phase,
     handleMemoListPreviewTriggerEnter: preview.handleTriggerEnter,

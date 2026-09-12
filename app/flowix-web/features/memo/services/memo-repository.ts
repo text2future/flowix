@@ -38,6 +38,8 @@ export const notebookRepository = {
     notebooks.create(name, path, icon),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null) =>
     notebooks.createFromCloud(id, name, path, icon),
+  startImport: (notebookId: string) => notebooks.startImport(notebookId),
+  getImportStatus: (notebookId: string) => notebooks.getImportStatus(notebookId),
   update: (id: string, name?: string, icon?: string | null) =>
     notebooks.update(id, name, icon),
   /**

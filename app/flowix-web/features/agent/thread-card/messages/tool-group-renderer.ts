@@ -65,8 +65,9 @@ function formatToolGroupDuration(durationMs: number): string | null {
   // real sub-second duration into the misleading label "0s".
   if (durationMs < 1000) return null;
   const totalSeconds = Math.floor(durationMs / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  return `${Math.floor(totalSeconds / 60)}m${totalSeconds % 60}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function getToolGroupLabel(group: ToolGroup, language: AppLanguage): string {

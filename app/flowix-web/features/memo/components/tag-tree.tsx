@@ -1060,7 +1060,7 @@ export function TagTree({
       {dragGhost && (
         <div
           aria-hidden
-          className="pointer-events-none fixed z-[1100] flex items-center gap-2 rounded-md border border-[var(--primary)] bg-[var(--card)] px-2 text-sm opacity-50 shadow-lg"
+          className="pointer-events-none fixed z-[110] flex items-center gap-2 rounded-md border border-[var(--primary)] bg-[var(--card)] px-2 text-sm opacity-50 shadow-lg"
           style={{
             left: dragGhost.currentX + 12,
             top: dragGhost.currentY + 12,

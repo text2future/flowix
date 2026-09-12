@@ -1,3 +1,7 @@
+---
+key: gmxv77no
+---
+
 # Phase 5 续做清单 — Agent Session Store 重构收尾
 
 > 分支 `refactor/agent-session-store`。本文件是阶段 2b / 3 的接续指南,供新会话无需重新评估即可继续。

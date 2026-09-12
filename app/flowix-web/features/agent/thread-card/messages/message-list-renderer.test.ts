@@ -427,7 +427,7 @@ describe("continuous tool group rendering", () => {
       }),
     ], context());
 
-    expect(list.textContent).toContain("已完成 2 个步骤 · 1m2s");
+    expect(list.textContent).toContain("已完成 2 个步骤 · 01:02");
   });
 
   it("uses raw tool call/result timestamps for the completed group", () => {
@@ -439,7 +439,7 @@ describe("continuous tool group rendering", () => {
       }),
     ], context());
 
-    expect(list.textContent).toContain("已完成 1 个步骤 · 2s");
+    expect(list.textContent).toContain("已完成 1 个步骤 · 00:02");
   });
 
   it("does not display 0s for a sub-second raw tool timeline", () => {

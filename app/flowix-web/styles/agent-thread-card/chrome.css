@@ -193,7 +193,7 @@
   margin-top: 0 !important;
   padding: 0;
   background: var(--editor-block-bg);
-  z-index: 1000;
+  z-index: 100;
 }
 
 /* 文档进入时的持久化全屏恢复在首个布局帧内完成。恢复期间先隐藏卡片并

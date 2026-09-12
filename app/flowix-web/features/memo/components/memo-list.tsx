@@ -5,7 +5,6 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDownUp,
   Check,
-  FolderPlus,
   LayoutList,
   ListFilter,
   Search,
@@ -88,6 +87,9 @@ function EmptyState() {
 interface MemoListProps {
   /** The full left navigation owns these controls when it is visible. */
   navigationDrawerEnabled?: boolean;
+  /** When provided, the notes tab is controlled by the main navigation drawer. */
+  navigationDrawerOpen?: boolean;
+  onToggleNavigationDrawer?: () => void;
   /** Keep the memo list mounted while the middle column shows conversations. */
   isActive?: boolean;
   dataLoadingEnabled?: boolean;
@@ -95,6 +97,8 @@ interface MemoListProps {
 
 export function MemoList({
   navigationDrawerEnabled = true,
+  navigationDrawerOpen: controlledNavigationDrawerOpen,
+  onToggleNavigationDrawer,
   isActive = true,
   dataLoadingEnabled = true,
 }: MemoListProps) {
@@ -164,7 +168,7 @@ export function MemoList({
   );
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [notebookDropdownOpen, setNotebookDropdownOpen] = useState(false);
-  const [navigationDrawerOpen, setNavigationDrawerOpen] = useState(false);
+  const [localNavigationDrawerOpen, setLocalNavigationDrawerOpen] = useState(false);
   const [colorSubmenuOpen, setColorSubmenuOpen] = useState(false);
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
   const [viewSubmenuOpen, setViewSubmenuOpen] = useState(false);
@@ -185,8 +189,19 @@ export function MemoList({
   }, [selectedNotebook?.id]);
 
   useEffect(() => {
-    if (!navigationDrawerEnabled) setNavigationDrawerOpen(false);
-  }, [navigationDrawerEnabled]);
+    if (!navigationDrawerEnabled && controlledNavigationDrawerOpen === undefined) {
+      setLocalNavigationDrawerOpen(false);
+    }
+  }, [controlledNavigationDrawerOpen, navigationDrawerEnabled]);
+
+  const navigationDrawerControlled =
+    controlledNavigationDrawerOpen !== undefined && Boolean(onToggleNavigationDrawer);
+  const navigationDrawerOpen = navigationDrawerControlled
+    ? controlledNavigationDrawerOpen
+    : localNavigationDrawerOpen;
+  const toggleNavigationDrawer = onToggleNavigationDrawer ?? (() => {
+    setLocalNavigationDrawerOpen((isOpen) => !isOpen);
+  });
 
   const handleRetryStartup = useCallback(() => {
     void initializeMainWindowStartup().catch((error) => {
@@ -472,6 +487,13 @@ export function MemoList({
     setActiveFilter(filter);
   };
 
+  const handleClearFilter = useCallback(() => {
+    setSelectedTagId(null);
+    setColorFilter('any');
+    setActiveFilter('all');
+    setNotebookDropdownOpen(false);
+  }, [setActiveFilter, setColorFilter, setSelectedTagId]);
+
   // 颜色二级弹窗的选中回调: 同步 activeFilter='color' + colorFilter, 同时
   // 显式关掉父 dropdown (子菜单 onMouseDown 阻止了冒泡, 父 dropdown
   // setOpen 不会自动触发, 需要手动 setNotebookDropdownOpen(false))。
@@ -673,7 +695,11 @@ export function MemoList({
   })();
   const sortValueAdornment = activeSort === 'updatedAt'
     ? t('memo.list.sortUpdated')
-    : t('memo.list.sortCreated');
+    : activeSort === 'filenameAsc'
+      ? t('memo.list.sortFilenameAsc')
+      : activeSort === 'filenameDesc'
+        ? t('memo.list.sortFilenameDesc')
+        : t('memo.list.sortCreated');
   const activeView = memoListView;
   const viewValueAdornment = activeView === 'folders'
     ? t('memo.list.viewFolders')
@@ -708,7 +734,7 @@ export function MemoList({
             onChange={(tab) => setActiveFilter(tab === 'conversations' ? 'agents' : 'all')}
             navigationDrawerEnabled={navigationDrawerEnabled}
             navigationDrawerOpen={navigationDrawerOpen}
-            onToggleNavigationDrawer={() => setNavigationDrawerOpen((isOpen) => !isOpen)}
+            onToggleNavigationDrawer={toggleNavigationDrawer}
           />
         </div>
         <div className="min-w-0 flex-1">
@@ -718,6 +744,8 @@ export function MemoList({
             ariaLabel={t('memo.navigation.menuTitle')}
             open={notebookDropdownOpen}
             onOpenChange={setNotebookDropdownOpen}
+            showClear={hasActiveFilter}
+            onClear={handleClearFilter}
           >
           <div className="space-y-0.5">
             {/* Filter — 二级弹窗 (本周 / 本月 / 颜色组) */}
@@ -827,6 +855,30 @@ export function MemoList({
                     <span className="mention-note-title">{t('memo.list.sortUpdated')}</span>
                     {activeSort === 'updatedAt' && <Check className="w-4 h-4 text-[var(--brand)]" />}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSortFromSubmenu('filenameAsc')}
+                    onMouseDown={(event) => event.preventDefault()}
+                    className={cn(
+                      'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
+                      activeSort === 'filenameAsc' && 'is-selected',
+                    )}
+                  >
+                    <span className="mention-note-title">{t('memo.list.sortFilenameAsc')}</span>
+                    {activeSort === 'filenameAsc' && <Check className="w-4 h-4 text-[var(--brand)]" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSortFromSubmenu('filenameDesc')}
+                    onMouseDown={(event) => event.preventDefault()}
+                    className={cn(
+                      'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
+                      activeSort === 'filenameDesc' && 'is-selected',
+                    )}
+                  >
+                    <span className="mention-note-title">{t('memo.list.sortFilenameDesc')}</span>
+                    {activeSort === 'filenameDesc' && <Check className="w-4 h-4 text-[var(--brand)]" />}
+                  </button>
                 </div>
               )}
               onOpenChange={setSortSubmenuOpen}
@@ -849,7 +901,7 @@ export function MemoList({
               submenuContent={(
                 <div className="flex flex-col space-y-0.5">
                   <div className="px-2 pb-1 pt-1 text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
-                    {t('memo.list.viewCardGroup')}
+                    {t('memo.list.viewLabel')}
                   </div>
                   {(['detailed', 'folders'] as const).map((view) => (
                     <button
@@ -890,19 +942,6 @@ export function MemoList({
               <Search className="w-4 h-4" />
             </Button>
           </Tooltip>
-          {memoListView === 'folders' && (
-            <Tooltip content={t('memo.fileTree.newFolder')}>
-              <Button
-                size="icon"
-                variant="outline"
-                className={cn(HEADER_ICON_BTN_CLASS, 'bg-[var(--card)]')}
-                onClick={handleCreateFolder}
-                aria-label={t('memo.fileTree.newFolder')}
-              >
-                <FolderPlus className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-          )}
           <Tooltip content={t("memo.list.newMemoTooltip")} shortcut="memo.create">
             <Button
               size="icon"
@@ -920,11 +959,11 @@ export function MemoList({
       </>
 
       <div className="relative flex min-h-0 flex-1">
-        {navigationDrawerEnabled && (
+        {navigationDrawerEnabled && !navigationDrawerControlled && (
           <MemoListNavigationDrawer
             open={navigationDrawerOpen}
             selectedNotebook={selectedNotebook}
-            onClose={() => setNavigationDrawerOpen(false)}
+            onClose={() => setLocalNavigationDrawerOpen(false)}
           />
         )}
         {startupPhase === 'error' && (
@@ -951,7 +990,10 @@ export function MemoList({
               notebook={selectedNotebook}
               createFolderRequest={createFolderRequest}
               createNoteRequest={createNoteRequest}
+              onCreateFolder={handleCreateFolder}
               sort={activeSort}
+              visibleMemos={activeFilter === 'all' && !activeTagId && !activePluginId ? null : memos}
+              isActive={isActive && dataLoadingEnabled}
               onCreateNote={handleCreateNoteInFolder}
             />
           </div>

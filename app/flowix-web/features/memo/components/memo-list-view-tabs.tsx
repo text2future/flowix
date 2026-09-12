@@ -109,6 +109,13 @@ export function MemoListViewTabs({
             ? t('memo.navigation.closeDrawer')
             : t('memo.navigation.menuTitle')
           : label;
+        const activate = () => {
+          if (opensNavigation) {
+            onToggleNavigationDrawer?.();
+            return;
+          }
+          handleChange(value);
+        };
         return (
           <Tooltip key={value} content={buttonLabel} side="bottom" sideOffset={4}>
             <button
@@ -119,12 +126,18 @@ export function MemoListViewTabs({
               aria-label={buttonLabel}
               aria-expanded={opensNavigation ? navigationDrawerOpen : undefined}
               title={buttonLabel}
-              onClick={() => {
-                if (opensNavigation) {
-                  onToggleNavigationDrawer?.();
-                  return;
-                }
-                handleChange(value);
+              onPointerDown={(event) => {
+                // Leaving an edited BrowserColumn synchronously blurs and
+                // serializes its editor during the ancestor pointerdown. Run
+                // the tab intent before that focus transition can rerender the
+                // trigger and swallow the later click event.
+                if (event.isPrimary === false || event.button !== 0) return;
+                activate();
+              }}
+              onClick={(event) => {
+                // Pointer activation already ran on pointerdown. A detail of 0
+                // is the keyboard/assistive-technology click path.
+                if (event.detail === 0) activate();
               }}
               className={cn(
                 'group relative z-[1] flex h-6 w-6 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]',

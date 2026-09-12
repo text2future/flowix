@@ -103,7 +103,7 @@ export function MemoListNavigationDrawer({
                 <span className="mr-2 shrink-0 opacity-90">
                   <Layers className="h-3.5 w-3.5" />
                 </span>
-                <span className="min-w-0 flex-1 truncate">{t('memo.navigation.allNotes')}</span>
+                <span className="min-w-0 flex-1 truncate">{t('memo.navigation.all')}</span>
               </button>
               <button
                 type="button"

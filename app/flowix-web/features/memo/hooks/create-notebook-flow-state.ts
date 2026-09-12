@@ -15,12 +15,12 @@ export interface NotebookImportStatusEffect {
 }
 
 export function resolveNotebookImportStatusEffect(
-  selectedNotebookId: string | null | undefined,
+  trackedNotebookId: string | null | undefined,
   importStatus: NotebookImportStatus,
   fallbackErrorMessage: string,
 ): NotebookImportStatusEffect | null {
   const notebookId = importStatus.notebookId;
-  if (selectedNotebookId !== notebookId) return null;
+  if (trackedNotebookId !== notebookId) return null;
 
   if (importStatus.status === 'started') {
     return {

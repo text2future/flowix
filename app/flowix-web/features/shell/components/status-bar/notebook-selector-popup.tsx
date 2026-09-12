@@ -507,7 +507,7 @@ export function NotebookSelectorPopup({
 
         {ghost && sourceNotebook && typeof document !== 'undefined' && createPortal(
           <div
-            className="pointer-events-none fixed z-[1600] flex origin-top-left flex-col items-start gap-2 rounded-lg border border-[color-mix(in_oklch,var(--primary)_70%,var(--border))] bg-[var(--popover)] px-3 py-3 opacity-95 shadow-[0_16px_40px_color-mix(in_oklch,var(--foreground)_18%,transparent)]"
+            className="pointer-events-none fixed z-[160] flex origin-top-left flex-col items-start gap-2 rounded-lg border border-[color-mix(in_oklch,var(--primary)_70%,var(--border))] bg-[var(--popover)] px-3 py-3 opacity-95 shadow-[0_16px_40px_color-mix(in_oklch,var(--foreground)_18%,transparent)]"
             style={{
               left: ghost.pointerX + 10,
               top: ghost.pointerY + 10,

@@ -1,3 +1,7 @@
+---
+key: luofjg67
+---
+
 # Flowix updater release
 
 Flowix ships per-platform update manifests and static website downloads:

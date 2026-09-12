@@ -22,7 +22,7 @@ export function WindowsTitlebarControls({
   if (!isWindowsPlatform() || !isTauriApp()) return null;
 
   return (
-    <div className="fixed top-0 right-0 z-[1001] flex h-9 select-none bg-[var(--bg-titlebar)] pointer-events-auto [-webkit-app-region:no-drag]">
+    <div className="fixed top-0 right-0 z-[100] flex h-9 select-none bg-[var(--bg-titlebar)] pointer-events-auto [-webkit-app-region:no-drag]">
       <Tooltip content={t('window.minimize')} side="bottom">
         <button
           type="button"

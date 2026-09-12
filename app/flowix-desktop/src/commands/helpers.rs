@@ -4,7 +4,6 @@ use std::path::Path;
 
 use tauri::{AppHandle, State};
 
-use crate::app::search_index::rebuild_index_in_background;
 use crate::config::path_is_inside;
 use crate::lock_utils::{read_lock, write_lock};
 use crate::watcher::runtime::current_watcher;
@@ -30,34 +29,18 @@ pub(crate) fn refresh_watcher_roots(state: &AppState, app: &AppHandle) {
     }
 }
 
-pub(crate) fn switch_notebook_importing_disk_as_new(
-    state: &AppState,
-    app: &AppHandle,
-    notebook_id: Option<String>,
-) -> Result<(), String> {
-    switch_notebook(state, app, notebook_id, ReconcileMode::ImportAsNew, true)
-}
-
 pub(crate) fn switch_notebook_trusting_index(
     state: &AppState,
     app: &AppHandle,
     notebook_id: Option<String>,
 ) -> Result<(), String> {
-    switch_notebook(state, app, notebook_id, ReconcileMode::Skip, false)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ReconcileMode {
-    Skip,
-    ImportAsNew,
+    switch_notebook(state, app, notebook_id)
 }
 
 fn switch_notebook(
     state: &AppState,
     app: &AppHandle,
     notebook_id: Option<String>,
-    reconcile_mode: ReconcileMode,
-    rebuild_search_now: bool,
 ) -> Result<(), String> {
     let prev = read_lock(&state.memo_file, "memo_file").current_notebook_id_value();
     let idx_nb = state
@@ -139,21 +122,6 @@ fn switch_notebook(
         }
     }
 
-    match reconcile_mode {
-        ReconcileMode::Skip => {}
-        ReconcileMode::ImportAsNew => {
-            let _ = state
-                .memo_file
-                .read()
-                .unwrap_or_else(|poisoned| {
-                    tracing::error!("memo_file read lock poisoned, recovering");
-                    poisoned.into_inner()
-                })
-                .reconcile_with_disk_bidirectional_as_new()
-                .map_err(|e| format!("reconcile_with_disk_bidirectional_as_new failed: {e}"))?;
-        }
-    }
-
     if let Some(notebook_id) = notebook_id.as_deref() {
         let notebook_path = {
             let memo_file = read_lock(&state.memo_file, "memo_file");
@@ -182,11 +150,7 @@ fn switch_notebook(
         }
     }
 
-    if rebuild_search_now {
-        rebuild_index_in_background(state, app);
-    } else {
-        write_lock(&state.search, "search").mark_unloaded();
-    }
+    write_lock(&state.search, "search").mark_unloaded();
     Ok(())
 }
 

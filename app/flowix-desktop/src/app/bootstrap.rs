@@ -275,6 +275,7 @@ pub fn run() {
                 agent_access: agent_access_for_state.clone(),
                 security_bookmarks: security_bookmarks_for_state.clone(),
                 plugin_runs: crate::plugin::PluginRunCoordinator::default(),
+                notebook_imports: Default::default(),
             };
             app_state.upload_sessions.start_cleanup();
             app.manage(app_state);
@@ -644,6 +645,8 @@ pub fn run() {
             commands::notebook::get_notebooks,
             commands::notebook::create_notebook,
             commands::notebook::create_notebook_from_cloud,
+            commands::notebook::start_notebook_import,
+            commands::notebook::get_notebook_import_status,
             commands::notebook::update_notebook,
             commands::notebook::delete_notebook,
             commands::notebook::clear_notebooks,
@@ -657,6 +660,7 @@ pub fn run() {
             commands::file::write_file,
             commands::file::rename_file,
             commands::file::delete_file,
+            commands::file::delete_folder,
             commands::file::create_folder,
             commands::file::create_document,
             // font cache

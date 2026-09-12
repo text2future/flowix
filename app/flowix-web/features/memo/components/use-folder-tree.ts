@@ -338,7 +338,7 @@ export function useFolderTree(folderPath: string) {
     [rootChildren, nodes, expanded, loading, error],
   );
 
-  return {
+  return useMemo(() => ({
     ...state,
     toggle,
     expandTo,
@@ -346,7 +346,7 @@ export function useFolderTree(folderPath: string) {
     refresh,
     refreshDirectories,
     reload: loadRoot,
-  };
+  }), [state, toggle, expandTo, collapseAll, refresh, refreshDirectories, loadRoot]);
 }
 
 export type FolderTreeController = ReturnType<typeof useFolderTree>;

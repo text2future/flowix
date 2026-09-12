@@ -1,3 +1,7 @@
+---
+key: cvr8knhf
+---
+
 <p align="center">
   <img src="./images/app-icon.png" width="120" alt="Flowix Memo" />
 </p>

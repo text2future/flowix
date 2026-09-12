@@ -260,7 +260,7 @@ function DropdownMenuContent({
 			onMouseEnter={onMouseEnter}
 			onMouseLeave={onMouseLeave}
 			className={cn(
-				"fixed z-[1500] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 animate-in fade-in-0 zoom-in-95",
+				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 animate-in fade-in-0 zoom-in-95",
 				className
 			)}
 			style={{
@@ -426,7 +426,7 @@ function DropdownMenuSubTrigger({ children, className, inset }: DropdownMenuSubT
 				{children}
 			</button>
 			{isOpen && (
-				<div className="absolute left-full ml-1 top-0 z-[1501] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1">
+				<div className="absolute left-full ml-1 top-0 z-[151] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1">
 					{/* This would need children passed differently - simplified for now */}
 				</div>
 			)}
@@ -444,7 +444,7 @@ function DropdownMenuSubContent({
 	return (
 		<div
 			className={cn(
-				"absolute left-full ml-1 top-0 z-[1501] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1",
+				"absolute left-full ml-1 top-0 z-[151] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1",
 				className
 			)}
 		>

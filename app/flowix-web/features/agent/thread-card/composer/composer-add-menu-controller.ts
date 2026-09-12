@@ -2,6 +2,7 @@ import type { I18nKey } from "@/lib/i18n";
 import type { AgentRolePickerController } from "@features/agent/thread-card/role/agent-role-picker-controller";
 import type { ComposerImageController } from "./composer-image-controller";
 import { COMPOSER_ATTACHMENT_ACCEPT } from "./composer-image-controller";
+import type { AgentTypeKey } from "@/types/agent";
 
 export interface ComposerAddMenuControllerOptions {
   trigger: HTMLButtonElement;
@@ -11,6 +12,8 @@ export interface ComposerAddMenuControllerOptions {
   images: ComposerImageController;
   t: (key: I18nKey) => string;
   isDestroyed: () => boolean;
+  getAgentType: () => AgentTypeKey;
+  openCodexSettings: () => void;
 }
 
 export class ComposerAddMenuController {
@@ -68,13 +71,21 @@ export class ComposerAddMenuController {
     this.noteItem?.removeEventListener("pointerleave", this.handleSubmenuBoundaryLeave);
     const note = this.createItem(this.options.t("editor.threadCard.addNote"), true);
     const attachment = this.createItem(this.options.t("editor.threadCard.addAttachment"), false);
-    this.options.popover.replaceChildren(note, attachment);
+    const items = [note, attachment];
+    if (this.options.getAgentType() === "codex") {
+      const codex = this.createItem(this.options.t("editor.threadCard.codexSettings"), false, () => {
+        this.setOpen(false);
+        this.options.openCodexSettings();
+      });
+      items.push(codex);
+    }
+    this.options.popover.replaceChildren(...items);
     this.noteItem = note;
     // The parent item and level-2 popover form one continuous hover region.
     note.addEventListener("pointerleave", this.handleSubmenuBoundaryLeave);
   }
 
-  private createItem(label: string, isNote: boolean): HTMLButtonElement {
+  private createItem(label: string, isNote: boolean, onClick?: () => void): HTMLButtonElement {
     const item = document.createElement("button");
     item.type = "button";
     // Reuse the permission/model dropdown item contract so copy and controls
@@ -89,6 +100,11 @@ export class ComposerAddMenuController {
         this.options.rolePicker.openFromParent(item);
       });
       item.addEventListener("focus", () => this.options.rolePicker.openFromParent(item));
+    } else if (onClick) {
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onClick();
+      });
     } else {
       item.addEventListener("click", (event) => {
         event.stopPropagation();

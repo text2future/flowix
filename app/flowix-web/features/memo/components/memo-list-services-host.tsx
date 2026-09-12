@@ -72,7 +72,7 @@ function DeleteDialogShortcuts({
 
 function BlockingOperationStatus({ text, stacked }: { text: string; stacked: boolean }) {
   return (
-    <div className="pointer-events-auto fixed inset-0 z-[1400] flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_82%,transparent)] backdrop-blur-[1px]">
+    <div className="pointer-events-auto fixed inset-0 z-[140] flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_82%,transparent)] backdrop-blur-[1px]">
       <div className={cn('flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)]', stacked && 'flex-col')} role="status" aria-live="polite">
         <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />
         <span>{text}</span>

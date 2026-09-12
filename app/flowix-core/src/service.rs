@@ -4,6 +4,7 @@
 //! such as notebook resolution, global memo lookup, exact edits, validation, and typed
 //! errors so transport adapters do not need to reimplement them.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -43,6 +44,10 @@ struct MemoListCursor {
     color: Option<String>,
     favorited: bool,
     sort_value: i64,
+    #[serde(default)]
+    sort_text: Option<String>,
+    #[serde(default)]
+    sort_tiebreaker: Option<String>,
     id: String,
 }
 
@@ -255,6 +260,8 @@ impl<'a> MemoService<'a> {
                     color: normalized_color.clone(),
                     favorited: memo.favorited,
                     sort_value: memo_sort_value(memo, sort),
+                    sort_text: memo_sort_text(memo, sort),
+                    sort_tiebreaker: memo_sort_tiebreaker(memo, sort),
                     id: memo.id.clone(),
                 })
                 .expect("memo list cursor serialization cannot fail")
@@ -943,6 +950,20 @@ fn memo_sort_value(memo: &Memo, sort: &str) -> i64 {
     }
 }
 
+fn memo_sort_text(memo: &Memo, sort: &str) -> Option<String> {
+    match sort {
+        "filenameAsc" | "filenameDesc" => Some(memo.filename.to_lowercase()),
+        _ => None,
+    }
+}
+
+fn memo_sort_tiebreaker(memo: &Memo, sort: &str) -> Option<String> {
+    match sort {
+        "filenameAsc" | "filenameDesc" => Some(memo.filename.clone()),
+        _ => None,
+    }
+}
+
 fn memo_color_name(color: MemoColor) -> &'static str {
     match color {
         MemoColor::Red => "red",
@@ -956,11 +977,32 @@ fn memo_color_name(color: MemoColor) -> &'static str {
 }
 
 fn memo_is_after_cursor(memo: &Memo, cursor: &MemoListCursor, sort: &str) -> bool {
-    // The list is sorted descending by each key, so a lower key is later.
-    memo.favorited < cursor.favorited
-        || (memo.favorited == cursor.favorited
-            && (memo_sort_value(memo, sort) < cursor.sort_value
-                || (memo_sort_value(memo, sort) == cursor.sort_value && memo.id < cursor.id)))
+    if memo.favorited != cursor.favorited {
+        return memo.favorited < cursor.favorited;
+    }
+
+    if sort == "filenameAsc" || sort == "filenameDesc" {
+        let memo_key = memo.filename.to_lowercase();
+        let cursor_key = cursor.sort_text.as_deref().unwrap_or_default();
+        let filename_order = memo_key
+            .as_str()
+            .cmp(cursor_key)
+            .then_with(|| {
+                memo.filename
+                    .as_str()
+                    .cmp(cursor.sort_tiebreaker.as_deref().unwrap_or_default())
+            })
+            .then_with(|| memo.id.as_str().cmp(cursor.id.as_str()));
+        return if sort == "filenameDesc" {
+            filename_order == Ordering::Less
+        } else {
+            filename_order == Ordering::Greater
+        };
+    }
+
+    // The date list is sorted descending, so a lower key is later.
+    memo_sort_value(memo, sort) < cursor.sort_value
+        || (memo_sort_value(memo, sort) == cursor.sort_value && memo.id < cursor.id)
 }
 
 #[cfg(test)]
@@ -1305,6 +1347,89 @@ mod tests {
         assert_eq!(third.memos.len(), 1);
         assert!(!third.has_more);
         assert!(third.next_cursor.is_none());
+    }
+
+    #[test]
+    fn memo_pages_sort_by_filename_in_both_directions() {
+        let (_temp, memo_file) = service_fixture();
+        let mut service = MemoService::new(&memo_file);
+        service
+            .create_memo_named(Some("work"), "Zulu", "# Zulu\n")
+            .unwrap();
+        service
+            .create_memo_named(Some("work"), "alpha", "# alpha\n")
+            .unwrap();
+        service
+            .create_memo_named(Some("work"), "middle", "# middle\n")
+            .unwrap();
+
+        let asc = service
+            .list_memos_filtered_page(
+                Some("work"),
+                "all",
+                "filenameAsc",
+                None,
+                None,
+                None,
+                Some(2),
+            )
+            .unwrap();
+        assert_eq!(
+            asc.memos
+                .iter()
+                .map(|memo| memo.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.md", "middle.md"]
+        );
+        let asc_next = service
+            .list_memos_filtered_page(
+                Some("work"),
+                "all",
+                "filenameAsc",
+                None,
+                None,
+                asc.next_cursor.as_deref(),
+                Some(2),
+            )
+            .unwrap();
+        assert_eq!(
+            asc_next
+                .memos
+                .iter()
+                .map(|memo| memo.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Zulu.md"]
+        );
+
+        let desc = service
+            .list_memos_filtered_page(Some("work"), "all", "filenameDesc", None, None, None, Some(2))
+            .unwrap();
+        assert_eq!(
+            desc.memos
+                .iter()
+                .map(|memo| memo.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Zulu.md", "middle.md"]
+        );
+        let desc_next = service
+            .list_memos_filtered_page(
+                Some("work"),
+                "all",
+                "filenameDesc",
+                None,
+                None,
+                desc.next_cursor.as_deref(),
+                Some(2),
+            )
+            .unwrap();
+        assert_eq!(
+            desc_next
+                .memos
+                .iter()
+                .map(|memo| memo.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.md"]
+        );
     }
 
     #[test]

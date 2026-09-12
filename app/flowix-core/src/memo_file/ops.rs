@@ -255,7 +255,10 @@ impl MemoFile {
         }
     }
 
-    fn memo_base_for_notebook_id_result(&self, notebook_id: &str) -> Result<PathBuf, String> {
+    pub(crate) fn memo_base_for_notebook_id_result(
+        &self,
+        notebook_id: &str,
+    ) -> Result<PathBuf, String> {
         self.get_notebook_config_by_id(notebook_id)
             .map(|config| PathBuf::from(config.path))
             .ok_or_else(|| format!("notebook {notebook_id} not found"))

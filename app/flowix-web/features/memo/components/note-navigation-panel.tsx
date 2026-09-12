@@ -63,7 +63,7 @@ export function NoteNavigationPanel({
   return (
     <div className="flex h-full min-w-0 select-none flex-col bg-[var(--agent-bg)] text-[var(--agent-foreground)]">
       {/* 顶部 header ── Mac/Win 差分:
-            - Mac: h-12 (与 OS 标题栏同高) + pl-[90px] 避开红绿灯 + rounded-xl 按钮
+            - Mac: h-10 + pl-[90px] 避开红绿灯 + rounded-xl 按钮
             - Win: h-9 (在 OS 标题栏下方, 仅做内部 UI) + rounded-lg 按钮
           两者都整块作为窗口拖动区 (data-tauri-drag-region)。 */}
       {isWindowsPlatform() ? (

@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 /** Shared bottom-left host for non-blocking onboarding and update prompts. */
 export function FloatingPromptStack({ children }: { children: ReactNode }) {
   return createPortal(
-    <div className="pointer-events-none fixed bottom-4 left-4 z-[1300] flex max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[340px] flex-col gap-3">
+    <div className="pointer-events-none fixed bottom-4 left-4 z-[130] flex max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[340px] flex-col gap-3">
       {children}
     </div>,
     document.body,

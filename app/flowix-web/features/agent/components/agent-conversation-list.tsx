@@ -752,7 +752,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
                           // 灰色: 刚跑完、本次会话内用户还没点进去过
                           <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--muted-foreground)]" />
                         ) : null}
-                        <span className="min-w-0 flex-1 select-none truncate text-sm font-normal">
+                        <span className="agent-conversation-list__title min-w-0 flex-1 select-none text-sm font-normal">
                           {instance.title?.trim() || t('common.untitled')}
                         </span>
                         <time className="shrink-0 text-xs text-[var(--muted-foreground)] group-hover:hidden" dateTime={new Date(instance.updatedAt).toISOString()}>

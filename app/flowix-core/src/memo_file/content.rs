@@ -155,6 +155,26 @@ impl MemoFile {
         };
 
         match sort {
+            "filenameAsc" | "filenameDesc" => {
+                let descending = sort == "filenameDesc";
+                let mut sorted = filtered;
+                sorted.sort_by(|a, b| {
+                    let filename_order = a
+                        .filename
+                        .to_lowercase()
+                        .cmp(&b.filename.to_lowercase())
+                        .then_with(|| a.filename.cmp(&b.filename))
+                        .then_with(|| a.id.cmp(&b.id));
+                    b.favorited.cmp(&a.favorited).then_with(|| {
+                        if descending {
+                            filename_order.reverse()
+                        } else {
+                            filename_order
+                        }
+                    })
+                });
+                sorted
+            }
             "updatedAt" => {
                 let mut sorted = filtered;
                 sorted.sort_by(|a, b| {

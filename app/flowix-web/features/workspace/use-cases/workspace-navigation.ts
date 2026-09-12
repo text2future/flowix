@@ -880,7 +880,11 @@ export async function reconcileDeletedNotebook(
   const reconcile = () => runNavigation(
     EMPTY_WORK_COLUMN_TARGET,
     async (requestId) => {
-      getWorkspaceMemoState().setNotebooks(notebooks);
+      // Apply the replacement list and fallback selection atomically. This
+      // prevents the main-window notebook sync effect from observing a brief
+      // null selection between removing the active notebook and selecting the
+      // first remaining notebook.
+      getWorkspaceMemoState().setNotebooks(notebooks, nextNotebook?.id ?? null);
       await getWorkspaceDocumentState().clearDocument();
       if (!isCurrentNavigation(requestId)) return;
 

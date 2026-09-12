@@ -261,7 +261,7 @@ function PropertyTypePicker({
       <DropdownMenuContent
         align="start"
         sideOffset={6}
-        className="z-[1500] min-w-[120px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+        className="z-[150] min-w-[120px] rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
       >
         {PROPERTY_KINDS.map((kind) => (
           <DropdownMenuItem
@@ -475,7 +475,7 @@ export function AnchoredPropertyPopover({
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-[1500]"
+        className="fixed inset-0 z-[150]"
         onClick={handleRequestClose}
         aria-hidden="true"
       />

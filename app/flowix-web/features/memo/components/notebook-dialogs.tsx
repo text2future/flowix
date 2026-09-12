@@ -317,9 +317,6 @@ export function NotebookDialogs({
                     placeholder={t("notebook.create.namePlaceholder")}
                     value={newNotebookName}
                     onChange={(event) => onNewNotebookNameChange(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') onConfirmCreate();
-                    }}
                     autoFocus
                     className="min-w-0 flex-1"
                   />

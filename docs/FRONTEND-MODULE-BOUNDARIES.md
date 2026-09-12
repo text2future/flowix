@@ -1,3 +1,7 @@
+---
+key: g1evqzl1
+---
+
 # Frontend module boundaries
 
 This document records the target dependency rules for incremental frontend

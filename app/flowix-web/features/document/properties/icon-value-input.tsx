@@ -68,7 +68,7 @@ export function IconValueInput({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="z-[1500] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+        className="z-[150] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
       >
         <div className="max-h-[240px] overflow-y-auto [scrollbar-gutter:stable]">
           <div className="grid grid-cols-5 gap-1">

@@ -12,7 +12,7 @@
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1050;
+  z-index: 105;
   width: 208px;
   border: 1px solid var(--border-popup);
   border-radius: 0.75rem;
@@ -76,7 +76,7 @@
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1050;
+  z-index: 105;
   width: 280px;
   padding: 0.25rem;
   border: 1px solid var(--border-popup);
@@ -98,7 +98,7 @@
 
 .agent-thread-card__composer-add-popover {
   position: fixed;
-  z-index: 1050;
+  z-index: 105;
   width: 168px;
   padding: 0.25rem;
   border: 1px solid var(--border-popup);

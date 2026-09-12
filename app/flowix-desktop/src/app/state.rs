@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
+
+use serde::Serialize;
 
 use crate::agent_external::runtime_registry::ExternalRuntimeRegistry;
 use crate::agent_external_config::AgentExternalConfig;
@@ -9,6 +12,23 @@ use crate::plugin::PluginRunCoordinator;
 use crate::system_data::SystemData;
 use flowix_core::memo_file::MemoFile;
 use flowix_core::search::MemoIndex;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NotebookImportStatusKind {
+    Started,
+    Skipped,
+    Completed,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookImportStatus {
+    pub notebook_id: String,
+    pub status: NotebookImportStatusKind,
+    pub message: Option<String>,
+}
 
 /// 应用状态 ── 通过 `tauri::State<AppState>` 注入给 Tauri 命令和运行时服务。
 ///
@@ -54,4 +74,8 @@ pub struct AppState {
     pub agent_access: Arc<AgentAccessStore>,
     pub security_bookmarks: Arc<SecurityBookmarkStore>,
     pub plugin_runs: PluginRunCoordinator,
+    /// Last known state for background notebook imports. Keeping the state in
+    /// AppState lets a Webview recover when it subscribes after an event was
+    /// emitted or when a transient IPC/event bridge failure occurs.
+    pub notebook_imports: Arc<Mutex<HashMap<String, NotebookImportStatus>>>,
 }

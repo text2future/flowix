@@ -252,7 +252,7 @@ function SelectContent({
 			ref={contentRef}
 			style={position ?? undefined}
 			className={cn(
-				"z-[1500] min-w-[180px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg p-1.5 animate-in fade-in-0 zoom-in-95",
+				"z-[150] min-w-[180px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg p-1.5 animate-in fade-in-0 zoom-in-95",
 				fitViewport && "overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
 				className
 			)}

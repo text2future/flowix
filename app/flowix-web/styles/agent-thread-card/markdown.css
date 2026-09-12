@@ -745,7 +745,7 @@
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1050;
+  z-index: 105;
   /* 模型/权限等设置下拉：基准宽度扩大 20%，给较长模型名留出空间。 */
   width: 212px;
   max-height: 280px;

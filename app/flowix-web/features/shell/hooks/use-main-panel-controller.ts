@@ -1,12 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { resolveBrowserColumnLayout } from '@features/shell/hooks/browser-column-layout';
 import { useMacosTrackpadSwipe, type MacosTrackpadSwipeDirection } from '@features/shell/hooks/use-macos-trackpad-swipe';
 import { useResizablePanels } from '@features/shell/hooks/use-resizable-panels';
-
-const NOTE_NAVIGATION_PANEL_DEFAULT_WIDTH = 238;
-const NOTE_NAVIGATION_PANEL_MIN_WIDTH = 180;
-const NOTE_NAVIGATION_PANEL_MAX_WIDTH = 420;
-const PANEL_DIVIDER_WIDTH = 1;
 
 type PanelVisibilityState = {
   memoListVisible: boolean;
@@ -15,18 +10,19 @@ type PanelVisibilityState = {
 
 type PanelVisibilityTransition = Partial<PanelVisibilityState>;
 
+const PANEL_SWIPE_AREA_SELECTOR =
+  '[data-memo-list-swipe-area], [data-workspace-host="main-third"]';
+
+export function isPanelSwipeArea(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(PANEL_SWIPE_AREA_SELECTOR));
+}
+
 export function resolvePanelSwipeTransition(
   state: PanelVisibilityState,
   direction: MacosTrackpadSwipeDirection,
 ): PanelVisibilityTransition | null {
-  if (direction === 'left') {
-    if (state.noteNavigationVisible) return { noteNavigationVisible: false };
-    if (state.memoListVisible) return { memoListVisible: false };
-    return null;
-  }
-  if (!state.memoListVisible) return { memoListVisible: true };
-  if (!state.noteNavigationVisible) return { noteNavigationVisible: true };
-  return null;
+  if (direction === 'left') return state.memoListVisible ? { memoListVisible: false } : null;
+  return state.memoListVisible ? null : { memoListVisible: true };
 }
 
 interface MainPanelControllerOptions {
@@ -49,14 +45,6 @@ export function useMainPanelController({
   setNoteNavigationVisible,
 }: MainPanelControllerOptions) {
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const [noteNavigationPanelWidth, setNoteNavigationPanelWidth] = useState(
-    NOTE_NAVIGATION_PANEL_DEFAULT_WIDTH,
-  );
-  const [isDraggingNoteNavigationDivider, setIsDraggingNoteNavigationDivider] = useState(false);
-  const noteNavigationDividerStartRef = useRef({
-    x: 0,
-    width: NOTE_NAVIGATION_PANEL_DEFAULT_WIDTH,
-  });
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);
@@ -64,7 +52,6 @@ export function useMainPanelController({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const noteNavigationColumnWidth = noteNavigationVisible ? noteNavigationPanelWidth : 0;
   const {
     handleListDividerMouseDown,
     isDraggingListDivider,
@@ -75,20 +62,19 @@ export function useMainPanelController({
     documentPanelMinWidth,
     layoutWidth: viewportWidth,
     memoListVisible,
-    noteNavigationWidth: noteNavigationColumnWidth,
+    noteNavigationWidth: 0,
   });
 
   const browserColumnLayout = resolveBrowserColumnLayout({
     viewportWidth,
-    noteNavigationWidth: noteNavigationColumnWidth,
+    noteNavigationWidth: 0,
     memoListWidth,
     memoListVisible: !isMemoListHidden,
-    dividerCount: (noteNavigationVisible ? 1 : 0) + (!isMemoListHidden ? 1 : 0),
+    dividerCount: !isMemoListHidden ? 1 : 0,
     splitRatio: browserColumnSplitRatio,
   });
   const browserColumnLayoutKey = [
     viewportWidth,
-    noteNavigationColumnWidth,
     memoListWidth,
     browserColumnLayout.mainColumnWidth,
     browserColumnLayout.browserColumnWidth,
@@ -104,57 +90,6 @@ export function useMainPanelController({
     setBrowserColumnSplitRatio,
   ]);
 
-  const getNoteNavigationPanelMaxWidth = useCallback(() => {
-    const visibleDividerWidth =
-      (noteNavigationVisible ? PANEL_DIVIDER_WIDTH : 0) +
-      (!isMemoListHidden ? PANEL_DIVIDER_WIDTH : 0);
-    const availableWidth =
-      viewportWidth - memoListWidth - documentPanelMinWidth - visibleDividerWidth;
-    return Math.min(
-      NOTE_NAVIGATION_PANEL_MAX_WIDTH,
-      Math.max(NOTE_NAVIGATION_PANEL_MIN_WIDTH, availableWidth),
-    );
-  }, [
-    documentPanelMinWidth,
-    isMemoListHidden,
-    memoListWidth,
-    noteNavigationVisible,
-    viewportWidth,
-  ]);
-
-  const handleNoteNavigationDividerMouseDown = useCallback((event: ReactMouseEvent) => {
-    event.preventDefault();
-    setIsDraggingNoteNavigationDivider(true);
-    noteNavigationDividerStartRef.current = {
-      x: event.clientX,
-      width: noteNavigationPanelWidth,
-    };
-  }, [noteNavigationPanelWidth]);
-
-  useEffect(() => {
-    if (!isDraggingNoteNavigationDivider) return;
-    const handleMouseMove = (event: MouseEvent) => {
-      const diff = event.clientX - noteNavigationDividerStartRef.current.x;
-      const nextWidth = noteNavigationDividerStartRef.current.width + diff;
-      setNoteNavigationPanelWidth(Math.min(
-        getNoteNavigationPanelMaxWidth(),
-        Math.max(NOTE_NAVIGATION_PANEL_MIN_WIDTH, nextWidth),
-      ));
-    };
-    const handleMouseUp = () => setIsDraggingNoteNavigationDivider(false);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [getNoteNavigationPanelMaxWidth, isDraggingNoteNavigationDivider]);
-
-  useEffect(() => {
-    if (!noteNavigationVisible || isDraggingNoteNavigationDivider) return;
-    setNoteNavigationPanelWidth((width) => Math.min(width, getNoteNavigationPanelMaxWidth()));
-  }, [getNoteNavigationPanelMaxWidth, isDraggingNoteNavigationDivider, noteNavigationVisible]);
-
   const handlePanelSwipe = useCallback((direction: MacosTrackpadSwipeDirection) => {
     const transition = resolvePanelSwipeTransition(
       { memoListVisible, noteNavigationVisible },
@@ -164,17 +99,14 @@ export function useMainPanelController({
       && transition.memoListVisible !== memoListVisible) {
       setMemoListVisible(transition.memoListVisible);
     }
-    if (transition?.noteNavigationVisible !== undefined
-      && transition.noteNavigationVisible !== noteNavigationVisible) {
-      setNoteNavigationVisible(transition.noteNavigationVisible);
-    }
   }, [
     memoListVisible,
-    noteNavigationVisible,
     setMemoListVisible,
-    setNoteNavigationVisible,
   ]);
-  useMacosTrackpadSwipe({ onSwipe: handlePanelSwipe });
+  useMacosTrackpadSwipe({
+    onSwipe: handlePanelSwipe,
+    isSwipeArea: isPanelSwipeArea,
+  });
 
   const handleToggleNoteNavigation = useCallback(() => {
     setNoteNavigationVisible(!noteNavigationVisible);
@@ -194,15 +126,11 @@ export function useMainPanelController({
     collapseMemoList,
     handleBrowserColumnResize,
     handleListDividerMouseDown,
-    handleNoteNavigationDividerMouseDown,
     handleToggleMemoList,
     handleToggleNoteNavigation,
     isDraggingListDivider,
-    isDraggingNoteNavigationDivider,
     isMemoListHidden,
     memoColWidth,
     memoListWidth,
-    noteNavigationColumnWidth,
-    noteNavigationPanelWidth,
   };
 }

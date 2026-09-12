@@ -101,6 +101,10 @@ export class AgentThreadCardMessagesController {
     this.viewport.handleScroll();
   }
 
+  handleUserScrollIntent(deltaY: number): void {
+    this.viewport.handleUserScrollIntent(deltaY);
+  }
+
   scrollToBottom(): void {
     this.viewport.scrollToBottom();
   }

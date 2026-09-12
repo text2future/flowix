@@ -183,7 +183,19 @@ impl MemoFile {
         abs_path: &Path,
     ) -> Result<Memo, String> {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
-        self.register_existing_file_for_notebook_id_locked(notebook_id, abs_path)
+        self.register_existing_file_for_notebook_id_locked(notebook_id, abs_path, true)
+    }
+
+    /// Register a Markdown file for an initial notebook import without
+    /// changing its contents. In particular, do not inject Flowix's
+    /// frontmatter `key` into a user's existing document.
+    pub fn register_existing_file_for_notebook_id_without_frontmatter(
+        &self,
+        notebook_id: &str,
+        abs_path: &Path,
+    ) -> Result<Memo, String> {
+        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
+        self.register_existing_file_for_notebook_id_locked(notebook_id, abs_path, false)
     }
 
     pub fn register_existing_file_as_new_for_notebook_id(
@@ -249,6 +261,7 @@ impl MemoFile {
         &self,
         notebook_id: &str,
         abs_path: &Path,
+        stamp_missing_key: bool,
     ) -> Result<Memo, String> {
         if !abs_path.is_md() {
             return Err(format!("not a markdown file: {}", abs_path.display()));
@@ -278,11 +291,12 @@ impl MemoFile {
                 }
                 return Ok(existing_memo);
             }
-            if self
-                .resolve_memo_location(&existing_id)
-                .ok()
-                .flatten()
-                .is_some()
+            if stamp_missing_key
+                && self
+                    .resolve_memo_location(&existing_id)
+                    .ok()
+                    .flatten()
+                    .is_some()
             {
                 return self
                     .register_existing_file_as_new_for_notebook_id_locked(notebook_id, abs_path);
@@ -314,9 +328,14 @@ impl MemoFile {
 
         let id = self.generate_global_memo_id();
         let now = chrono::Utc::now().timestamp_millis();
-        let overrides: MergeOverrides = [("key".to_string(), id.clone())].into_iter().collect();
-        let stamped = merge_frontmatter(&content, &overrides);
-        atomic_write_bytes(abs_path, stamped.as_bytes()).map_err(|e| e.to_string())?;
+        let content_for_index = if stamp_missing_key {
+            let overrides: MergeOverrides = [("key".to_string(), id.clone())].into_iter().collect();
+            let stamped = merge_frontmatter(&content, &overrides);
+            atomic_write_bytes(abs_path, stamped.as_bytes()).map_err(|e| e.to_string())?;
+            stamped
+        } else {
+            content
+        };
 
         let mut memo = Memo {
             id: id.clone(),
@@ -334,7 +353,7 @@ impl MemoFile {
             colors: vec![],
             properties: serde_json::json!({}),
         };
-        apply_derived_memo_fields(&mut memo, &stamped);
+        apply_derived_memo_fields(&mut memo, &content_for_index);
         MemoFile::sync_index_on_write_for_notebook_id_locked(self, notebook_id, &memo)
             .map_err(|e| format!("sync memo index failed: {e}"))?;
         Ok(memo)

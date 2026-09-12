@@ -14,6 +14,7 @@ interface ContextMenuContextValue {
 }
 
 const ContextMenuContext = React.createContext<ContextMenuContextValue | null>(null);
+const CONTEXT_MENU_OPEN_EVENT = "flowix:context-menu-open";
 
 function useContextMenuContext() {
 	const context = React.useContext(ContextMenuContext);
@@ -31,12 +32,28 @@ interface ContextMenuProps {
 function ContextMenu({ children, onOpenChange }: ContextMenuProps) {
 	const [open, setOpen] = React.useState(false);
 	const [position, setPosition] = React.useState<{ x: number; y: number } | null>(null);
+	const ownerRef = React.useRef({});
 	const updateOpen = React.useCallback((nextOpen: boolean) => {
 		setOpen(nextOpen);
 		onOpenChange?.(nextOpen);
 	}, [onOpenChange]);
 
+	// Context menus are rendered independently (for example, one per file-tree
+	// row), so coordinate them through a document-level event. Opening one menu
+	// closes any other menu and also clears its consumer's active state.
+	React.useEffect(() => {
+		const handleAnotherMenuOpen = (event: Event) => {
+			const owner = (event as CustomEvent<object>).detail;
+			if (owner !== ownerRef.current) updateOpen(false);
+		};
+		document.addEventListener(CONTEXT_MENU_OPEN_EVENT, handleAnotherMenuOpen);
+		return () => document.removeEventListener(CONTEXT_MENU_OPEN_EVENT, handleAnotherMenuOpen);
+	}, [updateOpen]);
+
 	const openAt = React.useCallback((x: number, y: number) => {
+		document.dispatchEvent(new CustomEvent(CONTEXT_MENU_OPEN_EVENT, {
+			detail: ownerRef.current,
+		}));
 		setPosition({ x, y });
 		updateOpen(true);
 	}, [updateOpen]);
@@ -195,7 +212,7 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 			// these values once the element's true size is known.
 			style={{ left: position?.x ?? 0, top: position?.y ?? 0, ...style }}
 			className={cn(
-				"fixed z-[1500] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 animate-in fade-in-0 zoom-in-95",
+				"fixed z-[150] min-w-[160px] bg-[var(--card)] border border-[var(--border-popup)] rounded-lg shadow-lg py-1 animate-in fade-in-0 zoom-in-95",
 				className
 			)}
 		>

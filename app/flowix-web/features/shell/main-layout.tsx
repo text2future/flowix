@@ -16,7 +16,7 @@ import {
   MemoListServicesHost,
   MemoListTitlebarMac,
   MemoListTitlebarWin,
-  NoteNavigationPanel,
+  NoteNavigationDrawer,
   useNotebookTodoCount,
   useShellMemoViewModel,
   type MemoItem,
@@ -234,16 +234,12 @@ export function MainLayout({
     collapseMemoList,
     handleBrowserColumnResize,
     handleListDividerMouseDown,
-    handleNoteNavigationDividerMouseDown,
     handleToggleMemoList,
     handleToggleNoteNavigation,
     isDraggingListDivider,
-    isDraggingNoteNavigationDivider,
     isMemoListHidden,
     memoColWidth,
     memoListWidth,
-    noteNavigationColumnWidth,
-    noteNavigationPanelWidth,
   } = useMainPanelController({
     browserColumnSplitRatio,
     documentPanelMinWidth: DOCUMENT_PANEL_MIN_WIDTH,
@@ -471,47 +467,22 @@ export function MainLayout({
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className="relative flex flex-1 h-full overflow-hidden">
-          {/* Tags column (leftmost) */}
-          <div
-            className={`flex flex-col overflow-hidden will-change-[width] ${
-              isDraggingNoteNavigationDivider ? 'transition-none' : 'transition-[width] duration-150 ease-out'
-            }`}
-            style={{ width: noteNavigationColumnWidth, flexShrink: 0 }}
-            aria-hidden={!noteNavigationVisible}
-            onPointerDown={() => focusWorkspaceHost('main-third')}
-          >
-            <div
-              className="flex flex-col overflow-hidden h-full bg-[var(--agent-bg)] border-[var(--divider)] border-r"
-              style={{ width: noteNavigationPanelWidth }}
-            >
-              {noteNavigationVisible && (
-                <NoteNavigationPanel
-                  notebooks={notebooks}
-                  selectedNotebook={selectedNotebook}
-                  onSelectNotebook={handleSelectNotebook}
-                  onEditNotebook={handleEditNotebook}
-                  onDeleteNotebook={handleDeleteNotebook}
-                  onCreateNotebook={handleCreateNotebook}
-                  onTogglePanel={handleToggleNoteNavigation}
-                  onOpenPreferences={(tab) => void windows.openPreferences(tab)}
-                  activePluginId={activePluginId}
-                  onOpenPlugin={handleOpenPlugin}
-                />
-              )}
-            </div>
-          </div>
-          {/* Tags <-> Memo list divider */}
-          {noteNavigationVisible && (
-            <div
-              className="relative w-[1px] h-full cursor-col-resize group z-10"
-              onMouseDown={handleNoteNavigationDividerMouseDown}
-            >
-              <div className="absolute inset-0 -translate-x-1/2 w-[12px] left-1/2 bg-transparent z-11" />
-              <div className={`w-[1px] h-full transition-colors ${isDraggingNoteNavigationDivider ? 'bg-transparent' : 'group-hover:bg-transparent bg-transparent'}`} />
-            </div>
-          )}
+          <NoteNavigationDrawer
+            open={noteNavigationVisible}
+            notebooks={notebooks}
+            selectedNotebook={selectedNotebook}
+            onSelectNotebook={handleSelectNotebook}
+            onEditNotebook={handleEditNotebook}
+            onDeleteNotebook={handleDeleteNotebook}
+            onCreateNotebook={handleCreateNotebook}
+            onOpenPreferences={(tab) => void windows.openPreferences(tab)}
+            activePluginId={activePluginId}
+            onOpenPlugin={handleOpenPlugin}
+            onClose={() => setNoteNavigationVisible(false)}
+          />
           {/* Memo list column */}
           <div
+            data-memo-list-swipe-area
             className={`flex flex-col ${
               memoListPreviewVisible ? 'overflow-visible' : 'overflow-hidden'
             } will-change-[width] ${
@@ -561,14 +532,14 @@ export function MainLayout({
                 }
                 className={
                   memoListPreviewVisible
-                      ? 'absolute z-[1200] mb-1 flex w-[280px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] pt-3 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] ' +
+                      ? 'absolute z-[120] mb-1 flex w-[280px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] pt-3 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] ' +
                       (memoListPreviewPhase === 'open'
                         ? 'flowix-hover-preview-enter'
                         : 'flowix-hover-preview-leave')
                     : 'relative flex flex-1 flex-col min-h-0 min-w-0 w-full'
                 }
                 style={memoListPreviewVisible ? {
-                  left: noteNavigationColumnWidth + 2,
+                  left: 2,
                   top: documentTitlebarHeight,
                   bottom: 0,
                 } : undefined}
@@ -583,7 +554,9 @@ export function MainLayout({
                     aria-hidden={!showMemoListSurface}
                   >
                     <MemoList
-                      navigationDrawerEnabled={!noteNavigationVisible}
+                      navigationDrawerEnabled
+                      navigationDrawerOpen={noteNavigationVisible}
+                      onToggleNavigationDrawer={handleToggleNoteNavigation}
                       isActive={!isAgentConversationView}
                       dataLoadingEnabled={!isAgentConversationView}
                     />
@@ -678,7 +651,7 @@ export function MainLayout({
             )}
 
             {/* Content area */}
-            <div className="relative flex-1 min-w-0 overflow-hidden">
+            <div className="relative isolate flex-1 min-w-0 overflow-hidden">
               <WorkColumnSurfaceHost surface={workColumnSurface} />
               {(isDocumentTransitioning || navigationState.phase === 'loading') && (
                 <div

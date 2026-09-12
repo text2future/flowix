@@ -27,7 +27,7 @@ export function MemoListTitlebarMac({
       data-tauri-drag-region
       className="relative h-12 pr-3.5 shrink-0 flex items-center justify-between gap-1"
     >
-      <div className={`${noteNavigationVisible ? 'ml-0' : 'ml-[82px]'} flex items-center`}>
+      <div className="ml-[82px] flex items-center">
         {selectedNotebook && (
           <NotebookIconMenu
             noteNavigationVisible={noteNavigationVisible}

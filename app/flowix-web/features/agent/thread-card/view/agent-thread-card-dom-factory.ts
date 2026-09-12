@@ -16,6 +16,7 @@ export interface AgentThreadCardDomFactoryOptions {
   onCollapseClick: (event: MouseEvent) => void;
   onBodyClick: (event: MouseEvent) => void;
   onBodyScroll: (event: Event) => void;
+  onBodyWheel: (event: WheelEvent) => void;
   // onComposerMouseDown 已废弃 ── composer 内部委托现由
   // createAgentComposerDom 自带 pointerdown 监听统一负责 (详见
   // composer-dom-factory.ts COMPOSER_FOCUS_INTERACTIVE_SELECTOR 注释),
@@ -156,6 +157,7 @@ export function createAgentThreadCardDom(
   body.dataset.noContextMenuScroll = "";
   body.addEventListener("click", options.onBodyClick);
   body.addEventListener("scroll", options.onBodyScroll, { passive: true });
+  body.addEventListener("wheel", options.onBodyWheel, { passive: true });
 
   const loadingIndicator = document.createElement("div");
   loadingIndicator.className = "agent-thread-card__loading-indicator";

@@ -23,6 +23,8 @@ export const files = {
   write: (filePath: string, content: string, skipValidation?: boolean, spacePath?: string) =>
     invoke<boolean>('write_file', { filePath, content, skipValidation, spacePath }),
   delete: (filePath: string, spacePath?: string) => invoke<boolean>('delete_file', { filePath, spacePath }),
+  deleteFolder: (folderPath: string, spacePath: string) =>
+    invoke<boolean>('delete_folder', { folderPath, spacePath }),
   rename: (filePath: string, name: string, spacePath: string) =>
     invoke<string>('rename_file', { filePath, name, spacePath }),
   createFolder: (spacePath: string, name: string, parentId?: string) =>

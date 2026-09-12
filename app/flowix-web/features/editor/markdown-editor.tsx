@@ -605,6 +605,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     editorRef.current = editor;
     setEditorInstance(editor);
     const editorDom = editor.view.dom;
+    // Tiptap replaces the mount element's class attribute during initialization,
+    // so add the utility class after the EditorView has been created.
+    editorDom.classList.add('text-pretty');
     const handleCompositionStart = () => {
       isComposingRef.current = true;
     };

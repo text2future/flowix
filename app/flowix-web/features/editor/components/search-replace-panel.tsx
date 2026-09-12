@@ -158,7 +158,7 @@ export function SearchReplacePanel({ editor, visible, onClose }: SearchReplacePa
   if (!visible) return null;
 
   return (
-    <div ref={panelRef} className="absolute top-0 left-1/2 -translate-x-1/2 z-[200] bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-lg p-2 flex flex-col gap-1.5 min-w-[320px] max-w-[480px] animate-in slide-in-from-top-2 fade-in duration-200">
+    <div ref={panelRef} className="absolute top-0 left-1/2 -translate-x-1/2 z-[20] bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-lg p-2 flex flex-col gap-1.5 min-w-[320px] max-w-[480px] animate-in slide-in-from-top-2 fade-in duration-200">
       {/* Search row */}
       <div className="flex items-center gap-1.5">
         <Tooltip content={t('editor.search.toggleReplace')}>

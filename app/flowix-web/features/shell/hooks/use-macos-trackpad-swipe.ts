@@ -38,6 +38,8 @@ type UseMacosTrackpadSwipeOptions = {
   sameDirectionRearmGapMs?: number;
   /** 识别到一次明确横滑时触发。 */
   onSwipe: (direction: MacosTrackpadSwipeDirection) => void;
+  /** Optional hit area guard. When provided, only wheel events from this area are handled. */
+  isSwipeArea?: (target: EventTarget | null) => boolean;
 };
 
 export function useMacosTrackpadSwipe({
@@ -49,6 +51,7 @@ export function useMacosTrackpadSwipe({
   sameDirectionRefireMs = 50,
   sameDirectionRearmGapMs = 70,
   onSwipe,
+  isSwipeArea,
 }: UseMacosTrackpadSwipeOptions): void {
   // 用 ref 包住回调, 避免 options 引用变化触发 effect 重跑。
   const onSwipeRef = useRef(onSwipe);
@@ -80,6 +83,7 @@ export function useMacosTrackpadSwipe({
     };
 
     const handler = (event: WheelEvent) => {
+      if (isSwipeArea && !isSwipeArea(event.target)) return;
       // 1) 过滤 pinch-zoom ── macOS 触控板用 ctrlKey + wheel 实现缩放。
       if (event.ctrlKey) return;
       // 2) 过滤鼠标滚轮 / 行模式 ── 触控板才是 pixel (deltaMode === 0)。
@@ -150,5 +154,6 @@ export function useMacosTrackpadSwipe({
     gestureIdleMs,
     sameDirectionRefireMs,
     sameDirectionRearmGapMs,
+    isSwipeArea,
   ]);
 }

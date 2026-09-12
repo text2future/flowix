@@ -198,7 +198,7 @@ function CommandDialog({
       {showOverlay ? (
         <div
           className={cn(
-            'fixed inset-0 z-[1300] bg-black/50',
+            'fixed inset-0 z-[130] bg-black/50',
             visible ? 'flowix-fade-enter' : 'flowix-fade-leave',
           )}
           onClick={() => onOpenChange(false)}
@@ -209,12 +209,12 @@ function CommandDialog({
         // 配合 transparent bg 让背景点击能命中, 弹窗本身在外层 wrapper
         // 上 pointer-events-none 不受影响。
         <div
-          className="fixed inset-0 z-[1300]"
+          className="fixed inset-0 z-[130]"
           onClick={() => onOpenChange(false)}
           aria-hidden="true"
         />
       )}
-      <div className="fixed inset-0 z-[1300] flex items-start justify-center pt-[15vh] pointer-events-none">
+      <div className="fixed inset-0 z-[130] flex items-start justify-center pt-[15vh] pointer-events-none">
         <div
           className={cn(
             'relative w-full max-w-[38rem] mx-4 rounded-xl border border-[var(--border-popup)] bg-[var(--popover)] text-[var(--popover-foreground)] shadow-[0_12px_50px_-12px_rgb(0_0_0_/_0.39)] pointer-events-auto overflow-hidden',

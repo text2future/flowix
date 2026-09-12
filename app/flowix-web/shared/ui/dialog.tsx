@@ -95,7 +95,7 @@ export function DialogContent({ children, className, showOverlay = true, showClo
 			{showOverlay && (
 				<div
 					className={cn(
-						'fixed inset-0 bg-black/50 z-[1300]',
+						'fixed inset-0 bg-black/50 z-[130]',
 						overlayAnimationClass
 					)}
 					onClick={() => onOpenChange(false)}
@@ -105,7 +105,7 @@ export function DialogContent({ children, className, showOverlay = true, showClo
 			    the keyframe's `transform` (which would clobber Tailwind's
 			    `-translate-x-1/2 -translate-y-1/2`). `pointer-events-none` lets
 			    clicks on the wrapper pass through to the overlay behind. */}
-			<div className="fixed inset-0 z-[1300] flex items-center justify-center pointer-events-none">
+			<div className="fixed inset-0 z-[130] flex items-center justify-center pointer-events-none">
 				<div
 					className={cn(
 						'relative w-full max-w-[380px] rounded-2xl bg-[var(--background)] px-5 py-4 shadow-lg pointer-events-auto',

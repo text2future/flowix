@@ -84,6 +84,13 @@ function compareMemoItems(sort: SortType) {
       return Number(b.favorited) - Number(a.favorited);
     }
 
+    if (sort === 'filenameAsc' || sort === 'filenameDesc') {
+      const filenameOrder = a.filename.toLowerCase().localeCompare(b.filename.toLowerCase())
+        || a.filename.localeCompare(b.filename)
+        || a.id.localeCompare(b.id);
+      return sort === 'filenameDesc' ? -filenameOrder : filenameOrder;
+    }
+
     if (sort === 'updatedAt') {
       return (b.updatedAt - a.updatedAt) || b.id.localeCompare(a.id);
     }
@@ -180,7 +187,12 @@ export interface MemoStore {
 
   // Setters
   setMemos: (memos: MemoItem[]) => void;
-  setNotebooks: (notebooks: Notebook[]) => void;
+  /**
+   * Replace the notebook snapshot. When supplied, selectedNotebookId is
+   * applied in the same state update so deletion/reconciliation cannot expose
+   * a transient `null` selection to notebook synchronization effects.
+   */
+  setNotebooks: (notebooks: Notebook[], selectedNotebookId?: string | null) => void;
   setStartupPhase: (phase: MemoLibraryStartupPhase, error?: string | null) => void;
   setStartupReady: (initialMemoQueryKey: string) => void;
   setSelectedMemo: (memo: MemoItem | null) => void;
@@ -291,13 +303,13 @@ export const useMemoStore = create<MemoStore>()(
           memoListLoadingMore: false,
         });
       },
-      setNotebooks: (notebooks) => set((state) => {
+      setNotebooks: (notebooks, selectedNotebookIdOverride) => set((state) => {
         // Prefer the persisted id. The object fallback keeps tests and
         // pre-migration in-memory callers compatible while the first backend
         // snapshot is being applied.
-        const selectedNotebookId = state.selectedNotebookId
-          ?? state.selectedNotebook?.id
-          ?? null;
+        const selectedNotebookId = selectedNotebookIdOverride === undefined
+          ? state.selectedNotebookId ?? state.selectedNotebook?.id ?? null
+          : selectedNotebookIdOverride;
         const selectedNotebook = selectedNotebookId
           ? notebooks.find((notebook) => notebook.id === selectedNotebookId) ?? null
           : null;

@@ -44,4 +44,15 @@ describe('notebook folder sorting', () => {
     expect(sortNotebookTreeItems([older, newer, folder], 'updatedAt').map((entry) => entry.name))
       .toEqual(['projects', 'older.md', 'newer.md']);
   });
+
+  it('sorts notes by filename in either direction', () => {
+    const folder = item('projects', 'folder');
+    const alpha = item('alpha.md', 'document');
+    const zulu = item('Zulu.md', 'document');
+
+    expect(sortNotebookTreeItems([zulu, alpha, folder], 'filenameAsc').map((entry) => entry.name))
+      .toEqual(['projects', 'alpha.md', 'Zulu.md']);
+    expect(sortNotebookTreeItems([zulu, alpha, folder], 'filenameDesc').map((entry) => entry.name))
+      .toEqual(['projects', 'Zulu.md', 'alpha.md']);
+  });
 });

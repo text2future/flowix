@@ -1,13 +1,13 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import {
-  CaretRightIcon,
   FilePlusIcon,
-  FolderOpenIcon,
   FolderPlusIcon,
-  FolderSimpleIcon,
+  LinkIcon,
+  TrashIcon,
 } from '@phosphor-icons/react';
+import { ChevronRight, File, FolderPlus, MoreHorizontal, Plus } from 'lucide-react';
 
 import { canonicalPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
@@ -19,18 +19,25 @@ import { MemoCardActions } from '@features/memo/components/memo-card-actions';
 import { memoRepository } from '@features/memo/services/memo-repository';
 import { MEMO_COLOR_HEX, useMemoStore, type MemoColor, type MemoItem } from '@features/memo';
 import { resolveMemoByPath } from '@features/memo/use-cases/open-by-target';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
 import {
-  flattenVisibleTree,
-  type FolderTreeController,
-} from '@features/memo/components/use-folder-tree';
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  useContextMenuContext,
+} from '@shared/ui/context-menu';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
+import folderIcon from '@/assets/folder-outline.svg?raw';
+import type { FolderTreeController } from '@features/memo/components/use-folder-tree';
 import { files, memos, type DocTreeItem } from '@platform/tauri/client';
 
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
-// Folder rows reserve 12px for the caret and 4px for the gap before the
-// folder icon. Draft rows do not render a caret, but keep the same alignment.
-const FOLDER_TOGGLE_OFFSET = 16;
+const TREE_HEADER_HEIGHT = 24;
+const TREE_ROW_HEIGHT = 34;
+const TREE_VIRTUAL_OVERSCAN = 8;
+// Row gutter (6px) + inline padding (6px) + half of the 12px caret.
+const FOLDER_CARET_CENTER_OFFSET = 12;
 const TREE_MENU_CLASS =
   'w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
 const TREE_MENU_ITEM_CLASS =
@@ -41,6 +48,92 @@ function canonicalDirectoryPath(path: string): string {
   const canonical = canonicalPath(path);
   const trimmed = canonical.replace(/\/+$/, '');
   return trimmed || (canonical.startsWith('/') ? '/' : canonical);
+}
+
+interface NotebookTreeVirtualItem {
+  index: number;
+  start: number;
+}
+
+function useNotebookTreeVirtualList(
+  itemCount: number,
+  scrollerRef: RefObject<HTMLDivElement | null>,
+) {
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
+  const frameRef = useRef<number | null>(null);
+
+  const syncViewport = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const next = { scrollTop: scroller.scrollTop, height: scroller.clientHeight };
+    setViewport((previous) => (
+      previous.scrollTop === next.scrollTop && previous.height === next.height
+        ? previous
+        : next
+    ));
+  }, [scrollerRef]);
+
+  const scheduleViewportSync = useCallback(() => {
+    if (frameRef.current !== null) return;
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      syncViewport();
+      return;
+    }
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = null;
+      syncViewport();
+    });
+  }, [syncViewport]);
+
+  useLayoutEffect(() => {
+    syncViewport();
+    const scroller = scrollerRef.current;
+    if (!scroller || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(scheduleViewportSync);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [scheduleViewportSync, scrollerRef, syncViewport]);
+
+  useLayoutEffect(() => () => {
+    if (frameRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+  }, []);
+
+  const virtualItems = useMemo<NotebookTreeVirtualItem[]>(() => {
+    if (itemCount === 0) return [];
+    // A zero-height first measurement is common while a column is mounting.
+    // Render the full list for that first frame, then switch to the bounded
+    // window as soon as the scroller reports its real height.
+    if (viewport.height <= 0) {
+      return Array.from({ length: itemCount }, (_, index) => ({
+        index,
+        start: index * TREE_ROW_HEIGHT,
+      }));
+    }
+
+    const listScrollTop = Math.max(0, viewport.scrollTop - TREE_HEADER_HEIGHT);
+    const first = Math.max(
+      0,
+      Math.floor(listScrollTop / TREE_ROW_HEIGHT) - TREE_VIRTUAL_OVERSCAN,
+    );
+    const last = Math.min(
+      itemCount,
+      Math.ceil((listScrollTop + viewport.height) / TREE_ROW_HEIGHT)
+        + TREE_VIRTUAL_OVERSCAN,
+    );
+    return Array.from({ length: Math.max(0, last - first) }, (_, offset) => {
+      const index = first + offset;
+      return { index, start: index * TREE_ROW_HEIGHT };
+    });
+  }, [itemCount, viewport]);
+
+  return {
+    totalHeight: itemCount * TREE_ROW_HEIGHT,
+    virtualItems,
+    onScroll: scheduleViewportSync,
+  };
 }
 
 export interface NotebookFolderCreateRequest {
@@ -60,10 +153,12 @@ interface NotebookFileTreeProps {
   tree: FolderTreeController;
   createFolderRequest?: NotebookFolderCreateRequest | null;
   createNoteRequest?: NotebookNoteCreateRequest | null;
+  onCreateFolder?: () => void;
   onNoteSelect: (filePath: string) => void;
   onNoteOpenInNewTab?: (filePath: string) => void;
   onCreateNote: (parentPath: string, title: string) => Promise<void> | void;
   onMoveNote: (sourcePath: string, targetDirectoryPath: string) => Promise<void>;
+  onDeleteFolder?: (folderPath: string) => Promise<void>;
 }
 
 interface PointerNoteDrag {
@@ -76,6 +171,17 @@ interface PointerNoteDrag {
   active: boolean;
   targetDirectoryPath: string | null;
 }
+
+interface NotebookTreeDraftState {
+  requestId: number;
+  parentPath: string;
+  kind: 'note' | 'folder';
+  value: string;
+}
+
+type NotebookTreeEntry =
+  | { kind: 'item'; key: string; item: DocTreeItem; depth: number }
+  | { kind: 'draft'; key: string; draft: NotebookTreeDraftState; depth: number };
 
 /**
  * 笔记本专用文件树。
@@ -90,20 +196,18 @@ export function NotebookFileTree({
   tree,
   createFolderRequest,
   createNoteRequest,
+  onCreateFolder,
   onNoteSelect,
   onNoteOpenInNewTab,
   onCreateNote,
   onMoveNote,
+  onDeleteFolder,
 }: NotebookFileTreeProps) {
   const { t } = useI18n();
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
-  const [draft, setDraft] = useState<{
-    requestId: number;
-    parentPath: string;
-    kind: 'note' | 'folder';
-    value: string;
-  } | null>(null);
+  const [draft, setDraft] = useState<NotebookTreeDraftState | null>(null);
   const pointerDragRef = useRef<PointerNoteDrag | null>(null);
+  const treeScrollerRef = useRef<HTMLDivElement | null>(null);
   const treeRootRef = useRef<HTMLDivElement | null>(null);
   const suppressOpenPathRef = useRef<string | null>(null);
   const handledFolderRequestIdRef = useRef<number | null>(null);
@@ -117,7 +221,61 @@ export function NotebookFileTree({
     x: number;
     y: number;
   } | null>(null);
-  const visibleNodes = useMemo(() => flattenVisibleTree(tree), [tree]);
+  const treeEntries = useMemo<NotebookTreeEntry[]>(() => {
+    const entries: NotebookTreeEntry[] = [];
+    const appendItems = (items: DocTreeItem[], depth: number, parentPath: string) => {
+      const draftForList = draft
+        && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(parentPath)
+        ? draft
+        : null;
+      const draftType = draftForList?.kind === 'folder' ? 'folder' : 'document';
+      const firstMatchingIndex = draftForList
+        ? items.findIndex((item) => item.type === draftType)
+        : -1;
+      const draftInsertionIndex = draftForList
+        ? firstMatchingIndex >= 0
+          ? firstMatchingIndex
+          : draftForList.kind === 'folder' ? 0 : items.length
+        : -1;
+
+      items.forEach((item, index) => {
+        if (index === draftInsertionIndex && draftForList) {
+          entries.push({
+            kind: 'draft',
+            key: `draft-${draftForList.requestId}`,
+            draft: draftForList,
+            depth,
+          });
+        }
+
+        entries.push({ kind: 'item', key: item.id, item, depth });
+        if (item.type !== 'folder') return;
+
+        const itemKey = canonicalPath(item.fullPath);
+        const children = tree.nodes.get(itemKey)?.children ?? [];
+        const hasDraftChild = draft !== null
+          && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(item.fullPath);
+        if (tree.expanded.has(itemKey) && (children.length > 0 || hasDraftChild)) {
+          appendItems(children, depth + 1, item.fullPath);
+        }
+      });
+
+      if (draftForList && draftInsertionIndex === items.length) {
+        entries.push({
+          kind: 'draft',
+          key: `draft-${draftForList.requestId}`,
+          draft: draftForList,
+          depth,
+        });
+      }
+    };
+
+    appendItems(tree.rootChildren, 0, notebookPath);
+    return entries;
+  }, [draft, notebookPath, tree.expanded, tree.nodes, tree.rootChildren]);
+  const { totalHeight: treeHeight, virtualItems, onScroll: handleTreeScroll } =
+    useNotebookTreeVirtualList(treeEntries.length, treeScrollerRef);
+  const hasVisibleItems = treeEntries.some((entry) => entry.kind === 'item');
   const isRootDropTarget = dragOverFolderPath !== null
     && canonicalDirectoryPath(dragOverFolderPath) === canonicalDirectoryPath(notebookPath);
 
@@ -188,7 +346,7 @@ export function NotebookFileTree({
     } finally {
       submittingDraftRef.current = false;
     }
-  }, [draft, onCreateNote, t, tree]);
+  }, [draft, onCreateNote, t, tree.refresh]);
 
   const cancelDraft = useCallback(() => {
     if (!draft) return;
@@ -201,57 +359,66 @@ export function NotebookFileTree({
     setDraft({ requestId: Date.now(), parentPath, kind, value: '' });
   }, [tree.expandTo]);
 
-  const renderDraft = (depth: number) => draft ? (
+  const renderDraft = (draftState: NotebookTreeDraftState, depth: number, key?: string, start?: number) => (
     <NotebookTreeDraft
-      draft={draft}
+      key={key}
+      draft={draftState}
       depth={depth}
-      onChange={(value) => setDraft({ ...draft, value })}
+      data-notebook-tree-depth={depth}
+      style={start === undefined ? undefined : {
+        position: 'absolute',
+        insetInline: 0,
+        top: start,
+        height: TREE_ROW_HEIGHT,
+      }}
+      onChange={(value) => setDraft({ ...draftState, value })}
       onSubmit={() => void submitDraft()}
       onCancel={cancelDraft}
     />
-  ) : null;
+  );
 
-  const renderTreeItems = (
-    items: DocTreeItem[],
-    depth: number,
-    parentPath: string,
-  ): ReactNode[] => {
-    const draftForList = draft && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(parentPath)
-      ? draft
-      : null;
-    const draftType = draftForList?.kind === 'folder' ? 'folder' : 'document';
-    const firstMatchingIndex = draftForList
-      ? items.findIndex((item) => item.type === draftType)
-      : -1;
-    // Folders are sorted before notes. If the target type does not exist yet,
-    // keep the draft at that type's section boundary.
-    const draftInsertionIndex = draftForList
-      ? firstMatchingIndex >= 0
-        ? firstMatchingIndex
-        : draftForList.kind === 'folder' ? 0 : items.length
-      : -1;
-    const renderedItems: ReactNode[] = [];
+  const renderTreeEntry = (entry: NotebookTreeEntry, start: number) => {
+    if (entry.kind === 'draft') {
+      return renderDraft(entry.draft, entry.depth, entry.key, start);
+    }
 
-    items.forEach((item, index) => {
-      if (index === draftInsertionIndex && draftForList) {
-        renderedItems.push(
-          <Fragment key={`draft-${draftForList.requestId}`}>
-            {renderDraft(depth)}
-          </Fragment>,
-        );
-      }
+    const { item, depth } = entry;
+    const expanded = item.type === 'folder' && tree.expanded.has(canonicalPath(item.fullPath));
+    const isDropTarget = item.type === 'folder'
+      && dragOverFolderPath !== null
+      && canonicalDirectoryPath(item.fullPath) === canonicalDirectoryPath(dragOverFolderPath);
 
-      const expanded = item.type === 'folder' && tree.expanded.has(canonicalPath(item.fullPath));
-      const children = item.type === 'folder'
-        ? (tree.nodes.get(canonicalPath(item.fullPath))?.children ?? [])
-        : [];
-      const hasDraftChild = item.type === 'folder'
-        && draft !== null
-        && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(item.fullPath);
-      const isDropTarget = item.type === 'folder'
-        && dragOverFolderPath !== null
-        && canonicalDirectoryPath(item.fullPath) === canonicalDirectoryPath(dragOverFolderPath);
-      const treeRow = (
+    return (
+      <div
+        key={entry.key}
+        className={cn(
+          'folder-file-tree__group absolute inset-x-0',
+          item.type === 'folder' && 'notebook-file-tree__virtual-folder-row',
+        )}
+        data-notebook-tree-depth={depth}
+        data-drag-over={isDropTarget ? 'true' : 'false'}
+        data-notebook-drop-path={item.type === 'folder' ? item.fullPath : isFolderParent(item, notebookPath)}
+        style={{
+          top: start,
+          height: TREE_ROW_HEIGHT,
+          '--folder-file-tree-drop-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL}px`,
+          '--folder-file-tree-drop-right': `${TREE_EDGE_GUTTER}px`,
+        } as CSSProperties}
+      >
+        {depth > 0 && (
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+            {Array.from({ length: depth }, (_, level) => (
+              <span
+                key={level}
+                className="absolute inset-y-0 w-px"
+                style={{
+                  left: TREE_EDGE_GUTTER + level * INDENT_PER_LEVEL + FOLDER_CARET_CENTER_OFFSET,
+                  backgroundColor: 'color-mix(in srgb, var(--border) 72%, transparent)',
+                }}
+              />
+            ))}
+          </div>
+        )}
         <NotebookTreeRow
           item={item}
           depth={depth}
@@ -272,6 +439,9 @@ export function NotebookFileTree({
           dropTargetPath={item.type === 'folder' ? item.fullPath : isFolderParent(item, notebookPath)}
           onCreateNote={() => requestCreateDraft(isFolderParent(item, notebookPath), 'note')}
           onCreateFolder={() => requestCreateDraft(isFolderParent(item, notebookPath), 'folder')}
+          onDeleteFolder={item.type === 'folder' && onDeleteFolder
+            ? () => onDeleteFolder(item.fullPath)
+            : undefined}
           onPointerDown={(event) => {
             if (item.type !== 'document') return;
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -287,52 +457,8 @@ export function NotebookFileTree({
             };
           }}
         />
-      );
-      const subtree = item.type === 'folder' && (children.length > 0 || hasDraftChild) ? (
-        <div
-          className="folder-file-tree__subtree"
-          data-expanded={expanded}
-          aria-hidden={!expanded}
-          style={{
-            '--folder-file-tree-guide-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL + 8}px`,
-          } as CSSProperties}
-        >
-          <div className="folder-file-tree__subtree-inner">
-            <div className="folder-file-tree__subtree-items notebook-file-tree__subtree-items space-y-0.5">
-              {renderTreeItems(children, depth + 1, item.fullPath)}
-            </div>
-          </div>
-        </div>
-      ) : null;
-
-      renderedItems.push(item.type === 'folder' ? (
-        <div
-          key={item.id}
-          className="folder-file-tree__group"
-          data-drag-over={isDropTarget ? 'true' : 'false'}
-          data-notebook-drop-path={item.fullPath}
-          style={{
-            '--folder-file-tree-drop-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL}px`,
-            '--folder-file-tree-drop-right': `${TREE_EDGE_GUTTER}px`,
-          } as CSSProperties}
-        >
-          {treeRow}
-          {subtree}
-        </div>
-      ) : (
-        <Fragment key={item.id}>{treeRow}</Fragment>
-      ));
-    });
-
-    if (draftForList && draftInsertionIndex === items.length) {
-      renderedItems.push(
-        <Fragment key={`draft-${draftForList.requestId}`}>
-          {renderDraft(depth)}
-        </Fragment>,
-      );
-    }
-
-    return renderedItems;
+      </div>
+    );
   };
 
   const handleDrop = useCallback(async (
@@ -356,17 +482,37 @@ export function NotebookFileTree({
         ? 'memo.fileTree.nameConflict'
         : 'memo.fileTree.moveFailed'));
     }
-  }, [notebookPath, onMoveNote, t, tree]);
+  }, [notebookPath, onMoveNote, t, tree.refresh]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col select-none bg-[var(--card)] text-[var(--foreground)]">
       <div className="relative min-h-0 flex-1">
         <OverlayScrollbar
           className="h-full"
-          scrollerClassName="h-full overflow-y-auto py-1"
-          onScroll={(event) => setShowScrollTopHint(event.currentTarget.scrollTop > 0)}
+          scrollerClassName="h-full overflow-y-auto pb-1"
+          scrollerRef={treeScrollerRef}
+          onScroll={(event) => {
+            setShowScrollTopHint(event.currentTarget.scrollTop > 0);
+            handleTreeScroll();
+          }}
         >
-          {visibleNodes.length === 0 && !tree.loading && !draft && (
+          <div className="flex h-6 items-center gap-1 px-3">
+            <h3 className="text-xs font-medium leading-6 text-[var(--muted-foreground)] opacity-90">
+              {t('memo.fileTree.sectionTitle')}
+            </h3>
+            {onCreateFolder && (
+              <button
+                type="button"
+                onClick={onCreateFolder}
+                aria-label={t('memo.fileTree.newFolder')}
+                title={t('memo.fileTree.newFolder')}
+                className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)]"
+              >
+                <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+          {!hasVisibleItems && !tree.loading && !draft && (
             <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground)]">
               {tree.error ? t('memo.fileTree.unreadableHint') : t('memo.fileTree.empty')}
             </div>
@@ -379,9 +525,10 @@ export function NotebookFileTree({
             data-notebook-tree-root="true"
             data-notebook-drop-path={notebookPath}
             className={cn(
-              'relative space-y-0.5 rounded-lg transition-colors duration-150',
+              'relative rounded-lg transition-colors duration-150',
               isRootDropTarget && 'bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]',
             )}
+            style={{ height: treeHeight }}
             onPointerMove={(event) => {
               const drag = pointerDragRef.current;
               if (!drag || event.pointerId !== drag.pointerId) return;
@@ -438,7 +585,10 @@ export function NotebookFileTree({
               setDragPreview(null);
             }}
           >
-            {renderTreeItems(tree.rootChildren, 0, notebookPath)}
+            {virtualItems.map(({ index, start }) => {
+              const entry = treeEntries[index];
+              return entry ? renderTreeEntry(entry, start) : null;
+            })}
           </div>
         </OverlayScrollbar>
         {dragPreview && (
@@ -469,26 +619,28 @@ function NotebookTreeDraft({
   onChange,
   onSubmit,
   onCancel,
+  style,
+  'data-notebook-tree-depth': dataDepth,
 }: {
   draft: { requestId: number; kind: 'note' | 'folder'; value: string };
   depth: number;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  style?: CSSProperties;
+  'data-notebook-tree-depth'?: number;
 }) {
   const { t } = useI18n();
   return (
     <div
+      data-notebook-tree-depth={dataDepth}
       className="flex h-8 items-center px-1.5"
       style={{
         marginLeft: TREE_EDGE_GUTTER
-          + depth * INDENT_PER_LEVEL
-          + FOLDER_TOGGLE_OFFSET,
+          + depth * INDENT_PER_LEVEL,
+        ...style,
       }}
     >
-      {draft.kind === 'folder' ? (
-        <FolderSimpleIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
-      ) : null}
       <input
         key={draft.requestId}
         autoFocus
@@ -501,10 +653,7 @@ function NotebookTreeDraft({
           if (event.key === 'Enter') onSubmit();
           if (event.key === 'Escape') onCancel();
         }}
-        className={cn(
-          'h-5 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm outline-none',
-          draft.kind === 'folder' && 'ml-1.5',
-        )}
+        className="h-5 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm outline-none"
       />
     </div>
   );
@@ -521,6 +670,7 @@ function NotebookTreeRow({
   dropTargetPath,
   onCreateNote,
   onCreateFolder,
+  onDeleteFolder,
   onPointerDown,
 }: {
   item: DocTreeItem;
@@ -534,11 +684,14 @@ function NotebookTreeRow({
   onCreateNote: () => void;
   onCreateFolder: () => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onDeleteFolder?: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const isFolder = item.type === 'folder';
-  const FolderIcon = expanded ? FolderOpenIcon : FolderSimpleIcon;
   const [memo, setMemo] = useState<MemoItem | null>(null);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadMemo = useCallback(async () => {
     if (isFolder) return;
@@ -574,8 +727,23 @@ function NotebookTreeRow({
       detail: nextMemo,
     }));
   }, []);
+
+  const confirmFolderDelete = useCallback(async () => {
+    if (!onDeleteFolder || deleting) return;
+    setDeleting(true);
+    try {
+      await onDeleteFolder();
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleting, onDeleteFolder]);
   return (
-    <ContextMenu onOpenChange={(open) => { if (open) void loadMemo(); }}>
+    <>
+      <ContextMenu onOpenChange={(open) => {
+        setContextMenuOpen(open);
+        if (open) void loadMemo();
+      }}>
       <ContextMenuTrigger asChild>
         <div
           role="treeitem"
@@ -597,33 +765,75 @@ function NotebookTreeRow({
             if (isFolder) onToggle(); else onOpen();
           }}
           className={cn(
-            'group relative flex h-8 cursor-pointer items-center rounded-lg px-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]',
+            'folder-file-tree__item group relative flex h-8 cursor-pointer items-center rounded-lg px-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]',
             active
               ? 'bg-[var(--muted)] font-medium text-[var(--foreground)]'
-              : 'hover:bg-[var(--muted)]',
+              : cn('hover:bg-[var(--muted)]', contextMenuOpen && 'bg-[var(--muted)] text-[var(--foreground)]'),
           )}
           style={{
-            marginLeft: TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL
-              + (isFolder ? 0 : FOLDER_TOGGLE_OFFSET),
-            width: `calc(100% - ${TREE_EDGE_GUTTER * 2 + depth * INDENT_PER_LEVEL
-              + (isFolder ? 0 : FOLDER_TOGGLE_OFFSET)}px)`,
+            marginLeft: TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL,
+            width: `calc(100% - ${TREE_EDGE_GUTTER * 2 + depth * INDENT_PER_LEVEL}px)`,
           }}
         >
       {isFolder ? (
-        <>
-          <CaretRightIcon aria-hidden="true" className={cn(
-            'h-3 w-3 shrink-0 text-[var(--muted-foreground)] transition-transform',
+        <span aria-hidden="true" className="relative h-[15px] w-[15px] shrink-0 text-[color-mix(in_oklch,var(--foreground)_90%,white_10%)]">
+          <span
+            className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
+            dangerouslySetInnerHTML={{ __html: folderIcon }}
+          />
+          <ChevronRight className={cn(
+            'absolute inset-0 h-[15px] w-[15px] opacity-0 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-focus-visible:opacity-100',
             expanded && 'rotate-90',
           )} />
-          <FolderIcon aria-hidden="true" className="ml-1 h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
-        </>
-      ) : null}
+        </span>
+      ) : (
+        <span
+          aria-hidden="true"
+          className="relative h-[15px] w-[15px] shrink-0 text-[color-mix(in_oklch,var(--foreground)_90%,white_10%)]"
+        >
+          <File className="absolute inset-0 h-[15px] w-[15px]" strokeWidth={1.3} />
+        </span>
+      )}
       <span className={cn(
         'min-w-0 flex-1 truncate',
-        isFolder && 'ml-1.5',
+        'ml-1.5',
+        !isFolder && 'text-[color-mix(in_oklch,var(--foreground)_90%,transparent)]',
       )}>
         {isFolder ? item.name : displayTitleFromFilename(item.name)}
       </span>
+      {isFolder && (
+        <span className={cn(
+          'pointer-events-none ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100',
+          contextMenuOpen && 'pointer-events-auto opacity-100',
+        )}>
+          <button
+            type="button"
+            aria-label={t('memo.fileTree.newNote')}
+            title={t('memo.fileTree.newNote')}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCreateNote();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label={t('memo.fileTree.newFolder')}
+            title={t('memo.fileTree.newFolder')}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCreateFolder();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)]"
+          >
+            <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </span>
+      )}
       {!isFolder && memo && memo.colors.length > 0 && (
         <span aria-label="Note colors" className="ml-2 inline-flex shrink-0 items-center gap-0.5">
           {memo.colors.map((color) => (
@@ -636,6 +846,10 @@ function NotebookTreeRow({
           ))}
         </span>
       )}
+      <NotebookTreeMoreButton
+        label={t('memo.fileTree.moreActions')}
+        active={contextMenuOpen}
+      />
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className={TREE_MENU_CLASS}>
@@ -647,6 +861,34 @@ function NotebookTreeRow({
           <FolderPlusIcon className="mr-2 h-4 w-4" />
           {t('memo.fileTree.newFolder')}
         </ContextMenuItem>
+        {isFolder && onDeleteFolder && (
+          <>
+            <div role="separator" aria-hidden="true" className={TREE_MENU_DIVIDER_CLASS} />
+            <ContextMenuItem
+              onClick={() => setConfirmDelete(true)}
+              className={cn(TREE_MENU_ITEM_CLASS, 'text-[var(--destructive)]')}
+            >
+              <TrashIcon className="mr-2 h-4 w-4" />
+              {t('memo.fileTree.delete')}
+            </ContextMenuItem>
+          </>
+        )}
+        {isFolder && onDeleteFolder && (
+          <ContextMenuItem
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(item.fullPath);
+                toast.success(t('memo.fileTree.pathCopied'));
+              } catch {
+                toast.error(t('memo.fileTree.copyFailed'));
+              }
+            }}
+            className={TREE_MENU_ITEM_CLASS}
+          >
+            <LinkIcon className="mr-2 h-4 w-4" />
+            {t('memo.fileTree.copyLink')}
+          </ContextMenuItem>
+        )}
         {!isFolder && (
           <div role="separator" aria-hidden="true" className={TREE_MENU_DIVIDER_CLASS} />
         )}
@@ -668,7 +910,49 @@ function NotebookTreeRow({
           </ContextMenuItem>
         )}
       </ContextMenuContent>
-    </ContextMenu>
+      </ContextMenu>
+      <Dialog open={confirmDelete} onOpenChange={(open) => { if (!open && !deleting) setConfirmDelete(false); }}>
+        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+          <DialogHeader>
+            <DialogTitle>{t('memo.fileTree.deleteFolderTitle')}</DialogTitle>
+            <DialogDescription>{t('memo.fileTree.deleteFolderDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" disabled={deleting} onClick={() => setConfirmDelete(false)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">
+              {t('dialog.cancel')}
+            </button>
+            <button type="button" disabled={deleting} onClick={() => void confirmFolderDelete()} className="h-8 rounded-lg bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90 disabled:opacity-50">
+              {t('dialog.delete')}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function NotebookTreeMoreButton({ label, active }: { label: string; active: boolean }) {
+  const { openAt } = useContextMenuContext();
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        openAt(rect.left, rect.bottom);
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      className={cn(
+        'pointer-events-none ml-0 flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden rounded-md text-[var(--muted-foreground)] opacity-0 transition-[width,margin,opacity,color] duration-[37.5ms] group-hover:pointer-events-auto group-hover:ml-1 group-hover:w-6 group-hover:opacity-100 hover:text-[var(--foreground)] focus-visible:pointer-events-auto focus-visible:ml-1 focus-visible:w-6 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)]',
+        active && 'pointer-events-auto ml-1 w-6 opacity-100 text-[var(--foreground)]',
+      )}
+    >
+      <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+    </button>
   );
 }
 

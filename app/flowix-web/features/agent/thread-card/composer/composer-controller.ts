@@ -25,6 +25,17 @@ import { NoteReference } from "@features/editor/extensions/note-link";
 import type { MemoRef } from "@features/agent/thread-card/role/agent-role-picker-controller";
 import type { Root } from "react-dom/client";
 
+// Chromium/WebKit can expose modified cursor-navigation keys as a text input
+// containing an ASCII control character (for example Ctrl+Right may arrive as
+// U+001C in a Tauri WebView). These characters are never useful in an agent
+// prompt and otherwise become real ProseMirror text nodes.
+const composerControlCharacterPattern = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+const composerControlCharacterGlobalPattern = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+function removeComposerControlCharacters(value: string): string {
+  return value.replace(composerControlCharacterGlobalPattern, "");
+}
+
 export interface ComposerControllerOptions {
   input: HTMLDivElement;
   composer: HTMLElement;
@@ -122,6 +133,11 @@ export class ComposerController {
         clipboardTextSerializer(content) {
           return content.content.textBetween(0, content.content.size, "\n", "");
         },
+        transformPastedText: (text) => removeComposerControlCharacters(text),
+        // Fallback for WebViews that skip beforeinput but still forward the
+        // resulting text through ProseMirror's text-input hook.
+        handleTextInput: (_view, _from, _to, text) =>
+          composerControlCharacterPattern.test(text),
       },
       onUpdate: () => this.handleEditorUpdate(),
     });
@@ -160,6 +176,7 @@ export class ComposerController {
     // Capture before ProseMirror's own keymap so plain Enter submits without
     // first inserting an empty paragraph into the composer document.
     this.input.addEventListener("keydown", this.handleKeydown, true);
+    this.input.addEventListener("beforeinput", this.handleBeforeInput, true);
     this.input.addEventListener("compositionstart", this.handleCompositionStart);
     this.input.addEventListener("compositionend", this.handleCompositionEnd);
     this.input.addEventListener("blur", this.handleBlur);
@@ -321,6 +338,7 @@ export class ComposerController {
     this.disposed = true;
     this.removeSelectAllHandler();
     this.input.removeEventListener("keydown", this.handleKeydown, true);
+    this.input.removeEventListener("beforeinput", this.handleBeforeInput, true);
     this.input.removeEventListener("compositionstart", this.handleCompositionStart);
     this.input.removeEventListener("compositionend", this.handleCompositionEnd);
     this.input.removeEventListener("blur", this.handleBlur);
@@ -406,6 +424,17 @@ export class ComposerController {
   private readonly handleKeydown = (event: KeyboardEvent): void => {
     if (this.isComposing || event.isComposing || event.keyCode === 229) return;
 
+    // The composer is a nested contenteditable inside the document editor.
+    // Horizontal cursor events belong to the nested composer, never to the
+    // document editor around the card. At either text boundary WebKit may let
+    // a repeated key escape the nested contenteditable and move focus to the
+    // parent editor. The key cannot move the composer cursor any further at
+    // that point, so cancelling its default action is intentional.
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      if (this.isAtComposerBoundary(event)) event.preventDefault();
+      event.stopPropagation();
+    }
+
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
       if (!this.shouldHandleHistoryKey(event.key)) return;
@@ -417,6 +446,33 @@ export class ComposerController {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     this.submit();
+  };
+
+  private isAtComposerBoundary(event: KeyboardEvent): boolean {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
+    const { selection, doc } = this.editor.state;
+    if (!selection.empty) return false;
+    return event.key === "ArrowLeft"
+      ? selection.from <= 1
+      : selection.to >= doc.content.size - 1;
+  }
+
+  private readonly handleBeforeInput = (event: InputEvent): void => {
+    if (this.isComposing || event.isComposing) return;
+    if (
+      event.inputType !== "insertText" &&
+      event.inputType !== "insertReplacementText"
+    ) {
+      return;
+    }
+
+    const data = event.data;
+    if (!data || !composerControlCharacterPattern.test(data)) return;
+
+    // The event is cancelled even when data contains other characters:
+    // browsers do not provide a portable way to replace beforeinput data without duplicating the
+    // editor transaction, and control-character input is always accidental.
+    event.preventDefault();
   };
 
   private readonly handleCompositionStart = (): void => {

@@ -144,7 +144,7 @@
   position: absolute;
   bottom: calc(100% + 4px);
   left: 26px;
-  z-index: 1500;
+  z-index: 70;
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
