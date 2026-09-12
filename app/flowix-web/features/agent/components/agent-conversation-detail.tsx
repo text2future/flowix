@@ -56,6 +56,16 @@ import {
   hasPendingDshCommand,
   listDshSkills,
 } from '@features/agent/services/dsh-command-service';
+import {
+  beginCodexSlashCommand,
+  createCodexCommandLifecycle,
+  executeCodexSlashCommand,
+  finishCodexSlashCommand,
+  hasPendingCodexCommand,
+  listCodexSkills,
+} from '@features/agent/services/codex-slash-command-service';
+import { isCodexGoalCommand } from '@features/agent/thread-card/agent-thread-card-selectors';
+import { getAgentConversationRuntimeCwd } from '@features/agent/conversation-presentation';
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 96;
 const TOP_HISTORY_LOAD_THRESHOLD_PX = 48;
@@ -123,6 +133,10 @@ export function AgentConversationDetail({
   const messages = projection?.messages ?? EMPTY_MESSAGES;
   const isLoading = !!projection?.runs.isLoading;
   const isDshCommandRunning = projection?.runs.dshCommand?.status === 'pending';
+  const isCodexCommandRunning = projection?.runs.codexCommand?.status === 'pending';
+  const isCodexCommandStoppable =
+    isCodexCommandRunning && isCodexGoalCommand(projection?.runs.codexCommand?.command);
+  const isCommandRunning = isDshCommandRunning || isCodexCommandRunning;
   const pendingSteeringMessages = useAgentSessionStore((state) =>
     threadId
       ? state.pendingSteeringMessages[threadId] ?? EMPTY_PENDING_CODEX_MESSAGES
@@ -154,6 +168,8 @@ export function AgentConversationDetail({
   const messagesRef = useRef(messages);
   const isLoadingRef = useRef(isLoading);
   const isDshCommandRunningRef = useRef(isDshCommandRunning);
+  const isCodexCommandRunningRef = useRef(isCodexCommandRunning);
+  const isCodexCommandStoppableRef = useRef(isCodexCommandStoppable);
   const instanceRef = useRef(instance);
   const threadIdRef = useRef(threadId);
   const runtimeHandleRef = useRef<string | null>(null);
@@ -197,6 +213,8 @@ export function AgentConversationDetail({
   messagesRef.current = messages;
   isLoadingRef.current = isLoading;
   isDshCommandRunningRef.current = isDshCommandRunning;
+  isCodexCommandRunningRef.current = isCodexCommandRunning;
+  isCodexCommandStoppableRef.current = isCodexCommandStoppable;
   instanceRef.current = instance;
   threadIdRef.current = threadId;
   languageRef.current = language;
@@ -238,6 +256,35 @@ export function AgentConversationDetail({
     return { threadId: currentThreadId, runtimeConfig };
   }, []);
 
+  const ensureCodexCommandConversation = useCallback(async (command: string) => {
+    if (typeKeyRef.current !== 'codex') {
+      throw new Error('This slash command is only available for Codex');
+    }
+    const currentInstance = instanceRef.current;
+    if (!currentInstance) throw new Error('Agent session instance was not found');
+    let currentThreadId = threadIdRef.current;
+    if (!currentThreadId) {
+      if (!runtimeHandleRef.current) {
+        runtimeHandleRef.current = createExternalAgentRuntimeHandle();
+      }
+      const ensured = await ensureAgentConversationDetailThread({
+        instanceId: currentInstance.instanceId,
+        typeKey: 'codex',
+        prompt: command,
+        runtimeHandleId: runtimeHandleRef.current,
+      });
+      currentThreadId = ensured.threadId;
+      threadIdRef.current = currentThreadId;
+      return {
+        threadId: currentThreadId,
+        runtimeConfig: ensured.runtimeConfig,
+      };
+    }
+    const runtimeConfig = ensureConversationWorkspaceSnapshot(currentInstance.instanceId);
+    markConversationWorkspaceStarted(currentInstance.instanceId);
+    return { threadId: currentThreadId, runtimeConfig };
+  }, []);
+
   const runDshCommandFromDetail = useCallback(async (command: string, imagePaths: string[] = []) => {
     if (destroyedRef.current || typeKeyRef.current !== 'deepseek-harness') return;
     await runDshCommand({
@@ -264,6 +311,52 @@ export function AgentConversationDetail({
     });
   }, [ensureDshCommandConversation]);
 
+  const runCodexSlashCommandFromDetail = useCallback(async (command: string) => {
+    if (destroyedRef.current || typeKeyRef.current !== 'codex') return;
+    if (hasPendingCodexCommand(threadIdRef.current)) return;
+    let lifecycle: ReturnType<typeof createCodexCommandLifecycle> | undefined;
+    let commandThreadId: string | null = null;
+    try {
+      let currentThreadId = threadIdRef.current;
+      let cwd = getAgentConversationRuntimeCwd(instanceRef.current);
+      if (!currentThreadId) {
+        const currentInstance = instanceRef.current;
+        if (!currentInstance) throw new Error('Agent session instance was not found');
+        if (!runtimeHandleRef.current) {
+          runtimeHandleRef.current = createExternalAgentRuntimeHandle();
+        }
+        const ensured = await ensureAgentConversationDetailThread({
+          instanceId: currentInstance.instanceId,
+          typeKey: 'codex',
+          prompt: command,
+          runtimeHandleId: runtimeHandleRef.current,
+        });
+        currentThreadId = ensured.threadId;
+        threadIdRef.current = currentThreadId;
+        cwd = ensured.runtimeConfig.workspaceSnapshot?.cwd ?? ensured.runtimeConfig.cwd ?? cwd;
+      }
+      commandThreadId = currentThreadId;
+      lifecycle = createCodexCommandLifecycle(currentThreadId);
+      beginCodexSlashCommand(currentThreadId, command, lifecycle);
+      await executeCodexSlashCommand(currentThreadId, command, cwd, lifecycle);
+      await useAgentSessionStore.getState().loadMessages('codex', currentThreadId);
+    } catch (error) {
+      if (lifecycle && commandThreadId) {
+        finishCodexSlashCommand(
+          commandThreadId,
+          command,
+          lifecycle,
+          'error',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      logger.error('Failed to execute Codex slash command', { error });
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (!destroyedRef.current) composerControllerRef.current?.focus();
+    }
+  }, []);
+
   const submit = useCallback(async () => {
     // 线程绑定是异步的; submittingRef 挡住"创建中"期间的重入。Codex
     // 和 DSH 已有运行时允许本次提交转入当前 turn 的 steering 队列，
@@ -272,7 +365,10 @@ export function AgentConversationDetail({
     if (submittingRef.current || (isLoadingRef.current && !isSteerable)) return;
     const composerController = composerControllerRef.current;
     const currentInstance = instanceRef.current;
-    if (typeKeyRef.current === 'deepseek-harness' && hasPendingDshCommand(currentInstance?.threadId)) return;
+    if (
+      (typeKeyRef.current === 'deepseek-harness' && hasPendingDshCommand(currentInstance?.threadId)) ||
+      (typeKeyRef.current === 'codex' && hasPendingCodexCommand(currentInstance?.threadId))
+    ) return;
     const content = composerController?.getPrompt().trim() ?? '';
     const imagePaths = composerImagesControllerRef.current?.readyImages.map((image) => image.path) ?? [];
     if (!composerController || (!content && imagePaths.length === 0) || !currentInstance) return;
@@ -283,6 +379,11 @@ export function AgentConversationDetail({
     ) {
       clearComposerAfterSlashCommand();
       void runDshCommandFromDetail(content, imagePaths);
+      return;
+    }
+    if (typeKeyRef.current === 'codex' && /^\/(?:compact|goal)(?:\s|$)/iu.test(content)) {
+      clearComposerAfterSlashCommand();
+      void runCodexSlashCommandFromDetail(content);
       return;
     }
 
@@ -339,7 +440,7 @@ export function AgentConversationDetail({
     } finally {
       submittingRef.current = false;
     }
-  }, [clearComposerAfterSlashCommand, runDshCommandFromDetail]);
+  }, [clearComposerAfterSlashCommand, runCodexSlashCommandFromDetail, runDshCommandFromDetail]);
   submitRef.current = submit;
 
   useEffect(() => {
@@ -440,7 +541,7 @@ export function AgentConversationDetail({
       getLanguage: () => languageRef.current,
       t: (key) => tRef.current(key),
       isDestroyed: () => destroyedRef.current,
-      isRunning: () => isLoadingRef.current || isDshCommandRunningRef.current || submittingRef.current,
+      isRunning: () => isLoadingRef.current || isDshCommandRunningRef.current || isCodexCommandRunningRef.current || submittingRef.current,
     });
     externalSettingsRef.current = externalSettings;
     const composerModelButton = externalSettings.createComposerModelButton();
@@ -502,7 +603,7 @@ export function AgentConversationDetail({
         renderThreadState: () => {
           messageController.render({
             messages: messagesRef.current,
-            isLoading: isLoadingRef.current || isDshCommandRunningRef.current,
+            isLoading: isLoadingRef.current || isDshCommandRunningRef.current || isCodexCommandRunningRef.current,
             shouldRenderMessages: true,
             isInitialHistoryLoading: shouldShowInitialHistorySkeleton(
               renderThreadIdRef.current,
@@ -537,11 +638,19 @@ export function AgentConversationDetail({
         getSendLabel: (wantStop, isRunning) => isRunning
           ? tRef.current('editor.threadCard.running')
           : tRef.current(wantStop ? 'editor.threadCard.stop' : 'editor.threadCard.send'),
-        getSendButtonWantsStop: () =>
-          isLoadingRef.current &&
-          !((typeKeyRef.current === 'codex' || typeKeyRef.current === 'deepseek-harness') &&
-            !!composerControllerRef.current?.getPrompt().trim()),
-        getSendButtonRunning: () => isDshCommandRunningRef.current,
+        getSendButtonWantsStop: () => {
+          // `/goal` is the one native Codex command that exposes a real stop
+          // action. It must win over the draft/steering condition below.
+          if (isCodexCommandStoppableRef.current) return true;
+          return isLoadingRef.current &&
+            !isDshCommandRunningRef.current &&
+            !isCodexCommandRunningRef.current &&
+            !((typeKeyRef.current === 'codex' || typeKeyRef.current === 'deepseek-harness') &&
+              !!composerControllerRef.current?.getPrompt().trim());
+        },
+        getSendButtonRunning: () =>
+          isDshCommandRunningRef.current ||
+          (isCodexCommandRunningRef.current && !isCodexCommandStoppableRef.current),
         getHasAttachments: () => composerImagesController.hasImages,
         getHasPendingAttachments: () => composerImagesController.hasPending,
         agentType: typeKeyRef.current,
@@ -553,7 +662,13 @@ export function AgentConversationDetail({
             runtimeConfig: ensured.runtimeConfig,
           });
         },
-        onDshModelSelect: () => {
+        listCodexSkills: async () => {
+          if (typeKeyRef.current !== 'codex') return [];
+          const ensured = await ensureCodexCommandConversation('/skill');
+          const cwd = ensured.runtimeConfig.workspaceSnapshot?.cwd ?? ensured.runtimeConfig.cwd;
+          return listCodexSkills(cwd ?? '');
+        },
+        onModelSelect: () => {
           clearComposerAfterSlashCommand();
           externalSettings.openComposerModelPicker();
         },
@@ -563,6 +678,10 @@ export function AgentConversationDetail({
         },
         onDirectCommand: (command) => {
           clearComposerAfterSlashCommand();
+          if (typeKeyRef.current === 'codex') {
+            void runCodexSlashCommandFromDetail(`/${command.name}`);
+            return;
+          }
           void runDshCommandFromDetail(`/${command.name}`);
         },
         submit: () => submitRef.current(),
@@ -630,7 +749,7 @@ export function AgentConversationDetail({
     // and the skeleton.
     messageController.render({
       messages: messagesRef.current,
-      isLoading: isLoadingRef.current,
+      isLoading: isLoadingRef.current || isDshCommandRunningRef.current || isCodexCommandRunningRef.current,
       shouldRenderMessages: true,
       isInitialHistoryLoading: shouldShowInitialHistorySkeleton(
         renderThreadIdRef.current,
@@ -668,17 +787,17 @@ export function AgentConversationDetail({
   useEffect(() => {
     messagesControllerRef.current?.render({
       messages,
-      isLoading: isLoading || isDshCommandRunning,
+      isLoading: isLoading || isCommandRunning,
       shouldRenderMessages: true,
       isInitialHistoryLoading,
     });
     composerControllerRef.current?.setSendButtonState();
     rolePickerRef.current?.refreshIcon();
-  }, [isInitialHistoryLoading, isLoading, isDshCommandRunning, messages]);
+  }, [isInitialHistoryLoading, isLoading, isCommandRunning, messages]);
 
   useEffect(() => {
     externalSettingsRef.current?.refreshEmptySettings();
-  }, [instance?.threadId, isLoading, isDshCommandRunning]);
+  }, [instance?.threadId, isLoading, isCommandRunning]);
 
   if (!instance) {
     return (

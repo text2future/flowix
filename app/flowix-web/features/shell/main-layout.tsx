@@ -434,7 +434,6 @@ export function MainLayout({
       onNavigateForward: handleNavigateForward,
     },
     contentCapabilities: {
-      search: surfaceSupports(workColumnSurface, 'search'),
       properties: surfaceSupports(workColumnSurface, 'properties'),
       copyFullText: surfaceSupports(workColumnSurface, 'copy-content'),
       exportContent: surfaceSupports(workColumnSurface, 'export-content'),
@@ -442,7 +441,6 @@ export function MainLayout({
       versionHistory: surfaceSupports(workColumnSurface, 'version-history'),
     },
     actions: {
-      onOpenSearch: () => setIsSearchPanelOpen(true),
       onCopyLink: handleCopyLink,
       onCopyFullText: handleCopyFullText,
       onOpenProperties: handleOpenNoteProperties,

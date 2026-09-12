@@ -266,7 +266,9 @@ export type AgentMessageType =
   | "dsh-command"
   | "dsh-command-result"
   /** Legacy classification for older `/plan` history projections. */
-  | "dsh-command-prompt";
+  | "dsh-command-prompt"
+  /** Product-owned row for Codex-native `/compact` and `/goal` operations. */
+  | "codex-command";
 
 // Tool call definition
 export interface ToolCall {
@@ -292,6 +294,7 @@ export type AgentChunk =
   | AgentChunkToolCall
   | AgentChunkToolResult
   | AgentChunkDshCommand
+  | AgentChunkCodexCommand
   | AgentChunkError
   | AgentChunkStreamStart
   | AgentChunkStreamEnd
@@ -396,6 +399,20 @@ export interface AgentChunkDshCommand {
   id: string;
   name: string;
   args: string;
+  status: "pending" | "success" | "error" | "cancelled";
+  result?: string;
+  timestamp: number;
+  agent_type?: AgentTypeKey;
+  run_id?: string;
+  message_id?: string;
+  source_sequence?: number;
+}
+
+export interface AgentChunkCodexCommand {
+  kind: "codex_command";
+  thread_id: string;
+  id: string;
+  command: string;
   status: "pending" | "success" | "error" | "cancelled";
   result?: string;
   timestamp: number;
@@ -618,6 +635,13 @@ export type AgentEvent =
       id: string;
       name: string;
       args: string;
+      status: "pending" | "success" | "error" | "cancelled";
+      result?: string;
+    })
+  | (AgentEventBase & {
+      kind: "codex_command";
+      id: string;
+      command: string;
       status: "pending" | "success" | "error" | "cancelled";
       result?: string;
     })

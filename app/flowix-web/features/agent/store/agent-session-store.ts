@@ -421,7 +421,12 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           // explicitly stopped, none of its queued messages can be delivered
           // safely, so remove them immediately instead of waiting for a
           // provider user_message acknowledgement that will never arrive.
-          const activeRunIdBeforeStop = get().threadProjections[threadId]?.runs.activeRunId;
+          const projectionBeforeStop = get().threadProjections[threadId];
+          const activeRunIdBeforeStop = projectionBeforeStop?.runs.activeRunId;
+          const pendingCodexCommandRunId =
+            projectionBeforeStop?.runs.codexCommand?.status === "pending"
+              ? projectionBeforeStop.runs.codexCommand.runId
+              : undefined;
           if (!runId || !activeRunIdBeforeStop || runId === activeRunIdBeforeStop) {
             get().clearPendingSteeringMessages(threadId);
           }
@@ -444,7 +449,9 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             const type = getAgentType(
               meta.threadTypes[threadId] ?? meta.activeAgentTypeKey,
             );
-            await agentClient.stopChatStream(threadId, type.key, targetRunId);
+            const stopRunId = targetRunId ??
+              (type.key === "codex" ? pendingCodexCommandRunId : undefined);
+            await agentClient.stopChatStream(threadId, type.key, stopRunId);
           } catch (err) {
             logger.error("Failed to stop stream", { error: String(err) });
           }

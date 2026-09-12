@@ -16,6 +16,7 @@ const AGENT_CHUNK_KINDS = new Set<AgentChunk["kind"]>([
   "usage",
   "stream_end",
   "session_resolved",
+  "codex_command",
 ]);
 function parseReplayChunk(normalizedJson: string): AgentChunk | null {
   try {

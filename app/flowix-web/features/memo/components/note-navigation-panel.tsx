@@ -26,6 +26,8 @@ interface NoteNavigationPanelProps {
   onOpenPreferences: (tab?: string) => void;
   activePluginId: string | null;
   onOpenPlugin: (plugin: PluginDescriptor) => void | Promise<void>;
+  /** Lets an overlay owner provide the panel surface (for translucent drawers). */
+  transparentSurface?: boolean;
 }
 
 interface NavCounts {
@@ -52,6 +54,7 @@ export function NoteNavigationPanel({
   onOpenPreferences,
   activePluginId,
   onOpenPlugin,
+  transparentSurface = false,
 }: NoteNavigationPanelProps) {
   const [counts, setCounts] = useState<NavCounts>({ total: 0, agent: 0, todo: 0 });
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
@@ -61,7 +64,10 @@ export function NoteNavigationPanel({
   }, []);
 
   return (
-    <div className="flex h-full min-w-0 select-none flex-col bg-[var(--agent-bg)] text-[var(--agent-foreground)]">
+    <div className={cn(
+      'flex h-full min-w-0 select-none flex-col text-[var(--agent-foreground)]',
+      !transparentSurface && 'bg-[var(--agent-bg)]',
+    )}>
       {/* 顶部 header ── Mac/Win 差分:
             - Mac: h-10 + pl-[90px] 避开红绿灯 + rounded-xl 按钮
             - Win: h-9 (在 OS 标题栏下方, 仅做内部 UI) + rounded-lg 按钮

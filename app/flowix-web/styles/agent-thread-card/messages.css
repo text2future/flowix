@@ -105,7 +105,29 @@
   border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
 }
 
+/* Codex-native slash commands are product-owned user rows. They use the same
+ * compact treatment as DSH command rows, but keep a distinct provider badge. */
+.markdown-editor .agent-thread-card__message--codex-command {
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+}
+
+.markdown-editor .agent-thread-card__message--codex-command-loading {
+  opacity: 0.72;
+}
+
 .markdown-editor .agent-thread-card__message-dsh-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 2px;
+  color: var(--muted-foreground);
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.markdown-editor .agent-thread-card__message-codex-badge {
   display: inline-flex;
   align-items: center;
   width: fit-content;

@@ -25,5 +25,9 @@ export function liveTurnMessages(
       // run boundary is the turn-scoped user row, not the run-scoped id.
       (!!turnId && message.role === "user" && message.codexTurnId === turnId),
   );
-  return anchor >= 0 ? messages.slice(anchor) : [];
+  if (anchor >= 0) return messages.slice(anchor);
+  // Native `/compact` and `/goal` operations have no provider userMessage
+  // anchor. Keep their product-owned command row in the live overlay so a
+  // history refresh cannot erase it while the RPC/turn is still completing.
+  return messages.filter((message) => message.messageType === "codex-command");
 }

@@ -196,13 +196,29 @@ function normalizeMarkdownTableEmptyCells(markdown: string): string {
 }
 
 const PreservedParagraph = Paragraph.extend({
+  addAttributes() {
+    return {
+      textAlign: {
+        default: null,
+        parseHTML: element => element.style.textAlign || null,
+        renderHTML: attributes => (
+          attributes.textAlign ? { style: `text-align: ${attributes.textAlign}` } : {}
+        ),
+      },
+    };
+  },
   renderMarkdown(node, h, ctx: MarkdownRenderContext) {
     const content = Array.isArray(node.content) ? node.content : [];
     if (isEmptyParagraphForMarkdown(content, ctx)) {
       return renderEmptyParagraphMarkdown(ctx);
     }
 
-    return h.renderChildren(content);
+    const renderedContent = h.renderChildren(content);
+    // Markdown itself has no alignment syntax. Keep aligned paragraphs as HTML
+    // so the formatting round-trips through the Markdown editor and renderer.
+    return node.attrs?.textAlign
+      ? `<p style="text-align: ${node.attrs.textAlign}">${renderedContent}</p>`
+      : renderedContent;
   },
 });
 
@@ -733,9 +749,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     editorRef.current = editor;
     setEditorInstance(editor);
     const editorDom = editor.view.dom;
-    // Tiptap replaces the mount element's class attribute during initialization,
-    // so add the utility class after the EditorView has been created.
-    editorDom.classList.add('text-pretty');
     const handleCompositionStart = () => {
       isComposingRef.current = true;
     };

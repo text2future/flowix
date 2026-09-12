@@ -1,6 +1,7 @@
 import type { KeyChord, Platform, Scope } from './types';
 import { matchesModifier } from './platform';
 import { normalizeCode, normalizeKey } from './parser';
+import { isImeKeyboardEvent } from '@/lib/input-method';
 
 /**
  * KeyboardEvent 匹配规则:
@@ -25,9 +26,7 @@ export interface MatchContext {
  *  - 某些输入法: 两者都不可靠, 但 keyCode=229 几乎是通用信号
  * 见 agent-inputbox.tsx:151-162 现有用法。
  */
-export function isImeComposing(event: KeyboardEvent): boolean {
-  return event.isComposing || event.keyCode === 229;
-}
+export const isImeComposing = isImeKeyboardEvent;
 
 /** 焦点元素是否在可编辑区 (input / textarea / contenteditable / select)。 */
 export function isInEditableField(target: EventTarget | null): boolean {

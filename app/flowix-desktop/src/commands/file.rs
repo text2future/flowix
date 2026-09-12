@@ -266,7 +266,10 @@ pub fn delete_folder(folder_path: String, space_path: String, state: State<AppSt
     // is intentionally recursive because a notebook folder may contain notes
     // and nested folders.
     if !path_is_inside(folder, scope) || folder == scope || !is_browsable_scope(scope, &state) {
-        eprintln!("[delete_folder] refused out-of-scope or notebook-root path: {}", folder_path);
+        eprintln!(
+            "[delete_folder] refused out-of-scope or notebook-root path: {}",
+            folder_path
+        );
         return false;
     }
     start_security_bookmark_access(&state, folder);

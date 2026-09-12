@@ -278,6 +278,19 @@ pub enum AgentChunk {
         result: Option<String>,
         timestamp: i64,
     },
+    /// Codex-native slash command lifecycle. Codex handles `/compact` and
+    /// `/goal` as protocol operations, so they do not appear as ordinary
+    /// `userMessage` transcript items. This product-owned row keeps the
+    /// command visible and drives the composer busy state.
+    CodexCommand {
+        thread_id: String,
+        id: String,
+        command: String,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<String>,
+        timestamp: i64,
+    },
     /// 错误事件。`error_details` 是可选的，以兼容历史落盘消息。
     Error {
         thread_id: String,
@@ -345,6 +358,7 @@ impl AgentChunk {
             Self::ToolCall { .. } => "tool_call",
             Self::ToolResult { .. } => "tool_result",
             Self::DshCommand { .. } => "dsh_command",
+            Self::CodexCommand { .. } => "codex_command",
             Self::Error { .. } => "error",
             Self::StreamStart { .. } => "stream_start",
             Self::StreamEnd { .. } => "stream_end",
@@ -362,6 +376,7 @@ impl AgentChunk {
             | Self::ToolCall { thread_id, .. }
             | Self::ToolResult { thread_id, .. }
             | Self::DshCommand { thread_id, .. }
+            | Self::CodexCommand { thread_id, .. }
             | Self::Error { thread_id, .. }
             | Self::StreamStart { thread_id, .. }
             | Self::StreamEnd { thread_id, .. }

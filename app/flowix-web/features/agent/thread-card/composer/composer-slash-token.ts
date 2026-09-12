@@ -10,8 +10,8 @@ export interface ComposerSlashTokenValue {
   agentType?: AgentTypeKey;
 }
 
-const SLASH_TOKEN_RE = /^\[\/([a-z0-9_-]+)\]\(flowix:\/\/slash\/(?:(deepseek-harness)\/)?([a-z0-9_-]+)\)/i;
-const SLASH_TOKEN_GLOBAL_RE = /\[\/([a-z0-9_-]+)\]\(flowix:\/\/slash\/(?:(deepseek-harness)\/)?([a-z0-9_-]+)\)/gi;
+const SLASH_TOKEN_RE = /^\[\/([a-z0-9_-]+)\]\(flowix:\/\/slash\/(?:(deepseek-harness|codex)\/)?([a-z0-9_-]+)\)/i;
+const SLASH_TOKEN_GLOBAL_RE = /\[\/([a-z0-9_-]+)\]\(flowix:\/\/slash\/(?:(deepseek-harness|codex)\/)?([a-z0-9_-]+)\)/gi;
 const LEGACY_DSH_COMMANDS = new Set([
   "compact",
   "skill",
@@ -76,7 +76,9 @@ export const ComposerSlashToken = Node.create<ComposerSlashTokenOptions>({
     const href = String(token.href ?? "");
     const path = href.replace(/^flowix:\/\/slash\//i, "");
     const parts = path.split("/");
-    const agentType = parts[0] === "deepseek-harness" ? "deepseek-harness" : undefined;
+    const agentType = parts[0] === "deepseek-harness" || parts[0] === "codex"
+      ? parts[0]
+      : undefined;
     const command = (agentType ? parts[1] : parts[0]) ||
       String(token.text ?? "").replace(/^\//, "");
     return { type: "composerSlashToken", attrs: { command, agentType } };
@@ -138,7 +140,7 @@ export function insertComposerSlashToken(
     }).run();
 }
 
-/** Convert persisted slash chips back into the exact DSH command/prompt line. */
+/** Convert persisted slash chips back into the provider command/prompt line. */
 export function composerSlashMarkdownToPrompt(markdown: string): string {
   return markdown.replace(
     SLASH_TOKEN_GLOBAL_RE,
@@ -146,7 +148,9 @@ export function composerSlashMarkdownToPrompt(markdown: string): string {
       // Unscoped chips are legacy data. Preserve old DSH drafts while keeping
       // the product-only permission chips UI-only as before.
       if (
-        (scopedAgent && scopedAgent.toLowerCase() !== "deepseek-harness") ||
+        scopedAgent &&
+        scopedAgent.toLowerCase() !== "deepseek-harness" &&
+        scopedAgent.toLowerCase() !== "codex" ||
         (!scopedAgent && !LEGACY_DSH_COMMANDS.has(command.toLowerCase()))
       ) {
         return "";

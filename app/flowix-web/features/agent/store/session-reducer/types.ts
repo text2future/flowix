@@ -17,6 +17,16 @@ export interface DshCommandRuntimeState {
   result?: string;
 }
 
+export interface CodexCommandRuntimeState {
+  id: string;
+  command: string;
+  runId?: string;
+  status: "pending" | "success" | "error" | "cancelled";
+  startedAt: number;
+  endedAt?: number;
+  result?: string;
+}
+
 /**
  * Single per-thread projection derived from the backend AgentEvent stream.
  *
@@ -61,6 +71,8 @@ export interface ThreadProjection {
     /** DSH command lifecycle. Commands are not model runs, but are still
      * thread-scoped work that must drive the same busy UI. */
     dshCommand?: DshCommandRuntimeState | null;
+    /** Codex-native slash command lifecycle. */
+    codexCommand?: CodexCommandRuntimeState | null;
   };
 }
 
@@ -86,6 +98,7 @@ export function emptyProjection(): ThreadProjection {
       activeRunId: null,
       runs: {},
       dshCommand: null,
+      codexCommand: null,
     },
   };
 }
@@ -122,6 +135,8 @@ export function projectionToRuns(p: ThreadProjection): ProjectionRuns {
     activeRunId: p.runs.activeRunId,
     runs: p.runs.runs,
     lastRun: p.runs.lastRun,
+    dshCommand: p.runs.dshCommand,
+    codexCommand: p.runs.codexCommand,
     pendingAssistantId: p.pending.assistantId,
     pendingReasoningId: p.pending.reasoningId,
   };
@@ -133,6 +148,8 @@ export function runsToProjectionRuns(r: ProjectionRuns): ThreadProjection["runs"
     activeRunId: r.activeRunId,
     runs: r.runs,
     lastRun: r.lastRun,
+    dshCommand: r.dshCommand,
+    codexCommand: r.codexCommand,
   };
 }
 
@@ -250,6 +267,10 @@ export function mergeThreadProjections(
       },
       lastRun: to?.runs.lastRun ?? from?.runs.lastRun,
       dshCommand: mergeDshCommandState(to?.runs.dshCommand, from?.runs.dshCommand),
+      codexCommand: mergeCodexCommandState(
+        to?.runs.codexCommand,
+        from?.runs.codexCommand,
+      ),
     },
   };
 }
@@ -261,6 +282,15 @@ function mergeDshCommandState(
   // A pending command is the live state and must win over a stale terminal
   // snapshot during session-id resolution. Otherwise the composer can briefly
   // become writable while the DSH operation is still mutating the session.
+  if (to?.status === "pending") return to;
+  if (from?.status === "pending") return from;
+  return to ?? from ?? null;
+}
+
+function mergeCodexCommandState(
+  to: CodexCommandRuntimeState | null | undefined,
+  from: CodexCommandRuntimeState | null | undefined,
+): CodexCommandRuntimeState | null {
   if (to?.status === "pending") return to;
   if (from?.status === "pending") return from;
   return to ?? from ?? null;

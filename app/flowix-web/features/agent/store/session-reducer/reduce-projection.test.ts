@@ -602,6 +602,86 @@ describe("reduceProjection / session_resolved is a no-op", () => {
   });
 });
 
+describe("reduceProjection / Codex command operations", () => {
+  const commandEvent = (
+    status: "pending" | "success" | "error" | "cancelled",
+    result?: string,
+    codexTurnId?: string,
+  ): AgentEvent =>
+    event("codex_command", {
+      agentType: "codex",
+      threadId: "t1",
+      runId: "codex-command-run-1",
+      timestamp: status === "pending" ? 1000 : 2000,
+      id: "codex-command-1",
+      command: "/goal set ship it",
+      status,
+      result,
+      codexTurnId,
+    });
+
+  it("renders the command row and keeps it pending until terminal status", () => {
+    let p = reduceProjection(emptyProjection(), commandEvent("pending"));
+
+    expect(p.messages).toMatchObject([
+      {
+        id: "codex-command:live:codex-command-1",
+        role: "user",
+        messageType: "codex-command",
+        content: "/goal set ship it",
+        isLoading: true,
+        isCompleted: false,
+      },
+    ]);
+    expect(p.runs.codexCommand).toMatchObject({
+      id: "codex-command-1",
+      command: "/goal set ship it",
+      status: "pending",
+    });
+    expect(p.runs.isLoading).toBe(false);
+
+    p = reduceProjection(p, commandEvent("success", "ship it (active)"));
+    expect(p.messages[0]).toMatchObject({
+      isLoading: false,
+      isCompleted: true,
+    });
+    expect(p.runs.codexCommand).toMatchObject({
+      status: "success",
+      result: "ship it (active)",
+      endedAt: 2000,
+    });
+  });
+
+  it("associates the terminal command row with its provider goal turn", () => {
+    let p = reduceProjection(emptyProjection(), commandEvent("pending"));
+    p = reduceProjection(
+      p,
+      commandEvent("success", "ship it (active)", "turn-goal-1"),
+    );
+
+    expect(p.messages[0]).toMatchObject({
+      id: "codex-command:live:codex-command-1",
+      codexTurnId: "turn-goal-1",
+      isCompleted: true,
+    });
+  });
+
+  it.each(["error", "cancelled"] as const)(
+    "renders a terminal Codex command status: %s",
+    (status) => {
+      let p = reduceProjection(emptyProjection(), commandEvent("pending"));
+      p = reduceProjection(p, commandEvent(status, "Command interrupted"));
+
+      expect(p.messages[0]).toMatchObject({
+        messageType: "codex-command",
+        isLoading: false,
+        isCompleted: true,
+      });
+      expect(p.runs.codexCommand?.status).toBe(status);
+    },
+  );
+});
+
 describe("reduceProjection / usage accumulates into runs", () => {
   it("usage event updates runs[runId].usage", () => {
     let p = emptyProjection();

@@ -8,6 +8,7 @@ import {
   createAgentComposerDom,
   disposeAgentComposerDom,
 } from "./index";
+import { insertComposerSkillToken } from "./composer-skill-token";
 
 const controllers: ComposerController[] = [];
 const domParts: ReturnType<typeof createAgentComposerDom>[] = [];
@@ -183,5 +184,47 @@ describe("ComposerController note references", () => {
       { contentType: "markdown" },
     );
     expect(controller.getPrompt()).toBe(" ignored");
+  });
+
+  it("renders a Codex Skill card and restores its invocation syntax", () => {
+    const { controller } = setup();
+    const editor = controller.editorInstance;
+    editor.commands.setContent(
+      "[Browser](flowix://skill/codex/browser%3Acontrol-in-app-browser)",
+      { contentType: "markdown" },
+    );
+
+    expect(controller.getInputElement().querySelector(".agent-thread-card__skill-token")?.textContent)
+      .toBe("Browser");
+    expect(controller.getPrompt()).toBe("$browser:control-in-app-browser");
+    expect(editor.getMarkdown()).toBe(
+      "[Browser](flowix://skill/codex/browser%3Acontrol-in-app-browser)",
+    );
+  });
+
+  it("uses the qualified name suffix when a Skill has no display name", () => {
+    const { controller } = setup();
+    const editor = controller.editorInstance;
+    editor.commands.setContent(
+      "[control-in-app-browser](flowix://skill/codex/browser%3Acontrol-in-app-browser)",
+      { contentType: "markdown" },
+    );
+
+    expect(controller.getInputElement().querySelector(".agent-thread-card__skill-token")?.textContent)
+      .toBe("control-in-app-browser");
+    expect(controller.getPrompt()).toBe("$browser:control-in-app-browser");
+  });
+
+  it("inserts a Skill card while keeping a complete Codex invocation", () => {
+    const { controller } = setup();
+    insertComposerSkillToken(
+      controller.editorInstance,
+      "browser:control-in-app-browser",
+      "Browser",
+    );
+
+    expect(controller.getInputElement().querySelector(".agent-thread-card__skill-token")?.textContent)
+      .toBe("Browser");
+    expect(controller.getPrompt()).toBe("$browser:control-in-app-browser ");
   });
 });

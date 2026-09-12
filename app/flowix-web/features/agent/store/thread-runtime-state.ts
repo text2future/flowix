@@ -5,7 +5,10 @@ import type {
   AgentRunStatus,
 } from "@/types/agent";
 import type { LastRunSnapshot } from "@/types/agent";
-import type { DshCommandRuntimeState } from "@features/agent/store/session-reducer/types";
+import type {
+  CodexCommandRuntimeState,
+  DshCommandRuntimeState,
+} from "@features/agent/store/session-reducer/types";
 
 /**
  * 每个 thread 独立的运行态 ── 不再绑在"当前 active thread"上, 让 A
@@ -26,6 +29,7 @@ export interface ThreadState {
   activeRunId: string | null;
   runs: Record<string, AgentRunState>;
   dshCommand?: DshCommandRuntimeState | null;
+  codexCommand?: CodexCommandRuntimeState | null;
   pendingAssistantId: string | null;
   pendingReasoningId: string | null;
   /**

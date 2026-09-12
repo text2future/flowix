@@ -205,12 +205,7 @@ mod tests {
         seed_conversation(&manager, "i-0", "codex", None, 100).await;
 
         let first = manager
-            .list_agent_conversation_instances_page(
-                Some("nb-a".to_string()),
-                None,
-                None,
-                2,
-            )
+            .list_agent_conversation_instances_page(Some("nb-a".to_string()), None, None, 2)
             .await
             .expect("first conversation page");
         assert_eq!(
@@ -238,7 +233,7 @@ mod tests {
                 .iter()
                 .map(|item| item.instance_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["i-2", "i-0"]
+            vec!["i-2"]
         );
 
         let filtered = manager
@@ -255,7 +250,7 @@ mod tests {
                 .iter()
                 .map(|item| item.instance_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["i-4", "i-3", "i-0"]
+            vec!["i-4", "i-3"]
         );
     }
 

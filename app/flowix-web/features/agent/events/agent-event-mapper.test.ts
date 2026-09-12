@@ -117,6 +117,35 @@ describe("agent event mapper", () => {
     });
   });
 
+  it("maps a Codex-native command lifecycle event without turning it into a user message", () => {
+    const event = mapAgentChunkToEvent(
+      {
+        kind: "codex_command",
+        thread_id: "codex-thread",
+        id: "command-1",
+        command: "/goal set ship it",
+        status: "pending",
+        timestamp: 456,
+        agent_type: "codex",
+        run_id: "run-command-1",
+      },
+      state(),
+      () => 123,
+    );
+
+    expect(event).toMatchObject({
+      kind: "codex_command",
+      threadId: "codex-thread",
+      agentType: "codex",
+      runId: "run-command-1",
+      id: "command-1",
+      command: "/goal set ship it",
+      status: "pending",
+      messageId: "command-1",
+      sourceTimestamp: 456,
+    });
+  });
+
   it("preserves structured upstream error details and gives errors a run-scoped id", () => {
     const event = mapAgentChunkToEvent(
       {

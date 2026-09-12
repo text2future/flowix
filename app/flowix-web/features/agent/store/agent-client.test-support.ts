@@ -73,6 +73,7 @@ export function createAgentClientMock(
     archiveAgentThread: vi.fn<AgentClient["archiveAgentThread"]>().mockResolvedValue({ provider: true }),
     deleteAgentThread: vi.fn<AgentClient["deleteAgentThread"]>().mockResolvedValue({ provider: true }),
     updateThreadTitle: vi.fn<AgentClient["updateThreadTitle"]>().mockResolvedValue(null),
+    executeCodexSlashCommand: vi.fn<AgentClient["executeCodexSlashCommand"]>().mockResolvedValue({}),
   } satisfies AgentClient;
   return { ...defaults, ...overrides };
 }

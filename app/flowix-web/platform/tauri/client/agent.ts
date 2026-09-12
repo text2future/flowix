@@ -406,6 +406,29 @@ export const agent = {
     reasoningEffort: args.reasoningEffort,
     permissionMode: args.permissionMode,
   }),
+  executeCodexSlashCommand: (
+    threadId: string,
+    command: string,
+    runtimeConfig?: {
+      codex?: {
+        cwd?: string;
+        workspacePaths?: string[];
+        permissionMode?: AgentPermissionMode;
+        model?: string;
+        reasoningEffort?: string;
+      };
+    },
+    lifecycle?: {
+      runId: string;
+      commandId: string;
+    },
+  ) => invoke<unknown>('codex_slash_command', {
+    threadId,
+    command,
+    runtimeConfig,
+    runId: lifecycle?.runId,
+    commandId: lifecycle?.commandId,
+  }),
   listSupportedModels: (agentType: AgentTypeKey) =>
     invoke<string[]>('agent_supported_models', { agentType }),
   listClaudeThreads: () =>

@@ -348,6 +348,42 @@ describe("DSH goal control message rendering", () => {
   });
 });
 
+describe("Codex command rendering", () => {
+  it("shows native compact and goal commands on the user side", () => {
+    const elements = ["/compact", "/goal set ship it"].map((command) => {
+      const result = createAgentThreadCardMessageElement({
+        message: {
+          id: `codex-${command}`,
+          role: "user",
+          messageType: "codex-command",
+          content: command,
+          timestamp: new Date().toISOString(),
+          isLoading: command === "/compact",
+        },
+        language: "zh-CN",
+        getReasoningCollapsed: () => true,
+        setReasoningCollapsed: () => undefined,
+        getDisplayExpanded: () => false,
+        setDisplayExpanded: () => undefined,
+      });
+      if (!result) throw new Error(`Expected ${command} to render`);
+      return result.element;
+    });
+
+    expect(elements.map((element) => element.className)).toEqual([
+      "agent-thread-card__message agent-thread-card__message--user agent-thread-card__message--codex-command agent-thread-card__message--codex-command-loading",
+      "agent-thread-card__message agent-thread-card__message--user agent-thread-card__message--codex-command",
+    ]);
+    expect(elements.map((element) => element.querySelector(
+      ".agent-thread-card__message-codex-badge",
+    )?.textContent)).toEqual(["Codex", "Codex"]);
+    expect(elements.map((element) => element.textContent?.includes("/"))).toEqual([
+      true,
+      true,
+    ]);
+  });
+});
+
 describe("unified tool message rendering", () => {
   it("keeps a structured command preview and expands to the complete command list", async () => {
     let expanded = false;

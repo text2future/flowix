@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject, type UIEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   FilePlusIcon,
   FolderPlusIcon,
@@ -13,6 +13,7 @@ import { canonicalPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { cn, displayTitleFromFilename } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import { useComposingValue } from '@shared/hooks/use-composing-value';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { FileTypeIcon } from '@features/memo/components/file-type-icon';
 import { MemoCardActions } from '@features/memo/components/memo-card-actions';
@@ -33,10 +34,6 @@ import { files, memos, type DocTreeItem } from '@platform/tauri/client';
 
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
-const TREE_HEADER_HEIGHT = 24;
-const TREE_ROW_HEIGHT = 34;
-const TREE_VIRTUAL_OVERSCAN = 24;
-const TREE_VIRTUAL_MAX_FORWARD_OVERSCAN = 96;
 // Row gutter (6px) + inline padding (6px) + half of the 12px caret.
 const FOLDER_CARET_CENTER_OFFSET = 12;
 const TREE_MENU_CLASS =
@@ -51,147 +48,6 @@ function canonicalDirectoryPath(path: string): string {
   return trimmed || (canonical.startsWith('/') ? '/' : canonical);
 }
 
-interface NotebookTreeVirtualItem {
-  index: number;
-  start: number;
-}
-
-interface NotebookTreeViewport {
-  scrollTop: number;
-  height: number;
-  direction: 1 | -1;
-  scrollDeltaRows: number;
-}
-
-function useNotebookTreeVirtualList(
-  itemCount: number,
-  scrollerRef: RefObject<HTMLDivElement | null>,
-) {
-  const [viewport, setViewport] = useState<NotebookTreeViewport>({
-    scrollTop: 0,
-    height: 0,
-    direction: 1,
-    scrollDeltaRows: 0,
-  });
-  const frameRef = useRef<number | null>(null);
-  const lastScrollTopRef = useRef(0);
-  const directionRef = useRef<1 | -1>(1);
-
-  const updateViewport = useCallback((scrollTop: number, height: number, fromScroll: boolean) => {
-    const previousScrollTop = lastScrollTopRef.current;
-    const delta = scrollTop - previousScrollTop;
-    if (delta !== 0) directionRef.current = delta > 0 ? 1 : -1;
-    lastScrollTopRef.current = scrollTop;
-    const scrollDeltaRows = fromScroll
-      ? Math.min(
-        TREE_VIRTUAL_MAX_FORWARD_OVERSCAN - TREE_VIRTUAL_OVERSCAN,
-        Math.ceil(Math.abs(delta) / TREE_ROW_HEIGHT),
-      )
-      : 0;
-    const next = {
-      scrollTop,
-      height,
-      direction: directionRef.current,
-      scrollDeltaRows,
-    } satisfies NotebookTreeViewport;
-    setViewport((previous) => (
-      previous.scrollTop === next.scrollTop
-      && previous.height === next.height
-      && previous.direction === next.direction
-      && previous.scrollDeltaRows === next.scrollDeltaRows
-        ? previous
-        : next
-    ));
-  }, []);
-
-  const syncViewport = useCallback(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    updateViewport(scroller.scrollTop, scroller.clientHeight, false);
-  }, [scrollerRef, updateViewport]);
-
-  const scheduleViewportSync = useCallback(() => {
-    if (frameRef.current !== null) return;
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      syncViewport();
-      return;
-    }
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = null;
-      syncViewport();
-    });
-  }, [syncViewport]);
-
-  useLayoutEffect(() => {
-    syncViewport();
-    const scroller = scrollerRef.current;
-    if (!scroller || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(scheduleViewportSync);
-    observer.observe(scroller);
-    return () => observer.disconnect();
-  }, [scheduleViewportSync, scrollerRef, syncViewport]);
-
-  useLayoutEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const maxScrollTop = Math.max(
-      0,
-      TREE_HEADER_HEIGHT + itemCount * TREE_ROW_HEIGHT - scroller.clientHeight,
-    );
-    if (scroller.scrollTop > maxScrollTop) scroller.scrollTop = maxScrollTop;
-    syncViewport();
-  }, [itemCount, scrollerRef, syncViewport]);
-
-  useLayoutEffect(() => () => {
-    if (frameRef.current !== null && typeof window !== 'undefined') {
-      window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-  }, []);
-
-  const virtualItems = useMemo<NotebookTreeVirtualItem[]>(() => {
-    if (itemCount === 0) return [];
-    // A zero-height first measurement is common while a column is mounting.
-    // Render the full list for that first frame, then switch to the bounded
-    // window as soon as the scroller reports its real height.
-    if (viewport.height <= 0) {
-      return Array.from({ length: itemCount }, (_, index) => ({
-        index,
-        start: index * TREE_ROW_HEIGHT,
-      }));
-    }
-
-    const listScrollTop = Math.max(0, viewport.scrollTop - TREE_HEADER_HEIGHT);
-    const forwardOverscan = Math.min(
-      TREE_VIRTUAL_MAX_FORWARD_OVERSCAN,
-      TREE_VIRTUAL_OVERSCAN + viewport.scrollDeltaRows * 2,
-    );
-    const backwardOverscan = TREE_VIRTUAL_OVERSCAN;
-    const beforeOverscan = viewport.direction < 0 ? forwardOverscan : backwardOverscan;
-    const afterOverscan = viewport.direction > 0 ? forwardOverscan : backwardOverscan;
-    const first = Math.max(
-      0,
-      Math.floor(listScrollTop / TREE_ROW_HEIGHT) - beforeOverscan,
-    );
-    const last = Math.min(
-      itemCount,
-      Math.ceil((listScrollTop + viewport.height) / TREE_ROW_HEIGHT)
-        + afterOverscan,
-    );
-    return Array.from({ length: Math.max(0, last - first) }, (_, offset) => {
-      const index = first + offset;
-      return { index, start: index * TREE_ROW_HEIGHT };
-    });
-  }, [itemCount, viewport]);
-
-  return {
-    totalHeight: itemCount * TREE_ROW_HEIGHT,
-    virtualItems,
-    onScroll: (event: UIEvent<HTMLDivElement>) => {
-      updateViewport(event.currentTarget.scrollTop, event.currentTarget.clientHeight, true);
-    },
-  };
-}
 
 export interface NotebookFolderCreateRequest {
   id: number;
@@ -236,15 +92,13 @@ interface NotebookTreeDraftState {
   value: string;
 }
 
-type NotebookTreeEntry =
-  | { kind: 'item'; key: string; item: DocTreeItem; depth: number }
-  | { kind: 'draft'; key: string; draft: NotebookTreeDraftState; depth: number };
 
 /**
  * 笔记本专用文件树。
  *
- * 这个组件有意不依赖 FolderFileTree：笔记树后续的选择模型、拖放、菜单、
- * 排序与虚拟化都可以独立演进。当前只共享底层目录读取 controller 和基础图标。
+ * 这个组件有意不依赖 FolderFileTree：笔记树后续的选择模型、拖放、菜单与
+ * 排序都可以独立演进。每个展开目录保留真实的递归 DOM 容器，使其标题和
+ * 子列表可作为一个整体响应拖放状态。当前只共享底层目录读取 controller 和基础图标。
  */
 export function NotebookFileTree({
   notebookPath,
@@ -278,61 +132,7 @@ export function NotebookFileTree({
     x: number;
     y: number;
   } | null>(null);
-  const treeEntries = useMemo<NotebookTreeEntry[]>(() => {
-    const entries: NotebookTreeEntry[] = [];
-    const appendItems = (items: DocTreeItem[], depth: number, parentPath: string) => {
-      const draftForList = draft
-        && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(parentPath)
-        ? draft
-        : null;
-      const draftType = draftForList?.kind === 'folder' ? 'folder' : 'document';
-      const firstMatchingIndex = draftForList
-        ? items.findIndex((item) => item.type === draftType)
-        : -1;
-      const draftInsertionIndex = draftForList
-        ? firstMatchingIndex >= 0
-          ? firstMatchingIndex
-          : draftForList.kind === 'folder' ? 0 : items.length
-        : -1;
-
-      items.forEach((item, index) => {
-        if (index === draftInsertionIndex && draftForList) {
-          entries.push({
-            kind: 'draft',
-            key: `draft-${draftForList.requestId}`,
-            draft: draftForList,
-            depth,
-          });
-        }
-
-        entries.push({ kind: 'item', key: item.id, item, depth });
-        if (item.type !== 'folder') return;
-
-        const itemKey = canonicalPath(item.fullPath);
-        const children = tree.nodes.get(itemKey)?.children ?? [];
-        const hasDraftChild = draft !== null
-          && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(item.fullPath);
-        if (tree.expanded.has(itemKey) && (children.length > 0 || hasDraftChild)) {
-          appendItems(children, depth + 1, item.fullPath);
-        }
-      });
-
-      if (draftForList && draftInsertionIndex === items.length) {
-        entries.push({
-          kind: 'draft',
-          key: `draft-${draftForList.requestId}`,
-          draft: draftForList,
-          depth,
-        });
-      }
-    };
-
-    appendItems(tree.rootChildren, 0, notebookPath);
-    return entries;
-  }, [draft, notebookPath, tree.expanded, tree.nodes, tree.rootChildren]);
-  const { totalHeight: treeHeight, virtualItems, onScroll: handleTreeScroll } =
-    useNotebookTreeVirtualList(treeEntries.length, treeScrollerRef);
-  const hasVisibleItems = treeEntries.some((entry) => entry.kind === 'item');
+  const hasVisibleItems = tree.rootChildren.length > 0;
   const isRootDropTarget = dragOverFolderPath !== null
     && canonicalDirectoryPath(dragOverFolderPath) === canonicalDirectoryPath(notebookPath);
 
@@ -416,48 +216,43 @@ export function NotebookFileTree({
     setDraft({ requestId: Date.now(), parentPath, kind, value: '' });
   }, [tree.expandTo]);
 
-  const renderDraft = (draftState: NotebookTreeDraftState, depth: number, key?: string, start?: number) => (
+  const renderDraft = (draftState: NotebookTreeDraftState, depth: number, key?: string) => (
     <NotebookTreeDraft
       key={key}
       draft={draftState}
       depth={depth}
       data-notebook-tree-depth={depth}
-      style={start === undefined ? undefined : {
-        position: 'absolute',
-        insetInline: 0,
-        top: start,
-        height: TREE_ROW_HEIGHT,
-      }}
       onChange={(value) => setDraft({ ...draftState, value })}
       onSubmit={() => void submitDraft()}
       onCancel={cancelDraft}
     />
   );
 
-  const renderTreeEntry = (entry: NotebookTreeEntry, start: number) => {
-    if (entry.kind === 'draft') {
-      return renderDraft(entry.draft, entry.depth, entry.key, start);
-    }
-
-    const { item, depth } = entry;
+  const renderTreeItem = (item: DocTreeItem, depth: number) => {
     const expanded = item.type === 'folder' && tree.expanded.has(canonicalPath(item.fullPath));
+    const childItems = item.type === 'folder'
+      ? tree.nodes.get(canonicalPath(item.fullPath))?.children ?? []
+      : [];
+    const hasDraftChild = item.type === 'folder'
+      && draft !== null
+      && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(item.fullPath);
+    // 空文件夹仍保留 folder group，但子树固定为 0 高，避免 0fr/1fr
+    // 动画与子列表的 padding 产生无内容的高度抖动。
+    const hasSubtreeContent = childItems.length > 0 || hasDraftChild;
     const isDropTarget = item.type === 'folder'
       && dragOverFolderPath !== null
       && canonicalDirectoryPath(item.fullPath) === canonicalDirectoryPath(dragOverFolderPath);
 
     return (
       <div
-        key={entry.key}
+        key={item.id}
         className={cn(
-          'folder-file-tree__group absolute inset-x-0',
-          item.type === 'folder' && 'notebook-file-tree__virtual-folder-row',
+          item.type === 'folder' && 'folder-file-tree__group notebook-file-tree__folder-group relative',
         )}
         data-notebook-tree-depth={depth}
         data-drag-over={isDropTarget ? 'true' : 'false'}
-        data-notebook-drop-path={item.type === 'folder' ? item.fullPath : isFolderParent(item, notebookPath)}
+        data-notebook-drop-path={item.type === 'folder' ? item.fullPath : undefined}
         style={{
-          top: start,
-          height: TREE_ROW_HEIGHT,
           '--folder-file-tree-drop-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL}px`,
           '--folder-file-tree-drop-right': `${TREE_EDGE_GUTTER}px`,
         } as CSSProperties}
@@ -514,8 +309,50 @@ export function NotebookFileTree({
             };
           }}
         />
+        {item.type === 'folder' && (
+          <div
+            className="folder-file-tree__subtree"
+            data-expanded={expanded}
+            data-empty={!hasSubtreeContent ? 'true' : undefined}
+            aria-hidden={!expanded}
+            style={{
+              '--folder-file-tree-guide-left': `${TREE_EDGE_GUTTER + depth * INDENT_PER_LEVEL + FOLDER_CARET_CENTER_OFFSET}px`,
+            } as CSSProperties}
+          >
+            <div className="folder-file-tree__subtree-inner">
+              <div className="folder-file-tree__subtree-items notebook-file-tree__subtree-items">
+                {expanded ? renderTreeItems(
+                  childItems,
+                  depth + 1,
+                  item.fullPath,
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
+  };
+
+  const renderTreeItems = (items: DocTreeItem[], depth: number, parentPath: string) => {
+    const draftForList = draft
+      && canonicalDirectoryPath(draft.parentPath) === canonicalDirectoryPath(parentPath)
+      ? draft
+      : null;
+    const draftType = draftForList?.kind === 'folder' ? 'folder' : 'document';
+    const firstMatchingIndex = draftForList
+      ? items.findIndex((item) => item.type === draftType)
+      : -1;
+    const draftInsertionIndex = draftForList
+      ? firstMatchingIndex >= 0 ? firstMatchingIndex : draftForList.kind === 'folder' ? 0 : items.length
+      : -1;
+
+    return items.flatMap((item, index) => [
+      ...(index === draftInsertionIndex && draftForList
+        ? [renderDraft(draftForList, depth, `draft-${draftForList.requestId}`)]
+        : []),
+      renderTreeItem(item, depth),
+    ].filter(Boolean));
   };
 
   const handleDrop = useCallback(async (
@@ -550,7 +387,6 @@ export function NotebookFileTree({
           scrollerRef={treeScrollerRef}
           onScroll={(event) => {
             setShowScrollTopHint(event.currentTarget.scrollTop > 0);
-            handleTreeScroll(event);
           }}
         >
           <div className="flex h-6 items-center gap-1 px-3">
@@ -585,7 +421,6 @@ export function NotebookFileTree({
               'relative rounded-lg transition-colors duration-150',
               isRootDropTarget && 'bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]',
             )}
-            style={{ height: treeHeight }}
             onPointerMove={(event) => {
               const drag = pointerDragRef.current;
               if (!drag || event.pointerId !== drag.pointerId) return;
@@ -642,10 +477,9 @@ export function NotebookFileTree({
               setDragPreview(null);
             }}
           >
-            {virtualItems.map(({ index, start }) => {
-              const entry = treeEntries[index];
-              return entry ? renderTreeEntry(entry, start) : null;
-            })}
+            <div className="notebook-file-tree__items">
+              {renderTreeItems(tree.rootChildren, 0, notebookPath)}
+            </div>
           </div>
         </OverlayScrollbar>
         {dragPreview && (
@@ -688,6 +522,7 @@ function NotebookTreeDraft({
   'data-notebook-tree-depth'?: number;
 }) {
   const { t } = useI18n();
+  const draftInput = useComposingValue(draft.value, onChange);
   return (
     <div
       data-notebook-tree-depth={dataDepth}
@@ -701,14 +536,21 @@ function NotebookTreeDraft({
       <input
         key={draft.requestId}
         autoFocus
-        value={draft.value}
+        value={draftInput.value}
         placeholder={draft.kind === 'folder' ? t('memo.fileTree.newFolder') : t('memo.fileTree.newNote')}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={draftInput.onChange}
+        onCompositionStart={draftInput.onCompositionStart}
+        onCompositionEnd={draftInput.onCompositionEnd}
         onBlur={onSubmit}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === 'Enter') onSubmit();
-          if (event.key === 'Escape') onCancel();
+          if (draftInput.isComposingKeyboardEvent(event.nativeEvent)) return;
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            onSubmit();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+          }
         }}
         className="h-5 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm outline-none"
       />

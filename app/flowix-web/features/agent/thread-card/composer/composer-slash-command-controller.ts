@@ -4,6 +4,10 @@ import {
   insertComposerSlashToken,
   removeComposerSlashToken,
 } from "@features/agent/thread-card/composer/composer-slash-token";
+import {
+  displayNameForComposerSkill,
+  insertComposerSkillToken,
+} from "@features/agent/thread-card/composer/composer-skill-token";
 import type { AgentTypeKey } from "@/types/agent";
 
 export interface ComposerSlashCommand {
@@ -16,7 +20,7 @@ export interface ComposerSlashCommand {
   /** How selection continues: execute now, add a prompt token, or drill down. */
   interaction?: "direct" | "prompt" | "drilldown";
   /** Execution authority behind the selected item. */
-  execution?: "dsh-command" | "dsh-skill" | "host-action";
+  execution?: "dsh-command" | "dsh-skill" | "codex-command" | "codex-skill" | "host-action";
 }
 
 export const COMPOSER_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
@@ -27,14 +31,23 @@ export const COMPOSER_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
   { name: "model", description: "选择本次会话使用的模型", agentType: "deepseek-harness", owner: "flowix", interaction: "drilldown", execution: "host-action" },
   { name: "permission", description: "切换权限预设", agentType: "deepseek-harness", owner: "flowix", interaction: "drilldown", execution: "host-action" },
   { name: "export", description: "导出当前 DSH 会话记录", agentType: "deepseek-harness", owner: "dsh", interaction: "direct", execution: "dsh-command" },
+  { name: "compact", description: "压缩较早的 Codex 对话上下文", agentType: "codex", owner: "flowix", interaction: "direct", execution: "codex-command" },
+  { name: "skill", description: "选择一个 Codex Skill", agentType: "codex", owner: "flowix", interaction: "drilldown", execution: "codex-skill" },
+  { name: "goal", description: "设置或查看 Codex 长时任务目标", agentType: "codex", owner: "flowix", interaction: "prompt", execution: "codex-command" },
+  { name: "model", description: "选择本次会话使用的模型", agentType: "codex", owner: "flowix", interaction: "drilldown", execution: "host-action" },
+  { name: "permission", description: "切换权限预设", agentType: "codex", owner: "flowix", interaction: "drilldown", execution: "host-action" },
 ];
 
 export interface ComposerSlashSkill {
   name: string;
   description: string;
+  displayName?: string;
+  shortDescription?: string;
   whenToUse?: string;
   modelInvocable?: boolean;
 }
+
+export { formatCodexSkillDisplayName } from "@features/agent/thread-card/composer/composer-skill-token";
 
 export interface ComposerSlashCommandControllerOptions {
   editor: Editor;
@@ -43,7 +56,8 @@ export interface ComposerSlashCommandControllerOptions {
   commands?: readonly ComposerSlashCommand[];
   agentType?: AgentTypeKey;
   listDshSkills?: () => Promise<readonly ComposerSlashSkill[]>;
-  onDshModelSelect?: () => void;
+  listCodexSkills?: () => Promise<readonly ComposerSlashSkill[]>;
+  onModelSelect?: () => void;
   onPermissionSelect?: () => void;
   onDirectCommand?: (command: ComposerSlashCommand) => void;
   onCommandChange?: () => void;
@@ -64,7 +78,8 @@ export class ComposerSlashCommandController {
   private readonly commands: readonly ComposerSlashCommand[];
   private readonly agentType: AgentTypeKey | undefined;
   private readonly listDshSkills: (() => Promise<readonly ComposerSlashSkill[]>) | undefined;
-  private readonly onDshModelSelect: (() => void) | undefined;
+  private readonly listCodexSkills: (() => Promise<readonly ComposerSlashSkill[]>) | undefined;
+  private readonly onModelSelect: (() => void) | undefined;
   private readonly onPermissionSelect: (() => void) | undefined;
   private readonly onDirectCommand: ((command: ComposerSlashCommand) => void) | undefined;
   private readonly onCommandChange: () => void;
@@ -88,7 +103,8 @@ export class ComposerSlashCommandController {
     this.commands = options.commands ?? COMPOSER_SLASH_COMMANDS;
     this.agentType = options.agentType;
     this.listDshSkills = options.listDshSkills;
-    this.onDshModelSelect = options.onDshModelSelect;
+    this.listCodexSkills = options.listCodexSkills;
+    this.onModelSelect = options.onModelSelect;
     this.onPermissionSelect = options.onPermissionSelect;
     this.onDirectCommand = options.onDirectCommand;
     this.onCommandChange = options.onCommandChange ?? (() => undefined);
@@ -140,10 +156,10 @@ export class ComposerSlashCommandController {
   }
 
   refresh(): void {
-    // Slash commands are currently a DSH-only surface. Keep this guard at the
-    // controller boundary so unscoped/custom descriptors cannot accidentally
-    // make slash available to another Agent.
-    if (this.disposed || this.agentType !== "deepseek-harness" || getComposerSlashToken(this.editor)) {
+    // Keep the agent scope at the controller boundary so unscoped/custom
+    // descriptors cannot accidentally make a command available to another
+    // Agent.
+    if (this.disposed || !this.agentType || getComposerSlashToken(this.editor)) {
       this.closeMenu();
       return;
     }
@@ -350,7 +366,7 @@ export class ComposerSlashCommandController {
   }
 
   private select(command: ComposerSlashCommand): void {
-    if (command.execution === "dsh-skill") {
+    if (command.execution === "dsh-skill" || command.execution === "codex-skill") {
       void this.openSkills();
       return;
     }
@@ -359,7 +375,7 @@ export class ComposerSlashCommandController {
     this.menuMode = "commands";
     if (command.name === "model" && command.execution === "host-action") {
       this.clearInput();
-      this.onDshModelSelect?.();
+      this.onModelSelect?.();
       return;
     }
     if (command.name === "permission" && command.execution === "host-action") {
@@ -397,13 +413,14 @@ export class ComposerSlashCommandController {
     this.focusInput();
 
     try {
-      const skills = await this.listDshSkills?.() ?? [];
+      const listSkills = this.agentType === "codex" ? this.listCodexSkills : this.listDshSkills;
+      const skills = await listSkills?.() ?? [];
       if (this.disposed || generation !== this.skillsRequestGeneration) return;
       this.skills = skills;
     } catch (error) {
       if (this.disposed || generation !== this.skillsRequestGeneration) return;
       this.skills = [];
-      console.warn("Failed to load DSH skills", error);
+      console.warn(`Failed to load ${this.agentType} skills`, error);
     } finally {
       if (this.disposed || generation !== this.skillsRequestGeneration) return;
       this.skillsLoading = false;
@@ -445,16 +462,18 @@ export class ComposerSlashCommandController {
     this.skills.forEach((skill, index) => {
       const item = document.createElement("button");
       item.type = "button";
-      item.className = "agent-composer-slash-menu__item";
+      item.className = "agent-composer-slash-menu__item agent-composer-slash-menu__item--skill";
       item.classList.toggle("agent-composer-slash-menu__item--active", index === this.activeIndex);
       item.setAttribute("role", "option");
       item.setAttribute("aria-selected", String(index === this.activeIndex));
       const name = document.createElement("span");
       name.className = "agent-composer-slash-menu__name";
-      name.textContent = `/${skill.name}`;
+      name.textContent = this.agentType === "codex"
+        ? displayNameForComposerSkill(skill.name, skill.displayName)
+        : skill.displayName || `/${skill.name}`;
       const description = document.createElement("span");
       description.className = "agent-composer-slash-menu__description";
-      description.textContent = skill.description || skill.whenToUse || "";
+      description.textContent = skill.shortDescription || skill.description || skill.whenToUse || "";
       item.append(name, description);
       item.addEventListener("mousemove", (event) => this.handleItemMouseMove(event, index));
       item.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -468,7 +487,11 @@ export class ComposerSlashCommandController {
   private selectSkill(skill: ComposerSlashSkill): void {
     this.closeMenu();
     this.menuMode = "commands";
-    insertComposerSlashToken(this.editor, skill.name, "deepseek-harness");
+    if (this.agentType === "codex") {
+      insertComposerSkillToken(this.editor, skill.name, skill.displayName);
+    } else {
+      insertComposerSlashToken(this.editor, skill.name, "deepseek-harness");
+    }
     this.onCommandChange();
   }
 

@@ -230,6 +230,7 @@ export function createStreamEventDispatcher(
       case "usage":
         // stream_start / usage 无需 flush.
         break;
+      case "codex_command":
       case "user_message":
         streamingBuffer.flushSync();
         break;

@@ -20,6 +20,10 @@ every feature into the same directory shape.
 Dependencies point from coordination to public feature APIs, and from features
 to foundation modules. Foundation modules never depend on features.
 
+Browser and IME compatibility is also owned by the foundation layer. Features
+consume the shared input-method API and must not duplicate browser-specific
+`isComposing` / process-key checks. See `docs/IME-INPUT-HANDLING.md`.
+
 ## State ownership
 
 | State | Owner | Invariant |

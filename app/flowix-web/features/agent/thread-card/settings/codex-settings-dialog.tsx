@@ -10,15 +10,18 @@ function CodexSettingsDialog({ notebookPath, onClose }: { notebookPath: string; 
     onClose();
   };
   return open ? (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => {
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-2" onMouseDown={(event) => {
       if (event.target === event.currentTarget) close();
     }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="codex-settings-dialog-title" className="relative max-h-[92vh] w-full max-w-[900px] overflow-y-auto rounded-2xl bg-[var(--background)] p-6 shadow-2xl">
-        <button type="button" aria-label="关闭" className="absolute right-4 top-4 rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]" onClick={close}>
-          <X className="h-4 w-4" />
+      <div role="dialog" aria-modal="true" aria-label="Codex 配置" className="relative flex h-[80vh] w-full max-w-[900px] flex-col overflow-hidden rounded-2xl bg-[var(--background)] shadow-2xl">
+        <button type="button" aria-label="关闭" className="absolute right-5 top-5 z-20 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--divider)] bg-[var(--card)] text-[var(--muted-foreground)] shadow-sm transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]" onClick={close}>
+          <X className="h-4 w-4" strokeWidth={1.8} />
         </button>
-        <div id="codex-settings-dialog-title" className="sr-only">Codex 设置</div>
-        <CodexSettingsSection notebookPath={notebookPath} />
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 [scrollbar-gutter:stable]">
+          <div className="mb-10 w-full">
+            <CodexSettingsSection notebookPath={notebookPath} />
+          </div>
+        </div>
       </div>
     </div>
   ) : null;

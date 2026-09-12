@@ -25,11 +25,12 @@ use crate::agent_external::{
 };
 use crate::agent_session::{ChatMessage, ThreadInfo, ThreadManager, ThreadMessagesPage};
 use crate::agent_types::AgentId;
-use crate::agent_wire::{AgentChunk, AgentUserMessage, RunInfo};
+use crate::agent_wire::{AgentChunk, AgentRuntimeConfig, AgentUserMessage, RunInfo};
 
 const INITIALIZE_METHOD: &str = "initialize";
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const CONTEXT_COMPACTION_MESSAGE_TYPE: &str = "context-compaction";
+const CODEX_COMMAND_MESSAGE_TYPE: &str = "codex-command";
 const MIN_PAGINATED_CODEX_VERSION: &str = "0.150.0";
 
 fn is_image_attachment(path: &str) -> bool {
@@ -48,11 +49,20 @@ struct Connection {
     stdin: Arc<Mutex<ChildStdin>>,
 }
 
+#[derive(Clone)]
 struct ActiveTurn {
     flowix_thread_id: String,
     run_id: String,
     codex_thread_id: String,
     codex_turn_id: String,
+    /// The UI can stop a native command before Codex announces its provider
+    /// turn. Keep the registry entry until that turn id arrives so the
+    /// notification path can interrupt the real provider work.
+    cancel_requested: bool,
+    /// Present only for a Codex-native slash command. `/compact` and goal
+    /// mutations keep this active until the provider's follow-up turn ends.
+    command_id: Option<String>,
+    command: Option<String>,
     app_handle: tauri::AppHandle,
     started_at: i64,
     last_event_at: i64,
@@ -69,6 +79,11 @@ struct Inner {
     connection_start_lock: Mutex<()>,
     pending: Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
     pending_approvals: Mutex<HashSet<String>>,
+    /// Stop may arrive after the web projection is marked pending but before
+    /// the slash-command task has registered its ActiveTurn. Scope the
+    /// cancellation to the command run id so an unrelated future command is
+    /// not cancelled accidentally.
+    pending_cancellations: Mutex<HashMap<String, String>>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
     active_turns: Mutex<HashMap<String, ActiveTurn>>,
     latest_usage: Mutex<HashMap<String, crate::agent_types::UsageInfo>>,
@@ -88,6 +103,7 @@ impl CodexAppServerManager {
                 connection_start_lock: Mutex::new(()),
                 pending: Mutex::new(HashMap::new()),
                 pending_approvals: Mutex::new(HashSet::new()),
+                pending_cancellations: Mutex::new(HashMap::new()),
                 app_handle: Mutex::new(None),
                 active_turns: Mutex::new(HashMap::new()),
                 latest_usage: Mutex::new(HashMap::new()),
@@ -167,51 +183,11 @@ impl CodexAppServerManager {
     }
 
     async fn write(&self, message: Value) -> Result<(), String> {
-        let stdin = self
-            .inner
-            .connection
-            .lock()
-            .await
-            .as_ref()
-            .map(|connection| connection.stdin.clone())
-            .ok_or_else(|| "Codex app-server is not connected".to_string())?;
-        let mut stdin = stdin.lock().await;
-        let encoded = serde_json::to_string(&message).map_err(|error| error.to_string())?;
-        stdin
-            .write_all(encoded.as_bytes())
-            .await
-            .map_err(|error| format!("failed to write to Codex app-server: {error}"))?;
-        stdin
-            .write_all(b"\n")
-            .await
-            .map_err(|error| format!("failed to delimit Codex app-server message: {error}"))?;
-        stdin
-            .flush()
-            .await
-            .map_err(|error| format!("failed to flush Codex app-server input: {error}"))
+        write_inner(&self.inner, message).await
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self.inner.next_request_id.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = oneshot::channel();
-        self.inner.pending.lock().await.insert(id, sender);
-        if let Err(error) = self
-            .write(json!({ "id": id, "method": method, "params": params }))
-            .await
-        {
-            self.inner.pending.lock().await.remove(&id);
-            return Err(error);
-        }
-        match tokio::time::timeout(REQUEST_TIMEOUT, receiver).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(format!(
-                "Codex app-server closed before responding to {method}"
-            )),
-            Err(_) => {
-                self.inner.pending.lock().await.remove(&id);
-                Err(format!("Codex app-server timed out responding to {method}"))
-            }
-        }
+        request_inner(&self.inner, method, params).await
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<(), String> {
@@ -663,6 +639,7 @@ impl CodexAppServerManager {
         self.emit_stream_start(app_handle, &flowix_thread_id, &message, &run_id)
             .await;
 
+        let stream_end_emitted = Arc::new(AtomicBool::new(false));
         let started = async {
             let (codex_thread_id, cwd) = self.resolve_codex_thread(&flowix_thread_id, &message).await?;
             let approval = app_server_approval_policy(message.permission_mode_for_runtime(AGENT_TYPE));
@@ -680,6 +657,24 @@ impl CodexAppServerManager {
                 let paths = attached_files.iter().map(|path| format!("- {path}")).collect::<Vec<_>>().join("\n");
                 input.push(json!({ "type": "text", "text": format!("\n<attached_files>\n{paths}\n</attached_files>") }));
             }
+            // App Server notifications are allowed to arrive before the
+            // `turn/start` response. Register the run before sending the RPC
+            // so the real `item/completed(userMessage)` acknowledgement is not
+            // dropped during that window. `turn/started` (or the RPC result)
+            // fills in the concrete turn id below.
+            self.inner.active_turns.lock().await.insert(flowix_thread_id.clone(), ActiveTurn {
+                flowix_thread_id: flowix_thread_id.clone(),
+                run_id: run_id.clone(),
+                codex_thread_id: codex_thread_id.clone(),
+                codex_turn_id: String::new(),
+                cancel_requested: false,
+                command_id: None,
+                command: None,
+                app_handle: app_handle.clone(),
+                started_at: chrono::Utc::now().timestamp_millis(),
+                last_event_at: chrono::Utc::now().timestamp_millis(),
+                stream_end_emitted: stream_end_emitted.clone(),
+            });
             let result = self.request("turn/start", json!({
                 "threadId": codex_thread_id,
                 "input": input,
@@ -692,24 +687,74 @@ impl CodexAppServerManager {
             let codex_turn_id = result.pointer("/turn/id").and_then(Value::as_str)
                 .filter(|id| !id.trim().is_empty())
                 .ok_or_else(|| "Codex app-server did not return a turn id".to_string())?.to_string();
-            self.inner.active_turns.lock().await.insert(flowix_thread_id.clone(), ActiveTurn {
-                flowix_thread_id: flowix_thread_id.clone(), run_id: run_id.clone(), codex_thread_id,
-                codex_turn_id, app_handle: app_handle.clone(), started_at: chrono::Utc::now().timestamp_millis(),
-                last_event_at: chrono::Utc::now().timestamp_millis(), stream_end_emitted: Arc::new(AtomicBool::new(false)),
-            });
+            // `turn/completed` can race the RPC response. Only update an
+            // active run that still belongs to this invocation; never revive a
+            // run that the notification path has already finalized.
+            let should_interrupt = {
+                let mut active_turns = self.inner.active_turns.lock().await;
+                let active = active_turns
+                    .get_mut(&flowix_thread_id)
+                    .filter(|active| active.run_id == run_id);
+                if let Some(active) = active {
+                    if active.codex_turn_id.is_empty() {
+                        active.codex_turn_id = codex_turn_id;
+                    }
+                    let should_interrupt =
+                        active.cancel_requested && !active.codex_turn_id.is_empty();
+                    if should_interrupt {
+                        active.cancel_requested = false;
+                    }
+                    should_interrupt
+                } else {
+                    false
+                }
+            };
+            if should_interrupt {
+                let active = self
+                    .inner
+                    .active_turns
+                    .lock()
+                    .await
+                    .get(&flowix_thread_id)
+                    .filter(|active| active.run_id == run_id)
+                    .map(|active| (active.codex_thread_id.clone(), active.codex_turn_id.clone()));
+                if let Some((codex_thread_id, codex_turn_id)) = active {
+                    let _ = self
+                        .request(
+                            "turn/interrupt",
+                            json!({ "threadId": codex_thread_id, "turnId": codex_turn_id }),
+                        )
+                        .await;
+                }
+            }
             Ok::<(), String>(())
         }.await;
         if let Err(error) = started {
-            self.emit_run_error(app_handle, &flowix_thread_id, error.clone(), &run_id)
+            let active = self
+                .inner
+                .active_turns
+                .lock()
+                .await
+                .remove(&flowix_thread_id)
+                .filter(|active| active.run_id == run_id);
+            // If the notification path already completed the turn, its
+            // terminal event owns the run. Otherwise surface the RPC failure
+            // and close the pre-registered lifecycle exactly once.
+            if !stream_end_emitted.load(Ordering::Acquire) {
+                self.emit_run_error(app_handle, &flowix_thread_id, error.clone(), &run_id)
+                    .await;
+                self.emit_stream_end(
+                    app_handle,
+                    &flowix_thread_id,
+                    &run_id,
+                    Some(error),
+                    active
+                        .as_ref()
+                        .map(|turn| &turn.stream_end_emitted)
+                        .unwrap_or(&stream_end_emitted),
+                )
                 .await;
-            self.emit_stream_end(
-                app_handle,
-                &flowix_thread_id,
-                &run_id,
-                Some(error),
-                &Arc::new(AtomicBool::new(false)),
-            )
-            .await;
+            }
         }
         Ok(String::new())
     }
@@ -769,19 +814,67 @@ impl CodexAppServerManager {
     pub async fn stop_chat(
         &self,
         thread_id: &str,
-        _run_id: Option<&str>,
+        run_id: Option<&str>,
         app_handle: &tauri::AppHandle,
     ) -> bool {
-        let active = self.inner.active_turns.lock().await.remove(thread_id);
+        let active = {
+            let mut active_turns = self.inner.active_turns.lock().await;
+            match active_turns.get_mut(thread_id) {
+                Some(active) if active.codex_turn_id.is_empty() && !active.cancel_requested => {
+                    // The command/turn RPC may still be in flight. Do not
+                    // remove the entry yet: a later turn/started notification
+                    // is the only reliable place to learn the turn id that
+                    // must receive turn/interrupt.
+                    active.cancel_requested = true;
+                    Some(active.clone())
+                }
+                Some(active) if active.codex_turn_id.is_empty() => {
+                    // A repeated click while waiting for turn/started has
+                    // already won the cancellation race.
+                    None
+                }
+                Some(_) => active_turns.remove(thread_id),
+                None => None,
+            }
+        };
         let Some(active) = active else {
+            // The frontend can expose the command stop control before the
+            // slash-command task has entered active_turns. Remember only a
+            // scoped command run id; execute_slash_command consumes it before
+            // issuing any Codex RPC.
+            if let Some(run_id) = run_id.filter(|id| !id.trim().is_empty()) {
+                self.inner
+                    .pending_cancellations
+                    .lock()
+                    .await
+                    .insert(thread_id.to_string(), run_id.to_string());
+                return true;
+            }
             return false;
         };
-        let _ = self
-            .request(
-                "turn/interrupt",
-                json!({ "threadId": active.codex_thread_id, "turnId": active.codex_turn_id }),
+        if !active.codex_turn_id.is_empty() {
+            let _ = self
+                .request(
+                    "turn/interrupt",
+                    json!({ "threadId": active.codex_thread_id, "turnId": active.codex_turn_id }),
+                )
+                .await;
+        }
+        if let (Some(command_id), Some(command)) =
+            (active.command_id.as_deref(), active.command.as_deref())
+        {
+            self.emit_codex_command(
+                app_handle,
+                &active.flowix_thread_id,
+                &active.run_id,
+                command_id,
+                command,
+                active.started_at,
+                "cancelled",
+                Some("Command interrupted".to_string()),
             )
             .await;
+        }
         self.emit_stream_end(
             app_handle,
             &active.flowix_thread_id,
@@ -840,12 +933,29 @@ impl CodexAppServerManager {
         let active = std::mem::take(&mut *self.inner.active_turns.lock().await);
         let count = active.len();
         for (_, turn) in active {
-            let _ = self
-                .request(
-                    "turn/interrupt",
-                    json!({ "threadId": turn.codex_thread_id, "turnId": turn.codex_turn_id }),
+            if !turn.codex_turn_id.is_empty() {
+                let _ = self
+                    .request(
+                        "turn/interrupt",
+                        json!({ "threadId": turn.codex_thread_id, "turnId": turn.codex_turn_id }),
+                    )
+                    .await;
+            }
+            if let (Some(command_id), Some(command)) =
+                (turn.command_id.as_deref(), turn.command.as_deref())
+            {
+                self.emit_codex_command(
+                    &turn.app_handle,
+                    &turn.flowix_thread_id,
+                    &turn.run_id,
+                    command_id,
+                    command,
+                    turn.started_at,
+                    "cancelled",
+                    Some("Command interrupted".to_string()),
                 )
                 .await;
+            }
             self.emit_stream_end(
                 &turn.app_handle,
                 &turn.flowix_thread_id,
@@ -1069,6 +1179,16 @@ impl CodexAppServerManager {
                 break;
             }
         }
+        // Codex deliberately omits a native goal command (and its hidden
+        // context) from `thread/turns/list`. Read the current provider-owned
+        // goal state only to restore the latest goal row; no Flowix message
+        // history is written or consulted here.
+        if let Ok(goal) = self
+            .request("thread/goal/get", json!({ "threadId": thread_id }))
+            .await
+        {
+            annotate_goal_turn(&mut turns, &goal);
+        }
         Ok(paginate_app_server_turns(
             &turns,
             before_sequence,
@@ -1204,6 +1324,464 @@ impl CodexAppServerManager {
             .await?;
         Ok(())
     }
+
+    /// Execute a Codex-native composer command without sending the slash text
+    /// through `turn/start`. The TUI handles these commands locally; Flowix
+    /// must call the equivalent App Server method explicitly.
+    pub async fn execute_slash_command(
+        self: &Arc<Self>,
+        flowix_thread_id: &str,
+        command: &str,
+        runtime_config: Option<AgentRuntimeConfig>,
+        provided_run_id: Option<&str>,
+        provided_command_id: Option<&str>,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Value, String> {
+        // Capture the command's logical position before any connection,
+        // session lookup, or RPC work can delay the terminal event.
+        let started_at = chrono::Utc::now().timestamp_millis();
+        self.ensure_connection().await?;
+        *self.inner.app_handle.lock().await = Some(app_handle.clone());
+        if self
+            .inner
+            .active_turns
+            .lock()
+            .await
+            .contains_key(flowix_thread_id)
+        {
+            return Err("Codex already has active work for this thread".to_string());
+        }
+        let stored = self
+            .inner
+            .thread_manager
+            .get_external_session(flowix_thread_id, AGENT_TYPE)
+            .await
+            .map_err(|error| error.to_string())?;
+        let command = command.trim();
+        let run_id = provided_run_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| crate::agent_external::resolve_run_id(flowix_thread_id, None));
+        let message = AgentUserMessage {
+            content: command.to_string(),
+            llm_content: None,
+            image_paths: Vec::new(),
+            run_id: Some(run_id.clone()),
+            system_reminder_directory: None,
+            agent_type: Some(AGENT_TYPE.to_string()),
+            runtime_config,
+            permission_mode: None,
+            codex_model: None,
+            codex_reasoning_effort: None,
+            conversation_title: None,
+        };
+        let codex_thread_id = match select_external_session_for_runtime(stored, None) {
+            Some(codex_thread_id) => codex_thread_id,
+            None => {
+                self.resolve_codex_thread(flowix_thread_id, &message)
+                    .await?
+                    .0
+            }
+        };
+
+        let command_id = provided_command_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("codex-command-{}", uuid::Uuid::new_v4()));
+        let cancelled_before_start = {
+            let mut pending = self.inner.pending_cancellations.lock().await;
+            match pending.get(flowix_thread_id) {
+                Some(expected_run_id) if expected_run_id == &run_id => {
+                    pending.remove(flowix_thread_id);
+                    true
+                }
+                Some(_) => {
+                    // A stale stop for an older command must not affect this
+                    // newly-created command.
+                    pending.remove(flowix_thread_id);
+                    false
+                }
+                None => false,
+            }
+        };
+        if cancelled_before_start {
+            let ended = Arc::new(AtomicBool::new(false));
+            self.emit_codex_command(
+                app_handle,
+                flowix_thread_id,
+                &run_id,
+                &command_id,
+                command,
+                started_at,
+                "cancelled",
+                Some("Command interrupted".to_string()),
+            )
+            .await;
+            self.emit_stream_end(
+                app_handle,
+                flowix_thread_id,
+                &run_id,
+                Some(USER_STOPPED_REASON.to_string()),
+                &ended,
+            )
+            .await;
+            return Ok(json!({ "cancelled": true }));
+        }
+        let waits_for_provider_turn =
+            is_codex_compact_command(command) || is_codex_goal_mutation_command(command);
+        let ended = Arc::new(AtomicBool::new(false));
+        // Native commands can either be an immediate thread operation or
+        // return/start a provider turn. `/goal` is a mutation RPC whose
+        // response is followed by an autonomous provider turn, as shown by
+        // Codex's `thread_goal_updated -> task_started` event sequence. Keep
+        // an empty turn id temporarily: `turn/started` can arrive before the
+        // command RPC response and fills it in. Register before emitting the
+        // optimistic lifecycle events so an immediate stop cannot miss it.
+        self.inner.active_turns.lock().await.insert(
+            flowix_thread_id.to_string(),
+            ActiveTurn {
+                flowix_thread_id: flowix_thread_id.to_string(),
+                run_id: run_id.clone(),
+                codex_thread_id: codex_thread_id.clone(),
+                codex_turn_id: String::new(),
+                cancel_requested: false,
+                command_id: Some(command_id.clone()),
+                command: Some(command.to_string()),
+                app_handle: app_handle.clone(),
+                started_at,
+                last_event_at: chrono::Utc::now().timestamp_millis(),
+                stream_end_emitted: ended.clone(),
+            },
+        );
+        self.emit_codex_command(
+            app_handle,
+            flowix_thread_id,
+            &run_id,
+            &command_id,
+            command,
+            started_at,
+            "pending",
+            None,
+        )
+        .await;
+        self.emit_stream_start(app_handle, flowix_thread_id, &message, &run_id)
+            .await;
+
+        let result = match self.execute_slash_request(&codex_thread_id, command).await {
+            Ok(result) => result,
+            Err(error) => {
+                self.inner
+                    .active_turns
+                    .lock()
+                    .await
+                    .remove(flowix_thread_id);
+                // A stop can win while the command RPC is still pending. In
+                // that case stop_chat already emitted the cancelled command
+                // and stream end; do not overwrite them with an RPC error.
+                if !ended.load(Ordering::Acquire) {
+                    self.emit_codex_command(
+                        app_handle,
+                        flowix_thread_id,
+                        &run_id,
+                        &command_id,
+                        command,
+                        started_at,
+                        "error",
+                        Some(error.clone()),
+                    )
+                    .await;
+                    self.emit_run_error(app_handle, flowix_thread_id, error.clone(), &run_id)
+                        .await;
+                    self.emit_stream_end(
+                        app_handle,
+                        flowix_thread_id,
+                        &run_id,
+                        Some(error.clone()),
+                        &ended,
+                    )
+                    .await;
+                }
+                return Err(error);
+            }
+        };
+
+        let response_turn_id = result
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
+            .map(str::to_string);
+        let (has_provider_turn, should_interrupt) = {
+            let mut active_turns = self.inner.active_turns.lock().await;
+            let active = active_turns
+                .get_mut(flowix_thread_id)
+                .filter(|active| active.run_id == run_id);
+            if let Some(active) = active {
+                if active.codex_turn_id.is_empty() {
+                    if let Some(turn_id) = response_turn_id {
+                        active.codex_turn_id = turn_id;
+                    }
+                }
+                let should_interrupt = active.cancel_requested && !active.codex_turn_id.is_empty();
+                if should_interrupt {
+                    // Only one path should schedule the interrupt. The
+                    // notification path performs the same handoff for a
+                    // turn/started event that beats this RPC response.
+                    active.cancel_requested = false;
+                }
+                (!active.codex_turn_id.is_empty(), should_interrupt)
+            } else {
+                (false, false)
+            }
+        };
+        if should_interrupt {
+            let active = self
+                .inner
+                .active_turns
+                .lock()
+                .await
+                .get(flowix_thread_id)
+                .filter(|active| active.run_id == run_id)
+                .map(|active| (active.codex_thread_id.clone(), active.codex_turn_id.clone()));
+            if let Some((codex_thread_id, codex_turn_id)) = active {
+                let _ = self
+                    .request(
+                        "turn/interrupt",
+                        json!({ "threadId": codex_thread_id, "turnId": codex_turn_id }),
+                    )
+                    .await;
+            }
+        }
+        // A command may finish its provider turn before the request response
+        // is delivered. In that case the notification path already emitted
+        // the terminal command/stream events and there is nothing left to do.
+        if !has_provider_turn && ended.load(Ordering::Acquire) {
+            return Ok(result);
+        }
+        // `thread/compact/start` and `thread/goal/set` return before the
+        // asynchronous provider turn is announced. Keep their command row
+        // pending even if `turn/started` has not arrived yet; otherwise the
+        // next notification would be dropped as a late event. Read/clear
+        // operations remain synchronous and are finalized from their RPC
+        // response.
+        if !has_provider_turn && !waits_for_provider_turn {
+            self.inner
+                .active_turns
+                .lock()
+                .await
+                .remove(flowix_thread_id);
+            self.emit_codex_command(
+                app_handle,
+                flowix_thread_id,
+                &run_id,
+                &command_id,
+                command,
+                started_at,
+                "success",
+                codex_command_result_text(command, &result),
+            )
+            .await;
+            self.emit_stream_end(app_handle, flowix_thread_id, &run_id, None, &ended)
+                .await;
+        }
+        Ok(result)
+    }
+
+    async fn emit_codex_command(
+        &self,
+        app_handle: &tauri::AppHandle,
+        thread_id: &str,
+        run_id: &str,
+        command_id: &str,
+        command: &str,
+        timestamp: i64,
+        status: &str,
+        result: Option<String>,
+    ) {
+        let chunk = AgentChunk::CodexCommand {
+            thread_id: thread_id.to_string(),
+            id: command_id.to_string(),
+            command: command.to_string(),
+            status: status.to_string(),
+            result,
+            timestamp,
+        };
+        emit_chunk_with_run_id(app_handle, &chunk, AGENT_TYPE, run_id);
+    }
+
+    async fn execute_slash_request(
+        &self,
+        codex_thread_id: &str,
+        command: &str,
+    ) -> Result<Value, String> {
+        if is_codex_compact_command(command) {
+            return self
+                .request(
+                    "thread/compact/start",
+                    json!({ "threadId": codex_thread_id }),
+                )
+                .await;
+        }
+        let lower = command.to_ascii_lowercase();
+        let rest = lower
+            .strip_prefix("/goal")
+            .filter(|rest| rest.chars().next().is_none_or(char::is_whitespace))
+            .map(|_| command[5..].trim())
+            .ok_or_else(|| format!("Unsupported Codex slash command: {command}"))?;
+        if rest.is_empty() || rest.eq_ignore_ascii_case("get") {
+            return self
+                .request("thread/goal/get", json!({ "threadId": codex_thread_id }))
+                .await;
+        }
+        if rest.eq_ignore_ascii_case("clear") {
+            return self
+                .request("thread/goal/clear", json!({ "threadId": codex_thread_id }))
+                .await;
+        }
+        if rest.eq_ignore_ascii_case("pause") || rest.eq_ignore_ascii_case("resume") {
+            let current = self
+                .request("thread/goal/get", json!({ "threadId": codex_thread_id }))
+                .await?;
+            let goal = current.get("goal").cloned().unwrap_or(Value::Null);
+            let objective = goal
+                .get("objective")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "No Codex goal is currently set".to_string())?;
+            let status = if rest.eq_ignore_ascii_case("pause") {
+                "paused"
+            } else {
+                "active"
+            };
+            return self
+                .request(
+                    "thread/goal/set",
+                    json!({
+                        "threadId": codex_thread_id,
+                        "objective": objective,
+                        "status": status,
+                        "tokenBudget": goal.get("tokenBudget").cloned().unwrap_or(Value::Null)
+                    }),
+                )
+                .await;
+        }
+        let objective = rest
+            .strip_prefix("edit ")
+            .or_else(|| rest.strip_prefix("set "))
+            .unwrap_or(rest)
+            .trim();
+        if objective.is_empty() || objective.len() > 4_000 {
+            return Err("Codex goal objective must contain 1–4000 characters".to_string());
+        }
+        self.request(
+            "thread/goal/set",
+            json!({
+                "threadId": codex_thread_id,
+                "objective": objective,
+                "status": "active"
+            }),
+        )
+        .await
+    }
+}
+
+async fn write_inner(inner: &Arc<Inner>, message: Value) -> Result<(), String> {
+    let stdin = inner
+        .connection
+        .lock()
+        .await
+        .as_ref()
+        .map(|connection| connection.stdin.clone())
+        .ok_or_else(|| "Codex app-server is not connected".to_string())?;
+    let mut stdin = stdin.lock().await;
+    let encoded = serde_json::to_string(&message).map_err(|error| error.to_string())?;
+    stdin
+        .write_all(encoded.as_bytes())
+        .await
+        .map_err(|error| format!("failed to write to Codex app-server: {error}"))?;
+    stdin
+        .write_all(b"\n")
+        .await
+        .map_err(|error| format!("failed to delimit Codex app-server message: {error}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|error| format!("failed to flush Codex app-server input: {error}"))
+}
+
+async fn request_inner(inner: &Arc<Inner>, method: &str, params: Value) -> Result<Value, String> {
+    let id = inner.next_request_id.fetch_add(1, Ordering::Relaxed);
+    let (sender, receiver) = oneshot::channel();
+    inner.pending.lock().await.insert(id, sender);
+    if let Err(error) = write_inner(
+        inner,
+        json!({ "id": id, "method": method, "params": params }),
+    )
+    .await
+    {
+        inner.pending.lock().await.remove(&id);
+        return Err(error);
+    }
+    match tokio::time::timeout(REQUEST_TIMEOUT, receiver).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(format!(
+            "Codex app-server closed before responding to {method}"
+        )),
+        Err(_) => {
+            inner.pending.lock().await.remove(&id);
+            Err(format!("Codex app-server timed out responding to {method}"))
+        }
+    }
+}
+
+fn codex_command_result_text(command: &str, result: &Value) -> Option<String> {
+    if !command
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("/goal")
+    {
+        return None;
+    }
+    let goal = result.get("goal").unwrap_or(&Value::Null);
+    if goal.is_null() {
+        return Some("No Codex goal is currently set".to_string());
+    }
+    let objective = goal
+        .get("objective")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let status = goal
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("active");
+    if objective.is_empty() {
+        return Some(format!("Codex goal: {status}"));
+    }
+    Some(format!("{objective} ({status})"))
+}
+
+fn is_codex_compact_command(command: &str) -> bool {
+    command.trim().eq_ignore_ascii_case("/compact")
+}
+
+/// Codex applies a goal mutation immediately, then starts/resumes the goal's
+/// autonomous work. The `thread/goal/set` response therefore does not mark
+/// the user-visible operation complete; its following provider turn does.
+/// `/goal` (get) and `/goal clear` only read or clear state and do not start a
+/// provider turn.
+fn is_codex_goal_mutation_command(command: &str) -> bool {
+    let trimmed = command.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let Some(rest) = lower
+        .strip_prefix("/goal")
+        .filter(|rest| rest.chars().next().is_none_or(char::is_whitespace))
+    else {
+        return false;
+    };
+    let rest = rest.trim();
+    !rest.is_empty() && !rest.eq_ignore_ascii_case("get") && !rest.eq_ignore_ascii_case("clear")
 }
 
 async fn verify_paginated_codex_version() -> Result<(), String> {
@@ -1410,6 +1988,7 @@ async fn dispatch_notification(inner: &Arc<Inner>, message: &Value) {
         .get("turnId")
         .and_then(Value::as_str)
         .or_else(|| params.pointer("/turn/id").and_then(Value::as_str));
+    let mut interrupt_target = None;
     let active = {
         let mut turns = inner.active_turns.lock().await;
         // Item lifecycle notifications are turn-scoped. Never fall back to
@@ -1419,16 +1998,37 @@ async fn dispatch_notification(inner: &Arc<Inner>, message: &Value) {
         let requires_exact_turn = turn_scoped_notification(method);
         let found = (thread_id.is_some() || turn_id.is_some())
             && (!requires_exact_turn || (thread_id.is_some() && turn_id.is_some()));
-        let found = found
+        let mut found = found
             .then(|| {
                 turns.values_mut().find(|active| {
                     thread_id
                         .map(|id| id == active.codex_thread_id)
                         .unwrap_or(true)
-                        && turn_id.map(|id| id == active.codex_turn_id).unwrap_or(true)
+                        && (active.codex_turn_id.is_empty()
+                            || turn_id.map(|id| id == active.codex_turn_id).unwrap_or(true))
                 })
             })
             .flatten();
+        // The first turn-scoped notification is also authoritative for the
+        // provider turn id. Usually this is `turn/started`, but some server
+        // versions deliver the first `item/*` notification first. The request
+        // response is not a safe source on its own because notifications and
+        // JSON-RPC responses may cross in either order.
+        if let Some(active) = found.as_deref_mut() {
+            if active.codex_turn_id.is_empty() {
+                if let Some(turn_id) = turn_id {
+                    active.codex_turn_id = turn_id.to_string();
+                }
+            }
+            if active.cancel_requested && !active.codex_turn_id.is_empty() {
+                // `dispatch_notification` runs on the app-server reader task;
+                // waiting here for the interrupt response would deadlock that
+                // reader. Schedule it after releasing the registry lock.
+                active.cancel_requested = false;
+                interrupt_target =
+                    Some((active.codex_thread_id.clone(), active.codex_turn_id.clone()));
+            }
+        }
         found.map(|active| {
             active.last_event_at = chrono::Utc::now().timestamp_millis();
             (
@@ -1436,13 +2036,29 @@ async fn dispatch_notification(inner: &Arc<Inner>, message: &Value) {
                 active.run_id.clone(),
                 active.app_handle.clone(),
                 active.stream_end_emitted.clone(),
+                active.command_id.clone(),
+                active.command.clone(),
+                active.started_at,
             )
         })
     };
-    let Some((flowix_thread_id, run_id, app, ended)) = active else {
+    let Some((flowix_thread_id, run_id, app, ended, command_id, command, started_at)) = active
+    else {
         return;
     };
+    if let Some((codex_thread_id, codex_turn_id)) = interrupt_target {
+        let inner = inner.clone();
+        tokio::spawn(async move {
+            let _ = request_inner(
+                &inner,
+                "turn/interrupt",
+                json!({ "threadId": codex_thread_id, "turnId": codex_turn_id }),
+            )
+            .await;
+        });
+    }
     match method {
+        "turn/started" => {}
         "thread/tokenUsage/updated" => {
             let token_usage = params.get("tokenUsage").unwrap_or(&Value::Null);
             let last = token_usage
@@ -1617,6 +2233,29 @@ async fn dispatch_notification(inner: &Arc<Inner>, message: &Value) {
                     )
                     .await;
                 }
+                if let (Some(command_id), Some(command)) =
+                    (command_id.as_deref(), command.as_deref())
+                {
+                    let status = if reason.as_deref() == Some(USER_STOPPED_REASON) {
+                        "cancelled"
+                    } else if reason.is_some() {
+                        "error"
+                    } else {
+                        "success"
+                    };
+                    emit_codex_command_notification(
+                        &app,
+                        &flowix_thread_id,
+                        &run_id,
+                        command_id,
+                        command,
+                        started_at,
+                        status,
+                        reason.clone(),
+                        turn_id,
+                    )
+                    .await;
+                }
                 emit_notification_chunk(
                     inner,
                     &flowix_thread_id,
@@ -1675,7 +2314,8 @@ fn codex_usage_info(value: &Value) -> Option<crate::agent_types::UsageInfo> {
 fn turn_scoped_notification(method: &str) -> bool {
     matches!(
         method,
-        "item/agentMessage/delta"
+        "turn/started"
+            | "item/agentMessage/delta"
             | "item/reasoning/summaryTextDelta"
             | "item/reasoning/textDelta"
             | "item/started"
@@ -1692,6 +2332,29 @@ async fn emit_notification_chunk(
     chunk: AgentChunk,
 ) {
     emit_chunk_with_run_id(app, &chunk, AGENT_TYPE, run_id);
+}
+
+async fn emit_codex_command_notification(
+    app: &tauri::AppHandle,
+    thread_id: &str,
+    run_id: &str,
+    command_id: &str,
+    command: &str,
+    timestamp: i64,
+    status: &str,
+    result: Option<String>,
+    turn_id: Option<&str>,
+) {
+    let chunk = AgentChunk::CodexCommand {
+        thread_id: thread_id.to_string(),
+        id: command_id.to_string(),
+        command: command.to_string(),
+        status: status.to_string(),
+        result,
+        timestamp,
+    };
+    let metadata = with_turn_id(AgentChunkMetadata::default(), turn_id);
+    emit_chunk_with_run_id_and_metadata(app, &chunk, AGENT_TYPE, run_id, &metadata);
 }
 
 async fn emit_notification_chunk_with_metadata(
@@ -1794,6 +2457,14 @@ fn completed_message_chunk(
         }
         _ => return None,
     };
+    // Native commands are represented by `CodexCommand` below. Some server
+    // versions echo the slash text as a completed user item; suppress that
+    // echo so the product-owned command row is not duplicated.
+    if kind == "userMessage"
+        && (is_codex_native_command_text(&text) || is_codex_goal_internal_context(&text))
+    {
+        return None;
+    }
     if !has_visible_text(&text) {
         return None;
     }
@@ -1826,6 +2497,106 @@ fn completed_message_chunk(
     metadata.message_phase = Some("completed");
     metadata.content_mode = Some("snapshot");
     Some((chunk, metadata))
+}
+
+fn is_codex_native_command_text(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    lower == "/compact"
+        || lower.starts_with("/goal")
+            && lower
+                .as_bytes()
+                .get(5)
+                .is_none_or(|byte| byte.is_ascii_whitespace())
+}
+
+fn is_codex_goal_internal_context(text: &str) -> bool {
+    text.trim_start()
+        .starts_with("<codex_internal_context source=\"goal\">")
+}
+
+/// A newly-created goal turn has no persisted `/goal ...` user item. Codex
+/// stores the user-provided objective inside a hidden internal-context item
+/// instead. Reconstruct the product-owned command only for the first goal
+/// turn (`Tokens used: 0`); later autonomous continuation turns carry the
+/// same objective and must not create duplicate user commands.
+fn initial_goal_objective(turn: &Value) -> Option<String> {
+    if let Some(objective) = turn
+        .get("flowixGoalObjective")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|objective| !objective.is_empty())
+    {
+        return Some(objective.to_string());
+    }
+    let text = turn
+        .get("items")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("userMessage"))
+        .map(|item| app_server_content_text(item.get("content")))
+        .find(|text| is_codex_goal_internal_context(text))?;
+    if !text.lines().any(|line| line.trim() == "- Tokens used: 0") {
+        return None;
+    }
+    let start = text.find("<objective>")? + "<objective>".len();
+    let end = text[start..].find("</objective>")? + start;
+    let objective = text[start..end].trim();
+    (!objective.is_empty()).then(|| objective.to_string())
+}
+
+fn annotate_goal_turn(turns: &mut [Value], response: &Value) {
+    let goal = response.get("goal").unwrap_or(&Value::Null);
+    let Some(objective) = goal
+        .get("objective")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|objective| !objective.is_empty())
+    else {
+        return;
+    };
+    let Some(created_at) = goal.get("createdAt").and_then(Value::as_i64) else {
+        return;
+    };
+    let updated_at = goal
+        .get("updatedAt")
+        .and_then(Value::as_i64)
+        .unwrap_or(created_at);
+    // Editing an existing goal retains its original createdAt. updatedAt is
+    // written while the new autonomous turn is running, so its containing
+    // turn is the authoritative owner of the latest `/goal ...` command.
+    let updated_candidate = turns.iter().position(|turn| {
+        let Some(started_at) = turn.get("startedAt").and_then(Value::as_i64) else {
+            return false;
+        };
+        let completed_at = turn
+            .get("completedAt")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| started_at.saturating_add(5));
+        updated_at >= started_at.saturating_sub(2)
+            && updated_at <= completed_at.saturating_add(2)
+    });
+    // Before a goal's first status update, createdAt and turn/start are
+    // emitted together. Keep a narrowly-bounded creation-time fallback.
+    let candidate_index = updated_candidate.or_else(|| {
+        turns
+            .iter()
+            .enumerate()
+            .filter_map(|(index, turn)| {
+                let started_at = turn.get("startedAt").and_then(Value::as_i64)?;
+                let distance = started_at.abs_diff(created_at);
+                (distance <= 5).then_some((distance, index))
+            })
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, index)| index)
+    });
+    let Some(Value::Object(turn)) = candidate_index.and_then(|index| turns.get_mut(index)) else {
+        return;
+    };
+    turn.insert(
+        "flowixGoalObjective".to_string(),
+        Value::String(objective.to_string()),
+    );
 }
 
 fn tool_identity(item: &Value) -> Option<(String, String)> {
@@ -1912,8 +2683,16 @@ fn app_server_thread_info(thread: &Value) -> Option<ThreadInfo> {
 }
 
 fn app_server_turn_messages(turns: &[Value]) -> Vec<ChatMessage> {
+    app_server_turn_messages_with_offset(turns, 0)
+}
+
+fn app_server_turn_messages_with_offset(
+    turns: &[Value],
+    turn_index_offset: usize,
+) -> Vec<ChatMessage> {
     let mut messages = Vec::new();
-    for (turn_index, turn) in turns.iter().enumerate() {
+    for (turn_offset, turn) in turns.iter().enumerate() {
+        let turn_index = turn_index_offset + turn_offset;
         let turn_id = turn.get("id").and_then(Value::as_str).map(str::to_string);
         let turn_duration_ms = app_server_turn_duration_ms(turn);
         let turn_message_start = messages.len();
@@ -1922,6 +2701,16 @@ fn app_server_turn_messages(turns: &[Value]) -> Vec<ChatMessage> {
                 .or_else(|| turn.get("createdAt"))
                 .and_then(Value::as_i64),
         );
+        if let Some(objective) = initial_goal_objective(turn) {
+            messages.push(app_server_goal_command_message(
+                &objective,
+                &timestamp,
+                turn_index,
+                turn_id.as_deref(),
+            ));
+        }
+        let is_manual_compact_turn = is_manual_compact_turn(turn);
+        let mut compact_command_emitted = false;
         for (item_index, item) in turn
             .get("items")
             .and_then(Value::as_array)
@@ -1929,6 +2718,19 @@ fn app_server_turn_messages(turns: &[Value]) -> Vec<ChatMessage> {
             .flatten()
             .enumerate()
         {
+            if is_manual_compact_turn
+                && !compact_command_emitted
+                && item.get("type").and_then(Value::as_str) == Some("contextCompaction")
+            {
+                messages.push(app_server_compact_command_message(
+                    item,
+                    &timestamp,
+                    turn_index,
+                    item_index,
+                    turn_id.as_deref(),
+                ));
+                compact_command_emitted = true;
+            }
             if let Some(message) = app_server_item_message(
                 item,
                 &timestamp,
@@ -1953,6 +2755,74 @@ fn app_server_turn_messages(turns: &[Value]) -> Vec<ChatMessage> {
         }
     }
     messages
+}
+
+/// A manual `/compact` is represented by Codex as a standalone turn whose
+/// only persisted item is `contextCompaction` (some versions also echo a
+/// `/compact` userMessage). Automatic compaction is emitted inside a normal
+/// model turn, alongside ordinary user/assistant/tool items, and must remain
+/// a system-only timeline marker.
+fn is_manual_compact_turn(turn: &Value) -> bool {
+    let Some(items) = turn.get("items").and_then(Value::as_array) else {
+        return false;
+    };
+    let mut has_context_compaction = false;
+    for item in items {
+        match item.get("type").and_then(Value::as_str) {
+            Some("contextCompaction") => has_context_compaction = true,
+            Some("userMessage") => {
+                let text = app_server_content_text(item.get("content"));
+                if !is_codex_compact_command(&text) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    has_context_compaction
+}
+
+fn app_server_compact_command_message(
+    item: &Value,
+    timestamp: &str,
+    turn_index: usize,
+    item_index: usize,
+    turn_id: Option<&str>,
+) -> ChatMessage {
+    let source_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .or(turn_id)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("turn-{turn_index}-item-{item_index}"));
+    let mut message =
+        app_server_base_message(format!("codex-command-history-{source_id}"), timestamp);
+    message.role = "user".to_string();
+    message.message_type = Some(CODEX_COMMAND_MESSAGE_TYPE.to_string());
+    message.content = "/compact".to_string();
+    message.is_completed = Some(true);
+    message.codex_turn_id = turn_id.map(str::to_string);
+    message
+}
+
+fn app_server_goal_command_message(
+    objective: &str,
+    timestamp: &str,
+    turn_index: usize,
+    turn_id: Option<&str>,
+) -> ChatMessage {
+    let source_id = turn_id
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("turn-{turn_index}"));
+    let mut message =
+        app_server_base_message(format!("codex-command-history-goal-{source_id}"), timestamp);
+    message.role = "user".to_string();
+    message.message_type = Some(CODEX_COMMAND_MESSAGE_TYPE.to_string());
+    message.content = format!("/goal {objective}");
+    message.is_completed = Some(true);
+    message.codex_turn_id = turn_id.map(str::to_string);
+    message
 }
 
 fn app_server_turn_duration_ms(turn: &Value) -> Option<u64> {
@@ -2016,6 +2886,11 @@ fn app_server_item_message(
         "userMessage" => {
             message.role = "user".to_string();
             message.content = app_server_content_text(item.get("content"));
+            if is_codex_native_command_text(&message.content)
+                || is_codex_goal_internal_context(&message.content)
+            {
+                return None;
+            }
         }
         "agentMessage" => {
             message.role = "assistant".to_string();
@@ -2106,6 +2981,12 @@ fn app_server_base_message(id: String, timestamp: &str) -> ChatMessage {
 fn app_server_content_text(value: Option<&Value>) -> String {
     match value {
         Some(Value::String(text)) => text.to_string(),
+        Some(Value::Object(object)) => object
+            .get("text")
+            .or_else(|| object.get("content"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         Some(Value::Array(parts)) => parts
             .iter()
             .filter_map(|part| match part {
@@ -2363,6 +3244,239 @@ mod tests {
     }
 
     #[test]
+    fn restores_manual_compact_as_a_history_user_message() {
+        let messages = app_server_turn_messages(&[json!({
+            "id": "turn-compact",
+            "startedAt": 1_730_910_000,
+            "status": "completed",
+            "items": [{
+                "id": "compaction-1",
+                "type": "contextCompaction"
+            }]
+        })]);
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, "/compact");
+        assert_eq!(
+            messages[0].message_type.as_deref(),
+            Some(CODEX_COMMAND_MESSAGE_TYPE)
+        );
+        assert_eq!(messages[0].id, "codex-command-history-compaction-1");
+        assert_eq!(messages[0].codex_turn_id.as_deref(), Some("turn-compact"));
+        assert_eq!(messages[1].role, "system");
+        assert_eq!(
+            messages[1].message_type.as_deref(),
+            Some(CONTEXT_COMPACTION_MESSAGE_TYPE)
+        );
+    }
+
+    #[test]
+    fn restores_initial_goal_command_before_goal_tools_and_hides_internal_context() {
+        let internal = r#"<codex_internal_context source="goal">
+<objective>
+Analyze the project briefly
+</objective>
+Budget:
+- Tokens used: 0
+</codex_internal_context>"#;
+        let messages = app_server_turn_messages(&[json!({
+            "id": "turn-goal",
+            "startedAt": 1_730_910_000,
+            "status": "completed",
+            "items": [
+                { "id": "goal-context", "type": "userMessage", "content": internal },
+                {
+                    "id": "exec-1",
+                    "type": "commandExecution",
+                    "command": "rg --files",
+                    "aggregatedOutput": "Cargo.toml",
+                    "status": "completed"
+                },
+                {
+                    "id": "goal-complete",
+                    "type": "dynamicToolCall",
+                    "tool": "update_goal",
+                    "result": { "status": "complete" },
+                    "status": "completed"
+                },
+                { "id": "answer-1", "type": "agentMessage", "text": "Done" }
+            ]
+        })]);
+
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, "/goal Analyze the project briefly");
+        assert_eq!(
+            messages[0].message_type.as_deref(),
+            Some(CODEX_COMMAND_MESSAGE_TYPE)
+        );
+        assert_eq!(messages[0].codex_turn_id.as_deref(), Some("turn-goal"));
+        assert_eq!(messages[1].tool_name.as_deref(), Some("command_execution"));
+        assert_eq!(messages[2].tool_name.as_deref(), Some("dynamic_tool_call"));
+        assert_eq!(messages[3].role, "assistant");
+        assert!(messages
+            .iter()
+            .all(|message| !message.content.contains("codex_internal_context")));
+    }
+
+    #[test]
+    fn restores_goal_from_goal_metadata_when_turn_history_omits_user_context() {
+        let mut turns = vec![json!({
+            "id": "turn-goal",
+            "startedAt": 1_789_222_779,
+            "status": "completed",
+            "items": [
+                { "id": "reason-1", "type": "reasoning", "summary": [], "content": [] },
+                {
+                    "id": "exec-1",
+                    "type": "commandExecution",
+                    "aggregatedOutput": "result",
+                    "status": "completed"
+                },
+                { "id": "answer-1", "type": "agentMessage", "text": "Done" }
+            ]
+        })];
+        annotate_goal_turn(
+            &mut turns,
+            &json!({
+                "goal": {
+                    "objective": "分析项目，简要即可",
+                    "status": "complete",
+                    "createdAt": 1_789_222_779
+                }
+            }),
+        );
+
+        let messages = app_server_turn_messages(&turns);
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].content, "/goal 分析项目，简要即可");
+        assert_eq!(messages[0].codex_turn_id.as_deref(), Some("turn-goal"));
+        assert_eq!(messages[1].role, "tool");
+        assert_eq!(messages[2].role, "assistant");
+    }
+
+    #[test]
+    fn attaches_an_edited_goal_to_the_turn_containing_updated_at() {
+        let mut turns = vec![
+            json!({
+                "id": "turn-original-goal",
+                "startedAt": 1_789_222_779_i64,
+                "completedAt": 1_789_222_825_i64,
+                "items": [{ "id": "old-answer", "type": "agentMessage", "text": "Old" }]
+            }),
+            json!({
+                "id": "turn-edited-goal",
+                "startedAt": 1_789_223_553_i64,
+                "completedAt": 1_789_223_586_i64,
+                "items": [{ "id": "new-answer", "type": "agentMessage", "text": "New" }]
+            }),
+        ];
+        annotate_goal_turn(
+            &mut turns,
+            &json!({
+                "goal": {
+                    "objective": "你好",
+                    "createdAt": 1_789_222_779_i64,
+                    "updatedAt": 1_789_223_578_i64
+                }
+            }),
+        );
+
+        let messages = app_server_turn_messages(&turns);
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].content, "Old");
+        assert_eq!(messages[1].content, "/goal 你好");
+        assert_eq!(messages[1].codex_turn_id.as_deref(), Some("turn-edited-goal"));
+        assert_eq!(messages[2].content, "New");
+    }
+
+    #[test]
+    fn does_not_attach_stale_goal_metadata_to_an_unrelated_turn() {
+        let mut turns = vec![json!({
+            "id": "turn-later",
+            "startedAt": 1_789_222_900_i64,
+            "items": [{ "id": "answer-1", "type": "agentMessage", "text": "Later" }]
+        })];
+        annotate_goal_turn(
+            &mut turns,
+            &json!({ "goal": { "objective": "Old goal", "createdAt": 1_789_222_779_i64 } }),
+        );
+
+        let messages = app_server_turn_messages(&turns);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "Later");
+    }
+
+    #[test]
+    fn does_not_synthesize_a_goal_command_when_codex_has_no_current_goal() {
+        let mut turns = vec![json!({
+            "id": "turn-1",
+            "startedAt": 1_789_222_779_i64,
+            "items": [{ "id": "answer-1", "type": "agentMessage", "text": "Done" }]
+        })];
+        annotate_goal_turn(&mut turns, &json!({ "goal": null }));
+
+        let messages = app_server_turn_messages(&turns);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "assistant");
+        assert_eq!(messages[0].content, "Done");
+    }
+
+    #[test]
+    fn does_not_duplicate_goal_command_for_continuation_turns() {
+        let messages = app_server_turn_messages(&[json!({
+            "id": "turn-goal-continuation",
+            "startedAt": 1_730_910_000,
+            "status": "completed",
+            "items": [
+                {
+                    "id": "goal-context",
+                    "type": "userMessage",
+                    "content": "<codex_internal_context source=\"goal\">\n<objective>Ship it</objective>\n- Tokens used: 120\n</codex_internal_context>"
+                },
+                { "id": "answer-1", "type": "agentMessage", "text": "Continuing" }
+            ]
+        })]);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "assistant");
+    }
+
+    #[test]
+    fn does_not_restore_automatic_compaction_as_a_user_command() {
+        let messages = app_server_turn_messages(&[json!({
+            "id": "turn-auto-compact",
+            "startedAt": 1_730_910_000,
+            "status": "completed",
+            "items": [
+                {
+                    "id": "user-1",
+                    "type": "userMessage",
+                    "content": "Continue"
+                },
+                {
+                    "id": "compaction-1",
+                    "type": "contextCompaction"
+                },
+                {
+                    "id": "assistant-1",
+                    "type": "agentMessage",
+                    "text": "Done"
+                }
+            ]
+        })]);
+
+        assert_eq!(messages.len(), 3);
+        assert!(messages
+            .iter()
+            .all(|message| message.message_type.as_deref() != Some(CODEX_COMMAND_MESSAGE_TYPE)));
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].role, "system");
+        assert_eq!(messages[2].role, "assistant");
+    }
+
+    #[test]
     fn gives_tool_lifecycle_events_the_provider_item_identity() {
         let metadata = item_metadata(&json!({
             "id": "call-1",
@@ -2390,6 +3504,113 @@ mod tests {
         assert_eq!(metadata.source_message_id.as_deref(), Some("message-1"));
         assert_eq!(metadata.message_phase.as_deref(), Some("completed"));
         assert_eq!(metadata.content_mode.as_deref(), Some("snapshot"));
+    }
+
+    #[test]
+    fn projects_completed_user_message_content_from_codex_item() {
+        let item = json!({
+            "id": "user-item-1",
+            "type": "userMessage",
+            "content": [{ "type": "text", "text": "Inspect this file" }]
+        });
+        let (chunk, metadata) = completed_message_chunk("thread-1", &item, Some("turn-1"))
+            .expect("completed user message");
+
+        assert!(matches!(
+            chunk,
+            AgentChunk::UserMessage { thread_id, id, text, .. }
+                if thread_id == "thread-1" && id == "user-item-1" && text == "Inspect this file"
+        ));
+        assert_eq!(metadata.message_id.as_deref(), Some("user-item-1"));
+        assert_eq!(metadata.codex_turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(metadata.message_phase.as_deref(), Some("completed"));
+        assert_eq!(metadata.content_mode.as_deref(), Some("snapshot"));
+    }
+
+    #[test]
+    fn suppresses_codex_native_command_echoes_but_keeps_regular_user_messages() {
+        for command in ["/compact", "/GOAL", "/goal set ship it", "/goal clear"] {
+            assert!(
+                app_server_item_message(
+                    &json!({
+                        "id": "command-echo",
+                        "type": "userMessage",
+                        "content": command
+                    }),
+                    "2026-01-01T00:00:00Z",
+                    0,
+                    0,
+                    Some("turn-1"),
+                )
+                .is_none(),
+                "expected native command echo to be hidden: {command}"
+            );
+        }
+
+        let message = app_server_item_message(
+            &json!({
+                "id": "regular-user",
+                "type": "userMessage",
+                "content": [{ "type": "text", "text": "/goal-oriented review" }]
+            }),
+            "2026-01-01T00:00:00Z",
+            0,
+            0,
+            Some("turn-1"),
+        )
+        .expect("regular user message");
+        assert_eq!(message.role, "user");
+        assert_eq!(message.content, "/goal-oriented review");
+    }
+
+    #[test]
+    fn recognizes_only_the_native_compact_command() {
+        assert!(is_codex_compact_command(" /COMPACT "));
+        assert!(!is_codex_compact_command("/compact now"));
+        assert!(!is_codex_compact_command("/compactly"));
+    }
+
+    #[test]
+    fn recognizes_goal_mutations_that_start_autonomous_work() {
+        for command in [
+            "/goal set ship it",
+            "/goal edit ship it",
+            "/goal pause",
+            "/goal resume",
+            "/GOAL SET ship it",
+        ] {
+            assert!(
+                is_codex_goal_mutation_command(command),
+                "expected goal mutation to await provider turn: {command}"
+            );
+        }
+        for command in ["/goal", "/goal get", "/goal clear", "/goal-oriented review"] {
+            assert!(
+                !is_codex_goal_mutation_command(command),
+                "expected synchronous/non-native goal command: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn formats_native_goal_operation_results_without_exposing_raw_json() {
+        assert_eq!(
+            codex_command_result_text(
+                "/goal",
+                &json!({
+                    "goal": {
+                        "objective": "Ship the command lifecycle",
+                        "status": "active"
+                    }
+                }),
+            )
+            .as_deref(),
+            Some("Ship the command lifecycle (active)")
+        );
+        assert_eq!(
+            codex_command_result_text("/goal clear", &json!({ "cleared": true })).as_deref(),
+            Some("No Codex goal is currently set")
+        );
     }
 
     #[test]

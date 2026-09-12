@@ -238,11 +238,7 @@ impl DeepSeekHarnessManager {
                 &client_user_message_id,
             ))
             .await?;
-        if result
-            .get("accepted")
-            .and_then(serde_json::Value::as_bool)
-            != Some(true)
-        {
+        if result.get("accepted").and_then(serde_json::Value::as_bool) != Some(true) {
             return Err("DeepSeek Harness did not accept the steering message".to_string());
         }
         Ok(())
@@ -348,21 +344,29 @@ impl DeepSeekHarnessManager {
                 )
                 .await;
         });
-        let response = host_client.request(protocol::app_thread_command_request_with_attachments(
-            request_id,
-            &session_id,
-            command,
-            &attachments,
-        )).await;
+        let response = host_client
+            .request(protocol::app_thread_command_request_with_attachments(
+                request_id,
+                &session_id,
+                command,
+                &attachments,
+            ))
+            .await;
         match response {
             Ok(value) => {
                 let effect = command_turn_effect(&value);
-                let _ = command_done.send(if effect == CommandTurnEffect::None { None } else { Some(effect) });
+                let _ = command_done.send(if effect == CommandTurnEffect::None {
+                    None
+                } else {
+                    Some(effect)
+                });
                 // For command-only operations the watcher exits immediately;
                 // for steer/goal-round it waits for the DSH-owned turn(s).
                 // Do not emit the completed command chunk before that point.
                 let _ = command_finished_rx.await;
-                let execution = value.pointer("/execution/result").or_else(|| value.pointer("/execution"));
+                let execution = value
+                    .pointer("/execution/result")
+                    .or_else(|| value.pointer("/execution"));
                 let status = execution
                     .and_then(|item| item.get("kind"))
                     .and_then(Value::as_str)
@@ -568,12 +572,18 @@ impl DeepSeekHarnessManager {
             }
         };
 
-        if let (Some(finished_run_id), Some(finished_stream_end), Some(mut finished_projector)) =
-            (active_run_id.take(), active_stream_end.take(), projector.take())
-        {
+        if let (Some(finished_run_id), Some(finished_stream_end), Some(mut finished_projector)) = (
+            active_run_id.take(),
+            active_stream_end.take(),
+            projector.take(),
+        ) {
             self.emit_buffered(finished_projector.finish(), &app_handle, &finished_run_id)
                 .await;
-            if self.runs.remove_if_matches(&thread_id, &finished_run_id).await {
+            if self
+                .runs
+                .remove_if_matches(&thread_id, &finished_run_id)
+                .await
+            {
                 self.hosts.run_finished().await;
             }
             self.emit_stream_end(
@@ -668,10 +678,9 @@ impl DeepSeekHarnessManager {
     }
 
     async fn command_attachments(&self, message: &AgentUserMessage) -> Result<Vec<Value>, String> {
-        let encoded = crate::commands::agent::image_cache::encode_cached_agent_images(
-            &message.image_paths,
-        )
-        .await?;
+        let encoded =
+            crate::commands::agent::image_cache::encode_cached_agent_images(&message.image_paths)
+                .await?;
         Ok(encoded
             .into_iter()
             .map(|(media_type, data, name)| {
@@ -778,7 +787,9 @@ impl DeepSeekHarnessManager {
                     ));
                 }
             }
-            self.sessions.commit(thread_id, returned_thread_id, &cwd).await?;
+            self.sessions
+                .commit(thread_id, returned_thread_id, &cwd)
+                .await?;
             returned_thread_id.to_string()
         };
         self.runs.bind_session(thread_id, run_id, &session_id).await;
@@ -790,11 +801,8 @@ impl DeepSeekHarnessManager {
         // DSH_WORKSPACE_ROOTS. Do not append a human-readable workspace block
         // to the user prompt: it becomes part of the persisted user message
         // and leaks internal Flowix context into the transcript.
-        let start = protocol::app_turn_start_request(
-            host.next_request_id(),
-            &session_id,
-            turn_input,
-        );
+        let start =
+            protocol::app_turn_start_request(host.next_request_id(), &session_id, turn_input);
         if let Err(error) = host.request(start).await {
             tracing::error!(target: "dsh_appserver", thread_id, run_id, error, "App Server turn/start failed");
             host.unsubscribe(&session_id, run_id).await;
@@ -1215,7 +1223,11 @@ impl DeepSeekHarnessManager {
             // example a deep link or a diagnostic/history request). This also
             // makes a refresh resilient when the local Flowix mapping has not
             // been hydrated yet.
-            .or_else(|| thread_id.strip_prefix("session-").map(|_| thread_id.to_string()))
+            .or_else(|| {
+                thread_id
+                    .strip_prefix("session-")
+                    .map(|_| thread_id.to_string())
+            })
             .ok_or_else(|| format!("no DeepSeek Harness session for thread {thread_id}"))?;
         let host = self.hosts.shared(&self.host_launch_spec()).await?;
         let result = host

@@ -4,6 +4,7 @@ import {
   closeBrowserColumnTab,
   closeBrowserColumnTabsToRight,
   closeOtherBrowserColumnTabs,
+  hideBrowserColumn,
   openBrowserColumnTabInMainWorkColumn,
   registerBrowserColumnFlush,
   reorderBrowserColumnTab,
@@ -167,6 +168,7 @@ export function BrowserColumn({
         onReorderTab={reorderBrowserColumnTab}
         isTabMenuOpen={isTabMenuOpen}
         onTabMenuOpenChange={setIsTabMenuOpen}
+        onCloseColumn={hideBrowserColumn}
         onContextMenuOpenChange={handleContextMenuOpenChange}
         isFocused={isFocused}
       />

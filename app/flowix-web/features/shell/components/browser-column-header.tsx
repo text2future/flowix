@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
-import { Blocks, Check, ChevronDown, FileText, Folder, Globe, MessageSquare, X } from 'lucide-react';
+import { Blocks, Check, ChevronDown, File as FileIcon, FileText, Folder, Globe, MessageSquare, X } from 'lucide-react';
 import {
   canMoveBrowserColumnTargetToWorkColumn,
   type BrowserColumnTab,
@@ -51,6 +51,8 @@ function tabIcon(tab: BrowserColumnTab) {
   if (tab.target.kind === 'file-browser' && !tab.target.activeFilePath) return <Folder className="h-3.5 w-3.5" />;
   if (tab.target.kind === 'agent_conversation') return <MessageSquare className="h-3.5 w-3.5" />;
   if (tab.target.kind === 'web') return <Globe className="h-3.5 w-3.5" />;
+  // Keep memo tabs consistent with note rows in the notebook file tree.
+  if (tab.target.kind === 'memo') return <FileIcon className="h-[15px] w-[15px]" strokeWidth={1.3} />;
   return <FileText className="h-3.5 w-3.5" />;
 }
 
@@ -66,6 +68,7 @@ export interface BrowserColumnHeaderProps {
   onReorderTab: (tabId: string, beforeTabId: string | null) => void;
   isTabMenuOpen: boolean;
   onTabMenuOpenChange: (open: boolean) => void;
+  onCloseColumn?: () => void;
   onContextMenuOpenChange: (tabId: string, open: boolean) => void;
   isFocused: boolean;
 }
@@ -82,6 +85,7 @@ export function BrowserColumnHeader({
   onReorderTab,
   isTabMenuOpen,
   onTabMenuOpenChange,
+  onCloseColumn = () => {},
   onContextMenuOpenChange,
   isFocused,
 }: BrowserColumnHeaderProps) {
@@ -253,7 +257,12 @@ export function BrowserColumnHeader({
                 draggable={false}
                 data-tab-close
                 onClick={() => onCloseTab(tab.id)}
-                className="mr-[0.25rem] flex h-5 w-5 shrink-0 cursor-default items-center justify-center opacity-60 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] [-webkit-app-region:no-drag]"
+                className={cn(
+                  'flex h-5 shrink-0 cursor-default items-center justify-center hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] [-webkit-app-region:no-drag]',
+                  selected
+                    ? 'mr-[0.25rem] w-5 opacity-60'
+                    : 'pointer-events-none mr-0 w-0 overflow-hidden opacity-0 transition-[width,margin,opacity] duration-150 group-hover:pointer-events-auto group-hover:mr-[0.25rem] group-hover:w-5 group-hover:opacity-60',
+                )}
                 aria-label={t('tabWindow.closeTab', { title: tab.title })}
                 title={t('tabWindow.closeTab', { title: tab.title })}
               >
@@ -362,6 +371,13 @@ export function BrowserColumnHeader({
                   );
                 })}
               </div>
+              <div role="separator" aria-hidden="true" className="mx-1 my-1 h-px bg-[var(--border-popup)] opacity-60" />
+              <DropdownMenuItem
+                onClick={onCloseColumn}
+                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                {t('tabWindow.closeColumn')}
+              </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
       </div>

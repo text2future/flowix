@@ -160,7 +160,11 @@ impl AppServerClient {
         }
     }
 
-    pub(crate) async fn subscribe(&self, thread_id: &str, run_id: &str) -> mpsc::UnboundedReceiver<Value> {
+    pub(crate) async fn subscribe(
+        &self,
+        thread_id: &str,
+        run_id: &str,
+    ) -> mpsc::UnboundedReceiver<Value> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.routes.lock().await.insert(thread_id, run_id, tx);
         rx

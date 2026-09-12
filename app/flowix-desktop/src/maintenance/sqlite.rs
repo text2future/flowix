@@ -3,7 +3,9 @@ use crate::agent_session::{error::ThreadError, ThreadManager};
 pub(super) fn delete_non_claude_events(manager: &ThreadManager) -> Result<usize, ThreadError> {
     let conn = manager.lock_conn();
     Ok(conn.execute(
-        "DELETE FROM agent_external_events WHERE runtime <> 'claude'",
+        "DELETE FROM agent_external_events
+         WHERE runtime <> 'claude'
+           AND (runtime <> 'codex' OR COALESCE(event_kind, '') <> 'codex_command')",
         [],
     )?)
 }
@@ -18,7 +20,7 @@ mod tests {
     use crate::agent_session::ThreadManager;
 
     #[test]
-    fn deletes_non_claude_events_but_preserves_claude_events() {
+    fn deletes_legacy_non_claude_events_but_preserves_codex_command_events() {
         let dir = tempfile::tempdir().unwrap();
         let manager = ThreadManager::new(dir.path().join("thread.db")).unwrap();
         let conn = manager.lock_conn();
@@ -29,11 +31,12 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO agent_external_events
-             (runtime, thread_id, normalized_json, created_at)
-             VALUES ('claude', 'maintenance-thread', '{}', 1),
-                    ('codex', 'maintenance-thread', '{}', 1),
-                    ('opencode', 'maintenance-thread', '{}', 1)",
+            r#"INSERT INTO agent_external_events
+             (runtime, thread_id, event_kind, normalized_json, created_at)
+             VALUES ('claude', 'maintenance-thread', NULL, '{}', 1),
+                    ('codex', 'maintenance-thread', NULL, '{}', 1),
+                    ('codex', 'maintenance-thread', 'codex_command', '{"kind":"codex_command"}', 1),
+                    ('opencode', 'maintenance-thread', NULL, '{}', 1)"#,
             [],
         )
         .unwrap();
@@ -49,5 +52,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(remaining, 1);
+        let preserved: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agent_external_events
+                 WHERE runtime = 'codex' AND event_kind = 'codex_command'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(preserved, 1);
     }
 }

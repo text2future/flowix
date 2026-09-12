@@ -431,17 +431,14 @@ pub fn adapt_event(message: &Value, delivery_thread_id: &str) -> AdaptedEvent {
         let thread_id = delivery_thread_id.to_string();
         return match method {
             "item/agentMessage/delta" => {
-                let Some(text) = message.pointer("/params/delta").and_then(Value::as_str)
-                else {
+                let Some(text) = message.pointer("/params/delta").and_then(Value::as_str) else {
                     return AdaptedEvent::Ignore;
                 };
                 let message_id = message
                     .pointer("/params/itemId")
                     .and_then(Value::as_str)
                     .map(str::to_string);
-                let source_sequence = message
-                    .pointer("/params/sourceSeq")
-                    .and_then(Value::as_u64);
+                let source_sequence = message.pointer("/params/sourceSeq").and_then(Value::as_u64);
                 let source_subsequence = message
                     .pointer("/params/sourceSubsequence")
                     .and_then(Value::as_u64)
@@ -497,18 +494,16 @@ pub fn adapt_event(message: &Value, delivery_thread_id: &str) -> AdaptedEvent {
                 // item with its provider identity so the frontend can adopt
                 // the optimistic row and history can reconcile by id.
                 if method == "item/completed" && item_type == "userMessage" {
-                    let text = app_server_content_text(
-                        item.get("content").or_else(|| item.get("text")),
-                    );
-                    let message_type = item
-                        .get("messageType")
-                        .and_then(Value::as_str)
-                        .and_then(|value| match value {
+                    let text =
+                        app_server_content_text(item.get("content").or_else(|| item.get("text")));
+                    let message_type = item.get("messageType").and_then(Value::as_str).and_then(
+                        |value| match value {
                             "goal-round" => Some("goal-round"),
                             "goal-complete" => Some("goal-complete"),
                             "goal-blocked" => Some("goal-blocked"),
                             _ => None,
-                        });
+                        },
+                    );
                     let trimmed = text.trim_start();
                     // DSH may persist workspace instructions as synthetic
                     // userMessage items. They are not user turns and must
@@ -549,17 +544,13 @@ pub fn adapt_event(message: &Value, delivery_thread_id: &str) -> AdaptedEvent {
                 // Preserve the provider item id so the frontend can merge a
                 // snapshot with any deltas that did arrive.
                 if method == "item/completed" && item_type == "agentMessage" {
-                    let text = app_server_content_text(
-                        item.get("content").or_else(|| item.get("text")),
-                    );
+                    let text =
+                        app_server_content_text(item.get("content").or_else(|| item.get("text")));
                     if text.trim().is_empty() {
                         return AdaptedEvent::Ignore;
                     }
                     return AdaptedEvent::ChunkWithMetadata(
-                        AgentChunk::Text {
-                            thread_id,
-                            text,
-                        },
+                        AgentChunk::Text { thread_id, text },
                         AgentChunkMetadata {
                             message_id: Some(id.to_string()),
                             source_message_id: Some(id.to_string()),
@@ -852,8 +843,7 @@ mod tests {
                 }
             }
         });
-        let AdaptedEvent::ChunkWithMetadata(_, metadata) = adapt_event(&event, "thread-1")
-        else {
+        let AdaptedEvent::ChunkWithMetadata(_, metadata) = adapt_event(&event, "thread-1") else {
             panic!("expected a provider goal item");
         };
         assert_eq!(metadata.message_type, Some("goal-round"));
@@ -880,7 +870,10 @@ mod tests {
         };
         assert_eq!(text, "你好！有什么可以帮你的吗？");
         assert_eq!(metadata.message_id.as_deref(), Some("assistant-item-2"));
-        assert_eq!(metadata.source_message_id.as_deref(), Some("assistant-item-2"));
+        assert_eq!(
+            metadata.source_message_id.as_deref(),
+            Some("assistant-item-2")
+        );
         assert_eq!(metadata.message_phase, Some("completed"));
         assert_eq!(metadata.content_mode, Some("snapshot"));
     }
@@ -903,9 +896,18 @@ mod tests {
             panic!("expected an assistant text delta");
         };
         assert_eq!(text, "hello");
-        assert_eq!(metadata.message_id.as_deref(), Some("dsh-session-assistant-stream-attempt-1"));
-        assert_eq!(metadata.source_message_id.as_deref(), Some("dsh-session-assistant-stream-attempt-1"));
-        assert_eq!(metadata.codex_turn_id.as_deref(), Some("dsh-session-turn-2"));
+        assert_eq!(
+            metadata.message_id.as_deref(),
+            Some("dsh-session-assistant-stream-attempt-1")
+        );
+        assert_eq!(
+            metadata.source_message_id.as_deref(),
+            Some("dsh-session-assistant-stream-attempt-1")
+        );
+        assert_eq!(
+            metadata.codex_turn_id.as_deref(),
+            Some("dsh-session-turn-2")
+        );
         assert_eq!(metadata.message_phase, Some("updated"));
         assert_eq!(metadata.content_mode, Some("delta"));
         assert_eq!(metadata.source_subsequence, Some(7));
@@ -1092,7 +1094,10 @@ mod tests {
             "method": "goal/changed",
             "params": { "threadId": "thread-9", "sourceSeq": 12, "change": { "operation": "complete" } }
         });
-        assert_eq!(app_server_event_route(&goal_change).as_deref(), Some("thread-9"));
+        assert_eq!(
+            app_server_event_route(&goal_change).as_deref(),
+            Some("thread-9")
+        );
 
         let unrelated = json!({ "jsonrpc": "2.0", "method": "server/ping", "params": {} });
         assert!(app_server_event_route(&unrelated).is_none());

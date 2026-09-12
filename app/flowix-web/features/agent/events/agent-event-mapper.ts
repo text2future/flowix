@@ -226,6 +226,18 @@ export function mapAgentChunkToEvent(
         messageId: chunk.id,
         sourceSequence: chunk.source_sequence,
       };
+    case "codex_command":
+      return {
+        ...base,
+        kind: "codex_command",
+        id: chunk.id,
+        command: chunk.command,
+        status: chunk.status,
+        result: chunk.result,
+        messageId: chunk.id,
+        sourceTimestamp: chunk.timestamp,
+        sourceSequence: chunk.source_sequence,
+      };
     case "error":
       return {
         ...base,

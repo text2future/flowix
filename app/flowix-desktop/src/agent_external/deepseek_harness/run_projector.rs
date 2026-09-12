@@ -198,7 +198,10 @@ mod tests {
             panic!("expected buffered assistant text");
         };
         assert_eq!(text, "hello");
-        assert_eq!(metadata.message_id.as_deref(), Some("stable-assistant-item"));
+        assert_eq!(
+            metadata.message_id.as_deref(),
+            Some("stable-assistant-item")
+        );
         assert_eq!(metadata.content_mode, Some("delta"));
     }
 }

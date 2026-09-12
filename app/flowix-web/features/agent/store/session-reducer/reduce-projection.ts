@@ -61,6 +61,8 @@ export function reduceProjection(
       return applyToolResultToProjection(projection, event);
     case "dsh_command":
       return applyDshCommandToProjection(projection, event);
+    case "codex_command":
+      return applyCodexCommandToProjection(projection, event);
     case "stream_start":
       return applyStreamStartToProjection(projection, event);
     case "stream_end":
@@ -347,6 +349,55 @@ function applyDshCommandToProjection(
         startedAt:
           p.runs.dshCommand?.id === event.id
             ? p.runs.dshCommand.startedAt
+            : event.timestamp,
+        ...(event.status === "pending"
+          ? {}
+          : { endedAt: event.timestamp }),
+        ...(event.result !== undefined ? { result: event.result } : {}),
+      },
+    },
+  };
+}
+
+function applyCodexCommandToProjection(
+  p: ThreadProjection,
+  event: AgentEvent & { kind: "codex_command" },
+): ThreadProjection {
+  const messageId = `codex-command:live:${event.id}`;
+  const existingIndex = p.messages.findIndex((message) => message.id === messageId);
+  const message = {
+    id: messageId,
+    role: "user" as const,
+    messageType: "codex-command" as const,
+    content: event.command,
+    timestamp: new Date(event.timestamp).toISOString(),
+    codexTurnId: event.codexTurnId,
+    isLoading: event.status === "pending",
+    isCompleted: event.status !== "pending",
+    errorDetails: event.status === "error"
+      ? {
+          category: "unknown",
+          retryable: false,
+          upstreamMessage: event.result || event.command,
+        }
+      : undefined,
+  };
+  const messages = [...p.messages];
+  if (existingIndex >= 0) messages[existingIndex] = message;
+  else messages.push(message);
+  return {
+    ...p,
+    messages,
+    runs: {
+      ...p.runs,
+      codexCommand: {
+        id: event.id,
+        command: event.command,
+        runId: event.runId,
+        status: event.status,
+        startedAt:
+          p.runs.codexCommand?.id === event.id
+            ? p.runs.codexCommand.startedAt
             : event.timestamp,
         ...(event.status === "pending"
           ? {}

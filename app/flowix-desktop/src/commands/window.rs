@@ -8,6 +8,13 @@ use crate::config::Theme;
 
 static MAIN_WINDOW_FOCUS_CONSUMED: AtomicBool = AtomicBool::new(false);
 
+// Keep auxiliary macOS windows aligned with the position configured for the
+// main window in tauri.conf*.json. The explicit decorations setting is
+// required for Tauri to apply the traffic-light inset on overlay title bars.
+#[cfg(target_os = "macos")]
+const MACOS_TRAFFIC_LIGHT_POSITION: tauri::LogicalPosition<f64> =
+    tauri::LogicalPosition::new(18.0, 25.0);
+
 fn preferences_navigation_script(hash: &str) -> Result<String, String> {
     serde_json::to_string(hash)
         .map(|hash| format!("window.location.hash = {hash};"))
@@ -89,10 +96,9 @@ pub async fn open_preferences_window(
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .decorations(true)
         .hidden_title(true)
-        .traffic_light_position(tauri::Position::Logical(tauri::LogicalPosition::new(
-            18.0, 25.0,
-        )));
+        .traffic_light_position(tauri::Position::Logical(MACOS_TRAFFIC_LIGHT_POSITION));
 
     #[cfg(target_os = "windows")]
     let builder = builder.decorations(false);

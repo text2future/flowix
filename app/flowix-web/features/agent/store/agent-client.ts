@@ -43,6 +43,7 @@ export const agentClient = {
   archiveAgentThread: agent.archiveAgentThread,
   deleteAgentThread: agent.deleteAgentThread,
   updateThreadTitle: agent.updateThreadTitle,
+  executeCodexSlashCommand: agent.executeCodexSlashCommand,
 };
 
 /** Public dependency contract used by store slices and compile-checked test fakes. */

@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 
 import { useI18n } from '@/lib/i18n';
+import { useComposingValue } from '@shared/hooks/use-composing-value';
 import { useMemoTitleSession } from './memo-title-session';
 
 interface MemoTitleEditorProps {
@@ -32,6 +33,10 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const session = useMemoTitleSession(memoId, filename);
   const { snapshot } = session;
+  const titleInput = useComposingValue(
+    snapshot.draft,
+    (value) => session.setDraft(value.replace(/[\r\n]+/g, ' ')),
+  );
 
   const focusAt = useCallback((position: number) => {
     const element = textareaRef.current;
@@ -68,7 +73,7 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
 
   useLayoutEffect(() => {
     resizeTextarea();
-  }, [resizeTextarea, snapshot.draft]);
+  }, [resizeTextarea, titleInput.value]);
 
   useLayoutEffect(() => {
     const element = textareaRef.current;
@@ -113,17 +118,20 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
       <textarea
         ref={textareaRef}
         rows={1}
-        value={snapshot.draft}
+        value={titleInput.value}
         readOnly={!editable}
         aria-label={t('memo.untitled')}
         placeholder={t('memo.untitled')}
         data-saving={snapshot.saving || undefined}
         className="memo-title-editor"
-        onChange={(event) => session.setDraft(event.target.value.replace(/[\r\n]+/g, ' '))}
+        onChange={titleInput.onChange}
+        onCompositionStart={titleInput.onCompositionStart}
+        onCompositionEnd={titleInput.onCompositionEnd}
         onBlur={() => void session.commit()}
         onKeyDown={(event) => {
           if (!editable) return;
-          if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+          if (titleInput.isComposingKeyboardEvent(event.nativeEvent)) return;
+          if (event.key === 'Enter') {
             event.preventDefault();
             const value = event.currentTarget.value;
             const selectionStart = event.currentTarget.selectionStart ?? snapshot.draft.length;
@@ -137,7 +145,6 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
             }));
           } else if (
             event.key === 'ArrowDown'
-            && !event.nativeEvent.isComposing
             && event.currentTarget.selectionStart === event.currentTarget.value.length
             && event.currentTarget.selectionEnd === event.currentTarget.value.length
           ) {

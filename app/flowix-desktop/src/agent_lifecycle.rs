@@ -12,9 +12,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::agent_external::codex::CodexAppServerManager;
+use crate::agent_external::deepseek_harness::DeepSeekHarnessManager;
 use crate::agent_external::hermes::HermesAcpManager;
 use crate::agent_external::opencode::OpenCodeAcpManager;
-use crate::agent_external::deepseek_harness::DeepSeekHarnessManager;
 pub use crate::agent_external::runtime_registry::ExternalRuntimeKind;
 use crate::agent_session::ThreadManager;
 
@@ -239,7 +239,9 @@ mod tests {
             Arc::new(HermesAcpManager::new(threads)),
             Arc::new(DeepSeekHarnessManager::new(
                 ThreadManager::for_tests(),
-                Arc::new(crate::config::UserConfigStore::new(tempfile::tempdir().unwrap().path().to_path_buf())),
+                Arc::new(crate::config::UserConfigStore::new(
+                    tempfile::tempdir().unwrap().path().to_path_buf(),
+                )),
                 tempfile::tempdir().unwrap().path().to_path_buf(),
             )),
         );

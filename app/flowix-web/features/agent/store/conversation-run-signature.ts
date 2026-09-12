@@ -18,7 +18,7 @@ export function getConversationRunSignature(
   const runId = activeRun?.runId ?? projection.runs.lastRun?.runId ?? EMPTY_CONVERSATION_RUN_SIGNATURE;
   const startedAt = activeRun?.startedAt ?? projection.runs.lastRun?.startedAt ?? 0;
   const currentTool = activeRun?.currentTool ?? EMPTY_CONVERSATION_RUN_SIGNATURE;
-  const command = projection.runs.dshCommand;
+  const command = projection.runs.dshCommand ?? projection.runs.codexCommand;
   const commandStatus = command?.status ?? EMPTY_CONVERSATION_RUN_SIGNATURE;
   const commandId = command?.id ?? EMPTY_CONVERSATION_RUN_SIGNATURE;
   const commandStartedAt = command?.startedAt ?? 0;

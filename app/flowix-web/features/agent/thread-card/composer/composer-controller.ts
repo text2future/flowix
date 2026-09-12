@@ -16,6 +16,10 @@ import {
   ComposerSlashToken,
   composerSlashMarkdownToPrompt,
 } from "@features/agent/thread-card/composer/composer-slash-token";
+import {
+  ComposerSkillToken,
+  composerSkillMarkdownToPrompt,
+} from "@features/agent/thread-card/composer/composer-skill-token";
 import type {
   ComposerSlashCommand,
   ComposerSlashSkill,
@@ -52,7 +56,8 @@ export interface ComposerControllerOptions {
   getHasPendingAttachments: () => boolean;
   agentType?: AgentTypeKey;
   listDshSkills?: () => Promise<readonly ComposerSlashSkill[]>;
-  onDshModelSelect?: () => void;
+  listCodexSkills?: () => Promise<readonly ComposerSlashSkill[]>;
+  onModelSelect?: () => void;
   onPermissionSelect?: () => void;
   onDirectCommand?: (command: ComposerSlashCommand) => void;
   submit: () => void;
@@ -118,6 +123,7 @@ export class ComposerController {
           markedOptions: { gfm: true, breaks: true },
         }),
         NoteReference,
+        ComposerSkillToken,
         ComposerSlashToken.configure({
           onRemove: () => removeSlashToken?.(),
         }),
@@ -157,7 +163,8 @@ export class ComposerController {
       composer: this.composer,
       agentType: options.agentType,
       listDshSkills: options.listDshSkills,
-      onDshModelSelect: options.onDshModelSelect,
+      listCodexSkills: options.listCodexSkills,
+      onModelSelect: options.onModelSelect,
       onPermissionSelect: options.onPermissionSelect,
       onDirectCommand: options.onDirectCommand,
       onCommandChange: () => this.handleEditorUpdate(),
@@ -196,7 +203,7 @@ export class ComposerController {
     // hardBreak. Markdown serializes that node as `  \n`; the agent protocol
     // should receive the same newline the user entered, without Markdown's
     // visual line-break marker becoming part of the prompt.
-    return composerSlashMarkdownToPrompt(this.getDraftMarkdown())
+    return composerSkillMarkdownToPrompt(composerSlashMarkdownToPrompt(this.getDraftMarkdown()))
       .replace(/ {2}\n/g, "\n");
   }
 

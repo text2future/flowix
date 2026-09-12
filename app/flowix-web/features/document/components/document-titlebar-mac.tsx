@@ -41,7 +41,6 @@ export function DocumentTitlebarMac({
     visible: showNavigationButtons = true,
   },
   contentCapabilities: {
-    search: canSearch,
     properties: canEditProperties,
     copyFullText: canCopyFullText,
     exportContent: canExportContent,
@@ -49,7 +48,6 @@ export function DocumentTitlebarMac({
     versionHistory: canViewVersionHistory,
   },
   actions: {
-    onOpenSearch,
     onCopyLink,
     onCopyFullText,
     onOpenProperties,
@@ -134,7 +132,6 @@ export function DocumentTitlebarMac({
           <MemoActions
             memo={currentMemo}
             iconButtonClass={ICON_BTN}
-            onOpenSearch={onOpenSearch}
             onCopyLink={onCopyLink}
             onCopyFullText={onCopyFullText}
             onOpenProperties={onOpenProperties}
@@ -144,7 +141,6 @@ export function DocumentTitlebarMac({
             onExportWord={onExportWord}
             onRequestDeleteMemo={onRequestDeleteMemo}
             onColorsChange={onColorsChange ?? (() => {})}
-            canSearch={canSearch}
             canEditProperties={canEditProperties}
             canCopyFullText={canCopyFullText}
             canExportContent={canExportContent}

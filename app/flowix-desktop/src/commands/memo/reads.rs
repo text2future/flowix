@@ -7,7 +7,9 @@ use tauri::{AppHandle, State};
 
 use crate::lock_utils::read_lock;
 use crate::watcher::path::normalize_for_compare;
-use flowix_core::memo_file::{notebook_path_from_relative, notebook_relative_path, Memo, MemoFile, MemoTodoEntry};
+use flowix_core::memo_file::{
+    notebook_path_from_relative, notebook_relative_path, Memo, MemoFile, MemoTodoEntry,
+};
 use flowix_core::{FlowixError, MemoPage, MemoService};
 
 use crate::app::search_index::rebuild_index_in_background;
@@ -102,12 +104,10 @@ pub fn search_mention_notes(
                 continue;
             }
 
-            let original_path = notebook_path_from_relative(
-                Path::new(&notebook.path),
-                &memo.relative_path,
-            )
-            .ok()
-            .and_then(|path| path.to_str().map(str::to_string));
+            let original_path =
+                notebook_path_from_relative(Path::new(&notebook.path), &memo.relative_path)
+                    .ok()
+                    .and_then(|path| path.to_str().map(str::to_string));
 
             items.push(MentionNoteSearchItem {
                 id: memo.id,
@@ -359,12 +359,13 @@ fn resolve_missing_document_path_from_notebook_index(
     for (_, cfg) in candidates {
         if let Ok(relative_path) = notebook_relative_path(Path::new(&cfg.path), requested_path) {
             if let Some(entry) = service
-            .list_memos(&cfg.id)
-            .unwrap_or_default()
-            .into_iter()
-            .find(|entry| entry.relative_path == relative_path)
+                .list_memos(&cfg.id)
+                .unwrap_or_default()
+                .into_iter()
+                .find(|entry| entry.relative_path == relative_path)
             {
-                return notebook_path_from_relative(Path::new(&cfg.path), &entry.relative_path).ok();
+                return notebook_path_from_relative(Path::new(&cfg.path), &entry.relative_path)
+                    .ok();
             }
         }
     }

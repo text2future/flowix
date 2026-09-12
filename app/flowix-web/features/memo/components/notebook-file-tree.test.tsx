@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { DocTreeItem } from '@platform/tauri/client';
+import { files, type DocTreeItem } from '@platform/tauri/client';
 import type { FolderTreeController } from './use-folder-tree';
 import { NotebookFileTree } from './notebook-file-tree';
 import { resolveMemoByPath } from '@features/memo/use-cases/open-by-target';
@@ -125,6 +125,7 @@ describe('NotebookFileTree pointer dragging', () => {
       reload: vi.fn(async () => {}),
     } as unknown as FolderTreeController;
     const root = createRoot(host);
+    const onCreateNote = vi.fn(async () => {});
     await act(async () => root.render(
       <NotebookFileTree
         notebookPath="/notes/"
@@ -133,11 +134,23 @@ describe('NotebookFileTree pointer dragging', () => {
         createFolderRequest={kind === 'folder' ? { id: 1, parentPath } : null}
         createNoteRequest={kind === 'note' ? { id: 1, parentPath } : null}
         onNoteSelect={vi.fn()}
-        onCreateNote={vi.fn()}
+        onCreateNote={onCreateNote}
         onMoveNote={vi.fn(async () => {})}
       />,
     ));
-    return { root };
+    return { root, onCreateNote, tree };
+  }
+
+  function setInputValue(input: HTMLInputElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, value);
+  }
+
+  function dispatchInputKey(input: HTMLInputElement, key: string, keyCode: number): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'keyCode', { value: keyCode });
+    input.dispatchEvent(event);
+    return event;
   }
 
   function directRows(list: Element, depth: number): Element[] {
@@ -156,24 +169,77 @@ describe('NotebookFileTree pointer dragging', () => {
     const list = host.querySelector('[role="tree"]')!;
     const depth = parentPath === '/notes' ? 0 : 1;
     const rows = directRows(list, depth);
-    const draftIndex = Array.from(list.children).indexOf(input.parentElement!);
     const firstFolderIndex = rows.findIndex((row) => row.getAttribute('data-notebook-tree-kind') === 'folder');
     const firstNoteIndex = rows.findIndex((row) => row.getAttribute('data-notebook-tree-kind') === 'note');
-    const rowIndex = (index: number) => {
-      const row = rows[index];
-      const container = row.parentElement?.classList.contains('folder-file-tree__group')
-        ? row.parentElement
-        : row;
-      return Array.from(list.children).indexOf(container!);
-    };
-
-    expect(draftIndex).toBe(rowIndex(kind === 'folder' ? firstFolderIndex : firstNoteIndex) - 1);
+    const firstMatchingRow = rows[kind === 'folder' ? firstFolderIndex : firstNoteIndex];
+    // A draft and its siblings now live inside the same recursive subtree
+    // container instead of a flattened, absolutely-positioned root list.
+    expect(input.parentElement?.nextElementSibling).toBe(firstMatchingRow.parentElement);
     expect(input.parentElement?.style.marginLeft).toBe(
       parentPath === '/notes' ? '6px' : '26px',
     );
-    if (kind === 'note') expect(draftIndex).toBeGreaterThan(rowIndex(firstFolderIndex));
+    if (kind === 'note') {
+      expect(input.parentElement?.previousElementSibling).toBe(rows[firstFolderIndex].parentElement);
+    }
     await act(async () => root.unmount());
   });
+
+  it.each(['note', 'folder'] as const)(
+    'keeps the new %s draft focused when Enter confirms an IME candidate',
+    async (kind) => {
+      const { root, onCreateNote, tree } = await mountDraft(kind, '/notes');
+      const createFolder = vi.spyOn(files, 'createFolder').mockResolvedValue(
+        item('/notes/新建', 'folder'),
+      );
+      const input = host.querySelector<HTMLInputElement>('input')!;
+
+      expect(document.activeElement).toBe(input);
+
+      await act(async () => {
+        input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        setInputValue(input, 'xin');
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, data: 'xin' }));
+        dispatchInputKey(input, 'Enter', 229);
+      });
+
+      expect(host.querySelector('input')).toBe(input);
+      expect(input.value).toBe('xin');
+      expect(document.activeElement).toBe(input);
+      expect(onCreateNote).not.toHaveBeenCalled();
+      expect(createFolder).not.toHaveBeenCalled();
+
+      await act(async () => {
+        setInputValue(input, '新建');
+        input.dispatchEvent(new CompositionEvent('compositionend', {
+          bubbles: true,
+          data: '新建',
+        }));
+      });
+
+      expect(host.querySelector('input')).toBe(input);
+      expect(input.value).toBe('新建');
+      expect(document.activeElement).toBe(input);
+      expect(onCreateNote).not.toHaveBeenCalled();
+      expect(createFolder).not.toHaveBeenCalled();
+
+      await act(async () => {
+        const event = dispatchInputKey(input, 'Enter', 13);
+        expect(event.defaultPrevented).toBe(true);
+        await Promise.resolve();
+      });
+
+      if (kind === 'note') {
+        expect(onCreateNote).toHaveBeenCalledWith('/notes', '新建');
+        expect(createFolder).not.toHaveBeenCalled();
+      } else {
+        expect(createFolder).toHaveBeenCalledWith('/notes', '新建');
+        expect(onCreateNote).not.toHaveBeenCalled();
+      }
+      expect(tree.refresh).toHaveBeenCalledWith('/notes');
+      expect(host.querySelector('input')).toBeNull();
+      await act(async () => root.unmount());
+    },
+  );
 
   it('shows the folder target before release and moves the note on release', async () => {
     const onMoveNote = vi.fn(async () => {});

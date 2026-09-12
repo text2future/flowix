@@ -226,8 +226,9 @@ pub async fn persist_external_chunk_for_thread_with_metadata(
     metadata: &AgentChunkMetadata,
 ) {
     // Provider-owned histories are read from their external data source. The
-    // local journal is retained only for Claude, whose product history still
-    // depends on it.
+    // local journal is retained only for Claude. Codex and DSH messages must
+    // come from their provider history APIs; their live chunks are runtime
+    // state only and must never become a second local transcript.
     if agent_type != "claude" {
         return;
     }
@@ -373,6 +374,7 @@ fn canonical_chunk_metadata(
         AgentChunk::Reasoning { .. } => ("reasoning", "stream".to_string()),
         AgentChunk::ToolCall { id, .. } | AgentChunk::ToolResult { id, .. } => ("tool", id.clone()),
         AgentChunk::DshCommand { id, .. } => ("dsh-command", id.clone()),
+        AgentChunk::CodexCommand { id, .. } => ("codex-command", id.clone()),
         AgentChunk::Error { .. } => ("error", "error".to_string()),
         _ => return canonical,
     };

@@ -190,6 +190,53 @@ describe('agent thread card selectors', () => {
     expect(runtime.sendButtonWantsStop).toBe(false);
   });
 
+  it('treats a pending Codex command like DSH command work', () => {
+    const runtime = selectAgentThreadCardRuntimeView({
+      state: threadState({
+        isLoading: true,
+        codexCommand: {
+          id: 'codex-command-1',
+          command: '/compact',
+          status: 'pending',
+          startedAt: 40,
+        },
+      }),
+      isCreating: false,
+      isLoading: true,
+      typeKey: 'codex',
+    });
+
+    expect(runtime.status).toBe('running');
+    expect(runtime.isRunning).toBe(true);
+    expect(runtime.isBusy).toBe(true);
+    expect(runtime.showLoadingIndicator).toBe(true);
+    expect(runtime.sendButtonWantsStop).toBe(false);
+    expect(runtime.isCodexCommandStoppable).toBe(false);
+  });
+
+  it('makes a pending Codex goal command stoppable while keeping message loading', () => {
+    const runtime = selectAgentThreadCardRuntimeView({
+      state: threadState({
+        isLoading: true,
+        codexCommand: {
+          id: 'codex-command-goal',
+          command: '/goal set ship it',
+          status: 'pending',
+          startedAt: 40,
+        },
+      }),
+      isCreating: false,
+      isLoading: true,
+      typeKey: 'codex',
+    });
+
+    expect(runtime.isRunning).toBe(true);
+    expect(runtime.isBusy).toBe(true);
+    expect(runtime.showLoadingIndicator).toBe(true);
+    expect(runtime.isCodexCommandStoppable).toBe(true);
+    expect(runtime.sendButtonWantsStop).toBe(true);
+  });
+
   it('hides the loading indicator when the run truly settled', () => {
     const runtime = selectAgentThreadCardRuntimeView({
       state: threadState({

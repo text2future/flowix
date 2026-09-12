@@ -204,6 +204,46 @@ describe("mergeHistoricalMessages", () => {
       mergeHistoricalMessages(existing, historical, "codex").map((item) => item.id),
     ).toEqual(["codex-user", "codex-commentary", "codex-tool", "codex-final"]);
   });
+
+  it("reconciles the live compact command with its reconstructed history row", () => {
+    const existing = [
+      {
+        ...message(
+          "codex-command:live:command-1",
+          "user",
+          "/compact",
+          "2026-08-29T10:00:01.000Z",
+        ),
+        messageType: "codex-command" as const,
+        isCompleted: true,
+      },
+    ];
+    const historical = [
+      {
+        ...message(
+          "codex-command-history-compaction-1",
+          "user",
+          "/compact",
+          "2026-08-29T10:00:00.000Z",
+        ),
+        messageType: "codex-command" as const,
+        isCompleted: true,
+      },
+      {
+        ...message(
+          "compaction-1",
+          "system",
+          "",
+          "2026-08-29T10:00:00.000Z",
+        ),
+        messageType: "context-compaction" as const,
+      },
+    ];
+
+    expect(
+      mergeHistoricalMessages(existing, historical, "codex").map((item) => item.id),
+    ).toEqual(["codex-command-history-compaction-1", "compaction-1"]);
+  });
 });
 
 describe("replaceCompletedRunWithHistory", () => {

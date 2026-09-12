@@ -187,7 +187,9 @@ export function NotebookFolderView({
     try {
       const memo = await resolveMemoByPath(filePath);
       if (memo?.notebookId === notebook.id) {
-        await openBrowserColumnMemoById(memo.memoId);
+        // The file-tree action explicitly targets the right column. Do not
+        // reuse the same memo already active in the main column.
+        await openBrowserColumnMemoById(memo.memoId, 'open-in-column');
         return;
       }
       await openBrowserColumnFileBrowser(notebook.path, filePath);

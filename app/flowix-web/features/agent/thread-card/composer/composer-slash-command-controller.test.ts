@@ -6,10 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   COMPOSER_SLASH_COMMANDS,
   ComposerSlashCommandController,
+  formatCodexSkillDisplayName,
 } from './composer-slash-command-controller';
 import { ComposerSlashToken } from './composer-slash-token';
 
-function setup(options: { onPermissionSelect?: () => void } = {}) {
+function setup(options: { onModelSelect?: () => void; onPermissionSelect?: () => void } = {}) {
   const composer = document.createElement('div');
   const input = document.createElement('div');
   input.contentEditable = 'true';
@@ -40,6 +41,7 @@ function setup(options: { onPermissionSelect?: () => void } = {}) {
     composer,
     editor,
     agentType: 'deepseek-harness',
+    onModelSelect: options.onModelSelect,
     onPermissionSelect: options.onPermissionSelect,
   });
   return { composer, input, editor, controller };
@@ -56,6 +58,12 @@ afterEach(() => {
 });
 
 describe('ComposerSlashCommandController', () => {
+  it('removes the Codex namespace from fallback skill labels', () => {
+    expect(formatCodexSkillDisplayName('$figma:figma-use')).toBe('figma-use');
+    expect(formatCodexSkillDisplayName('browser:control-in-app-browser'))
+      .toBe('control-in-app-browser');
+  });
+
   it('focuses the Tiptap editor when the input row padding is pressed', () => {
     const { input, editor, controller } = setup();
     const row = input.parentElement;
@@ -129,6 +137,35 @@ describe('ComposerSlashCommandController', () => {
     expect(editor.getMarkdown()).toBe('');
     expect(document.querySelector('.agent-composer-slash-menu')).toBeNull();
     expect(onPermissionSelect).toHaveBeenCalledOnce();
+    controller.dispose();
+    editor.destroy();
+  });
+
+  it('opens the model settings callback for Codex and clears the input', () => {
+    const onModelSelect = vi.fn();
+    const composer = document.createElement('div');
+    const input = document.createElement('div');
+    composer.append(input);
+    document.body.append(composer);
+    const editor = new Editor({
+      element: { mount: input },
+      extensions: [StarterKit, Markdown, ComposerSlashToken],
+      content: '',
+      contentType: 'markdown',
+    });
+    const controller = new ComposerSlashCommandController({
+      input,
+      composer,
+      editor,
+      agentType: 'codex',
+      onModelSelect,
+    });
+    type(editor, '/model');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(editor.getMarkdown()).toBe('');
+    expect(document.querySelector('.agent-composer-slash-menu')).toBeNull();
+    expect(onModelSelect).toHaveBeenCalledOnce();
     controller.dispose();
     editor.destroy();
   });
@@ -209,7 +246,7 @@ describe('ComposerSlashCommandController', () => {
     editor.destroy();
   });
 
-  it('keeps DSH commands out of non-DSH composers', () => {
+  it('shows only Codex-supported commands in Codex composers', () => {
     const composer = document.createElement('div');
     const input = document.createElement('div');
     composer.append(input);
@@ -228,10 +265,14 @@ describe('ComposerSlashCommandController', () => {
     });
     type(editor, '/');
     expect([...document.querySelectorAll('.agent-composer-slash-menu__name')]
-      .map((node) => node.textContent)).not.toContain('/compact');
+      .map((node) => node.textContent)).toEqual([
+        '/compact', '/skill', '/goal', '/model', '/permission',
+      ]);
     expect([...document.querySelectorAll('.agent-composer-slash-menu__name')]
-      .map((node) => node.textContent)).toEqual([]);
-    expect(document.querySelector('.agent-composer-slash-menu')).toBeNull();
+      .map((node) => node.textContent)).not.toContain('/plan');
+    expect([...document.querySelectorAll('.agent-composer-slash-menu__name')]
+      .map((node) => node.textContent)).not.toContain('/export');
+    expect(document.querySelector('.agent-composer-slash-menu')).not.toBeNull();
     controller.dispose();
     editor.destroy();
   });
@@ -293,6 +334,8 @@ describe('ComposerSlashCommandController', () => {
     expect(listDshSkills).toHaveBeenCalledOnce();
     expect(document.querySelector('.agent-composer-slash-menu__name')?.textContent)
       .toBe('/review');
+    expect(document.querySelector('.agent-composer-slash-menu__item--back')).not.toBeNull();
+    expect(document.querySelector('.agent-composer-slash-menu__item--skill')).not.toBeNull();
     document.querySelector<HTMLButtonElement>('.agent-composer-slash-menu__item:not(.agent-composer-slash-menu__item--back)')
       ?.click();
     expect(nextEditor.getMarkdown()).toBe('[/review](flowix://slash/deepseek-harness/review)');

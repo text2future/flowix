@@ -169,6 +169,18 @@
 	grid-template-rows: 1fr;
 }
 
+/* 空目录也保留所属 folder group，供拖放命中和背景高亮使用；但不让没有
+ * 子项的 subtree 参与展开动画，避免子列表留白导致 2px 的高度闪动。 */
+.folder-file-tree__subtree[data-empty='true'] {
+	grid-template-rows: 0fr;
+	transition: none;
+}
+
+.folder-file-tree__subtree[data-empty='true'] .folder-file-tree__subtree-items {
+	padding-top: 0;
+	animation: none;
+}
+
 /* 拖放到文件夹时, 背景只覆盖与文件夹行相同的左右范围。
  * 使用绝对定位的伪元素, 不改变子项自身按 depth 计算的布局位置。 */
 .folder-file-tree__group[data-drag-over='true']::before {
@@ -229,9 +241,12 @@
 	margin-top: 1px;
 }
 
-/* 笔记树的 root 与 folder 子列表统一使用 space-y-0.5 (2px)。 */
+/* 笔记树的 root 与 folder 子列表统一使用 2px 行间距。 */
+.notebook-file-tree__items > .folder-file-tree__group:not(:first-child),
+.notebook-file-tree__items > div:not(:first-child),
 .notebook-file-tree__subtree-items > .folder-file-tree__item:not(:first-child),
-.notebook-file-tree__subtree-items > .folder-file-tree__group:not(:first-child) {
+.notebook-file-tree__subtree-items > .folder-file-tree__group:not(:first-child),
+.notebook-file-tree__subtree-items > div:not(:first-child) {
 	margin-top: 2px;
 }
 
@@ -443,6 +458,22 @@
 
 	.flowix-hover-preview-leave {
 		animation: flowix-hover-preview-out 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	/* The note-navigation drawer is a small, bounded overlay. Keep the blur on
+	 * that surface only: backdrop-filter is compositor-backed in the desktop
+	 * WebView, unlike a duplicated/blurred page layer. Browsers without it keep
+	 * the fully opaque card surface for legibility and zero filter cost. */
+	.flowix-note-navigation-drawer-surface {
+		background: var(--card);
+	}
+
+	@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+		.flowix-note-navigation-drawer-surface {
+			background: color-mix(in oklch, var(--card) 64%, transparent);
+			backdrop-filter: blur(8px);
+			-webkit-backdrop-filter: blur(8px);
+		}
 	}
 
 	/* Popover presence lifecycle: mount invisibly, position before paint, then

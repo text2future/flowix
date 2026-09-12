@@ -325,7 +325,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
     for (const instance of Object.values(instances)) {
       if (filterType && instance.agentType !== filterType) continue;
       const notebookId = instance.source?.notebookId;
-      if (currentNotebookId && notebookId && notebookId !== currentNotebookId) continue;
+      if (currentNotebookId && notebookId !== currentNotebookId) continue;
       merged = mergeLiveConversation(merged, instance);
     }
     return merged.orderedIdentities
@@ -388,15 +388,13 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations, conversationDetailOpen, conversationRunIndex, selectedInstanceId]);
 
-  // 按当前笔记本圈定对话列表 —— 与中间列 MemoList 同口径。归属当前笔记本的对话
-  // 全部展示；没有笔记本归属 (source.notebookId 为空，例如从独立对话面板发起，或
-  // 本变更之前创建的历史对话) 的对话始终展示，避免它们在任何笔记本下都消失。
-  // 未选中笔记本时退化为全量。
+  // 按当前笔记本严格圈定对话列表 —— 只有归属当前笔记本的会话可见。
+  // 未归属笔记本的历史数据不应出现在任何笔记本列表中；未选中笔记本时退化为全量。
   const scopedConversations = useMemo(() => {
     if (!currentNotebookId) return conversations;
     return conversations.filter((instance) => {
       const notebookId = instance.source?.notebookId;
-      return !notebookId || notebookId === currentNotebookId;
+      return notebookId === currentNotebookId;
     });
   }, [conversations, currentNotebookId]);
 
@@ -625,7 +623,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
                   disabled={!currentNotebookId}
                   aria-label={t('agent.chat.newThread')}
                   title={currentNotebookId ? t('agent.chat.newThread') : t('memo.list.selectNotebook')}
-                  className="group flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="group flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <PlusIcon
                     className="h-4 w-4 transition-[filter] duration-150 group-hover:brightness-105"
@@ -677,7 +675,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
               <span>{t('status.agent.loadingConversations')}</span>
             </div>
           ) : scopedConversations.length === 0 ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-sm text-[var(--muted-foreground)]">
+            <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-[var(--muted-foreground)]">
               {t('status.agent.noConversations')}
             </div>
           ) : (

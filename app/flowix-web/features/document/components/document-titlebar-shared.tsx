@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, Ellipsis, Loader2, Palette, Search } from 'lucide-react';
+import { Check, ChevronRight, Ellipsis, Loader2, Palette } from 'lucide-react';
 import {
   LinkSimpleIcon,
   CopyIcon,
@@ -86,7 +86,6 @@ export interface DocumentTitlebarProps {
     visible?: boolean;
   };
   contentCapabilities: {
-    search: boolean;
     properties: boolean;
     copyFullText: boolean;
     exportContent: boolean;
@@ -94,7 +93,6 @@ export interface DocumentTitlebarProps {
     versionHistory: boolean;
   };
   actions: {
-    onOpenSearch: () => void;
     onCopyLink: () => void;
     onCopyFullText: () => void;
     onOpenProperties: () => void;
@@ -528,15 +526,8 @@ export function AgentThreadCardFullscreenIdentity({
   );
 }
 
-function withoutHoverClasses(className: string): string {
-  return className
-    .split(/\s+/)
-    .filter((token) => token && !token.startsWith('hover:'))
-    .join(' ');
-}
-
 // =====================================================================
-// Memo action group — color + search + ellipsis dropdown
+// Memo action group — color + ellipsis dropdown
 // iconButtonClass (size / radius / bg / border) supplied by caller
 // =====================================================================
 
@@ -706,7 +697,6 @@ function VersionHistorySubmenu({
 export function MemoActions({
   memo,
   iconButtonClass,
-  onOpenSearch,
   onCopyLink,
   onCopyFullText,
   onOpenProperties,
@@ -716,7 +706,6 @@ export function MemoActions({
   onExportWord,
   onRequestDeleteMemo,
   onColorsChange,
-  canSearch,
   canEditProperties,
   canCopyFullText,
   canExportContent,
@@ -725,7 +714,6 @@ export function MemoActions({
 }: {
   memo: MemoItem;
   iconButtonClass: string;
-  onOpenSearch: () => void;
   onCopyLink: () => void;
   onCopyFullText: () => void;
   onOpenProperties: () => void;
@@ -735,7 +723,6 @@ export function MemoActions({
   onExportWord: () => void;
   onRequestDeleteMemo: () => void;
   onColorsChange: (next: MemoColor[]) => void;
-  canSearch: boolean;
   canEditProperties: boolean;
   canCopyFullText: boolean;
   canExportContent: boolean;
@@ -747,10 +734,6 @@ export function MemoActions({
   const [confirmVersion, setConfirmVersion] = useState<MemoVersionMeta | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
   const [versionRefreshKey, setVersionRefreshKey] = useState(0);
-  const isAgentThreadCardFullscreen = useAgentThreadCardFullscreenActive();
-  const searchButtonClass = isAgentThreadCardFullscreen
-    ? `${withoutHoverClasses(iconButtonClass)} cursor-not-allowed opacity-45`
-    : iconButtonClass;
 
   const handleConfirmRestoreVersion = async () => {
     if (!confirmVersion || restoringVersionId) return;
@@ -813,25 +796,6 @@ export function MemoActions({
         iconButtonClass={iconButtonClass}
         onChange={onColorsChange}
       />
-      {canSearch && (
-        <Tooltip
-          content={t("document.titlebar.searchTooltip")}
-          shortcut="editor.find"
-          disabled={isAgentThreadCardFullscreen}
-        >
-          <button
-            type="button"
-            disabled={isAgentThreadCardFullscreen}
-            aria-disabled={isAgentThreadCardFullscreen}
-            onClick={() => {
-              if (!isAgentThreadCardFullscreen) onOpenSearch();
-            }}
-            className={searchButtonClass}
-          >
-            <Search className="w-4 h-4" />
-          </button>
-        </Tooltip>
-      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Tooltip content={t("document.titlebar.moreTooltip")}>

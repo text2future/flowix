@@ -117,7 +117,7 @@
 .agent-background-terminals__details {
   border-top: 1px solid color-mix(in oklch, var(--border) 84%, var(--foreground) 16%);
   padding: 0.35rem 0.75rem 0.55rem;
-  background: color-mix(in oklch, var(--agent-status-bg) 92%, var(--foreground) 8%);
+  background: transparent;
 }
 .agent-background-terminals__row { display: flex; align-items: center; min-width: 0; gap: 0.5rem; min-height: 1.7rem; }
 .agent-background-terminals__row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
@@ -159,7 +159,7 @@
   gap: 0.38rem;
   align-items: flex-start;
   padding: 0.2rem 0.35rem;
-  border-radius: 0.35rem;
+  border-radius: 0.46rem;
   background: color-mix(in oklch, var(--agent-status-bg) 95%, var(--foreground) 5%);
   line-height: 1.4;
 }
@@ -760,6 +760,31 @@
   outline: none;
 }
 
+.markdown-editor .agent-thread-card__skill-token {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid color-mix(in oklch, var(--border) 90%, var(--foreground) 10%);
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: inherit;
+  line-height: 1.35;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.markdown-editor .agent-thread-card__skill-token:hover,
+.markdown-editor .agent-thread-card__skill-token:focus-visible {
+  border-color: color-mix(in oklch, var(--border) 68%, var(--foreground) 32%);
+  background: transparent;
+  color: var(--foreground);
+  outline: none;
+}
+
 .agent-composer-slash-menu {
   position: fixed;
   z-index: 1000;
@@ -829,10 +854,29 @@
   color: var(--primary-foreground);
 }
 
+/* The skill picker has a navigation row, not a selectable command. Keep
+ * hovering/focusing that row to a text-color change, without the command
+ * highlight background. */
+.agent-composer-slash-menu:not(.is-keyboard-navigation)
+  .agent-composer-slash-menu__item--back:hover,
+.agent-composer-slash-menu:not(.is-keyboard-navigation)
+  .agent-composer-slash-menu__item--back:focus-visible {
+  background: transparent;
+  color: var(--foreground);
+}
+
 .agent-composer-slash-menu__name {
   flex: 0 0 6.6rem;
   color: var(--foreground);
   font-weight: 400;
+}
+
+.agent-composer-slash-menu__item--skill .agent-composer-slash-menu__name {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .agent-composer-slash-menu__description {

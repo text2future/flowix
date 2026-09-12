@@ -5,8 +5,7 @@ use tauri::State;
 use crate::agent_history::ExternalRuntimeKind;
 use crate::agent_session::{
     AgentConversationCursor, AgentConversationInstance, AgentConversationTypeCount, ChatMessage,
-    ThreadInfo, ThreadMessagesPage,
-    UpsertAgentConversationInstance,
+    ThreadInfo, ThreadMessagesPage, UpsertAgentConversationInstance,
 };
 use crate::agent_types::default_agent_id;
 

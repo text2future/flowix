@@ -339,8 +339,8 @@ pub fn move_memo_to_directory(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<MoveMemoResult, String> {
-    let before = read_memo_or_none(state.inner(), &id)
-        .ok_or_else(|| format!("memo not found: {id}"))?;
+    let before =
+        read_memo_or_none(state.inner(), &id).ok_or_else(|| format!("memo not found: {id}"))?;
     let (old_path, edited) = {
         let memo_file = read_lock(&state.memo_file, "memo_file");
         let mut service = MemoService::new(&memo_file);

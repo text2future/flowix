@@ -187,14 +187,19 @@ export function openBrowserColumnMemo(
   }, disposition);
 }
 
-export async function openBrowserColumnMemoById(memoId: string): Promise<BrowserColumnOpenResult> {
+export async function openBrowserColumnMemoById(
+  memoId: string,
+  disposition: BrowserColumnOpenDisposition = 'focus-existing',
+): Promise<BrowserColumnOpenResult> {
   const identity = { kind: 'memo' as const, memoId };
-  const existing = await activateExistingWorkspaceContentAsync(identity);
-  if (!existing && findExistingWorkspaceContent(identity)) {
-    throw new Error(`Memo tab activation was cancelled: ${memoId}`);
+  if (disposition === 'focus-existing') {
+    const existing = await activateExistingWorkspaceContentAsync(identity);
+    if (!existing && findExistingWorkspaceContent(identity)) {
+      throw new Error(`Memo tab activation was cancelled: ${memoId}`);
+    }
+    const result = openResult(existing);
+    if (result) return result;
   }
-  const result = openResult(existing);
-  if (result) return result;
 
   // `MemoItem` deliberately has no notebook field. Resolving the path from
   // the selected notebook would open a background-created memo in the wrong
@@ -215,7 +220,7 @@ export async function openBrowserColumnMemoById(memoId: string): Promise<Browser
         notebookId: session.notebookId,
         notebookPath: session.notebookPath,
         filePath: session.path,
-      });
+      }, disposition);
   if (!opened) throw new Error(`Memo tab activation was cancelled: ${memoId}`);
   return opened;
 }

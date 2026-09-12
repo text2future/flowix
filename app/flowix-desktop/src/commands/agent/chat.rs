@@ -157,7 +157,10 @@ pub async fn execute_deepseek_harness_command(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
-    if !matches!(message.agent_type.as_deref(), Some("deepseek-harness") | Some("deepseek_harness") | Some("dsh") | None) {
+    if !matches!(
+        message.agent_type.as_deref(),
+        Some("deepseek-harness") | Some("deepseek_harness") | Some("dsh") | None
+    ) {
         return Err("DSH slash commands require the deepseek-harness agent".to_string());
     }
     state
@@ -174,7 +177,10 @@ pub async fn deepseek_harness_skill_catalog(
     message: AgentUserMessage,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    if !matches!(message.agent_type.as_deref(), Some("deepseek-harness") | Some("deepseek_harness") | Some("dsh") | None) {
+    if !matches!(
+        message.agent_type.as_deref(),
+        Some("deepseek-harness") | Some("deepseek_harness") | Some("dsh") | None
+    ) {
         return Err("DSH skills require the deepseek-harness agent".to_string());
     }
     state
@@ -329,6 +335,33 @@ pub async fn codex_thread_settings_update(
             model.as_deref(),
             reasoningEffort.as_deref(),
             permissionMode.as_deref(),
+        )
+        .await
+}
+
+/// Execute a Codex-native slash command through the App Server. Commands are
+/// kept separate from chat turns because `/compact` and `/goal` are protocol
+/// operations, not user prompts.
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn codex_slash_command(
+    threadId: String,
+    command: String,
+    runtimeConfig: Option<crate::agent_wire::AgentRuntimeConfig>,
+    runId: Option<String>,
+    commandId: Option<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    state
+        .codex_app_server
+        .execute_slash_command(
+            &threadId,
+            &command,
+            runtimeConfig,
+            runId.as_deref(),
+            commandId.as_deref(),
+            &app,
         )
         .await
 }

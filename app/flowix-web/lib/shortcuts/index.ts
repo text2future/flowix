@@ -43,4 +43,5 @@ export { parseChord, tryParseChord, normalizeKey, normalizeCode, isStandaloneKey
 
 // Matcher utilities (测试 / 内部使用)
 export { chordMatches, isImeComposing, isInEditableField, scopeAllows } from './matcher';
+export { isImeKeyboardEvent } from '@/lib/input-method';
 export type { MatchContext } from './matcher';

@@ -25,6 +25,13 @@ export {
   type ComposerSlashCommandControllerOptions,
 } from "./composer-slash-command-controller";
 export {
+  ComposerSkillToken,
+  composerSkillMarkdownToPrompt,
+  displayNameForComposerSkill,
+  formatCodexSkillDisplayName,
+  insertComposerSkillToken,
+} from "./composer-skill-token";
+export {
   createAgentComposerDom,
   disposeAgentComposerDom,
   type AgentComposerDomFactoryOptions,

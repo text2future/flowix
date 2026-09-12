@@ -55,6 +55,10 @@ export const registerBrowserColumnFlush = registerBrowserColumnDocumentFlush;
 export const openBrowserColumnTabInMainWorkColumn = openBrowserColumnTabInWorkColumn;
 export const openMarkdownInBrowserColumn = openBrowserColumnMarkdown;
 
+export function hideBrowserColumn(): void {
+  useBrowserColumnStore.getState().setVisible(false);
+}
+
 export function reorderBrowserColumnTab(tabId: string, beforeTabId: string | null): void {
   useBrowserColumnStore.getState().reorderTab(tabId, beforeTabId);
 }

@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use flowix_core::memo_file::{
-    atomic_write_bytes, extract_frontmatter_key, merge_frontmatter, resolve_filename_conflict,
-    notebook_path_from_relative, sanitize_filename_component, IsMd, MergeOverrides,
+    atomic_write_bytes, extract_frontmatter_key, merge_frontmatter, notebook_path_from_relative,
+    resolve_filename_conflict, sanitize_filename_component, IsMd, MergeOverrides,
 };
 use flowix_sync::{
     collect_v2_attachments, v2_content_hash, v2_local_content_diverged, CloudCheckout,

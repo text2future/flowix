@@ -669,6 +669,14 @@ export function createAgentThreadCardMessageElement(options: {
         item.classList.add("agent-thread-card__message--dsh-command-loading");
       }
     }
+    if (message.messageType === "codex-command") {
+      item.classList.add(
+        "agent-thread-card__message--codex-command",
+      );
+      if (message.isLoading) {
+        item.classList.add("agent-thread-card__message--codex-command-loading");
+      }
+    }
   } catch (err) {
     logger.error("Failed to prepare message", {
       error: err,
@@ -749,6 +757,11 @@ export function createAgentThreadCardMessageElement(options: {
         const badge = document.createElement("span");
         badge.className = "agent-thread-card__message-dsh-badge";
         badge.textContent = message.messageType === "dsh-command-prompt" ? "DSH /plan" : "DSH";
+        item.append(badge);
+      } else if (message.messageType === "codex-command") {
+        const badge = document.createElement("span");
+        badge.className = "agent-thread-card__message-codex-badge";
+        badge.textContent = "Codex";
         item.append(badge);
       }
       item.append(content);

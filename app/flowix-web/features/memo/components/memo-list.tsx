@@ -8,8 +8,8 @@ import {
   LayoutList,
   ListFilter,
   Search,
-  SquarePen,
 } from 'lucide-react';
+import { PencilSimpleLineIcon } from '@phosphor-icons/react';
 import {
   getVisibleCreateFilter,
   MEMO_COLOR_HEX,
@@ -69,7 +69,7 @@ import {
 const logger = createLogger('memo-list');
 
 const HEADER_ICON_BTN_CLASS =
-  'h-8 w-8 justify-center rounded-xl p-0 border border-[var(--border)] ' +
+  'h-7 w-7 justify-center rounded-xl p-0 border border-[var(--border)] ' +
   'hover:bg-[var(--muted)] hover:text-[var(--primary)] text-[var(--foreground)]';
 
 // 先以 10 条验证动态虚拟化在真实列表中的行为，稳定后再提升到 50。
@@ -945,13 +945,17 @@ export function MemoList({
           <Tooltip content={t("memo.list.newMemoTooltip")} shortcut="memo.create">
             <Button
               size="icon"
-              className="h-8 w-8 justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
+              className="h-7 w-7 justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
               onClick={() => {
                 if (memoListView === 'folders') handleRequestCreateNote();
                 else void handleCreateMemo();
               }}
             >
-              <SquarePen className="h-4 w-4 text-[var(--primary-foreground)]" />
+              <PencilSimpleLineIcon
+                className="h-4 w-4 text-[var(--primary-foreground)]"
+                weight="bold"
+                aria-hidden="true"
+              />
             </Button>
           </Tooltip>
         </div>

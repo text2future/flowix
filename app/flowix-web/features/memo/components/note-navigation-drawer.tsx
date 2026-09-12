@@ -121,7 +121,7 @@ export function NoteNavigationDrawer({
         aria-modal="true"
         className={cn(
           'relative m-1 h-[calc(100%-0.5rem)] w-[min(240px,calc(100vw-16px))] min-w-0 overflow-hidden rounded-xl',
-          'border border-[var(--border-popup)] bg-[var(--card)] text-[var(--agent-foreground)]',
+          'flowix-note-navigation-drawer-surface border border-[var(--border-popup)] text-[var(--agent-foreground)]',
           'transition-transform duration-150 ease-out',
           open && !isClosing ? 'translate-x-0' : '-translate-x-[calc(100%+0.5rem)]',
           // Keep the navigation drawer shadow at a softened weight (24% -> 16%).
@@ -139,6 +139,7 @@ export function NoteNavigationDrawer({
           onOpenPreferences={onOpenPreferences}
           activePluginId={activePluginId}
           onOpenPlugin={handleOpenPlugin}
+          transparentSurface
         />
       </aside>
     </div>

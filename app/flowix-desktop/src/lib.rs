@@ -21,14 +21,14 @@ mod document_mutation;
 mod dsh;
 mod events;
 mod lock_utils;
-mod memo_events;
 mod maintenance;
+mod memo_events;
 mod open_target;
 mod plugin;
 mod process_window;
 mod runtime_log;
-mod update_security;
 mod system_data;
+mod update_security;
 mod watcher;
 mod window_chrome;
 
