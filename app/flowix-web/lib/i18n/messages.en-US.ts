@@ -701,6 +701,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "agent.input.send": "Send",
     "agent.input.removeMemo": "Remove note",
     "agent.backgroundTerminals.count": "{count} background process(es)",
+    "agent.backgroundTerminals.queued": "Queued",
     "agent.thinking": "Thinking",
     "agent.chat.thread.unnamed": "Untitled",
     "agent.chat.thread.running": "Running in background",

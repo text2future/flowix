@@ -109,7 +109,7 @@ export function AgentBackgroundTerminals({ threadId, agentType, enabled, queuedM
             <button type="button" onClick={() => void respondToApproval('accept')}>确认执行</button>
           </div>
         </div>
-        {queuedMessages.length > 0 && <QueuedMessages messages={queuedMessages} />}
+        {queuedMessages.length > 0 && <QueuedMessages messages={queuedMessages} label={t('agent.backgroundTerminals.queued')} />}
       </div>
     );
   }
@@ -141,14 +141,18 @@ export function AgentBackgroundTerminals({ threadId, agentType, enabled, queuedM
           ))}
         </div>
       )}
-      {queuedMessages.length > 0 && <QueuedMessages messages={queuedMessages} />}
+      {queuedMessages.length > 0 && <QueuedMessages messages={queuedMessages} label={t('agent.backgroundTerminals.queued')} />}
     </div>
   );
 }
 
-function QueuedMessages({ messages }: { messages: string[] }) {
+function QueuedMessages({ messages, label }: { messages: string[]; label: string }) {
   return (
-    <div className="agent-background-terminals__queue" aria-label="Queued messages">
+    <div className="agent-background-terminals__queue" aria-label={label}>
+      <div className="agent-background-terminals__queue-heading">
+        <span className="agent-background-terminals__queue-heading-label">{label}</span>
+        <span className="agent-background-terminals__queue-count">{messages.length}</span>
+      </div>
       {messages.map((message, index) => (
         <div className="agent-background-terminals__queue-row" key={`${index}-${message}`}>
           <span className="agent-background-terminals__queue-mark">

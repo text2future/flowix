@@ -85,6 +85,7 @@
 	/* 代理面板: L=0.982 + chroma 0.005 ── 比 bg 略沉一档, 与 titlebar
 	 * 同 L, 仅 chroma 微高 (0.005 vs 0.004) ── 在白底上读作"浅印面板"。 */
 	--agent-bg: oklch(0.982 0.005 var(--neutral-hue));
+	--agent-status-surface: oklch(0.965 0.004 var(--neutral-hue));
 	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
 
 	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));

@@ -678,6 +678,7 @@ const zhCN = {
     "agent.input.send": "发送",
     "agent.input.removeMemo": "移除 Memo",
     "agent.backgroundTerminals.count": "{count} 个后台进程",
+    "agent.backgroundTerminals.queued": "待发送",
     "agent.thinking": "思考中",
     "agent.chat.thread.unnamed": "未命名",
     "agent.chat.thread.running": "后台运行中",

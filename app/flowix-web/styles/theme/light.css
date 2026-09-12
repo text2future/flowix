@@ -68,6 +68,7 @@
 	 * 跨主题切换时不会跟随 neutral-hue 偏移. 改为 var(--neutral-hue)
 	 * 派生, 与 rock 一致, 读作"浅印面板". */
 	--agent-bg: oklch(0.984 0.006 var(--neutral-hue));
+	--agent-status-surface: oklch(0.965 0.004 var(--neutral-hue));
 	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
 
 	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));

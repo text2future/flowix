@@ -36,6 +36,7 @@
 	--ring: var(--primary);
 
 	--agent-bg: oklch(0.984 0.006 var(--neutral-hue));
+	--agent-status-surface: oklch(0.965 0.004 var(--neutral-hue));
 	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
 
 	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));

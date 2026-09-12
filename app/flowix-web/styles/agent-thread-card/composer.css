@@ -27,6 +27,9 @@
   border: 1px solid var(--border);
   border-radius: 1rem;
   background: var(--document-bg);
+  /* Keep the composer lighter than the Slash menu while
+   * keeping a shorter offset for the composer sitting against the canvas edge. */
+  box-shadow: 0 2px 24px -3px rgb(0 0 0 / 3%);
   box-sizing: border-box;
   max-height: 15rem;
   user-select: none;
@@ -55,6 +58,9 @@
  * process status rather than another chat message. */
 .markdown-editor .agent-background-terminals {
   --background-terminal-overlap: 1.15rem;
+  /* Status surface: one restrained step darker than the paper composer.
+   * Keep this in OKLCH so the same perceived contrast survives theme changes. */
+  --agent-status-bg: var(--agent-status-surface, color-mix(in oklch, var(--document-bg) 94%, var(--foreground) 6%));
   position: relative;
   z-index: 0;
   align-self: end;
@@ -68,7 +74,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 1rem 1rem 0.75rem 0.75rem;
-  background: color-mix(in srgb, var(--document-bg) 94%, var(--foreground));
+  background: var(--agent-status-bg);
   color: var(--muted-foreground);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
@@ -97,22 +103,77 @@
   cursor: pointer;
 }
 
-.agent-background-terminals__summary:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.agent-background-terminals__summary:hover { background: color-mix(in oklch, var(--accent) 54%, transparent); }
+.agent-background-terminals__summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
 .agent-background-terminals__dot,
-.agent-background-terminals__status { width: 0.4rem; height: 0.4rem; flex: 0 0 auto; border-radius: 999px; background: #34a853; }
+.agent-background-terminals__status { width: 0.4rem; height: 0.4rem; flex: 0 0 auto; border-radius: 999px; background: var(--success); }
 .agent-background-terminals__label { flex: 0 0 auto; color: var(--foreground); }
 .agent-background-terminals__command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.72; }
 .agent-background-terminals__chevron { width: 1rem; height: 1rem; flex: 0 0 auto; margin-left: auto; transition: transform 160ms ease; }
 .agent-background-terminals[data-expanded='true'] .agent-background-terminals__chevron { transform: rotate(180deg); }
-.agent-background-terminals__details { border-top: 1px solid var(--border); padding: 0.25rem 0.75rem 0.45rem; }
+.agent-background-terminals__details {
+  border-top: 1px solid color-mix(in oklch, var(--border) 84%, var(--foreground) 16%);
+  padding: 0.35rem 0.75rem 0.55rem;
+  background: color-mix(in oklch, var(--agent-status-bg) 92%, var(--foreground) 8%);
+}
 .agent-background-terminals__row { display: flex; align-items: center; min-width: 0; gap: 0.5rem; min-height: 1.7rem; }
 .agent-background-terminals__row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
 .agent-background-terminals__cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.55; }
 .agent-background-terminals__state { margin-left: auto; opacity: 0.65; }
-.agent-background-terminals__queue { border-top: 1px solid var(--border); padding: 0.35rem 0.75rem 0.45rem; }
-.agent-background-terminals__queue-row { display: flex; min-width: 0; gap: 0.32rem; align-items: center; line-height: 1.35; }
-.agent-background-terminals__queue-row span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); opacity: 0.82; }
-.agent-background-terminals__queue-mark { display: inline-flex; flex: 0 0 auto; color: var(--primary); }
+.agent-background-terminals__queue {
+  display: grid;
+  gap: 0.2rem;
+  border-top: 1px solid color-mix(in oklch, var(--border) 84%, var(--foreground) 16%);
+  padding: 0.45rem 0.75rem 0.65rem;
+  background: color-mix(in oklch, var(--agent-status-bg) 92%, var(--foreground) 8%);
+}
+.agent-background-terminals__queue-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.1rem;
+  color: var(--primary);
+  font-family: var(--app-font-family, var(--font-sans));
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.agent-background-terminals__queue-count {
+  display: inline-flex;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary);
+  font-size: 0.64rem;
+  line-height: 1;
+}
+.agent-background-terminals__queue-row {
+  display: flex;
+  min-width: 0;
+  gap: 0.38rem;
+  align-items: flex-start;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.35rem;
+  background: color-mix(in oklch, var(--agent-status-bg) 95%, var(--foreground) 5%);
+  line-height: 1.4;
+}
+.agent-background-terminals__queue-row span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  opacity: 0.86;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.agent-background-terminals__queue-mark { display: inline-flex; flex: 0 0 auto; padding-top: 0.08rem; color: var(--primary); }
 .agent-background-terminals__queue-mark svg { display: block; width: 0.75rem; height: 0.75rem; }
 .agent-thread-card__queued-messages { margin: 0 0 -1.15rem; }
 
@@ -709,7 +770,8 @@
   border-radius: 0.75rem;
   background: var(--card);
   color: var(--agent-foreground);
-  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+  /* Slash menu shadow is intentionally 1/4 of the standard popover weight. */
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 6%);
   box-sizing: border-box;
 }
 

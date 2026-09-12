@@ -1471,7 +1471,17 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.composerController.setSendButtonState();
     const queued = useAgentSessionStore.getState().pendingSteeringMessages[this.threadId ?? ""] ?? [];
     this.queuedMessages.hidden = queued.length === 0;
+    this.queuedMessages.setAttribute("aria-label", this.t("agent.backgroundTerminals.queued"));
+    const queueHeading = document.createElement("div");
+    queueHeading.className = "agent-background-terminals__queue-heading";
+    const queueLabel = document.createElement("span");
+    queueLabel.className = "agent-background-terminals__queue-heading-label";
+    queueLabel.textContent = this.t("agent.backgroundTerminals.queued");
+    const queueCount = document.createElement("span");
+    queueCount.className = "agent-background-terminals__queue-count";
+    queueCount.textContent = String(queued.length);
     this.queuedMessages.replaceChildren(
+      queueHeading,
       ...queued.map((message) => {
         const row = document.createElement("div");
         row.className = "agent-background-terminals__queue-row";
@@ -1484,6 +1494,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         return row;
       }),
     );
+    queueHeading.append(queueLabel, queueCount);
     this.renderMetaState(state, runtimeView.isBusy);
 
     this.messages.render({

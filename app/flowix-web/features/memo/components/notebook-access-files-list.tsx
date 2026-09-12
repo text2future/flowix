@@ -20,6 +20,7 @@ import { openBrowserColumnFileBrowser } from '@features/workspace/use-cases/brow
  */
 interface NotebookAccessFilesListProps {
   notebook: Notebook | undefined;
+  onOpenFile?: (path: string) => void;
 }
 
 interface ResolvedItem {
@@ -40,6 +41,7 @@ const ACCESS_MENU_ITEM_CLASS =
 
 export function NotebookAccessFilesList({
   notebook,
+  onOpenFile,
 }: NotebookAccessFilesListProps) {
   const { t } = useI18n();
   const notebookId = notebook?.id;
@@ -152,7 +154,10 @@ export function NotebookAccessFilesList({
                 aria-current={isBrowsing ? 'true' : undefined}
                 onClick={
                   canBrowse
-                    ? () => { void openBrowserColumnFileBrowser(item.path); }
+                    ? () => {
+                        void openBrowserColumnFileBrowser(item.path);
+                        onOpenFile?.(item.path);
+                      }
                     : undefined
                 }
                 onKeyDown={
@@ -161,6 +166,7 @@ export function NotebookAccessFilesList({
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           void openBrowserColumnFileBrowser(item.path);
+                          onOpenFile?.(item.path);
                         }
                       }
                     : undefined

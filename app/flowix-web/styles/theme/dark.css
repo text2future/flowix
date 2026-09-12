@@ -50,6 +50,7 @@
 
 	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
 	--agent-bg: oklch(0.173 0.009 var(--neutral-hue));
+	--agent-status-surface: oklch(0.245 0.014 var(--neutral-hue));
 	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
 
 	--statusbar-bg: color-mix(in oklch, var(--card) 92%, var(--background));

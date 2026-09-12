@@ -36,7 +36,7 @@ interface NavCounts {
 
 // 导航栏 ── 最左侧导航区域的组合根。拆分为四个独立子组件 + 共享 useDragReorder:
 //   - NotebookList          笔记本列表 (拖拽重排 + 折叠)
-//   - NavFilterButtons      顶部过滤器 (全部/对话/待办)
+//   - NavFilterButtons      顶部过滤器 (全部/待办)
 //   - TagTree               标签树 (拖拽重排 + reparent + 行内重命名 + 删除)
 //   - NotebookAccessFilesList  选中笔记本的可访问文件夹 (已独立组件)
 // 本组件只负责布局编排 + counts 中转: TagTree 的 loadTags 上抛 counts,
@@ -95,6 +95,7 @@ export function NoteNavigationPanel({
           <NavFilterButtons
             totalMemoCount={counts.total}
             todoMemoCount={counts.todo}
+            onSelectItem={onTogglePanel}
           />
           <PluginNavItems
             activePluginId={activePluginId}
@@ -105,6 +106,7 @@ export function NoteNavigationPanel({
           <TagTree
             selectedNotebook={selectedNotebook}
             onCountsChange={handleCountsChange}
+            onSelectTag={() => onTogglePanel()}
           />
           {/* 标签组与资料组之间的分割线 ── my-1 上下各 4px 留白; 下方 4px 与资料组容器 pt-1 (padding, 不与 margin 折叠) 叠加, 分隔线到资料标题实际间距 8px。 */}
           <div className="my-1 border-t border-[var(--muted-foreground)]/30" />
@@ -114,7 +116,10 @@ export function NoteNavigationPanel({
               标角标; 空时显示「添加资料」按钮。 编辑入口走右键菜单
               (设为主空间 / 取消主空间 / 删除); 显式取消主空间后 effectiveWorkspace
               fallback 到 notebook.path。 */}
-          <NotebookAccessFilesList notebook={selectedNotebook ?? undefined} />
+          <NotebookAccessFilesList
+            notebook={selectedNotebook ?? undefined}
+            onOpenFile={() => onTogglePanel()}
+          />
         </OverlayScrollbar>
         <div
           aria-hidden="true"

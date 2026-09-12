@@ -124,7 +124,8 @@ export function NoteNavigationDrawer({
           'border border-[var(--border-popup)] bg-[var(--card)] text-[var(--agent-foreground)]',
           'transition-transform duration-150 ease-out',
           open && !isClosing ? 'translate-x-0' : '-translate-x-[calc(100%+0.5rem)]',
-          open && !isClosing && 'shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]',
+          // Keep the navigation drawer shadow at a softened weight (24% -> 16%).
+          open && !isClosing && 'shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.16)]',
         )}
       >
         <NoteNavigationPanel
