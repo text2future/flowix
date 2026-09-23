@@ -26,6 +26,11 @@ export function createTerminalInlineAtomCaretDecorations(
       () => {
         const anchor = document.createElement('span');
         anchor.className = 'terminal-inline-atom-caret-anchor';
+        // Keep the logical position on the view-only anchor so StableCaret can
+        // map a terminal selection back to the exact atom DOM.  `coordsAtPos`
+        // is not reliable at the boundary between a contenteditable=false
+        // atom and ProseMirror's trailing break on every browser engine.
+        anchor.setAttribute('data-terminal-inline-atom-caret-position', String(afterPos));
         anchor.setAttribute('aria-hidden', 'true');
         anchor.appendChild(document.createTextNode('\u200B'));
         return anchor;

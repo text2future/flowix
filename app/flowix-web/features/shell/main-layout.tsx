@@ -703,7 +703,10 @@ export function MainLayout({
                 data-memo-list-preview-edge-trigger
                 onMouseEnter={handleMemoListPreviewTriggerEnter}
                 onMouseLeave={handleMemoListPreviewTriggerLeave}
-                onClick={handleToggleMemoList}
+                // Clicking the collapsed edge follows the hover interaction:
+                // open the floating preview instead of restoring the full
+                // list column.
+                onClick={handleMemoListPreviewEnter}
                 aria-label={t('document.titlebar.showSidebar')}
                 title={t('document.titlebar.showSidebarTooltip')}
                 className="group absolute bottom-0 left-0 top-0 z-[60] flex w-4 items-center justify-center text-[var(--muted-foreground)] opacity-30 transition-[color,opacity] duration-150 hover:text-[var(--foreground)] hover:opacity-50 focus-visible:outline-none focus-visible:text-[var(--brand)] focus-visible:opacity-100"

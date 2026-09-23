@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { Blocks, Check, ChevronDown, Code2, File as FileIcon, FileText, Folder, Globe, MessageSquare, X } from 'lucide-react';
+import { Blocks, Check, ChevronDown, ChevronRight, Code2, File as FileIcon, FileText, Folder, Globe, MessageSquare, X } from 'lucide-react';
 import {
   canMoveBrowserColumnTargetToWorkColumn,
   type BrowserColumnTab,
@@ -250,6 +250,15 @@ export function BrowserColumnHeader({
       // behind active and inactive tabs alike.
       style={isAgentSurface || isMediaSurface ? undefined : { backgroundImage: WORK_COLUMN_TITLEBAR_GRADIENT }}
     >
+      <button
+        type="button"
+        aria-label={t('tabWindow.closeColumn')}
+        title={t('tabWindow.closeColumn')}
+        onClick={onCloseColumn}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] [-webkit-app-region:no-drag]"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
       <div
         role="tablist"
         aria-label={t('tabWindow.openContent')}

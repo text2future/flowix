@@ -19,6 +19,8 @@
 #                                   Password lives only in macOS Keychain.
 #   APPLE_APP_SPECIFIC_PASSWORD     (fallback) 16-char App-Specific Password (NOT Apple ID password).
 #                                   Use this if you don't have store-credentials set up.
+#   APPLE_API_KEY_PATH + APPLE_API_KEY_ID + APPLE_API_ISSUER
+#                                   App Store Connect API key authentication.
 #
 # Optional env vars:
 #   SKIP_BUILD=1                    Skip `tauri build`, use existing target/
@@ -54,11 +56,24 @@ NOTARY_AUTH_FLAGS=()
 if [ -n "${SKIP_NOTARIZE:-}" ]; then
   echo "==> Notarization disabled (SKIP_NOTARIZE=1); credentials not required"
 else
-  if [ -n "${APPLE_KEYCHAIN_PROFILE:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
-    echo "ERROR: Set EITHER APPLE_KEYCHAIN_PROFILE OR APPLE_APP_SPECIFIC_PASSWORD, not both." >&2
+  auth_count=0
+  [ -n "${APPLE_KEYCHAIN_PROFILE:-}" ] && auth_count=$((auth_count + 1))
+  [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && auth_count=$((auth_count + 1))
+  [ -n "${APPLE_API_KEY_PATH:-}" ] && auth_count=$((auth_count + 1))
+  if [ "$auth_count" -gt 1 ]; then
+    echo "ERROR: Configure exactly one notarization auth method." >&2
     exit 2
   fi
-  if [ -z "${APPLE_KEYCHAIN_PROFILE:-}" ] && [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+  if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+    : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID not set - required with APPLE_API_KEY_PATH}"
+    : "${APPLE_API_ISSUER:?APPLE_API_ISSUER not set - required with APPLE_API_KEY_PATH}"
+    if [ ! -f "$APPLE_API_KEY_PATH" ]; then
+      echo "ERROR: APPLE_API_KEY_PATH does not exist: $APPLE_API_KEY_PATH" >&2
+      exit 2
+    fi
+    NOTARY_AUTH_FLAGS=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+    echo "==> Notarization auth: App Store Connect API key '$APPLE_API_KEY_ID'"
+  elif [ -z "${APPLE_KEYCHAIN_PROFILE:-}" ] && [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
     echo "ERROR: Notarization auth not configured. Choose ONE of:" >&2
     echo "  (preferred)  export APPLE_KEYCHAIN_PROFILE='name'" >&2
     echo "               (run once: xcrun notarytool store-credentials NAME --apple-id ... --team-id ... --password ...)" >&2
@@ -66,7 +81,9 @@ else
     exit 2
   fi
 
-  if [ -n "${APPLE_KEYCHAIN_PROFILE:-}" ]; then
+  if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+    : # API key flags were assembled above.
+  elif [ -n "${APPLE_KEYCHAIN_PROFILE:-}" ]; then
     NOTARY_AUTH_FLAGS=(--keychain-profile "$APPLE_KEYCHAIN_PROFILE")
     echo "==> Notarization auth: Keychain profile '$APPLE_KEYCHAIN_PROFILE' (password NEVER in env)"
   else

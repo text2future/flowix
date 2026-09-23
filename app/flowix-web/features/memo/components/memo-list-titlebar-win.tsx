@@ -3,6 +3,7 @@
 import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
+import { CaretDoubleLeftIcon } from '@phosphor-icons/react';
 import searchIcon from '@/assets/search.svg?raw';
 import { NotebookIconMenu } from './notebook-icon-menu';
 import type { Notebook } from '../store';
@@ -57,20 +58,34 @@ export function MemoListTitlebarWin({
                 />
               </button>
             </Tooltip>
-            <Tooltip
-              content={t("memo.list.collapseMemoListTooltip")}
-              shortcut="panel.memoList.toggle"
-            >
-              <button
-                type="button"
-                onClick={onCollapseMemoList}
-                aria-label={t("memo.list.collapseMemoList")}
-                className="w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors [-webkit-app-region:no-drag]"
-              >
-                <SidebarToggleIcon className="w-5 h-5" />
-              </button>
-            </Tooltip>
           </>
+        )}
+        {!isPreview && (
+          <Tooltip
+            content={t("memo.list.collapseMemoListTooltip")}
+            shortcut="panel.memoList.toggle"
+          >
+            <button
+              type="button"
+              onClick={onCollapseMemoList}
+              aria-label={t("memo.list.collapseMemoList")}
+              className="w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors [-webkit-app-region:no-drag]"
+            >
+              <SidebarToggleIcon className="w-5 h-5" />
+            </button>
+          </Tooltip>
+        )}
+        {isPreview && (
+          <Tooltip content={t("memo.list.collapseMemoListTooltip")}>
+            <button
+              type="button"
+              onClick={onCollapseMemoList}
+              aria-label={t("memo.list.collapseMemoList")}
+              className="w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors [-webkit-app-region:no-drag]"
+            >
+              <CaretDoubleLeftIcon className="h-4 w-4" weight="regular" />
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>

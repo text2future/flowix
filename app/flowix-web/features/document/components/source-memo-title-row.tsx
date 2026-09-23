@@ -46,6 +46,7 @@ export function SourceMemoTitleRow({
         autoFocus={autoFocus}
         useDocumentSelection
         allowReadOnlyBoundaryNavigation={false}
+        showPropertiesToggle={false}
         onMoveToBody={onMoveToBody}
         onPasteToBody={onPasteToBody}
         editorMode={editorMode}

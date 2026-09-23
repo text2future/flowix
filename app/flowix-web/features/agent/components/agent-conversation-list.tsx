@@ -549,12 +549,16 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
     event: MouseEvent<HTMLDivElement>,
     instance: AgentConversationInstance,
   ) => {
+    // The Windows/non-native branch opens the in-app actions menu below. It
+    // must still consume the browser contextmenu event, otherwise Windows
+    // shows its native menu alongside the Flowix menu.
+    event.preventDefault();
+    event.stopPropagation();
+
     if (!canUseNativeContextMenu()) {
       setOpenMenuId(instance.instanceId);
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
 
     try {
       const loadedIcons = await loadNativeMenuIcons(CONVERSATION_NATIVE_ICON_NAMES);

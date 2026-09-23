@@ -252,7 +252,7 @@
     border-radius: 0.5rem;
     padding: 0.4rem 0.8rem 1.2rem;
     padding-top: 0;
-    margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.32);
+    margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
     font-family: inherit;
     font-size: inherit;
     white-space: pre-wrap;
@@ -326,15 +326,15 @@
   /* Quote: copied from editor.css; its vertical padding is already zero. */
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror blockquote {
     border-left: 0.1875rem solid var(--border);
-    margin: 0.4rem 0 0.8rem;
+    margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.32);
     padding: 0 0 0 1rem;
-    color: var(--muted-foreground);
+    color: var(--document-foreground);
     font-style: italic;
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  /* Lists: copied from editor.css; list items do not acquire PDF-only gaps. */
+  /* Lists: copied from editor.css; spacing belongs to each list item. */
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror ul,
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror ol {
     margin: 0;
@@ -343,19 +343,22 @@
     padding-left: 1.5rem;
   }
 
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror > ul,
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror > ol {
-    padding-bottom: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
-  }
-
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror li {
     margin: 0;
     padding: 0;
     line-height: var(--app-line-height, 1.8);
   }
 
+  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror ul:not([data-type="taskList"]) {
+    padding-left: calc(1.5rem - 2px);
+  }
+
+  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror ul:not([data-type="taskList"]) > li {
+    padding-left: 2px;
+  }
+
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror li > p {
-    margin: 0;
+    margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
     padding-bottom: 0;
   }
 

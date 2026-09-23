@@ -5,9 +5,22 @@ import { EditorState, NodeSelection, TextSelection } from 'prosemirror-state'
 
 import {
   activateAgentThreadCard,
+  getCurrentBlockInfo,
   getBlockInfoForInteraction,
   getFocusedAgentThreadCardInfo,
 } from './block-info'
+
+function createListSchema() {
+  return new Schema({
+    nodes: {
+      doc: { content: 'block+' },
+      paragraph: { group: 'block', content: 'text*' },
+      text: { group: 'inline' },
+      bulletList: { group: 'block', content: 'listItem+' },
+      listItem: { content: 'paragraph block*' },
+    },
+  })
+}
 
 function createEditorFixture() {
   const editorContent = document.createElement('div')
@@ -147,5 +160,44 @@ describe('getFocusedAgentThreadCardInfo', () => {
     const transaction = dispatch.mock.calls[0]?.[0]
     expect(transaction.selection).toBeInstanceOf(NodeSelection)
     expect(transaction.selection.from).toBe(0)
+  })
+})
+
+describe('getCurrentBlockInfo list items', () => {
+  it('resolves the nearest nested list item instead of the outer list', () => {
+    const schema = createListSchema()
+    const nestedItem = schema.nodes.listItem.create(null, schema.nodes.paragraph.create(null, schema.text('nested')))
+    const outerItem = schema.nodes.listItem.create(null, [
+      schema.nodes.paragraph.create(null, schema.text('outer')),
+      schema.nodes.bulletList.create(null, nestedItem),
+    ])
+    const doc = schema.nodes.doc.create(null, schema.nodes.bulletList.create(null, outerItem))
+    const nestedItemPos = (() => {
+      let result = -1
+      doc.descendants((node, pos) => {
+        if (node.type.name === 'listItem' && node.textContent === 'nested') result = pos
+        return true
+      })
+      return result
+    })()
+    const state = EditorState.create({
+      schema,
+      doc,
+      selection: TextSelection.create(doc, nestedItemPos + 3),
+    })
+    const li = document.createElement('li')
+    const editor = {
+      isDestroyed: false,
+      view: {
+        state,
+        nodeDOM: (pos: number) => pos === nestedItemPos ? li : null,
+      },
+    } as unknown as Editor
+
+    const info = getCurrentBlockInfo(editor)
+
+    expect(info?.typeName).toBe('listItem')
+    expect(info?.pos).toBe(nestedItemPos)
+    expect(info?.dom).toBe(li)
   })
 })

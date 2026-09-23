@@ -18,8 +18,9 @@
 
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView as ProseMirrorNodeView, EditorView } from '@tiptap/pm/view';
+import { DecorationSet } from '@tiptap/pm/view';
 import { Node, nodeInputRule, nodePasteRule, type InputRuleMatch, type JSONContent, type MarkdownToken, type PasteRuleMatch } from '@tiptap/core';
-import { NodeSelection, Plugin, type EditorState } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 
 import { readMarkdownLinkDestination } from '@features/editor/extensions/shared/markdown-link-destination';
 import { openNoteByMemoId, openNoteByPhysicalPath, resolveMemoById, resolveMemoByObsidianTarget, resolveMemoByPath } from '@features/editor/extensions/note-link/memo-resolver';
@@ -323,6 +324,8 @@ function removeHardBreaksAroundNoteReferences(state: EditorState) {
   });
   return tr;
 }
+
+const noteReferenceCaretPluginKey = new PluginKey<DecorationSet>('noteReferenceTerminalCaret');
 
 // ─── NodeView ─────────────────────────────────────────────────────────────────
 
@@ -857,8 +860,17 @@ export const NoteReference = Node.create({
   addProseMirrorPlugins() {
     return [
       new Plugin({
+        key: noteReferenceCaretPluginKey,
+        state: {
+          init: (_, state) => createTerminalInlineAtomCaretDecorations(state.doc, 'noteReference'),
+          apply: (transaction, value, _oldState, newState) => (
+            transaction.docChanged
+              ? createTerminalInlineAtomCaretDecorations(newState.doc, 'noteReference')
+              : value
+          ),
+        },
         props: {
-          decorations: (state) => createTerminalInlineAtomCaretDecorations(state.doc, 'noteReference'),
+          decorations: (state) => noteReferenceCaretPluginKey.getState(state) ?? DecorationSet.empty,
         },
         appendTransaction: (transactions, _oldState, newState) => {
           if (!transactions.some(transaction => transaction.docChanged)) return null;

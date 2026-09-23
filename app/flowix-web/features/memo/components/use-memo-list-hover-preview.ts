@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const OPEN_DELAY_MS = 600;
+const OPEN_DELAY_MS = 420;
 const CLOSE_DELAY_MS = 150;
 const LEAVE_ANIMATION_MS = 160;
 

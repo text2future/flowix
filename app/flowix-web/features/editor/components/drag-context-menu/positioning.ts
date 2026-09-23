@@ -28,9 +28,8 @@ export interface HandleHidden {
   visible: false
 }
 
-// Visible block ancestor selector. The handle positions itself on the
-// outermost "block" the user reads as a unit (the <ul>/<ol> for a list,
-// the <table> for a table, the <p> for a paragraph).
+// Visible block ancestor selector. List items are handled explicitly below;
+// the selector remains the fallback for ordinary blocks.
 // `.ProseMirror-node` is the catch-all for node-view wrappers.
 const BLOCK_SELECTOR =
   'p, h1, h2, h3, h4, h5, h6, ul, ol, table, .tableWrapper, blockquote, pre, .code-block-wrapper, .ProseMirror-node'
@@ -75,8 +74,8 @@ export function computeHandlePosition(
   if (!info || !editorContent) return null
 
   // Anchor the handle on the visible block element. Table node DOM may be the
-  // table itself or Tiptap's `.tableWrapper`; list node DOM is the rendered
-  // <ul>/<ol>. Resolve these before falling back to generic block ancestors.
+  // table itself or Tiptap's `.tableWrapper`; list item node DOM is the
+  // rendered <li>. Resolve these before falling back to generic block ancestors.
   const domNode = getVisibleBlockElement(info)
   if (!domNode) return null
 
@@ -156,10 +155,10 @@ function getVisibleBlockElement(info: CurrentBlockInfo): HTMLElement | null {
     const table = info.dom.querySelector('table')
     if (table instanceof HTMLElement) return table
   }
-  if (info.typeName === 'bulletList' || info.typeName === 'orderedList' || info.typeName === 'taskList') {
-    if (info.dom.matches('ul, ol')) return info.dom
-    const list = info.dom.querySelector('ul, ol')
-    if (list instanceof HTMLElement) return list
+  if (info.typeName === 'listItem' || info.typeName === 'taskItem') {
+    if (info.dom.matches('li')) return info.dom
+    const item = info.dom.querySelector('li')
+    if (item instanceof HTMLElement) return item
   }
   if (info.typeName === 'codeBlock') {
     if (info.dom.classList.contains('code-block-wrapper')) return info.dom

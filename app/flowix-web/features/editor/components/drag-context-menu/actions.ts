@@ -81,6 +81,9 @@ export function deleteBlock(editor: Editor, target?: CurrentBlockInfo | null): b
       editor.chain().focus().deleteTable().run()
       return true
     }
+    if (isLastListItem(editor, target)) {
+      return deleteLastListItem(editor, target.pos)
+    }
     editor.chain().focus().deleteRange({
       from: target.pos,
       to: target.pos + target.nodeSize,
@@ -105,10 +108,48 @@ export function deleteBlock(editor: Editor, target?: CurrentBlockInfo | null): b
       editor.chain().focus().deleteTable().run()
       return true
     }
+    if (isLastListItem(editor, info)) {
+      return deleteLastListItem(editor, info.pos)
+    }
     editor.chain().focus().deleteRange({ from: info.pos, to: info.pos + info.nodeSize }).run()
     return true
   }
   return false
+}
+
+function isLastListItem(editor: Editor, info: CurrentBlockInfo): boolean {
+  if (info.typeName !== 'listItem' && info.typeName !== 'taskItem') return false
+
+  try {
+    const $item = editor.state.doc.resolve(info.pos)
+    return ($item.parent.type.name === 'bulletList' ||
+      $item.parent.type.name === 'orderedList' ||
+      $item.parent.type.name === 'taskList') && $item.parent.childCount === 1
+  } catch {
+    return false
+  }
+}
+
+function deleteLastListItem(editor: Editor, itemPos: number): boolean {
+  try {
+    const { state } = editor
+    const $item = state.doc.resolve(itemPos)
+    const list = $item.parent
+    const listPos = $item.before($item.depth)
+    const paragraph = state.schema.nodes.paragraph?.create()
+    if (!paragraph) return false
+
+    // Remove the list as a whole. In a nested list, inserting the paragraph at
+    // the same position leaves it inside the owning list item; at the root it
+    // becomes the replacement top-level block.
+    const tr = state.tr
+      .delete(listPos, listPos + list.nodeSize)
+      .insert(listPos, paragraph)
+    editor.view.dispatch(tr.scrollIntoView())
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function setImageAlignment(

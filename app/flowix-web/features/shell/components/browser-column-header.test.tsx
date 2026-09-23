@@ -52,6 +52,19 @@ it('moves actual focus across successive arrow presses and Home/End, and shows t
   }
 });
 
+it('hides the browser column from the button before the tab strip', async () => {
+  const onCloseColumn = vi.fn();
+  await withHeader(vi.fn(), async () => {
+    const header = document.querySelector<HTMLElement>('[data-browser-column-header]');
+    const closeColumnButton = header?.querySelector<HTMLButtonElement>('button[aria-label="tabWindow.closeColumn"]');
+    expect(closeColumnButton).not.toBeNull();
+    expect(closeColumnButton?.nextElementSibling?.getAttribute('role')).toBe('tablist');
+
+    await act(async () => closeColumnButton?.click());
+    expect(onCloseColumn).toHaveBeenCalledTimes(1);
+  }, { onCloseColumn });
+});
+
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 
 async function withHeader(
@@ -60,6 +73,7 @@ async function withHeader(
   options: {
     tabs?: BrowserColumnTab[];
     onToggleMemoEditorMode?: import('./browser-column-header').BrowserColumnHeaderProps['onToggleMemoEditorMode'];
+    onCloseColumn?: import('./browser-column-header').BrowserColumnHeaderProps['onCloseColumn'];
   } = {},
 ) {
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
@@ -76,7 +90,7 @@ async function withHeader(
     await act(async () => root.render(<BrowserColumnHeader tabs={tabs} activeTabId="one" activeSurfaceChrome="document" onSelectTab={onSelectTab}
       onCloseTab={vi.fn()} onCloseOtherTabs={vi.fn()} onCloseTabsToRight={vi.fn()}
       onCloseAllTabs={vi.fn()} onToggleMemoEditorMode={options.onToggleMemoEditorMode ?? vi.fn()} onOpenTabInWorkColumn={vi.fn()} onReorderTab={vi.fn()}
-      isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onContextMenuOpenChange={vi.fn()}
+      isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onCloseColumn={options.onCloseColumn} onContextMenuOpenChange={vi.fn()}
       isFocused={false} />));
     await check(Array.from(element.querySelectorAll<HTMLButtonElement>('[role="tab"]')), outside);
   } finally {

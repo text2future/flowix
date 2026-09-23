@@ -112,6 +112,47 @@ describe('MarkdownEditor select all', () => {
     expect(editor!.getMarkdown()).toBe('Body paragraph');
   });
 
+  it('coalesces continuous edits before serializing Markdown', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const onChange = vi.fn();
+    let editor: Editor | null = null;
+
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content="Before"
+            onChange={onChange}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    // The mount quiet period suppresses initialization updates. Move beyond
+    // it before simulating user input.
+    vi.setSystemTime(600);
+    act(() => {
+      editor!.commands.setTextSelection(editor!.state.doc.content.size - 1);
+      editor!.commands.insertContent(' one');
+      editor!.commands.insertContent(' two');
+    });
+
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(onChange).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('Before one two');
+    vi.useRealTimers();
+  });
+
   it('focuses the first body paragraph when the blank editor surface is clicked', async () => {
     let editor: Editor | null = null;
     await act(async () => {
