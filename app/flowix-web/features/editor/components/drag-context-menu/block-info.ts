@@ -32,11 +32,7 @@ export interface CurrentBlockInfo {
   dom: HTMLElement
 }
 
-const LIST_BLOCK_TYPES = new Set([
-  'bulletList',
-  'orderedList',
-  'taskList',
-])
+const LIST_ITEM_TYPES = new Set(['listItem', 'taskItem'])
 
 /** Resolve the block the editor's current selection is on (PM-native, not DOM). */
 export function getCurrentBlockInfo(editor: Editor): CurrentBlockInfo | null {
@@ -190,8 +186,10 @@ function getTargetBlockDepth($from: { depth: number; node: (depth: number) => PM
     }
   }
 
-  for (let depth = 1; depth <= $from.depth; depth++) {
-    if (LIST_BLOCK_TYPES.has($from.node(depth).type.name)) {
+  // A list item is the editable/dragged unit. Walk outwards from the
+  // selection so a nested item wins over each of its ancestor items.
+  for (let depth = $from.depth; depth >= 1; depth--) {
+    if (LIST_ITEM_TYPES.has($from.node(depth).type.name)) {
       return depth
     }
   }

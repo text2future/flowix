@@ -21,6 +21,132 @@ function caretHeightAt(view: EditorView, position: number): number {
   return Math.max(12, resolvedFontSize * 1.15);
 }
 
+interface CaretRect {
+  left: number;
+  top: number;
+  bottom: number;
+}
+
+interface TerminalInlineAtomCaretResolution {
+  found: boolean;
+  rect: CaretRect | null;
+}
+
+function isUsableCaretRect(rect: CaretRect): boolean {
+  return Number.isFinite(rect.left)
+    && Number.isFinite(rect.top)
+    && Number.isFinite(rect.bottom)
+    && rect.bottom >= rect.top;
+}
+
+function terminalInlineCaretRect(card: HTMLElement): CaretRect | null {
+  // A collapsed range at the end of the content represents the actual visual
+  // caret position, including the final line of a wrapped inline element.
+  // Unlike getBoundingClientRect(), it does not return the union of all line
+  // fragments.
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(card);
+    range.collapse(false);
+    const rangeRect = range.getBoundingClientRect();
+    if (
+      rangeRect.width <= 1.5
+      && rangeRect.height > 0
+      && isUsableCaretRect({
+        left: rangeRect.left,
+        top: rangeRect.top,
+        bottom: rangeRect.bottom,
+      })
+    ) {
+      return {
+        left: rangeRect.left,
+        top: rangeRect.top,
+        bottom: rangeRect.bottom,
+      };
+    }
+  } catch {
+    // Fall through to fragment geometry for older or partially implemented
+    // browser Range implementations.
+  }
+
+  // Inline elements can produce one DOMRect per visual line.  Select the
+  // lowest fragment, then the rightmost one for wrapped bidirectional text.
+  const fragments = Array.from(card.getClientRects())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .sort((a, b) => a.bottom - b.bottom || a.right - b.right);
+  const lastFragment = fragments[fragments.length - 1];
+  if (!lastFragment) return null;
+
+  const direction = getComputedStyle(card).direction;
+  const left = direction === 'rtl' ? lastFragment.left : lastFragment.right;
+  const fragmentRect = { left, top: lastFragment.top, bottom: lastFragment.bottom };
+  return isUsableCaretRect(fragmentRect) ? fragmentRect : null;
+}
+
+function findTerminalInlineAtomCaretAnchor(
+  view: Pick<EditorView, 'dom'>,
+  position: number,
+): HTMLElement | null {
+  const anchors = view.dom.querySelectorAll<HTMLElement>(
+    '.terminal-inline-atom-caret-anchor',
+  );
+  return Array.from(anchors).find((anchor) => (
+    anchor.closest('.ProseMirror') === view.dom
+    &&
+    anchor.getAttribute('data-terminal-inline-atom-caret-position') === String(position)
+  )) ?? null;
+}
+
+function resolveTerminalInlineAtomCaret(
+  view: Pick<EditorView, 'dom'>,
+  position: number,
+): TerminalInlineAtomCaretResolution {
+  const anchor = findTerminalInlineAtomCaretAnchor(view, position);
+  if (!anchor) return { found: false, rect: null };
+
+  // The decoration is inserted immediately after the NodeView wrapper.
+  // Prefer the visible card's terminal visual fragment. The card may wrap,
+  // so its union bounding box is not a valid caret position.
+  const atomWrapper = anchor.previousElementSibling as HTMLElement | null;
+  const card = atomWrapper?.querySelector<HTMLElement>(
+    '.editor-note-reference__card, .editor-file-attachment__card',
+  );
+  if (card) {
+    const cardRect = terminalInlineCaretRect(card);
+    if (cardRect) return { found: true, rect: cardRect };
+  }
+
+  // If a custom atom has no known card class, its wrapper is still a useful
+  // single-fragment fallback.
+  const wrapperRect = atomWrapper?.getBoundingClientRect();
+  if (wrapperRect && wrapperRect.width > 0 && wrapperRect.height > 0) {
+    const fallbackRect = {
+      left: wrapperRect.right,
+      top: wrapperRect.top,
+      bottom: wrapperRect.bottom,
+    };
+    if (isUsableCaretRect(fallbackRect)) return { found: true, rect: fallbackRect };
+  }
+
+  return { found: true, rect: null };
+}
+
+/**
+ * Returns geometry for a selection immediately after a terminal inline atom.
+ *
+ * ProseMirror's logical position is still the source of truth for the
+ * selection, but `coordsAtPos` can describe the line box belonging to the
+ * trailing break instead of the atom boundary.  The decoration carries the
+ * position back into the DOM, allowing us to use the visible card's box as a
+ * stable cross-engine anchor.
+ */
+export function getTerminalInlineAtomCaretRect(
+  view: Pick<EditorView, 'dom'>,
+  position: number,
+): CaretRect | null {
+  return resolveTerminalInlineAtomCaret(view, position).rect;
+}
+
 class StableCaretView {
   private readonly caret = document.createElement('span');
   private frame: number | null = null;
@@ -94,7 +220,15 @@ class StableCaretView {
     }
 
     try {
-      const rect = this.view.coordsAtPos(selection.head);
+      const terminalAtom = resolveTerminalInlineAtomCaret(this.view, selection.head);
+      // Never fall back to coordsAtPos for a known terminal atom.  If the
+      // NodeView is between mount and layout, showing the native caret is safer
+      // than drawing a caret from the trailing-break line box.
+      if (terminalAtom.found && !terminalAtom.rect) {
+        this.hide();
+        return;
+      }
+      const rect = terminalAtom.rect ?? this.view.coordsAtPos(selection.head);
       const scrollViewport = this.view.dom.closest('.editor-content');
       const viewportRect = scrollViewport instanceof HTMLElement
         ? scrollViewport.getBoundingClientRect()

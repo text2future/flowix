@@ -8,7 +8,7 @@ import { verifyDshNativePackages } from './dsh-native-deps.mjs'
 
 const repo = resolve(import.meta.dirname, '..')
 const version = process.env.FLOWIX_DSH_VERSION || '1.8.0'
-const minFlowixVersion = process.env.FLOWIX_VERSION || '1.4.7'
+const minFlowixVersion = process.env.FLOWIX_VERSION || '1.4.8'
 const semverPattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u
 if (!semverPattern.test(version)) {
   throw new Error(`invalid DSH package version ${version}; expected SemVer such as 1.5.0`)

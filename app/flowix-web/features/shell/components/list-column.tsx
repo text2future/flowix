@@ -178,7 +178,10 @@ export function ListColumn({
           previewVisible={previewVisible}
           selectedNotebook={selectedNotebook}
           noteNavigationPhase={noteNavigationPhase}
-          onCollapseMemoList={onCollapseMemoList}
+          // In the hover preview the same control closes the popover. The
+          // memo list is already hidden, so collapsing it again would not
+          // dismiss the preview.
+          onCollapseMemoList={previewVisible ? onPreviewLeave : onCollapseMemoList}
           onToggleNoteNavigation={onToggleNoteNavigation}
           onOpenPreferences={onOpenPreferences}
         />

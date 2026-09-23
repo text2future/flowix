@@ -1,8 +1,9 @@
 ﻿import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView as ProseMirrorNodeView, EditorView, Decoration } from '@tiptap/pm/view';
+import { DecorationSet } from '@tiptap/pm/view';
 import type { ViewMutationRecord } from '@tiptap/pm/view';
 import { Node, mergeAttributes } from '@tiptap/core';
-import { NodeSelection, Plugin, type EditorState } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 import { assetUrl } from '@features/editor/extensions/attachment-link/utils';
 import { readMarkdownLinkDestination } from '@features/editor/extensions/shared/markdown-link-destination';
 import { setInlineAtomTextSelectionFromMouse } from '@features/editor/extensions/shared/inline-atom-selection';
@@ -58,6 +59,8 @@ function removeHardBreaksAroundFileAttachments(state: EditorState) {
     });
     return tr;
 }
+
+const fileAttachmentCaretPluginKey = new PluginKey<DecorationSet>('fileAttachmentTerminalCaret');
 
 class FileView implements ProseMirrorNodeView {
     dom: HTMLElement;
@@ -352,8 +355,17 @@ export const FileAttachment = Node.create({
     addProseMirrorPlugins() {
         return [
             new Plugin({
+                key: fileAttachmentCaretPluginKey,
+                state: {
+                    init: (_, state) => createTerminalInlineAtomCaretDecorations(state.doc, 'fileAttachment'),
+                    apply: (transaction, value, _oldState, newState) => (
+                        transaction.docChanged
+                            ? createTerminalInlineAtomCaretDecorations(newState.doc, 'fileAttachment')
+                            : value
+                    ),
+                },
                 props: {
-                    decorations: (state) => createTerminalInlineAtomCaretDecorations(state.doc, 'fileAttachment'),
+                    decorations: (state) => fileAttachmentCaretPluginKey.getState(state) ?? DecorationSet.empty,
                 },
                 appendTransaction: (transactions, _oldState, newState) => {
                     if (!transactions.some(transaction => transaction.docChanged)) return null;

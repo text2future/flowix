@@ -799,12 +799,6 @@ fn publish_install(
             .map_err(|e| format!("make dsh-host executable: {e}"))?;
     }
     let version_root = root.join("versions").join(&manifest.version);
-    // Keep the version that was active when this upgrade started. The new
-    // archive is fully health-checked before current.json changes, so a failed
-    // activation continues to use it; after a successful activation it remains
-    // available as the single rollback candidate for a later explicit policy.
-    let previous_version_root =
-        active_version_root(root).filter(|previous| previous != &version_root);
     let backup = if version_root.exists() {
         let backup = version_root.with_file_name(format!(".replaced-{}", uuid::Uuid::new_v4()));
         fs::rename(&version_root, &backup)
@@ -870,7 +864,7 @@ fn publish_install(
             tracing::warn!(path = %previous.display(), %error, "failed to remove replaced DSH version");
         }
     }
-    cleanup_old_versions(root, &version_root, previous_version_root.as_deref());
+    cleanup_old_versions(root, &version_root);
     Ok(())
 }
 
@@ -1013,18 +1007,7 @@ fn launch_from_metadata(
     })
 }
 
-fn active_version_root(root: &Path) -> Option<PathBuf> {
-    let current: CurrentDsh =
-        serde_json::from_str(&fs::read_to_string(root.join("current.json")).ok()?).ok()?;
-    validate_manifest_version(&current.version).ok()?;
-    Some(root.join("versions").join(current.version))
-}
-
-fn cleanup_old_versions(
-    root: &Path,
-    current_version_root: &Path,
-    previous_version_root: Option<&Path>,
-) {
+fn cleanup_old_versions(root: &Path, current_version_root: &Path) {
     let versions = root.join("versions");
     let entries = match fs::read_dir(&versions) {
         Ok(entries) => entries,
@@ -1035,7 +1018,7 @@ fn cleanup_old_versions(
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path == current_version_root || previous_version_root == Some(path.as_path()) {
+        if path == current_version_root {
             continue;
         }
         let result = if path.is_dir() {
@@ -1521,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_old_versions_keeps_the_active_and_previous_versions() {
+    fn cleanup_old_versions_keeps_only_the_active_version() {
         let root = tempdir_runtime_root("cleanup-old-versions");
         let versions = root.join("versions");
         let active = versions.join("2.0.0");
@@ -1532,10 +1515,10 @@ mod tests {
         std::fs::create_dir_all(versions.join(".replaced-old")).unwrap();
         std::fs::write(versions.join(".installing-stale"), b"stale").unwrap();
 
-        super::cleanup_old_versions(&root, &active, Some(&previous));
+        super::cleanup_old_versions(&root, &active);
 
         assert!(active.exists());
-        assert!(previous.exists());
+        assert!(!previous.exists());
         assert!(!versions.join("0.9.0").exists());
         assert!(!versions.join(".replaced-old").exists());
         assert!(!versions.join(".installing-stale").exists());

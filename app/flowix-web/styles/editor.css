@@ -541,7 +541,7 @@
   border-radius: 0.5rem;
   padding: 0.4rem 0.8rem 1.2rem;
   padding-top: 0;
-  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.32);
+  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
   font-family: inherit;
   font-size: inherit;
   white-space: pre-wrap;
@@ -561,9 +561,9 @@
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) blockquote:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   border-left: 0.1875rem solid var(--border);
-  margin: 0.4rem 0 0.8rem;
+  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.32);
   padding: 0 0 0 1rem;
-  color: var(--muted-foreground);
+  color: var(--document-foreground);
   font-style: italic;
 }
 
@@ -575,15 +575,18 @@
   padding-left: 1.5rem;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) > ul:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) > ol:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
-  padding-bottom: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
-}
-
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   margin: 0;
   padding: 0;
   line-height: var(--app-line-height, 1.8);
+}
+
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul:where(:not([data-type="taskList"], .agent-thread-card__message, .agent-thread-card__message *)) {
+  padding-left: calc(1.5rem - 2px);
+}
+
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul:where(:not([data-type="taskList"], .agent-thread-card__message, .agent-thread-card__message *)) > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+  padding-left: 2px;
 }
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table td p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
@@ -593,7 +596,7 @@
 }
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) li p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
-  margin: 0;
+  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
   padding-bottom: 0;
 }
 

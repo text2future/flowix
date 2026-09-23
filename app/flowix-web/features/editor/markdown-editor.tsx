@@ -100,6 +100,7 @@ interface NestedListMarkdownContext {
  */
 const MOUNT_QUIET_MS = 500;
 const SERIALIZE_DEBOUNCE_MS = 200;
+const SERIALIZE_IDLE_TIMEOUT_MS = 500;
 
 interface PendingExternalContent {
   content: string;
@@ -579,6 +580,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serializeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serializeIdleCallbackRef = useRef<number | null>(null);
   const onEditorScrollRef = useRef(onEditorScroll);
   const contentRef = useRef(normalizeMarkdownTableEmptyCells(content));
   const isApplyingExternalContentRef = useRef(false);
@@ -616,6 +618,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       clearTimeout(serializeTimerRef.current);
       serializeTimerRef.current = null;
     }
+    if (serializeIdleCallbackRef.current !== null) {
+      const idleWindow = window as Window & {
+        cancelIdleCallback?: (handle: number) => void;
+      };
+      idleWindow.cancelIdleCallback?.(serializeIdleCallbackRef.current);
+      serializeIdleCallbackRef.current = null;
+    }
   }, []);
 
   const serializePendingChanges = useCallback((options?: {
@@ -645,16 +654,34 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   }, [clearSerializeTimer]);
 
   const schedulePendingSerialization = useCallback(() => {
-    // Publish during continuous typing as well as after the last keystroke.
-    if (serializeTimerRef.current) return;
+    // Wait for a short quiet period before serializing. The previous
+    // implementation started a new full-document serialization every 200ms
+    // during continuous typing, even though only the latest content can be
+    // observed by the document buffer and autosave queue.
+    clearSerializeTimer();
     const editor = editorRef.current;
     const viewState = editor?.view as (Editor['view'] & { composing?: boolean }) | undefined;
     if (isComposingRef.current || viewState?.composing) {
+      serializeTimerRef.current = null;
       return;
     }
     serializeTimerRef.current = setTimeout(() => {
       serializeTimerRef.current = null;
-      serializePendingChanges();
+      const idleWindow = window as Window & {
+        requestIdleCallback?: (
+          callback: (deadline: IdleDeadline) => void,
+          options?: { timeout: number },
+        ) => number;
+      };
+      if (!idleWindow.requestIdleCallback) {
+        serializePendingChanges();
+        return;
+      }
+
+      serializeIdleCallbackRef.current = idleWindow.requestIdleCallback((_deadline) => {
+        serializeIdleCallbackRef.current = null;
+        serializePendingChanges();
+      }, { timeout: SERIALIZE_IDLE_TIMEOUT_MS });
     }, SERIALIZE_DEBOUNCE_MS);
   }, [clearSerializeTimer, serializePendingChanges]);
 

@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from 'prosemirror-model'
-import { Plugin, PluginKey } from 'prosemirror-state'
+import { NodeSelection, Plugin, PluginKey, type EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 
 export interface MenuPinState {
@@ -34,6 +34,32 @@ export interface MenuPinState {
  */
 export const menuPinPluginKey = new PluginKey<MenuPinState | null>('menuPin')
 
+/**
+ * A menu pin is only visual context for the block-menu target.  It must not
+ * survive a real editor selection that moved to another node, especially an
+ * inline atom inside the pinned paragraph.  In that case the NodeView's own
+ * selection styling is the single visual selection signal.
+ */
+export function selectionBelongsToMenuPin(
+  state: Pick<EditorState, 'selection'>,
+  pin: MenuPinState,
+): boolean {
+  const { selection } = state
+
+  if (selection instanceof NodeSelection) {
+    return selection.from === pin.pos
+      && selection.node.type.name === pin.typeName
+      && selection.node.nodeSize === pin.nodeSize
+  }
+
+  // Text selections are allowed to keep the menu target highlighted only
+  // while they remain strictly inside the pinned node.  Strict bounds prevent
+  // a cursor immediately before/after an inline atom from being mistaken for
+  // a selection of that atom.
+  return selection.from > pin.pos
+    && selection.to < pin.pos + pin.nodeSize
+}
+
 export const MenuPinExtension = Extension.create({
   name: 'menuPin',
 
@@ -56,13 +82,26 @@ export const MenuPinExtension = Extension.create({
             if (value != null && tr.docChanged) {
               const result = tr.mapping.mapResult(value.pos, -1)
               if (result.deleted) return null
-              return validatePin(newState.doc, {
+              const mappedPin = validatePin(newState.doc, {
                 ...value,
                 pos: result.pos,
               })
+              if (!mappedPin) return null
+              return selectionBelongsToMenuPin(newState, mappedPin) ? mappedPin : null
             }
 
-            return validatePin(newState.doc, value)
+            const validatedPin = validatePin(newState.doc, value)
+            if (!validatedPin) return null
+
+            // Selection-only transactions are the important path here: a
+            // card NodeSelection can change while the pinned paragraph and
+            // document remain untouched.  Clear the stale block decoration
+            // as soon as the real selection leaves the pinned target.
+            if (tr.selectionSet && !selectionBelongsToMenuPin(newState, validatedPin)) {
+              return null
+            }
+
+            return validatedPin
           },
         },
         props: {

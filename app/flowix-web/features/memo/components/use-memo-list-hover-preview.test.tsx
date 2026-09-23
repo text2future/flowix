@@ -34,7 +34,7 @@ describe('useMemoListHoverPreview', () => {
     });
     await act(async () => {
       currentPreview.handleTriggerEnter();
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(420);
     });
     expect(host.querySelector('output')?.getAttribute('data-preview-phase')).toBe('open');
 
@@ -55,7 +55,7 @@ describe('useMemoListHoverPreview', () => {
     });
     await act(async () => {
       currentPreview.handleTriggerEnter();
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(420);
     });
     await act(async () => {
       root.render(<PreviewHarness navigationDrawerPhase="open" />);
@@ -90,7 +90,7 @@ describe('useMemoListHoverPreview', () => {
     });
     await act(async () => {
       currentPreview.handleTriggerEnter();
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(420);
     });
 
     const preview = document.createElement('div');

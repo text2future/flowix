@@ -32,6 +32,7 @@ export function WorkColumnTitlebarShell({
 }: WorkColumnTitlebarShellProps) {
   const { t } = useI18n();
   const { canOpenInBrowserColumn, openInBrowserColumn } = useWorkColumnTransferViewModel();
+  const useNativeMenu = canUseNativeContextMenu();
 
   const showNativeContextMenu = async (event: MouseEvent<HTMLDivElement>) => {
     if (!canUseNativeContextMenu()) return;
@@ -51,7 +52,10 @@ export function WorkColumnTitlebarShell({
       <ContextMenuTrigger asChild>
         <div
           data-tauri-drag-region
-          onContextMenu={(event) => void showNativeContextMenu(event)}
+          // On Windows the shared ContextMenuTrigger must receive the event
+          // directly so it can open the web menu. Installing a no-op native
+          // handler here can prevent that fallback in the drag-region titlebar.
+          onContextMenu={useNativeMenu ? (event) => void showNativeContextMenu(event) : undefined}
           className={`z-[50] flex shrink-0 select-none items-center pl-2 ${
             isWindows
               ? `h-9 ${reserveWindowsControls ? 'pr-[126px]' : 'pr-0'}`
