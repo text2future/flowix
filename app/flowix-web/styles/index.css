@@ -29,6 +29,7 @@
 @import './cloud-status-icon.css';
 @import './plugin-markmap.css';
 @import './agent-icon.css';
+@import './onboarding.css';
 
 /* 主题色板单一真源在 css/theme, JS 只通过 data-theme 切换;
  * 各主题 import 在 @layer base 之外, 保证 [data-theme="..."]

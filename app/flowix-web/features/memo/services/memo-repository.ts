@@ -27,6 +27,8 @@ export const memoRepository = {
   listPluginNotes: (pluginId: string, notebookId: string) => plugins.listNotes(pluginId, notebookId),
   create: (tag?: string, notebookId?: string, parentRelativePath?: string) =>
     memos.addDocument(tag, notebookId, parentRelativePath),
+  createWithContent: (title: string, content: string, notebookId: string, parentRelativePath?: string) =>
+    memos.createWithContent({ title, content, notebookId, parentRelativePath }),
   delete: (id: string) => memos.deleteMemo(id),
   favorite: (id: string) => memos.favoriteMemo(id),
   unfavorite: (id: string) => memos.unfavoriteMemo(id),
@@ -36,8 +38,9 @@ export const memoRepository = {
 export const notebookRepository = {
   list: (): Promise<Notebook[]> => notebooks.getAll(),
   getDefaultPath: (name: string) => notebooks.getDefaultPath(name),
-  create: (name: string, path?: string, icon?: string | null) =>
-    notebooks.create(name, path, icon),
+  ensureDefaultPath: (name: string) => notebooks.ensureDefaultPath(name),
+  create: (name: string, path?: string, icon?: string | null, activate = true) =>
+    notebooks.create(name, path, icon, activate),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null) =>
     notebooks.createFromCloud(id, name, path, icon),
   startImport: (notebookId: string) => notebooks.startImport(notebookId),

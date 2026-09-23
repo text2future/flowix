@@ -13,6 +13,7 @@ export {
   type MemoItem,
   type Notebook,
 } from '@features/memo/store';
+export { startNotebookImportWithMonitoring } from '@features/memo/services/notebook-creation-service';
 
 export function useShellMemoViewModel() {
   return useMemoStore(useShallow((state) => ({

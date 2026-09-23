@@ -20,6 +20,7 @@ import {
   MemoListServicesHost,
   NoteNavigationDrawer,
   useShellMemoViewModel,
+  startNotebookImportWithMonitoring,
   type MemoItem,
   type Notebook,
 } from '@features/memo/public/shell-api';
@@ -51,14 +52,15 @@ import {
 import type { PluginDescriptor } from '@platform/tauri/client';
 import {
   useShellWorkspaceViewModel,
+  selectNotebook as selectNotebookInWorkspace,
   BROWSER_COLUMN_MIN_WIDTH,
   type WorkColumnTarget,
 } from '@features/workspace/public/shell-api';
 import { MainStatusBarHost } from '@features/shell/components/main-status-bar-host';
 import { CenteredLoadingSpinner } from '@shared/ui/centered-loading-spinner';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { MainPromptHost } from '@features/shell/components/main-prompt-host';
 import type { Editor } from '@tiptap/core';
+import { OnboardingScreen } from '@features/onboarding';
 
 const DOCUMENT_PANEL_MIN_WIDTH = BROWSER_COLUMN_MIN_WIDTH;
 
@@ -126,11 +128,13 @@ export interface MainLayoutBusinessController {
 export interface MainLayoutSystemController {
   dshDownload: DshDownloadProgress | null;
   dshInstallPromptOpen: boolean;
+  onboardingOpen: boolean;
   updater: AppUpdaterState;
   dshInstaller: DshRuntimeInstallerState;
   closeDshInstallPrompt(): void;
   markDshIntroDisplayed(): void;
   completeDshInstallPrompt(): void;
+  completeOnboarding(): Promise<void>;
 }
 
 export function MainLayout({
@@ -155,11 +159,13 @@ export function MainLayout({
   const {
     dshDownload,
     dshInstallPromptOpen,
+    onboardingOpen,
     updater,
     dshInstaller,
     closeDshInstallPrompt: handleDshPromptClose,
     markDshIntroDisplayed: handleDshIntroDisplayed,
     completeDshInstallPrompt: handleDshInstalled,
+    completeOnboarding,
   } = system;
   // 切片订阅：每个 useStore 只取真正用到的字段，setter 走 useShallow 聚合。
   // 替代原来的 `useMemoStore()` / `useDocumentStore()` / `useSettingsStore()`
@@ -215,8 +221,8 @@ export function MainLayout({
     setBrowserColumnSplitRatio,
     focusWorkspaceHost,
     focusedHostId,
+    notebookSwitching,
   } = useShellWorkspaceViewModel();
-  const notebookSwitching = useWorkColumnStore((state) => state.notebookSwitchesInFlight > 0);
   const [startupStatus, setStartupStatus] = useState<StartupStatus>({
     phase: 'pending',
     step: 'initializing',
@@ -807,6 +813,23 @@ export function MainLayout({
             <CenteredLoadingSpinner label={t('memo.navigation.preparingWorkspace')} />
           )}
         </div>
+      )}
+
+      {onboardingOpen && (
+        <OnboardingScreen
+          dshInstaller={dshInstaller}
+          onFinish={async (notebook, { startImport }) => {
+            await selectNotebookInWorkspace(notebook);
+            if (startImport) {
+              await startNotebookImportWithMonitoring(notebook.id, (status) => {
+                if (status.status === 'failed') {
+                  toast.error(status.message ?? '笔记本导入失败，请重试');
+                }
+              });
+            }
+            await completeOnboarding();
+          }}
+        />
       )}
     </div>
   );

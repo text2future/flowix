@@ -122,6 +122,17 @@ export const memos = {
   getLaunchOpenFiles: () => invoke<string[]>('get_launch_open_files'),
   addDocument: (tag?: string, notebookId?: string, parentRelativePath?: string) =>
     invoke<MemoItem>('add_document', { tag, notebookId, parentRelativePath }),
+  createWithContent: (params: {
+    title: string;
+    content: string;
+    notebookId: string;
+    parentRelativePath?: string;
+  }) => invoke<MemoItem>('create_memo_with_content', {
+    title: params.title,
+    content: params.content,
+    notebookId: params.notebookId,
+    parentRelativePath: params.parentRelativePath,
+  }),
   moveMemoToDirectory: (id: string, notebookId: string, parentRelativePath: string) =>
     invoke<{
       memo: MemoItem;
@@ -258,8 +269,10 @@ export const notebooks = {
   getAll: () => invoke<NotebookRecord[]>('get_notebooks'),
   getDefaultPath: (name: string) =>
     invoke<string>('get_default_notebook_path', { name }),
-  create: (name: string, path?: string, icon?: string | null) =>
-    invoke<NotebookRecord>('create_notebook', { name, path, icon }),
+  ensureDefaultPath: (name: string) =>
+    invoke<string>('ensure_default_notebook_path', { name }),
+  create: (name: string, path?: string, icon?: string | null, activate = true) =>
+    invoke<NotebookRecord>('create_notebook', { name, path, icon, activate }),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null) =>
     invoke<NotebookRecord>('create_notebook_from_cloud', { id, name, path, icon }),
   startImport: (notebookId: string) =>

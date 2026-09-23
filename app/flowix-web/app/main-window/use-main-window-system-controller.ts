@@ -24,16 +24,19 @@ function isActiveDshDownload(progress: DshDownloadProgress | null): boolean {
 export interface MainWindowSystemController {
   dshDownload: DshDownloadProgress | null;
   dshInstallPromptOpen: boolean;
+  onboardingOpen: boolean;
   updater: AppUpdaterState;
   dshInstaller: DshRuntimeInstallerState;
   closeDshInstallPrompt(): void;
   markDshIntroDisplayed(): void;
   completeDshInstallPrompt(): void;
+  completeOnboarding(): Promise<void>;
 }
 
 export function useMainWindowSystemController(): MainWindowSystemController {
   const [dshDownload, setDshDownload] = useState<DshDownloadProgress | null>(null);
   const [dshInstallPromptOpen, setDshInstallPromptOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const updatePreferences = useAppUpdatePreferences();
   const updater = useAppUpdater({
     autoCheck: !updatePreferences.loading,
@@ -59,7 +62,12 @@ export function useMainWindowSystemController(): MainWindowSystemController {
   useEffect(() => {
     let cancelled = false;
     void boot.getFeatures().then((features) => {
-      if (!cancelled && !features.isIntroductDisplayed) setDshInstallPromptOpen(true);
+      if (cancelled) return;
+      if (!features.isOnboardingCompleted) {
+        setOnboardingOpen(true);
+        return;
+      }
+      if (!features.isIntroductDisplayed) setDshInstallPromptOpen(true);
     }).catch(() => {
       // Do not show onboarding when its durable state cannot be read.
     });
@@ -77,13 +85,20 @@ export function useMainWindowSystemController(): MainWindowSystemController {
     setDshInstallPromptOpen(false);
   }, [markDshIntroDisplayed]);
 
+  const completeOnboarding = useCallback(async () => {
+    await boot.setOnboardingCompleted();
+    setOnboardingOpen(false);
+  }, []);
+
   return {
     dshDownload,
     dshInstallPromptOpen,
+    onboardingOpen,
     updater,
     dshInstaller,
     closeDshInstallPrompt,
     markDshIntroDisplayed,
     completeDshInstallPrompt: () => setDshInstallPromptOpen(false),
+    completeOnboarding,
   };
 }

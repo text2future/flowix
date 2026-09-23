@@ -5,6 +5,8 @@ import { useBrowserColumnStore } from '@features/workspace/store/browser-column-
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { openWorkColumnTargetInBrowserColumn } from '@features/workspace/use-cases/browser-column-navigation';
 
+export { selectNotebook } from '@features/workspace/use-cases/workspace-navigation';
+
 export {
   BROWSER_COLUMN_DEFAULT_SPLIT_RATIO,
   BROWSER_COLUMN_MIN_WIDTH,
@@ -12,7 +14,10 @@ export {
 export type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
 
 export function useShellWorkspaceViewModel() {
-  const navigation = useWorkColumnStore((state) => state.navigation);
+  const { navigation, notebookSwitchesInFlight } = useWorkColumnStore(useShallow((state) => ({
+    navigation: state.navigation,
+    notebookSwitchesInFlight: state.notebookSwitchesInFlight,
+  })));
   const browser = useBrowserColumnStore(useShallow((state) => ({
     browserColumnVisible: state.visible,
     browserColumnSplitRatio: state.splitRatio,
@@ -22,7 +27,12 @@ export function useShellWorkspaceViewModel() {
     focusWorkspaceHost: state.focusHost,
     focusedHostId: state.focusedHostId,
   })));
-  return { navigation, ...browser, ...focus };
+  return {
+    navigation,
+    notebookSwitching: notebookSwitchesInFlight > 0,
+    ...browser,
+    ...focus,
+  };
 }
 
 export function useWorkColumnTransferViewModel() {

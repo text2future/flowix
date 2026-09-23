@@ -12,11 +12,13 @@ export const preferences = {
 export interface BootFeatures {
   experimental: boolean;
   isIntroductDisplayed: boolean;
+  isOnboardingCompleted: boolean;
 }
 
 export const boot = {
   getFeatures: () => invoke<BootFeatures>('get_boot_features'),
   setIntroDisplayed: () => invoke<void>('set_boot_intro_displayed'),
+  setOnboardingCompleted: () => invoke<void>('set_boot_onboarding_completed'),
   getStartupStatus: () => invoke<StartupStatus>('get_startup_status'),
   waitForStartupReady: () => invoke<void>('wait_for_startup_ready'),
 };

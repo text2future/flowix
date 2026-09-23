@@ -12,3 +12,9 @@ export {
   type MemoTagLayoutItem,
   type MemoTagTreeItem,
 } from '@features/memo/services/memo-list-metadata-service';
+export {
+  createNotebookRegistration,
+  notebookNeedsImportFromStatus,
+  startNotebookImportWithMonitoring,
+  type NotebookRegistrationResult,
+} from '@features/memo/services/notebook-creation-service';

@@ -1,0 +1,941 @@
+.flowix-onboarding {
+  --onboarding-form-gap: 22px;
+  --onboarding-ink: var(--foreground);
+  --onboarding-subtle: var(--muted-foreground);
+  --onboarding-panel: color-mix(in oklch, var(--card) 96%, var(--background));
+  --onboarding-line: color-mix(in oklch, var(--border) 78%, transparent);
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--onboarding-ink);
+  background: var(--frame-bg);
+  animation: flowix-onboarding-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.flowix-onboarding__eyebrow {
+  margin: 0 0 14px;
+  color: var(--brand);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+}
+
+.flowix-onboarding__rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 640px);
+  margin: 0 auto clamp(16px, 2.5vw, 30px);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--onboarding-line);
+}
+
+.flowix-onboarding__rail-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 0;
+  color: var(--onboarding-subtle);
+  text-align: center;
+  border: 0;
+  background: transparent;
+  opacity: 0.58;
+  transition: color 160ms ease, opacity 160ms ease;
+}
+
+.flowix-onboarding__rail-item:not(:disabled) {
+  cursor: pointer;
+}
+
+.flowix-onboarding__rail-item:not(:disabled):hover,
+.flowix-onboarding__rail-item.is-active {
+  color: var(--onboarding-ink);
+  opacity: 0.82;
+}
+
+.flowix-onboarding__rail-item.is-complete {
+  color: var(--onboarding-subtle);
+  opacity: 0.68;
+}
+
+.flowix-onboarding__rail-copy {
+  display: grid;
+}
+
+.flowix-onboarding__rail-copy strong {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.flowix-onboarding__main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  padding: clamp(18px, 2.5vw, 38px) clamp(28px, 6vw, 96px) clamp(22px, 3vw, 44px);
+}
+
+.flowix-onboarding__content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-direction: column;
+  width: min(100%, 780px);
+  margin: 0 auto;
+}
+
+.flowix-onboarding__section {
+  width: 100%;
+  padding: clamp(11px, 1.33vw, 16px) 0 16px;
+  animation: flowix-onboarding-section-in 500ms ease-out both;
+}
+
+.flowix-onboarding__section-heading {
+  max-width: 615px;
+}
+
+.flowix-onboarding__section-heading h1 {
+  max-width: 640px;
+  margin: 0;
+  color: var(--onboarding-ink);
+  font-size: clamp(34px, 5vw, 66px);
+  font-weight: 300;
+  letter-spacing: -0.065em;
+  line-height: 0.98;
+}
+
+.flowix-onboarding__section-heading--setup h1 {
+  font-size: clamp(23px, 3.33vw, 44px);
+}
+
+.flowix-onboarding__section-heading p:last-child {
+  max-width: 590px;
+  margin: 24px 0 0;
+  color: var(--onboarding-subtle);
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+.flowix-onboarding__section-heading strong {
+  color: var(--onboarding-ink);
+  font-weight: 600;
+}
+
+.flowix-onboarding__agent-area {
+  width: 100%;
+  margin-top: 42px;
+}
+
+.flowix-onboarding__agent-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 720px);
+  margin: 10px 0 0;
+}
+
+.flowix-onboarding__agent-section-title {
+  grid-column: 1 / -1;
+  color: var(--onboarding-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.flowix-onboarding__agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 213px;
+  flex-direction: column;
+  padding: 18px 10px 15px;
+  text-align: center;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 13px;
+  background: color-mix(in oklch, var(--card) 48%, transparent);
+}
+
+.flowix-onboarding__agent-icon {
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--card) 72%, transparent);
+}
+
+.flowix-onboarding__agent-copy {
+  display: grid;
+  min-width: 0;
+  max-width: 100%;
+  gap: 4px;
+}
+
+.flowix-onboarding__agent-copy strong {
+  overflow: hidden;
+  color: var(--onboarding-ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowix-onboarding__agent-copy small {
+  overflow: hidden;
+  color: var(--onboarding-subtle);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowix-onboarding__agent-footer {
+  display: flex;
+  flex: 1;
+  min-height: 52px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.flowix-onboarding__agent-progress {
+  width: min(100%, 148px);
+  text-align: left;
+}
+
+.flowix-onboarding__agent-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--onboarding-subtle);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.flowix-onboarding__agent-status.is-ready {
+  color: var(--success);
+}
+
+.flowix-onboarding__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--onboarding-subtle);
+}
+
+.flowix-onboarding__mini-action,
+.flowix-onboarding__text-action,
+.flowix-onboarding__add-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.flowix-onboarding__mini-action {
+  min-height: 27px;
+  padding: 0 10px;
+  color: var(--primary-foreground);
+  font-size: 11px;
+  font-weight: 650;
+  border-radius: 7px;
+  background: var(--brand);
+}
+
+.flowix-onboarding__mini-action:hover {
+  background: color-mix(in oklch, var(--brand) 82%, white);
+}
+
+.flowix-onboarding__mini-action--secondary {
+  color: var(--onboarding-ink);
+  border: 1px solid var(--onboarding-line);
+  background: color-mix(in oklch, var(--card) 72%, transparent);
+}
+
+.flowix-onboarding__mini-action--secondary:hover {
+  background: color-mix(in oklch, var(--card) 90%, transparent);
+}
+
+.flowix-onboarding__agent-footnote {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding-top: 15px;
+  color: var(--onboarding-subtle);
+  font-size: 11px;
+}
+
+.flowix-onboarding__text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flowix-onboarding__text-action {
+  padding: 0;
+  color: var(--onboarding-subtle);
+  background: transparent;
+}
+
+.flowix-onboarding__text-action:hover {
+  color: var(--onboarding-ink);
+}
+
+.flowix-onboarding__text-action:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.flowix-onboarding__inline-error,
+.flowix-onboarding__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--destructive);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.flowix-onboarding__inline-error {
+  grid-column: 1 / -1;
+  padding-top: 12px;
+}
+
+.flowix-onboarding__template-preview {
+  display: flex;
+  gap: 24px;
+  margin-top: 48px;
+  padding: 19px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 16px;
+  background: var(--onboarding-panel);
+  box-shadow: 0 18px 45px color-mix(in oklch, var(--background) 35%, transparent);
+}
+
+.flowix-onboarding__notebook-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--onboarding-form-gap);
+  width: min(100%, 780px);
+  margin: var(--onboarding-form-gap) 0 0;
+  padding: 0;
+}
+
+.flowix-onboarding__form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.flowix-onboarding__name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.flowix-onboarding__notebook-form > .flowix-onboarding__form-field:last-child {
+  grid-column: auto;
+}
+
+.flowix-onboarding__form-field > label,
+.flowix-onboarding__template-label-row > span:first-child {
+  color: var(--onboarding-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.flowix-onboarding__form-field > small {
+  overflow: hidden;
+  color: var(--onboarding-subtle);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowix-onboarding__path-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.flowix-onboarding__template-field {
+  gap: 10px;
+}
+
+.flowix-onboarding__template-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.flowix-onboarding__template-grid {
+  overflow: hidden;
+  width: 100%;
+}
+
+.flowix-onboarding__template-track {
+  display: flex;
+  width: 100%;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.flowix-onboarding__template-page {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex: 0 0 100%;
+  gap: 8px;
+}
+
+.flowix-onboarding__template-option {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 120px;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  color: var(--onboarding-subtle);
+  text-align: left;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 11px;
+  background: color-mix(in oklch, var(--onboarding-panel) 74%, transparent);
+  transition: border-color 150ms ease;
+}
+
+.flowix-onboarding__template-option--blank {
+  align-items: center;
+  justify-content: center;
+}
+
+.flowix-onboarding__blank-template-label {
+  color: var(--onboarding-ink);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.flowix-onboarding__template-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 0;
+  color: var(--onboarding-subtle);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.flowix-onboarding__template-page-button {
+  display: inline-flex;
+  width: 25px;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  color: var(--onboarding-subtle);
+  border: 1px solid var(--onboarding-line);
+  border-radius: 7px;
+  background: transparent;
+  transition: color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.flowix-onboarding__template-page-button:hover:not(:disabled) {
+  color: var(--onboarding-ink);
+  border-color: color-mix(in oklch, var(--brand) 48%, var(--onboarding-line));
+}
+
+.flowix-onboarding__template-page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.flowix-onboarding__template-option:hover {
+  border-color: color-mix(in oklch, var(--brand) 45%, var(--onboarding-line));
+}
+
+.flowix-onboarding__template-option.is-selected {
+  color: var(--onboarding-ink);
+  border-color: color-mix(in oklch, var(--brand) 70%, var(--onboarding-line));
+}
+
+.flowix-onboarding__template-option-icon {
+  display: inline-flex;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--brand) 10%, transparent);
+}
+
+.flowix-onboarding__template-option-copy {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 6px;
+}
+
+.flowix-onboarding__template-option-copy strong {
+  color: var(--onboarding-ink);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.flowix-onboarding__template-option-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--onboarding-subtle);
+  font-size: 11px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.flowix-onboarding__template-cover {
+  display: flex;
+  flex: 0 0 124px;
+  min-height: 164px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 17px;
+  color: var(--primary-foreground);
+  border-radius: 11px;
+  background:
+    linear-gradient(145deg, color-mix(in oklch, var(--brand) 98%, white), color-mix(in oklch, var(--brand) 64%, var(--info)));
+  box-shadow: 0 12px 24px color-mix(in oklch, var(--brand) 15%, transparent);
+}
+
+.flowix-onboarding__template-cover span {
+  align-self: flex-start;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.flowix-onboarding__template-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.flowix-onboarding__template-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.flowix-onboarding__template-title-row > div {
+  display: grid;
+  gap: 5px;
+}
+
+.flowix-onboarding__template-title-row strong {
+  color: var(--onboarding-ink);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.flowix-onboarding__template-title-row small {
+  color: var(--onboarding-subtle);
+  font-size: 11px;
+}
+
+.flowix-onboarding__selected-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  color: var(--success);
+  font-size: 10px;
+  border: 1px solid color-mix(in oklch, var(--success) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--success) 10%, transparent);
+}
+
+.flowix-onboarding__template-copy > p {
+  max-width: 380px;
+  margin: 24px 0 20px;
+  color: var(--onboarding-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.flowix-onboarding__path-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--onboarding-subtle);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--background) 70%, transparent);
+}
+
+.flowix-onboarding__path-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowix-onboarding__repo-folder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  color: var(--brand);
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--brand) 10%, transparent);
+}
+
+.flowix-onboarding__repo-header span,
+.flowix-onboarding__repo-row small {
+  color: var(--onboarding-subtle);
+  font-size: 12px;
+}
+
+.flowix-onboarding__repo-row strong {
+  overflow: hidden;
+  color: var(--onboarding-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowix-onboarding__repo-area {
+  margin-top: 20px;
+  border-top: 1px solid var(--onboarding-line);
+}
+
+.flowix-onboarding__repo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 17px 0 12px;
+}
+
+.flowix-onboarding__repo-header > div {
+  display: grid;
+  gap: 5px;
+}
+
+.flowix-onboarding__repo-header strong {
+  color: var(--onboarding-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.flowix-onboarding__repo-picker {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+
+.flowix-onboarding__repo-list {
+  display: grid;
+  gap: 7px;
+}
+
+.flowix-onboarding__repo-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--card) 72%, transparent);
+}
+
+.flowix-onboarding__repo-row > span:nth-child(2) {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.flowix-onboarding__repo-folder {
+  flex-basis: 29px;
+  width: 29px;
+  height: 29px;
+  border-radius: 7px;
+}
+
+.flowix-onboarding__remove-repo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  color: var(--onboarding-subtle);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.flowix-onboarding__remove-repo:hover {
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+}
+
+.flowix-onboarding__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  width: min(100%, 780px);
+  min-height: 62px;
+  margin: 0 auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--onboarding-line);
+  background: var(--frame-bg);
+}
+
+.flowix-onboarding__primary-action,
+.flowix-onboarding__back-action,
+.flowix-onboarding__skip-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 15px;
+  font-size: 12px;
+  font-weight: 650;
+  border-radius: 9px;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, opacity 150ms ease, transform 150ms ease;
+}
+
+.flowix-onboarding__skip-action {
+  min-height: 38px;
+  padding: 0 15px;
+  color: var(--onboarding-subtle);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 9px;
+  background: transparent;
+  transition: color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.flowix-onboarding__skip-action:hover {
+  color: var(--onboarding-ink);
+}
+
+.flowix-onboarding__primary-action {
+  color: var(--primary-foreground);
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  box-shadow: 0 8px 18px color-mix(in oklch, var(--brand) 18%, transparent);
+}
+
+.flowix-onboarding__primary-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: color-mix(in oklch, var(--brand) 85%, white);
+}
+
+.flowix-onboarding__primary-action:disabled,
+.flowix-onboarding__back-action:disabled,
+.flowix-onboarding__skip-action:disabled,
+.flowix-onboarding__repo-picker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.flowix-onboarding__back-action {
+  margin-right: auto;
+  padding-left: 0;
+  color: var(--onboarding-subtle);
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.flowix-onboarding__back-action:hover:not(:disabled) {
+  color: var(--onboarding-ink);
+}
+
+.flowix-onboarding__error {
+  margin-top: 20px;
+}
+
+.flowix-onboarding button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@keyframes flowix-onboarding-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flowix-onboarding-section-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 760px) {
+  .flowix-onboarding {
+    overflow-y: auto;
+    flex-direction: column;
+  }
+
+  .flowix-onboarding__rail {
+    gap: 6px;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+  }
+
+  .flowix-onboarding__rail-item {
+    align-items: flex-start;
+    gap: 7px;
+    padding: 0;
+  }
+
+  .flowix-onboarding__rail-copy strong {
+    font-size: 11px;
+  }
+
+  .flowix-onboarding__main {
+    padding: 20px 20px 26px;
+  }
+
+  .flowix-onboarding__content {
+    align-items: flex-start;
+  }
+
+  .flowix-onboarding__section-heading h1 {
+    font-size: clamp(33px, 11vw, 56px);
+  }
+
+  .flowix-onboarding__section-heading--setup h1 {
+    font-size: clamp(23px, 7.33vw, 37px);
+  }
+
+  .flowix-onboarding__agent-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .flowix-onboarding__agent-area {
+    margin-top: 30px;
+  }
+
+  .flowix-onboarding__agent-row {
+    min-height: 198px;
+    padding: 15px 8px 13px;
+  }
+
+  .flowix-onboarding__template-preview {
+    gap: 15px;
+    padding: 13px;
+  }
+
+  .flowix-onboarding__notebook-form {
+    grid-template-columns: 1fr;
+    gap: var(--onboarding-form-gap);
+    margin-top: var(--onboarding-form-gap);
+  }
+
+  .flowix-onboarding__notebook-form > .flowix-onboarding__form-field:last-child {
+    grid-column: auto;
+  }
+
+  .flowix-onboarding__path-field {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .flowix-onboarding__template-label-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .flowix-onboarding__template-page {
+    grid-template-columns: 1fr;
+  }
+
+  .flowix-onboarding__template-cover {
+    flex-basis: 84px;
+    min-height: 132px;
+  }
+
+  .flowix-onboarding__template-title-row {
+    display: grid;
+    gap: 12px;
+  }
+
+  .flowix-onboarding__template-title-row strong {
+    font-size: 15px;
+  }
+
+  .flowix-onboarding__template-copy > p {
+    margin: 15px 0;
+  }
+
+  .flowix-onboarding__actions {
+    min-height: 58px;
+    padding-top: 14px;
+  }
+
+  .flowix-onboarding__primary-action {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowix-onboarding,
+  .flowix-onboarding__section {
+    animation: none;
+  }
+
+  .flowix-onboarding__rail-item,
+  .flowix-onboarding__primary-action,
+  .flowix-onboarding__repo-picker button {
+    transition: none;
+  }
+}
