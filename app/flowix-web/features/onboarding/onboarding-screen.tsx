@@ -40,12 +40,14 @@ import type { DshRuntimeInstallerState } from '@features/preferences/public/syst
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
+import { isMac } from '@features/shortcuts';
 import { openUrl } from '@platform/tauri/opener';
 import {
   BLANK_NOTEBOOK_TEMPLATE_ID,
   initializeNotebookTemplate,
   NOTEBOOK_TEMPLATES,
 } from './notebook-templates';
+import { OnboardingTitlebarMac } from './onboarding-titlebar-mac';
 
 const DEFAULT_BOOK_FOLDER = 'My Notebook';
 const DEFAULT_NOTEBOOK_NAME = 'My Notebook';
@@ -432,6 +434,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
       aria-modal="true"
       aria-labelledby={step === 0 ? 'flowix-onboarding-notebook-title' : step === 1 ? 'flowix-onboarding-title' : 'flowix-onboarding-access-title'}
     >
+      {isMac() && <OnboardingTitlebarMac />}
       <WindowsTitlebarControls />
       <main className="flowix-onboarding__main">
         <StepRail step={step} onStepChange={setStep} />

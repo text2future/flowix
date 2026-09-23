@@ -1,8 +1,8 @@
 //! Notebook-scoped metadata IPC.
 //!
-//! Tag navigation state is stored in each notebook's `.flowix/system.json`.
-//! The legacy global system store is read only to migrate a notebook the first
-//! time it is accessed.
+//! Tag navigation state and the Agent empty-state "quick notes" filter are
+//! stored in each notebook's `.flowix/system.json`. The legacy global system
+//! store is read only to migrate a notebook the first time it is accessed.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -10,7 +10,11 @@ use std::path::PathBuf;
 use tauri::State;
 
 use crate::app::state::AppState;
-use crate::system_data::{NotebookTagSystemData, SystemFile, TagLayoutItem, TagSystemData};
+use crate::system_data::{
+    NotebookFeaturedNotesData, NotebookTagSystemData, SystemFile, TagLayoutItem, TagSystemData,
+};
+
+const FEATURED_NOTES_ALLOWED_OPERATORS: [&str; 3] = ["equals", "contains", "excludes"];
 
 #[tauri::command]
 pub fn get_tag_system_metadata(
@@ -101,6 +105,7 @@ fn load_notebook_system(notebook_id: &str, state: &State<AppState>) -> Result<Sy
     notebooks.insert(notebook_id.to_string(), legacy);
     let file = SystemFile {
         tag: TagSystemData { notebooks },
+        featured_notes: Default::default(),
     };
     crate::system_data::SystemData::write_notebook(&root, &file)
         .map_err(|error| error.to_string())?;
@@ -114,4 +119,45 @@ fn persist_notebook_system(
 ) -> Result<(), String> {
     let root = notebook_root(notebook_id, state)?;
     crate::system_data::SystemData::write_notebook(&root, file).map_err(|error| error.to_string())
+}
+
+/// 读取某笔记本的「常用笔记」筛选条件。
+///
+/// 未配置过时返回空条件列表, 由前端回落到默认条件 —— 这里不替前端决定默认值,
+/// 避免两端各写一份默认配置而漂移。
+#[tauri::command]
+pub fn get_featured_note_filter(
+    notebook_id: String,
+    state: State<AppState>,
+) -> Result<NotebookFeaturedNotesData, String> {
+    let file = load_notebook_system(&notebook_id, &state)?;
+    Ok(file
+        .featured_notes
+        .notebooks
+        .get(&notebook_id)
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// 写入某笔记本的「常用笔记」筛选配置。
+///
+/// 校验放在后端: 写入端是自由文本输入, 只有 operator 是枚举, 非法值会让前端
+/// 的匹配逻辑落到 `equals` 分支以外的未定义行为。这里逐条拒绝非法 operator,
+/// 而不是静默改写 —— 静默改写会掩盖前端 bug。
+#[tauri::command]
+pub fn set_featured_note_filter(
+    notebook_id: String,
+    filter: NotebookFeaturedNotesData,
+    state: State<AppState>,
+) -> Result<(), String> {
+    for condition in &filter.conditions {
+        if !FEATURED_NOTES_ALLOWED_OPERATORS.contains(&condition.operator.as_str()) {
+            return Err(format!("unsupported operator: {}", condition.operator));
+        }
+    }
+    let mut file = load_notebook_system(&notebook_id, &state)?;
+    file.featured_notes
+        .notebooks
+        .insert(notebook_id.clone(), filter);
+    persist_notebook_system(&notebook_id, &state, &file)
 }

@@ -1,4 +1,4 @@
-import type { AppLanguage, I18nKey } from "@/lib/i18n";
+import type { AppLanguage, I18nKey, I18nParams } from "@/lib/i18n";
 import { translate } from "@/lib/i18n";
 import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
 import type {
@@ -27,13 +27,18 @@ import { useMemoStore } from "@features/memo/store/memo-store";
 import {
   FEATURED_NOTE_MOBILE_PAGE_SIZE,
   FEATURED_NOTE_PAGE_SIZE,
+  MAX_FEATURED_NOTE_CONDITIONS,
+  appendFeaturedNoteIconContent,
   getFeaturedNotePage,
   getFeaturedNotePageCountForSize,
   loadAllFeaturedNoteCards,
+  normalizeFeaturedNoteFilterConfig,
   readFeaturedNoteFilter,
   writeFeaturedNoteFilter,
   type FeaturedNoteCard,
   type FeaturedNoteFilter,
+  type FeaturedNoteFilterConfig,
+  type FeaturedNoteFilterOperator,
 } from "@features/agent/thread-card/settings/featured-note-cards";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
@@ -56,8 +61,9 @@ import {
 import {
   createCheckIcon,
   createChevronIcon,
+  createPlusIcon,
+  createTrashIcon,
 } from "@features/agent/thread-card/agent-thread-card-icons";
-import { openBrowserColumnFileBrowser } from "@features/workspace/use-cases/browser-column-navigation";
 import { openNoteByMemoId } from "@features/memo/use-cases/open-by-target";
 
 const CODEX_SETTINGS_POPOVER_WIDTH_PX = 212;
@@ -66,6 +72,10 @@ const CODEX_SETTINGS_POPOVER_OFFSET_PX = 6;
 const CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 const CODEX_SETTINGS_SUBMENU_GAP_PX = 4;
 const FEATURED_NOTES_MOBILE_QUERY = "(max-width: 767px)";
+/** 精选笔记设置弹层与 composer 弹窗一致: fixed 定位、视口坐标、贴边留白。 */
+const FEATURED_NOTES_SETTINGS_POPOVER_WIDTH_PX = 420;
+const FEATURED_NOTES_SETTINGS_POPOVER_OFFSET_PX = 6;
+const FEATURED_NOTES_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 
 type AgentModelOption = {
   id: AgentCodexModel;
@@ -119,10 +129,21 @@ export interface ExternalAgentSettingsControllerOptions {
    */
   getInstanceId: () => string | undefined;
   getLanguage: () => AppLanguage;
-  t: (key: I18nKey) => string;
+  t: (key: I18nKey, params?: I18nParams) => string;
   isDestroyed: () => boolean;
   isRunning?: () => boolean;
   consumeOutsidePointer?: (event: PointerEvent) => void;
+  /**
+   * 点击常用笔记卡片时的动作 ── 把该笔记作为行内引用注入 composer 输入框
+   * (而不是打开笔记)。由宿主 (thread card view / 独立对话) 接到
+   * `ComposerController.insertMemoReference`。
+   */
+  onSelectFeaturedNote?: (ref: { id: string; filename: string; title: string }) => void;
+  /**
+   * 仓库列表增删后的轻提示。 由宿主注入而不是直接 import toast, 让本
+   * controller 保持对 UI 反馈层的解耦 (测试里也可以只断言调用)。
+   */
+  toast?: (kind: "success" | "error" | "info", message: string) => void;
 }
 
 export class ExternalAgentSettingsController {
@@ -130,10 +151,17 @@ export class ExternalAgentSettingsController {
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly getInstanceId: () => string | undefined;
   private readonly getLanguage: () => AppLanguage;
-  private readonly t: (key: I18nKey) => string;
+  private readonly t: (key: I18nKey, params?: I18nParams) => string;
   private readonly isDestroyed: () => boolean;
   private readonly isRunning: () => boolean;
   private readonly consumeOutsidePointer?: (event: PointerEvent) => void;
+  private readonly onSelectFeaturedNote?: (
+    ref: { id: string; filename: string; title: string },
+  ) => void;
+  private readonly toast?: (
+    kind: "success" | "error" | "info",
+    message: string,
+  ) => void;
 
   private modelButton: HTMLButtonElement | null = null;
   private composerModelButton: HTMLButtonElement | null = null;
@@ -148,6 +176,12 @@ export class ExternalAgentSettingsController {
   private kind: AgentRuntimeSettingKind | null = null;
   private open = false;
   private workspacePopoverOpen = false;
+  /**
+   * 「可访问」弹窗的第二页 (仓库列表)。 弹窗只有一块 DOM, 翻页通过替换内容
+   * 实现而不是叠一个新弹窗 ── 保持单一定位/外点关闭/焦点语义, 返回时也不
+   * 需要重建定位。 关闭弹窗一律重置回第一页, 下次打开从列表页进入。
+   */
+  private workspacePage: "access" | "repositories" = "access";
   private resizeObserver: ResizeObserver | null = null;
   private positionFrame: number | null = null;
   private codexDefaultModel = "";
@@ -172,6 +206,8 @@ export class ExternalAgentSettingsController {
     this.isDestroyed = options.isDestroyed;
     this.isRunning = options.isRunning ?? (() => false);
     this.consumeOutsidePointer = options.consumeOutsidePointer;
+    this.onSelectFeaturedNote = options.onSelectFeaturedNote;
+    this.toast = options.toast;
     this.unlistenCodexSettings = subscribe<Record<string, unknown>>(
       "codex-thread-settings-updated",
       (payload) => { void this.applyCodexSettingsNotification(payload); },
@@ -614,7 +650,8 @@ export class ExternalAgentSettingsController {
     this.featuredNotesViewportCleanup?.();
     empty.querySelector(".agent-thread-card__featured-notes")?.remove();
     const requestId = ++this.featuredNotesRequestId;
-    const filter = readFeaturedNoteFilter();
+    const config = await readFeaturedNoteFilter(notebookId);
+    if (this.isDestroyed() || requestId !== this.featuredNotesRequestId) return;
     try {
       const notes = await loadAllFeaturedNoteCards(
         (cursor) => memosClient.getMemos({
@@ -625,12 +662,12 @@ export class ExternalAgentSettingsController {
           limit: 100,
         }),
         () => !this.isDestroyed() && requestId === this.featuredNotesRequestId,
-        filter,
+        config,
       );
       if (this.isDestroyed() || requestId !== this.featuredNotesRequestId || !empty.isConnected) return;
 
       let panel: HTMLElement;
-      panel = this.createFeaturedNotesElement(notes, filter, () => {
+      panel = this.createFeaturedNotesElement(notes, config, notebookId, () => {
         panel.remove();
         void this.appendFeaturedNotes(empty);
       });
@@ -643,7 +680,8 @@ export class ExternalAgentSettingsController {
 
   private createFeaturedNotesElement(
     notes: FeaturedNoteCard[],
-    filter: FeaturedNoteFilter,
+    config: FeaturedNoteFilterConfig,
+    notebookId: string,
     onFilterChange: () => void,
   ): HTMLElement {
     const panel = document.createElement("section");
@@ -682,22 +720,44 @@ export class ExternalAgentSettingsController {
     settingsFooter.append(settingsButton);
 
     const settingsPopover = this.createFeaturedNotesSettingsPopover(
-      filter,
-      (nextFilter) => {
-        writeFeaturedNoteFilter(nextFilter);
+      config,
+      async (nextConfig) => {
+        // 写入失败向上抛给 submit 处理器链; 这里先落盘成功再重建卡片列表,
+        // 避免"界面已变但磁盘没变"的不一致。
+        await writeFeaturedNoteFilter(notebookId, nextConfig);
         onFilterChange();
       },
     );
-    settingsFooter.append(settingsPopover);
+    /**
+     * 弹层挂到 document.body 而不是设置按钮旁边 ── 与 composer 的模型/权限
+     * 弹窗同款做法 (见 composer-dom-factory.ts 中 codexSettingsPopover 直接
+     * append 到 body)。
+     *
+     * 挂在按钮旁边会有两个躲不掉的问题:
+     *   1. 祖先 .agent-thread-card__body 是 overflow-y 滚动容器, 绝对定位的
+     *      后代无法逃出它的裁剪, 弹层下缘会在 body 边界被切掉;
+     *   2. 空状态下按钮贴着 body 底边, 下方就是 composer (z-index:1),
+     *      弹层必须在更高的层叠上下文里才不会被压住。
+     *
+     * 放到 root 后弹层不受任何祖先裁剪与层叠影响, 再用 fixed + 视口坐标定位。
+     */
+    document.body.append(settingsPopover);
+    /** 用 fixed 定位, 因此坐标基于视口, 与祖先滚动无关。 */
     const positionSettingsPopover = (): void => {
-      settingsPopover.classList.remove("agent-thread-card__featured-notes-settings--above");
+      if (settingsPopover.hidden || !settingsPopover.isConnected) return;
       const buttonRect = settingsButton.getBoundingClientRect();
       const popoverRect = settingsPopover.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - buttonRect.bottom;
-      const spaceAbove = buttonRect.top;
-      settingsPopover.classList.toggle(
-        "agent-thread-card__featured-notes-settings--above",
-        spaceBelow < popoverRect.height + 8 && spaceAbove > spaceBelow,
+      applyPopoverPosition(
+        settingsPopover,
+        calculateAnchoredPopoverPosition({
+          anchorRect: buttonRect,
+          popoverWidth: popoverRect.width || FEATURED_NOTES_SETTINGS_POPOVER_WIDTH_PX,
+          popoverHeight: popoverRect.height || 0,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          padding: FEATURED_NOTES_SETTINGS_POPOVER_VIEWPORT_PADDING_PX,
+          offset: FEATURED_NOTES_SETTINGS_POPOVER_OFFSET_PX,
+        }),
       );
     };
     const setSettingsOpen = (open: boolean): void => {
@@ -751,7 +811,11 @@ export class ExternalAgentSettingsController {
       if (!settingsPopover.hidden) positionSettingsPopover();
     };
     const handleOutsidePointer = (event: PointerEvent): void => {
-      if (!panel.contains(event.target as Node)) setSettingsOpen(false);
+      // 弹层已挂到 document.body, 不再是 panel 的后代; 只判断 panel 会把
+      // "点击弹层内部" 误判成外部点击而立刻关掉, 因此这里要把弹层一并排除。
+      const target = event.target as Node;
+      if (panel.contains(target) || settingsPopover.contains(target)) return;
+      setSettingsOpen(false);
     };
     const handleEscape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape" || settingsPopover.hidden) return;
@@ -767,6 +831,9 @@ export class ExternalAgentSettingsController {
       window.removeEventListener("resize", handleWindowResize);
       document.removeEventListener("pointerdown", handleOutsidePointer);
       document.removeEventListener("keydown", handleEscape);
+      // 弹层挂在 document.body 上, 不随 panel 一起被移除, 必须显式清理,
+      // 否则每次刷新精选笔记都会在 body 里留下一个孤儿弹层。
+      settingsPopover.remove();
       this.featuredNotesViewportCleanup = null;
     };
     renderPage();
@@ -774,8 +841,8 @@ export class ExternalAgentSettingsController {
   }
 
   private createFeaturedNotesSettingsPopover(
-    filter: FeaturedNoteFilter,
-    onSave: (filter: FeaturedNoteFilter) => void,
+    config: FeaturedNoteFilterConfig,
+    onSave: (config: FeaturedNoteFilterConfig) => Promise<void>,
   ): HTMLDivElement {
     const popover = document.createElement("div");
     popover.className = "agent-thread-card__featured-notes-settings";
@@ -783,13 +850,151 @@ export class ExternalAgentSettingsController {
     popover.addEventListener("mousedown", (event) => event.stopPropagation());
     popover.addEventListener("click", (event) => event.stopPropagation());
 
+    // 标题沿用 composer 模型/权限弹窗的同一套标题样式与位置 (见 renderPopover)。
+    const title = document.createElement("div");
+    title.className = "agent-thread-card__codex-settings-title";
+    title.textContent = this.t("editor.threadCard.featuredNotes.settingsTitle");
+    popover.append(title);
+
     const form = document.createElement("form");
-    const operatorLabel = document.createElement("label");
-    operatorLabel.textContent = this.t("editor.threadCard.featuredNotes.operator");
+
+    // 每行是一条独立条件, 行间是并集关系。行的增删只操作 DOM, 保存时统一从
+    // DOM 读回 —— 避免再维护一份与 DOM 平行的状态。
+    const rows = document.createElement("div");
+    rows.className = "agent-thread-card__featured-notes-settings-rows";
+    form.append(rows);
+
+    const actions = document.createElement("div");
+    actions.className = "agent-thread-card__featured-notes-settings-actions";
+    const addConditionButton = document.createElement("button");
+    addConditionButton.type = "button";
+    addConditionButton.className = "agent-thread-card__featured-notes-settings-add-condition";
+    addConditionButton.append(createPlusIcon(), document.createTextNode(
+      this.t("editor.threadCard.featuredNotes.addCondition"),
+    ));
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = this.t("common.cancel");
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "agent-thread-card__featured-notes-settings-save";
+    saveButton.textContent = this.t("common.save");
+    actions.append(addConditionButton, cancelButton, saveButton);
+    form.append(actions);
+    popover.append(form);
+
+    /** 从当前 DOM 读回全部条件 (含未归一化的原始输入)。 */
+    const readConditionsFromRows = (): FeaturedNoteFilter[] =>
+      Array.from(rows.querySelectorAll<HTMLElement>(
+        ".agent-thread-card__featured-notes-settings-row",
+      )).map((row) => ({
+        key: row.querySelector<HTMLInputElement>('[name="key"]')?.value ?? "",
+        operator: (row.querySelector<HTMLInputElement>('[name="operator"]')?.value
+          ?? "equals") as FeaturedNoteFilterOperator,
+        value: row.querySelector<HTMLInputElement>('[name="value"]')?.value ?? "",
+      }));
+
+    const syncConditionControls = (): void => {
+      const rowCount = rows.childElementCount;
+      // 只有一条条件时不允许删除 —— 零条件会让常用笔记永远为空。
+      for (const remove of rows.querySelectorAll<HTMLButtonElement>(
+        ".agent-thread-card__featured-notes-settings-remove-condition",
+      )) {
+        remove.hidden = rowCount <= 1;
+      }
+      // 达到上限后禁用"添加条件", 避免弹层无限变长。
+      const atLimit = rowCount >= MAX_FEATURED_NOTE_CONDITIONS;
+      addConditionButton.disabled = atLimit;
+      addConditionButton.title = atLimit
+        ? this.t("editor.threadCard.featuredNotes.addConditionLimit")
+        : "";
+    };
+
+    const appendConditionRow = (condition: FeaturedNoteFilter): void => {
+      const row = this.createFeaturedNotesConditionRow(condition, {
+        onRemove: () => {
+          row.remove();
+          syncConditionControls();
+        },
+      });
+      rows.append(row);
+      syncConditionControls();
+    };
+
+    const initialConditions = normalizeFeaturedNoteFilterConfig(config).conditions;
+    for (const condition of initialConditions) appendConditionRow(condition);
+
+    addConditionButton.addEventListener("click", () => {
+      if (rows.childElementCount >= MAX_FEATURED_NOTE_CONDITIONS) return;
+      // 新行给空值, 由用户填写; 保存时 normalize 会丢弃未填完的行。
+      appendConditionRow({ key: "", operator: "equals", value: "" });
+      rows.lastElementChild
+        ?.querySelector<HTMLInputElement>('[name="key"]')
+        ?.focus();
+    });
+
+    cancelButton.addEventListener("click", () => {
+      popover.hidden = true;
+      popover.parentElement
+        ?.querySelector<HTMLButtonElement>(".agent-thread-card__featured-notes-settings-button")
+        ?.setAttribute("aria-expanded", "false");
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      // 落盘走 IPC (笔记本文件夹内的 system.json), 因此是异步的。提交期间禁用
+      // 保存按钮, 避免重复提交; 失败时保留弹层并提示, 让用户可以重试。
+      if (saveButton.disabled) return;
+      saveButton.disabled = true;
+      const clearError = (): void => {
+        form.querySelector(".agent-thread-card__featured-notes-settings-error")?.remove();
+      };
+      clearError();
+      onSave({ conditions: readConditionsFromRows() }).catch(() => {
+        // 保存失败必须让用户看到: 静默失败会让人以为配置已经生效。
+        const error = document.createElement("div");
+        error.className = "agent-thread-card__featured-notes-settings-error";
+        error.setAttribute("role", "alert");
+        error.textContent = this.t("editor.threadCard.featuredNotes.saveFailed");
+        form.append(error);
+      }).finally(() => {
+        if (popover.isConnected) saveButton.disabled = false;
+      });
+    });
+    return popover;
+  }
+
+  /**
+   * 构建一行筛选条件: [key 输入] [条件下拉] [value 输入] [删除]。
+   *
+   * 行的三个输入都是该行私有的, 因此下拉的展开状态、选项列表都随行创建, 行与行
+   * 之间互不影响。
+   */
+  private createFeaturedNotesConditionRow(
+    condition: FeaturedNoteFilter,
+    handlers: { onRemove: () => void },
+  ): HTMLDivElement {
+    const row = document.createElement("div");
+    row.className = "agent-thread-card__featured-notes-settings-row";
+
+    // 字段不显示独立标签, 改用 placeholder 提示。仍用 <label> 包裹以保留
+    // 点击聚焦与无障碍关联。
+    const keyField = document.createElement("label");
+    keyField.className = "agent-thread-card__featured-notes-settings-field-key";
+    const keyInput = document.createElement("input");
+    keyInput.name = "key";
+    keyInput.value = condition.key;
+    keyInput.required = true;
+    keyInput.autocomplete = "off";
+    keyInput.placeholder = this.t("editor.threadCard.featuredNotes.propertyKeyPlaceholder");
+    keyField.append(keyInput);
+
+    const operatorField = document.createElement("label");
+    operatorField.className = "agent-thread-card__featured-notes-settings-field-operator";
     const operatorInput = document.createElement("input");
     operatorInput.type = "hidden";
     operatorInput.name = "operator";
-    operatorInput.value = filter.operator;
+    operatorInput.value = condition.operator;
     const operatorSelect = document.createElement("div");
     operatorSelect.className = "agent-thread-card__featured-notes-operator-select";
     const operatorTrigger = document.createElement("button");
@@ -807,7 +1012,6 @@ export class ExternalAgentSettingsController {
     const operators = [
       ["equals", "editor.threadCard.featuredNotes.operator.equals"],
       ["contains", "editor.threadCard.featuredNotes.operator.contains"],
-      ["excludes", "editor.threadCard.featuredNotes.operator.excludes"],
     ] as const;
     const operatorButtons: HTMLButtonElement[] = [];
     const setOperatorOpen = (open: boolean): void => {
@@ -816,11 +1020,13 @@ export class ExternalAgentSettingsController {
       operatorSelect.dataset.state = open ? "open" : "closed";
     };
     const selectOperator = (value: FeaturedNoteFilter["operator"]): void => {
-      operatorInput.value = value;
+      // 下拉里已不再提供 excludes。历史配置可能仍存着它, 若只回落显示而不归一化,
+      // 隐藏域会继续保留 excludes, 与用户看到的"等于"不一致并被原样写回。
       const selected = operators.find(([candidate]) => candidate === value) ?? operators[0];
+      operatorInput.value = selected[0];
       operatorValue.textContent = this.t(selected[1]);
       for (const button of operatorButtons) {
-        const isSelected = button.dataset.value === value;
+        const isSelected = button.dataset.value === selected[0];
         button.dataset.selected = String(isSelected);
         button.setAttribute("aria-selected", String(isSelected));
         button.querySelector(".agent-thread-card__featured-notes-operator-check")
@@ -859,59 +1065,35 @@ export class ExternalAgentSettingsController {
       }
     });
     operatorSelect.append(operatorInput, operatorTrigger, operatorMenu);
-    operatorLabel.append(operatorSelect);
-    selectOperator(filter.operator);
-
-    const keyLabel = document.createElement("label");
-    keyLabel.textContent = this.t("editor.threadCard.featuredNotes.propertyKey");
-    const keyInput = document.createElement("input");
-    keyInput.name = "key";
-    keyInput.value = filter.key;
-    keyInput.required = true;
-    keyInput.autocomplete = "off";
-    keyLabel.append(keyInput);
-
-    const valueLabel = document.createElement("label");
-    valueLabel.textContent = this.t("editor.threadCard.featuredNotes.propertyValue");
-    const valueInput = document.createElement("input");
-    valueInput.name = "value";
-    valueInput.value = filter.value;
-    valueInput.required = true;
-    valueInput.autocomplete = "off";
-    valueLabel.append(valueInput);
-
-    const actions = document.createElement("div");
-    actions.className = "agent-thread-card__featured-notes-settings-actions";
-    const cancelButton = document.createElement("button");
-    cancelButton.type = "button";
-    cancelButton.textContent = this.t("common.cancel");
-    const saveButton = document.createElement("button");
-    saveButton.type = "submit";
-    saveButton.className = "agent-thread-card__featured-notes-settings-save";
-    saveButton.textContent = this.t("common.save");
-    actions.append(cancelButton, saveButton);
-    form.append(keyLabel, operatorLabel, valueLabel, actions);
-    popover.append(form);
-    form.addEventListener("pointerdown", (event) => {
+    operatorField.append(operatorSelect);
+    selectOperator(condition.operator);
+    row.addEventListener("pointerdown", (event) => {
       if (!operatorSelect.contains(event.target as Node)) setOperatorOpen(false);
     });
 
-    cancelButton.addEventListener("click", () => {
-      popover.hidden = true;
-      popover.parentElement
-        ?.querySelector<HTMLButtonElement>(".agent-thread-card__featured-notes-settings-button")
-        ?.setAttribute("aria-expanded", "false");
-    });
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      if (!form.reportValidity()) return;
-      onSave({
-        key: keyInput.value,
-        operator: operatorInput.value as FeaturedNoteFilter["operator"],
-        value: valueInput.value,
-      });
-    });
-    return popover;
+    const valueField = document.createElement("label");
+    valueField.className = "agent-thread-card__featured-notes-settings-field-value";
+    const valueInput = document.createElement("input");
+    valueInput.name = "value";
+    valueInput.value = condition.value;
+    valueInput.required = true;
+    valueInput.autocomplete = "off";
+    valueInput.placeholder = this.t("editor.threadCard.featuredNotes.propertyValuePlaceholder");
+    valueField.append(valueInput);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "agent-thread-card__featured-notes-settings-remove-condition";
+    removeButton.setAttribute(
+      "aria-label",
+      this.t("editor.threadCard.featuredNotes.removeCondition"),
+    );
+    removeButton.title = this.t("editor.threadCard.featuredNotes.removeCondition");
+    removeButton.append(createTrashIcon());
+    removeButton.addEventListener("click", () => handlers.onRemove());
+
+    row.append(keyField, operatorField, valueField, removeButton);
+    return row;
   }
 
   private createFeaturedNotesNavigationButton(
@@ -935,8 +1117,8 @@ export class ExternalAgentSettingsController {
 
     const icon = document.createElement("span");
     icon.className = "agent-thread-card__featured-note-icon";
-    icon.textContent = note.icon;
     icon.setAttribute("aria-hidden", "true");
+    appendFeaturedNoteIconContent(icon, note.icon);
 
     const content = document.createElement("span");
     content.className = "agent-thread-card__featured-note-content";
@@ -947,16 +1129,21 @@ export class ExternalAgentSettingsController {
     description.className = "agent-thread-card__featured-note-description";
     description.textContent = note.description;
     content.append(title, description);
-    const tryLabel = document.createElement("span");
-    tryLabel.className = "agent-thread-card__featured-note-try";
-    tryLabel.textContent = this.t("editor.threadCard.featuredNotes.try");
-    const topRow = document.createElement("span");
-    topRow.className = "agent-thread-card__featured-note-top-row";
-    topRow.append(icon, tryLabel);
-    card.append(topRow, content);
+    // 图标独占首行 (原先这一行右侧还有个「试试」按钮, 已移除)。
+    card.append(icon, content);
 
     card.addEventListener("click", (event) => {
       event.stopPropagation();
+      // 点击 = 把这条笔记作为行内引用追加到 composer 输入框 (而不是打开笔记)。
+      // 宿主未接该回调时 (例如独立的设置预览) 退化为打开笔记。
+      if (this.onSelectFeaturedNote) {
+        this.onSelectFeaturedNote({
+          id: note.id,
+          filename: note.title,
+          title: note.title,
+        });
+        return;
+      }
       void openNoteByMemoId(note.id);
     });
     card.addEventListener("mousedown", (event) => event.stopPropagation());
@@ -1341,6 +1528,7 @@ export class ExternalAgentSettingsController {
   ): void {
     if (this.open === open && (!open || this.kind === kind) && !this.workspacePopoverOpen) return;
     this.workspacePopoverOpen = false;
+    this.workspacePage = "access";
     this.open = open;
     this.kind = open ? kind : null;
     this.anchor = open ? anchor : null;
@@ -1429,11 +1617,27 @@ export class ExternalAgentSettingsController {
       "agent-thread-card__codex-settings-popover--has-submenu",
     );
     this.popover.replaceChildren();
+    if (this.workspacePage === "repositories") {
+      this.renderRepositoryPage();
+      return;
+    }
+    this.renderAccessPage();
+  }
+
+  /**
+   * 第一页 ── 「可访问」只读快照, 视觉与行为保持原样 (cwd 行 + addDirs 行 +
+   * 末尾的管理入口)。 唯一的交互变化是末尾那行由"跳转文件浏览器"改为"在弹窗
+   * 内翻页到仓库列表", 行样式仍走既有的 `.codex-settings-settings` 契约。
+   */
+  private renderAccessPage(): void {
     const choices = this.getWorkspaceDirectoryChoices();
     const accessTitle = document.createElement("div");
     accessTitle.className = "agent-thread-card__codex-settings-title";
     accessTitle.textContent = this.t("agent.workspace.access");
     this.popover.append(accessTitle);
+
+    // 只读快照: 目录行沿用原有契约 ── cwd 行带 selectedLabel + 勾选, addDirs
+    // 行是普通只读项。样式完全走既有的 `.codex-settings-item`, 不做额外定制。
     const readOnlyOptions = { readOnly: true };
     if (choices.cwd) {
       this.popover.append(
@@ -1449,7 +1653,6 @@ export class ExternalAgentSettingsController {
         ),
       );
     }
-
     if (choices.addDirs.length > 0) {
       choices.addDirs.forEach((choice) => {
         this.popover.append(
@@ -1469,21 +1672,262 @@ export class ExternalAgentSettingsController {
     settingsButton.className =
       "agent-thread-card__codex-settings-item agent-thread-card__codex-settings-settings";
     settingsButton.setAttribute("role", "menuitem");
-    settingsButton.setAttribute("aria-label", this.t("agent.workspace.settings"));
+    settingsButton.setAttribute("aria-label", this.t("agent.workspace.manageRepositories"));
     const settingsLabel = document.createElement("span");
     settingsLabel.className = "agent-thread-card__codex-settings-item-label";
-    settingsLabel.textContent = this.t("agent.workspace.settings");
+    settingsLabel.textContent = this.t("agent.workspace.manageRepositories");
     const chevron = createChevronIcon("right");
     chevron.setAttribute("class", "agent-thread-card__codex-settings-settings-chevron");
     settingsButton.append(settingsLabel, chevron);
     settingsButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.setSettingsPopoverOpen(false);
-      const workspacePath = this.getCurrentWorkspacePath();
-      if (workspacePath) void openBrowserColumnFileBrowser(workspacePath);
+      // 翻到第二页而不是跳走; 弹窗保持打开, 外点关闭 / 定位都不需要重算。
+      this.workspacePage = "repositories";
+      this.renderWorkspacePopover();
+      this.schedulePosition();
     });
     settingsButton.addEventListener("mousedown", (event) => event.stopPropagation());
     this.popover.append(settingsButton);
+  }
+
+  /**
+   * 第二页 ── 仓库列表, 可增删。 这里编辑的是当前笔记本 `.flowix/agent.json`
+   * 的 add-dirs (与笔记侧「资料文件夹」同一份数据), 所以增删后第一页的快照会
+   * 在下次会话启动时同步反映出来。
+   */
+  private renderRepositoryPage(): void {
+    // 页头复用第一页的标题排版 (同一个 `.codex-settings-title` 契约), 只是把
+    // 纯文本标题换成「返回箭头 + 标题」, 让翻页可逆且视觉同级。
+    const header = document.createElement("div");
+    header.className = "agent-thread-card__codex-settings-title";
+    header.classList.add("agent-thread-card__codex-settings-header");
+
+    const backButton = document.createElement("button");
+    backButton.type = "button";
+    backButton.className = "agent-thread-card__codex-settings-back";
+    backButton.setAttribute("aria-label", this.t("agent.workspace.backToAccess"));
+    backButton.append(createChevronIcon("left"));
+    backButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      this.workspacePage = "access";
+      this.renderWorkspacePopover();
+      this.schedulePosition();
+      backButton.blur();
+    });
+    backButton.addEventListener("mousedown", (event) => event.stopPropagation());
+
+    const title = document.createElement("span");
+    title.className = "agent-thread-card__codex-settings-header-title";
+    title.textContent = this.t("agent.workspace.repositories");
+    header.append(backButton, title);
+    this.popover.append(header);
+
+    const repositories = this.getRepositories();
+    if (repositories.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "agent-thread-card__codex-settings-title";
+      empty.classList.add("agent-thread-card__codex-settings-empty");
+      empty.textContent = this.t("agent.workspace.repositoriesEmpty");
+      this.popover.append(empty);
+    } else {
+      repositories.forEach((repository) => {
+        this.popover.append(this.createRepositoryItem(repository));
+      });
+    }
+
+    // 「添加仓库」用第一页「管理仓库」同款的 settings 行契约 (左对齐 + 弱化色
+    // + 右侧箭头位置放加号), 保持两页的收尾动作样式一致。
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className =
+      "agent-thread-card__codex-settings-item agent-thread-card__codex-settings-settings";
+    addButton.setAttribute("role", "menuitem");
+    addButton.setAttribute("aria-label", this.t("agent.workspace.addRepository"));
+    const addLabel = document.createElement("span");
+    addLabel.className = "agent-thread-card__codex-settings-item-label";
+    addLabel.textContent = this.t("agent.workspace.addRepository");
+    const addIcon = createPlusIcon();
+    addIcon.setAttribute("class", "agent-thread-card__codex-settings-settings-chevron");
+    addButton.append(addLabel, addIcon);
+    addButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void this.addRepository();
+    });
+    addButton.addEventListener("mousedown", (event) => event.stopPropagation());
+    this.popover.append(addButton);
+  }
+
+  /** 仓库列表的数据源: 当前笔记本的 add-dirs, 叠加全局 entries 的元数据。 */
+  private getRepositories(): Array<{ path: string; name: string; missing: boolean }> {
+    const config = useAgentAccessStore.getState().config;
+    const instance = this.getInstanceId()
+      ? useAgentSessionStore.getState().getInstance(this.getInstanceId()!)
+      : undefined;
+    const runtimeConfig = instance?.runtimeConfig;
+    const memoState = useMemoStore.getState();
+    const configuredNotebookId = runtimeConfig?.notebookId;
+    const notebook =
+      (configuredNotebookId
+        ? memoState.notebooks.find((item) => item.id === configuredNotebookId)
+        : null) ?? memoState.selectedNotebook;
+    const notebookId = configuredNotebookId ?? notebook?.id;
+    const files = resolveNotebookAgentFiles(
+      config,
+      useAgentAccessStore.getState().notebookConfigs,
+      notebookId,
+    );
+    return (files?.folders ?? []).map((path) => {
+      const key = normalizeWorkspacePath(path).toLowerCase();
+      const entry = config.entries.find(
+        (item) => normalizeWorkspacePath(item.path).toLowerCase() === key,
+      );
+      const trimmed = path.replace(/[\\/]+$/, "");
+      return {
+        path,
+        name: entry?.name?.trim() || trimmed.split(/[\\/]/).pop() || trimmed,
+        // 全局 entries 里已经没有这条 path 时按缺失处理, 但行仍然显示, 让用户
+        // 能把它从列表里删掉, 而不是留一条看不见的脏数据。
+        missing: entry ? entry.missing === true : true,
+      };
+    });
+  }
+
+  /**
+   * 仓库行 ── 与第一页目录行共用 `.codex-settings-item` 的排版契约 (高度 /
+   * 内边距 / 圆角 / hover 底色), 但**不是 button**。
+   *
+   * 两个原因:
+   * 1. 行本身没有动作, 唯一的动作是行内删除按钮。若行是 `<button>`, 内层再放
+   *    一个 `<button>` 属于非法嵌套 —— HTML 解析器会把内层按钮"弹出"到外层
+   *    之后 (经 `innerHTML` 往返即复现), 删除入口会脱离行布局。
+   * 2. `disabled` / `readOnly` 行会把行内按钮一起移出可交互树, 删除就点不动。
+   *
+   * 所以这里用 `div` 承载排版, 行内只有"名称 + 删除按钮"两个兄弟节点。
+   */
+  private createRepositoryItem(repository: {
+    path: string;
+    name: string;
+    missing: boolean;
+  }): HTMLElement {
+    const item = document.createElement("div");
+    // 只挂自己的类 ── 不再叠加 `.codex-settings-item`, 避免两条同为 0-2-0 的
+    // 规则靠源码顺序争夺 hover 底色 (见 markdown.css 里仓库行的说明)。
+    item.className = "agent-thread-card__codex-settings-repository";
+    item.setAttribute("role", "menuitem");
+    item.title = repository.path;
+
+    const content = document.createElement("span");
+    content.className = "agent-thread-card__codex-settings-item-content";
+    const label = document.createElement("span");
+    label.className = "agent-thread-card__codex-settings-item-label";
+    label.textContent = repository.name;
+    content.append(label);
+    if (repository.missing) {
+      const description = document.createElement("span");
+      description.className = "agent-thread-card__codex-settings-item-description";
+      description.textContent = this.t("agent.access.pathMissing");
+      content.append(description);
+    }
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "agent-thread-card__codex-settings-repository-remove";
+    remove.setAttribute(
+      "aria-label",
+      this.t("agent.workspace.removeRepository", { name: repository.name }),
+    );
+    remove.append(createTrashIcon());
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void this.removeRepository(repository.path, repository.name);
+    });
+    remove.addEventListener("mousedown", (event) => event.stopPropagation());
+
+    item.append(content, remove);
+    return item;
+  }
+
+  private async addRepository(): Promise<void> {
+    const result = await useAgentAccessStore.getState().addFolderFromPicker();
+    if (!result.ok) {
+      if (result.code === "already-tracked") {
+        this.toast?.("error", this.t("agent.access.alreadyTracked"));
+      } else if (result.code === "save-failed") {
+        this.toast?.("error", this.t("agent.access.saveFailed"));
+      }
+      return;
+    }
+    const notebookId = this.getRepositoryScopeNotebookId();
+    if (!notebookId) {
+      // 没有笔记本作用域时, 全局授权条目仍然保留, 但没有 add-dir 列表可写。
+      this.rerenderRepositories();
+      return;
+    }
+    // picker 返回前已经 loadInitial 过一次, 所以要用最新 store 状态解析, 而不
+    // 是复用这次渲染的闭包快照。
+    const latest = useAgentAccessStore.getState();
+    const latestFiles = resolveNotebookAgentFiles(
+      latest.config,
+      latest.notebookConfigs,
+      notebookId,
+    );
+    const key = normalizeWorkspacePath(result.entry.path).toLowerCase();
+    if (
+      (latestFiles?.folders ?? []).some(
+        (path) => normalizeWorkspacePath(path).toLowerCase() === key,
+      )
+    ) {
+      this.toast?.("info", this.t("agent.access.folderExists"));
+      this.rerenderRepositories();
+      return;
+    }
+    const saved = await latest.setDefaultFiles(notebookId, {
+      folders: [...(latestFiles?.folders ?? []), result.entry.path],
+      notebooks: latestFiles?.notebooks ?? [],
+    });
+    if (!saved) {
+      this.toast?.("error", this.t("agent.access.saveFailed"));
+      return;
+    }
+    this.rerenderRepositories();
+  }
+
+  private async removeRepository(path: string, name: string): Promise<void> {
+    const notebookId = this.getRepositoryScopeNotebookId();
+    if (!notebookId) return;
+    const state = useAgentAccessStore.getState();
+    const files = resolveNotebookAgentFiles(state.config, state.notebookConfigs, notebookId);
+    const nextFolders = (files?.folders ?? []).filter((item) => item !== path);
+    const saved = await state.setDefaultFiles(notebookId, {
+      folders: nextFolders,
+      notebooks: files?.notebooks ?? [],
+    });
+    if (!saved) {
+      this.toast?.("error", this.t("agent.access.saveFailed"));
+      return;
+    }
+    this.toast?.("success", this.t("agent.access.folderDeleted", { name }));
+    this.rerenderRepositories();
+  }
+
+  /** 增删后重绘当前页 ── 行数与高度都会变, 所以定位也要跟着重算。 */
+  private rerenderRepositories(): void {
+    if (!this.open || this.popover.hidden) return;
+    this.renderWorkspacePopover();
+    this.schedulePosition();
+  }
+
+  private getRepositoryScopeNotebookId(): string | undefined {
+    const instance = this.getInstanceId()
+      ? useAgentSessionStore.getState().getInstance(this.getInstanceId()!)
+      : undefined;
+    const runtimeConfig = instance?.runtimeConfig;
+    const state = normalizeConversationWorkspaceState(runtimeConfig);
+    const snapshot = state?.applied ?? state?.desired ?? runtimeConfig?.workspaceSnapshot;
+    const configuredNotebookId = runtimeConfig?.notebookId ?? snapshot?.notebookId;
+    if (configuredNotebookId) return configuredNotebookId;
+    return useMemoStore.getState().selectedNotebook?.id ?? undefined;
   }
 
   schedulePosition(): void {

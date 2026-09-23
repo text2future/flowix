@@ -18,6 +18,44 @@ pub struct SystemData {
 pub struct SystemFile {
     #[serde(default)]
     pub tag: TagSystemData,
+    /// Agent 空状态「添加常用笔记」的筛选条件 (笔记属性 key / 条件 / value)。
+    #[serde(default)]
+    pub featured_notes: FeaturedNotesSystemData,
+}
+
+/// 常用笔记筛选配置, 按 notebook id 存放。
+///
+/// 与 `TagSystemData` 同构: 同一个 `.flowix/system.json` 里按 notebook id 分桶,
+/// 这样多个注册项共用一个文件夹时也不会互相覆盖。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeaturedNotesSystemData {
+    #[serde(default)]
+    pub notebooks: HashMap<String, NotebookFeaturedNotesData>,
+}
+
+/// 单个笔记本的常用笔记筛选配置。
+///
+/// 后端不定义默认条件 —— 空数组原样返回, 由前端回落, 避免两端各写一份默认值
+/// 而漂移。字段全部 `#[serde(default)]` 以便旧文件缺失该段时仍能读取。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookFeaturedNotesData {
+    /// 多条条件之间是并集关系: 命中任意一条即视为常用笔记。
+    #[serde(default)]
+    pub conditions: Vec<FeaturedNoteConditionData>,
+}
+
+/// 单条常用笔记筛选条件。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeaturedNoteConditionData {
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub operator: String,
+    #[serde(default)]
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -294,10 +332,74 @@ mod tests {
         );
         let file = SystemFile {
             tag: TagSystemData { notebooks },
+            featured_notes: Default::default(),
         };
         SystemData::write_notebook(&root, &file).unwrap();
         let loaded = SystemData::read_notebook(&root).unwrap().unwrap();
         assert_eq!(loaded.tag.notebooks["nb-1"].hidden, ["tag/hidden"]);
+    }
+
+    #[test]
+    fn featured_notes_round_trip_alongside_tag_metadata() {
+        // 两个段共用同一个 system.json: 写 featuredNotes 不能丢掉 tag 段, 反之亦然。
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(&root).unwrap();
+
+        let mut notebooks = HashMap::new();
+        notebooks.insert(
+            "nb-1".to_string(),
+            NotebookTagSystemData {
+                hidden: vec!["tag/hidden".to_string()],
+                ..Default::default()
+            },
+        );
+        let mut featured = HashMap::new();
+        featured.insert(
+            "nb-1".to_string(),
+            NotebookFeaturedNotesData {
+                conditions: vec![
+                    FeaturedNoteConditionData {
+                        key: "pin".to_string(),
+                        operator: "equals".to_string(),
+                        value: "true".to_string(),
+                    },
+                    FeaturedNoteConditionData {
+                        key: "type".to_string(),
+                        operator: "contains".to_string(),
+                        value: "skill".to_string(),
+                    },
+                ],
+            },
+        );
+        let file = SystemFile {
+            tag: TagSystemData { notebooks },
+            featured_notes: FeaturedNotesSystemData { notebooks: featured },
+        };
+        SystemData::write_notebook(&root, &file).unwrap();
+
+        let loaded = SystemData::read_notebook(&root).unwrap().unwrap();
+        assert_eq!(loaded.tag.notebooks["nb-1"].hidden, ["tag/hidden"]);
+        let conditions = &loaded.featured_notes.notebooks["nb-1"].conditions;
+        assert_eq!(conditions.len(), 2);
+        assert_eq!(conditions[0].key, "pin");
+        assert_eq!(conditions[0].operator, "equals");
+        assert_eq!(conditions[0].value, "true");
+        assert_eq!(conditions[1].key, "type");
+        assert_eq!(conditions[1].operator, "contains");
+        assert_eq!(conditions[1].value, "skill");
+    }
+
+    #[test]
+    fn missing_featured_notes_section_defaults_to_empty() {
+        // 旧文件没有 featuredNotes 段, 读取必须照常成功 (serde default)。
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(root.join(".flowix")).unwrap();
+        fs::write(root.join(".flowix/system.json"), r#"{"tag":{"notebooks":{}}}"#).unwrap();
+
+        let loaded = SystemData::read_notebook(&root).unwrap().unwrap();
+        assert!(loaded.featured_notes.notebooks.is_empty());
     }
 
     #[cfg(unix)]

@@ -15,6 +15,22 @@
   animation: flowix-onboarding-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/**
+ * macOS drag strip.
+ *
+ * The overlay is a fixed, full-window layer, so on macOS (Overlay title bar +
+ * hidden title) the traffic lights float over it with no native chrome to grab.
+ * This strip is the only drag surface that lets the user move the window.
+ * `-webkit-app-region: drag` is harmless in WebKit-based WebViews and keeps the
+ * behaviour consistent with the in-app title bars on other platforms.
+ */
+.flowix-onboarding__titlebar-mac {
+  flex: 0 0 auto;
+  height: 48px;
+  width: 100%;
+  -webkit-app-region: drag;
+}
+
 .flowix-onboarding__eyebrow {
   margin: 0 0 14px;
   color: var(--brand);
@@ -29,7 +45,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: min(100%, 640px);
-  margin: 0 auto clamp(16px, 2.5vw, 30px);
+  margin: 0 auto;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--onboarding-line);
 }
@@ -85,7 +101,7 @@
   flex-direction: column;
   width: 100%;
   min-height: 0;
-  padding: clamp(18px, 2.5vw, 38px) clamp(28px, 6vw, 96px) clamp(22px, 3vw, 44px);
+  padding: 0 clamp(28px, 6vw, 96px) clamp(22px, 3vw, 44px);
 }
 
 .flowix-onboarding__content {
@@ -826,7 +842,6 @@
   .flowix-onboarding__rail {
     gap: 6px;
     padding-bottom: 12px;
-    margin-bottom: 18px;
   }
 
   .flowix-onboarding__rail-item {
@@ -840,7 +855,13 @@
   }
 
   .flowix-onboarding__main {
-    padding: 20px 20px 26px;
+    padding: 0 20px 26px;
+  }
+
+  /* The window still needs a draggable top edge at narrow widths; keep the
+     strip but trim it so it does not eat scarce vertical space. */
+  .flowix-onboarding__titlebar-mac {
+    height: 36px;
   }
 
   .flowix-onboarding__content {

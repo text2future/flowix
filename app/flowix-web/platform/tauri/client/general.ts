@@ -276,6 +276,18 @@ export interface NotebookTagSystemMetadata {
   pinnedByParent: Record<string, string[]>;
 }
 
+/** 单条常用笔记筛选条件。字段可为空, 由前端回落/丢弃。 */
+export interface NotebookFeaturedNoteCondition {
+  key: string;
+  operator: string;
+  value: string;
+}
+
+/** 常用笔记筛选配置 (Agent 空状态)。conditions 之间是并集关系。 */
+export interface NotebookFeaturedNoteFilter {
+  conditions: NotebookFeaturedNoteCondition[];
+}
+
 // System metadata (backend ~/.flowix/boot/system.json).
 export const system = {
   getTagMetadata: (notebookId: string) =>
@@ -290,6 +302,15 @@ export const system = {
    */
   setTagPinned: (notebookId: string, parentId: string, pinned: string[]) =>
     invoke<void>('set_tag_system_pinned', { notebookId, parentId, pinned }),
+  /**
+   * Notebook-scoped metadata, stored in `<notebook>/.flowix/system.json`.
+   *
+   * 与 tag 元数据同文件不同段; 后端会校验 operator 枚举, 非法值直接报错。
+   */
+  getFeaturedNoteFilter: (notebookId: string) =>
+    invoke<NotebookFeaturedNoteFilter>('get_featured_note_filter', { notebookId }),
+  setFeaturedNoteFilter: (notebookId: string, filter: NotebookFeaturedNoteFilter) =>
+    invoke<void>('set_featured_note_filter', { notebookId, filter }),
 };
 
 // Memos

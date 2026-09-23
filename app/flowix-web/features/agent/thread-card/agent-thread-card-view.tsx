@@ -430,10 +430,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       getTypeKey: () => this.typeKey,
       getInstanceId: () => this.instanceId ?? undefined,
       getLanguage: () => this.language,
-      t: (key) => this.t(key),
+      t: (key, params) => this.t(key, params),
       isDestroyed: () => this.isDestroyed,
       isRunning: () => this.currentRuntimeView().isRunning,
       consumeOutsidePointer: consumeEditorPopoverDismissPointer,
+      // 常用笔记卡片 → 直接注入 composer 输入框, 与文档引用走同一条路径。
+      onSelectFeaturedNote: (ref) => this.injectMemoReference(ref),
+      toast: (kind, message) => toast[kind](message),
     });
     const composerModelButton = this.externalAgentSettings.createComposerModelButton();
     if (composerModelButton) {

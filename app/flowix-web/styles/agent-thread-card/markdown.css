@@ -827,9 +827,14 @@
 
 .markdown-editor .agent-thread-card__featured-notes-header[hidden],
 .markdown-editor .agent-thread-card__featured-notes-navigation[hidden],
-.markdown-editor .agent-thread-card__featured-notes-nav[hidden],
-.markdown-editor .agent-thread-card__featured-notes-settings[hidden],
-.markdown-editor .agent-thread-card__featured-notes-operator-menu[hidden] {
+.markdown-editor .agent-thread-card__featured-notes-nav[hidden] {
+  display: none;
+}
+
+/* 弹层与运算符菜单已挂到 document.body, 不再是 .markdown-editor 的后代,
+ * 必须单独列出, 否则 [hidden] 不生效、关闭后仍会显示。 */
+.agent-thread-card__featured-notes-settings[hidden],
+.agent-thread-card__featured-notes-operator-menu[hidden] {
   display: none;
 }
 
@@ -896,43 +901,92 @@
   outline-offset: 2px;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  z-index: 4;
-  width: min(280px, calc(100vw - 32px));
-  padding: 12px;
+/* 精选笔记设置弹层。
+ *
+ * 与 composer 的模型/权限弹窗同款: 元素被 append 到 document.body, 用 fixed +
+ * 视口坐标定位 (见 popover-position.ts)。这样弹层不受任何祖先的 overflow 裁剪,
+ * 也不受祖先层叠上下文限制, 空状态下不会再有"被下面输入框遮住"的问题。
+ *
+ * 注意: 因为不在 .markdown-editor 子树内, 这一组选择器都不带该前缀。 */
+.agent-thread-card__featured-notes-settings {
+  position: fixed;
+  /* top/left 由 JS 计算写入, 这里给初值避免首帧跳动。 */
+  top: 0;
+  left: 0;
+  z-index: 105;
+  /* 宽度贴合内容: 弹层内边距 8 + 边框 2 + 表单横向内缩 12 + 四列 325
+   * (112 + 75 + 112 + 26) + 列间距 30 = 377。仍按视口收窄, 避免窄窗口溢出。 */
+  width: min(377px, calc(100vw - 32px));
+  /* 内边距与圆角对齐 composer 的模型/权限弹窗 (.codex-settings-popover),
+   * 两个弹层视觉上属于同一族。 */
+  padding: 0.25rem;
   border: 1px solid var(--border-popup);
-  border-radius: 12px;
+  border-radius: 0.75rem;
   background: var(--card);
   color: var(--foreground);
-  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 28%);
-  transform: translateX(-50%);
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
 }
 
-.markdown-editor
-  .agent-thread-card__featured-notes-settings.agent-thread-card__featured-notes-settings--above {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-
-.markdown-editor .agent-thread-card__featured-notes-settings form,
-.markdown-editor .agent-thread-card__featured-notes-settings label {
+.agent-thread-card__featured-notes-settings form,
+.agent-thread-card__featured-notes-settings label {
   display: grid;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings form {
-  gap: 10px;
+/* 标题直接复用 .agent-thread-card__codex-settings-title 的默认样式与内边距
+ * (0.35rem 0.375rem) ── 弹层内边距已与权限弹窗一致 (0.25rem), 无需覆写。 */
+
+/* 表单只负责纵向堆叠「条件行 + 操作行」; 具体列宽在每一行内部定义。 */
+.agent-thread-card__featured-notes-settings form {
+  display: grid;
+  /* 左右内缩对齐标题 (.codex-settings-title 自带 0.375rem 横向内边距)。 */
+  padding: 0 0.375rem 0.25rem;
+  gap: 8px;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings label {
-  gap: 5px;
+.agent-thread-card__featured-notes-settings-rows {
+  display: grid;
+  gap: 8px;
+}
+
+/* 一条条件 = 属性 Key / 条件 / 值 / 删除 四个格子:
+ *
+ *   [输入框]  [选择]  [输入框]  [x]
+ *
+ * 列宽 ── 「条件」只是等值 / 包含 的短选择, 取 Key / 值 的一半;
+ * 末列是固定的删除按钮宽度。用固定宽度而不是 fr, 因为 fr 会把整行填满,
+ * 无法表达"输入框整体变窄"这个意图。 */
+.agent-thread-card__featured-notes-settings-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 112px)
+    minmax(0, 75px)
+    minmax(0, 112px)
+    26px;
+  align-items: center;
+  gap: 0 10px;
+}
+
+/* 只有一条条件时删除按钮是 hidden 的, 那一列以及它前面的列间距会白白空着。
+ * 这里让「值」列吃掉这份空间, 使输入框铺满到行尾。 */
+.agent-thread-card__featured-notes-settings-row:has(
+  > .agent-thread-card__featured-notes-settings-remove-condition[hidden]
+) {
+  grid-template-columns:
+    minmax(0, 112px)
+    minmax(0, 75px)
+    minmax(0, 1fr);
+  gap: 0 10px;
+}
+
+/* 字段标签文案已移除 (改用 placeholder), 因此 label 不再需要纵向 gap;
+ * 仅作为行内 grid 子项与点击聚焦载体存在。 */
+.agent-thread-card__featured-notes-settings label {
+  min-width: 0;
   color: var(--muted-foreground);
   font-size: 12px;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings input {
+.agent-thread-card__featured-notes-settings input {
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -945,22 +999,29 @@
   font-size: 14px;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings input:focus {
+.agent-thread-card__featured-notes-settings input:focus {
   border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
   outline: 2px solid color-mix(in srgb, var(--primary) 18%, transparent);
   outline-offset: 0;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-select {
+/* 标签文案改为 placeholder 后, 用弱化色保证"提示"而非"已填值"的观感。 */
+.agent-thread-card__featured-notes-settings input::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.agent-thread-card__featured-notes-operator-select {
   position: relative;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-trigger {
+.agent-thread-card__featured-notes-operator-trigger {
   display: flex;
   width: 100%;
   height: 34px;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -970,34 +1031,46 @@
   cursor: pointer;
 }
 
-.markdown-editor
-  .agent-thread-card__featured-notes-operator-select[data-state="open"]
+/* 「条件」列收窄后, 英文选项 (Excludes) 可能长于按钮可用宽度; 截断而不是换行,
+ * 保持 34px 固定高度。完整文案仍可在展开的下拉窗里看到。 */
+.agent-thread-card__featured-notes-operator-trigger > span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-card__featured-notes-operator-select[data-state="open"]
   .agent-thread-card__featured-notes-operator-trigger {
   border-color: var(--primary);
 }
 
-.markdown-editor
-  .agent-thread-card__featured-notes-operator-trigger
+.agent-thread-card__featured-notes-operator-trigger
   .agent-thread-card__chevron-icon {
   width: 16px;
   height: 16px;
+  /* 文字截断时不被压缩, 保证箭头始终可见。 */
+  flex: 0 0 auto;
   transition: transform 120ms ease;
 }
 
-.markdown-editor
-  .agent-thread-card__featured-notes-operator-select[data-state="open"]
+.agent-thread-card__featured-notes-operator-select[data-state="open"]
   .agent-thread-card__chevron-icon {
   transform: rotate(180deg);
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-menu {
+.agent-thread-card__featured-notes-operator-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 2;
   display: grid;
-  width: 100%;
-  min-width: 180px;
+  /* 「条件」列已收窄到约 75px (见 form 的 2fr/1fr/2fr)。下拉窗不再强制等于
+   * 触发按钮宽度 ── 否则中文"包含"勉强、英文"Excludes"会被压到换行。改为
+   * 以触发按钮宽度为下限、按内容自然撑开。 */
+  min-width: 100%;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 32px));
   gap: 2px;
   padding: 6px;
   border: 1px solid var(--border-popup);
@@ -1006,7 +1079,7 @@
   box-shadow: 0 8px 20px -8px rgb(0 0 0 / 28%);
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-menu button {
+.agent-thread-card__featured-notes-operator-menu button {
   display: flex;
   width: 100%;
   min-height: 32px;
@@ -1022,35 +1095,48 @@
   cursor: pointer;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-menu button:hover,
-.markdown-editor .agent-thread-card__featured-notes-operator-menu button:focus-visible {
+.agent-thread-card__featured-notes-operator-menu button:hover,
+.agent-thread-card__featured-notes-operator-menu button:focus-visible {
   background: var(--hover-bg);
   outline: none;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-menu button > span {
+.agent-thread-card__featured-notes-operator-menu button > span {
   flex: 1;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-check {
+.agent-thread-card__featured-notes-operator-check {
   width: 16px;
   height: 16px;
   color: var(--brand);
   opacity: 0;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-operator-check.is-visible {
+.agent-thread-card__featured-notes-operator-check.is-visible {
   opacity: 1;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings-actions {
+.agent-thread-card__featured-notes-settings-actions {
   display: flex;
+  align-items: center;
+  /* 「添加条件」靠左, 取消/保存靠右。 */
   justify-content: flex-end;
   gap: 6px;
   padding-top: 2px;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings-actions button {
+/* 保存失败提示 ── 落盘是 IPC 调用, 失败时留在弹层内告知, 而不是静默关闭。 */
+.agent-thread-card__featured-notes-settings-error {
+  margin-top: 2px;
+  color: var(--destructive);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-thread-card__featured-notes-settings-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-height: 30px;
   padding: 0 11px;
   border: 1px solid var(--border);
@@ -1061,11 +1147,59 @@
   cursor: pointer;
 }
 
-.markdown-editor .agent-thread-card__featured-notes-settings-actions
+.agent-thread-card__featured-notes-settings-actions
   .agent-thread-card__featured-notes-settings-save {
   border-color: var(--primary);
   background: var(--primary);
   color: var(--primary-foreground);
+}
+
+/* 「添加条件」推到头, 与右侧的取消/保存拉开距离。 */
+.agent-thread-card__featured-notes-settings-add-condition {
+  margin-right: auto;
+  color: var(--muted-foreground);
+  border-color: transparent;
+}
+
+.agent-thread-card__featured-notes-settings-add-condition:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.agent-thread-card__featured-notes-settings-add-condition:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* 删除该条条件。单条时由 JS 置 hidden, 避免出现"零条件"状态。 */
+.agent-thread-card__featured-notes-settings-remove-condition {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.agent-thread-card__featured-notes-settings-remove-condition[hidden] {
+  display: none;
+}
+
+.agent-thread-card__featured-notes-settings-remove-condition:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.agent-thread-card__featured-notes-settings-remove-condition
+  .agent-thread-card__chevron-icon,
+.agent-thread-card__featured-notes-settings-remove-condition svg {
+  width: 14px;
+  height: 14px;
 }
 
 .markdown-editor .agent-thread-card__featured-notes-list {
@@ -1101,21 +1235,12 @@
   transition: color 140ms ease;
 }
 
-.markdown-editor .agent-thread-card__featured-note-top-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  min-height: 28px;
-}
-
 .markdown-editor .agent-thread-card__featured-note:hover {
   color: var(--primary);
 }
 
 .markdown-editor .agent-thread-card__featured-note:hover
-  .agent-thread-card__featured-note-description,
-.markdown-editor .agent-thread-card__featured-note:hover
-  .agent-thread-card__featured-note-try {
+  .agent-thread-card__featured-note-description {
   color: var(--primary);
 }
 
@@ -1126,28 +1251,30 @@
 
 .markdown-editor .agent-thread-card__featured-note-icon {
   display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 18px;
+  height: 18px;
+  /* 卡片是 stretch 的纵向 flex; 图标是直接子项, 需要显式靠左, 否则会被拉满整行。
+   * 高度方向固定 18px, 不受 stretch 影响。 */
+  flex: 0 0 18px;
+  align-self: flex-start;
   place-items: center;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--primary) 11%, var(--muted));
+  /* 无外框背景: 图标 (img / svg) 与 emoji 直接落在卡片底色上, 避免多出一个
+   * 色块与卡片本身的边框叠在一起。容器收紧到与图标同尺寸, 不再留内边距。 */
   color: var(--primary);
+  /* 与 18px 图形图标视觉齐平 (文本字形本身小于字号框)。 */
   font-size: 16px;
   line-height: 1;
 }
 
-.markdown-editor .agent-thread-card__featured-note-try {
-  display: inline-flex;
-  min-height: 26px;
-  align-items: center;
-  padding: 0 11px;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 999px;
-  color: var(--foreground);
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
+/* 图标值解析后可能是 <img> (属性图标)、<svg> (笔记本图标) 或纯文本 (emoji /
+ * 单字)。图形子元素铺满 18px 容器; object-fit 给内联 SVG 兜底, 避免按原始
+ * viewBox 撑破容器。 */
+.markdown-editor .agent-thread-card__featured-note-icon > img,
+.markdown-editor .agent-thread-card__featured-note-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .markdown-editor .agent-thread-card__featured-note-content {
@@ -1343,10 +1470,17 @@
   transition: background-color 120ms ease;
 }
 
+/* 菜单项 hover / 键盘聚焦 ── 底色用 `--hover-bg` (各主题下即 `--muted` 的浅
+ * 底)。
+ *
+ * 关键: 文字 / 图标一律**不跟着反色**。 所有 item 的前景色都是为浅色底调的
+ * (`--foreground` 深字、`--muted-foreground` 次级字), 一旦在这里翻成浅色
+ * (例如 `--primary-foreground`) 就会变成"浅字压浅底"而完全看不清。 所以
+ * hover 只换底色, 前景色全部保持静止态的值。 */
 .agent-thread-card__codex-settings-item:hover,
 .agent-thread-card__codex-settings-item:focus-visible {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
 }
 
 .agent-thread-card__codex-settings-item--readonly {
@@ -1356,8 +1490,8 @@
 
 .agent-thread-card__codex-settings-item--readonly:hover,
 .agent-thread-card__codex-settings-item--readonly:focus-visible {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -1365,7 +1499,7 @@
   .agent-thread-card__codex-settings-item-selected-label,
 .agent-thread-card__codex-settings-item--readonly:focus-visible
   .agent-thread-card__codex-settings-item-selected-label {
-  color: var(--primary-foreground);
+  color: var(--muted-foreground);
 }
 
 .agent-thread-card__codex-settings-settings {
@@ -1388,11 +1522,12 @@
   color: currentColor;
 }
 
+/* 行内说明文字 hover 时保持弱化色 ── 底是浅色, 不能再翻成浅色前景。 */
 .agent-thread-card__codex-settings-item:hover
   .agent-thread-card__codex-settings-item-description,
 .agent-thread-card__codex-settings-item:focus-visible
   .agent-thread-card__codex-settings-item-description {
-  color: var(--primary-foreground);
+  color: var(--muted-foreground);
 }
 
 .agent-thread-card__codex-settings-item-label {
@@ -1400,6 +1535,153 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── 仓库列表页 (「可访问」弹窗的第二页) ─────────────────────────────────
+ * 与第一页共用同一个弹窗容器, 只替换内容 ── 翻页不重建 popover, 所以定位、
+ * 外点关闭、焦点语义都不受影响。
+ *
+ * 行样式完全复用第一页的 `.codex-settings-item` 契约 (高度 / 内边距 / 圆角 /
+ * hover 底色), 让两页看起来是同一个菜单的不同层, 而不是两套设计。 */
+
+/* 页头 ── 返回按钮 + 标题。 标题复用 `.codex-settings-title` 的字号与颜色,
+ * 与第一页的「可访问」标题视觉同级。 */
+.agent-thread-card__codex-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0.35rem 0.375rem 0.35rem;
+}
+
+.agent-thread-card__codex-settings-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.agent-thread-card__codex-settings-back:hover,
+.agent-thread-card__codex-settings-back:focus-visible {
+  color: var(--foreground);
+  outline: none;
+}
+
+.agent-thread-card__codex-settings-back .agent-thread-card__chevron-icon {
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+}
+
+.agent-thread-card__codex-settings-header-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-card__codex-settings-empty {
+  padding: 12px 8px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ── 仓库行 ──────────────────────────────────────────────────────────────
+ *
+ * 独立样式, **不叠加** `.codex-settings-item`。
+ *
+ * 之前它复用 `.codex-settings-item` 再逐条覆盖, 结果基类的
+ * `background: transparent` 与基类 hover 的 `background: --hover-bg` 同为
+ * 0-2-0 特异性, 靠源码顺序决胜负 —— 仓库行位置更靠后, 于是 hover 底色被
+ * 静默吃掉。 这类"复合选择器 + 顺序竞争"已经在本文件里咬过两次, 所以这里
+ * 改为自持一套声明: 排版值从基类抄过来保持视觉一致, 状态色自己定义, 不再
+ * 存在任何覆盖链。
+ *
+ * 与基类的唯一差异: 这一行是 div 容器 (内含删除 button, 避免 button 嵌套),
+ * 且行本身没有动作, 所以 cursor 是 default 而不是 pointer。 */
+.agent-thread-card__codex-settings-repository {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 28px;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  line-height: 1.2;
+  text-align: left;
+  cursor: default;
+  transition: background-color 120ms ease;
+}
+
+/* hover / 键盘聚焦 ── 浅底 `--hover-bg`, 前景色不反色 (深字压浅底)。 */
+.agent-thread-card__codex-settings-repository:hover,
+.agent-thread-card__codex-settings-repository:focus-within {
+  background: var(--hover-bg);
+  color: var(--foreground);
+}
+
+/* 移除按钮 ── 复用 `.codex-settings-item` 的尺寸语言 (圆角 8px), 默认隐藏,
+ * 行 hover / 键盘聚焦时出现。 */
+.agent-thread-card__codex-settings-repository-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0;
+}
+
+/* 触摸设备没有 hover, 常显移除按钮, 否则用户无法发现删除入口。 */
+@media (hover: none) {
+  .agent-thread-card__codex-settings-repository-remove {
+    opacity: 1;
+  }
+}
+
+/* 行 hover / 键盘聚焦时浮出删除入口。 行底色是浅色 `--hover-bg`, 图标保持
+ * 弱化色即可 (与行内文字同层), 不反色。 */
+.agent-thread-card__codex-settings-repository:hover
+  .agent-thread-card__codex-settings-repository-remove,
+.agent-thread-card__codex-settings-repository:focus-within
+  .agent-thread-card__codex-settings-repository-remove,
+.agent-thread-card__codex-settings-repository-remove:focus-visible {
+  opacity: 1;
+}
+
+/* 删除入口自身 hover / focus 时改用破坏色, 表达"这个动作会删除"。 */
+.agent-thread-card__codex-settings-repository-remove:hover,
+.agent-thread-card__codex-settings-repository-remove:focus-visible {
+  color: var(--destructive);
+  outline: none;
+}
+
+.agent-thread-card__codex-settings-repository-remove
+  .agent-thread-card__trash-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .agent-thread-card__codex-settings-item-selected-label {
@@ -1435,11 +1717,12 @@
   color: var(--primary);
 }
 
+/* 选中勾选图标 hover 时保持主色 ── 浅底下 `--primary` 本身可读, 不必反色。 */
 .agent-thread-card__codex-settings-item:hover
   .agent-thread-card__copy-icon,
 .agent-thread-card__codex-settings-item:focus-visible
   .agent-thread-card__copy-icon {
-  color: var(--primary-foreground);
+  color: var(--primary);
 }
 
 /* DSH 模式选择器: 田字格双列布局, 每个 cell 内标题在上、副标题在下。

@@ -136,20 +136,19 @@ impl DeviceRegistry {
     }
 
     /// Whether the first-run workspace onboarding has been completed.
-    /// Keep development builds repeatable while still exercising the durable
-    /// release behavior.
+    ///
+    /// 与线上行为一致: 直接读 `boot.json`, 开发构建不再强制返回 false ——
+    /// 否则每次 `tauri:dev` 都会重走引导, 无法验证"完成一次后不再展示"。
+    /// 开发期想重现首次启动, 删掉 `~/.flowix/boot/boot.json` 里的
+    /// `is_onboarding_completed`(或整个文件) 即可。
     pub fn is_onboarding_completed(&self) -> bool {
-        if cfg!(debug_assertions) {
-            return false;
-        }
         self.read().is_onboarding_completed
     }
 
-    /// Persist onboarding completion. Debug builds deliberately write false so
-    /// every development launch remains a first-run launch.
+    /// Persist onboarding completion.
     pub fn set_onboarding_completed(&self, completed: bool) -> Result<(), String> {
         let mut boot = self.write();
-        boot.is_onboarding_completed = if cfg!(debug_assertions) { false } else { completed };
+        boot.is_onboarding_completed = completed;
         self.flush(&boot)
             .map_err(|error| format!("persist boot.json: {error}"))
     }
@@ -486,6 +485,47 @@ mod tests {
             .remove("is_onboarding_completed");
         let boot: BootFile = serde_json::from_value(value).unwrap();
         assert!(!boot.is_onboarding_completed);
+    }
+
+    #[test]
+    fn onboarding_completion_survives_reload() {
+        // 线上行为: 完成一次就落盘, 重新加载后不再展示引导。
+        // (回归保护: 曾经 debug 构建读写两端都强制 false, 导致 dev 每次重走引导。)
+        //
+        // 注意用 `tempfile::tempdir()` 而不是 `tempdir_path()`: 后者返回的裸路径
+        // 既不当文件建也不当目录建, 而 `flush()` 会在其下再建 `boot/` —— 一旦与
+        // 其它用例的时间戳撞车 (macOS 上 `timestamp_nanos` 分辨率不足以区分并发
+        // 用例), 就会出现 "文件已存在" / "Not a directory" 的偶发失败。
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let registry = DeviceRegistry::load(dir, "test-version");
+        assert!(!registry.is_onboarding_completed());
+
+        registry.set_onboarding_completed(true).unwrap();
+        assert!(registry.is_onboarding_completed());
+
+        let reloaded = DeviceRegistry::load(dir, "test-version");
+        assert!(
+            reloaded.is_onboarding_completed(),
+            "completion must be read back from boot.json, not reset per launch"
+        );
+
+        // 反向同样生效 (便于开发期手动重置)。
+        reloaded.set_onboarding_completed(false).unwrap();
+        assert!(!DeviceRegistry::load(dir, "test-version").is_onboarding_completed());
+    }
+
+    #[test]
+    fn intro_displayed_survives_reload() {
+        // 与 onboarding 同一条持久化路径, 一并锁住, 避免将来又被构建类型短路。
+        // 同上: 必须用独立临时目录, 不能复用 `tempdir_path()`。
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let registry = DeviceRegistry::load(dir, "test-version");
+        assert!(!registry.is_introduct_displayed());
+
+        registry.set_introduct_displayed(true).unwrap();
+        assert!(DeviceRegistry::load(dir, "test-version").is_introduct_displayed());
     }
 
     #[test]

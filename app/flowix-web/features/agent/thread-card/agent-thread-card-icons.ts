@@ -7,6 +7,7 @@ export const ICON_STOP_PATH =
 const ICON_CHEVRON_UP_PATH = "M6 15l6-6 6 6";
 const ICON_CHEVRON_DOWN_PATH = "M6 9l6 6 6-6";
 const ICON_CHEVRON_RIGHT_PATH = "M9 6l6 6-6 6";
+const ICON_CHEVRON_LEFT_PATH = "M15 6l-6 6 6 6";
 const ICON_CHECK_PATH = "M20 6 9 17 4 12";
 // Phosphor ArrowBendDownRight, regular weight.
 const ICON_ARROW_BEND_DOWN_RIGHT_PATH =
@@ -56,14 +57,16 @@ function appendStrokePath(svg: SVGSVGElement, pathData: string): SVGSVGElement {
 }
 
 export function createChevronIcon(
-  direction: "up" | "down" | "right",
+  direction: "up" | "down" | "right" | "left",
 ): SVGSVGElement {
   const pathData =
     direction === "up"
       ? ICON_CHEVRON_UP_PATH
-      : direction === "right"
-        ? ICON_CHEVRON_RIGHT_PATH
-        : ICON_CHEVRON_DOWN_PATH;
+      : direction === "left"
+        ? ICON_CHEVRON_LEFT_PATH
+        : direction === "right"
+          ? ICON_CHEVRON_RIGHT_PATH
+          : ICON_CHEVRON_DOWN_PATH;
   return appendStrokePath(
     createSvg("0 0 24 24", "agent-thread-card__chevron-icon"),
     pathData,

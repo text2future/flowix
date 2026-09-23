@@ -473,6 +473,9 @@ pub fn run() {
             commands::kv::set_tag_system_layout,
             commands::kv::set_tag_system_hidden,
             commands::kv::set_tag_system_pinned,
+            // Notebook-scoped metadata (<notebook>/.flowix/system.json)
+            commands::kv::get_featured_note_filter,
+            commands::kv::set_featured_note_filter,
             // 笔�? / Doc ── �?commands/memo/{reads,creates,versions,deletes}.rs
             // 瀛愭ā鍧楄矾寰勫彇, 涓嶈蛋 `commands::memo::xxx` 椤跺眰 re-export 鈹€鈹€
             // `#[tauri::command]` 宏生成的 `__cmd__xxx` wrapper �?��数所�?            // 模块的同�?macro, �?��在�?模块�?�� (`commands::memo::reads::xxx`)

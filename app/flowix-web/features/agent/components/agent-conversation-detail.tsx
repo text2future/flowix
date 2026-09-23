@@ -544,9 +544,14 @@ export function AgentConversationDetail({
       getTypeKey: () => typeKeyRef.current,
       getInstanceId: () => instanceRef.current?.instanceId,
       getLanguage: () => languageRef.current,
-      t: (key) => tRef.current(key),
+      t: (key, params) => tRef.current(key, params),
       isDestroyed: () => destroyedRef.current,
       isRunning: () => isLoadingRef.current || isDshCommandRunningRef.current || isCodexCommandRunningRef.current || submittingRef.current,
+      // 常用笔记卡片 → 注入 composer 输入框 (与角色选择器的文档引用同一路径)。
+      onSelectFeaturedNote: (ref) => {
+        composerControllerRef.current?.insertMemoReference(ref);
+      },
+      toast: (kind, message) => toast[kind](message),
     });
     externalSettingsRef.current = externalSettings;
     const composerModelButton = externalSettings.createComposerModelButton();
@@ -630,7 +635,7 @@ export function AgentConversationDetail({
             sessionId, runId: sessionId, timestamp: Date.now(),
           });
         },
-        t: (key) => tRef.current(key),
+      t: (key) => tRef.current(key),
         createThreadCacheSkeleton: () => createThreadCacheSkeleton(tRef.current('editor.threadCard.loadingThreadCache')),
         createExternalAgentEmptySettings: () => externalSettings.createEmptySettings(),
         onForkMessage: forkFromMessage,
