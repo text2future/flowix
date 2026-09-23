@@ -98,6 +98,16 @@ vi.mock("@platform/tauri/client", () => ({
     }]),
     sessionUsage: vi.fn(async () => null),
   },
+  // The DeepSeek Harness empty state probes for a newer runtime on render.
+  // Resolve with "no update" so the notice stays hidden; without this export
+  // the mocked module throws before the caller's .catch() can run.
+  dshIntegration: {
+    checkUpdate: vi.fn(async () => ({
+      currentVersion: null,
+      latestVersion: null,
+      updateAvailable: false,
+    })),
+  },
   listenToAgentStream: vi.fn(),
 }));
 
