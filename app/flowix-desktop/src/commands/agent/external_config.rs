@@ -9,11 +9,16 @@ use tauri::State;
 use crate::agent_external_config::{AgentExternalEntry, AgentExternalSource};
 use crate::app::state::AppState;
 
+const CODEX_VERSION_TOO_LOW_CODE: &str = "version-too-low";
+const CODEX_VERSION_TOO_LOW_REASON: &str = "Codex CLI version below 0.150.0";
+const MIN_CODEX_CLI_VERSION: (u64, u64, u64) = (0, 150, 0);
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRuntimeAvailability {
     available: bool,
     installed: bool,
+    reason_code: Option<String>,
     reason: Option<String>,
 }
 
@@ -60,8 +65,38 @@ fn external_availability(entry: AgentExternalEntry, label: &str) -> AgentRuntime
     AgentRuntimeAvailability {
         available,
         installed: available,
+        reason_code: None,
         reason,
     }
+}
+
+async fn codex_version_is_too_low() -> bool {
+    let Some(output) = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        crate::agent_external::codex::build_codex_entrypoint()
+            .arg("--version")
+            .output(),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok) else {
+        return false;
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = if stdout.trim().is_empty() {
+        stderr.trim()
+    } else {
+        stdout.trim()
+    };
+    let Some(version) = text.split_whitespace().find_map(|part| {
+        crate::agent_external::codex::parse_codex_version(part.trim_start_matches('v'))
+    }) else {
+        return false;
+    };
+
+    version < MIN_CODEX_CLI_VERSION
 }
 
 #[tauri::command]
@@ -73,7 +108,13 @@ pub async fn agent_runtime_status(
     let cfg = &state.agent_external_config;
     let mut codex = external_availability(cfg.get_entry("codex"), "Codex CLI");
     if codex.available {
-        codex.reason = crate::agent_external::codex::preflight_codex().err();
+        if codex_version_is_too_low().await {
+            codex.available = false;
+            codex.reason_code = Some(CODEX_VERSION_TOO_LOW_CODE.to_string());
+            codex.reason = Some(CODEX_VERSION_TOO_LOW_REASON.to_string());
+        } else {
+            codex.reason = crate::agent_external::codex::preflight_codex().err();
+        }
     }
     let claude = external_availability(cfg.get_entry("claude"), "Claude Code CLI");
     let hermes = external_availability(cfg.get_entry("hermes"), "Hermes Agent CLI");
@@ -83,6 +124,7 @@ pub async fn agent_runtime_status(
         AgentRuntimeAvailability {
             available: false,
             installed: false,
+            reason_code: None,
             reason: dsh_status
                 .message
                 .or_else(|| Some("DeepSeek Harness runtime is not installed".to_string())),
@@ -101,22 +143,26 @@ pub async fn agent_runtime_status(
                 AgentRuntimeAvailability {
                     available: true,
                     installed: true,
+                    reason_code: None,
                     reason: None,
                 }
             }
             Ok(configs) if configs.is_empty() => AgentRuntimeAvailability {
                 available: false,
                 installed: true,
+                reason_code: None,
                 reason: Some("No DeepSeek Harness model is configured".to_string()),
             },
             Ok(_) => AgentRuntimeAvailability {
                 available: false,
                 installed: true,
+                reason_code: None,
                 reason: Some("DeepSeek Harness has no usable model configuration".to_string()),
             },
             Err(error) => AgentRuntimeAvailability {
                 available: false,
                 installed: true,
+                reason_code: None,
                 reason: Some(format!("Could not read DeepSeek Harness models: {error}")),
             },
         }

@@ -444,6 +444,7 @@ pub fn run() {
             commands::settings::update_watcher_config,
             commands::boot::get_boot_features,
             commands::boot::set_boot_intro_displayed,
+            commands::boot::set_boot_onboarding_completed,
             commands::boot::get_startup_status,
             commands::boot::wait_for_startup_ready,
             commands::cloud::cloud_get_state,
@@ -498,6 +499,7 @@ pub fn run() {
             commands::memo::reads::get_launch_open_files,
             commands::memo::reads::search_memos,
             commands::memo::creates::add_document,
+            commands::memo::creates::create_memo_with_content,
             commands::memo::creates::import_external_document_to_memo,
             commands::memo::creates::rename_memo_title,
             commands::memo::creates::move_memo_to_directory,
@@ -524,6 +526,7 @@ pub fn run() {
             // notebook
             commands::notebook::get_notebooks,
             commands::notebook::get_default_notebook_path,
+            commands::notebook::ensure_default_notebook_path,
             commands::notebook::create_notebook,
             commands::notebook::create_notebook_from_cloud,
             commands::notebook::start_notebook_import,

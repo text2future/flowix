@@ -17,7 +17,7 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::{oneshot, Mutex};
 
 use super::command::{build_codex_entrypoint, preflight_codex, resolve_codex_cwd};
-use super::AGENT_TYPE;
+use super::{parse_codex_version, AGENT_TYPE};
 use crate::agent_external::lifecycle::ExternalLifecycleEmitter;
 use crate::agent_external::{
     emit_chunk_with_run_id, emit_chunk_with_run_id_and_metadata,
@@ -1914,11 +1914,13 @@ fn is_codex_goal_mutation_command(command: &str) -> bool {
 }
 
 async fn verify_paginated_codex_version() -> Result<(), String> {
-    let output = build_codex_entrypoint()
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|error| format!("Unable to read Codex CLI version: {error}"))?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        build_codex_entrypoint().arg("--version").output(),
+    )
+    .await
+    .map_err(|_| "Timed out reading Codex CLI version".to_string())?
+    .map_err(|error| format!("Unable to read Codex CLI version: {error}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let text = if stdout.trim().is_empty() {
@@ -1938,15 +1940,6 @@ async fn verify_paginated_codex_version() -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn parse_codex_version(value: &str) -> Option<(u64, u64, u64)> {
-    let stable = value.split('-').next()?;
-    let mut parts = stable.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    let patch = parts.next()?.parse().ok()?;
-    Some((major, minor, patch))
 }
 
 #[async_trait::async_trait]

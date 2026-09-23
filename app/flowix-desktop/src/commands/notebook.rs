@@ -166,6 +166,17 @@ pub fn get_default_notebook_path(name: String) -> Result<String, String> {
         .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
 }
 
+/// Resolve and create a product-owned default notebook directory. This is a
+/// separate command because the preview command above intentionally has no
+/// filesystem side effect.
+#[tauri::command]
+pub fn ensure_default_notebook_path(name: String) -> Result<String, String> {
+    default_notebook_path(name.trim())?
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
+}
+
 fn create_notebook_registry_with_id(
     name: &str,
     path: &str,
@@ -415,6 +426,7 @@ pub fn create_notebook(
     name: String,
     path: Option<String>,
     icon: Option<String>,
+    activate: Option<bool>,
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<Notebook, String> {
@@ -454,7 +466,13 @@ pub fn create_notebook(
         create_notebook_registry(trimmed_name, trimmed_path, icon, &memo_file)?
     };
     sync_notebook_agent_access(&config, state.inner(), &app);
-    activate_created_notebook(&config, state.inner(), &app)?;
+    if activate.unwrap_or(true) {
+        activate_created_notebook(&config, state.inner(), &app)?;
+    } else {
+        // The onboarding flow activates the notebook only after all steps are
+        // complete. Keep the new root watched without changing global state.
+        refresh_watcher_roots(state.inner(), &app);
+    }
     dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
 
     Ok(notebook_from_config(config))

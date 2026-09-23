@@ -48,6 +48,11 @@ pub struct BootFile {
     /// Keep the on-disk key in snake_case for the boot.json contract.
     #[serde(default, rename = "is_introduct_displayed")]
     pub is_introduct_displayed: bool,
+    /// Whether the first-run workspace onboarding has been completed.
+    /// Development builds intentionally keep this false so the flow can be
+    /// exercised on every launch.
+    #[serde(default, rename = "is_onboarding_completed")]
+    pub is_onboarding_completed: bool,
     #[serde(default)]
     pub user_info: UserInfo,
 }
@@ -126,6 +131,25 @@ impl DeviceRegistry {
     pub fn set_introduct_displayed(&self, displayed: bool) -> Result<(), String> {
         let mut boot = self.write();
         boot.is_introduct_displayed = displayed;
+        self.flush(&boot)
+            .map_err(|error| format!("persist boot.json: {error}"))
+    }
+
+    /// Whether the first-run workspace onboarding has been completed.
+    /// Keep development builds repeatable while still exercising the durable
+    /// release behavior.
+    pub fn is_onboarding_completed(&self) -> bool {
+        if cfg!(debug_assertions) {
+            return false;
+        }
+        self.read().is_onboarding_completed
+    }
+
+    /// Persist onboarding completion. Debug builds deliberately write false so
+    /// every development launch remains a first-run launch.
+    pub fn set_onboarding_completed(&self, completed: bool) -> Result<(), String> {
+        let mut boot = self.write();
+        boot.is_onboarding_completed = if cfg!(debug_assertions) { false } else { completed };
         self.flush(&boot)
             .map_err(|error| format!("persist boot.json: {error}"))
     }
@@ -275,6 +299,7 @@ impl DeviceRegistry {
             schema_version: BOOT_SCHEMA_VERSION,
             experimental: false,
             is_introduct_displayed: false,
+            is_onboarding_completed: false,
             user_info: UserInfo {
                 device_id: Uuid::new_v4(),
                 installed_at: Utc::now(),
@@ -407,6 +432,7 @@ mod tests {
         assert_eq!(b.schema_version, BOOT_SCHEMA_VERSION);
         assert!(!b.experimental);
         assert!(!b.is_introduct_displayed);
+        assert!(!b.is_onboarding_completed);
         assert!(!b.user_info.registered);
         assert_eq!(b.user_info.attempts, 0);
         assert!(b.user_info.registered_at.is_none());
@@ -419,9 +445,11 @@ mod tests {
         b.experimental = true;
         let s = serde_json::to_string(&b).unwrap();
         assert!(s.contains("\"is_introduct_displayed\":false"));
+        assert!(s.contains("\"is_onboarding_completed\":false"));
         let v: BootFile = serde_json::from_str(&s).unwrap();
         assert!(v.experimental);
         assert!(!v.is_introduct_displayed);
+        assert!(!v.is_onboarding_completed);
         assert_eq!(b.user_info.device_id, v.user_info.device_id);
         assert_eq!(b.user_info.installed_at, v.user_info.installed_at);
         assert_eq!(
@@ -447,6 +475,17 @@ mod tests {
             .remove("is_introduct_displayed");
         let boot: BootFile = serde_json::from_value(value).unwrap();
         assert!(!boot.is_introduct_displayed);
+    }
+
+    #[test]
+    fn missing_onboarding_completed_defaults_to_false() {
+        let mut value = serde_json::to_value(fresh_boot()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("is_onboarding_completed");
+        let boot: BootFile = serde_json::from_value(value).unwrap();
+        assert!(!boot.is_onboarding_completed);
     }
 
     #[test]

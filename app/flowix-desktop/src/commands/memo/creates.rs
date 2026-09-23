@@ -104,6 +104,59 @@ pub fn add_document(
     memo
 }
 
+#[tauri::command]
+pub fn create_memo_with_content(
+    title: String,
+    content: String,
+    notebook_id: String,
+    parent_relative_path: Option<String>,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<Memo, String> {
+    let title = title.trim();
+    if title.is_empty() || notebook_id.trim().is_empty() {
+        return Err("INVALID_INPUT".to_string());
+    }
+
+    let abs = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .preview_create_path_in_directory(
+            Some(notebook_id.as_str()),
+            parent_relative_path.as_deref(),
+            title,
+        )
+        .map_err(|error| format!("prepare memo failed: {error}"))?;
+    mark_self_write_for(&app, &abs);
+
+    let memo = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+        .create_memo_named_with_tag_in_directory(
+            Some(notebook_id.as_str()),
+            parent_relative_path.as_deref(),
+            title,
+            &content,
+            None,
+        )
+        .map_err(|error| format!("create memo failed: {error}"))?
+        .memo;
+
+    try_index_upsert(state.inner(), &memo.id);
+    if let Ok(resolved) =
+        MemoService::new(&read_lock(&state.memo_file, "memo_file")).resolve_memo(&memo.id)
+    {
+        mark_self_write_for(&app, &resolved.path);
+    }
+    memo_events::emit(
+        &app,
+        MemoEvent::Created {
+            memo: memo.clone(),
+            notebook_id: notebook_id_for_memo(state.inner(), &memo.id),
+            derived_changed: MemoDerivedChanged::from_memos(None, &memo),
+            source: MemoChangeSource::UserNew,
+        },
+    );
+
+    Ok(memo)
+}
+
 fn memo_template_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(USER_CONFIG_DIR_NAME).join("template"))
 }
