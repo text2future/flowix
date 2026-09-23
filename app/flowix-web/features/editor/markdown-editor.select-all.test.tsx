@@ -30,15 +30,20 @@ function pressSelectAll(editor: Editor, modifier: 'command' | 'control' = 'comma
   }));
 }
 
-function pasteClipboard(editor: Editor, text: string, html = ''): ClipboardEvent {
+function pasteClipboard(editor: Editor, text: string, html = '', markdown = ''): ClipboardEvent {
   const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
   Object.defineProperty(event, 'clipboardData', {
     value: {
-      types: html ? ['text/plain', 'text/html'] : ['text/plain'],
+      types: [
+        ...(markdown ? ['text/markdown'] : []),
+        ...(text ? ['text/plain'] : []),
+        ...(html ? ['text/html'] : []),
+      ],
       files: [],
       getData(type: string) {
         if (type === 'text/plain') return text;
         if (type === 'text/html') return html;
+        if (type === 'text/markdown') return markdown;
         return '';
       },
     },
@@ -476,6 +481,29 @@ describe('MarkdownEditor select all', () => {
     expect(editor!.getMarkdown()).toBe(initial);
   });
 
+  it('parses an explicit text/markdown clipboard payload as structured content', async () => {
+    let editor: Editor | null = null;
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content="Before"
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    act(() => {
+      editor!.commands.setTextSelection(editor!.state.doc.content.size - 1);
+      editor!.view.focus();
+      pasteClipboard(editor!, '', '', '## Pasted heading\n\n- Pasted item');
+    });
+
+    expect(editor!.getHTML()).toContain('<h2>Pasted heading</h2>');
+    expect(editor!.getHTML()).toContain('<li><p>Pasted item</p></li>');
+  });
+
   it('focuses the body editor for programmatic paste', async () => {
     let editor: Editor | null = null;
     const handle = createRef<MarkdownEditorHandle>();
@@ -494,9 +522,12 @@ describe('MarkdownEditor select all', () => {
     act(() => {
       handle.current?.pasteToBody?.({
         types: ['text/plain'],
+        markdown: '',
         text: 'Pasted body',
         html: '',
+        uriList: [],
         files: [],
+        sourceMime: 'text/plain',
       });
     });
 

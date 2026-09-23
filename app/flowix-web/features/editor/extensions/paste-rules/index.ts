@@ -40,9 +40,12 @@ export const ManagedPasteRules = Extension.create<{ memoId?: string }>({
               memoId: this.options.memoId,
               event,
               types: snapshot.types,
+              markdown: snapshot.markdown,
               text: snapshot.text,
               html: snapshot.html,
+              uriList: snapshot.uriList,
               files: snapshot.files,
+              sourceMime: snapshot.sourceMime,
             };
 
             const result = executeManagedPasteRules(ctx, rules);
@@ -91,13 +94,19 @@ export function pasteClipboardSnapshot(
     memoId,
     event,
     types: snapshot.types,
+    markdown: snapshot.markdown,
     text: snapshot.text,
     html: snapshot.html,
+    uriList: snapshot.uriList,
     files: snapshot.files,
+    sourceMime: snapshot.sourceMime,
   };
   const result = executeManagedPasteRules(ctx);
   if (result === 'handled') return true;
 
+  if (snapshot.markdown.trim().length > 0) {
+    return editor.view.pasteText(snapshot.markdown, event);
+  }
   if (snapshot.html.trim().length > 0) {
     return editor.view.pasteHTML(snapshot.html, event);
   }

@@ -6,6 +6,7 @@ export type PasteRuleResult = 'handled' | 'continue' | 'default';
 export type PasteKind =
   | 'files'
   | 'physical-path'
+  | 'markdown-mime'
   | 'asset-link'
   | 'loose-code-block'
   | 'markdown-table'
@@ -20,9 +21,12 @@ export interface PasteContext {
   memoId?: string;
   event: ClipboardEvent;
   types: string[];
+  markdown: string;
   text: string;
   html: string;
+  uriList: string[];
   files: File[];
+  sourceMime: string;
 }
 
 export interface ManagedPasteRule {

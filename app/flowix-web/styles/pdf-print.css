@@ -378,7 +378,8 @@
 
   /* Highlight: copied from editor.css. */
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror mark {
-    background-color: var(--document-highlight-bg);
+    background-color: var(--flowix-mark-bg, var(--flowix-default-mark-bg));
+    color: var(--flowix-mark-fg, inherit);
     border-radius: 0.15rem;
     padding: 0.1rem 0.2rem;
   }

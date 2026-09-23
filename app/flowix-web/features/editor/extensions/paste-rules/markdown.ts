@@ -9,14 +9,26 @@ export const FENCED_CODE_BLOCK_RE = /(^|\r?\n)(```|~~~)[^\r\n]*\r?\n[\s\S]*?\r?\
 
 const MARKDOWN_BLOCK_PATTERNS: RegExp[] = [
   /(^|\r?\n)#{1,6}\s+\S/,
+  /(^|\r?\n)\s{0,3}=+\s*(?:\r?\n|$)/,
   /(^|\r?\n)\s{0,3}[-*+]\s+\S/,
   /(^|\r?\n)\s{0,3}\d+[.)]\s+\S/,
   /(^|\r?\n)\s{0,3}[-*+]\s+\[[ xX]\]\s+/,
-  /(^|\r?\n)>\s+/,
+  /(^|\r?\n)\s{0,3}>\s*\S/,
   /(^|\r?\n)```/,
   /(^|\r?\n)~~~/,
-  /(^|\r?\n)\s{0,3}[-*_]{3,}\s*(?:\r?\n|$)/,
+  /(^|\r?\n)\s{0,3}(?:[-*_]\s*){3,}(?:\r?\n|$)/,
+  /(^|\r?\n)(?: {4}|\t)\S/,
   /(^|\r?\n)\|.*\|/,
+];
+
+const MARKDOWN_INLINE_PATTERNS: RegExp[] = [
+  /(^|[^\\])(?:\*\*|__)[^\r\n]+?(?:\*\*|__)/,
+  /(^|[^\\])(?:\*|_)[^\r\n]+?(?:\*|_)/,
+  /(^|[^\\])`[^`\r\n]+`/,
+  /(^|[^\\])~~[^~\r\n]+~~/,
+  /!?\[[^\]\r\n]+\]\([^\)\r\n]+\)/,
+  /!?\[[^\]\r\n]+\]\[[^\]\r\n]+\]/,
+  /<(?:https?:\/\/|mailto:)[^ >]+>/i,
 ];
 
 const MARKDOWN_TABLE_SEPARATOR_RE = /^:?-{3,}:?$/;
@@ -33,6 +45,11 @@ function splitMarkdownTableLine(line: string): string[] {
 
 export function looksLikeMarkdownBlock(text: string): boolean {
   return MARKDOWN_BLOCK_PATTERNS.some(pattern => pattern.test(text));
+}
+
+export function looksLikeMarkdown(text: string): boolean {
+  return looksLikeMarkdownBlock(text)
+    || MARKDOWN_INLINE_PATTERNS.some(pattern => pattern.test(text));
 }
 
 export function hasLeadingFrontmatter(text: string): boolean {
@@ -74,7 +91,14 @@ function normalizeCodeMarks(node: JSONContent, parentType?: string): JSONContent
   return normalized;
 }
 
-export function parseMarkdownForPaste(markdown: string, editor: Editor): ParsedPasteContent {
-  const parsed = editor.markdown?.parse(normalizeLooseCodeBlocks(markdown));
+export function parseMarkdownForPaste(
+  markdown: string,
+  editor: Editor,
+  options: { normalizeLooseCodeBlocks?: boolean } = {},
+): ParsedPasteContent {
+  const source = options.normalizeLooseCodeBlocks === false
+    ? markdown
+    : normalizeLooseCodeBlocks(markdown);
+  const parsed = editor.markdown?.parse(source);
   return parsed ? normalizeCodeMarks(parsed) : markdown;
 }

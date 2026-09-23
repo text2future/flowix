@@ -75,7 +75,7 @@ function stripFirstHtmlLine(html: string, titleLine: string): string | null {
 }
 
 export function splitClipboardForTitlePaste(snapshot: ClipboardSnapshot): TitlePasteSplit | null {
-  const normalizedText = snapshot.text.replace(/\r\n?/g, '\n');
+  const normalizedText = (snapshot.text || snapshot.markdown).replace(/\r\n?/g, '\n');
   const newline = normalizedText.indexOf('\n');
   if (newline < 0) return null;
 
@@ -83,6 +83,11 @@ export function splitClipboardForTitlePaste(snapshot: ClipboardSnapshot): TitleP
   if (titleLine.trim().length === 0) return null;
 
   const bodyText = normalizedText.slice(newline + 1);
+  const normalizedMarkdown = snapshot.markdown.replace(/\r\n?/g, '\n');
+  const markdownNewline = normalizedMarkdown.indexOf('\n');
+  const bodyMarkdown = markdownNewline >= 0
+    ? normalizedMarkdown.slice(markdownNewline + 1)
+    : '';
   const bodyHtml = snapshot.html.trim().length > 0
     ? stripFirstHtmlLine(snapshot.html, titleLine)
     : null;
@@ -92,6 +97,7 @@ export function splitClipboardForTitlePaste(snapshot: ClipboardSnapshot): TitleP
     body: {
       ...snapshot,
       text: bodyText,
+      markdown: bodyMarkdown,
       // A failed HTML split must not reinsert the original title. The plain
       // text fallback still enters the normal Markdown/Tiptap paste pipeline.
       html: bodyHtml ?? '',

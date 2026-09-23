@@ -21,7 +21,11 @@ import {
 } from '@features/editor/extensions/paste-rules/code-block-detector';
 import { isStandaloneHtmlTable } from '@features/editor/extensions/paste-rules/html';
 import { isInternalEditorHtml, sanitizeExternalHtml } from '@features/editor/extensions/paste-rules/html-sanitizer';
-import { containsMarkdownTable, hasLeadingFrontmatter } from '@features/editor/extensions/paste-rules/markdown';
+import {
+  containsMarkdownTable,
+  hasLeadingFrontmatter,
+  looksLikeMarkdown,
+} from '@features/editor/extensions/paste-rules/markdown';
 import {
   htmlTableToTableContent,
   looksLikeTsvTable,
@@ -68,6 +72,32 @@ describe('paste rule helpers', () => {
     } as unknown as DataTransfer;
 
     expect(readClipboardSnapshot(data).text).toBe('https://example.com/page');
+  });
+
+  it('reads explicit Markdown MIME data and keeps it as the preferred payload', () => {
+    const data = {
+      types: ['text/markdown', 'text/plain', 'text/html'],
+      files: [],
+      getData(type: string) {
+        if (type === 'text/markdown') return '## Markdown heading\n\n**body**';
+        if (type === 'text/plain') return 'Markdown heading\n\nbody';
+        if (type === 'text/html') return '<h2>Markdown heading</h2><p><strong>body</strong></p>';
+        return '';
+      },
+    } as unknown as DataTransfer;
+
+    expect(readClipboardSnapshot(data)).toMatchObject({
+      markdown: '## Markdown heading\n\n**body**',
+      text: 'Markdown heading\n\nbody',
+      sourceMime: 'text/markdown',
+    });
+  });
+
+  it('detects Markdown syntax that previously bypassed the block heuristic', () => {
+    expect(looksLikeMarkdown('Setext heading\n===')).toBe(true);
+    expect(looksLikeMarkdown('    indented code')).toBe(true);
+    expect(looksLikeMarkdown('__strong__')).toBe(true);
+    expect(looksLikeMarkdown('* * *')).toBe(true);
   });
 
   it('detects and converts TSV tables without forcing a header row', () => {
@@ -318,6 +348,7 @@ describe('paste rule helpers', () => {
     expect(createManagedPasteRules().map(rule => rule.id)).toEqual([
       'files',
       'physical-memo-path',
+      'markdown-mime',
       'asset-markdown-link',
       'loose-code-block',
       'markdown-table',

@@ -13,6 +13,7 @@ import {
 import { Tooltip } from '@shared/ui/tooltip';
 import { openLinkEditPopup } from '@features/editor/components/link-edit-popup';
 import { useI18n } from '@/lib/i18n';
+import { FlowixHighlightPalette } from '@features/editor/components/flowix-highlight-palette';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -67,6 +68,7 @@ const iconButtonStyle: React.CSSProperties = {
 export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorToolbarProps) {
   const { t } = useI18n();
   const [state, setState] = useState<ToolbarState>(INITIAL_STATE);
+  const [highlightPaletteOpen, setHighlightPaletteOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
 
   useEffect(() => {
@@ -248,15 +250,30 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
           </button>
         </Tooltip>
 
-        <button
-          className={`toolbar-button ${state.highlight ? 'active' : ''}`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleHighlight().run()}
-          type="button"
-          style={iconButtonStyle}
-        >
-          <HighlighterIcon size={18} weight="bold" />
-        </button>
+        <DropdownMenu open={highlightPaletteOpen} onOpenChange={setHighlightPaletteOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              className={`toolbar-button ${state.highlight ? 'active' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              type="button"
+              style={iconButtonStyle}
+              aria-label={t('editor.bubble.highlight')}
+              title={t('editor.bubble.highlight')}
+            >
+              <HighlighterIcon size={18} weight="bold" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            sideOffset={5}
+            align="center"
+            className="editor-highlight-palette__menu"
+          >
+            <FlowixHighlightPalette
+              editor={editor}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="toolbar-divider" />
 

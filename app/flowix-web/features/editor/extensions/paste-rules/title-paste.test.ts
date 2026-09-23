@@ -5,11 +5,14 @@ import { splitClipboardForTitlePaste } from './title-paste';
 function snapshot(overrides: Partial<ClipboardSnapshot>): ClipboardSnapshot {
   return {
     types: ['text/plain', 'text/html'],
+    markdown: '',
     text: '',
     html: '',
+    uriList: [],
     files: [],
+    sourceMime: 'text/plain',
     ...overrides,
-  };
+  } as ClipboardSnapshot;
 }
 
 describe('splitClipboardForTitlePaste', () => {
@@ -29,5 +32,18 @@ describe('splitClipboardForTitlePaste', () => {
     expect(splitClipboardForTitlePaste(snapshot({
       text: '\nBody',
     }))).toBeNull();
+  });
+
+  it('keeps the Markdown payload on the body side of a Markdown-only paste', () => {
+    const result = splitClipboardForTitlePaste(snapshot({
+      types: ['text/markdown'],
+      markdown: 'Title\n**Body**',
+      text: '',
+      sourceMime: 'text/markdown',
+    }));
+
+    expect(result?.titleLine).toBe('Title');
+    expect(result?.body.text).toBe('**Body**');
+    expect(result?.body.markdown).toBe('**Body**');
   });
 });

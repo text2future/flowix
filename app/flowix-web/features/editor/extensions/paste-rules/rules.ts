@@ -10,7 +10,7 @@ import {
   containsMarkdownTable,
   FENCED_CODE_BLOCK_RE,
   hasLeadingFrontmatter,
-  looksLikeMarkdownBlock,
+  looksLikeMarkdown,
   parseMarkdownForPaste,
 } from '@features/editor/extensions/paste-rules/markdown';
 import { HTML_TABLE_RE, isStandaloneHtmlTable } from '@features/editor/extensions/paste-rules/html';
@@ -44,8 +44,12 @@ function insertPastedContent(content: JSONContent | string, editor: Editor): boo
     .run();
 }
 
-function insertMarkdownPaste(markdown: string, editor: Editor): boolean {
-  const parsed = parseMarkdownForPaste(markdown, editor);
+function insertMarkdownPaste(
+  markdown: string,
+  editor: Editor,
+  options: { normalizeLooseCodeBlocks?: boolean } = {},
+): boolean {
+  const parsed = parseMarkdownForPaste(markdown, editor, options);
   return mergePastedFrontmatterIntoExisting(parsed, editor)
     || insertPastedContent(parsed, editor);
 }
@@ -122,6 +126,17 @@ export function createManagedPasteRules(options: {
         }, editor);
         return 'handled';
       },
+    },
+    {
+      id: 'markdown-mime',
+      kind: 'markdown-mime',
+      priority: 805,
+      match: ({ markdown }) => markdown.trim().length > 0,
+      run: ({ markdown, editor }) => insertMarkdownPaste(markdown, editor, {
+        normalizeLooseCodeBlocks: false,
+      })
+        ? 'handled'
+        : 'continue',
     },
     {
       id: 'asset-markdown-link',
@@ -203,7 +218,7 @@ export function createManagedPasteRules(options: {
       id: 'markdown-block',
       kind: 'markdown-block',
       priority: 600,
-      match: ({ text }) => !!text && (FENCED_CODE_BLOCK_RE.test(text) || looksLikeMarkdownBlock(text)),
+      match: ({ text }) => !!text && (FENCED_CODE_BLOCK_RE.test(text) || looksLikeMarkdown(text)),
       run: ({ text, editor }) => {
         const markdown = text.replace(/\r\n/g, '\n');
         return insertMarkdownPaste(markdown, editor)

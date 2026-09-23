@@ -3,7 +3,6 @@ import type { JSONContent } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
-import Highlight from '@tiptap/extension-highlight';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { ListItem } from '@tiptap/extension-list';
@@ -13,6 +12,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { AttachmentLink } from '@features/editor/extensions/attachment-link';
+import { FlowixHighlight } from '@features/editor/extensions/flowix-text-mark';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
 import { EditorToolbar } from '@features/editor/components/editor-toolbar';
 import { SelectionBubbleMenu } from '@features/editor/components/selection-bubble-menu';
@@ -940,7 +940,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         CodeBlockShiki.configure({ traceId: transitionId }),
         MathBlock,
         WebCard,
-        Highlight.configure({ multicolor: true }),
+        FlowixHighlight.configure({ multicolor: true }),
         TablePlugin,
         TaskList,
         PreservedTaskItem.configure({
