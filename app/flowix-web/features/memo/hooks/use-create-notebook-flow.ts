@@ -11,6 +11,7 @@ import {
 } from '@features/memo/hooks/create-notebook-flow-state';
 import { useMemoStore, useTagStore, type Notebook } from '@features/memo/store';
 import { clearWorkspaceDocument } from '@features/workspace/use-cases/workspace-navigation';
+import { createNotebookRegistration } from '@features/memo/services/notebook-creation-service';
 
 const NOTEBOOK_CREATE_SCAN_TIMEOUT_MS = 30_000;
 const NOTEBOOK_IMPORT_POLL_INTERVAL_MS = 500;
@@ -130,10 +131,14 @@ export function useCreateNotebookFlow({
       });
 
       try {
-        const pathForCreate = notebookPath ?? '';
-        const created = await (cloudNotebookId
-          ? notebookRepository.createFromCloud(cloudNotebookId, notebookName, pathForCreate, icon)
-          : notebookRepository.create(notebookName, notebookPath, icon)) as Notebook | null;
+        const registration = cloudNotebookId
+          ? {
+            notebook: await notebookRepository.createFromCloud(cloudNotebookId, notebookName, notebookPath ?? '', icon),
+            created: true,
+            needsImport: false,
+          }
+          : await createNotebookRegistration({ name: notebookName, path: notebookPath, icon });
+        const created = registration.notebook as Notebook | null;
 
         if (!created) {
           toast.error(t('memo.list.createFailed'));
@@ -159,7 +164,7 @@ export function useCreateNotebookFlow({
 
         if (cloudNotebookId) {
           setCreationState({ status: 'idle' });
-        } else {
+        } else if (registration.needsImport) {
           const generation = ++importMonitorGenerationRef.current;
           activeImportNotebookIdRef.current = created.id;
           setCreationState({ status: 'importing', notebookId: created.id });
@@ -173,6 +178,8 @@ export function useCreateNotebookFlow({
             setCreationState({ status: 'failed', message });
             toast.error(message);
           }
+        } else {
+          setCreationState({ status: 'idle' });
         }
 
         // The returned notebook is authoritative for the critical path. The

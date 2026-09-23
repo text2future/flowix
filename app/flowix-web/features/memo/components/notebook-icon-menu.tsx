@@ -10,7 +10,7 @@ import {
 } from '@shared/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
 import { ArrowLeftToLine, ArrowRightToLine } from 'lucide-react';
-import { PREFERENCE_TAB_GROUPS } from '@features/preferences/preferences-tab-config';
+import { PREFERENCE_TAB_GROUPS } from '@features/preferences/public/app-api';
 import { ShortcutKbd } from '@shared/ui/shortcut-kbd';
 import productLogo from '@/assets/productlogo.png';
 import { cn } from '@/lib/utils';

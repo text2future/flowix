@@ -254,10 +254,18 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
             }} />
         </div>
       ) : (
-        <div className="min-w-0 flex-[0_1_auto] truncate rounded px-0.5 py-1 text-sm font-semibold leading-none text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]" onDoubleClick={() => {
-          setTitleDraft(instance.title?.trim() || '');
-          setIsEditingTitle(true);
-        }}>{presentation.title}</div>
+        <div
+          className="min-w-0 flex-[0_1_auto] truncate rounded px-0.5 py-1 text-sm font-semibold leading-none text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] [-webkit-app-region:no-drag]"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setTitleDraft(instance.title?.trim() || '');
+            setIsEditingTitle(true);
+          }}
+        >
+          {presentation.title}
+        </div>
       )}
       <div className={`ml-auto flex shrink-0 items-center ${isWindows ? 'gap-2 pr-3' : 'gap-3 pr-3'}`}>
         {hasSourceDocument ? <>

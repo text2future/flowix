@@ -24,10 +24,21 @@ import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { useAgentSessionStore } from "@features/agent/store/agent-session-store";
 import { loadDshModelConfigs } from "@features/agent/store/dsh-model-config-store";
 import { useMemoStore } from "@features/memo/store/memo-store";
+import {
+  FEATURED_NOTE_MOBILE_PAGE_SIZE,
+  FEATURED_NOTE_PAGE_SIZE,
+  getFeaturedNotePage,
+  getFeaturedNotePageCountForSize,
+  loadAllFeaturedNoteCards,
+  readFeaturedNoteFilter,
+  writeFeaturedNoteFilter,
+  type FeaturedNoteCard,
+  type FeaturedNoteFilter,
+} from "@features/agent/thread-card/settings/featured-note-cards";
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
-import { agent, dshIntegration, windows } from "@platform/tauri/client";
+import { agent, dshIntegration, memos as memosClient, windows } from "@platform/tauri/client";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
   applyPopoverPosition,
@@ -42,14 +53,19 @@ import {
   updateExternalAgentEmptyControl,
   type ExternalAgentEmptyControlKind,
 } from "@features/agent/thread-card/settings/external-agent-settings";
-import { createChevronIcon } from "@features/agent/thread-card/agent-thread-card-icons";
+import {
+  createCheckIcon,
+  createChevronIcon,
+} from "@features/agent/thread-card/agent-thread-card-icons";
 import { openBrowserColumnFileBrowser } from "@features/workspace/use-cases/browser-column-navigation";
+import { openNoteByMemoId } from "@features/memo/use-cases/open-by-target";
 
 const CODEX_SETTINGS_POPOVER_WIDTH_PX = 212;
 const CODEX_SETTINGS_POPOVER_MAX_HEIGHT_PX = 280;
 const CODEX_SETTINGS_POPOVER_OFFSET_PX = 6;
 const CODEX_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
 const CODEX_SETTINGS_SUBMENU_GAP_PX = 4;
+const FEATURED_NOTES_MOBILE_QUERY = "(max-width: 767px)";
 
 type AgentModelOption = {
   id: AgentCodexModel;
@@ -140,6 +156,8 @@ export class ExternalAgentSettingsController {
   private localSupportedModelsTypeKey: AgentTypeKey | null = null;
   private localSupportedModels: AgentModelOption[] = [];
   private readonly unlistenCodexSettings: UnlistenFn;
+  private featuredNotesRequestId = 0;
+  private featuredNotesViewportCleanup: (() => void) | null = null;
 
   readonly boundPosition = (): void => {
     this.schedulePosition();
@@ -573,7 +591,376 @@ export class ExternalAgentSettingsController {
     ]) {
       if (button) controls.append(button);
     }
+    this.appendFeaturedNotes(empty);
     return empty;
+  }
+
+  private getCurrentNotebookId(): string | null {
+    const instanceId = this.getInstanceId();
+    const instance = instanceId
+      ? useAgentSessionStore.getState().getInstance(instanceId)
+      : undefined;
+    return instance?.runtimeConfig?.notebookId
+      ?? instance?.runtimeConfig?.workspaceSnapshot?.notebookId
+      ?? instance?.source.notebookId
+      ?? useMemoStore.getState().selectedNotebook?.id
+      ?? null;
+  }
+
+  private async appendFeaturedNotes(empty: HTMLElement): Promise<void> {
+    const notebookId = this.getCurrentNotebookId();
+    if (!notebookId) return;
+
+    this.featuredNotesViewportCleanup?.();
+    empty.querySelector(".agent-thread-card__featured-notes")?.remove();
+    const requestId = ++this.featuredNotesRequestId;
+    const filter = readFeaturedNoteFilter();
+    try {
+      const notes = await loadAllFeaturedNoteCards(
+        (cursor) => memosClient.getMemos({
+          notebookId,
+          filter: "all",
+          sort: "updatedAt",
+          cursor,
+          limit: 100,
+        }),
+        () => !this.isDestroyed() && requestId === this.featuredNotesRequestId,
+        filter,
+      );
+      if (this.isDestroyed() || requestId !== this.featuredNotesRequestId || !empty.isConnected) return;
+
+      let panel: HTMLElement;
+      panel = this.createFeaturedNotesElement(notes, filter, () => {
+        panel.remove();
+        void this.appendFeaturedNotes(empty);
+      });
+      empty.append(panel);
+    } catch {
+      // Featured notes are an enhancement to the empty state. A failed or
+      // unavailable memo query must never block starting a conversation.
+    }
+  }
+
+  private createFeaturedNotesElement(
+    notes: FeaturedNoteCard[],
+    filter: FeaturedNoteFilter,
+    onFilterChange: () => void,
+  ): HTMLElement {
+    const panel = document.createElement("section");
+    panel.className = "agent-thread-card__featured-notes";
+    panel.setAttribute("aria-label", this.t("editor.threadCard.featuredNotes"));
+
+    let currentPage = 0;
+    const mobileQuery = window.matchMedia(FEATURED_NOTES_MOBILE_QUERY);
+    const getPageSize = (): number => mobileQuery.matches
+      ? FEATURED_NOTE_MOBILE_PAGE_SIZE
+      : FEATURED_NOTE_PAGE_SIZE;
+
+    const navigation = document.createElement("div");
+    navigation.className = "agent-thread-card__featured-notes-navigation";
+    const previousButton = this.createFeaturedNotesNavigationButton(
+      "‹",
+      this.t("editor.threadCard.featuredNotes.previous"),
+    );
+    const nextButton = this.createFeaturedNotesNavigationButton(
+      "›",
+      this.t("editor.threadCard.featuredNotes.next"),
+    );
+    navigation.append(previousButton, nextButton);
+    const header = document.createElement("div");
+    header.className = "agent-thread-card__featured-notes-header";
+    const settingsButton = document.createElement("button");
+    settingsButton.type = "button";
+    settingsButton.className = "agent-thread-card__featured-notes-settings-button";
+    settingsButton.textContent = this.t("editor.threadCard.featuredNotes.settings");
+    settingsButton.setAttribute("aria-expanded", "false");
+    header.append(navigation);
+    panel.append(header);
+
+    const settingsFooter = document.createElement("div");
+    settingsFooter.className = "agent-thread-card__featured-notes-settings-footer";
+    settingsFooter.append(settingsButton);
+
+    const settingsPopover = this.createFeaturedNotesSettingsPopover(
+      filter,
+      (nextFilter) => {
+        writeFeaturedNoteFilter(nextFilter);
+        onFilterChange();
+      },
+    );
+    settingsFooter.append(settingsPopover);
+    const positionSettingsPopover = (): void => {
+      settingsPopover.classList.remove("agent-thread-card__featured-notes-settings--above");
+      const buttonRect = settingsButton.getBoundingClientRect();
+      const popoverRect = settingsPopover.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - buttonRect.bottom;
+      const spaceAbove = buttonRect.top;
+      settingsPopover.classList.toggle(
+        "agent-thread-card__featured-notes-settings--above",
+        spaceBelow < popoverRect.height + 8 && spaceAbove > spaceBelow,
+      );
+    };
+    const setSettingsOpen = (open: boolean): void => {
+      settingsPopover.hidden = !open;
+      settingsButton.setAttribute("aria-expanded", String(open));
+      if (open) {
+        positionSettingsPopover();
+        settingsPopover.querySelector<HTMLInputElement>("input")?.focus();
+      }
+    };
+    settingsButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setSettingsOpen(settingsButton.getAttribute("aria-expanded") !== "true");
+    });
+
+    const list = document.createElement("div");
+    list.className = "agent-thread-card__featured-notes-list";
+    panel.append(list);
+    panel.append(settingsFooter);
+
+    const renderPage = (): void => {
+      const pageSize = getPageSize();
+      const pageCount = getFeaturedNotePageCountForSize(notes.length, pageSize);
+      currentPage = Math.min(currentPage, pageCount - 1);
+      const pageNotes = getFeaturedNotePage(notes, currentPage, pageSize);
+      list.replaceChildren();
+      list.dataset.cardCount = String(pageNotes.length);
+      for (const note of pageNotes) {
+        list.append(this.createFeaturedNoteCard(note));
+      }
+      header.hidden = pageCount <= 1;
+      previousButton.disabled = currentPage === 0;
+      nextButton.disabled = currentPage >= pageCount - 1;
+      previousButton.hidden = pageCount <= 1;
+      nextButton.hidden = pageCount <= 1;
+    };
+
+    previousButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      currentPage = Math.max(0, currentPage - 1);
+      renderPage();
+    });
+    nextButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const pageCount = getFeaturedNotePageCountForSize(notes.length, getPageSize());
+      currentPage = Math.min(pageCount - 1, currentPage + 1);
+      renderPage();
+    });
+    const handleViewportChange = (): void => renderPage();
+    const handleWindowResize = (): void => {
+      if (!settingsPopover.hidden) positionSettingsPopover();
+    };
+    const handleOutsidePointer = (event: PointerEvent): void => {
+      if (!panel.contains(event.target as Node)) setSettingsOpen(false);
+    };
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || settingsPopover.hidden) return;
+      setSettingsOpen(false);
+      settingsButton.focus();
+    };
+    mobileQuery.addEventListener("change", handleViewportChange);
+    window.addEventListener("resize", handleWindowResize);
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    document.addEventListener("keydown", handleEscape);
+    this.featuredNotesViewportCleanup = () => {
+      mobileQuery.removeEventListener("change", handleViewportChange);
+      window.removeEventListener("resize", handleWindowResize);
+      document.removeEventListener("pointerdown", handleOutsidePointer);
+      document.removeEventListener("keydown", handleEscape);
+      this.featuredNotesViewportCleanup = null;
+    };
+    renderPage();
+    return panel;
+  }
+
+  private createFeaturedNotesSettingsPopover(
+    filter: FeaturedNoteFilter,
+    onSave: (filter: FeaturedNoteFilter) => void,
+  ): HTMLDivElement {
+    const popover = document.createElement("div");
+    popover.className = "agent-thread-card__featured-notes-settings";
+    popover.hidden = true;
+    popover.addEventListener("mousedown", (event) => event.stopPropagation());
+    popover.addEventListener("click", (event) => event.stopPropagation());
+
+    const form = document.createElement("form");
+    const operatorLabel = document.createElement("label");
+    operatorLabel.textContent = this.t("editor.threadCard.featuredNotes.operator");
+    const operatorInput = document.createElement("input");
+    operatorInput.type = "hidden";
+    operatorInput.name = "operator";
+    operatorInput.value = filter.operator;
+    const operatorSelect = document.createElement("div");
+    operatorSelect.className = "agent-thread-card__featured-notes-operator-select";
+    const operatorTrigger = document.createElement("button");
+    operatorTrigger.type = "button";
+    operatorTrigger.className = "agent-thread-card__featured-notes-operator-trigger";
+    operatorTrigger.setAttribute("aria-haspopup", "listbox");
+    operatorTrigger.setAttribute("aria-expanded", "false");
+    const operatorValue = document.createElement("span");
+    const operatorChevron = createChevronIcon("down");
+    operatorTrigger.append(operatorValue, operatorChevron);
+    const operatorMenu = document.createElement("div");
+    operatorMenu.className = "agent-thread-card__featured-notes-operator-menu";
+    operatorMenu.setAttribute("role", "listbox");
+    operatorMenu.hidden = true;
+    const operators = [
+      ["equals", "editor.threadCard.featuredNotes.operator.equals"],
+      ["contains", "editor.threadCard.featuredNotes.operator.contains"],
+      ["excludes", "editor.threadCard.featuredNotes.operator.excludes"],
+    ] as const;
+    const operatorButtons: HTMLButtonElement[] = [];
+    const setOperatorOpen = (open: boolean): void => {
+      operatorMenu.hidden = !open;
+      operatorTrigger.setAttribute("aria-expanded", String(open));
+      operatorSelect.dataset.state = open ? "open" : "closed";
+    };
+    const selectOperator = (value: FeaturedNoteFilter["operator"]): void => {
+      operatorInput.value = value;
+      const selected = operators.find(([candidate]) => candidate === value) ?? operators[0];
+      operatorValue.textContent = this.t(selected[1]);
+      for (const button of operatorButtons) {
+        const isSelected = button.dataset.value === value;
+        button.dataset.selected = String(isSelected);
+        button.setAttribute("aria-selected", String(isSelected));
+        button.querySelector(".agent-thread-card__featured-notes-operator-check")
+          ?.classList.toggle("is-visible", isSelected);
+      }
+      setOperatorOpen(false);
+    };
+    for (const [value, labelKey] of operators) {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.dataset.value = value;
+      option.setAttribute("role", "option");
+      const optionText = document.createElement("span");
+      optionText.textContent = this.t(labelKey);
+      const check = createCheckIcon();
+      check.classList.add("agent-thread-card__featured-notes-operator-check");
+      option.append(optionText, check);
+      option.addEventListener("click", () => selectOperator(value));
+      operatorButtons.push(option);
+      operatorMenu.append(option);
+    }
+    operatorTrigger.addEventListener("click", () => {
+      setOperatorOpen(operatorTrigger.getAttribute("aria-expanded") !== "true");
+    });
+    operatorTrigger.addEventListener("keydown", (event) => {
+      const currentIndex = operators.findIndex(([value]) => value === operatorInput.value);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        const nextIndex = (currentIndex + direction + operators.length) % operators.length;
+        selectOperator(operators[nextIndex][0]);
+        operatorTrigger.focus();
+      } else if (event.key === "Escape") {
+        event.stopPropagation();
+        setOperatorOpen(false);
+      }
+    });
+    operatorSelect.append(operatorInput, operatorTrigger, operatorMenu);
+    operatorLabel.append(operatorSelect);
+    selectOperator(filter.operator);
+
+    const keyLabel = document.createElement("label");
+    keyLabel.textContent = this.t("editor.threadCard.featuredNotes.propertyKey");
+    const keyInput = document.createElement("input");
+    keyInput.name = "key";
+    keyInput.value = filter.key;
+    keyInput.required = true;
+    keyInput.autocomplete = "off";
+    keyLabel.append(keyInput);
+
+    const valueLabel = document.createElement("label");
+    valueLabel.textContent = this.t("editor.threadCard.featuredNotes.propertyValue");
+    const valueInput = document.createElement("input");
+    valueInput.name = "value";
+    valueInput.value = filter.value;
+    valueInput.required = true;
+    valueInput.autocomplete = "off";
+    valueLabel.append(valueInput);
+
+    const actions = document.createElement("div");
+    actions.className = "agent-thread-card__featured-notes-settings-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = this.t("common.cancel");
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "agent-thread-card__featured-notes-settings-save";
+    saveButton.textContent = this.t("common.save");
+    actions.append(cancelButton, saveButton);
+    form.append(keyLabel, operatorLabel, valueLabel, actions);
+    popover.append(form);
+    form.addEventListener("pointerdown", (event) => {
+      if (!operatorSelect.contains(event.target as Node)) setOperatorOpen(false);
+    });
+
+    cancelButton.addEventListener("click", () => {
+      popover.hidden = true;
+      popover.parentElement
+        ?.querySelector<HTMLButtonElement>(".agent-thread-card__featured-notes-settings-button")
+        ?.setAttribute("aria-expanded", "false");
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      onSave({
+        key: keyInput.value,
+        operator: operatorInput.value as FeaturedNoteFilter["operator"],
+        value: valueInput.value,
+      });
+    });
+    return popover;
+  }
+
+  private createFeaturedNotesNavigationButton(
+    text: string,
+    label: string,
+  ): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "agent-thread-card__featured-notes-nav";
+    button.textContent = text;
+    button.setAttribute("aria-label", label);
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+    return button;
+  }
+
+  private createFeaturedNoteCard(note: FeaturedNoteCard): HTMLButtonElement {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "agent-thread-card__featured-note";
+    card.setAttribute("aria-label", [note.name, note.title, note.description].filter(Boolean).join(" — "));
+
+    const icon = document.createElement("span");
+    icon.className = "agent-thread-card__featured-note-icon";
+    icon.textContent = note.icon;
+    icon.setAttribute("aria-hidden", "true");
+
+    const content = document.createElement("span");
+    content.className = "agent-thread-card__featured-note-content";
+    const title = document.createElement("span");
+    title.className = "agent-thread-card__featured-note-title";
+    title.textContent = note.name ? `${note.name} › ${note.title}` : note.title;
+    const description = document.createElement("span");
+    description.className = "agent-thread-card__featured-note-description";
+    description.textContent = note.description;
+    content.append(title, description);
+    const tryLabel = document.createElement("span");
+    tryLabel.className = "agent-thread-card__featured-note-try";
+    tryLabel.textContent = this.t("editor.threadCard.featuredNotes.try");
+    const topRow = document.createElement("span");
+    topRow.className = "agent-thread-card__featured-note-top-row";
+    topRow.append(icon, tryLabel);
+    card.append(topRow, content);
+
+    card.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void openNoteByMemoId(note.id);
+    });
+    card.addEventListener("mousedown", (event) => event.stopPropagation());
+    return card;
   }
 
   /** Compact model switch trigger used by the expanded composer footer. */
@@ -1110,6 +1497,8 @@ export class ExternalAgentSettingsController {
   }
 
   dispose(): void {
+    this.featuredNotesRequestId += 1;
+    this.featuredNotesViewportCleanup?.();
     this.unlistenCodexSettings();
     this.setSettingsPopoverOpen(false);
     this.stopPositionTracking();

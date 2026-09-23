@@ -221,6 +221,7 @@ export interface AgentRuntimeAvailability {
   available: boolean;
   /** Executable/runtime presence, independent from model or dependency setup. */
   installed?: boolean;
+  reasonCode?: string | null;
   reason?: string | null;
 }
 

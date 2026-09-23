@@ -539,7 +539,10 @@ export function AgentThreadCardFullscreenIdentity({
       ) : (
         <span
           className="min-w-0 flex-[0_1_auto] truncate rounded px-0.5 py-1 text-sm font-semibold leading-none text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] [-webkit-app-region:no-drag]"
-          onDoubleClick={() => {
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
             setTitleDraft(title);
             setIsEditingTitle(true);
           }}
