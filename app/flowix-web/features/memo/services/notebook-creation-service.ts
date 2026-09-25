@@ -95,14 +95,6 @@ export async function createNotebookRegistration({
 
   const requestedPath = path?.trim();
   const pathForCreate = requestedPath || await notebookRepository.ensureDefaultPath(trimmedName);
-  const existing = await findNotebookByPath(pathForCreate);
-  if (existing) {
-    return {
-      notebook: existing,
-      created: false,
-      needsImport: await notebookNeedsImport(existing.id),
-    };
-  }
 
   try {
     const notebook = await notebookRepository.create(trimmedName, pathForCreate, icon, false);

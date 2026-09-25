@@ -13,6 +13,7 @@ import type { MemoItem } from '@/types/memo-item';
 export type MemoChangeSource =
   | 'user_new'
   | 'user_import'
+  | 'notebook_template'
   | 'user_edit'
   | 'external_tool'
   | 'user_delete'

@@ -64,7 +64,9 @@ function cloneWorkspace(workspace: NotebookAgentWorkspace): NotebookAgentWorkspa
 }
 
 function pathFor(kind: FileKind, id: string): string {
-  return `.agents/${kind === "skill" ? "skills" : "agents"}/${id}/${kind}.md`;
+  return kind === "skill"
+    ? `.agents/skills/${id}/SKILL.md`
+    : `.agents/agents/${id}/agent.md`;
 }
 
 function displayMcpTransport(definition: NotebookMcpDefinition): string {

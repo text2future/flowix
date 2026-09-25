@@ -34,6 +34,7 @@ describe("parseCodexSkills", () => {
         description: "Review changes.",
         displayName: "Review Agent",
         shortDescription: "Find actionable review findings.",
+        scope: "system",
       },
       { name: "skill-creator", description: "Create a skill." },
     ]);

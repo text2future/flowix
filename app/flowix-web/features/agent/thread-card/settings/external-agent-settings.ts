@@ -148,6 +148,7 @@ export interface CodexSettingsItemOptions {
   layout?: CodexSettingsItemLayout;
   readOnly?: boolean;
   selectedLabel?: string;
+  icon?: SVGSVGElement | null;
 }
 
 export function createCodexSettingsItem(
@@ -192,6 +193,7 @@ export function createCodexSettingsItem(
     descriptionEl.textContent = description;
     content.append(descriptionEl);
   }
+  if (options?.icon) item.append(options.icon);
   item.append(content);
   if (selected) {
     if (options?.selectedLabel) {

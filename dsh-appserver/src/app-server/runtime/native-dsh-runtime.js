@@ -172,6 +172,7 @@ export class NativeDshAdapter {
       sessionRepository: this.sessionRepository,
       historyGuard: this.historyGuard,
       exportStore: this.exportStore,
+      skillCatalog: this.skillCatalog,
     })
     this.turnService = new TurnService(ctx, {
       resolveAgent: id => this.resolveAgent(id), liveAgent: id => this.liveAgent(id),

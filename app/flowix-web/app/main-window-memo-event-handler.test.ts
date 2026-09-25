@@ -117,6 +117,16 @@ describe('handleMainWindowMemoEvent', () => {
     expect(actions.openMemoInBrowserColumn).toHaveBeenCalledWith('memo-b');
   });
 
+  it('does not auto-open a template note from a background notebook', () => {
+    const actions = createActions('notebook-a');
+    const event = createdEvent({ source: 'notebook_template' });
+
+    handleMainWindowMemoEvent(event, actions);
+
+    expect(actions.openMemoInBrowserColumn).not.toHaveBeenCalled();
+    expect(actions.invalidateMentionCaches).toHaveBeenCalledOnce();
+  });
+
   it('updates metadata and the active path for a current-notebook update', () => {
     const actions = createActions('notebook-b');
     const event: MemoEvent = {

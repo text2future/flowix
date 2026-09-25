@@ -1,9 +1,49 @@
 import { CapabilityUnavailableError, InvalidInputError } from '../protocol/domain-errors.js'
+import { access } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const SCOPES = new Set(['user', 'repo', 'system', 'admin', 'workspace', 'managed'])
 
 function isObject(value) { return value && typeof value === 'object' && !Array.isArray(value) }
 function stringValue(value) { return typeof value === 'string' && value.trim() ? value.trim() : undefined }
+
+function isWithin(path, root) {
+  const rel = relative(resolve(root), resolve(path))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+async function projectRootFor(cwd) {
+  let current = resolve(cwd)
+  while (true) {
+    try {
+      await access(join(current, '.git'))
+      return current
+    } catch {
+      const parent = dirname(current)
+      if (parent === current) return resolve(cwd)
+      current = parent
+    }
+  }
+}
+
+function dshSkillScope(path, { cwd, projectRoot }) {
+  if (typeof path !== 'string' || !path) return undefined
+  const skillPath = resolve(path)
+  if (projectRoot && isWithin(skillPath, join(projectRoot, '.agents', 'skills'))) return 'repo'
+  if (projectRoot && isWithin(skillPath, join(projectRoot, '.dsh', 'skills'))) return 'repo'
+
+  const dshHome = resolve(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'))
+  const agentsHome = resolve(process.env.DSH_AGENTS_HOME?.trim() || join(homedir(), '.agents'))
+  if (isWithin(skillPath, join(dshHome, 'skills')) || isWithin(skillPath, join(agentsHome, 'skills'))) return 'user'
+  const bundledRoot = stringValue(process.env.DSH_BUNDLED_SKILL_DIR)
+  if (bundledRoot && isWithin(skillPath, bundledRoot)) return 'system'
+  // Keep cwd in this signature as an explicit reminder that scope is relative
+  // to the session project, even when a project has no .git directory.
+  if (cwd && isWithin(skillPath, join(cwd, '.agents', 'skills'))) return 'repo'
+  if (cwd && isWithin(skillPath, join(cwd, '.dsh', 'skills'))) return 'repo'
+  return undefined
+}
 
 function scopeOf(skill, cwd) {
   const value = stringValue(skill?.scope) || stringValue(skill?.source?.scope) || stringValue(skill?.metadata?.scope)
@@ -66,6 +106,7 @@ export class SkillCatalogService {
     this.cache = new Map()
     this.revision = 0
     this.configService = undefined
+    this.sessionSkillCatalogPromise = undefined
   }
 
   registryFor(agent) {
@@ -140,6 +181,45 @@ export class SkillCatalogService {
   }
 
   async listForThread(threadId) {
+    const sessionCatalog = await this.dshSessionSkillCatalog()
+    if (sessionCatalog) {
+      const result = await sessionCatalog.list(
+        { sessionId: threadId },
+        new AbortController().signal,
+      )
+      let observation
+      let cwd
+      try {
+        const sessionQuery = this.ctx?.get?.('sessionQuery')
+        observation = await sessionQuery?.observeSession?.(threadId)
+        cwd = stringValue(observation?.header?.cwd)
+      } catch {
+        // Scope is presentation metadata; a scope lookup failure must not hide
+        // skills that DSH has successfully discovered for this session.
+      } finally {
+        observation?.[Symbol.dispose]?.()
+      }
+      const projectRoot = cwd ? await projectRootFor(cwd) : undefined
+      return {
+        skills: (Array.isArray(result?.skills) ? result.skills : [])
+          .map(skill => {
+            const scope = stringValue(skill.scope) || dshSkillScope(skill.path, { cwd, projectRoot })
+            return {
+              name: String(skill.name || ''),
+              description: String(skill.description || ''),
+              ...(scope ? { scope } : {}),
+              ...(skill.whenToUse === undefined ? {} : { whenToUse: String(skill.whenToUse) }),
+              ...(skill.modelInvocable === undefined ? {} : { modelInvocable: Boolean(skill.modelInvocable) }),
+            }
+          })
+          .filter(skill => skill.name)
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      }
+    }
+
+    // Older or isolated hosts may not ship DSH's API package. Preserve their
+    // registry-backed compatibility path; full DSH runtimes take the native
+    // SessionSkillCatalog path above.
     const result = await this.list({ threadId })
     return {
       skills: result.data.flatMap(entry => entry.skills)
@@ -147,10 +227,36 @@ export class SkillCatalogService {
         .map(skill => ({
           name: skill.name,
           description: skill.description,
+          scope: skill.scope,
           ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
           ...(skill.modelInvocable === undefined ? {} : { modelInvocable: skill.modelInvocable }),
         })),
     }
+  }
+
+  async dshSessionSkillCatalog() {
+    // Cordis requires get() for optional services. Direct property access
+    // throws when the host does not inject/mount sessionSkillCatalog.
+    const mounted = typeof this.ctx?.get === 'function'
+      ? this.ctx.get('sessionSkillCatalog')
+      : this.ctx?.sessionSkillCatalog
+    if (typeof mounted?.list === 'function') return mounted
+
+    if (!this.sessionSkillCatalogPromise) {
+      this.sessionSkillCatalogPromise = import('@deepseek-ai/dsh-api-session-controller')
+        .then(({ SessionSkillCatalog }) => {
+          if (typeof SessionSkillCatalog !== 'function') return undefined
+          return new SessionSkillCatalog(this.ctx)
+        })
+        .catch(error => {
+          const message = error instanceof Error ? error.message : String(error)
+          if (error?.code === 'ERR_MODULE_NOT_FOUND' && message.includes("'@deepseek-ai/dsh-api-session-controller'")) {
+            return undefined
+          }
+          throw error
+        })
+    }
+    return this.sessionSkillCatalogPromise
   }
 
   async writeConfig({ selector, name, enabled, expectedRevision } = {}) {

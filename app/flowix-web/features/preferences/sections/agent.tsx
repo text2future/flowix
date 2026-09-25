@@ -23,6 +23,7 @@ import { Field, SectionHeader, FIELD_INPUT_CLASS } from '@features/preferences/s
 import { Loader2, Plus, Trash2, Pencil } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
+import { cn } from '@/lib/utils';
 import { useAgentAccessStore } from '@features/agent/store/agent-access-store';
 import { catalogProviderForConfiguredModel } from './model-provider';
 import { useRegionStore } from '@/lib/i18n';
@@ -38,6 +39,11 @@ import type { AgentTypeKey } from '@/types/agent';
 import { AgentIcon } from '@features/agent/components/agent-icon';
 
 type TestConnection = (config: AgentConfig) => Promise<TestConnectionResult>;
+
+export interface AgentSectionModelFormActions {
+  save(): Promise<boolean>;
+  test(): Promise<boolean>;
+}
 
 interface AgentConfigStore {
 	get: () => Promise<{ model: AgentConfig }>;
@@ -98,6 +104,12 @@ interface AgentSectionProps {
 	testConnection: TestConnection;
   /** Optional DeepSeek Harness catalog/discovery surface. */
   modelDirectory?: ModelDirectory;
+  /** Open the model add form immediately when embedded in onboarding. */
+  startWithAddModel?: boolean;
+  /** Render only the model editor card, without configured model cards. */
+  modelFormOnly?: boolean;
+  /** Expose model form actions so onboarding can place them in its footer. */
+  onModelFormActionsReady?: (actions: AgentSectionModelFormActions | null) => void;
 }
 
 /** Common provider presets shown in the dropdown. The stored value is
@@ -406,7 +418,10 @@ export function AgentSection({
 	configStore,
 	configChangeKind,
 	testConnection,
-	modelDirectory,
+  modelDirectory,
+  startWithAddModel = false,
+  modelFormOnly = false,
+  onModelFormActionsReady,
 }: AgentSectionProps) {
 	const { t } = useI18n();
 	// Legacy single-route settings keep their regional provider visibility;
@@ -432,8 +447,10 @@ export function AgentSection({
   const [modelDiscoveryError, setModelDiscoveryError] = useState<string | null>(null);
   const discoveryRequestRef = useRef(0);
   const [modelManagementBusy, setModelManagementBusy] = useState(false);
-  const [showModelForm, setShowModelForm] = useState(false);
-  const [modelFormMode, setModelFormMode] = useState<CustomProviderFormMode | null>(null);
+  const [showModelForm, setShowModelForm] = useState(startWithAddModel);
+  const [modelFormMode, setModelFormMode] = useState<CustomProviderFormMode | null>(
+    startWithAddModel ? { kind: 'add' } : null,
+  );
   /** Selecting "Custom…" swaps the normal model form for the inline
    * provider editor immediately below the selector. */
   const [showCustomProviderForm, setShowCustomProviderForm] = useState(false);
@@ -501,7 +518,9 @@ export function AgentSection({
           ) {
             merged.apiUrl = lockedDefaults.apiUrl;
           }
-	          setLocalConfig(merged);
+	          setLocalConfig(startWithAddModel
+            ? { ...DEFAULT_CONFIG, provider: '', model: '', models: [], apiUrl: '', apiKeys: {} }
+            : merged);
 	          setSavedConfig(merged);
 	          setProviderConfigs(listed?.map((entry) => entry.model) ?? []);
           setLoadError(null);
@@ -518,7 +537,7 @@ export function AgentSection({
     return () => {
       cancelled = true;
     };
-	}, [configStore]);
+	}, [configStore, startWithAddModel]);
 
   // 跨窗口同步: 其它来源 (如未来的导入 / 命令行 / 第二个偏好窗口) 改了
   // ai_config 时, 重新从磁盘拉取。
@@ -606,8 +625,8 @@ export function AgentSection({
     return provider;
   })();
 
-  const handleSave = async () => {
-    if (!localConfig) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!localConfig) return false;
 
     // Model-management forms keep the directory update as a final pure
     // transformation. Build that effective config before validation so a
@@ -615,6 +634,13 @@ export function AgentSection({
     const configToSave = modelDirectory && modelFormMode
       ? addModelToConfig(localConfig, modelFormMode, savedConfig ?? undefined)
       : localConfig;
+    if (
+      modelFormOnly
+      && savedConfig
+      && JSON.stringify(configToSave) === JSON.stringify(savedConfig)
+    ) {
+      return true;
+    }
     const formSnapshot = JSON.stringify(localConfig);
 
     // Local pre-flight: catches the obvious mistakes (missing key, bad URL
@@ -625,7 +651,7 @@ export function AgentSection({
       setIsSaving(false);
       setIsTesting(false);
       toast.error(localErr);
-      return;
+      return false;
     }
 
     // Commit independently of network connectivity. This makes Save usable
@@ -654,10 +680,13 @@ export function AgentSection({
       setIsTesting(false);
       if (modelDirectory && stillClean) {
         setLocalConfig(persistedConfig);
-        setShowModelForm(false);
-        setModelFormMode(null);
+        if (!modelFormOnly) {
+          setShowModelForm(false);
+          setModelFormMode(null);
+        }
       }
       toast.success(t('preferences.agent.saved'));
+      return true;
       // If the user typed during the in-flight save, the form has moved
       // past `snapshot` — the saved-on-disk state no longer matches the
       // form, so we go straight to `idle` (which will then show the unsaved
@@ -668,21 +697,37 @@ export function AgentSection({
       setIsTesting(false);
       toast.error(`${t('preferences.agent.saveFailed')}: ${msg}`);
       console.error('[AgentSection] Failed to save ai_config:', err);
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleTest = async () => {
-    if (!localConfig) return;
+  const handleTest = async (): Promise<boolean> => {
+    if (!localConfig) return false;
     setIsTesting(true);
     try {
-      await runProbe(localConfig, JSON.stringify(localConfig));
+      const result = await runProbe(localConfig, JSON.stringify(localConfig));
+      return result?.ok === true;
     } finally {
       setIsTesting(false);
     }
     // runProbe shows the result through the shared toast.
   };
+
+  const saveHandlerRef = useRef(handleSave);
+  const testHandlerRef = useRef(handleTest);
+  saveHandlerRef.current = handleSave;
+  testHandlerRef.current = handleTest;
+  const [modelFormActions] = useState<AgentSectionModelFormActions>(() => ({
+    save: () => saveHandlerRef.current(),
+    test: () => testHandlerRef.current(),
+  }));
+
+  useEffect(() => {
+    onModelFormActionsReady?.(modelFormActions);
+    return () => onModelFormActionsReady?.(null);
+  }, [modelFormActions, onModelFormActionsReady]);
 
   /**
    * Shared probe entry point. Success/failure is shown
@@ -1392,7 +1437,12 @@ export function AgentSection({
   // DeepSeek Harness model management is card-driven: the form is opened by
   // Add/Edit and stays closed while the saved model cards are being browsed.
   // Legacy single-route settings keep their original always-visible form.
-  const showGenericModelConfiguration = !modelDirectory || showModelForm;
+  const showGenericModelConfiguration = !modelDirectory || showModelForm || modelFormOnly;
+  const modelFieldClass = modelFormOnly ? 'flowix-onboarding__dsh-model-field' : undefined;
+  const modelSelectContentClass = cn(
+    'flowix-preferences-select-content',
+    modelFormOnly && 'z-[230]',
+  );
 
   const renderOperationActions = (includeCancel: boolean) => (
     <div className="flex min-h-[2.25rem] items-center gap-3">
@@ -1422,12 +1472,12 @@ export function AgentSection({
 
   const renderModelConfiguration = () => (
     <div className="space-y-4">
-      {(showCustomProviderForm || showGenericModelConfiguration) && <Field title={t('preferences.agent.provider.title')}>
+      {(showCustomProviderForm || showGenericModelConfiguration) && <Field title={t('preferences.agent.provider.title')} className={modelFieldClass}>
         <Select
           value={showCustomProviderForm ? CUSTOM_PROVIDER_VALUE : localConfig.provider}
           onValueChange={updateProvider}
         >
-          <SelectTrigger className="w-[16rem]">
+          <SelectTrigger className={modelFormOnly ? 'h-10 w-full' : 'w-[16rem]'}>
             {showCustomProviderForm ? (
               <span className="truncate">{t('preferences.agent.provider.custom')}</span>
             ) : localConfig.provider.trim() ? (
@@ -1441,7 +1491,12 @@ export function AgentSection({
               </span>
             )}
           </SelectTrigger>
-          <SelectContent align="start" fitViewport className="flowix-preferences-select-content">
+          <SelectContent
+            align="start"
+            fitViewport
+            maxHeight={modelFormOnly ? 240 : undefined}
+            className={modelSelectContentClass}
+          >
             {visibleProviderOptions.map((opt) => (
               <SelectItem key={opt.id} value={opt.id}>
                 <span className="flex items-center gap-2 min-w-0">
@@ -1470,7 +1525,7 @@ export function AgentSection({
         />
       ) : showGenericModelConfiguration ? (
         <>
-          <Field title={t('preferences.agent.modelId.title')}>
+          <Field title={t('preferences.agent.modelId.title')} className={modelFieldClass}>
             {modelOptions || dynamicModelOptions ? (
               <Select
                 value={localConfig.model}
@@ -1482,11 +1537,16 @@ export function AgentSection({
                       value={localConfig.model}
                       onChange={(e) => updateField('model', e.target.value)}
                       placeholder={modelPlaceholder}
-                      className={FIELD_INPUT_CLASS}
+                      className={modelFormOnly ? 'h-10' : FIELD_INPUT_CLASS}
                     />
                   </div>
                 </SelectTrigger>
-                <SelectContent align="start" fitViewport className="flowix-preferences-select-content">
+                <SelectContent
+                  align="start"
+                  fitViewport
+                  maxHeight={modelFormOnly ? 240 : undefined}
+                  className={modelSelectContentClass}
+                >
                   {(modelOptions ?? dynamicModelOptions ?? []).map((model) => (
                     <SelectItem key={model} value={model}>{model}</SelectItem>
                   ))}
@@ -1497,7 +1557,7 @@ export function AgentSection({
                 value={localConfig.model}
                 onChange={(e) => updateField('model', e.target.value)}
                 placeholder={modelPlaceholder}
-                className={FIELD_INPUT_CLASS}
+                className={modelFormOnly ? 'h-10' : FIELD_INPUT_CLASS}
               />
             )}
             <div className="mt-1 flex min-h-5 items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
@@ -1528,45 +1588,53 @@ export function AgentSection({
           </Field>
 
           {!hideBaseUrlField && (
-            <Field title={t('preferences.agent.baseUrl.title')}>
+            <Field title={t('preferences.agent.baseUrl.title')} className={modelFieldClass}>
               <Input
                 value={localConfig.apiUrl}
                 onChange={(e) => updateField('apiUrl', e.target.value)}
                 placeholder={baseUrlPlaceholder}
-                className={FIELD_INPUT_CLASS}
+                className={modelFormOnly ? 'h-10' : FIELD_INPUT_CLASS}
                 disabled={lockBaseUrl}
                 readOnly={lockBaseUrl}
               />
             </Field>
           )}
 
-          <Field title={t('preferences.agent.apiKey.title')} description={apiKeyDescription}>
+          <Field title={t('preferences.agent.apiKey.title')} description={apiKeyDescription} className={modelFieldClass}>
             <Input
               type="password"
               value={localConfig.apiKeys[apiKeyBucket] ?? ''}
               onChange={(e) => updateApiKey(e.target.value)}
               placeholder={localConfig.credentialConfigured ? '•••••••• (DSH)' : 'sk-...'}
-              className={FIELD_INPUT_CLASS}
+              className={modelFormOnly ? 'h-10' : FIELD_INPUT_CLASS}
             />
           </Field>
         </>
       ) : null}
 
-      {!showCustomProviderForm && showGenericModelConfiguration && renderOperationActions(Boolean(modelDirectory))}
+      {!modelFormOnly && !showCustomProviderForm && showGenericModelConfiguration && renderOperationActions(Boolean(modelDirectory))}
     </div>
   );
 
   return (
     <>
-    <div className="space-y-2 pb-3">
-      <SectionHeader
-        title={t('preferences.agent.title')}
-        className="flex h-8 items-center border-b-0 pb-0"
-      />
-      <div className="border-b border-[var(--divider)]" />
+    <div className={cn('pb-3', !modelFormOnly && 'space-y-2')}>
+      {!modelFormOnly && (
+        <>
+          <SectionHeader
+            title={t('preferences.agent.title')}
+            className="flex h-8 items-center border-b-0 pb-0"
+          />
+          <div className="border-b border-[var(--divider)]" />
+        </>
+      )}
 
-      <div className="space-y-4">
-        {modelDirectory && (
+      <div className={cn('space-y-4', modelFormOnly && 'flowix-onboarding__dsh-model-form')}>
+        {modelDirectory && modelFormOnly && (
+          renderModelConfiguration()
+        )}
+
+        {modelDirectory && !modelFormOnly && (
           <ConfiguredModelsList
             models={configuredModels}
             selectedModelId={activeModelId}

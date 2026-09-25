@@ -1,6 +1,6 @@
 import type { MemoEvent } from '@/types/memo';
 import type { MemoItem } from '@/types/memo-item';
-import { shouldAutoOpenCreatedNoteInBrowser } from '@features/memo/services/created-note-auto-open-policy';
+import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
 
 export interface MainWindowMemoEventActions {
   getSelectedNotebookId: () => string | null;
@@ -22,10 +22,10 @@ export interface MainWindowMemoEventActions {
 /**
  * Route one memo event inside the main Webview.
  *
- * Externally created notes always open. Application-created notes also open
- * when they belong to a known background notebook, because the selected list
- * cannot present them. List and tag metadata updates remain scoped to the
- * selected notebook, while notebook-keyed todo counts refresh in background.
+ * Externally created notes and notes created in a background notebook may
+ * auto-open according to the user preference. Template notes skip that side
+ * effect. List and tag metadata updates remain scoped to the selected
+ * notebook, while notebook-keyed todo counts refresh in background.
  *
  * `tags_renamed` / `tags_deleted` 都是 tag 子树操作的收口事件, 后端已经
  * 完成所有 affected memo 的 body 改写 + index 同步。 这里只走
@@ -68,7 +68,8 @@ export function handleMainWindowMemoEvent(
   const shouldOpenCreatedNote = event.kind === 'created' && (
     event.source === 'external_tool'
     || (!!selectedNotebookId && selectedNotebookId !== event.notebookId)
-  ) && shouldAutoOpenCreatedNoteInBrowser(event.notebookId);
+  ) && event.source !== 'notebook_template'
+    && useUserSettingsStore.getState().settings.autoOpenCreatedNotesInBrowser;
   if (shouldOpenCreatedNote) {
     void actions.openMemoInBrowserColumn(event.memo.id).catch(actions.reportOpenFailure);
   }

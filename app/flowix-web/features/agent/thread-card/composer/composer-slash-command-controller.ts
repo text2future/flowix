@@ -44,8 +44,25 @@ export interface ComposerSlashSkill {
   description: string;
   displayName?: string;
   shortDescription?: string;
+  scope?: string;
   whenToUse?: string;
   modelInvocable?: boolean;
+}
+
+function composerSkillScopeLabel(scope?: string): string | undefined {
+  switch (scope) {
+    case "repo":
+    case "workspace":
+      return "项目";
+    case "user":
+      return "个人";
+    case "system":
+    case "admin":
+    case "managed":
+      return "系统";
+    default:
+      return undefined;
+  }
 }
 
 type ComposerSlashMenuItem =
@@ -190,7 +207,7 @@ export class ComposerSlashCommandController {
     this.filtered = [...commands, ...skills].filter((item) => {
       const value = item.kind === "command" ? item.value.name : item.value.name;
       const label = item.kind === "skill"
-        ? `${item.value.displayName ?? ""} ${item.value.description} ${item.value.shortDescription ?? ""}`
+        ? `${item.value.displayName ?? ""} ${item.value.description} ${item.value.shortDescription ?? ""} ${composerSkillScopeLabel(item.value.scope) ?? ""}`
         : item.value.description;
       return `${value} ${label}`.toLowerCase().includes(query);
     });
@@ -323,7 +340,20 @@ export class ComposerSlashCommandController {
     menu.classList.toggle("is-keyboard-navigation", this.isKeyboardNavigation);
     menu.replaceChildren();
 
+    const appendSkillSection = (): void => {
+      const section = document.createElement("div");
+      section.className = "agent-composer-slash-menu__section";
+      section.setAttribute("role", "presentation");
+      section.textContent = "技能";
+      menu.append(section);
+    };
+    let renderedSkillSection = false;
     this.filtered.forEach((candidate, index) => {
+      if (candidate.kind === "skill" && !renderedSkillSection) {
+        appendSkillSection();
+        renderedSkillSection = true;
+      }
+
       const item = document.createElement("button");
       item.type = "button";
       item.className = "agent-composer-slash-menu__item";
@@ -337,12 +367,21 @@ export class ComposerSlashCommandController {
         ? `/${candidate.value.name}`
         : this.agentType === "codex"
           ? displayNameForComposerSkill(candidate.value.name, candidate.value.displayName)
-          : candidate.value.displayName || `/${candidate.value.name}`;
+          : candidate.value.displayName || candidate.value.name;
       const description = document.createElement("span");
       description.className = "agent-composer-slash-menu__description";
       description.textContent = candidate.kind === "command"
         ? candidate.value.description
         : candidate.value.shortDescription || candidate.value.description || candidate.value.whenToUse || "";
+      if (candidate.kind === "skill") {
+        const scopeLabel = composerSkillScopeLabel(candidate.value.scope);
+        if (scopeLabel) {
+          const scope = document.createElement("span");
+          scope.className = "agent-composer-slash-menu__scope";
+          scope.textContent = scopeLabel;
+          item.append(scope);
+        }
+      }
       item.append(name, description);
       item.addEventListener("mousemove", (event) => this.handleItemMouseMove(event, index));
       item.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -353,6 +392,9 @@ export class ComposerSlashCommandController {
       menu.append(item);
     });
 
+    if (!renderedSkillSection && (this.skillsStatus === "loading" || this.skillsStatus === "error")) {
+      appendSkillSection();
+    }
     if (this.skillsStatus === "loading") {
       const loading = document.createElement("div");
       loading.className = "agent-composer-slash-menu__empty";
@@ -364,7 +406,7 @@ export class ComposerSlashCommandController {
       error.textContent = "Skill 加载失败，请稍后重试";
       menu.append(error);
     }
-    const activeItem = menu.children[this.activeIndex] as HTMLElement | undefined;
+    const activeItem = menu.querySelectorAll<HTMLElement>("[role='option']")[this.activeIndex];
     activeItem?.scrollIntoView?.({ block: "nearest" });
   }
 

@@ -121,7 +121,9 @@ function isHiddenSystemUserMessage(event, payload, content) {
   const source = payload?.source
   if (source?.kind === 'agent-instructions'
     || source?.kind === 'agent-message'
-    || source?.kind === 'subagent-settled') {
+    || source?.kind === 'subagent-settled'
+    || source?.kind === 'skill-catalog'
+    || source?.kind === 'skill-invocation') {
     return true
   }
   if (source?.kind === 'plugin' && source?.plugin === '@deepseek-ai/dsh-system-prompt') {

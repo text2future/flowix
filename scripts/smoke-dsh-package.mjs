@@ -39,6 +39,12 @@ await mkdir(resolve(home, 'profiles'), { recursive: true })
 await cp(profile, profileHome, { recursive: true })
 await writeFile(resolve(home, 'settings.yaml'), 'llm-pi-ai:\n  providers: {}\n')
 await writeFile(resolve(home, '.credentials.yaml'), 'DSH_API_KEY: health-check\n', { mode: 0o600 })
+const workspace = resolve(smokeRoot, 'workspace')
+const skillDir = resolve(workspace, '.agents/skills/package-smoke')
+await mkdir(skillDir, { recursive: true })
+// DSH walks to the nearest Git root; keep this fixture inside its own project.
+await mkdir(resolve(workspace, '.git'))
+await writeFile(resolve(skillDir, 'SKILL.md'), '---\nname: package-smoke\ndescription: Package skill discovery check\n---\nRead the project instructions.\n')
 
 const stderr = []
 const child = spawn(nodeExecutable, [entrypoint, '--profile', 'flowix'], {
@@ -72,7 +78,7 @@ try {
 
   const thread = await request(child, lines, 2, 'thread/start', {
     flowixThreadId: 'flowix-package-smoke',
-    cwd: root,
+    cwd: workspace,
     workspacePaths: [],
     provider: 'openai',
     model: 'health-check-model',
@@ -83,9 +89,18 @@ try {
   if (typeof threadId !== 'string' || threadId.length === 0) {
     throw new Error(`thread/start returned no thread id: ${JSON.stringify(thread)}`)
   }
+  await checkSkills(5)
   await request(child, lines, 3, 'thread/close', { threadId })
+  await checkSkills(6)
   await request(child, lines, 4, 'shutdown', {})
   console.log(`DSH package smoke passed: ${root}`)
+
+  async function checkSkills(id) {
+    const response = await request(child, lines, id, 'thread/skills', { threadId })
+    if (!response.result?.skills?.some(skill => skill.name === 'package-smoke' && skill.scope === 'repo')) {
+      throw new Error(`thread/skills did not discover the project skill: ${JSON.stringify(response)}`)
+    }
+  }
 } catch (error) {
   const details = stderr.join('').trim()
   throw new Error(`${error.message}${details ? `; stderr=${details}` : ''}`)

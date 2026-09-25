@@ -346,7 +346,7 @@ export function NotebookDialogs({
               </div>
               <div className="flowix-onboarding__form-field flowix-onboarding__template-field">
                 <div className="flowix-onboarding__template-label-row">
-                  <span id="create-notebook-template-label">从以下场景新建</span>
+                  <span id="create-notebook-template-label">从以下场景新建（可选）</span>
                   {templatePages.length > 1 && (
                     <div className="flowix-onboarding__template-pagination" aria-label="模板分页">
                       <button

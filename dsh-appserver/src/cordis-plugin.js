@@ -14,6 +14,8 @@ export const inject = [
   'sessionPersistence',
   'sessionQuery',
   'sessionProjections',
+  // Wait for DSH's registry before serving the native session skill catalog.
+  'skills',
   // The native continuable-subagent seam is the durable source for the
   // app-server's Codex-shaped collaboration surface. Inject it so the
   // server cannot start before DSH has mounted the authoritative registry.

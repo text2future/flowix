@@ -34,23 +34,11 @@ import type { MemoEvent, MemoDerivedRefresh } from '@/types/memo';
  */
 export const memoDispatcher = new EventDispatcher<MemoEvent>();
 const derivedRefreshDispatcher = new EventDispatcher<MemoDerivedRefresh>();
-export interface NotebookTemplateInitializationCompletedEvent {
-  kind: 'notebook_template_initialization_completed';
-  notebookId: string;
-  operationId: string;
-}
-const notebookTemplateInitializationCompletedDispatcher =
-  new EventDispatcher<NotebookTemplateInitializationCompletedEvent>();
 
 export function registerMemoDerivedRefreshHandler(handler: (event: MemoDerivedRefresh) => void): () => void {
   return derivedRefreshDispatcher.subscribe(handler);
 }
 
-export function registerNotebookTemplateInitializationCompletedHandler(
-  handler: (event: NotebookTemplateInitializationCompletedEvent) => void,
-): () => void {
-  return notebookTemplateInitializationCompletedDispatcher.subscribe(handler);
-}
 const logger = createLogger('memo-event');
 
 // ---- 显式生命周期: 单一 Tauri 订阅 → dispatcher 入口 ------------------------
@@ -62,11 +50,7 @@ let memoEventBridgeRefCount = 0;
 let memoEventBridgeUnsubscribe: (() => void) | undefined;
 
 function subscribeMemoEventBridge(): () => void {
-  return subscribe<MemoEvent | NotebookTemplateInitializationCompletedEvent>('memo-event', (payload) => {
-    if (payload.kind === 'notebook_template_initialization_completed') {
-      notebookTemplateInitializationCompletedDispatcher.dispatch(payload);
-      return;
-    }
+  return subscribe<MemoEvent>('memo-event', (payload) => {
     // DEBUG: 打印后端 emit 到前端的所有 memo-event (dedup 之前的原始事件)。
     // 排查"外部修改"提示链路时, 用这个日志看 fs_watcher 是否真的发了
     // `updated` + `source=external_tool` 事件, 路径是否匹配当前文档。

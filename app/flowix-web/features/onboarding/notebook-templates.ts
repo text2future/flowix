@@ -47,12 +47,6 @@ export async function initializeNotebookTemplate(
   notebookId: string,
   templateId: string,
   isNewNotebook: boolean,
-  operationId?: string,
 ): Promise<number> {
-  return notebooks.initializeTemplate(
-    notebookId,
-    templateId,
-    isNewNotebook,
-    operationId ?? crypto.randomUUID(),
-  );
+  return notebooks.initializeTemplate(notebookId, templateId, isNewNotebook);
 }

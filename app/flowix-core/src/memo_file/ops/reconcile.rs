@@ -114,10 +114,14 @@ impl MemoFile {
 
         // 4. 串行注册新文件; 单条失败仅记 warn 不中断整批
         let mut added = 0usize;
+        let mut added_memos = Vec::new();
         for filename in &to_register {
             let path = notebook_path_from_relative(&base, filename)?;
             match self.register_existing_file_locked(&path) {
-                Ok(_) => added += 1,
+                Ok(memo) => {
+                    added += 1;
+                    added_memos.push(memo);
+                }
                 Err(e) => tracing::warn!(
                     "[reconcile_with_disk_bidirectional] register {} failed: {e}",
                     filename
@@ -160,6 +164,7 @@ impl MemoFile {
 
         Ok(ReconcileReport {
             added,
+            added_memos,
             removed,
             removed_memos,
         })
@@ -202,6 +207,10 @@ impl MemoFile {
             .iter()
             .map(|path| notebook_relative_path(&base, path))
             .collect::<Result<_, _>>()?;
+        // Serialize the final index check and registrations against notebook
+        // creates. A file written by the app may appear after the disk scan;
+        // re-read the index under this lock before treating it as external.
+        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
         let initial = self
             .read_index_for_notebook_id(Some(notebook_id))
             .map_err(|error| format!("read_index failed: {error}"))?
@@ -219,11 +228,15 @@ impl MemoFile {
             .collect();
 
         let mut added = 0;
+        let mut added_memos = Vec::new();
         for relative_path in disk_paths.difference(&known) {
             let path = notebook_path_from_relative(&base, relative_path)?;
-            let registered = self.register_existing_file_for_notebook_id(notebook_id, &path);
+            let registered = self.register_existing_file_for_notebook_id_locked(notebook_id, &path);
             match registered {
-                Ok(_) => added += 1,
+                Ok(memo) => {
+                    added += 1;
+                    added_memos.push(memo);
+                }
                 Err(error) => tracing::warn!(
                     notebook_id,
                     relative_path,
@@ -233,7 +246,6 @@ impl MemoFile {
             }
         }
 
-        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
         let mut current = self
             .read_index_for_notebook_id(Some(notebook_id))
             .map_err(|error| format!("read_index failed: {error}"))?
@@ -268,6 +280,7 @@ impl MemoFile {
         }
         Ok(ReconcileReport {
             added,
+            added_memos,
             removed,
             removed_memos,
         })
@@ -309,10 +322,14 @@ impl MemoFile {
             .collect();
 
         let mut added = 0usize;
+        let mut added_memos = Vec::new();
         for filename in &to_register {
             let path = notebook_path_from_relative(&base, filename)?;
             match self.register_existing_file_as_new_locked(&path) {
-                Ok(_) => added += 1,
+                Ok(memo) => {
+                    added += 1;
+                    added_memos.push(memo);
+                }
                 Err(e) => tracing::warn!(
                     "[reconcile_with_disk_bidirectional_as_new] register {} failed: {e}",
                     filename
@@ -339,6 +356,7 @@ impl MemoFile {
 
         Ok(ReconcileReport {
             added,
+            added_memos,
             removed,
             removed_memos: Vec::new(),
         })

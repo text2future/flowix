@@ -80,6 +80,29 @@
   justify-content: center;
 }
 
+@keyframes flowix-notebook-page-enter {
+  from { transform: translateX(var(--flowix-notebook-page-offset)); }
+  to { transform: translateX(0); }
+}
+
+.flowix-notebook-page-enter {
+  animation: flowix-notebook-page-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.flowix-notebook-page-enter--next {
+  --flowix-notebook-page-offset: 48px;
+}
+
+.flowix-notebook-page-enter--previous {
+  --flowix-notebook-page-offset: -48px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowix-notebook-page-enter {
+    animation: none;
+  }
+}
+
 .flowix-notebook-list-screen__heading {
   position: relative;
   display: flex;
@@ -187,7 +210,7 @@
 
 .flowix-onboarding__rail {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   width: min(100%, 640px);
   margin: 0 auto;
   padding-bottom: 14px;
@@ -252,6 +275,8 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   align-items: flex-start;
   justify-content: flex-start;
   flex-direction: column;
@@ -526,6 +551,12 @@
 
 .flowix-onboarding__form-field > label,
 .flowix-onboarding__template-label-row > span:first-child {
+  color: var(--onboarding-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.flowix-onboarding__dsh-model-form .flowix-onboarding__dsh-model-field label {
   color: var(--onboarding-ink);
   font-size: 14px;
   font-weight: 650;

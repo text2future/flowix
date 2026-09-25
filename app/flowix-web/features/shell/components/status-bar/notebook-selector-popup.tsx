@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronsUpDown, MoreVertical, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsUpDown, MoreVertical, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import {
   DropdownMenu,
@@ -62,6 +62,7 @@ interface DragGeometry {
 }
 
 const DRAG_THRESHOLD_PX = 4;
+const NOTEBOOKS_PER_PAGE = 17;
 
 function reorderNotebookIds(
   notebooks: Notebook[],
@@ -117,12 +118,25 @@ export function NotebookSelectorPopup({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [ghost, setGhost] = useState<PointerState | null>(null);
+  const [page, setPage] = useState(0);
+  const [pageDirection, setPageDirection] = useState<'next' | 'previous'>('next');
+  const pageCount = Math.max(1, Math.ceil(notebooks.length / NOTEBOOKS_PER_PAGE));
+  const visibleNotebookIds = useMemo(
+    () => notebooks.slice(page * NOTEBOOKS_PER_PAGE, (page + 1) * NOTEBOOKS_PER_PAGE).map((notebook) => notebook.id),
+    [notebooks, page],
+  );
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+  useEffect(() => {
+    if (open) setPage(0);
+  }, [open]);
 
   const previewNotebookIds = useMemo(
     () => draggingId
       ? reorderNotebookIds(notebooks, draggingId, dropTarget)
-      : notebooks.map((notebook) => notebook.id),
-    [draggingId, dropTarget, notebooks],
+      : visibleNotebookIds,
+    [draggingId, dropTarget, visibleNotebookIds],
   );
 
   useLayoutEffect(() => {
@@ -221,6 +235,7 @@ export function NotebookSelectorPopup({
       let nearest: { id: string; distance: number; position: DropPosition } | null = null;
 
       for (const notebook of notebooks) {
+        if (!visibleNotebookIds.includes(notebook.id)) continue;
         if (notebook.id === sourceId) continue;
         const rect = geometry.cardRects.get(notebook.id);
         if (!rect) continue;
@@ -304,7 +319,7 @@ export function NotebookSelectorPopup({
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', handleUp);
     };
-  }, [closeThen, notebooks, onSelect, reorderNotebooks, t]);
+  }, [closeThen, notebooks, onSelect, reorderNotebooks, t, visibleNotebookIds]);
 
   const handleCardPointerDown = (notebook: Notebook, event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || pointerRef.current) return;
@@ -401,13 +416,20 @@ export function NotebookSelectorPopup({
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="flowix-notebook-list-screen__body">
+              <div
+                className="flowix-notebook-list-screen__body"
+                onClick={(event) => {
+                  const target = event.target;
+                  if (target instanceof Element && target.closest('button, [role="button"], [role="menuitem"]')) return;
+                  onOpenChange(false);
+                }}
+              >
           {notebooks.length === 0 && (
             <div className="px-3 py-8 text-center text-sm text-[var(--muted-foreground)]">
               {t('status.noNotebooks')}
             </div>
           )}
-          <div className="mx-auto flex w-full max-w-[914px] flex-wrap justify-start gap-2.5">
+          <div key={page} className={cn('flowix-notebook-page-enter mx-auto grid w-full max-w-[914px] grid-cols-[repeat(6,144px)] grid-rows-[repeat(3,165px)] justify-start gap-2.5', pageDirection === 'next' ? 'flowix-notebook-page-enter--next' : 'flowix-notebook-page-enter--previous')}>
             <button
               type="button"
               onClick={() => closeThen(onCreateNotebook)}
@@ -560,6 +582,17 @@ export function NotebookSelectorPopup({
                 );
             })}
               </div>
+          {pageCount > 1 && (
+            <nav className="mx-auto mt-5 flex items-center justify-center gap-3" aria-label={t('status.notebookList')}>
+              <button type="button" onClick={() => { setPageDirection('previous'); setPage((current) => Math.max(0, current - 1)); }} disabled={page === 0} className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--foreground)] disabled:opacity-40" aria-label={t('status.previousNotebookPage')}>
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="min-w-16 text-center text-xs text-[var(--muted-foreground)]">{page + 1} / {pageCount}</span>
+              <button type="button" onClick={() => { setPageDirection('next'); setPage((current) => Math.min(pageCount - 1, current + 1)); }} disabled={page >= pageCount - 1} className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--foreground)] disabled:opacity-40" aria-label={t('status.nextNotebookPage')}>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </nav>
+          )}
               </div>
             </section>
           </div>

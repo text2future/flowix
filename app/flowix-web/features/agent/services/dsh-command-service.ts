@@ -232,6 +232,7 @@ export async function listDshSkills(input: {
 }): Promise<ReadonlyArray<{
   name: string;
   description: string;
+  scope?: string;
   whenToUse?: string;
   modelInvocable?: boolean;
 }>> {

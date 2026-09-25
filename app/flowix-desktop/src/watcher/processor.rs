@@ -470,6 +470,14 @@ impl MemoEventProcessor {
                 return;
             }
         };
+        let reconciled_added_ids = report
+            .added_memos
+            .iter()
+            .map(|memo| memo.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let pending_external_create_ids = mf
+            .pending_external_memo_creates_for_notebook(&ctx.notebook_id)
+            .unwrap_or_default();
         let after = mf.read_all_memos_for_notebook_id(Some(&ctx.notebook_id));
         let after_ids = after
             .iter()
@@ -477,19 +485,31 @@ impl MemoEventProcessor {
             .collect::<std::collections::HashSet<_>>();
 
         for memo in &after {
+            let was_registered_by_reconcile = reconciled_added_ids.contains(memo.id.as_str());
+            let pending_external_create = (was_registered_by_reconcile
+                || pending_external_create_ids.contains(&memo.id))
+                && mf
+                    .consume_pending_external_memo_create(&memo.id, &ctx.notebook_id)
+                    .unwrap_or(false);
+            if was_registered_by_reconcile || pending_external_create {
+                try_update_search_index(app, &memo.id);
+                emit(
+                    app,
+                    MemoEvent::Created {
+                        memo: memo.clone(),
+                        notebook_id: ctx.notebook_id.clone(),
+                        derived_changed: MemoDerivedChanged::from_memos(None, memo),
+                        source: MemoChangeSource::ExternalTool,
+                    },
+                );
+                continue;
+            }
+
             match before_by_id.get(&memo.id) {
-                None => {
-                    try_update_search_index(app, &memo.id);
-                    emit(
-                        app,
-                        MemoEvent::Created {
-                            memo: memo.clone(),
-                            notebook_id: ctx.notebook_id.clone(),
-                            derived_changed: MemoDerivedChanged::from_memos(None, memo),
-                            source: MemoChangeSource::ExternalTool,
-                        },
-                    );
-                }
+                // A memo may have been added by an in-app command between
+                // the before snapshot and reconciliation. Its own command
+                // already published the create event.
+                None => {}
                 Some(previous) if previous.relative_path != memo.relative_path => {
                     try_update_search_index(app, &memo.id);
                     let path = notebook_path_from_relative(&ctx.root, &memo.relative_path)

@@ -98,6 +98,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   const isFolder = item.type === 'folder';
   const sourceFolderName = item.fullPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? item.name;
   const isHiddenFolder = isFolder && sourceFolderName.startsWith('.');
+  const isAgentProjectFolder = isFolder
+    && depth === 0
+    && sourceFolderName in NOTEBOOK_FOLDER_DISPLAY_NAMES;
   const actionParentPath = isFolder ? item.fullPath : parentPath;
   const resourceKind = isFolder ? null : item.resourceKind ?? resourceKindFromPath(item.name);
   const isNote = resourceKind === 'note';
@@ -259,10 +262,10 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       if (onDeleteFolder) {
         items.push({ text: t('memo.fileTree.copyLink'), action: () => void navigator.clipboard.writeText(item.fullPath) });
       }
-      if (isHiddenFolder) {
+      if (isAgentProjectFolder) {
         items.push(
           { item: 'Separator' },
-          { text: t('memo.fileTree.hideHiddenFolders'), action: () => void setShowHiddenNotebookFilesPreference(false) },
+          { text: t('memo.fileTree.hideAgentProjectFolder'), action: () => void setShowHiddenNotebookFilesPreference(false) },
         );
       } else if (onDeleteFolder) {
         items.push(
@@ -590,16 +593,16 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t('memo.fileTree.copyLink')}
           </ContextMenuItem>
         )}
-        {isFolder && (onDeleteFolder || isHiddenFolder) && (
+        {isFolder && (onDeleteFolder || isAgentProjectFolder) && (
           <>
             <div role="separator" aria-hidden="true" className={TREE_MENU_DIVIDER_CLASS} />
-            {isHiddenFolder ? (
+            {isAgentProjectFolder ? (
               <ContextMenuItem
                 onClick={() => void setShowHiddenNotebookFilesPreference(false)}
                 className={TREE_MENU_ITEM_CLASS}
               >
                 <EyeOff className="mr-2 h-4 w-4" />
-                {t('memo.fileTree.hideHiddenFolders')}
+                {t('memo.fileTree.hideAgentProjectFolder')}
               </ContextMenuItem>
             ) : onDeleteFolder ? (
               <ContextMenuItem

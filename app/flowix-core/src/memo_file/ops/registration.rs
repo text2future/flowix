@@ -270,7 +270,7 @@ impl MemoFile {
         Ok(memo)
     }
 
-    fn register_existing_file_for_notebook_id_locked(
+    pub(super) fn register_existing_file_for_notebook_id_locked(
         &self,
         notebook_id: &str,
         abs_path: &Path,

@@ -1,3 +1,7 @@
+import cursorOutlineSvg from "@/assets/cursor-outline.svg?raw";
+import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
+import shieldAlertOutlineSvg from "@/assets/shield-alert-outline.svg?raw";
+import shieldCheckOutlineSvg from "@/assets/shield-check-outline.svg?raw";
 import type { AppLanguage, I18nKey, I18nParams } from "@/lib/i18n";
 import { translate } from "@/lib/i18n";
 import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
@@ -76,6 +80,42 @@ const FEATURED_NOTES_MOBILE_QUERY = "(max-width: 767px)";
 const FEATURED_NOTES_SETTINGS_POPOVER_WIDTH_PX = 420;
 const FEATURED_NOTES_SETTINGS_POPOVER_OFFSET_PX = 6;
 const FEATURED_NOTES_SETTINGS_POPOVER_VIEWPORT_PADDING_PX = 8;
+
+function createComposerWorkspaceIcon(): SVGSVGElement | null {
+  const template = document.createElement("template");
+  template.innerHTML = folderOutlineSvg.trim();
+  const icon = template.content.firstElementChild as SVGSVGElement | null;
+  if (!icon) return null;
+  icon.classList.add("agent-thread-card__composer-workspace-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  return icon;
+}
+
+function createPermissionModeIcon(
+  mode: AgentPermissionMode,
+): SVGSVGElement | null {
+  const svgSource =
+    mode === "danger-full-access"
+      ? shieldAlertOutlineSvg
+      : mode === "workspace-write"
+        ? shieldCheckOutlineSvg
+        : mode === "read-only"
+          ? cursorOutlineSvg
+          : null;
+  if (!svgSource) return null;
+  const template = document.createElement("template");
+  template.innerHTML = svgSource.trim();
+  const icon = template.content.firstElementChild as SVGSVGElement | null;
+  if (!icon) return null;
+  icon.classList.add("agent-thread-card__permission-mode-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  if (mode === "danger-full-access") {
+    icon.classList.add("agent-thread-card__permission-mode-icon--warning");
+  }
+  return icon;
+}
 
 type AgentModelOption = {
   id: AgentCodexModel;
@@ -1191,9 +1231,10 @@ export class ExternalAgentSettingsController {
   createComposerWorkspaceButton(): HTMLButtonElement | null {
     const button = createExternalAgentWorkspaceControl(
       this.t("agent.workspace.title"),
-      this.getCurrentWorkspaceLabel(),
+      "",
       (anchor) => this.toggleWorkspacePopover(anchor),
     );
+    button.querySelector(".agent-thread-card__composer-workspace-value")?.remove();
     this.composerWorkspaceButton = button;
     this.refreshComposerWorkspaceButton();
     return button;
@@ -1230,7 +1271,7 @@ export class ExternalAgentSettingsController {
     const label = this.t("agent.permission.title");
     const button = createExternalAgentWorkspaceControl(
       label,
-      this.getCurrentPermissionLabel(),
+      "",
       (anchor) => this.toggleSettingsPopover("permission", anchor),
     );
     button.classList.replace(
@@ -1240,10 +1281,7 @@ export class ExternalAgentSettingsController {
     const value = button.querySelector<HTMLElement>(
       ".agent-thread-card__composer-workspace-value",
     );
-    value?.classList.replace(
-      "agent-thread-card__composer-workspace-value",
-      "agent-thread-card__composer-permission-value",
-    );
+    value?.remove();
     this.composerPermissionButton = button;
     this.refreshComposerPermissionButton();
     return button;
@@ -1284,11 +1322,18 @@ export class ExternalAgentSettingsController {
 
   private refreshComposerWorkspaceButton(): void {
     if (!this.composerWorkspaceButton) return;
-    const value = this.getCurrentWorkspaceLabel();
-    const valueEl = this.composerWorkspaceButton.querySelector<HTMLElement>(
-      ".agent-thread-card__composer-workspace-value",
+    const currentIcon = this.composerWorkspaceButton.querySelector(
+      ".agent-thread-card__composer-workspace-icon",
     );
-    if (valueEl) valueEl.textContent = value;
+    const nextIcon = createComposerWorkspaceIcon();
+    const chevron = this.composerWorkspaceButton.querySelector(
+      ".agent-thread-card__empty-control-chevron",
+    );
+    currentIcon?.remove();
+    if (nextIcon && chevron) {
+      this.composerWorkspaceButton.insertBefore(nextIcon, chevron);
+    }
+    const value = this.getCurrentWorkspaceLabel();
     this.composerWorkspaceButton.title = `${this.t("agent.workspace.title")}: ${value}`;
     this.composerWorkspaceButton.setAttribute(
       "aria-label",
@@ -1304,11 +1349,19 @@ export class ExternalAgentSettingsController {
 
   private refreshComposerPermissionButton(): void {
     if (!this.composerPermissionButton) return;
-    const value = this.getCurrentPermissionLabel();
-    const valueEl = this.composerPermissionButton.querySelector<HTMLElement>(
-      ".agent-thread-card__composer-permission-value",
+    const mode = this.getCurrentPermissionMode();
+    const currentIcon = this.composerPermissionButton.querySelector(
+      ".agent-thread-card__permission-mode-icon",
     );
-    if (valueEl) valueEl.textContent = value;
+    const nextIcon = createPermissionModeIcon(mode);
+    const chevron = this.composerPermissionButton.querySelector(
+      ".agent-thread-card__empty-control-chevron",
+    );
+    currentIcon?.remove();
+    if (nextIcon && chevron) {
+      this.composerPermissionButton.insertBefore(nextIcon, chevron);
+    }
+    const value = this.getCurrentPermissionLabel();
     const label = this.t("agent.permission.title");
     this.composerPermissionButton.title = `${label}: ${value}`;
     this.composerPermissionButton.setAttribute("aria-label", `${label}: ${value}`);
@@ -1708,7 +1761,10 @@ export class ExternalAgentSettingsController {
     backButton.type = "button";
     backButton.className = "agent-thread-card__codex-settings-back";
     backButton.setAttribute("aria-label", this.t("agent.workspace.backToAccess"));
-    backButton.append(createChevronIcon("left"));
+    const title = document.createElement("span");
+    title.className = "agent-thread-card__codex-settings-header-title";
+    title.textContent = this.t("agent.workspace.repositories");
+    backButton.append(createChevronIcon("left"), title);
     backButton.addEventListener("click", (event) => {
       event.stopPropagation();
       event.preventDefault();
@@ -1719,10 +1775,7 @@ export class ExternalAgentSettingsController {
     });
     backButton.addEventListener("mousedown", (event) => event.stopPropagation());
 
-    const title = document.createElement("span");
-    title.className = "agent-thread-card__codex-settings-header-title";
-    title.textContent = this.t("agent.workspace.repositories");
-    header.append(backButton, title);
+    header.append(backButton);
     this.popover.append(header);
 
     const repositories = this.getRepositories();
@@ -1738,8 +1791,7 @@ export class ExternalAgentSettingsController {
       });
     }
 
-    // 「添加仓库」用第一页「管理仓库」同款的 settings 行契约 (左对齐 + 弱化色
-    // + 右侧箭头位置放加号), 保持两页的收尾动作样式一致。
+    // 「添加仓库」用第一页「管理仓库」同款的 settings 行契约, 加号放在文字左侧。
     const addButton = document.createElement("button");
     addButton.type = "button";
     addButton.className =
@@ -1751,7 +1803,7 @@ export class ExternalAgentSettingsController {
     addLabel.textContent = this.t("agent.workspace.addRepository");
     const addIcon = createPlusIcon();
     addIcon.setAttribute("class", "agent-thread-card__codex-settings-settings-chevron");
-    addButton.append(addLabel, addIcon);
+    addButton.append(addIcon, addLabel);
     addButton.addEventListener("click", (event) => {
       event.stopPropagation();
       void this.addRepository();
@@ -2261,8 +2313,15 @@ export class ExternalAgentSettingsController {
   }
 
   private getCurrentPermissionLabel(): string {
-    const mode = this.readRuntimeSetting("permission");
-    return this.getPermissionLabel(mode as AgentPermissionMode);
+    return this.getPermissionLabel(this.getCurrentPermissionMode());
+  }
+
+  private getCurrentPermissionMode(): AgentPermissionMode {
+    const mode = this.readRuntimeSetting("permission") as AgentPermissionMode | undefined;
+    const options = this.getAccessOptionsForType();
+    return options.find((option) => option.id === mode)?.id
+      ?? options[0]?.id
+      ?? "danger-full-access";
   }
 
   private getCurrentHarnessMode(): AgentHarnessPreset {
@@ -2600,6 +2659,8 @@ export class ExternalAgentSettingsController {
             this.writeRuntimeSetting("permission", option.id);
             this.setSettingsPopoverOpen(false);
           },
+          undefined,
+          { icon: createPermissionModeIcon(option.id) },
         ),
       );
     });

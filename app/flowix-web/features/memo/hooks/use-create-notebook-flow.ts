@@ -12,7 +12,6 @@ import {
 import { useMemoStore, useTagStore, type Notebook } from '@features/memo/store';
 import { clearWorkspaceDocument } from '@features/workspace/use-cases/workspace-navigation';
 import { createNotebookRegistration } from '@features/memo/services/notebook-creation-service';
-import { withCreatedNoteAutoOpenSuppressed } from '@features/memo/services/created-note-auto-open-policy';
 
 const NOTEBOOK_IMPORT_POLL_INTERVAL_MS = 500;
 const NOTEBOOK_IMPORT_POLL_MAX_ATTEMPTS = 1_200;
@@ -129,9 +128,7 @@ export function useCreateNotebookFlow({
 
         if (!cloudNotebookId && templateId) {
           const { initializeNotebookTemplate } = await import('@features/onboarding/notebook-templates');
-          await withCreatedNoteAutoOpenSuppressed(created.id, (operationId) =>
-            initializeNotebookTemplate(created.id, templateId, registration.created, operationId),
-          );
+          await initializeNotebookTemplate(created.id, templateId, registration.created);
         }
 
         const memoStore = useMemoStore.getState();

@@ -225,6 +225,8 @@ describe("agent workspace popover repositories page", () => {
     (popover.querySelector(".agent-thread-card__codex-settings-settings") as HTMLButtonElement).click();
     const back = popover.querySelector<HTMLButtonElement>(".agent-thread-card__codex-settings-back")!;
     expect(back).not.toBeNull();
+    expect(back.querySelector(".agent-thread-card__codex-settings-header-title")?.textContent)
+      .toBe("agent.workspace.repositories");
     back.click();
 
     expect(popover.querySelector(".agent-thread-card__codex-settings-header")).toBeNull();

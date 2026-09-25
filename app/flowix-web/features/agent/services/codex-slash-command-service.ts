@@ -38,13 +38,14 @@ export function parseCodexSkills(value: unknown): readonly ComposerSlashSkill[] 
       seen.add(skill.name);
       return true;
     })
-    .map(({ name, description, displayName, shortDescription, whenToUse, modelInvocable }) => ({
+    .map(({ name, description, displayName, shortDescription, whenToUse, modelInvocable, scope }) => ({
       name,
       description,
       displayName,
       shortDescription,
       whenToUse,
       modelInvocable,
+      ...(scope === undefined ? {} : { scope }),
     }));
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -22,6 +22,7 @@ import { Input } from '@shared/ui/input';
 import { UpdateProgress } from '@shared/ui/update-progress';
 import { NotebookIconPopover } from '@features/memo/components/notebook-icon-popover';
 import {
+  deepseekHarness,
   dialogs,
   notebooks,
   type NotebookRecord,
@@ -39,6 +40,10 @@ import { cn } from '@/lib/utils';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { isMac } from '@features/shortcuts';
 import { openUrl } from '@platform/tauri/opener';
+import {
+  AgentSection,
+  type AgentSectionModelFormActions,
+} from '@features/preferences/sections/agent';
 import {
   initializeNotebookTemplate,
   useNotebookTemplates,
@@ -60,7 +65,7 @@ const AGENT_KEYS: readonly AgentTypeKey[] = [
   'opencode',
 ];
 
-type OnboardingStep = 0 | 1 | 2;
+type OnboardingStep = 0 | 1 | 2 | 3;
 
 function defaultFolderNameForNotebook(name: string): string {
   const trimmed = name.trim();
@@ -93,27 +98,37 @@ function agentStatusLabel(
   return status?.reason || '未检测到';
 }
 
-function StepRail({ step, onStepChange }: { step: OnboardingStep; onStepChange: (step: OnboardingStep) => void }) {
-  const items = [
-    { title: '创建笔记本' },
-    { title: '接入 Agent' },
-    { title: '授权仓库' },
-  ] as const;
+function StepRail({
+  step,
+  onStepChange,
+}: {
+  step: OnboardingStep;
+  onStepChange: (step: OnboardingStep) => void;
+}) {
+  const activeRailStep = step === 2 ? 1 : step;
+  const items: Array<{ step: OnboardingStep; targetStep: OnboardingStep; title: string }> = [
+    { step: 0, targetStep: 0, title: '创建笔记本' },
+    { step: 1, targetStep: 1, title: '接入 Agent' },
+    { step: 3, targetStep: 3, title: '授权仓库' },
+  ];
 
   return (
-    <nav className="flowix-onboarding__rail" aria-label="新用户引导步骤">
-      {items.map((item, index) => {
-        const itemStep = index as OnboardingStep;
-        const completed = itemStep < step;
-        const active = itemStep === step;
+    <nav
+      className="flowix-onboarding__rail"
+      aria-label="新用户引导步骤"
+      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+    >
+      {items.map((item) => {
+        const completed = item.step < activeRailStep;
+        const active = item.step === activeRailStep;
         return (
           <button
             key={item.title}
             type="button"
             className={cn('flowix-onboarding__rail-item', active && 'is-active', completed && 'is-complete')}
-            onClick={() => itemStep <= step && onStepChange(itemStep)}
+            onClick={() => item.targetStep <= step && onStepChange(item.targetStep)}
             aria-current={active ? 'step' : undefined}
-            disabled={itemStep > step}
+            disabled={item.targetStep > step}
           >
             <span className="flowix-onboarding__rail-copy">
               <strong>{item.title}</strong>
@@ -175,9 +190,9 @@ function AgentRows({
   };
 
   return (
-    <div className="flowix-onboarding__agent-area">
+      <div className="flowix-onboarding__agent-area">
       <div className="flowix-onboarding__agent-section-title">
-        {hasAvailableAgent ? '已找到以下本地 AI 可用。' : '未找到本地 AI，推荐安装以下任一'}
+        {hasAvailableAgent ? '已找到以下本地 AI 可用' : '未找到本地 AI，推荐安装以下任一'}
       </div>
       <div className="flowix-onboarding__agent-list">
         {visibleAgentKeys.map((typeKey) => {
@@ -269,9 +284,13 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
   const [templatePage, setTemplatePage] = useState(0);
   const [createdNotebook, setCreatedNotebook] = useState<NotebookRecord | null>(null);
   const [shouldStartImport, setShouldStartImport] = useState(false);
+  const [dshModelListState, setDshModelListState] = useState<'unknown' | 'empty' | 'configured' | 'error'>('unknown');
   const [isCreatingNotebook, setIsCreatingNotebook] = useState(false);
   const [isAddingRepository, setIsAddingRepository] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const dshModelActionsRef = useRef<AgentSectionModelFormActions | null>(null);
+  const [dshModelActionsReady, setDshModelActionsReady] = useState(false);
+  const [dshModelAction, setDshModelAction] = useState<'save' | 'test' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const statusByType = useAgentRuntimeStore((state) => state.statusByType);
@@ -281,6 +300,41 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
   const addFolderFromPicker = useAgentAccessStore((state) => state.addFolderFromPicker);
   const setDefaultFiles = useAgentAccessStore((state) => state.setDefaultFiles);
   const loadAgentAccess = useAgentAccessStore((state) => state.loadInitial);
+
+  const registerDshModelActions = useCallback((actions: AgentSectionModelFormActions | null) => {
+    dshModelActionsRef.current = actions;
+    setDshModelActionsReady(Boolean(actions));
+  }, []);
+
+  const saveDshModel = useCallback(async (): Promise<boolean> => {
+    const actions = dshModelActionsRef.current;
+    if (!actions || dshModelAction) return false;
+    setDshModelAction('save');
+    try {
+      return await actions.save();
+    } finally {
+      setDshModelAction(null);
+    }
+  }, [dshModelAction]);
+
+  const testDshModel = useCallback(async (): Promise<boolean> => {
+    const actions = dshModelActionsRef.current;
+    if (!actions || dshModelAction) return false;
+    setDshModelAction('test');
+    try {
+      return await actions.test();
+    } finally {
+      setDshModelAction(null);
+    }
+  }, [dshModelAction]);
+
+  const continueFromDshModel = useCallback(async () => {
+    if (!(await testDshModel())) return;
+    if (await saveDshModel()) {
+      setDshHasModels(true);
+      setStep(3);
+    }
+  }, [saveDshModel, testDshModel]);
 
   useEffect(() => {
     void refreshAgentRuntime({ force: true });
@@ -312,11 +366,38 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
     !MOCK_EMPTY_AGENT_ENVIRONMENT
       && (dshInstaller.status?.installed || statusByType['deepseek-harness']?.installed),
   );
+  useEffect(() => {
+    if (!dshInstalled) {
+      setDshModelListState('unknown');
+      return;
+    }
+
+    let cancelled = false;
+    setDshModelListState('unknown');
+    void deepseekHarness.list()
+      .then((configs) => {
+        if (cancelled) return;
+        setDshModelListState(configs.some(({ model }) =>
+          Boolean(model.model.trim() || model.models?.length),
+        ) ? 'configured' : 'empty');
+      })
+      .catch(() => {
+        // A failed listing is not proof that the model list is empty. Keep
+        // the state distinct so the optional setup page is skipped.
+        if (!cancelled) setDshModelListState('error');
+      });
+    return () => { cancelled = true; };
+  }, [dshInstalled]);
+  const showDshModelStep = dshInstalled && dshModelListState === 'empty';
   const effectiveStatusByType = MOCK_EMPTY_AGENT_ENVIRONMENT ? {} : statusByType;
   const hasAvailableLocalAgent = ['codex', 'claude', 'opencode'].some(
     (typeKey) => effectiveStatusByType[typeKey as AgentTypeKey]?.available,
   );
   const canContinueWithAgent = dshInstalled || hasAvailableLocalAgent;
+
+  useEffect(() => {
+    if (step === 2 && !showDshModelStep) setStep(3);
+  }, [showDshModelStep, step]);
   const templatePages = useMemo(() => {
     const pages: Array<Array<(typeof notebookTemplates)[number]>> = [];
     for (let index = 0; index < notebookTemplates.length; index += templatesPerPage) {
@@ -430,12 +511,21 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
       className="flowix-onboarding"
       role="dialog"
       aria-modal="true"
-      aria-labelledby={step === 0 ? 'flowix-onboarding-notebook-title' : step === 1 ? 'flowix-onboarding-title' : 'flowix-onboarding-access-title'}
+      aria-labelledby={step === 0
+        ? 'flowix-onboarding-notebook-title'
+        : step === 1
+          ? 'flowix-onboarding-title'
+          : step === 2
+            ? 'flowix-onboarding-dsh-model-title'
+            : 'flowix-onboarding-access-title'}
     >
       {isMac() && <OnboardingTitlebarMac />}
       <WindowsTitlebarControls />
       <main className="flowix-onboarding__main">
-        <StepRail step={step} onStepChange={setStep} />
+        <StepRail
+          step={step}
+          onStepChange={setStep}
+        />
 
         <div className="flowix-onboarding__content">
           {step === 0 && (
@@ -593,7 +683,25 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
             </section>
           )}
 
-          {step === 2 && createdNotebook && (
+          {step === 2 && showDshModelStep && (
+            <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-dsh-model-title">
+              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
+                <h1 id="flowix-onboarding-dsh-model-title">配置 DeepSeek Harness 模型</h1>
+                <p>配置模型将本地保存，不会上传云端，提供给 DeepSeek Harness 使用，配置后可在 偏好设置 中修改。</p>
+              </div>
+              <AgentSection
+                configStore={deepseekHarness}
+                configChangeKind="dsh_config"
+                testConnection={deepseekHarness.testConnection}
+                modelDirectory={deepseekHarness}
+                startWithAddModel
+                modelFormOnly
+                onModelFormActionsReady={registerDshModelActions}
+              />
+            </section>
+          )}
+
+          {step === 3 && createdNotebook && (
             <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-access-title">
               <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
                 <h1 id="flowix-onboarding-access-title">继续为 AI 添加可访问的位置</h1>
@@ -653,17 +761,56 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
               <button
                 type="button"
                 className="flowix-onboarding__primary-action"
-                disabled={!canContinueWithAgent || dshInstaller.busy}
-                onClick={() => setStep(2)}
+                disabled={
+                  !canContinueWithAgent
+                  || dshInstaller.busy
+                  || (dshInstalled && dshModelListState === 'unknown')
+                }
+                onClick={() => setStep(showDshModelStep ? 2 : 3)}
               >
                 下一步 <ArrowRight size={17} aria-hidden="true" />
               </button>
             </>
           )}
 
-          {step === 2 && createdNotebook && (
+          {step === 2 && showDshModelStep && (
             <>
-              <button type="button" className="flowix-onboarding__back-action" onClick={() => setStep(1)} disabled={isFinishing}>
+              <button
+                type="button"
+                className="flowix-onboarding__back-action"
+                onClick={() => setStep(1)}
+                disabled={dshModelAction !== null}
+              >
+                <ArrowLeft size={16} aria-hidden="true" /> 返回
+              </button>
+              <button
+                type="button"
+                className="flowix-onboarding__skip-action"
+                onClick={() => setStep(3)}
+                disabled={dshModelAction !== null}
+              >
+                跳过
+              </button>
+              <button
+                type="button"
+                className="flowix-onboarding__primary-action"
+                onClick={() => void continueFromDshModel()}
+                disabled={!dshModelActionsReady || dshModelAction !== null}
+              >
+                {dshModelAction !== null ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : null}
+                下一步 <ArrowRight size={17} aria-hidden="true" />
+              </button>
+            </>
+          )}
+
+          {step === 3 && createdNotebook && (
+            <>
+              <button
+                type="button"
+                className="flowix-onboarding__back-action"
+                onClick={() => setStep(showDshModelStep ? 2 : 1)}
+                disabled={isFinishing}
+              >
                 <ArrowLeft size={16} aria-hidden="true" /> 返回
               </button>
               <button type="button" className="flowix-onboarding__primary-action" onClick={() => void finish()} disabled={isFinishing}>

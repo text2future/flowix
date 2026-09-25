@@ -816,6 +816,16 @@
   color: var(--foreground);
 }
 
+/* Keep embedded cards compact while preserving shortcuts in standalone chats,
+ * which share the agent-thread-card class without using fullscreen mode. */
+.markdown-editor
+  .agent-thread-card:not(.agent-thread-card--fullscreen):not(
+    .agent-conversation-detail__card
+  )
+  .agent-thread-card__featured-notes {
+  display: none;
+}
+
 .markdown-editor .agent-thread-card__featured-notes-header {
   display: flex;
   align-items: center;
@@ -1570,9 +1580,8 @@
 .agent-thread-card__codex-settings-back {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
+  gap: 2px;
+  min-height: 16px;
   flex: 0 0 auto;
   padding: 0;
   border: 0;
@@ -1711,6 +1720,17 @@
   flex: 1 1 auto;
   align-items: center;
   gap: 8px;
+}
+
+.agent-thread-card__permission-mode-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.agent-thread-card__permission-mode-icon--warning {
+  color: var(--destructive);
 }
 
 .agent-thread-card__codex-settings-item-description {

@@ -284,12 +284,10 @@ export const notebooks = {
     notebookId: string,
     templateId: string,
     isNewNotebook: boolean,
-    operationId: string,
   ) => invoke<number>('initialize_notebook_template', {
     notebookId,
     templateId,
     isNewNotebook,
-    operationId,
   }),
   create: (name: string, path?: string, icon?: string | null, activate = true) =>
     invoke<NotebookRecord>('create_notebook', { name, path, icon, activate }),

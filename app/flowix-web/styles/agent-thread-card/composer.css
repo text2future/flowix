@@ -417,14 +417,6 @@
   line-height: 1.6;
 }
 
-.markdown-editor .agent-thread-card__composer-permission-value {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.6;
-}
-
 .markdown-editor .agent-thread-card__composer-model-value {
   min-width: 0;
   overflow: hidden;
@@ -446,6 +438,13 @@
   height: 12px;
   flex: 0 0 auto;
   opacity: 0.72;
+}
+
+.markdown-editor .agent-thread-card__composer-workspace-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
 }
 
 .markdown-editor .agent-thread-card__composer-permission .agent-thread-card__empty-control-chevron {
@@ -893,6 +892,14 @@
   cursor: pointer;
 }
 
+.agent-composer-slash-menu__section {
+  margin: 0.25rem 0.5rem 0.125rem;
+  padding: 0.35rem 0 0.125rem;
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.75);
+  line-height: 1.2;
+}
+
 .agent-composer-slash-menu__item--back {
   margin-bottom: 0.2rem;
   border-radius: 0;
@@ -917,14 +924,20 @@
   .agent-composer-slash-menu__name,
 .agent-composer-slash-menu:not(.is-keyboard-navigation) .agent-composer-slash-menu__item:hover
   .agent-composer-slash-menu__description,
+.agent-composer-slash-menu:not(.is-keyboard-navigation) .agent-composer-slash-menu__item:hover
+  .agent-composer-slash-menu__scope,
 .agent-composer-slash-menu:not(.is-keyboard-navigation) .agent-composer-slash-menu__item:focus-visible
   .agent-composer-slash-menu__name,
 .agent-composer-slash-menu:not(.is-keyboard-navigation) .agent-composer-slash-menu__item:focus-visible
   .agent-composer-slash-menu__description,
+.agent-composer-slash-menu:not(.is-keyboard-navigation) .agent-composer-slash-menu__item:focus-visible
+  .agent-composer-slash-menu__scope,
 .agent-composer-slash-menu__item--active
   .agent-composer-slash-menu__name,
 .agent-composer-slash-menu__item--active
-  .agent-composer-slash-menu__description {
+  .agent-composer-slash-menu__description,
+.agent-composer-slash-menu__item--active
+  .agent-composer-slash-menu__scope {
   color: var(--foreground);
 }
 
@@ -946,10 +959,26 @@
 }
 
 .agent-composer-slash-menu__item--skill .agent-composer-slash-menu__name {
+  flex: 0 1 auto;
+  min-width: 10em;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-composer-slash-menu__item--skill .agent-composer-slash-menu__description {
+  flex: 1 1 auto;
+}
+
+.agent-composer-slash-menu__scope {
   flex: 0 0 auto;
-  max-width: none;
-  overflow: visible;
-  text-overflow: clip;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--muted-foreground);
+  font-size: calc(var(--app-font-size, 15px) * 0.72);
+  line-height: 1.3;
   white-space: nowrap;
 }
 

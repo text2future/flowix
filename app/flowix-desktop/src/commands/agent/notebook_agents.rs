@@ -1,7 +1,7 @@
 //! Notebook-local `.agents/` workspace configuration.
 //!
 //! This surface deliberately owns only the portable v1 files exposed by the
-//! UI: `mcp.json`, `skills/*/skill.md`, and `agents/*/agent.md`. It is kept
+//! UI: `mcp.json`, `skills/*/SKILL.md`, and `agents/*/agent.md`. It is kept
 //! separate from Codex's `.codex/config.toml` and from Flowix's `.flowix`
 //! access metadata.
 
@@ -118,13 +118,13 @@ fn read_mcp_servers(root: &Path) -> Result<BTreeMap<String, Value>, String> {
 }
 
 fn find_markdown_file(directory: &Path, lower_name: &str, upper_name: &str) -> Option<PathBuf> {
-    let lower = directory.join(lower_name);
-    if lower.is_file() {
-        return Some(lower);
-    }
     let upper = directory.join(upper_name);
     if upper.is_file() {
         return Some(upper);
+    }
+    let lower = directory.join(lower_name);
+    if lower.is_file() {
+        return Some(lower);
     }
     None
 }
@@ -392,6 +392,19 @@ fn remove_if_present(path: &Path) -> Result<(), String> {
     fs::remove_file(path).map_err(|error| format!("删除 {} 失败: {error}", path.display()))
 }
 
+#[cfg(target_os = "linux")]
+fn remove_legacy_lowercase_skill(directory: &Path) -> Result<(), String> {
+    let entries = fs::read_dir(directory)
+        .map_err(|error| format!("读取 {} 失败: {error}", directory.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("读取 {} 失败: {error}", directory.display()))?;
+        if entry.file_name() == "skill.md" {
+            remove_if_present(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 fn remove_empty_directory(path: &Path) {
     if path.is_dir()
         && fs::read_dir(path)
@@ -425,7 +438,7 @@ fn write_collection(
     let base = ensure_agents_root(root)?.join(kind);
     reject_symlink(&base, &format!(".agents/{kind} 目录"))?;
     let file_name = if kind == "skills" {
-        "skill.md"
+        "SKILL.md"
     } else {
         "agent.md"
     };
@@ -437,11 +450,21 @@ fn write_collection(
         reject_symlink(&directory, "Agent 配置目录")?;
         let path = directory.join(file_name);
         atomic_write(&path, &render_markdown(item, kind))?;
+        #[cfg(target_os = "linux")]
+        if kind == "skills" {
+            // Read legacy lowercase filenames for compatibility, but always
+            // leave the DSH-discoverable uppercase form after a save.
+            remove_legacy_lowercase_skill(&directory)?;
+        }
     }
     for old in existing.iter().filter(|item| !ids.contains(&item.id)) {
         let path = root.join(old.path.replace('/', std::path::MAIN_SEPARATOR_STR));
         if crate::config::path_is_inside(&path, root) {
             remove_if_present(&path)?;
+            #[cfg(target_os = "linux")]
+            if kind == "skills" {
+                remove_legacy_lowercase_skill(&base.join(&old.id))?;
+            }
             if let Some(parent) = path.parent() {
                 remove_empty_directory(parent);
             }

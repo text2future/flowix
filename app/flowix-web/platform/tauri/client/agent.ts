@@ -316,7 +316,7 @@ export const agent = {
   executeDeepSeekHarnessCommand: (threadId: string, command: string, message: AgentUserMessage) =>
     invoke<unknown>('execute_deepseek_harness_command', { threadId, command, message }),
   listDeepSeekHarnessSkills: (threadId: string, message: AgentUserMessage) =>
-    invoke<{ skills: Array<{ name: string; description: string; whenToUse?: string; modelInvocable?: boolean }> }>(
+    invoke<{ skills: Array<{ name: string; description: string; scope?: string; whenToUse?: string; modelInvocable?: boolean }> }>(
       'deepseek_harness_skill_catalog',
       { threadId, message },
     ),

@@ -48,7 +48,7 @@ describe('skills/list protocol', () => {
     const server = new AppServer(null, { adapter })
     await server.dispatch({ jsonrpc: '2.0', id: 1, method: 'initialize' })
     const result = await server.dispatch({ jsonrpc: '2.0', id: 2, method: 'thread/skills', params: { threadId: 'thread-1' } })
-    expect(result.result).toEqual({ skills: [{ name: 'visible', description: 'ok' }] })
+    expect(result.result).toEqual({ skills: [{ name: 'visible', description: 'ok', scope: 'repo' }] })
   })
 
   it('routes skill enablement and extra roots through the shared config port', async () => {

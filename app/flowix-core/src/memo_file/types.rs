@@ -257,6 +257,9 @@ impl Default for MemoMetadataFile {
 #[derive(Debug, Clone, Default)]
 pub struct ReconcileReport {
     pub added: usize,
+    /// Entries this reconciliation registered. The watcher uses these exact
+    /// snapshots to publish create events without reporting concurrent app writes.
+    pub added_memos: Vec<Memo>,
     pub removed: usize,
     /// Entries removed from the index during a complete disk scan. Callers
     /// can use these snapshots to publish deletion tombstones after the

@@ -153,6 +153,8 @@ interface SelectContentProps {
 	align?: "start" | "center" | "end";
 	/** Keep the menu inside the viewport and scroll its items when necessary. */
 	fitViewport?: boolean;
+	/** Optional maximum popup height in pixels when fitViewport is enabled. */
+	maxHeight?: number;
 }
 
 function SelectContent({
@@ -160,6 +162,7 @@ function SelectContent({
 	className,
 	align = "end",
 	fitViewport = false,
+	maxHeight,
 }: SelectContentProps) {
 	const { open, setOpen, triggerRef } = useSelectContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
@@ -188,7 +191,7 @@ function SelectContent({
 				// Keep the menu below its trigger. Long lists stay within the
 				// viewport by scrolling inside the menu instead of covering the
 				// trigger or opening over the form above it.
-				nextPosition.maxHeight = `${availableBelow}px`;
+				nextPosition.maxHeight = `${Math.min(availableBelow, maxHeight ?? availableBelow)}px`;
 			}
 
 			if (align === "start") {
@@ -210,7 +213,7 @@ function SelectContent({
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
 		};
-	}, [align, fitViewport, open, triggerRef]);
+	}, [align, fitViewport, maxHeight, open, triggerRef]);
 
 	// Close on click outside
 	React.useEffect(() => {

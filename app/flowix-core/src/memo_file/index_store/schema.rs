@@ -859,6 +859,27 @@ impl MemoFile {
         Ok(changed > 0)
     }
 
+    pub fn pending_external_memo_creates_for_notebook(
+        &self,
+        notebook_id: &str,
+    ) -> std::io::Result<std::collections::HashSet<String>> {
+        let conn = self.open_memo_index_db_for_notebook_id(notebook_id)?;
+        let cutoff = chrono::Utc::now().timestamp_millis() - EXTERNAL_CREATE_MARKER_TTL_MS;
+        let mut statement = conn
+            .prepare(
+                "SELECT memo_id FROM pending_external_memo_creates WHERE notebook_id = ?1 AND created_at >= ?2",
+            )
+            .map_err(sqlite_to_io)?;
+        let rows = statement
+            .query_map(params![notebook_id, cutoff], |row| row.get::<_, String>(0))
+            .map_err(sqlite_to_io)?;
+        let mut memo_ids = std::collections::HashSet::new();
+        for row in rows {
+            memo_ids.insert(row.map_err(sqlite_to_io)?);
+        }
+        Ok(memo_ids)
+    }
+
     pub fn has_pending_external_memo_create(
         &self,
         memo_id: &str,

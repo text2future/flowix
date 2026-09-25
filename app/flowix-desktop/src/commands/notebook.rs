@@ -170,11 +170,15 @@ pub fn get_default_notebook_path(name: String) -> Result<String, String> {
 /// separate command because the preview command above intentionally has no
 /// filesystem side effect.
 #[tauri::command]
-pub fn ensure_default_notebook_path(name: String) -> Result<String, String> {
-    default_notebook_path(name.trim())?
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
+pub async fn ensure_default_notebook_path(name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        default_notebook_path(name.trim())?
+            .to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
+    })
+    .await
+    .map_err(|error| format!("default notebook path task failed: {error}"))?
 }
 
 fn create_notebook_registry_with_id(
@@ -402,80 +406,89 @@ fn spawn_notebook_import(app: AppHandle, notebook_id: String) {
 }
 
 #[tauri::command]
-pub fn get_notebooks(state: State<AppState>) -> Vec<NotebookListItem> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let configs = memo_file.read_notebook_configs().unwrap_or_default();
-    let counts = MemoService::new(&memo_file)
-        .notebook_note_counts(&configs)
-        .unwrap_or_default();
+pub async fn get_notebooks(app: AppHandle) -> Result<Vec<NotebookListItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let configs = memo_file.read_notebook_configs().unwrap_or_default();
+        let counts = MemoService::new(&memo_file)
+            .notebook_note_counts(&configs)
+            .unwrap_or_default();
 
-    configs
-        .into_iter()
-        .map(|config| {
-            let memo_count = counts.get(&config.id).copied().unwrap_or(0);
-            NotebookListItem {
-                notebook: notebook_from_config(config),
-                memo_count,
-            }
-        })
-        .collect()
+        configs
+            .into_iter()
+            .map(|config| {
+                let memo_count = counts.get(&config.id).copied().unwrap_or(0);
+                NotebookListItem {
+                    notebook: notebook_from_config(config),
+                    memo_count,
+                }
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|error| format!("notebook list task failed: {error}"))
 }
 
 #[tauri::command]
-pub fn create_notebook(
+pub async fn create_notebook(
     name: String,
     path: Option<String>,
     icon: Option<String>,
     activate: Option<bool>,
-    state: State<AppState>,
     app: AppHandle,
 ) -> Result<Notebook, String> {
-    let trimmed_name = name.trim();
-    if trimmed_name.is_empty() {
-        return Err("INVALID_NAME".to_string());
-    }
-    let default_path;
-    let trimmed_path = match path
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-    {
-        Some(path) => path,
-        None => {
-            default_path = default_notebook_path(trimmed_name)?;
-            default_path
-                .to_str()
-                .ok_or_else(|| "PATH_INVALID_UTF8".to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let trimmed_name = name.trim();
+        if trimmed_name.is_empty() {
+            return Err("INVALID_NAME".to_string());
         }
-    };
-    let has_bookmark_access = state
-        .security_bookmarks
-        .start_accessing_for_path(Path::new(trimmed_path));
-    if !Path::new(trimmed_path).is_dir() {
-        return Err("PATH_MISSING".to_string());
-    }
-    if !has_bookmark_access {
-        state
+        let default_path;
+        let trimmed_path = match path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            Some(path) => path,
+            None => {
+                default_path = default_notebook_path(trimmed_name)?;
+                default_path
+                    .to_str()
+                    .ok_or_else(|| "PATH_INVALID_UTF8".to_string())?
+            }
+        };
+        let has_bookmark_access = state
             .security_bookmarks
-            .record_directory(Path::new(trimmed_path))
-            .map_err(|e| format!("BOOKMARK_WRITE_FAILED: {e}"))?;
-    }
+            .start_accessing_for_path(Path::new(trimmed_path));
+        if !Path::new(trimmed_path).is_dir() {
+            return Err("PATH_MISSING".to_string());
+        }
+        if !has_bookmark_access {
+            state
+                .security_bookmarks
+                .record_directory(Path::new(trimmed_path))
+                .map_err(|e| format!("BOOKMARK_WRITE_FAILED: {e}"))?;
+        }
 
-    let config = {
-        let memo_file = write_lock(&state.memo_file, "memo_file");
-        create_notebook_registry(trimmed_name, trimmed_path, icon, &memo_file)?
-    };
-    sync_notebook_agent_access(&config, state.inner(), &app);
-    if activate.unwrap_or(true) {
-        activate_created_notebook(&config, state.inner(), &app)?;
-    } else {
-        // The onboarding flow activates the notebook only after all steps are
-        // complete. Keep the new root watched without changing global state.
-        refresh_watcher_roots(state.inner(), &app);
-    }
-    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
+        let config = {
+            let memo_file = write_lock(&state.memo_file, "memo_file");
+            create_notebook_registry(trimmed_name, trimmed_path, icon, &memo_file)?
+        };
+        sync_notebook_agent_access(&config, state.inner(), &app);
+        if activate.unwrap_or(true) {
+            activate_created_notebook(&config, state.inner(), &app)?;
+        } else {
+            // The onboarding flow activates the notebook only after all steps are
+            // complete. Keep the new root watched without changing global state.
+            refresh_watcher_roots(state.inner(), &app);
+        }
+        dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
 
-    Ok(notebook_from_config(config))
+        Ok(notebook_from_config(config))
+    })
+    .await
+    .map_err(|error| format!("notebook creation task failed: {error}"))?
 }
 
 /// Start importing an ordinary local notebook after the frontend has applied

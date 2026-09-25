@@ -14,7 +14,7 @@ use std::fmt::Display;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
@@ -505,6 +505,7 @@ fn load_notebook_template_files_from_root(
             })
             .collect::<Result<Vec<_>, _>>()?
             .join("/");
+        let path = canonicalize_notebook_template_skill_path(&path);
         validate_notebook_template_path(&path)?;
 
         let content = fs::read_to_string(entry.path())
@@ -525,6 +526,24 @@ fn load_notebook_template_files_from_root(
         return Err("EMPTY_NOTEBOOK_TEMPLATE".to_string());
     }
     Ok(files)
+}
+
+/// DSH's filesystem skill provider recognizes directory skills only when the
+/// entry file is named `SKILL.md`. Older user-installed notebook templates
+/// may still carry Flowix's former lowercase filename; normalize the path as
+/// the template is materialized so newly created notebooks are discoverable.
+fn canonicalize_notebook_template_skill_path(path: &str) -> String {
+    let Some(skill_path) = path.strip_prefix(".agents/skills/") else {
+        return path.to_string();
+    };
+    let Some((skill_id, filename)) = skill_path.split_once('/') else {
+        return path.to_string();
+    };
+    if filename == "skill.md" && !skill_id.contains('/') {
+        format!(".agents/skills/{skill_id}/SKILL.md")
+    } else {
+        path.to_string()
+    }
 }
 
 fn validate_notebook_template_path(path: &str) -> Result<PathBuf, String> {
@@ -857,27 +876,18 @@ fn begin_notebook_template_initialization(
 /// Copy a locally managed notebook template into a notebook while retaining
 /// its folder structure and indexing visible Markdown documents.
 #[tauri::command]
-pub fn initialize_notebook_template(
+pub async fn initialize_notebook_template(
     notebook_id: String,
     template_id: String,
     is_new_notebook: bool,
-    operation_id: String,
-    state: State<AppState>,
     app: AppHandle,
 ) -> Result<usize, String> {
-    let result = initialize_notebook_template_inner(
-        notebook_id.clone(),
-        template_id,
-        is_new_notebook,
-        state,
-        &app,
-    );
-    memo_events::emit_notebook_template_initialization_completed(
-        &app,
-        &notebook_id,
-        &operation_id,
-    );
-    result
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        initialize_notebook_template_inner(notebook_id, template_id, is_new_notebook, state, &app)
+    })
+    .await
+    .map_err(|error| format!("notebook template initialization task failed: {error}"))?
 }
 
 fn initialize_notebook_template_inner(
@@ -977,6 +987,7 @@ fn initialize_notebook_template_inner(
                 .map_err(|error| notebook_template_file_failure(&file.path, error))?
                 .memo;
 
+            mark_self_write_for(app, &notebook_root.join(&memo.relative_path));
             try_index_upsert(state.inner(), &memo.id);
             memo_events::emit(
                 app,
@@ -984,13 +995,14 @@ fn initialize_notebook_template_inner(
                     memo: memo.clone(),
                     notebook_id: notebook_id.clone(),
                     derived_changed: MemoDerivedChanged::from_memos(None, &memo),
-                    source: MemoChangeSource::UserImport,
+                    source: MemoChangeSource::NotebookTemplate,
                 },
             );
         } else {
             mark_self_write_for(app, &target);
             atomic_write_bytes(&target, file.content.as_bytes())
                 .map_err(|error| notebook_template_file_failure(&file.path, error))?;
+            mark_self_write_for(app, &target);
         }
         created += 1;
     }
