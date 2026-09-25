@@ -2,6 +2,7 @@ import { copyFile, cp, lstat, mkdir, readFile, readlink, readdir, rm, writeFile 
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
+import { getDshReleaseVersion } from './dsh-release-version.mjs'
 import { repairDshNativePackages, verifyDshNativePackages } from './dsh-native-deps.mjs'
 
 if (Number(process.versions.node.split('.')[0]) !== 24) {
@@ -78,7 +79,7 @@ await cp(process.execPath, resolve(nodeDir, process.platform === 'win32' ? 'node
 await writeFile(resolve(bundle, 'dsh-runtime.json'), `${JSON.stringify({
   target,
   nodeExecutable: `node/${process.platform === 'win32' ? 'node.exe' : 'node'}`,
-  version: process.env.FLOWIX_DSH_VERSION || '26.09.24',
+  version: getDshReleaseVersion(),
   nodeVersion: process.version,
   nodeAbi: process.versions.modules,
   sourceCommit: JSON.parse(await readFile(resolve(repo, 'dsh/upstream.lock.json'), 'utf8')).commit,
