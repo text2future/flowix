@@ -31,6 +31,14 @@ export interface MemoTemplate {
   name: string;
 }
 
+export interface NotebookTemplateRecord {
+  id: string;
+  name: string;
+  description: string;
+  sourceDirectory: string;
+  icon: string;
+}
+
 export interface MentionNoteSearchItem {
   id: string;
   filename: string;
@@ -267,10 +275,22 @@ export interface NotebookRecord {
 
 export const notebooks = {
   getAll: () => invoke<NotebookRecord[]>('get_notebooks'),
+  listTemplates: () => invoke<NotebookTemplateRecord[]>('list_notebook_templates'),
   getDefaultPath: (name: string) =>
     invoke<string>('get_default_notebook_path', { name }),
   ensureDefaultPath: (name: string) =>
     invoke<string>('ensure_default_notebook_path', { name }),
+  initializeTemplate: (
+    notebookId: string,
+    templateId: string,
+    isNewNotebook: boolean,
+    operationId: string,
+  ) => invoke<number>('initialize_notebook_template', {
+    notebookId,
+    templateId,
+    isNewNotebook,
+    operationId,
+  }),
   create: (name: string, path?: string, icon?: string | null, activate = true) =>
     invoke<NotebookRecord>('create_notebook', { name, path, icon, activate }),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null) =>

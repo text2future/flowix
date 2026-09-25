@@ -1,5 +1,6 @@
 import type { MemoEvent } from '@/types/memo';
 import type { MemoItem } from '@/types/memo-item';
+import { shouldAutoOpenCreatedNoteInBrowser } from '@features/memo/services/created-note-auto-open-policy';
 
 export interface MainWindowMemoEventActions {
   getSelectedNotebookId: () => string | null;
@@ -67,7 +68,7 @@ export function handleMainWindowMemoEvent(
   const shouldOpenCreatedNote = event.kind === 'created' && (
     event.source === 'external_tool'
     || (!!selectedNotebookId && selectedNotebookId !== event.notebookId)
-  );
+  ) && shouldAutoOpenCreatedNoteInBrowser(event.notebookId);
   if (shouldOpenCreatedNote) {
     void actions.openMemoInBrowserColumn(event.memo.id).catch(actions.reportOpenFailure);
   }

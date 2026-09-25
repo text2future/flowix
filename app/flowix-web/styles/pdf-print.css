@@ -326,10 +326,11 @@
   /* Quote: copied from editor.css; its vertical padding is already zero. */
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror blockquote {
     border-left: 0.1875rem solid var(--border);
-    margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.32);
+    margin: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.2) 0
+      calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.52);
     padding: 0 0 0 1rem;
     color: var(--document-foreground);
-    font-style: italic;
+    font-style: normal;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -358,8 +359,8 @@
   }
 
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror li > p {
-    margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
-    padding-bottom: 0;
+    margin: 0;
+    padding-bottom: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
   }
 
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror ul {

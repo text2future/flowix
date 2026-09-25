@@ -8,7 +8,7 @@ import { verifyDshNativePackages } from './dsh-native-deps.mjs'
 
 if (process.platform !== 'win32') throw new Error('Windows DSH production packages must be packaged on Windows')
 const repo = resolve(import.meta.dirname, '..')
-const version = process.env.FLOWIX_DSH_VERSION || '1.8.0'
+const version = process.env.FLOWIX_DSH_VERSION || '26.09.24'
 const minFlowixVersion = process.env.FLOWIX_VERSION || '1.3.2'
 const sourceRoot = resolve(repo, '.build/dsh-runtime-bundle/node24-windows-x64')
 const stage = resolve(repo, '.build/dsh-prod-stage/node24-windows-x64')

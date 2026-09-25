@@ -4,6 +4,7 @@ import { menuPinPluginKey } from '@features/editor/extensions/menu-pin'
 import { getCurrentBlockInfo, type CurrentBlockInfo } from '@features/editor/components/drag-context-menu/block-info'
 import type { BlockMenuItem, ImageAlignment } from '@features/editor/components/drag-context-menu/items'
 import { terminateAgentThreadCardRuntime } from '@features/agent/thread-card/agent-thread-card-cleanup'
+import { applyListType } from '@features/editor/extensions/list-transforms'
 
 /**
  * Editor command dispatchers used by the drag handle. Kept separate from
@@ -46,13 +47,7 @@ export function applyMenuItem(
   } else if (item.kind === 'paragraph') {
     editor.chain().focus().setParagraph().run()
   } else if (item.kind === 'list') {
-    if (item.listType === 'bulletList') {
-      editor.chain().focus().toggleBulletList().run()
-    } else if (item.listType === 'orderedList') {
-      editor.chain().focus().toggleOrderedList().run()
-    } else {
-      editor.chain().focus().toggleTaskList().run()
-    }
+    applyListType(editor, item.listType, target)
   } else if (item.kind === 'block') {
     if (item.blockType === 'blockquote') {
       editor.chain().focus().toggleBlockquote().run()

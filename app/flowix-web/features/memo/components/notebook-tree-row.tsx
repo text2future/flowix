@@ -9,8 +9,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { FilePlusIcon, FolderPlusIcon, LinkIcon, PencilSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
-import { ChevronRight, File, FolderPlus, MoreHorizontal, Plus } from 'lucide-react';
+import { FilePlusIcon, FileTextIcon, FolderPlusIcon, LinkIcon, PencilSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
+import { ChevronRight, EyeOff, FolderPlus, MoreHorizontal, Plus } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
 import { cn, displayTitleFromFilename } from '@/lib/utils';
@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import folderIcon from '@/assets/folder-outline.svg?raw';
 import { getPropertyIconOption } from '@features/document/properties/property-icons';
 import { resourceKindFromPath } from '@features/editor/code-file';
+import { setShowHiddenNotebookFilesPreference } from '@features/preferences/public/runtime-api';
 import { FileTypeIcon } from '@features/memo/components/file-type-icon';
 import { memos, product, type DocTreeItem } from '@platform/tauri/client';
 import { canUseNativeContextMenu, logNativeContextMenuError, popupNativeContextMenu, type NativeContextMenuItems } from '@platform/tauri/native-context-menu';
@@ -36,6 +37,15 @@ const TREE_MENU_ITEM_CLASS =
 const TREE_MENU_DIVIDER_CLASS = 'mx-1 my-1 h-px bg-[var(--border-popup)] opacity-60';
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
+
+const NOTEBOOK_FOLDER_DISPLAY_NAMES: Record<string, string> = {
+  '.agents': 'Agents',
+  '.codex': 'Codex',
+  '.claude': 'Claude',
+  '.dsh': 'DeepSeek Harness',
+  '.opencode': 'OpenCode',
+  '.hermes': 'Hermes',
+};
 
 export const NotebookTreeRow = memo(function NotebookTreeRow({
   item,
@@ -86,6 +96,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
 }) {
   const { t, language } = useI18n();
   const isFolder = item.type === 'folder';
+  const sourceFolderName = item.fullPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? item.name;
+  const isHiddenFolder = isFolder && sourceFolderName.startsWith('.');
   const actionParentPath = isFolder ? item.fullPath : parentPath;
   const resourceKind = isFolder ? null : item.resourceKind ?? resourceKindFromPath(item.name);
   const isNote = resourceKind === 'note';
@@ -243,12 +255,21 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       },
     ];
 
-    if (isFolder && onDeleteFolder) {
-      items.push(
-        { text: t('memo.fileTree.copyLink'), action: () => void navigator.clipboard.writeText(item.fullPath) },
-        { item: 'Separator' },
-        { text: t('memo.fileTree.delete'), action: () => setConfirmDelete(true) },
-      );
+    if (isFolder) {
+      if (onDeleteFolder) {
+        items.push({ text: t('memo.fileTree.copyLink'), action: () => void navigator.clipboard.writeText(item.fullPath) });
+      }
+      if (isHiddenFolder) {
+        items.push(
+          { item: 'Separator' },
+          { text: t('memo.fileTree.hideHiddenFolders'), action: () => void setShowHiddenNotebookFilesPreference(false) },
+        );
+      } else if (onDeleteFolder) {
+        items.push(
+          { item: 'Separator' },
+          { text: t('memo.fileTree.delete'), action: () => setConfirmDelete(true) },
+        );
+      }
     } else if (isMediaResource && onDeleteResource) {
       items.push(
         { item: 'Separator' },
@@ -386,7 +407,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             className={cn(
               'relative flex h-[15px] w-[15px] shrink-0 items-center justify-center',
               isFolder
-                ? 'text-[var(--brand)]'
+                ? (isHiddenFolder ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand)]')
                 : 'text-[color-mix(in_oklch,var(--foreground)_90%,white_10%)]',
             )}
           >
@@ -425,7 +446,10 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       ) : (
         <>
           {isFolder ? (
-            <span aria-hidden="true" className="relative h-[15px] w-[15px] shrink-0 text-[var(--brand)]">
+            <span aria-hidden="true" className={cn(
+              'relative h-[15px] w-[15px] shrink-0',
+              isHiddenFolder ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand)]',
+            )}>
               <span
                 className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
                 dangerouslySetInnerHTML={{ __html: folderIcon }}
@@ -446,7 +470,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
                   draggable={false}
                 />
               ) : isNote ? (
-                <File aria-hidden="true" className="h-[15px] w-[15px]" strokeWidth={1.3} />
+                <FileTextIcon aria-hidden="true" className="h-[15px] w-[15px]" />
               ) : (
                 <FileTypeIcon path={item.name} className="h-[15px] w-[15px]" />
               )}
@@ -457,7 +481,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             'ml-1.5',
             !isFolder && 'text-[color-mix(in_oklch,var(--foreground)_90%,transparent)]',
           )}>
-            {isFolder || !isNote ? item.name : displayTitleFromFilename(item.name)}
+            {isFolder
+              ? NOTEBOOK_FOLDER_DISPLAY_NAMES[item.name] ?? item.name
+              : !isNote ? item.name : displayTitleFromFilename(item.name)}
           </span>
           {isFolder && (
             <span className={cn(
@@ -564,16 +590,26 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t('memo.fileTree.copyLink')}
           </ContextMenuItem>
         )}
-        {isFolder && onDeleteFolder && (
+        {isFolder && (onDeleteFolder || isHiddenFolder) && (
           <>
             <div role="separator" aria-hidden="true" className={TREE_MENU_DIVIDER_CLASS} />
-            <ContextMenuItem
-              onClick={() => setConfirmDelete(true)}
-              className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
-            >
-              <TrashSimpleIcon className="mr-2 h-4 w-4" />
-              {t('memo.fileTree.delete')}
-            </ContextMenuItem>
+            {isHiddenFolder ? (
+              <ContextMenuItem
+                onClick={() => void setShowHiddenNotebookFilesPreference(false)}
+                className={TREE_MENU_ITEM_CLASS}
+              >
+                <EyeOff className="mr-2 h-4 w-4" />
+                {t('memo.fileTree.hideHiddenFolders')}
+              </ContextMenuItem>
+            ) : onDeleteFolder ? (
+              <ContextMenuItem
+                onClick={() => setConfirmDelete(true)}
+                className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+              >
+                <TrashSimpleIcon className="mr-2 h-4 w-4" />
+                {t('memo.fileTree.delete')}
+              </ContextMenuItem>
+            ) : null}
           </>
         )}
         {!isFolder && (

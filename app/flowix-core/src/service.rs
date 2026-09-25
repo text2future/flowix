@@ -417,8 +417,11 @@ impl<'a> MemoService<'a> {
         tag: Option<&str>,
     ) -> Result<CreatedMemo, FlowixError> {
         let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
-        let memo = if let Some(key) = notebook_key {
-            let notebook = self.resolve_notebook(key)?;
+        let notebook = match notebook_key {
+            Some(key) => Some(self.resolve_notebook(key)?),
+            None => None,
+        };
+        let memo = if let Some(notebook) = notebook.as_ref() {
             match parent_relative_path.filter(|path| !path.is_empty()) {
                 Some(parent) => self.memo_file.create_memo_for_notebook_id_in_directory(
                     &notebook.id,
@@ -440,16 +443,24 @@ impl<'a> MemoService<'a> {
             self.memo_file.create_memo(title, body, tag)
         }
         .map_err(FlowixError::Io)?;
-        let location = self
-            .memo_file
-            .resolve_memo_location(&memo.id)?
-            .ok_or_else(|| {
-                FlowixError::Internal(format!(
-                    "created note `{}` could not be resolved from the index",
-                    memo.id
-                ))
-            })?;
-        let notebook = location.notebook;
+        // Explicit notebook creation already resolved the target config, and the
+        // storage operation returns the memo it just persisted. Avoid a global
+        // cross-notebook id lookup here: a missed/stale catalog lookup used to
+        // report failure after both the Markdown file and its local index row
+        // had already been created.
+        let notebook = match notebook {
+            Some(notebook) => notebook,
+            None => self
+                .memo_file
+                .resolve_memo_location(&memo.id)?
+                .ok_or_else(|| {
+                    FlowixError::Internal(format!(
+                        "created note `{}` could not be resolved from the index",
+                        memo.id
+                    ))
+                })?
+                .notebook,
+        };
         let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &memo.relative_path)
             .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&memo.filename));
         Ok(CreatedMemo {

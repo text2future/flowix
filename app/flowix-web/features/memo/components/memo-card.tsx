@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { displayTitleFromFilename } from '@/lib/utils';
-import { ListTodo } from 'lucide-react';
+import { ChevronRight, ListTodo } from 'lucide-react';
 import { PushPin } from '@phosphor-icons/react';
 import { MEMO_COLORS, MEMO_COLOR_HEX, useMemoStore } from '@features/memo/store/memo-store';
 import type { MemoColor, MemoItem } from '@/types/memo-item';
@@ -73,6 +73,13 @@ function thumbnailSrc(thumbnail: string | null | undefined): string | null {
   if (!thumbnail) return null;
   const storageKey = decodeStorageKey(thumbnail);
   return storageKey ? assetUrl(storageKey) : thumbnail;
+}
+
+function memoFolderDisplayPath(memo: Pick<MemoItem, 'filename' | 'relativePath'>): string[] | null {
+  const relativePath = (memo.relativePath?.trim() || memo.filename).replace(/\\/g, '/');
+  const pathSegments = relativePath.split('/').filter((segment) => segment && segment !== '.');
+  if (pathSegments.length < 2) return null;
+  return pathSegments.slice(0, -1);
 }
 
 function AgentTodoIcons({
@@ -285,6 +292,8 @@ function DetailedMemoCardBody({
   onThumbnailFailed,
   emptyPreviewLabel,
 }: MemoCardBodyProps) {
+  const folderDisplayPath = memoFolderDisplayPath(memo);
+
   return (
     <>
       <div className="space-y-2">
@@ -314,8 +323,26 @@ function DetailedMemoCardBody({
             />
           </div>
         ) : null}
-        <p className="line-clamp-2 text-sm text-[var(--foreground)] opacity-50">
-          {memo.preview || emptyPreviewLabel}
+        <p className="line-clamp-2 text-sm">
+          {folderDisplayPath && (
+            <>
+              {folderDisplayPath.map((segment, index) => (
+                <span key={`${index}-${segment}`} className="text-[var(--muted-foreground)]">
+                  {index > 0 && (
+                    <ChevronRight
+                      aria-hidden="true"
+                      className="mx-0.5 inline-block h-3 w-3 align-[-2px] opacity-70"
+                    />
+                  )}
+                  {segment}
+                </span>
+              ))}
+              {' '}
+            </>
+          )}
+          <span className="text-[var(--foreground)] opacity-50">
+            {memo.preview || emptyPreviewLabel}
+          </span>
         </p>
       </div>
       <div className="flex w-full items-center justify-between gap-2 pt-2">

@@ -14,6 +14,7 @@ import {
   parseMarkdownForPaste,
 } from '@features/editor/extensions/paste-rules/markdown';
 import { HTML_TABLE_RE, isStandaloneHtmlTable } from '@features/editor/extensions/paste-rules/html';
+import { hasImportableHtml } from '@features/editor/extensions/paste-rules/html-sanitizer';
 import {
   htmlTableToTableContent,
   looksLikeTsvTable,
@@ -21,6 +22,12 @@ import {
 } from '@features/editor/extensions/paste-rules/table';
 
 const ASSET_MARKDOWN_LINK_RE = /^\s*!?\[[^\]\n]*\]\((?:asset:\/\/|https?:\/\/asset\.localhost\/)[^)]+\)\s*$/i;
+
+// Rich clipboard sources usually provide a plain-text fallback. Its Markdown-like
+// punctuation must not take precedence over the source HTML.
+function hasRichHtml({ html }: PasteContext): boolean {
+  return html.trim().length > 0 && hasImportableHtml(html);
+}
 
 /**
  * Managed paste rules must still produce one user-visible history event.
@@ -50,11 +57,22 @@ function insertMarkdownPaste(
   options: { normalizeLooseCodeBlocks?: boolean } = {},
 ): boolean {
   const parsed = parseMarkdownForPaste(markdown, editor, options);
-  return mergePastedFrontmatterIntoExisting(parsed, editor)
+  if (typeof parsed !== 'string' && parsed.content?.[0]?.type === 'frontmatter') {
+    const yaml = String(parsed.content[0].attrs?.yamlContent ?? '');
+    try {
+      // Validate before changing the document. A malformed header stays literal text.
+      mergeFrontmatterYaml('', yaml);
+    } catch {
+      return insertPastedContent(editor.schema.nodes.codeBlock
+        ? { type: 'codeBlock', attrs: { language: 'markdown' }, content: [{ type: 'text', text: markdown }] }
+        : { type: 'paragraph', content: [{ type: 'text', text: markdown }] }, editor);
+    }
+  }
+  return mergePastedFrontmatter(parsed, editor)
     || insertPastedContent(parsed, editor);
 }
 
-function mergePastedFrontmatterIntoExisting(parsed: JSONContent | string, editor: Editor): boolean {
+function mergePastedFrontmatter(parsed: JSONContent | string, editor: Editor): boolean {
   if (typeof parsed === 'string') return false;
 
   const pastedNodes = parsed.content ?? [];
@@ -62,13 +80,24 @@ function mergePastedFrontmatterIntoExisting(parsed: JSONContent | string, editor
   if (pastedFrontmatter?.type !== 'frontmatter') return false;
 
   const currentFrontmatter = editor.state.doc.firstChild;
-  if (currentFrontmatter?.type.name !== 'frontmatter') return false;
-
   const yamlContent = mergeFrontmatterYaml(
-    String(currentFrontmatter.attrs.yamlContent ?? ''),
+    currentFrontmatter?.type.name === 'frontmatter'
+      ? String(currentFrontmatter.attrs.yamlContent ?? '')
+      : '',
     String(pastedFrontmatter.attrs?.yamlContent ?? ''),
   );
   const rest = pastedNodes.slice(1);
+  if (currentFrontmatter?.type.name !== 'frontmatter') {
+    const frontmatterType = editor.schema.nodes.frontmatter;
+    if (!frontmatterType) return false;
+    const chain = editor.chain().command(({ tr }) => {
+      closeHistory(tr);
+      tr.insert(0, frontmatterType.create({ yamlContent }));
+      return true;
+    });
+    return rest.length ? chain.insertContent({ ...parsed, content: rest }).run() : chain.run();
+  }
+
   const chain = editor
     .chain()
     .command(({ tr }) => {
@@ -142,7 +171,7 @@ export function createManagedPasteRules(options: {
       id: 'asset-markdown-link',
       kind: 'asset-link',
       priority: 800,
-      match: ({ text }) => ASSET_MARKDOWN_LINK_RE.test(text),
+      match: (ctx) => !hasRichHtml(ctx) && ASSET_MARKDOWN_LINK_RE.test(ctx.text),
       run: ({ text, editor }) => {
         const markdown = text.replace(/\r\n/g, '\n');
         return insertMarkdownPaste(markdown, editor)
@@ -154,7 +183,7 @@ export function createManagedPasteRules(options: {
       id: 'loose-code-block',
       kind: 'loose-code-block',
       priority: 790,
-      match: ({ text }) => containsLooseCodeBlock(text),
+      match: (ctx) => !hasRichHtml(ctx) && containsLooseCodeBlock(ctx.text),
       run: ({ text, editor }) => {
         const markdown = text.replace(/\r\n/g, '\n');
         return insertMarkdownPaste(markdown, editor)
@@ -166,7 +195,7 @@ export function createManagedPasteRules(options: {
       id: 'markdown-table',
       kind: 'markdown-table',
       priority: 770,
-      match: ({ text }) => containsMarkdownTable(text),
+      match: (ctx) => !hasRichHtml(ctx) && containsMarkdownTable(ctx.text),
       run: ({ text, editor }) => {
         const markdown = text.replace(/\r\n/g, '\n');
         return insertMarkdownPaste(markdown, editor)
@@ -178,7 +207,7 @@ export function createManagedPasteRules(options: {
       id: 'frontmatter-markdown',
       kind: 'markdown-block',
       priority: 765,
-      match: ({ text }) => hasLeadingFrontmatter(text),
+      match: (ctx) => hasLeadingFrontmatter(ctx.text),
       run: ({ text, editor }) => {
         const markdown = text.replace(/\r\n/g, '\n');
         return insertMarkdownPaste(markdown, editor)
@@ -218,7 +247,7 @@ export function createManagedPasteRules(options: {
       id: 'markdown-block',
       kind: 'markdown-block',
       priority: 600,
-      match: ({ text }) => !!text && (FENCED_CODE_BLOCK_RE.test(text) || looksLikeMarkdown(text)),
+      match: (ctx) => !hasRichHtml(ctx) && !!ctx.text && (FENCED_CODE_BLOCK_RE.test(ctx.text) || looksLikeMarkdown(ctx.text)),
       run: ({ text, editor }) => {
         const markdown = text.replace(/\r\n/g, '\n');
         return insertMarkdownPaste(markdown, editor)

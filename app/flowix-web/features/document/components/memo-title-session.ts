@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 
-import { markSelfDocumentPathUpdate, rebaseActiveDocumentPath } from '@features/document/store/document-session-service';
+import { rebaseActiveDocumentPath } from '@features/document/store/document-session-service';
 import { useMemoStore } from '@features/memo/store/memo-store';
-import { replaceBrowserColumnMemoPath } from '@features/workspace/use-cases/browser-column-navigation';
-import { replaceActiveMemoPath } from '@features/workspace/use-cases/workspace-navigation';
+import { syncMemoPathAfterLocalWrite } from '@features/document/use-cases/sync-memo-path-after-local-write';
 import { memos as memosClient } from '@platform/tauri/client';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { toast } from '@/lib/toast';
@@ -108,9 +107,7 @@ async function runQueue(memoId: string, session: MemoTitleSession): Promise<void
 
         const identity = { kind: 'memo' as const, id: memoId };
         rebaseActiveDocumentPath(identity, result.path);
-        replaceBrowserColumnMemoPath(memoId, result.path);
-        markSelfDocumentPathUpdate(memoId, result.path);
-        replaceActiveMemoPath(memoId, result.path);
+        syncMemoPathAfterLocalWrite(memoId, result.path);
 
         if (
           session.pendingTitle === null

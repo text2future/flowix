@@ -226,6 +226,10 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            if let Err(error) = crate::template_store::initialize(&user_config_dir_for_device) {
+                tracing::warn!("[startup] failed to initialize template directories: {error}");
+            }
+
             // Read the notebook registry synchronously so AppState can be
             // created. Structural migrations themselves are scheduled after
             // AppState and IPC are available; the startup coordinator is the
@@ -503,6 +507,8 @@ pub fn run() {
             commands::memo::reads::search_memos,
             commands::memo::creates::add_document,
             commands::memo::creates::create_memo_with_content,
+            commands::memo::creates::list_notebook_templates,
+            commands::memo::creates::initialize_notebook_template,
             commands::memo::creates::import_external_document_to_memo,
             commands::memo::creates::rename_memo_title,
             commands::memo::creates::move_memo_to_directory,

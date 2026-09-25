@@ -130,6 +130,20 @@ describe('CodeEditor', () => {
     expect(container.querySelector('.cm-content > .cm-source-header')).not.toBeNull();
   });
 
+  it('keeps the source title for an empty memo body', async () => {
+    await act(async () => root.render(
+      <CodeEditor
+        filePath="/project/empty.md"
+        content=""
+        onChange={vi.fn()}
+        scrollHeader={<div data-testid="source-title">Empty note</div>}
+      />
+    ));
+
+    expect(container.querySelector('.cm-content > .cm-source-header [data-testid="source-title"]')?.textContent)
+      .toBe('Empty note');
+  });
+
   it('keeps the source header when the document content is synchronized', async () => {
     const header = <div data-testid="source-title">Title</div>;
 

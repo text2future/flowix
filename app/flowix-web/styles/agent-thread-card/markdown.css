@@ -874,9 +874,23 @@
 .markdown-editor .agent-thread-card__featured-notes-settings-footer {
   position: relative;
   display: flex;
+  align-items: center;
   min-height: 26px;
-  justify-content: center;
+  justify-content: flex-end;
   margin-top: 8px;
+}
+
+/* 添加常用笔记按钮相对整行居中, 不受右侧翻页控件宽度影响。 */
+.markdown-editor .agent-thread-card__featured-notes-settings-button {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* 翻页控件贴齐内容区域右侧。 */
+.markdown-editor .agent-thread-card__featured-notes-settings-footer
+  .agent-thread-card__featured-notes-navigation {
+  margin-left: auto;
 }
 
 .markdown-editor .agent-thread-card__featured-notes-settings-button {

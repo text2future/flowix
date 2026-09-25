@@ -195,6 +195,10 @@ export function setFlowixTextStyle(
   const nextBg = hasBgPatch ? patch.bg ?? null : current.flowixBg ?? null;
   const nextFg = hasFgPatch ? patch.fg ?? null : current.flowixFg ?? null;
 
+  if (nextBg === null && nextFg === null) {
+    return editor.chain().focus().unsetHighlight().run();
+  }
+
   return editor
     .chain()
     .focus()

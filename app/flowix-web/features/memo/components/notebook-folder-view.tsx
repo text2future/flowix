@@ -61,10 +61,10 @@ export function isNotebookTreeItemVisible(
   if (item.type === 'folder') {
     return !['attachment', 'attachments'].includes(item.name.toLowerCase());
   }
-  const resourceKind = item.resourceKind ?? resourceKindFromPath(item.name);
-  return resourceKind === 'note'
-    || resourceKind === 'image'
-    || resourceKind === 'video';
+  // The file tree is a filesystem view: show every file, including source
+  // code and formats that Flowix cannot preview. Markdown remains the only
+  // document type treated as a note by the open handler below.
+  return true;
 }
 
 function memoPath(notebookPath: string, memo: { filename: string; relativePath?: string }): string {
@@ -78,7 +78,9 @@ export function filterNotebookTreeItems(
 ): DocTreeItem[] {
   if (!visibleMemoPaths) return items;
   return items.filter((item) => (
-    item.type === 'folder' || visibleMemoPaths.has(canonicalPath(item.fullPath))
+    item.type === 'folder'
+      || (item.resourceKind ?? resourceKindFromPath(item.name)) !== 'note'
+      || visibleMemoPaths.has(canonicalPath(item.fullPath))
   ));
 }
 

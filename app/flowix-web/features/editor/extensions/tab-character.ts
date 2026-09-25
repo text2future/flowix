@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
 
 import { DEFAULT_AGENT_TYPE_KEY } from '@/lib/agent-types';
+import { indentAcrossListTypes, outdentAcrossListTypes } from './list-transforms';
 
 const TABLE_CELL_TYPES = new Set(['tableCell', 'tableHeader']);
 const LIST_ITEM_TYPES = new Set(['listItem', 'taskItem']);
@@ -106,9 +107,9 @@ export const TabCharacter = Extension.create({
               pendingTab = null;
               event.preventDefault();
               if (event.shiftKey) {
-                editor.commands.liftListItem(listItemType);
+                if (!outdentAcrossListTypes(editor)) editor.commands.liftListItem(listItemType);
               } else {
-                editor.commands.sinkListItem(listItemType);
+                if (!indentAcrossListTypes(editor)) editor.commands.sinkListItem(listItemType);
               }
               return true;
             }

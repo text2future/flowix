@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { readClipboardSnapshot, type ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
 import { createManagedPasteRules, executeManagedPasteRules } from '@features/editor/extensions/paste-rules/rules';
-import { isInternalEditorHtml, sanitizeExternalHtml } from '@features/editor/extensions/paste-rules/html-sanitizer';
+import { hasImportableHtml, isInternalEditorHtml, sanitizeExternalHtml } from '@features/editor/extensions/paste-rules/html-sanitizer';
 import type { PasteContext } from '@features/editor/extensions/paste-rules/types';
 import type { Editor } from '@tiptap/core';
 
@@ -33,6 +33,10 @@ export const ManagedPasteRules = Extension.create<{ memoId?: string }>({
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
             const snapshot = readClipboardSnapshot(clipboardData);
+            if (snapshot.html && !hasImportableHtml(snapshot.html) && snapshot.text) {
+              event.preventDefault();
+              return pasteClipboardSnapshot(this.editor, { ...snapshot, html: '' }, this.options.memoId);
+            }
 
             const ctx: PasteContext = {
               editor: this.editor,

@@ -7,7 +7,7 @@ import { createDshRuntimeMetadata, DSH_PNPM_VERSION } from './dsh-runtime-metada
 import { verifyDshNativePackages } from './dsh-native-deps.mjs'
 
 const repo = resolve(import.meta.dirname, '..')
-const version = process.env.FLOWIX_DSH_VERSION || '1.8.0'
+const version = process.env.FLOWIX_DSH_VERSION || '26.09.24'
 const minFlowixVersion = process.env.FLOWIX_VERSION || '1.4.8'
 const semverPattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u
 if (!semverPattern.test(version)) {

@@ -27,6 +27,7 @@ mod plugin;
 mod process_window;
 mod runtime_log;
 mod system_data;
+mod template_store;
 mod update_security;
 mod watcher;
 mod window_chrome;

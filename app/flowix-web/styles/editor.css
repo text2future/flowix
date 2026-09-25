@@ -106,7 +106,7 @@
   display: flex;
   width: 253px;
   max-width: calc(100vw - 16px);
-  height: 80vh;
+  height: auto;
   max-height: 80vh;
   flex-direction: column;
   overflow: hidden;
@@ -561,10 +561,11 @@
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) blockquote:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   border-left: 0.1875rem solid var(--border);
-  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.32);
+  margin: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.2) 0
+    calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.52);
   padding: 0 0 0 1rem;
   color: var(--document-foreground);
-  font-style: italic;
+  font-style: normal;
 }
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
@@ -596,8 +597,8 @@
 }
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) li p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
-  margin: 0 0 calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
-  padding-bottom: 0;
+  margin: 0;
+  padding-bottom: calc(var(--app-font-size, 15px) * var(--app-line-height, 1.8) * 0.25);
 }
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
@@ -750,12 +751,17 @@
   border-bottom-right-radius: 8px;
 }
 
+/* ProseMirror adds .ProseMirror-hideselection for invisible selections such as
+ * NodeSelection. Keep this override important because the editor-wide ::selection
+ * rule below is also important and otherwise paints the browser range again. */
 .markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor).ProseMirror-hideselection :where(:not(.agent-thread-card__message, .agent-thread-card__message *))::selection {
-  background: transparent;
+  background: transparent !important;
+  color: inherit !important;
 }
 
 .markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor).ProseMirror-hideselection :where(:not(.agent-thread-card__message, .agent-thread-card__message *))::-moz-selection {
-  background: transparent;
+  background: transparent !important;
+  color: inherit !important;
 }
 
 .markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor).ProseMirror-hideselection {
@@ -905,13 +911,13 @@
   padding-left: 0;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   display: flex;
   align-items: flex-start;
   gap: 8px;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label {
   flex-shrink: 0;
   /* margin-top: 3px 之前用来把 checkbox 视觉下移对齐文字 baseline,
    * 但在 flex 容器里 margin 会进 outer size, 给 <li> 多撑 3px。
@@ -919,7 +925,7 @@
    * 但 transform 不参与 box model, 不会撑高 <li>。 */
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"] {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"] {
   width: 16px;
   height: 16px;
   cursor: pointer;
@@ -931,12 +937,12 @@
   transform: translateY(3px);
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"]:checked {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"]:checked {
   background-color: transparent;
   border-color: var(--muted-foreground);
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"]:checked::after {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"]:checked::after {
   content: '✓';
   position: absolute;
   top: 50%;
@@ -947,7 +953,7 @@
   font-weight: bold;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"]:checked::after {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > label input[type="checkbox"]:checked::after {
   content: '';
   width: 11px;
   height: 9px;
@@ -959,13 +965,13 @@
   mask: var(--flowix-hand-check-mask) center / contain no-repeat;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > div {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) > div {
   flex: 1;
 }
 
 /* text-decoration 是可继承属性，原本写在 > div 上会经由继承作用到嵌套的
  * 子 todo，所以选择器要限定到本级文本所在的 <p>，避免子级被划线。 */
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *))[data-checked="true"] > div > p {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *))[data-checked="true"] > div > p {
   text-decoration: line-through;
   color: var(--muted-foreground);
 }
@@ -973,7 +979,7 @@
 /* todo 切到已完成态时, 标签底色跟着文本一起走灰, 视觉上"这条 todo 已经
  * 收尾, 标签也一并沉寂"。复用与文本同色的 muted-foreground, 保持和上方 li > p 的
  * color 一致 — 改 li 文字色时这里要同步。 */
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] li:where(:not(.agent-thread-card__message, .agent-thread-card__message *))[data-checked="true"] .tag-node {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) ul[data-type="taskList"] > li:where(:not(.agent-thread-card__message, .agent-thread-card__message *))[data-checked="true"] > div > p .tag-node {
   background: var(--muted-foreground);
 }
 
@@ -1330,7 +1336,8 @@
 
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) p.is-empty:where(:not(.agent-thread-card__message, .agent-thread-card__message *))::before {
   content: attr(data-placeholder);
-  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+  color: var(--muted-foreground);
+  opacity: 0.6;
   pointer-events: none;
   float: left;
   height: 0;

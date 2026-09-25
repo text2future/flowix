@@ -78,7 +78,7 @@ await cp(process.execPath, resolve(nodeDir, process.platform === 'win32' ? 'node
 await writeFile(resolve(bundle, 'dsh-runtime.json'), `${JSON.stringify({
   target,
   nodeExecutable: `node/${process.platform === 'win32' ? 'node.exe' : 'node'}`,
-  version: process.env.FLOWIX_DSH_VERSION || '1.8.0',
+  version: process.env.FLOWIX_DSH_VERSION || '26.09.24',
   nodeVersion: process.version,
   nodeAbi: process.versions.modules,
   sourceCommit: JSON.parse(await readFile(resolve(repo, 'dsh/upstream.lock.json'), 'utf8')).commit,

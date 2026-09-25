@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronsUpDown, MoreVertical, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronsUpDown, MoreVertical, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import {
   DropdownMenu,
@@ -16,6 +16,9 @@ import { useMemoStore, type Notebook } from '@features/memo/store/memo-store';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
+import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
+import { isMac } from '@features/shortcuts';
+import { OnboardingTitlebarMac } from '@features/onboarding/onboarding-titlebar-mac';
 
 export interface NotebookSelectorPopupProps {
   open: boolean;
@@ -378,25 +381,37 @@ export function NotebookSelectorPopup({
         sideOffset={sideOffset}
         onExitComplete={handleExitComplete}
         className={cn(
-          'flowix-notebook-selector-popup ml-1.5 flex h-auto max-h-[480px] w-[390px] flex-col overflow-hidden rounded-xl border-[var(--border-popup)] bg-[var(--popover)] pb-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]',
-          side === 'bottom' && 'flowix-notebook-selector-popup--bottom',
+          'flowix-notebook-selector-popup flowix-notebook-list-screen !fixed !inset-0 !left-0 !top-0 !h-dvh !max-h-none !w-full !max-w-none !translate-x-0 !translate-y-0 flex-col overflow-hidden rounded-none border-0 bg-[var(--frame-bg)] p-0 shadow-none',
         )}
       >
-        <div className="shrink-0 px-1.5 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-          {t('status.notebookList')}
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-1.5">
+        {isMac() && <OnboardingTitlebarMac />}
+        <WindowsTitlebarControls />
+        <main className="flowix-onboarding__main flowix-notebook-list-screen__main">
+          <div className="flowix-onboarding__content">
+            <section className="flowix-onboarding__section">
+              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup flowix-notebook-list-screen__heading">
+                <h1>{t('status.notebookList')}</h1>
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  className="flowix-notebook-list-screen__close"
+                  aria-label={t('common.close')}
+                  title={t('common.close')}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="flowix-notebook-list-screen__body">
           {notebooks.length === 0 && (
-            <div className="px-3 py-8 text-center text-xs text-[var(--muted-foreground)]">
+            <div className="px-3 py-8 text-center text-sm text-[var(--muted-foreground)]">
               {t('status.noNotebooks')}
             </div>
           )}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-2.5">
+          <div className="mx-auto flex w-full max-w-[914px] flex-wrap justify-start gap-2.5">
             <button
               type="button"
               onClick={() => closeThen(onCreateNotebook)}
-              className="group relative flex min-h-[124px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-transparent text-[var(--muted-foreground)] transition-colors hover:border-solid hover:text-[var(--primary)]"
+              className="group relative flex h-[165px] w-[144px] shrink-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] transition-colors hover:border-solid hover:text-[var(--primary)]"
               aria-label={t('status.newNotebook')}
               title={t('status.newNotebook')}
             >
@@ -409,7 +424,7 @@ export function NotebookSelectorPopup({
                     <div
                       key={`placeholder-${notebookId}`}
                       aria-hidden="true"
-                      className="flowix-notebook-drop-placeholder min-h-[124px] rounded-lg border-2 border-dashed border-[color-mix(in_oklch,var(--primary)_62%,var(--border))] bg-[color-mix(in_oklch,var(--primary)_5%,transparent)]"
+                      className="flowix-notebook-drop-placeholder h-[165px] w-[144px] shrink-0 rounded-lg border-2 border-dashed border-[color-mix(in_oklch,var(--primary)_62%,var(--border))] bg-[color-mix(in_oklch,var(--primary)_5%,transparent)]"
                     />
                   );
                 }
@@ -432,10 +447,10 @@ export function NotebookSelectorPopup({
                     onPointerDown={(event) => handleCardPointerDown(notebook, event)}
                     onKeyDown={(event) => handleCardKeyDown(notebook, event)}
                     className={cn(
-                      'group relative flex min-h-[124px] cursor-default select-none flex-col items-start gap-2 rounded-lg border px-3 py-3 text-left transition-[border-color,background-color,box-shadow]',
+                      'group relative flex h-[165px] w-[144px] shrink-0 cursor-default select-none flex-col items-start gap-2 rounded-lg border px-3 py-3 text-left transition-[border-color,background-color,box-shadow]',
                       isActive
                         ? 'border-[var(--primary)]/50 bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]'
-                        : 'border-[var(--border)] hover:border-[var(--primary)]/50 hover:bg-[var(--muted)]/60',
+                        : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/50 hover:bg-[var(--card)]',
                       isMissing && 'opacity-70',
                     )}
                     style={{
@@ -544,8 +559,11 @@ export function NotebookSelectorPopup({
                   </div>
                 );
             })}
+              </div>
+              </div>
+            </section>
           </div>
-        </div>
+        </main>
 
         {ghost && sourceNotebook && typeof document !== 'undefined' && createPortal(
           <div

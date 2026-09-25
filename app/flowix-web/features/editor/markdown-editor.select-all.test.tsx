@@ -117,6 +117,25 @@ describe('MarkdownEditor select all', () => {
     expect(editor!.getMarkdown()).toBe('Body paragraph');
   });
 
+  it('mounts the title and an editable body for an empty memo', async () => {
+    let editor: Editor | null = null;
+    await act(async () => {
+      root.render(
+        <ShortcutsProvider overrides={{}}>
+          <MarkdownEditor
+            content=""
+            header={<textarea data-testid="memo-title" defaultValue="Empty note" />}
+            onBeforeCreate={(instance) => { editor = instance; }}
+          />
+        </ShortcutsProvider>,
+      );
+    });
+
+    expect(container.querySelector('[data-testid="memo-title"]')).not.toBeNull();
+    expect(editor!.view.dom.querySelector('p')).not.toBeNull();
+    expect(editor!.isEditable).toBe(true);
+  });
+
   it('coalesces continuous edits before serializing Markdown', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

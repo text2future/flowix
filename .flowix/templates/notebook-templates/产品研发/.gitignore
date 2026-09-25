@@ -1,0 +1,86 @@
+# .gitignore — 产品研发仓库
+#
+# 原则：
+#   1) 忽略「可再生成」与「含密钥 / 隐私」的东西：依赖、构建产物、.env、日志、本地缓存。
+#   2) 绝不忽略本工作区的知识资产（这些必须进版本库）：
+#      .agents/ 变更/ 模块与契约/ 测试与验证/ 发布与运行/ 事件与问题/ 架构决策/ 产品输入/ 历史归档/
+#   3) 本文件是模板，请按你的技术栈增删；增删前先读「三、白名单保护」。
+
+# ---------- 一、依赖与构建产物 ----------
+node_modules/
+dist/
+build/
+out/
+target/
+.gradle/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+next-env.d.ts
+*.tsbuildinfo
+coverage/
+.nyc_output/
+
+# ---------- 二、密钥与环境（务必忽略！） ----------
+.env
+.env.*
+!.env.example          # 保留样例文件（不含真实值）
+*.pem
+*.key
+*.p12
+*.keystore
+secrets/
+credentials.json
+
+# ---------- 三、白名单保护：知识资产不得被上面的规则误伤 ----------
+!.agents/
+!变更/
+!模块与契约/
+!测试与验证/
+!发布与运行/
+!事件与问题/
+!架构决策/
+!产品输入/
+!历史归档/
+!AGENTS.md
+!README.md
+!CONTRIBUTING.md
+!SECURITY.md
+!CODEOWNERS
+# 变更目录内的附件与引用资料要保留
+!变更/**/assets/
+!变更/**/references/
+
+# ---------- 四、日志与临时文件 ----------
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+tmp/
+temp/
+*.tmp
+*.swp
+*~
+
+# ---------- 五、编辑器与 IDE ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.sublime-workspace
+
+# ---------- 六、操作系统 ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 七、本地私有（不想入库的个人笔记） ----------
+# 若你希望某些文件只留本地：
+# local-notes/
+# *.local.md

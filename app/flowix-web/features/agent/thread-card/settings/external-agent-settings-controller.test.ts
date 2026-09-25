@@ -137,6 +137,9 @@ describe("ExternalAgentSettingsController featured notes", () => {
     const panelChildren = Array.from(notesPanel?.children ?? []);
     expect(panelChildren.findIndex((node) => node.classList.contains("agent-thread-card__featured-notes-settings-footer")))
       .toBeGreaterThan(panelChildren.findIndex((node) => node.classList.contains("agent-thread-card__featured-notes-list")));
+    const settingsFooter = notesPanel?.querySelector(".agent-thread-card__featured-notes-settings-footer");
+    expect(settingsFooter?.querySelector(".agent-thread-card__featured-notes-settings-button")).not.toBeNull();
+    expect(settingsFooter?.querySelector(".agent-thread-card__featured-notes-navigation")).not.toBeNull();
 
     controller.dispose();
   });

@@ -133,6 +133,7 @@ export function useDocumentContent({
 
       setState({
         fullContent: initialContent,
+        isLoaded: true,
         isLoading: false,
         error: null,
         isScrolled: false,
@@ -175,6 +176,7 @@ export function useDocumentContent({
         setState((prev) => ({
           ...prev,
           fullContent: '',
+          isLoaded: false,
           isLoading: false,
           error: null,
           isScrolled: false,
@@ -213,6 +215,7 @@ export function useDocumentContent({
         setState((prev) => ({
           ...prev,
           isLoading: true,
+          isLoaded: false,
           error: null,
           isScrolled: false,
           isNewlyCreated: false,

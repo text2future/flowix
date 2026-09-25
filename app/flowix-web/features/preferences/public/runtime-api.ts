@@ -61,6 +61,10 @@ export function useShowHiddenNotebookFiles() {
   return useUserSettingsStore((state) => state.settings.showHiddenNotebookFiles);
 }
 
+export function setShowHiddenNotebookFilesPreference(show: boolean): Promise<void> {
+  return useUserSettingsStore.getState().updateSettings({ showHiddenNotebookFiles: show });
+}
+
 export function useMemoListViewPreference() {
   return useUserSettingsStore((state) => state.settings.memoListView);
 }

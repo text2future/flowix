@@ -1,5 +1,9 @@
 ﻿import { describe, expect, it, vi } from 'vitest';
 import type { JSONContent } from '@tiptap/core';
+import { Editor } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import { Markdown } from '@tiptap/markdown';
+import Frontmatter from '@features/editor/extensions/frontmatter';
 
 const attachmentUploadMock = vi.hoisted(() => ({
   handleFileUpload: vi.fn(),
@@ -20,7 +24,7 @@ import {
   normalizeLooseCodeBlocks,
 } from '@features/editor/extensions/paste-rules/code-block-detector';
 import { isStandaloneHtmlTable } from '@features/editor/extensions/paste-rules/html';
-import { isInternalEditorHtml, sanitizeExternalHtml } from '@features/editor/extensions/paste-rules/html-sanitizer';
+import { hasImportableHtml, isInternalEditorHtml, sanitizeExternalHtml } from '@features/editor/extensions/paste-rules/html-sanitizer';
 import {
   containsMarkdownTable,
   hasLeadingFrontmatter,
@@ -32,7 +36,7 @@ import {
   tsvToTableContent,
 } from '@features/editor/extensions/paste-rules/table';
 import { mergeFrontmatterYaml, parseVisibleFrontmatter } from '@features/document/properties/frontmatter-model';
-import { createManagedPasteRules } from '@features/editor/extensions/paste-rules/rules';
+import { createManagedPasteRules, executeManagedPasteRules } from '@features/editor/extensions/paste-rules/rules';
 
 function cellText(table: JSONContent | null, row: number, cell: number): string {
   return table?.content?.[row]?.content?.[cell]?.content?.[0]?.content?.[0]?.text ?? '';
@@ -121,6 +125,35 @@ describe('paste rule helpers', () => {
     expect(cellText(table, 1, 1)).toBe('3');
   });
 
+  it('preserves supported inline formatting in standalone HTML table cells', () => {
+    const table = htmlTableToTableContent('<table><tr><td><strong>Bold</strong> <a href="https://example.com">link</a></td></tr></table>');
+    const content = table?.content?.[0]?.content?.[0]?.content?.[0]?.content;
+    expect(content?.[0]).toMatchObject({ text: 'Bold', marks: [{ type: 'bold' }] });
+    expect(content?.[2]).toMatchObject({ text: 'link', marks: [{ type: 'link', attrs: { href: 'https://example.com' } }] });
+  });
+
+  it('keeps separate paragraphs inside HTML table cells', () => {
+    const table = htmlTableToTableContent('<table><tr><td><p>First</p><p>Second</p></td></tr></table>');
+    const paragraphs = table?.content?.[0]?.content?.[0]?.content;
+    expect(paragraphs?.map(paragraph => paragraph.content?.[0]?.text)).toEqual(['First', 'Second']);
+  });
+
+  it('uses plain text when HTML has no importable content after cleaning', () => {
+    expect(hasImportableHtml('<script>ignored()</script>')).toBe(false);
+    expect(hasImportableHtml('<p><strong>Rich</strong></p>')).toBe(true);
+    const rule = createManagedPasteRules().find(item => item.id === 'markdown-block');
+    expect(rule?.match({ text: '# Heading', html: '<script>ignored()</script>' } as never)).toBe(true);
+  });
+
+  it('lets rich HTML take precedence over Markdown-looking plain-text fallbacks', () => {
+    const rules = createManagedPasteRules();
+    const ctx = { text: '# Heading\n\n**bold**', html: '<h1>Heading</h1><p><strong>bold</strong></p>' };
+    expect(rules.find(rule => rule.id === 'markdown-block')?.match(ctx as never)).toBe(false);
+    expect(rules.find(rule => rule.id === 'markdown-table')?.match({ ...ctx, text: '| A | B |\n|---|---|' } as never)).toBe(false);
+    expect(rules.find(rule => rule.id === 'markdown-block')?.match({ ...ctx, html: '' } as never)).toBe(true);
+    expect(rules.find(rule => rule.id === 'markdown-mime')?.match({ ...ctx, markdown: '# Heading' } as never)).toBe(true);
+  });
+
   it('detects markdown tables embedded in a larger markdown paste', () => {
     const markdown = [
       'Intro paragraph',
@@ -148,6 +181,67 @@ describe('paste rule helpers', () => {
     ].join('\n');
 
     expect(hasLeadingFrontmatter(markdown)).toBe(true);
+  });
+
+  it('prefers a complete YAML header in plain text even when the clipboard also has HTML', () => {
+    const rule = createManagedPasteRules().find(item => item.id === 'frontmatter-markdown');
+    expect(rule?.match({
+      text: '---\nstatus: todo\n---\nBody',
+      html: '<p>---<br>status: todo<br>---<br>Body</p>',
+    } as never)).toBe(true);
+  });
+
+  it('creates document frontmatter when pasted into a document without one', () => {
+    const editor = new Editor({
+      extensions: [StarterKit, Markdown, Frontmatter],
+      content: 'Existing body',
+      contentType: 'markdown',
+    });
+    editor.commands.setTextSelection(4);
+    const markdown = '---\nstatus: todo\nflowix_key: foreign\n---\n# Pasted body';
+    const result = executeManagedPasteRules({
+      editor,
+      view: editor.view,
+      event: new Event('paste') as ClipboardEvent,
+      types: ['text/markdown'],
+      markdown,
+      text: markdown,
+      html: '',
+      uriList: [],
+      files: [],
+      sourceMime: 'text/markdown',
+    });
+    expect(result).toBe('handled');
+    expect(editor.state.doc.firstChild?.type.name).toBe('frontmatter');
+    expect(editor.state.doc.firstChild?.attrs.yamlContent).toContain('status: todo');
+    expect(editor.state.doc.firstChild?.attrs.yamlContent).not.toContain('foreign');
+    expect(editor.getMarkdown()).toContain('Pasted body');
+    editor.destroy();
+  });
+
+  it('keeps malformed YAML as visible text instead of changing document properties', () => {
+    const editor = new Editor({
+      extensions: [StarterKit, Markdown, Frontmatter],
+      content: '---\nstatus: existing\n---\nBody',
+      contentType: 'markdown',
+    });
+    const markdown = '---\nstatus: [broken\n---\nPasted';
+    const result = executeManagedPasteRules({
+      editor,
+      view: editor.view,
+      event: new Event('paste') as ClipboardEvent,
+      types: ['text/markdown'],
+      markdown,
+      text: markdown,
+      html: '',
+      uriList: [],
+      files: [],
+      sourceMime: 'text/markdown',
+    });
+    expect(result).toBe('handled');
+    expect(editor.state.doc.firstChild?.attrs.yamlContent).toBe('status: existing');
+    expect(editor.state.doc.textContent).toContain('status: [broken');
+    editor.destroy();
   });
 
   it('merges pasted frontmatter into the existing document frontmatter', () => {

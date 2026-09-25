@@ -17,9 +17,10 @@ import {
   useDocumentEditorMode,
 } from '@features/document/store/document-editor-view-store';
 import type { DocumentIdentity } from '@features/document/store/document-identity';
-import { getDocumentInstanceKey } from '@/lib/path';
+import { fileNameFromPath, getDocumentInstanceKey } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { product } from '@platform/tauri/client/desktop';
+import { openPath } from '@platform/tauri/opener';
 import {
   initialDocumentContainerState,
   type DocumentContainerProps,
@@ -27,7 +28,6 @@ import {
 import {
   countTextUnits,
   extractBodyContent,
-  findMemoById,
 } from '@features/document/components/session/document-utils';
 import { useDocumentContent } from '@features/document/components/session/use-document-content';
 import { useDocumentAutosave } from '@features/document/components/session/use-document-autosave';
@@ -108,12 +108,7 @@ export function DocumentContainer({
   const prevFilePathRef = useRef<string | null>(null);
   const editorHandleRef = useRef<MarkdownEditorHandle | null>(null);
   const titleEditorRef = useRef<MemoTitleEditorHandle | null>(null);
-  // 切片订阅: 替代原来的 `useMemoStore()` 全量订阅 —— 任何 set 都会让本组件重渲,
-  // 包括 doc 内容 / charCount 这些高频变化。切到 selector 后, 只在用到的
-  // 仅订阅当前 memo 实体，避免按 memo 数组长度变化而重渲。
-  const activeMemo = useMemoStore(useCallback((store) => {
-    return findMemoById(store, memoId);
-  }, [memoId]));
+  const memoFilename = fileNameFromPath(filePath);
   const {
     state,
     setState,
@@ -266,26 +261,6 @@ export function DocumentContainer({
   }, [documentInstanceKey]);
 
   useEffect(() => {
-    const handleNavigateToMemo = async (e: Event) => {
-      const customEvent = e as CustomEvent<{ memoId: string }>;
-      const targetMemoId = customEvent.detail?.memoId;
-      if (targetMemoId) {
-        const { memos } = useMemoStore.getState();
-        const memo = memos.find(m => m.id === targetMemoId);
-        if (memo?.filename) {
-          // Navigate by path - handled by parent component
-          window.location.hash = `/memo/${memo.id}`;
-        }
-      }
-    };
-
-    document.addEventListener('navigate-to-memo', handleNavigateToMemo);
-    return () => {
-      document.removeEventListener('navigate-to-memo', handleNavigateToMemo);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!memoId) return;
 
     const handleVersionRestored = (event: Event) => {
@@ -306,6 +281,7 @@ export function DocumentContainer({
       setState((prev) => ({
         ...prev,
         fullContent: detail.content,
+        isLoaded: true,
         isLoading: false,
         error: null,
         isScrolled: false,
@@ -474,18 +450,15 @@ export function DocumentContainer({
   }
 
   if (isUnsupportedExternalFile) {
-    return <UnavailableFileView filePath={filePath} />;
+    return <UnavailableFileView filePath={filePath} openContainingFolder />;
   }
 
-  const activeMemoUpdatedAt = activeMemo
-    ? state.updatedAtDate ?? (activeMemo.updatedAt ? new Date(activeMemo.updatedAt) : null)
-    : null;
-  const memoDocumentHeader = !isExternalDocument && memoId && activeMemo ? (
+  const memoDocumentHeader = !isExternalDocument && memoId ? (
     <MemoDocumentHeader
       titleRef={titleEditorRef}
       memoId={memoId}
-      filename={activeMemo.filename}
-      updatedAt={activeMemoUpdatedAt}
+      filename={memoFilename}
+      updatedAt={state.updatedAtDate}
       editable={!readOnly}
       autoFocus={initialFocus === 'title'}
       onMoveToBody={handleMoveTitleToBody}
@@ -508,7 +481,7 @@ export function DocumentContainer({
           <VideoFilePreview filePath={filePath} />
         )}
         {!state.isLoading && usesCodeEditor && (
-          !isExternalDocument && memoId && activeMemo ? (
+          !isExternalDocument && memoId ? (
             <SourceMemoEditor
               ref={editorHandleRef}
               key={documentInstanceKey}
@@ -518,7 +491,7 @@ export function DocumentContainer({
               onChange={handleChange}
               autoFocus={initialFocus === 'body'}
               memoId={memoId}
-              filename={activeMemo.filename}
+              filename={memoFilename}
               titleAutoFocus={initialFocus === 'title'}
               titleRef={titleEditorRef}
               onMoveToBody={handleMoveTitleToBody}
@@ -547,7 +520,7 @@ export function DocumentContainer({
             />
           )
         )}
-        {!state.isLoading && !usesCodeEditor && state.fullContent && (
+        {!state.isLoading && state.isLoaded && !usesCodeEditor && (
           <LazyDocumentEditor
             memoId={memoId ?? undefined}
             transitionId={transitionId}
@@ -579,21 +552,33 @@ export function DocumentContainer({
   );
 }
 
-function UnavailableFileView({ filePath }: { filePath: string }) {
+function UnavailableFileView({
+  filePath,
+  openContainingFolder = false,
+}: {
+  filePath: string;
+  openContainingFolder?: boolean;
+}) {
   const { t } = useI18n();
+  const filename = filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
+  const parentPath = filePath.replace(/[\\/][^\\/]*$/, '') || (filePath.startsWith('/') ? '/' : filePath);
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-sm text-[var(--muted-foreground)]">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-sm text-[var(--muted-foreground)]">
+      <span className="max-w-full truncate text-[var(--foreground)]" title={filename}>{filename}</span>
       <span>{t('document.file.unavailable')}</span>
       <button
         type="button"
         onClick={() => {
-          void product.revealInFileManager(filePath).catch(() => {
+          const action = openContainingFolder
+            ? openPath(parentPath)
+            : product.revealInFileManager(filePath);
+          void action.catch(() => {
             toast.error(t('memo.fileTree.openFailed'));
           });
         }}
         className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
       >
-        {t('document.file.reveal')}
+        {t(openContainingFolder ? 'document.file.openContainingFolder' : 'document.file.reveal')}
       </button>
     </div>
   );

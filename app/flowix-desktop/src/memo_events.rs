@@ -12,6 +12,31 @@ use flowix_core::memo_file::Memo;
 
 pub const MEMO_EVENT: &str = "memo-event";
 
+/// End marker for a notebook-template event batch. The frontend consumes this
+/// control payload on the memo event stream without dispatching it as a memo.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookTemplateInitializationCompleted {
+    pub kind: &'static str,
+    pub notebook_id: String,
+    pub operation_id: String,
+}
+
+pub fn emit_notebook_template_initialization_completed(
+    app: &AppHandle,
+    notebook_id: &str,
+    operation_id: &str,
+) {
+    let _ = app.emit(
+        MEMO_EVENT,
+        NotebookTemplateInitializationCompleted {
+            kind: "notebook_template_initialization_completed",
+            notebook_id: notebook_id.to_string(),
+            operation_id: operation_id.to_string(),
+        },
+    );
+}
+
 /// 写者标�?—�?informational, 前�?不用于分�?��由�?///
 /// Plan B �?Agent 不再手动 emit, watcher �?Agent / 外部工具的�?�?/// 变更统一归到 `ExternalTool`。`AgentEdit` / `AgentWrite` 这两�?���?/// 已删�?(历史 comment 提到「前�?��用它分支�? 合并后�?义一�?�?
 #[derive(Serialize, Clone, Debug)]

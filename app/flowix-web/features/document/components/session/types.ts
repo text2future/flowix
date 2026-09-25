@@ -8,6 +8,7 @@ export interface LoadContentOptions {
 export interface DocumentContainerState {
   // fullContent includes frontmatter + body markdown
   fullContent: string;
+  isLoaded: boolean;
   isLoading: boolean;
   error: string | null;
   isScrolled: boolean;
@@ -64,6 +65,7 @@ export interface DocumentContainerProps {
 
 export const initialDocumentContainerState: DocumentContainerState = {
   fullContent: '',
+  isLoaded: false,
   isLoading: false,
   error: null,
   isScrolled: false,

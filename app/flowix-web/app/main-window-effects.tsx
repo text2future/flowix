@@ -11,6 +11,7 @@ import {
   applyAppTagsDeleted,
   applyAppTagsRenamed,
   getAppSelectedNotebookId,
+  hasAppMemoWithFilename,
   refreshAppDerivedMetadata,
   refreshAppTodoCount,
 } from "@features/memo/public/app-api";
@@ -53,6 +54,18 @@ export function MainWindowEffects() {
 
   useEffect(() => {
     return subscribeAppActiveAgentConversation(syncAppAgentConversationRestore);
+  }, []);
+
+  useEffect(() => {
+    const handleNavigateToMemo = (event: Event) => {
+      const memoId = (event as CustomEvent<{ memoId: string }>).detail?.memoId;
+      if (memoId && hasAppMemoWithFilename(memoId)) {
+        window.location.hash = `/memo/${memoId}`;
+      }
+    };
+
+    document.addEventListener('navigate-to-memo', handleNavigateToMemo);
+    return () => document.removeEventListener('navigate-to-memo', handleNavigateToMemo);
   }, []);
 
   useEffect(() => {

@@ -35,6 +35,7 @@ import { SearchReplacePanel } from '@features/editor/components/search-replace-p
 import Frontmatter, { selectEditableDocumentContent } from '@features/editor/extensions/frontmatter';
 import { MenuPinExtension } from '@features/editor/extensions/menu-pin';
 import { BlockDragExtension } from '@features/editor/extensions/block-drag';
+import { applyListType, ListTypeShortcuts } from '@features/editor/extensions/list-transforms';
 import { SlashMenu } from '@features/editor/extensions/slash-menu';
 import { AgentThreadCard } from '@features/agent/thread-card';
 import { SKIP_AGENT_THREAD_CARD_CLEANUP_META } from '@features/agent/thread-card/agent-thread-card-extension';
@@ -893,7 +894,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   }), [focusBodyStart, moveTitleToBody, pasteToBody, serializePendingChanges]);
 
   useEffect(() => {
-    if (!editorMountRef.current || !content) {
+    if (!editorMountRef.current) {
       return;
     }
     const mountStartedAt = performance.now();
@@ -1014,6 +1015,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         SearchAndReplace,
         MenuPinExtension,
         BlockDragExtension,
+        ListTypeShortcuts,
       ],
       content: initialContent,
       contentType: 'markdown',
@@ -1270,13 +1272,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         editorRef.current?.chain().focus().setParagraph().run();
       }, { isActive: editorIsFocused }),
       pushHandler('editor.toggleBulletList', () => {
-        editorRef.current?.chain().focus().toggleBulletList().run();
+        if (editorRef.current) applyListType(editorRef.current, 'bulletList');
       }, { isActive: editorIsFocused }),
       pushHandler('editor.toggleOrderedList', () => {
-        editorRef.current?.chain().focus().toggleOrderedList().run();
+        if (editorRef.current) applyListType(editorRef.current, 'orderedList');
       }, { isActive: editorIsFocused }),
       pushHandler('editor.toggleTaskList', () => {
-        editorRef.current?.chain().focus().toggleTaskList().run();
+        if (editorRef.current) applyListType(editorRef.current, 'taskList');
       }, { isActive: editorIsFocused }),
     ];
     return () => {

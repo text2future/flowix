@@ -947,7 +947,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private createExternalAgentEmptySettings(): HTMLElement {
-    return this.externalAgentSettings.createEmptySettings();
+    return this.externalAgentSettings.createEmptySettings({
+      showControls: !this.isFullscreen,
+    });
   }
 
   private refreshExternalAgentEmptySettings(): void {
@@ -1286,6 +1288,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       this.renderThreadState();
     } else {
       this.exitFullscreenMode();
+      // Rebuild the empty state so the setup controls return when a blank
+      // fullscreen conversation becomes an inline Thread Card again.
+      this.renderThreadState();
     }
   }
 

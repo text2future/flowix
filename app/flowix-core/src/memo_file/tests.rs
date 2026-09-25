@@ -1016,6 +1016,66 @@ fn create_memo_merges_key_into_existing_frontmatter() {
 }
 
 #[test]
+fn template_note_with_existing_flowix_key_creates_after_prior_nested_notes() {
+    let (mf, base) = fresh_memo_file();
+    let people_dir = base.join("人物/主要人物");
+    fs::create_dir_all(&people_dir).unwrap();
+
+    mf.create_memo_for_notebook_id(
+        "nb_test",
+        "README",
+        "---\nflowix_key: r3adme01\n---\n# Notebook\n",
+        None,
+    )
+    .expect("create root readme");
+    mf.create_memo_for_notebook_id_in_directory(
+        "nb_test",
+        "人物/主要人物",
+        "README",
+        "---\nflowix_key: p3r6u5cz\n---\n# Characters\n",
+        None,
+    )
+    .expect("create nested readme");
+    mf.create_memo_for_notebook_id_in_directory(
+        "nb_test",
+        "人物/主要人物",
+        "林深",
+        "---\nflowix_key: yephoniq\n---\n# 林深\n",
+        None,
+    )
+    .expect("create character note");
+    mf.create_memo_for_notebook_id_in_directory(
+        "nb_test",
+        "人物",
+        "人物关系",
+        "---\nflowix_key: d87kkezi\n---\n# 人物关系\n",
+        None,
+    )
+    .expect("create relations note");
+
+    let template_key = "jdpvul4l";
+    let memo = mf
+        .create_memo_for_notebook_id_in_directory(
+            "nb_test",
+            "人物",
+            "当前人物状态",
+            &format!(
+                "---\nflowix_key: {template_key}\n---\n# 当前人物状态\n\n- 状态快照\n"
+            ),
+            None,
+        )
+        .expect("create next template note");
+    let content = fs::read_to_string(base.join(&memo.relative_path)).unwrap();
+
+    assert_ne!(memo.id, template_key);
+    assert_eq!(memo.relative_path, "人物/当前人物状态.md");
+    assert_eq!(
+        super::frontmatter::extract_frontmatter_key(&content),
+        Some(memo.id)
+    );
+}
+
+#[test]
 fn create_memo_persists_frontmatter_properties_to_index_db() {
     let (mf, _base) = fresh_memo_file();
     let body = concat!(

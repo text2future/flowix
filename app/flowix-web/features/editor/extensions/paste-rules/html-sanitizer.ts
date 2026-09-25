@@ -167,3 +167,8 @@ export function sanitizeExternalHtml(html: string): string {
   sanitizeChildren(doc.body);
   return doc.body.innerHTML;
 }
+
+export function hasImportableHtml(html: string): boolean {
+  const doc = new DOMParser().parseFromString(sanitizeExternalHtml(html), 'text/html');
+  return !!doc.body.textContent?.trim() || !!doc.body.querySelector('img, hr, table');
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { ChevronRight, FoldVertical, MoreHorizontal } from 'lucide-react';
 import { CaretRightIcon, FolderOpenIcon, FolderSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { toast } from '@/lib/toast';
@@ -37,7 +37,11 @@ const FOLDER_MENU_ITEM_CLASS =
 const FOLDER_MENU_DIVIDER_CLASS = 'mx-1 my-1 h-px bg-[var(--border-popup)] opacity-60';
 
 type FileTreeFileIcon = ComponentType<{ path: string; className?: string }>;
-type FileTreeFolderIcon = ComponentType<{ expanded: boolean; className?: string }>;
+type FileTreeFolderIcon = ComponentType<{
+  expanded: boolean;
+  hidden?: boolean;
+  className?: string;
+}>;
 
 /** Unix epoch 毫秒 → "YYYY-MM-DD HH:mm" (本地时区)；null → "—"。 */
 function formatTimestamp(ms: number | null): string {
@@ -103,14 +107,16 @@ export function FolderFileTree({
   // 「…」按钮下拉采用受控单开: 同一时刻只允许一个行菜单展开,
   // 点击其他按钮 / 其他位置时由 DropdownMenu 的 pointerdown 收起逻辑驱动 onOpenChange(false)。
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const expandToRef = useRef(tree.expandTo);
+  expandToRef.current = tree.expandTo;
 
   // The persisted document may be nested below a collapsed folder. Once the
   // root has loaded, expand its parent chain so the restored selection is
   // actually visible in the tree.
   useEffect(() => {
     if (!expandToActiveFile || tree.loading || !activeFilePath) return;
-    void tree.expandTo(activeFilePath);
-  }, [activeFilePath, expandToActiveFile, tree.expandTo, tree.loading]);
+    void expandToRef.current(activeFilePath);
+  }, [activeFilePath, expandToActiveFile, tree.loading]);
 
   // 滚动 / 缩放时收起「…」下拉 (对齐右键菜单的消失逻辑, DropdownMenu 自身不含此逻辑)。
   useEffect(() => {
@@ -202,6 +208,8 @@ export function FolderFileTree({
   // 子项仍由 nodes 缓存提供, 因此收起再展开不会重复请求已加载的目录。
   const renderTreeItems = (items: DocTreeItem[], depth: number): ReactNode[] => items.map((item) => {
     const isFolder = item.type === 'folder';
+    const sourceFolderName = item.fullPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? item.name;
+    const isHiddenFolder = isFolder && sourceFolderName.startsWith('.');
     const itemKey = canonicalPath(item.fullPath);
     const isExpanded = tree.expanded.has(itemKey);
     const children = isFolder ? (tree.nodes.get(itemKey)?.children ?? []) : [];
@@ -291,6 +299,7 @@ export function FolderFileTree({
                     FolderIcon ? (
                       <FolderIcon
                         expanded={isExpanded}
+                        hidden={isHiddenFolder}
                         className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]"
                       />
                     ) : (
@@ -329,6 +338,7 @@ export function FolderFileTree({
                       {FolderIcon ? (
                         <FolderIcon
                           expanded={isExpanded}
+                          hidden={isHiddenFolder}
                           className="absolute inset-0 h-4 w-4 text-[var(--muted-foreground)] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
                         />
                       ) : (

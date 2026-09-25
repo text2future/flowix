@@ -325,6 +325,7 @@ export function MemoListServicesHost({
   const [newPath, setNewPath] = useState('');
   const [newDefaultPath, setNewDefaultPath] = useState('');
   const [newIcon, setNewIcon] = useState<string | null>(null);
+  const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState<'create' | 'cloud'>('create');
   const [remoteNotebooks, setRemoteNotebooks] = useState<CloudNotebook[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
@@ -343,7 +344,7 @@ export function MemoListServicesHost({
   const [cloudSyncAvailable, setCloudSyncAvailable] = useState(false);
   const emptyNotebookPromptedRef = useRef(false);
 
-  const { blockingLoadingText, createNotebook } = useCreateNotebookFlow({
+  const { creationState, createNotebook } = useCreateNotebookFlow({
     onMemoListReloadNeeded: onRefresh,
     onMemoListQueryReset: () => undefined,
     onMemoListLoadingChange: () => undefined,
@@ -356,6 +357,7 @@ export function MemoListServicesHost({
     setNewPath('');
     setNewDefaultPath('');
     setNewIcon(null);
+    setNewTemplateId(null);
     setRemoteNotebooks([]);
     setRemoteLoading(false);
     setSyncingRemoteId(null);
@@ -366,6 +368,7 @@ export function MemoListServicesHost({
     setNewPath('');
     setNewDefaultPath('');
     setNewIcon(null);
+    setNewTemplateId(null);
     setCreateMode('create');
     setRemoteNotebooks([]);
     setRemoteLoading(false);
@@ -649,10 +652,10 @@ export function MemoListServicesHost({
 
   const confirmCreate = useCallback(() => {
     if (!newName.trim()) return;
-    void createNotebook({ name: newName, path: newPath || undefined, icon: newIcon }).then((created) => {
+    void createNotebook({ name: newName, path: newPath || undefined, icon: newIcon, templateId: newTemplateId }).then((created) => {
       if (created) resetCreateState();
     });
-  }, [createNotebook, newIcon, newName, newPath, resetCreateState]);
+  }, [createNotebook, newIcon, newName, newPath, newTemplateId, resetCreateState]);
 
   const closeEdit = useCallback(() => {
     if (editSaving) return;
@@ -715,10 +718,10 @@ export function MemoListServicesHost({
     <>
       <ExternalMarkdownOpenDialog />
 
-      {(blockingLoadingText || cloudImporting) && (
+      {cloudImporting && (
         <BlockingOperationStatus
-          text={cloudImporting ? t('notebook.cloudImport.syncing') : blockingLoadingText!}
-          stacked={cloudImporting}
+          text={t('notebook.cloudImport.syncing')}
+          stacked
         />
       )}
 
@@ -766,14 +769,19 @@ export function MemoListServicesHost({
         <Suspense fallback={null}>
           <LazyNotebookDialogs
             createOpen={createOpen}
-            onCreateOpenChange={(open) => open ? setCreateOpen(true) : resetCreateState()}
+            onCreateOpenChange={(open) => {
+              if (open) setCreateOpen(true);
+              else if (creationState.status !== 'creating') resetCreateState();
+            }}
             newNotebookName={newName}
             onNewNotebookNameChange={setNewName}
             newNotebookPath={newPath}
             newNotebookDefaultPath={newDefaultPath}
-            onNewNotebookPathChange={setNewPath}
             newNotebookIcon={newIcon}
             onNewNotebookIconChange={setNewIcon}
+            newNotebookTemplateId={newTemplateId}
+            onNewNotebookTemplateIdChange={setNewTemplateId}
+            isCreatingNotebook={creationState.status === 'creating'}
             cloudSyncAvailable={cloudSyncAvailable}
             createMode={createMode}
             remoteNotebooks={remoteNotebooks}

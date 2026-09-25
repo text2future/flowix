@@ -48,6 +48,7 @@ interface UseDocumentCommandsOptions {
   currentMemo: MemoItem | null;
   updateMemoMeta: (id: string, meta: Partial<Pick<MemoItem, 'updatedAt' | 'preview' | 'thumbnail' | 'favorited' | 'filename'>>) => void;
   setMemoColors: (id: string, colors: MemoColor[]) => Promise<boolean>;
+  onExported?: (filePath: string) => void;
 }
 
 function extractTitleFromMarkdown(body: string): string {
@@ -102,6 +103,7 @@ export function useDocumentCommands({
   currentMemo,
   updateMemoMeta,
   setMemoColors,
+  onExported,
 }: UseDocumentCommandsOptions) {
   const getExportableDocument = useCallback(async (): Promise<ExportableDocument | null> => {
     if (!currentDocumentPath) return null;
@@ -196,8 +198,9 @@ export function useDocumentCommands({
     if (!target) return;
 
     const ok = await dialogs.writeExportFile(target, doc.markdown);
+    if (ok) onExported?.(target);
     toast[ok ? 'success' : 'error'](tCmd(ok ? 'document.command.exportMarkdown.success' : 'document.command.exportMarkdown.failed'));
-  }, [promptExportTarget, requireExportableDocument]);
+  }, [onExported, promptExportTarget, requireExportableDocument]);
 
   const handleSaveAsTemplate = useCallback(async () => {
     const doc = await requireExportableDocument();
@@ -233,8 +236,9 @@ export function useDocumentCommands({
 
     const language = getCurrentAppLanguage();
     const ok = await dialogs.writeExportFile(target, exportModule.buildWordHtml(doc.title, bodyHtml, language));
+    if (ok) onExported?.(target);
     toast[ok ? 'success' : 'error'](tCmd(ok ? 'document.command.exportWord.success' : 'document.command.exportWord.failed'));
-  }, [promptExportTarget, requireExportableDocument]);
+  }, [onExported, promptExportTarget, requireExportableDocument]);
 
   const handleExportPdf = useCallback(async () => {
     if (pdfExportInProgress) return;
@@ -251,6 +255,7 @@ export function useDocumentCommands({
 
       restorePrintView = await preparePdfPrint(getCurrentDocumentEditor());
       const ok = await dialogs.exportPdf(target);
+      if (ok) onExported?.(target);
       toast[ok ? 'success' : 'error'](
         tCmd(ok ? 'document.command.exportPdf.success' : 'document.command.exportPdf.failed'),
       );
@@ -263,7 +268,7 @@ export function useDocumentCommands({
       restore?.();
       pdfExportInProgress = false;
     }
-  }, [getCurrentDocumentEditor, promptExportTarget, requireExportableDocument]);
+  }, [getCurrentDocumentEditor, onExported, promptExportTarget, requireExportableDocument]);
 
   return {
     handleCopyFullText,

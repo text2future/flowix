@@ -21,7 +21,8 @@ import { createLogger } from '@/lib/logger';
 import { resolveFileBrowserRoot, type FileBrowserTarget } from '@features/workspace/store/file-browser-target';
 import { ResourceFileIcon, ResourceFolderIcon } from './resource-file-icon';
 import { MediaResourceView } from './media-resource-view';
-import { resourceKindFromPath } from '@features/editor/public/code-file';
+import { HtmlResourceView } from './html-resource-view';
+import { isHtmlFilePath, resourceKindFromPath } from '@features/editor/public/code-file';
 
 const FILE_BROWSER_DIRECTORIES_CHANGED_EVENT = 'file-browser-directories-changed';
 const fileBrowserLogger = createLogger('file-browser-watch');
@@ -350,7 +351,13 @@ export function FileBrowserView({ surface: input }: { surface: FileBrowserViewSu
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <div className="min-w-0 flex-1">
           {surface.activeFilePath ? (
-            resourceKindFromPath(surface.activeFilePath) === 'image'
+            isHtmlFilePath(surface.activeFilePath) ? (
+              <HtmlResourceView
+                filePath={surface.activeFilePath}
+                scopePath={surface.scopePath}
+                documentProps={surface.documentProps}
+              />
+            ) : resourceKindFromPath(surface.activeFilePath) === 'image'
               || resourceKindFromPath(surface.activeFilePath) === 'video'
               ? (
                 <MediaResourceView

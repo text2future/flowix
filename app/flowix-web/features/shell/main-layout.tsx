@@ -43,6 +43,8 @@ import { useMainPanelController } from '@features/shell/hooks/use-main-panel-con
 import { ListColumn } from '@features/shell/components/list-column';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
+import { openPath } from '@platform/tauri/opener';
+import { Button } from '@shared/ui/button';
 import type { DshRuntimeInstallerState } from '@features/preferences/public/system-api';
 import type { AppUpdaterState } from '@features/shell/hooks/use-app-updater';
 import {
@@ -145,6 +147,7 @@ export function MainLayout({
   system: MainLayoutSystemController;
 }) {
   const { t } = useI18n();
+  const [recentExportPath, setRecentExportPath] = useState<string | null>(null);
   const {
     notebookToDelete,
     notebookCreateRequest,
@@ -353,6 +356,9 @@ export function MainLayout({
   const handleDocumentEditorReady = useCallback((editor: Editor | null) => {
     currentDocumentEditorRef.current = editor;
   }, []);
+  const handleDocumentExported = useCallback((filePath: string) => {
+    setRecentExportPath(filePath);
+  }, []);
   const {
     handleCopyFullText,
     handleCopyLink,
@@ -369,6 +375,7 @@ export function MainLayout({
     currentMemo,
     updateMemoMeta,
     setMemoColors,
+    onExported: handleDocumentExported,
   });
 
   // The DocumentContainer owns the import hook (it needs the editor's
@@ -380,6 +387,7 @@ export function MainLayout({
   useEffect(() => {
     currentDocumentContentRef.current = '';
     currentDocumentEditorRef.current = null;
+    setRecentExportPath(null);
   }, [currentDocumentInstanceKey]);
 
   // 切换 memo 时关闭搜索面板 — 搜索/替换的 matches 是基于当前 editor state,
@@ -525,8 +533,14 @@ export function MainLayout({
         },
       }
     : null;
+  const visibleNavigationState = selectedNotebook && (
+    (navigationState.target.kind === 'memo'
+      || navigationState.target.kind === 'media'
+      || navigationState.target.kind === 'artifact')
+    && navigationState.target.notebookId !== selectedNotebook.id
+  ) ? { ...navigationState, target: { kind: 'empty' as const } } : navigationState;
   const workColumnPresentation = resolveWorkColumnPresentation({
-    navigation: navigationState,
+    navigation: visibleNavigationState,
     document: workColumnDocument,
     pluginWorkbench: activePlugin
       ? {
@@ -745,6 +759,47 @@ export function MainLayout({
 
             {/* Content area */}
             <div className="relative isolate flex-1 min-w-0 overflow-hidden">
+              {recentExportPath && workColumnPresentation.header.kind === 'document' && (
+                <div className="absolute inset-x-0 top-0 z-50 flex h-[50px] items-center justify-center gap-2 border-b border-[var(--border)] bg-[color-mix(in_oklch,var(--card)_78%,transparent)] px-4 backdrop-blur-md">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-lg"
+                    onClick={() => {
+                      void product.revealInFileManager(recentExportPath).catch(() => {
+                        toast.error(t('memo.fileTree.openFailed'));
+                      });
+                    }}
+                  >
+                    {t('document.exportNotice.openFolder')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-lg"
+                    onClick={() => {
+                      void openPath(recentExportPath).catch(() => {
+                        toast.error(t('memo.fileTree.openFailed'));
+                      });
+                    }}
+                  >
+                    {t('memo.fileTree.openDefaultApp')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-lg"
+                    onClick={() => setRecentExportPath(null)}
+                    aria-label={t('document.exportNotice.close')}
+                    title={t('document.exportNotice.close')}
+                  >
+                    {t('document.exportNotice.close')}
+                  </Button>
+                </div>
+              )}
               <WorkColumnContentHost content={workColumnPresentation.content} />
               {(isDocumentTransitioning
                 || (navigationState.phase === 'loading' && navigationState.showWorkColumnLoading)) && (

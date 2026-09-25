@@ -22,6 +22,33 @@ export function isInvalidRefreshTokenError(error: unknown): boolean {
 
 type Translate = (key: I18nKey, params?: I18nParams) => string;
 
+interface NotebookTemplateFileFailure {
+  path: string;
+  reason: string;
+}
+
+function notebookTemplateFileFailure(error: unknown): NotebookTemplateFileFailure | null {
+  const marker = 'NOTEBOOK_TEMPLATE_FILE_FAILED:';
+  const message = tauriErrorMessage(error);
+  const markerIndex = message.indexOf(marker);
+  if (markerIndex < 0) return null;
+
+  try {
+    const details = JSON.parse(message.slice(markerIndex + marker.length)) as Partial<NotebookTemplateFileFailure>;
+    if (typeof details.path !== 'string' || typeof details.reason !== 'string') return null;
+    return { path: details.path, reason: details.reason };
+  } catch {
+    return null;
+  }
+}
+
+function notebookTemplateFinalizeFailure(error: unknown): string | null {
+  const marker = 'NOTEBOOK_TEMPLATE_FINALIZE_FAILED:';
+  const message = tauriErrorMessage(error);
+  const markerIndex = message.indexOf(marker);
+  return markerIndex < 0 ? null : message.slice(markerIndex + marker.length).trim();
+}
+
 function formatBytes(value: unknown): string {
   const bytes = typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
   if (bytes < 1024) return `${bytes} B`;
@@ -57,8 +84,21 @@ export function cloudSyncErrorMessage(error: unknown, t: Translate): string {
 }
 
 export function notebookCreateErrorMessage(error: unknown, t: Translate): string {
+  const templateFailure = notebookTemplateFileFailure(error);
+  if (templateFailure) {
+    return t('notebook.template.fileFailed', {
+      path: templateFailure.path,
+      reason: templateFailure.reason,
+    });
+  }
+  const finalizeFailure = notebookTemplateFinalizeFailure(error);
+  if (finalizeFailure !== null) {
+    return t('notebook.template.finalizeFailed', { reason: finalizeFailure });
+  }
   if (hasTauriErrorCode(error, 'PATH_ALREADY_REGISTERED')) return t('preferences.error.pathAlreadyRegistered');
   if (hasTauriErrorCode(error, 'PATH_NOT_EMPTY')) return t('preferences.error.pathNotEmpty');
+  if (hasTauriErrorCode(error, 'NOTEBOOK_ALREADY_REGISTERED')) return t('preferences.error.pathAlreadyRegistered');
+  if (hasTauriErrorCode(error, 'NOTEBOOK_NOT_EMPTY')) return t('notebook.template.destinationNotEmpty');
   if (hasTauriErrorCode(error, 'PATH_MISSING')) return t('preferences.error.pathMissing');
   if (hasTauriErrorCode(error, 'INVALID_NAME')) return t('preferences.error.invalidName');
   if (hasTauriErrorCode(error, 'INVALID_PATH')) return t('preferences.error.invalidPath');

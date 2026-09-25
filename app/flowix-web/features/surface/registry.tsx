@@ -69,6 +69,7 @@ function MediaResourceSurfaceView({ surface }: { surface: MediaResourceSurface }
     filePath={surface.filePath}
     notebookPath={surface.notebookPath}
     resourceKind={surface.resourceKind}
+    propertiesVisibleByDefault={false}
   />;
 }
 

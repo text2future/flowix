@@ -292,6 +292,9 @@ export function NotebookFileTree({
   const dropPendingRef = useRef(false);
   const externalDropTargetPathRef = useRef<string | null>(null);
   const treeScrollerRef = useRef<HTMLDivElement | null>(null);
+  const pendingActiveFileScrollPathRef = useRef<string | null>(
+    activeFilePath ? canonicalPath(activeFilePath) : null,
+  );
   const externalDropSurfaceRef = useRef<HTMLDivElement | null>(null);
   const treeRootRef = useRef<HTMLDivElement | null>(null);
   const dragPreviewRef = useRef<HTMLDivElement | null>(null);
@@ -380,8 +383,16 @@ export function NotebookFileTree({
     }
   }, [draft, renderRows]);
   useEffect(() => {
+    const activePath = activeFilePath ? canonicalPath(activeFilePath) : null;
+    pendingActiveFileScrollPathRef.current = activePath;
+  }, [activeFilePath]);
+  // Folder expansion changes the row index map; only honor a pending request
+  // from an active-file change, and keep it pending until that row is loaded.
+  useEffect(() => {
     if (!activeFilePath) return;
-    const index = renderRowIndexByPath.get(canonicalPath(activeFilePath));
+    const activePath = canonicalPath(activeFilePath);
+    if (pendingActiveFileScrollPathRef.current !== activePath) return;
+    const index = renderRowIndexByPath.get(activePath);
     const scroller = treeScrollerRef.current;
     if (index === undefined || !scroller) return;
     const rowTop = TREE_HEADER_HEIGHT + index * TREE_ROW_SIZE;
@@ -390,6 +401,7 @@ export function NotebookFileTree({
     else if (rowBottom > scroller.scrollTop + scroller.clientHeight) {
       scroller.scrollTop = Math.max(0, rowBottom - scroller.clientHeight);
     }
+    pendingActiveFileScrollPathRef.current = null;
   }, [activeFilePath, renderRowIndexByPath]);
   const visibleDocumentPaths = useMemo(
     () => visibleTreeItems
@@ -558,11 +570,13 @@ export function NotebookFileTree({
     ?? (activeFilePath && visibleTreeItems.some(({ item }) => samePath(item.fullPath, activeFilePath))
       ? activeFilePath
       : visibleTreeItems[0]?.item.fullPath ?? null);
+  const expandToRef = useRef(tree.expandTo);
+  expandToRef.current = tree.expandTo;
 
   useEffect(() => {
     if (!activeFilePath || tree.loading) return;
-    void tree.expandTo(activeFilePath);
-  }, [activeFilePath, tree.expandTo, tree.loading]);
+    void expandToRef.current(activeFilePath);
+  }, [activeFilePath, tree.loading]);
 
   useEffect(() => {
     if (!createFolderRequest || handledFolderRequestIdRef.current === createFolderRequest.id) return;

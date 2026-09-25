@@ -409,12 +409,19 @@ export async function selectNotebook(notebook: Notebook): Promise<void> {
     useWorkColumnStore.getState().navigation.target,
     previousDocument,
   );
+  const clearPreviousTarget = (previousWorkColumnTarget.kind === 'memo'
+    || previousWorkColumnTarget.kind === 'media'
+    || previousWorkColumnTarget.kind === 'artifact')
+    && previousWorkColumnTarget.notebookId !== notebook.id;
+  const nextWorkColumnTarget = clearPreviousTarget
+    ? EMPTY_WORK_COLUMN_TARGET
+    : previousWorkColumnTarget;
   let switchedNotebook = false;
   useWorkColumnStore.getState().beginNotebookSwitch?.();
 
   try {
     await runNavigation(
-      previousWorkColumnTarget,
+      nextWorkColumnTarget,
       async (requestId) => {
         // Flush first. Changing the backend notebook before this point could
         // make a pending save observe the wrong notebook context. Keep the
@@ -430,7 +437,12 @@ export async function selectNotebook(notebook: Notebook): Promise<void> {
         getWorkspaceMemoState().setSelectedNotebook(notebook);
         await getWorkspaceMemoState().loadMemos({ notebookId: notebook.id });
         if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
-        commitNavigation(requestId, previousWorkColumnTarget);
+        if (clearPreviousTarget) {
+          await getWorkspaceDocumentState().clearDocument();
+          if (!useWorkColumnStore.getState().isCurrentNavigation(requestId)) return;
+          getWorkspaceMemoState().setSelectedMemo(null);
+        }
+        commitNavigation(requestId, nextWorkColumnTarget);
       },
       () => selectNotebook(notebook),
       async (requestId) => {
@@ -444,7 +456,7 @@ export async function selectNotebook(notebook: Notebook): Promise<void> {
         await restoreDocumentSnapshot(previousDocument);
       },
       true,
-      false,
+      clearPreviousTarget,
     );
   } finally {
     useWorkColumnStore.getState().endNotebookSwitch?.();

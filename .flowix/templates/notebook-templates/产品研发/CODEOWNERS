@@ -1,0 +1,56 @@
+# CODEOWNERS — 代码所有者
+#
+# 作用：为仓库路径指定负责人，PR 自动请求对应 owner 评审。
+# 语法：<路径模式>  <@用户或@团队>  （后匹配优先）
+# 说明：这是模板示例。请把 @替换为你团队的真实 GitHub/GitLab 账号或小组名。
+#       若平台不支持 CODEOWNERS（如部分自建 Git），可删除本文件，改用 CONTRIBUTING.md 的评审矩阵。
+
+# ---------- 默认所有者（兜底） ----------
+*                                   @org/maintainers
+
+# ---------- 根文档与协作规范 ----------
+/AGENTS.md                          @org/maintainers
+/CONTRIBUTING.md                    @org/maintainers
+/SECURITY.md                        @org/security
+/CODEOWNERS                         @org/maintainers
+/.agents/                           @org/maintainers
+
+# ---------- 规则与上下文（改动 = 团队约定变更，需 owner 评审） ----------
+/.agents/rules/                     @org/maintainers
+/.agents/context/                   @org/maintainers @org/arch
+/.agents/skills/                    @org/maintainers
+
+# ---------- 前端 ----------
+/模块与契约/前端/                    @org/frontend
+# <在此追加真实前端源码路径，例如：/web/  /src/renderer/>
+
+# ---------- 后端 ----------
+/模块与契约/后端/                    @org/backend
+# <在此追加真实后端源码路径，例如：/server/  /src/api/>
+
+# ---------- API 契约（跨端，需前后端共同评审） ----------
+/模块与契约/API/                     @org/frontend @org/backend
+
+# ---------- 数据与迁移（高风险，必须数据 owner 评审） ----------
+/模块与契约/数据/                    @org/data @org/backend
+# <Schema 迁移目录，例如：/migrations/  /db/migrations/>
+
+# ---------- 桌面端与本地能力 ----------
+/模块与契约/桌面端与本地能力/         @org/desktop
+
+# ---------- 测试与验证 ----------
+/测试与验证/                         @org/qa
+
+# ---------- 发布与运行（发布/回滚/监控变更） ----------
+/发布与运行/                         @org/ops @org/maintainers
+
+# ---------- 安全相关（安全策略、密钥样例、安全验证） ----------
+/SECURITY.md                        @org/security
+/测试与验证/安全验证/                 @org/security
+/.agents/rules/安全与隐私规则.md      @org/security
+
+# ---------- 架构决策 ----------
+/架构决策/                           @org/arch
+
+# ---------- 产品输入（产品侧维护，研发只读消费） ----------
+/产品输入/                           @org/product

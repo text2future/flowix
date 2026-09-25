@@ -1,9 +1,13 @@
-.flowix-onboarding {
+.flowix-onboarding,
+.flowix-notebook-create {
   --onboarding-form-gap: 22px;
   --onboarding-ink: var(--foreground);
   --onboarding-subtle: var(--muted-foreground);
   --onboarding-panel: color-mix(in oklch, var(--card) 96%, var(--background));
   --onboarding-line: color-mix(in oklch, var(--border) 78%, transparent);
+}
+
+.flowix-onboarding {
   position: fixed;
   inset: 0;
   z-index: 220;
@@ -13,6 +17,146 @@
   color: var(--onboarding-ink);
   background: var(--frame-bg);
   animation: flowix-onboarding-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* The regular create-notebook flow borrows the first onboarding step's layout
+   and typography while keeping the dialog's existing focus/escape handling. */
+.flowix-notebook-create {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--onboarding-ink);
+  background: var(--frame-bg);
+}
+
+.flowix-notebook-create__main {
+  position: static;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.flowix-notebook-create__main > .flowix-onboarding__content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 104px;
+}
+
+.flowix-notebook-list-screen {
+  position: fixed;
+  display: flex;
+  color: var(--onboarding-ink);
+  background: var(--frame-bg);
+}
+
+.flowix-notebook-list-screen__main {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.flowix-notebook-list-screen__main .flowix-onboarding__content {
+  flex: 1 0 auto;
+  min-height: 100%;
+  align-items: stretch;
+  width: min(100%, 1180px);
+}
+
+.flowix-notebook-list-screen__main .flowix-onboarding__section {
+  display: flex;
+  flex: 1 0 auto;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.flowix-notebook-list-screen__body {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.flowix-notebook-list-screen__heading {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: min(100%, 914px);
+  margin: 0 auto 28px;
+  padding-right: 58px;
+}
+
+.flowix-notebook-list-screen__heading.flowix-onboarding__section-heading--setup h1 {
+  font-size: 36px;
+}
+
+.flowix-notebook-list-screen__close {
+  position: fixed;
+  z-index: 5;
+  display: flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--onboarding-subtle);
+  border: 1px solid var(--onboarding-line);
+  border-radius: 10px;
+  background: transparent;
+  top: 58px;
+  right: clamp(20px, 3vw, 48px);
+}
+
+.flowix-notebook-list-screen__close:hover {
+  color: var(--onboarding-ink);
+  background: color-mix(in oklch, var(--card) 70%, transparent);
+}
+
+.flowix-notebook-create__cloud {
+  width: min(100%, 780px);
+  margin-top: var(--onboarding-form-gap);
+}
+
+.flowix-notebook-create__actions-end {
+  display: flex;
+  width: min(100%, 780px);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 auto;
+}
+
+.flowix-notebook-create .flowix-onboarding__actions {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  width: 100%;
+  min-height: 80px;
+  margin: 0;
+  padding: 16px clamp(28px, 6vw, 96px) calc(16px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--onboarding-line);
+  background: var(--frame-bg);
+}
+
+.flowix-notebook-create__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 15px;
+  padding: 0;
+  color: var(--onboarding-subtle);
+  font-size: 12px;
+}
+
+.flowix-notebook-create__back:hover {
+  color: var(--onboarding-ink);
 }
 
 /**
@@ -122,7 +266,7 @@
 }
 
 .flowix-onboarding__section-heading {
-  max-width: 615px;
+  max-width: 100%;
 }
 
 .flowix-onboarding__section-heading h1 {
@@ -140,7 +284,7 @@
 }
 
 .flowix-onboarding__section-heading p:last-child {
-  max-width: 590px;
+  max-width: 100%;
   margin: 24px 0 0;
   color: var(--onboarding-subtle);
   font-size: 14px;
@@ -383,7 +527,7 @@
 .flowix-onboarding__form-field > label,
 .flowix-onboarding__template-label-row > span:first-child {
   color: var(--onboarding-ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
 }
 
@@ -425,6 +569,7 @@
 
 .flowix-onboarding__template-page {
   display: grid;
+  align-content: start;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   flex: 0 0 100%;
   gap: 8px;
@@ -434,28 +579,16 @@
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 120px;
+  min-height: 96px;
   align-items: center;
   gap: 12px;
-  padding: 16px;
+  padding: 10px 16px;
   color: var(--onboarding-subtle);
   text-align: left;
   border: 1px solid var(--onboarding-line);
   border-radius: 11px;
   background: color-mix(in oklch, var(--onboarding-panel) 74%, transparent);
   transition: border-color 150ms ease;
-}
-
-.flowix-onboarding__template-option--blank {
-  align-items: center;
-  justify-content: center;
-}
-
-.flowix-onboarding__blank-template-label {
-  color: var(--onboarding-ink);
-  font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
 }
 
 .flowix-onboarding__template-pagination {
@@ -497,8 +630,24 @@
 }
 
 .flowix-onboarding__template-option.is-selected {
-  color: var(--onboarding-ink);
-  border-color: color-mix(in oklch, var(--brand) 70%, var(--onboarding-line));
+  color: var(--onboarding-subtle);
+}
+
+.flowix-onboarding__template-option.is-selected::after {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  color: var(--primary-foreground);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  content: '✓';
+  border-radius: 50%;
+  background: var(--primary);
 }
 
 .flowix-onboarding__template-option-icon {
@@ -522,8 +671,8 @@
 
 .flowix-onboarding__template-option-copy strong {
   color: var(--onboarding-ink);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 15px;
+  font-weight: 400;
   letter-spacing: -0.015em;
 }
 
@@ -818,7 +967,8 @@
   margin-top: 20px;
 }
 
-.flowix-onboarding button:focus-visible {
+.flowix-onboarding button:focus-visible,
+.flowix-notebook-create button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
@@ -856,6 +1006,25 @@
 
   .flowix-onboarding__main {
     padding: 0 20px 26px;
+  }
+
+  .flowix-notebook-create__main {
+    padding: 0;
+  }
+
+  .flowix-notebook-create .flowix-onboarding__actions {
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 72px;
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .flowix-notebook-create__actions-end {
+    width: 100%;
+  }
+
+  .flowix-notebook-create__actions-end .flowix-onboarding__primary-action {
+    flex: 1;
   }
 
   /* The window still needs a draggable top edge at narrow widths; keep the

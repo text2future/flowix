@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "defaultTemplateId": "work-management",
+  "templates": [
+    {
+      "id": "work-management",
+      "name": "工作管理",
+      "description": "管理任务、项目、会议和复盘，让每周工作有迹可循。",
+      "sourceDirectory": "工作管理",
+      "icon": "briefcase"
+    },
+    {
+      "id": "product-development",
+      "name": "产品研发",
+      "description": "沉淀变更、技术决策、测试验证、发布与运行记录。",
+      "sourceDirectory": "产品研发",
+      "icon": "code"
+    },
+    {
+      "id": "wechat-writing",
+      "name": "公众号写作",
+      "description": "管理灵感、选题、文章写作、发布和数据复盘。",
+      "sourceDirectory": "公众号写作",
+      "icon": "pen-line"
+    },
+    {
+      "id": "novel-writing",
+      "name": "小说创作",
+      "description": "组织故事设定、人物、大纲、正文和修订记录。",
+      "sourceDirectory": "小说创作",
+      "icon": "book"
+    },
+    {
+      "id": "social-media-management",
+      "name": "自媒体管理",
+      "description": "统一管理账号策略、多平台内容、发布互动和商业合作。",
+      "sourceDirectory": "自媒体管理",
+      "icon": "radio"
+    },
+    {
+      "id": "stock-fund-investing",
+      "name": "股票基金投资",
+      "description": "按研究、决策、交易、持仓和复盘流程管理投资记录。",
+      "sourceDirectory": "股票基金投资",
+      "icon": "chart"
+    },
+    {
+      "id": "postgraduate-planning",
+      "name": "考研规划",
+      "description": "集中管理院校信息、科目学习、计划、错题和复盘。",
+      "sourceDirectory": "考研规划",
+      "icon": "graduation"
+    },
+    {
+      "id": "course-design",
+      "name": "课程设计",
+      "description": "组织课程规则、学期计划、单元课时设计和教学复盘。",
+      "sourceDirectory": "课程设计",
+      "icon": "presentation"
+    }
+  ]
+}

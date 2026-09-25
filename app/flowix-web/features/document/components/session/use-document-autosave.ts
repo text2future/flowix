@@ -6,7 +6,6 @@ import {
   applyLoadedDocumentContent,
   discardDocumentDraft,
   getDocumentBuffer,
-  markSelfDocumentPathUpdate,
   hasDocumentUnsavedChanges,
   recordDocumentEdit,
   protectDocumentDraft,
@@ -14,8 +13,7 @@ import {
 } from '@features/document/store/document-session-service';
 import type { DocumentIdentity } from '@features/document/store/document-identity';
 import { translate } from '@/lib/i18n';
-import { replaceActiveMemoPath } from '@features/workspace/use-cases/workspace-navigation';
-import { replaceBrowserColumnMemoPath } from '@features/workspace/use-cases/browser-column-navigation';
+import { syncMemoPathAfterLocalWrite } from '@features/document/use-cases/sync-memo-path-after-local-write';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { toast } from '@/lib/toast';
 import { formatDateTime } from '@/lib/utils';
@@ -23,6 +21,7 @@ import {
   countTextUnits,
   extractBodyContent,
 } from '@features/document/components/session/document-utils';
+import type { DocumentContainerState } from '@features/document/components/session/types';
 
 const DERIVED_STATS_DEBOUNCE_MS = 200;
 const RECOVERY_DRAFT_DEBOUNCE_MS = 300;
@@ -54,20 +53,7 @@ interface UseDocumentAutosaveOptions {
   memoId: string | null;
   isExternalDocument: boolean;
   externalScopePath: string | null;
-  setState: React.Dispatch<React.SetStateAction<{
-    fullContent: string;
-    isLoading: boolean;
-    error: string | null;
-    isScrolled: boolean;
-    isNewlyCreated: boolean;
-    charCount: number;
-    tokenCount: number;
-    createdAt: string;
-    updatedAt: string;
-    updatedAtDate: Date | null;
-    isFavorited: boolean;
-    frontmatterMeta: Record<string, unknown>;
-  }>>;
+  setState: React.Dispatch<React.SetStateAction<DocumentContainerState>>;
   reloadDocument: (path: string, options?: { preservePending?: boolean; showLoading?: boolean }) => Promise<void>;
   flushPendingContent?: () => string | null;
   isolatedSession?: boolean;
@@ -167,9 +153,7 @@ export function useDocumentAutosave({
           if (writtenPath !== path) {
             applyLoadedDocumentContent(identity, writtenPath, writtenContent, { preservePending: true });
             if (!isExternalDocument && memoId) {
-              replaceBrowserColumnMemoPath(memoId, writtenPath);
-              markSelfDocumentPathUpdate(memoId, writtenPath);
-              replaceActiveMemoPath(memoId, writtenPath);
+              syncMemoPathAfterLocalWrite(memoId, writtenPath);
             }
             // 旧 path buf 已在 buffer-registry 的 Map 里残留 ── 不删, 等
             // GC。后续 use-external-document-change-watch 看到旧 path

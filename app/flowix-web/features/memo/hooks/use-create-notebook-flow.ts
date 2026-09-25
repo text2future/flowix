@@ -12,8 +12,8 @@ import {
 import { useMemoStore, useTagStore, type Notebook } from '@features/memo/store';
 import { clearWorkspaceDocument } from '@features/workspace/use-cases/workspace-navigation';
 import { createNotebookRegistration } from '@features/memo/services/notebook-creation-service';
+import { withCreatedNoteAutoOpenSuppressed } from '@features/memo/services/created-note-auto-open-policy';
 
-const NOTEBOOK_CREATE_SCAN_TIMEOUT_MS = 30_000;
 const NOTEBOOK_IMPORT_POLL_INTERVAL_MS = 500;
 const NOTEBOOK_IMPORT_POLL_MAX_ATTEMPTS = 1_200;
 
@@ -22,6 +22,7 @@ interface CreateNotebookInput {
   path?: string;
   icon?: string | null;
   cloudNotebookId?: string;
+  templateId?: string | null;
 }
 
 interface UseCreateNotebookFlowOptions {
@@ -39,19 +40,9 @@ export function useCreateNotebookFlow({
   const [creationState, setCreationState] = useState<NotebookCreationState>({
     status: 'idle',
   });
-  const [blockingLoadingText, setBlockingLoadingText] = useState<string | null>(null);
-  const createNotebookScanTimeoutRef = useRef<number | null>(null);
   const createInFlightRef = useRef(false);
   const activeImportNotebookIdRef = useRef<string | null>(null);
   const importMonitorGenerationRef = useRef(0);
-
-  const clearCreateNotebookScanTimeout = useCallback(() => {
-    if (createNotebookScanTimeoutRef.current === null) return;
-    window.clearTimeout(createNotebookScanTimeoutRef.current);
-    createNotebookScanTimeoutRef.current = null;
-  }, []);
-
-  useEffect(() => clearCreateNotebookScanTimeout, [clearCreateNotebookScanTimeout]);
 
   const handleImportStatus = useCallback(
     (importStatus: Parameters<typeof resolveNotebookImportStatusEffect>[1]) => {
@@ -111,7 +102,7 @@ export function useCreateNotebookFlow({
   }, [handleImportStatus]);
 
   const createNotebook = useCallback(
-    async ({ name, path, icon, cloudNotebookId }: CreateNotebookInput): Promise<Notebook | null> => {
+    async ({ name, path, icon, cloudNotebookId, templateId }: CreateNotebookInput): Promise<Notebook | null> => {
       const notebookName = name.trim();
       const notebookPath = path?.trim() || undefined;
       if (!notebookName || (cloudNotebookId && !notebookPath)) return null;
@@ -119,16 +110,6 @@ export function useCreateNotebookFlow({
       createInFlightRef.current = true;
 
       setCreationState({ status: 'creating' });
-      setBlockingLoadingText(t('memo.list.scanningLibrary'));
-      clearCreateNotebookScanTimeout();
-      createNotebookScanTimeoutRef.current = window.setTimeout(() => {
-        createNotebookScanTimeoutRef.current = null;
-        setBlockingLoadingText(null);
-        toast.warning(t('memo.list.scanningStillRunning'));
-      }, NOTEBOOK_CREATE_SCAN_TIMEOUT_MS);
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
 
       try {
         const registration = cloudNotebookId
@@ -146,17 +127,24 @@ export function useCreateNotebookFlow({
           return null;
         }
 
+        if (!cloudNotebookId && templateId) {
+          const { initializeNotebookTemplate } = await import('@features/onboarding/notebook-templates');
+          await withCreatedNoteAutoOpenSuppressed(created.id, (operationId) =>
+            initializeNotebookTemplate(created.id, templateId, registration.created, operationId),
+          );
+        }
+
         const memoStore = useMemoStore.getState();
         const existingNotebooks = memoStore.notebooks;
         const nextNotebooks = existingNotebooks.some((notebook) => notebook.id === created.id)
           ? existingNotebooks.map((notebook) => notebook.id === created.id ? created : notebook)
           : [...existingNotebooks, created];
 
+        await clearWorkspaceDocument();
         memoStore.setNotebooks(nextNotebooks);
         memoStore.setSelectedNotebook(created);
         memoStore.setSelectedMemo(null);
         memoStore.setMemos([]);
-        void clearWorkspaceDocument();
         useTagStore.getState().setSelectedTagId(null);
         onMemoListQueryReset();
         onMemoListLoadingChange(true);
@@ -201,12 +189,9 @@ export function useCreateNotebookFlow({
         return null;
       } finally {
         createInFlightRef.current = false;
-        clearCreateNotebookScanTimeout();
-        setBlockingLoadingText(null);
       }
     },
     [
-      clearCreateNotebookScanTimeout,
       onMemoListLoadingChange,
       onMemoListQueryReset,
       onMemoListReloadNeeded,
@@ -215,7 +200,6 @@ export function useCreateNotebookFlow({
   );
 
   return {
-    blockingLoadingText,
     createNotebook,
     creationState,
   };

@@ -151,7 +151,7 @@ pub enum Theme {
     Ember,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreferenceFile {
     #[serde(default)]
@@ -175,6 +175,9 @@ pub struct PreferenceFile {
     /// Whether the notebook file tree includes hidden directories and their Markdown files.
     #[serde(default)]
     pub show_hidden_notebook_files: bool,
+    /// Whether newly created notes are automatically opened in the Browser Column.
+    #[serde(default = "default_true")]
+    pub auto_open_created_notes_in_browser: bool,
     /// User shortcut overrides keyed by action id.
     #[serde(default)]
     pub shortcuts: HashMap<String, String>,
@@ -191,6 +194,31 @@ pub struct PreferenceFile {
     /// PR3 鎺ュ叆 IPC 鐑洿鏂般€?
     #[serde(default)]
     pub watcher: crate::watcher::WhitelistConfig,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for PreferenceFile {
+    fn default() -> Self {
+        Self {
+            personalize: PersonalizeConfig::default(),
+            format: FormatConfig::default(),
+            theme: Theme::default(),
+            language: String::default(),
+            region: String::default(),
+            memo_card_variant: String::default(),
+            memo_list_view: String::default(),
+            show_hidden_notebook_files: bool::default(),
+            auto_open_created_notes_in_browser: true,
+            shortcuts: HashMap::default(),
+            properties: PropertiesConfig::default(),
+            agents: AgentsConfig::default(),
+            product_updates: ProductUpdatesConfig::default(),
+            watcher: crate::watcher::WhitelistConfig::default(),
+        }
+    }
 }
 
 /// Legacy AI model configuration at `~/.flowix/agent-config.toml`.

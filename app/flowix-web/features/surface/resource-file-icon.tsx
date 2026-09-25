@@ -178,13 +178,17 @@ export function ResourceFileIcon({ path, className }: { path: string; className?
 }
 
 /** Seti's file icon theme does not define a separate open-folder glyph. */
-export function ResourceFolderIcon({ className }: { expanded: boolean; className?: string }) {
+export function ResourceFolderIcon({ className, hidden = false }: {
+  expanded: boolean;
+  hidden?: boolean;
+  className?: string;
+}) {
   return (
     <span
       aria-hidden="true"
       className={`inline-flex items-center justify-center select-none ${className ?? ''}`}
       data-seti-icon="_folder"
-      style={setiIconStyle(SETI_FOLDER_COLOR)}
+      style={setiIconStyle(hidden ? 'var(--muted-foreground)' : SETI_FOLDER_COLOR)}
     >
       {SETI_FOLDER_GLYPH}
     </span>

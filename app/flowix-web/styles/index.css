@@ -633,6 +633,14 @@
 		transform-origin: bottom left !important;
 	}
 
+	.flowix-notebook-selector-popup.flowix-notebook-list-screen {
+		--flowix-popover-enter-y: 0px;
+		--flowix-popover-enter-scale: 1;
+		--flowix-popover-exit-y: 0px;
+		--flowix-popover-exit-scale: 1;
+		transform-origin: center center !important;
+	}
+
 	/* 左侧当前笔记本卡片的弹窗向下展开；状态栏入口仍保留向上弹出的动效。 */
 	.flowix-notebook-selector-popup--bottom {
 		--flowix-popover-enter-y: -4px;

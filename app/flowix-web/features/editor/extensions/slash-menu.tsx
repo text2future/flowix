@@ -22,6 +22,7 @@ import { windows } from '@platform/tauri/client';
 import { translate } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
 import { isAgentTypeComingSoon } from '@/lib/agent-types';
+import { applyListType } from './list-transforms';
 
 export const slashMenuPluginKey = new PluginKey('slashMenu');
 
@@ -580,9 +581,9 @@ function handleSelect(item: SlashMenuItem): void {
     'paragraph': () => editor.chain().focus().setParagraph().run(),
     'blockquote': () => editor.chain().focus().toggleBlockquote().run(),
     'code-block': () => editor.chain().focus().toggleCodeBlock().run(),
-    'bullet-list': () => editor.chain().focus().toggleBulletList().run(),
-    'ordered-list': () => editor.chain().focus().toggleOrderedList().run(),
-    'task-list': () => editor.chain().focus().toggleTaskList().run(),
+    'bullet-list': () => { applyListType(editor, 'bulletList'); },
+    'ordered-list': () => { applyListType(editor, 'orderedList'); },
+    'task-list': () => { applyListType(editor, 'taskList'); },
   };
   const blockToggle = blockToggleById[item.id];
   if (blockToggle) {

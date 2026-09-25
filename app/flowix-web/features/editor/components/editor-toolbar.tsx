@@ -2,7 +2,7 @@
 
 import { Editor } from '@tiptap/core';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
-import { TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextTIcon, ListBulletsIcon, CheckSquareIcon, TextBIcon, TextUnderlineIcon, TextItalicIcon, TextStrikethroughIcon, HighlighterIcon, CodeIcon, PaperclipIcon, LinkSimpleIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
+import { TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextTIcon, ListBulletsIcon, ListNumbersIcon, CheckSquareIcon, TextBIcon, TextUnderlineIcon, TextItalicIcon, TextStrikethroughIcon, HighlighterIcon, CodeIcon, PaperclipIcon, LinkSimpleIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
 import { useEffect, useState, useRef } from 'react';
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import { Tooltip } from '@shared/ui/tooltip';
 import { openLinkEditPopup } from '@features/editor/components/link-edit-popup';
 import { useI18n } from '@/lib/i18n';
 import { FlowixHighlightPalette } from '@features/editor/components/flowix-highlight-palette';
+import { applyListType } from '@features/editor/extensions/list-transforms';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -30,6 +31,7 @@ interface ToolbarState {
   underline: boolean;
   italic: boolean;
   bulletList: boolean;
+  orderedList: boolean;
   taskList: boolean;
   highlight: boolean;
   strikethrough: boolean;
@@ -51,6 +53,7 @@ const INITIAL_STATE: ToolbarState = {
   underline: false,
   italic: false,
   bulletList: false,
+  orderedList: false,
   taskList: false,
   highlight: false,
   strikethrough: false,
@@ -94,6 +97,7 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
         underline: currentEditor.isActive('underline'),
         italic: currentEditor.isActive('italic'),
         bulletList: currentEditor.isActive('bulletList'),
+        orderedList: currentEditor.isActive('orderedList'),
         taskList: currentEditor.isActive('taskList'),
         highlight: currentEditor.isActive('highlight'),
         strikethrough: currentEditor.isActive('strike'),
@@ -217,39 +221,43 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
 
         <div className="toolbar-divider" />
 
-        <button
-          className={`toolbar-button ${state.bulletList ? 'active' : ''}`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          type="button"
-          style={iconButtonStyle}
-        >
-          <ListBulletsIcon size={18} weight="bold" />
-        </button>
+        <Tooltip content={t('editor.block.bulletList')}>
+          <button
+            className={`toolbar-button ${state.bulletList ? 'active' : ''}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => applyListType(editor, 'bulletList')}
+            type="button"
+            style={iconButtonStyle}
+            aria-label={t('editor.block.bulletList')}
+          >
+            <ListBulletsIcon size={18} weight="bold" />
+          </button>
+        </Tooltip>
+
+        <Tooltip content={t('editor.block.orderedList')}>
+          <button
+            className={`toolbar-button ${state.orderedList ? 'active' : ''}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => applyListType(editor, 'orderedList')}
+            type="button"
+            style={iconButtonStyle}
+            aria-label={t('editor.block.orderedList')}
+          >
+            <ListNumbersIcon size={18} weight="bold" />
+          </button>
+        </Tooltip>
 
         <Tooltip content={t('editor.toolbar.taskList')} shortcut="editor.toggleTaskList">
           <button
             className={`toolbar-button ${state.taskList ? 'active' : ''}`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            onClick={() => applyListType(editor, 'taskList')}
             type="button"
             style={iconButtonStyle}
           >
             <CheckSquareIcon size={18} weight="bold" />
           </button>
         </Tooltip>
-        <Tooltip content={t('editor.toolbar.addLink')}>
-          <button
-            className={`toolbar-button ${state.link ? 'active' : ''}`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => openLinkEditPopup(editor, () => undefined, { mode: 'create' })}
-            type="button"
-            style={iconButtonStyle}
-          >
-            <LinkSimpleIcon size={18} weight="bold" />
-          </button>
-        </Tooltip>
-
         <DropdownMenu open={highlightPaletteOpen} onOpenChange={setHighlightPaletteOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -269,9 +277,7 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
             align="center"
             className="editor-highlight-palette__menu"
           >
-            <FlowixHighlightPalette
-              editor={editor}
-            />
+            <FlowixHighlightPalette editor={editor} />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -285,6 +291,8 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 style={iconButtonStyle}
+                aria-label={t('editor.toolbar.more')}
+                title={t('editor.toolbar.more')}
               >
                 <MoreHorizontal size={18} />
               </button>
@@ -295,6 +303,13 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
               align="center"
               className="w-auto min-w-[136px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
             >
+              <DropdownMenuItem
+                className={`group h-7 items-center justify-start gap-3 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] ${state.link ? 'bg-[var(--brand)] text-[var(--primary-foreground)]' : ''}`}
+                onClick={() => openLinkEditPopup(editor, () => undefined, { mode: 'create' })}
+              >
+                <LinkSimpleIcon size={16} weight="bold" />
+                <span>{t('editor.toolbar.addLink')}</span>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 className="group h-7 items-center justify-start gap-3 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
                 onClick={() => editor.chain().focus().toggleCodeBlock().run()}

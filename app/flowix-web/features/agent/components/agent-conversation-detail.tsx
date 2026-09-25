@@ -637,7 +637,8 @@ export function AgentConversationDetail({
         },
       t: (key) => tRef.current(key),
         createThreadCacheSkeleton: () => createThreadCacheSkeleton(tRef.current('editor.threadCard.loadingThreadCache')),
-        createExternalAgentEmptySettings: () => externalSettings.createEmptySettings(),
+        createExternalAgentEmptySettings: () =>
+          externalSettings.createEmptySettings({ showControls: false }),
         onForkMessage: forkFromMessage,
       },
       composerOptions: {

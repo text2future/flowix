@@ -535,13 +535,12 @@ export function MemoList({
     [setActiveSort, setNotebookDropdownOpen],
   );
 
-  // 视图选择器位于一级菜单底部，点击后直接切换并关闭菜单。
+  // 视图选择器位于一级菜单底部，切换视图时保留菜单，方便连续比较视图。
   const handleViewChange = useCallback(
     (view: 'detailed' | 'folders') => {
       void setMemoListViewPreference(view);
-      setNotebookDropdownOpen(false);
     },
-    [setNotebookDropdownOpen],
+    [],
   );
 
   // 当 dropdown 关闭时, 同步把 filter / sort submenu 也收掉。

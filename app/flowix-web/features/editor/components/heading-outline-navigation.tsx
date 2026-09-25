@@ -108,10 +108,15 @@ export interface HeadingOutlinePopoverPosition {
 export function calculateHeadingOutlinePopoverPosition(
   surfaceRect: SurfaceRectLike,
   popoverWidth = POPOVER_WIDTH_PX,
-  popoverHeight = 0,
+  _popoverHeight = 0,
   viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth,
   viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight,
 ): HeadingOutlinePopoverPosition {
+  const minTop = Math.max(VIEWPORT_PADDING_PX, surfaceRect.top + VIEWPORT_PADDING_PX)
+  const remSize = typeof window === 'undefined'
+    ? 16
+    : Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16
+  const top = Math.max(minTop, remSize * 6)
   const maxWidth = Math.max(0, Math.min(
     popoverWidth,
     surfaceRect.width - VIEWPORT_PADDING_PX * 2,
@@ -122,25 +127,16 @@ export function calculateHeadingOutlinePopoverPosition(
     Math.min(
       Math.round(viewportHeight * 0.8),
       surfaceRect.height - VIEWPORT_PADDING_PX * 2,
+      viewportHeight - top - VIEWPORT_PADDING_PX,
     ),
   )
   const actualWidth = Math.min(popoverWidth, maxWidth || popoverWidth)
-  const actualHeight = Math.min(popoverHeight || Math.round(viewportHeight * 0.8), maxHeight || popoverHeight)
   const minLeft = Math.max(VIEWPORT_PADDING_PX, surfaceRect.left + VIEWPORT_PADDING_PX)
   const maxLeft = Math.min(
     surfaceRect.right - actualWidth - VIEWPORT_PADDING_PX,
     viewportWidth - actualWidth - VIEWPORT_PADDING_PX,
   )
   const left = maxLeft >= minLeft ? maxLeft : minLeft
-  const centerY = surfaceRect.top + surfaceRect.height / 2
-  const minTop = Math.max(VIEWPORT_PADDING_PX, surfaceRect.top + VIEWPORT_PADDING_PX)
-  const maxTop = Math.min(
-    surfaceRect.bottom - actualHeight - VIEWPORT_PADDING_PX,
-    viewportHeight - actualHeight - VIEWPORT_PADDING_PX,
-  )
-  const top = maxTop >= minTop
-    ? Math.max(minTop, Math.min(centerY - actualHeight / 2, maxTop))
-    : minTop
 
   return { left, top, maxWidth, maxHeight }
 }

@@ -112,16 +112,18 @@ export function MediaResourceView({
   filePath,
   notebookPath,
   resourceKind,
+  propertiesVisibleByDefault = true,
 }: {
   filePath: string;
   notebookPath: string | null;
   resourceKind: MediaKind;
+  propertiesVisibleByDefault?: boolean;
 }) {
   const { t } = useI18n();
-  const [propertiesVisible, setPropertiesVisible] = useState(true);
+  const [propertiesVisible, setPropertiesVisible] = useState(propertiesVisibleByDefault);
   useEffect(() => {
-    setPropertiesVisible(true);
-  }, [filePath, notebookPath]);
+    setPropertiesVisible(propertiesVisibleByDefault);
+  }, [filePath, notebookPath, propertiesVisibleByDefault]);
 
   const preview = notebookPath ? (
     resourceKind === 'image'

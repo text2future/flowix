@@ -4,19 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
-  BriefcaseBusiness,
   CircleAlert,
   CircleCheck,
   ChevronLeft,
   ChevronRight,
-  Dumbbell,
   FolderOpen,
-  GraduationCap,
   LoaderCircle,
   Plus,
   RefreshCw,
-  Sparkles,
   X,
 } from 'lucide-react';
 import { AgentIcon } from '@features/agent/components/agent-icon';
@@ -36,6 +31,8 @@ import { useAgentAccessStore } from '@features/agent/store/agent-access-store';
 import { resolveNotebookAgentFiles } from '@/lib/agent-access-defaults';
 import { useMemoStore } from '@features/memo/store/memo-store';
 import { createNotebookRegistration, notebookRepository } from '@features/memo/services';
+import { useI18n } from '@/lib/i18n';
+import { notebookCreateErrorMessage } from '@platform/tauri/errors';
 import type { DshRuntimeInstallerState } from '@features/preferences/public/system-api';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -43,10 +40,10 @@ import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { isMac } from '@features/shortcuts';
 import { openUrl } from '@platform/tauri/opener';
 import {
-  BLANK_NOTEBOOK_TEMPLATE_ID,
   initializeNotebookTemplate,
-  NOTEBOOK_TEMPLATES,
+  useNotebookTemplates,
 } from './notebook-templates';
+import { NotebookTemplateIcon } from './notebook-template-icon';
 import { OnboardingTitlebarMac } from './onboarding-titlebar-mac';
 
 const DEFAULT_BOOK_FOLDER = 'My Notebook';
@@ -64,19 +61,6 @@ const AGENT_KEYS: readonly AgentTypeKey[] = [
 ];
 
 type OnboardingStep = 0 | 1 | 2;
-
-function NotebookTemplateIcon({ templateId }: { templateId: string }) {
-  const Icon = templateId === 'project-development'
-    ? BriefcaseBusiness
-    : templateId === 'fitness-plan'
-      ? Dumbbell
-      : templateId === 'course-design'
-        ? GraduationCap
-        : templateId === BLANK_NOTEBOOK_TEMPLATE_ID
-          ? BookOpen
-          : Sparkles;
-  return <Icon size={20} strokeWidth={1.8} aria-hidden="true" />;
-}
 
 function defaultFolderNameForNotebook(name: string): string {
   const trimmed = name.trim();
@@ -269,12 +253,18 @@ function AgentRows({
 }
 
 export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenProps) {
+  const { t } = useI18n();
+  const {
+    templates: notebookTemplates,
+    status: notebookTemplateStatus,
+    retry: retryNotebookTemplates,
+  } = useNotebookTemplates();
   const [step, setStep] = useState<OnboardingStep>(0);
   const [defaultPath, setDefaultPath] = useState<string | null>(null);
   const [notebookName, setNotebookName] = useState(DEFAULT_NOTEBOOK_NAME);
   const [notebookPath, setNotebookPath] = useState<string | null>(null);
   const [notebookIcon, setNotebookIcon] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState(BLANK_NOTEBOOK_TEMPLATE_ID);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templatesPerPage, setTemplatesPerPage] = useState(3);
   const [templatePage, setTemplatePage] = useState(0);
   const [createdNotebook, setCreatedNotebook] = useState<NotebookRecord | null>(null);
@@ -328,13 +318,13 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
   );
   const canContinueWithAgent = dshInstalled || hasAvailableLocalAgent;
   const templatePages = useMemo(() => {
-    const pages: Array<Array<(typeof NOTEBOOK_TEMPLATES)[number]>> = [];
-    for (let index = 0; index < NOTEBOOK_TEMPLATES.length; index += templatesPerPage) {
-      pages.push([...NOTEBOOK_TEMPLATES.slice(index, index + templatesPerPage)]);
+    const pages: Array<Array<(typeof notebookTemplates)[number]>> = [];
+    for (let index = 0; index < notebookTemplates.length; index += templatesPerPage) {
+      pages.push([...notebookTemplates.slice(index, index + templatesPerPage)]);
     }
     return pages;
-  }, [templatesPerPage]);
-  const activeTemplatePage = Math.min(templatePage, templatePages.length - 1);
+  }, [notebookTemplates, templatesPerPage]);
+  const activeTemplatePage = Math.max(0, Math.min(templatePage, templatePages.length - 1));
 
   const selectedRepositories = useMemo(() => {
     if (!createdNotebook) return [];
@@ -366,7 +356,15 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
         icon: notebookIcon,
       });
       const notebook = registration.notebook;
-      await initializeNotebookTemplate(notebook.id, selectedTemplateId);
+      if (selectedTemplateId) {
+        try {
+          await initializeNotebookTemplate(notebook.id, selectedTemplateId, registration.created);
+        } catch (value) {
+          console.error('[Onboarding] Failed to initialize notebook template:', value);
+          setError(notebookCreateErrorMessage(value, t));
+          return;
+        }
+      }
       setDefaultPath(notebook.path);
       const latest = await notebookRepository.list();
       useMemoStore.getState().setNotebooks(latest);
@@ -379,7 +377,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
     } finally {
       setIsCreatingNotebook(false);
     }
-  }, [loadAgentAccess, notebookIcon, notebookName, notebookPath, selectedTemplateId]);
+  }, [loadAgentAccess, notebookIcon, notebookName, notebookPath, selectedTemplateId, t]);
 
   const addRepository = useCallback(async () => {
     if (!createdNotebook) return;
@@ -444,7 +442,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
             <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-notebook-title">
               <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
                 <h1 id="flowix-onboarding-notebook-title">创建你的第一个笔记本</h1>
-                <p>你可以通过使用标签、属性等方式，轻松组织你的内容。<br />每个笔记本也是独立的 Agent 工作空间，可安装技能、MCP、AI 插件和子 Agent。相关配置仅对当前笔记本生效。</p>
+                <p>你可以通过使用标签、属性等方式，轻松组织你的内容。每个笔记本也是独立的 Agent 工作空间，可安装技能、MCP、AI 插件和子 Agent。相关配置仅对当前笔记本生效。</p>
               </div>
               <form
                 id="flowix-onboarding-notebook-form"
@@ -519,9 +517,26 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
                       </div>
                     )}
                   </div>
+                  {notebookTemplateStatus === 'loading' && (
+                    <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                      {t('notebook.template.loading')}
+                    </p>
+                  )}
+                  {notebookTemplateStatus === 'error' && (
+                    <div className="flowix-onboarding__inline-error" role="alert">
+                      <CircleAlert size={15} aria-hidden="true" />
+                      <span>{t('notebook.template.loadFailed')}</span>
+                      <Button type="button" variant="outline" size="sm" className="h-7" onClick={retryNotebookTemplates}>
+                        {t('error.retry')}
+                      </Button>
+                    </div>
+                  )}
+                  {notebookTemplateStatus === 'ready' && notebookTemplates.length === 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">{t('notebook.template.empty')}</p>
+                  )}
                   <div
                     className="flowix-onboarding__template-grid"
-                    role="radiogroup"
+                    role="group"
                     aria-labelledby="flowix-onboarding-template-label"
                   >
                     <div
@@ -531,37 +546,29 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
                       {templatePages.map((templates, pageIndex) => (
                         <div className="flowix-onboarding__template-page" key={`template-page-${pageIndex}`}>
                           {templates.map((template) => {
-                            const templateIndex = NOTEBOOK_TEMPLATES.findIndex((item) => item.id === template.id);
+                            const templateIndex = notebookTemplates.findIndex((item) => item.id === template.id);
                             const selected = template.id === selectedTemplateId;
                             return (
                               <button
                                 key={template.id}
                                 type="button"
-                                role="radio"
-                                aria-checked={selected}
+                                aria-pressed={selected}
                                 className={cn(
                                   'flowix-onboarding__template-option',
-                                  template.id === BLANK_NOTEBOOK_TEMPLATE_ID && 'flowix-onboarding__template-option--blank',
                                   selected && 'is-selected',
                                 )}
                                 onClick={() => {
-                                  setSelectedTemplateId(template.id);
+                                  setSelectedTemplateId((current) => current === template.id ? null : template.id);
                                   setTemplatePage(Math.floor(templateIndex / templatesPerPage));
                                 }}
                               >
-                                {template.id === BLANK_NOTEBOOK_TEMPLATE_ID ? (
-                                  <strong className="flowix-onboarding__blank-template-label">空白笔记本</strong>
-                                ) : (
-                                  <>
-                                    <span className="flowix-onboarding__template-option-icon">
-                                      <NotebookTemplateIcon templateId={template.id} />
-                                    </span>
-                                    <span className="flowix-onboarding__template-option-copy">
-                                      <strong>{template.name}</strong>
-                                      <small>{template.description}</small>
-                                    </span>
-                                  </>
-                                )}
+                                <span className="flowix-onboarding__template-option-icon">
+                                  <NotebookTemplateIcon icon={template.icon} />
+                                </span>
+                                <span className="flowix-onboarding__template-option-copy">
+                                  <strong>{template.name}</strong>
+                                  <small>{template.description}</small>
+                                </span>
                               </button>
                             );
                           })}

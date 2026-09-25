@@ -59,10 +59,12 @@ function PlaceholderSection({ title, emptyText }: { title: string; emptyText: st
 
 function GeneralSettingsSection() {
 	const language = useUserSettings((settings) => settings.language);
+	const showHiddenNotebookFiles = useUserSettings((settings) => settings.showHiddenNotebookFiles);
 	const { updateSettings } = useUserSettingsActions();
 	return (
 		<GeneralSection
 			language={language}
+			showHiddenNotebookFiles={showHiddenNotebookFiles}
 			updateSettings={updateSettings}
 		/>
 	);

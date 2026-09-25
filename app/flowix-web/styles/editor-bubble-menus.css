@@ -12,9 +12,7 @@
   border: 1px solid var(--border-popup);
   border-radius: 7px;
   color: var(--foreground);
-  box-shadow:
-    0 0 0 1px color-mix(in oklch, var(--foreground) 1.5%, transparent),
-    0 4px 12px color-mix(in oklch, var(--foreground) 3.5%, transparent);
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
   padding: 3px;
 }
 
@@ -60,9 +58,7 @@
   border-radius: 10px;
   background: color-mix(in oklch, var(--popover) 94%, transparent);
   color: var(--popover-foreground);
-  box-shadow:
-    0 0 0 1px color-mix(in oklch, var(--foreground) 1.5%, transparent),
-    0 10px 28px color-mix(in oklch, var(--foreground) 7%, transparent);
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
   backdrop-filter: blur(18px);
   pointer-events: none;
   user-select: none;

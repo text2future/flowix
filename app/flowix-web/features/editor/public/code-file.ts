@@ -6,6 +6,7 @@ export {
   isEditableTextFilePath,
   isImageFilePath,
   isVideoFilePath,
+  isHtmlFilePath,
   isNotebookResourcePath,
   resourceKindFromPath,
 } from '../code-file';

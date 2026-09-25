@@ -443,7 +443,7 @@ describe('workspace navigation transaction', () => {
     });
   });
 
-  it('keeps the workColumn target while switching notebooks', async () => {
+  it('clears a memo from the previous notebook when switching notebooks', async () => {
     const previousNotebook = {
       id: 'old-notebook',
       name: 'Old notebook',
@@ -485,10 +485,39 @@ describe('workspace navigation transaction', () => {
 
     await selectNotebook(nextNotebook);
 
-    expect(useWorkColumnStore.getState().navigation.target).toEqual(target);
+    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+    expect(mocks.clearDocument).toHaveBeenCalledOnce();
+    expect(mocks.memoState.selectedMemo).toBeNull();
     expect(useWorkColumnStore.getState().navigation.showWorkColumnLoading).toBe(false);
     expect(useWorkColumnStore.getState().navigation.pendingTarget).toBeNull();
     expect(mocks.memoState.selectedNotebook).toEqual(nextNotebook);
+  });
+
+  it('covers the previous notebook memo while the switch is pending', async () => {
+    const previousNotebook = {
+      id: 'old-notebook', name: 'Old', path: '/old', createdAt: 0, updatedAt: 0, isDefault: false,
+    };
+    const nextNotebook = {
+      id: 'next-notebook', name: 'Next', path: '/next', createdAt: 0, updatedAt: 0, isDefault: false,
+    };
+    useWorkColumnStore.getState().commitNavigation(0, {
+      kind: 'memo', memoId: 'memo-1', path: '/old/memo-1.md',
+      notebookId: previousNotebook.id, notebookPath: previousNotebook.path, transitionId: 1,
+    });
+    mocks.memoState.selectedNotebook = previousNotebook;
+    mocks.memoState.selectedNotebookId = previousNotebook.id;
+
+    let finishSwitch!: () => void;
+    mocks.setCurrentNotebook.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishSwitch = resolve;
+    }));
+    const switching = selectNotebook(nextNotebook);
+    expect(useWorkColumnStore.getState().navigation).toMatchObject({
+      phase: 'loading', showWorkColumnLoading: true, pendingTarget: { kind: 'empty' },
+    });
+    await vi.waitFor(() => expect(finishSwitch).toBeTypeOf('function'));
+    finishSwitch();
+    await switching;
   });
 
   it('reconciles selection through the facade after deleting the active notebook', async () => {

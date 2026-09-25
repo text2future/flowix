@@ -16,6 +16,10 @@ export function getAppSelectedNotebookId(): string | null {
   return useMemoStore.getState().selectedNotebook?.id ?? null;
 }
 
+export function hasAppMemoWithFilename(memoId: string): boolean {
+  return Boolean(useMemoStore.getState().memos.find(memo => memo.id === memoId)?.filename);
+}
+
 export function applyAppMemoCreated(memo: Parameters<ReturnType<typeof useMemoStore.getState>['handleMemoCreated']>[0]): void {
   useMemoStore.getState().handleMemoCreated(memo);
 }

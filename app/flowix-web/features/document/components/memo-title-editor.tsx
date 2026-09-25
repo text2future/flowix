@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/lib/store/settings-store';
 import { windows } from '@platform/tauri/client';
 import { readClipboardSnapshot, type ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
 import { splitClipboardForTitlePaste } from '@features/editor/extensions/paste-rules/title-paste';
+import { hasLeadingFrontmatter } from '@features/editor/extensions/paste-rules/markdown';
 import { BlockActionMenu } from '@features/editor/components/drag-context-menu/block-action-menu';
 import type { BlockMenuAction } from '@features/editor/components/drag-context-menu/block-menu-actions';
 import type { DocumentEditorMode } from '@features/document/store/document-editor-view-store';
@@ -338,7 +339,13 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
 
     const data = event.clipboardData;
     if (!data) return;
-    const split = splitClipboardForTitlePaste(readClipboardSnapshot(data));
+    const snapshot = readClipboardSnapshot(data);
+    if (hasLeadingFrontmatter(snapshot.markdown || snapshot.text)) {
+      event.preventDefault();
+      onPasteToBody?.(snapshot);
+      return;
+    }
+    const split = splitClipboardForTitlePaste(snapshot);
     if (!split) return;
 
     const selection = getTitleSelection();

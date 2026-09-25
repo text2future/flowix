@@ -62,6 +62,10 @@ export function isVideoFilePath(path: string): boolean {
   return VIDEO_EXTENSIONS.has(fileExtension(path));
 }
 
+export function isHtmlFilePath(path: string): boolean {
+  return ['html', 'htm'].includes(fileExtension(path));
+}
+
 /** Classify files shown by the notebook tree and external document view. */
 export function resourceKindFromPath(path: string): ResourceKind {
   if (isMarkdownFilePath(path)) return 'note';

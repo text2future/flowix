@@ -556,7 +556,13 @@ export class ExternalAgentSettingsController {
       });
   }
 
-  createEmptySettings(): HTMLElement {
+  createEmptySettings(options: { showControls?: boolean } = {}): HTMLElement {
+    const showControls = options.showControls ?? true;
+    this.workspaceDisplay = null;
+    this.modelButton = null;
+    this.reasoningButton = null;
+    this.modeButton = null;
+    this.permissionButton = null;
     const empty = document.createElement("div");
     empty.className =
       "agent-thread-card__empty agent-thread-card__empty--codex-settings";
@@ -584,48 +590,50 @@ export class ExternalAgentSettingsController {
         // Version checks are advisory and must never affect conversation setup.
       });
     }
-    const controls = document.createElement("div");
-    controls.className = "agent-thread-card__empty-controls";
-    empty.append(controls);
+    if (showControls) {
+      const controls = document.createElement("div");
+      controls.className = "agent-thread-card__empty-controls";
+      empty.append(controls);
 
-    this.workspaceDisplay = createExternalAgentWorkspaceDisplay(
-      this.t("agent.workspace.title"),
-      this.getCurrentWorkspaceLabel(),
-      (anchor) => this.toggleWorkspacePopover(anchor),
-    );
-    controls.append(this.workspaceDisplay);
+      this.workspaceDisplay = createExternalAgentWorkspaceDisplay(
+        this.t("agent.workspace.title"),
+        this.getCurrentWorkspaceLabel(),
+        (anchor) => this.toggleWorkspacePopover(anchor),
+      );
+      controls.append(this.workspaceDisplay);
 
-    this.modelButton = this.supportsRuntimeSetting("model")
-      ? this.createEmptyControl(
-          "model",
-          this.t("agent.model.title"),
-          this.getComposerModelDisplayLabel(),
-        )
-      : null;
-    this.reasoningButton = null;
-    this.modeButton = this.supportsRuntimeSetting("mode")
-      ? this.createEmptyControl(
-          "mode",
-          this.t("agent.mode.title"),
-          this.getCurrentHarnessModeLabel(),
-        )
-      : null;
-    this.permissionButton = this.supportsRuntimeSetting("permission")
-      ? this.createEmptyControl(
-          "permission",
-          this.t("agent.permission.title"),
-          this.getCurrentPermissionLabel(),
-        )
-      : null;
-    // 空状态设置区固定采用「空间 → 模型 → 模式/权限」顺序。
-    // OpenCode 当前没有 mode，因此模型控件会自然落在空间与权限之间。
-    for (const button of [
-      this.modelButton,
-      this.reasoningButton,
-      this.modeButton,
-      this.permissionButton,
-    ]) {
-      if (button) controls.append(button);
+      this.modelButton = this.supportsRuntimeSetting("model")
+        ? this.createEmptyControl(
+            "model",
+            this.t("agent.model.title"),
+            this.getComposerModelDisplayLabel(),
+          )
+        : null;
+      this.reasoningButton = null;
+      this.modeButton = this.supportsRuntimeSetting("mode")
+        ? this.createEmptyControl(
+            "mode",
+            this.t("agent.mode.title"),
+            this.getCurrentHarnessModeLabel(),
+          )
+        : null;
+      this.permissionButton = this.supportsRuntimeSetting("permission")
+        ? this.createEmptyControl(
+            "permission",
+            this.t("agent.permission.title"),
+            this.getCurrentPermissionLabel(),
+          )
+        : null;
+      // 空状态设置区固定采用「空间 → 模型 → 模式/权限」顺序。
+      // OpenCode 当前没有 mode，因此模型控件会自然落在空间与权限之间。
+      for (const button of [
+        this.modelButton,
+        this.reasoningButton,
+        this.modeButton,
+        this.permissionButton,
+      ]) {
+        if (button) controls.append(button);
+      }
     }
     this.appendFeaturedNotes(empty);
     return empty;
@@ -705,19 +713,14 @@ export class ExternalAgentSettingsController {
       this.t("editor.threadCard.featuredNotes.next"),
     );
     navigation.append(previousButton, nextButton);
-    const header = document.createElement("div");
-    header.className = "agent-thread-card__featured-notes-header";
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";
     settingsButton.className = "agent-thread-card__featured-notes-settings-button";
     settingsButton.textContent = this.t("editor.threadCard.featuredNotes.settings");
     settingsButton.setAttribute("aria-expanded", "false");
-    header.append(navigation);
-    panel.append(header);
-
     const settingsFooter = document.createElement("div");
     settingsFooter.className = "agent-thread-card__featured-notes-settings-footer";
-    settingsFooter.append(settingsButton);
+    settingsFooter.append(settingsButton, navigation);
 
     const settingsPopover = this.createFeaturedNotesSettingsPopover(
       config,
@@ -788,7 +791,6 @@ export class ExternalAgentSettingsController {
       for (const note of pageNotes) {
         list.append(this.createFeaturedNoteCard(note));
       }
-      header.hidden = pageCount <= 1;
       previousButton.disabled = currentPage === 0;
       nextButton.disabled = currentPage >= pageCount - 1;
       previousButton.hidden = pageCount <= 1;

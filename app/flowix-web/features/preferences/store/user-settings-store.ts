@@ -112,6 +112,8 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
     region: base.region,
     memoListView: normalizeMemoListView(updates.memoListView ?? base.memoListView),
     showHiddenNotebookFiles: updates.showHiddenNotebookFiles ?? base.showHiddenNotebookFiles,
+    autoOpenCreatedNotesInBrowser:
+      updates.autoOpenCreatedNotesInBrowser ?? base.autoOpenCreatedNotesInBrowser,
     shortcuts: { ...base.shortcuts, ...(updates.shortcuts ?? {}) },
     properties: {
       ...base.properties,
@@ -217,6 +219,7 @@ function sanitizeSettings(settings: UserSettings): UserSettings {
     region: sanitizeRegion(settings.region),
     memoListView: normalizeMemoListView(settings.memoListView),
     showHiddenNotebookFiles: settings.showHiddenNotebookFiles === true,
+    autoOpenCreatedNotesInBrowser: settings.autoOpenCreatedNotesInBrowser !== false,
     shortcuts: { ...DEFAULT_USER_SETTINGS.shortcuts, ...(settings.shortcuts ?? {}) },
     properties: sanitizePropertiesConfig(settings.properties),
     agents: sanitizeAgentsConfig(settings.agents),
@@ -281,6 +284,7 @@ export interface UserSettingsUpdate {
   language?: AppLanguage;
   memoListView?: MemoListView;
   showHiddenNotebookFiles?: boolean;
+  autoOpenCreatedNotesInBrowser?: boolean;
   properties?: Partial<PropertiesConfig>;
   productUpdates?: Partial<ProductUpdatesConfig>;
   /**
