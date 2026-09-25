@@ -48,6 +48,7 @@ const REMOVE_TOMBSTONE_DELAY: Duration = Duration::from_millis(450);
 pub struct MemoWatcher {
     _watcher: Option<RecommendedWatcher>,
     watched_roots: Arc<std::sync::RwLock<Vec<NotebookWatchContext>>>,
+    suspended_notebook_ids: HashMap<String, usize>,
     recent_self_writes: Arc<Mutex<SelfWriteMap>>,
     remove_coalescer: Option<RemoveCoalescer>,
     memo_file: Arc<std::sync::RwLock<MemoFile>>,
@@ -66,6 +67,7 @@ impl MemoWatcher {
         Self {
             _watcher: None,
             watched_roots: Arc::new(std::sync::RwLock::new(Vec::new())),
+            suspended_notebook_ids: HashMap::new(),
             recent_self_writes: Arc::new(Mutex::new(HashMap::new())),
             remove_coalescer: None,
             memo_file,
@@ -83,6 +85,18 @@ impl MemoWatcher {
         }
     }
 
+    pub fn set_notebook_suspended(&mut self, notebook_id: &str, suspended: bool) {
+        if suspended {
+            *self.suspended_notebook_ids.entry(notebook_id.to_string()).or_default() += 1;
+        } else if let Some(count) = self.suspended_notebook_ids.get_mut(notebook_id) {
+            if *count == 1 {
+                self.suspended_notebook_ids.remove(notebook_id);
+            } else {
+                *count -= 1;
+            }
+        }
+    }
+
     pub fn rebind_all(&mut self, app: AppHandle, configs: Vec<NotebookConfig>) {
         // Drop �?watcher —此赋�?`take` �?Option, �?RecommendedWatcher 立即析构
         let _ = self._watcher.take();
@@ -95,6 +109,7 @@ impl MemoWatcher {
 
         let roots: Vec<NotebookWatchContext> = configs
             .into_iter()
+            .filter(|config| !self.suspended_notebook_ids.contains_key(&config.id))
             .filter_map(|config| {
                 let root = PathBuf::from(&config.path);
                 if !root.is_dir() {

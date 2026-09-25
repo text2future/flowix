@@ -884,7 +884,21 @@ pub async fn initialize_notebook_template(
 ) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        initialize_notebook_template_inner(notebook_id, template_id, is_new_notebook, state, &app)
+        let watched_notebook_id = notebook_id.clone();
+        // A retried template may already be watched; unbind it before any writes.
+        crate::commands::helpers::set_notebook_watching_suspended(&app, &notebook_id, true);
+        crate::commands::helpers::refresh_watcher_roots(state.inner(), &app);
+        let result = initialize_notebook_template_inner(
+            notebook_id,
+            template_id,
+            is_new_notebook,
+            state,
+            &app,
+        );
+        let state = app.state::<AppState>();
+        crate::commands::helpers::set_notebook_watching_suspended(&app, &watched_notebook_id, false);
+        crate::commands::helpers::refresh_watcher_roots(state.inner(), &app);
+        result
     })
     .await
     .map_err(|error| format!("notebook template initialization task failed: {error}"))?

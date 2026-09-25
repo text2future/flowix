@@ -29,6 +29,14 @@ pub(crate) fn refresh_watcher_roots(state: &AppState, app: &AppHandle) {
     }
 }
 
+pub(crate) fn set_notebook_watching_suspended(app: &AppHandle, notebook_id: &str, suspended: bool) {
+    if let Some(watcher) = current_watcher(app) {
+        if let Ok(mut watcher) = watcher.write() {
+            watcher.set_notebook_suspended(notebook_id, suspended);
+        }
+    }
+}
+
 pub(crate) fn switch_notebook_trusting_index(
     state: &AppState,
     app: &AppHandle,

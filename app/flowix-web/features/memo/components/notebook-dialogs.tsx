@@ -218,7 +218,7 @@ export function NotebookDialogs({
           className="flowix-notebook-create !fixed !inset-0 !h-dvh !max-h-none !w-full !max-w-none !rounded-none !bg-[var(--frame-bg)] !p-0 !shadow-none"
         >
           {isMac() && <OnboardingTitlebarMac />}
-          <WindowsTitlebarControls />
+          <WindowsTitlebarControls reserveSpace />
           <main className="flowix-onboarding__main flowix-notebook-create__main">
             <div className="flowix-onboarding__content">
               <section className="flowix-onboarding__section">

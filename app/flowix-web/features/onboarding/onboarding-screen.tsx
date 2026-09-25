@@ -520,7 +520,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
             : 'flowix-onboarding-access-title'}
     >
       {isMac() && <OnboardingTitlebarMac />}
-      <WindowsTitlebarControls />
+      <WindowsTitlebarControls reserveSpace />
       <main className="flowix-onboarding__main">
         <StepRail
           step={step}

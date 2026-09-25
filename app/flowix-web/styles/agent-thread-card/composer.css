@@ -86,7 +86,7 @@
   border-radius: 1rem 1rem 0.75rem 0.75rem;
   background: var(--agent-status-bg);
   color: var(--muted-foreground);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--code-font-family);
   font-size: 0.75rem;
   box-sizing: border-box;
 }
