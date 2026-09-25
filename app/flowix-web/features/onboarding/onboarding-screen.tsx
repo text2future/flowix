@@ -331,7 +331,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
   const continueFromDshModel = useCallback(async () => {
     if (!(await testDshModel())) return;
     if (await saveDshModel()) {
-      setDshHasModels(true);
+      setDshModelListState('configured');
       setStep(3);
     }
   }, [saveDshModel, testDshModel]);

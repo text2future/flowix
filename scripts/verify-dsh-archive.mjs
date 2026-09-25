@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -8,7 +8,10 @@ const archive = archiveFlag >= 0 ? process.argv[archiveFlag + 1] : process.argv[
 if (!archive) throw new Error('usage: node verify-dsh-archive.mjs --archive <archive.tar.gz>')
 
 const repo = resolve(import.meta.dirname, '..')
-const extraction = await mkdtemp(resolve(tmpdir(), 'flowix-dsh-archive-'))
+// macOS exposes the system temp directory through /var, while APIs that
+// resolve project skill paths may return the canonical /private/var path.
+// Keep the extracted runtime and the paths it observes on one canonical path.
+const extraction = await realpath(await mkdtemp(resolve(tmpdir(), 'flowix-dsh-archive-')))
 try {
   run(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-xzf', resolve(archive), '-C', extraction])
   const metadata = JSON.parse(await readFile(resolve(extraction, 'dsh-runtime.json'), 'utf8'))
