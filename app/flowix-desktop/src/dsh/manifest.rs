@@ -65,11 +65,25 @@ pub(super) fn fetch_manifest() -> Result<DshManifest, String> {
     Ok(manifest)
 }
 pub(super) fn dsh_version_is_at_least(current: &str, required: &str) -> Result<bool, String> {
-    let current = semver::Version::parse(current.trim())
+    let current = parse_dsh_version(current.trim())
         .map_err(|e| format!("invalid DSH version {current}: {e}"))?;
-    let required = semver::Version::parse(required.trim())
+    let required = parse_dsh_version(required.trim())
         .map_err(|e| format!("invalid required DSH version {required}: {e}"))?;
     Ok(current >= required)
+}
+
+fn parse_dsh_version(version: &str) -> Result<semver::Version, semver::Error> {
+    let parts: Vec<_> = version.split('.').collect();
+    if parts.len() == 3
+        && parts.iter().all(|part| part.len() == 2 && part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        if let (Ok(month), Ok(day)) = (parts[1].parse::<u8>(), parts[2].parse::<u8>()) {
+            if (1..=12).contains(&month) && (1..=31).contains(&day) {
+                return semver::Version::parse(&format!("{}.{}.{}", parts[0], month, day));
+            }
+        }
+    }
+    semver::Version::parse(version)
 }
 
 pub(super) fn flowix_version_is_at_least(current: &str, required: &str) -> Result<bool, String> {
@@ -84,7 +98,7 @@ pub(super) fn validate_manifest_version(version: &str) -> Result<(), String> {
     if version.trim() != version {
         return Err("DSH manifest version must not contain surrounding whitespace".into());
     }
-    semver::Version::parse(version)
+    parse_dsh_version(version)
         .map(|_| ())
         .map_err(|error| format!("invalid DSH manifest version {version}: {error}"))
 }
@@ -99,6 +113,8 @@ mod tests {
         assert!(dsh_version_is_at_least("1.1.0", "1.1.0").unwrap());
         assert!(dsh_version_is_at_least("1.1.0", "1.0.4").unwrap());
         assert!(!dsh_version_is_at_least("1.0.4", "1.1.0").unwrap());
+        assert!(dsh_version_is_at_least("26.09.25", "26.09.24").unwrap());
+        assert!(!dsh_version_is_at_least("26.09.24", "26.09.25").unwrap());
     }
 
     #[test]
@@ -111,6 +127,8 @@ mod tests {
     fn rejects_ambiguous_versions() {
         assert!(validate_manifest_version("1.2.3").is_ok());
         assert!(validate_manifest_version("1.1.0").is_ok());
+        assert!(validate_manifest_version("26.09.25").is_ok());
+        assert!(validate_manifest_version("26.13.25").is_err());
         assert!(validate_manifest_version("0.1").is_err());
         assert!(validate_manifest_version("dsh.01").is_err());
         assert!(validate_manifest_version(" 1.2.3").is_err());

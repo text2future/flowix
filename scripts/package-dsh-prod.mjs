@@ -10,8 +10,9 @@ const repo = resolve(import.meta.dirname, '..')
 const version = process.env.FLOWIX_DSH_VERSION || '26.09.24'
 const minFlowixVersion = process.env.FLOWIX_VERSION || '1.4.8'
 const semverPattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u
-if (!semverPattern.test(version)) {
-  throw new Error(`invalid DSH package version ${version}; expected SemVer such as 1.5.0`)
+const dshDateVersionPattern = /^[0-9]{2}\.(?:0[1-9]|1[0-2])\.(?:0[1-9]|[12][0-9]|3[01])$/u
+if (!semverPattern.test(version) && !dshDateVersionPattern.test(version)) {
+  throw new Error(`invalid DSH package version ${version}; expected SemVer or a date version such as 26.09.25`)
 }
 if (!semverPattern.test(minFlowixVersion)) {
   throw new Error(`invalid minimum Flowix version ${minFlowixVersion}; expected SemVer such as 1.3.2`)
