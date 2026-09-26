@@ -792,7 +792,7 @@ export function MemoList({
             showClear={hasActiveFilter}
             onClear={handleClearFilter}
             leadingContent={(
-              <div className="mb-1 border-b border-[var(--border)] pb-1">
+              <div className="mb-1 pb-1">
             <div
               className="grid grid-cols-2 gap-0.5"
               role="group"

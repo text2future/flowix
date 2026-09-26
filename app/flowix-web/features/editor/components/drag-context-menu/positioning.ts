@@ -11,9 +11,8 @@ import { getYOffset } from '@features/editor/components/drag-context-menu/style'
  * current selection? Pure function of editor state + DOM rects.
  *
  * The X axis is fixed (18px from the proseMirror container's left edge).
- * For headings, the Y axis follows ProseMirror's first text-line coordinate;
- * this is important because heading spacing is implemented as padding and is
- * therefore part of the element's border box. Other blocks retain the
+ * For headings and paragraphs, the Y axis follows ProseMirror's first
+ * text-line coordinate so block padding is included. Other blocks retain the
  * visible-block-top plus per-type offset fallback (see ./style.ts).
  */
 
@@ -88,7 +87,7 @@ export function computeHandlePosition(
   // In particular, subtracting ProseMirror's top loses the height of any
   // non-ProseMirror header (the memo title) and shifts every handle upward.
   const x = nodeContentX(proseMirrorRect.left, contentRect.left, editorContent.scrollLeft)
-  const y = headingContentY(view, info, contentRect.top, editorContent.scrollTop) ??
+  const y = textBlockContentY(view, info, contentRect.top, editorContent.scrollTop) ??
     nodeContentY(
       nodeRect.top,
       contentRect.top,
@@ -117,27 +116,28 @@ export function nodeContentY(
 }
 
 /**
- * Resolve a heading's first rendered text-line top in the same content
- * coordinate system as the absolutely-positioned handle.
+ * Resolve the first rendered text-line top for headings and paragraphs in the
+ * same content coordinate system as the absolutely-positioned handle.
  *
- * `EditorView.coordsAtPos` includes the browser's actual heading padding,
- * font metrics and line-height. Keeping this measurement in the DOM/PM
- * layout layer avoids duplicating the H1–H6 CSS values in TypeScript. Empty
- * headings still have a valid position (`info.pos + 1`), while malformed or
+ * `EditorView.coordsAtPos` includes the browser's actual block padding, font
+ * metrics and line-height. Keeping this measurement in the DOM/PM layout layer
+ * avoids duplicating CSS spacing in TypeScript. Headings retain their small
+ * visual nudge; paragraphs align directly to the measured text line. Empty
+ * blocks still have a valid position (`info.pos + 1`), while malformed or
  * stale selections are handled by returning null and using the normal
  * block-top fallback.
  */
-export function headingContentY(
+export function textBlockContentY(
   view: Editor['view'],
   info: CurrentBlockInfo,
   scrollContainerTop: number,
   scrollTop: number,
 ): number | null {
-  if (info.typeName !== 'heading') return null
+  if (info.typeName !== 'heading' && info.typeName !== 'paragraph') return null
 
   try {
     const textCoords = view.coordsAtPos(info.pos + 1)
-    const level = info.attrs.level
+    const level = info.typeName === 'heading' ? info.attrs.level : null
     const nudge = typeof level === 'number' ? HEADING_HANDLE_NUDGE[level] ?? 0 : 0
     return textCoords.top - scrollContainerTop + scrollTop + nudge
   } catch {

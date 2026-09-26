@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest';
 import { FileBrowserView, type FileBrowserViewSurface } from './file-browser-view';
 import { useAgentAccessStore } from '@features/agent/store/agent-access-store';
 import { useMemoStore } from '@features/memo/store';
+import { DocumentContainer } from '@features/document/components/document-container';
 
 const probe = vi.hoisted(() => ({ mounts: 0, scope: null as string | null, flush: vi.fn().mockResolvedValue(true) }));
 vi.mock('@features/document/components/document-container', () => ({
@@ -42,7 +43,12 @@ it('derives the tree from the owning notebook without remounting or changing fil
   const surface: FileBrowserViewSurface = {
     kind: 'file-browser', activeFilePath: '/workspace/src/a.md', folderPath: null, notebookId: 'owner',
     scopePath: '/granted-scope', fileTreeVisible: true, fileTreeWidth: 220,
-    documentProps: { filePath: '/workspace/src/a.md', isExternalDocument: true, onFlushReady: flushReady },
+    content: <DocumentContainer
+      filePath="/workspace/src/a.md"
+      isExternalDocument
+      externalScopePath="/granted-scope"
+      onFlushReady={flushReady}
+    />,
     onSelectFile: vi.fn(), onSelectFolder: vi.fn(), onOpenFileInNewTab: vi.fn(),
     onContextChange: vi.fn(), onTreeVisibleChange: vi.fn(), onTreeWidthChange: vi.fn(),
   };

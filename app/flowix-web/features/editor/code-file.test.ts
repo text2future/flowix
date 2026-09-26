@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  externalFileViewKind,
   fileExtension,
   isCodeTextFilePath,
   isEditableTextFilePath,
   isImageFilePath,
   isMarkdownFilePath,
+  resourceKindFromPath,
 } from '@features/editor/code-file';
 
 describe('code file classification', () => {
@@ -22,6 +24,11 @@ describe('code file classification', () => {
     expect(isEditableTextFilePath('/src/Makefile')).toBe(true);
     expect(isEditableTextFilePath('/src/LICENSE')).toBe(true);
     expect(fileExtension('/src/.env')).toBe('');
+  });
+
+  it('routes PDF files to the unavailable external-file view', () => {
+    expect(resourceKindFromPath('/notebook/report.PDF')).toBe('other');
+    expect(externalFileViewKind('/notebook/report.PDF')).toBe('unavailable');
   });
 
   it('classifies common image files for direct preview', () => {

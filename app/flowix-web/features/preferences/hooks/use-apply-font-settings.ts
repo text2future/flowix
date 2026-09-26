@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import type { FormatConfig } from '@/lib/constants';
+import { DOCUMENT_WIDTH_FULL_THRESHOLD, type FormatConfig } from '@/lib/constants';
 import {
   ensureDownloadedFontRegistered,
   getFontOptionById,
@@ -49,7 +49,10 @@ export function useApplyFontSettings(format: FormatConfig | undefined) {
       root.style.setProperty('--app-line-height', String(format.lineHeight));
     }
     if (typeof format.documentWidth === 'number' && !Number.isNaN(format.documentWidth)) {
-      root.style.setProperty('--app-document-width', `${format.documentWidth}px`);
+      root.style.setProperty(
+        '--app-document-width',
+        format.documentWidth > DOCUMENT_WIDTH_FULL_THRESHOLD ? 'none' : `${format.documentWidth}px`,
+      );
     }
   }, [format?.fontFamily, format?.fontSize, format?.lineHeight, format?.documentWidth]);
 }

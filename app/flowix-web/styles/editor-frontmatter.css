@@ -1,5 +1,6 @@
 .markdown-editor .frontmatter-property-node {
-  margin: 0.68rem 0;
+  margin: 0;
+  padding: 0;
 }
 
 .markdown-editor .frontmatter-property {
@@ -110,7 +111,8 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
   display: grid;
   width: 100%;
   color: var(--frontmatter-list-foreground);
-  padding-bottom: 0.24rem;
+  border-bottom: 0.0625rem solid var(--border);
+  padding: 0.68rem 0;
   grid-template-columns: var(--frontmatter-icon-size) fit-content(9rem) minmax(0, 1fr);
   align-items: start;
   justify-items: stretch;

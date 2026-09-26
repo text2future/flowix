@@ -64,7 +64,7 @@ export interface FormatConfig {
   fontSize: number;
   /** 行间距 (unitless line-height) */
   lineHeight: number;
-  /** 文档编辑区最大宽度 (px) — 应用于 .ProseMirror max-width */
+  /** 文档编辑区宽度 (px)；大于 1000 表示全宽 */
   documentWidth: number;
 }
 
@@ -217,11 +217,12 @@ export const LINE_HEIGHT_MIN = 1.0;
 export const LINE_HEIGHT_MAX = 2.4;
 export const LINE_HEIGHT_STEP = 0.05;
 
-/** 文档编辑区宽度范围 (px) — >1200 在 UI 上展示为 "100%" */
+/** 文档编辑区宽度 (px)；500–1000 为固定宽度，1050 为全宽档位 */
 export const DOCUMENT_WIDTH_MIN = 500;
-export const DOCUMENT_WIDTH_MAX = 2000;
+export const DOCUMENT_WIDTH_FULL_THRESHOLD = 1000;
+export const DOCUMENT_WIDTH_MAX = DOCUMENT_WIDTH_FULL_THRESHOLD + 50;
 export const DOCUMENT_WIDTH_STEP = 50;
-export const DOCUMENT_WIDTH_DEFAULT = 1600;
+export const DOCUMENT_WIDTH_DEFAULT = DOCUMENT_WIDTH_MAX;
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   personalize: {

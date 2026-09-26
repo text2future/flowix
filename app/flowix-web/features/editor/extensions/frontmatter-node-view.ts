@@ -2162,9 +2162,11 @@ export class FrontmatterPropertyNodeView implements NodeView {
     this.closePropertyEditor();
     const parsed = parseVisibleFrontmatter(String(this.node.attrs.yamlContent ?? ''));
     if (!useSettingsStore.getState().propertiesVisible) {
+      this.dom.hidden = true;
       this.dom.replaceChildren();
       return;
     }
+    this.dom.hidden = false;
     const container = createElement('div', 'frontmatter-property');
 
     if (parsed.parseError) {

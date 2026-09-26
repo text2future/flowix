@@ -425,6 +425,10 @@
   margin-top: 0;
 }
 
+.markdown-editor .ProseMirror:not(.agent-thread-card__composer-editor) > .frontmatter-property-node:not([hidden]) + :not(.agent-thread-card, .frontmatter-property-node) {
+  padding-top: 0.8rem !important;
+}
+
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h1:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h2:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
 .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h3:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),

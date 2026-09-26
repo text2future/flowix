@@ -3,6 +3,7 @@ import type { MemoItem } from '@/types/memo-item';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import type {
   ExternalDocumentProps,
+  DocumentSurfaceContext,
   NoteSurface,
   ResolveWorkColumnContentInput,
   WorkColumnSurface,
@@ -112,24 +113,31 @@ function surfaceFrom(input: ResolveWorkColumnContentInput): WorkColumnSurface {
   return content.surface;
 }
 
-function documentIdentity(
-  options: { external?: boolean; path?: string; transitionId?: number | null } = {},
-) {
-  return options.external
-    ? {
-        kind: 'external' as const,
-        path: options.path ?? '/notebook/note.md',
-        scopePath: '/files',
-        transitionId: options.transitionId ?? null,
-      }
-    : {
-        kind: 'memo' as const,
-        memoId: 'memo-1',
-        path: options.path ?? '/notebook/note.md',
-        notebookId: 'notebook-1',
-        notebookPath: '/notebook',
-        transitionId: options.transitionId ?? null,
-      };
+type MemoDocumentIdentity = Extract<DocumentSurfaceContext, { identity: { kind: 'memo' } }>['identity'];
+type ExternalDocumentIdentity = Extract<DocumentSurfaceContext, { identity: { kind: 'external' } }>['identity'];
+
+function memoDocumentIdentity(
+  options: { path?: string; transitionId?: number | null } = {},
+): MemoDocumentIdentity {
+  return {
+    kind: 'memo',
+    memoId: 'memo-1',
+    path: options.path ?? '/notebook/note.md',
+    notebookId: 'notebook-1',
+    notebookPath: '/notebook',
+    transitionId: options.transitionId ?? null,
+  };
+}
+
+function externalDocumentIdentity(
+  options: { path?: string; scopePath?: string | null; transitionId?: number | null } = {},
+): ExternalDocumentIdentity {
+  return {
+    kind: 'external',
+    path: options.path ?? '/notebook/note.md',
+    scopePath: options.scopePath ?? '/files',
+    transitionId: options.transitionId ?? null,
+  };
 }
 
 describe('surface resolvers', () => {
@@ -137,7 +145,7 @@ describe('surface resolvers', () => {
     const markdown = markdownSurface({ transitionId: 1 });
     expect(surfaceFrom({
       navigation: navigation(memoTarget),
-      document: { identity: documentIdentity({ transitionId: 1 }), memo: memo({}), surface: markdown },
+      document: { identity: memoDocumentIdentity({ transitionId: 1 }), memo: memo({}), surface: markdown },
       emptyMessage: 'empty',
     })).toBe(markdown);
 
@@ -149,7 +157,7 @@ describe('surface resolvers', () => {
         transitionId: 2,
       }),
       document: {
-        identity: documentIdentity({ external: true, path: '/files/readme.md', transitionId: 2 }),
+        identity: externalDocumentIdentity({ path: '/files/readme.md', transitionId: 2 }),
         instanceKey: 'external:readme:2',
         memo: null,
         documentProps: externalDocumentProps({
@@ -200,7 +208,7 @@ describe('surface resolvers', () => {
         renderer: 'markmap',
       }),
       document: {
-        identity: documentIdentity({ path: '/notebook/other.md', transitionId: 8 }),
+        identity: memoDocumentIdentity({ path: '/notebook/other.md', transitionId: 8 }),
         memo: memo({}, 'other-memo'),
         surface: markdownSurface({ filePath: '/notebook/other.md', transitionId: 8 }),
       },
@@ -218,7 +226,7 @@ describe('surface resolvers', () => {
   it('rejects stale or cross-identity workspace contexts', () => {
     const stale = resolveWorkColumnContent({
       navigation: navigation(memoTarget),
-      document: { identity: documentIdentity({ transitionId: 1 }), memo: memo({}, 'other-memo'), surface: markdownSurface({ transitionId: 1 }) },
+      document: { identity: memoDocumentIdentity({ transitionId: 1 }), memo: memo({}, 'other-memo'), surface: markdownSurface({ transitionId: 1 }) },
       emptyMessage: 'empty',
     });
     expect(stale).toMatchObject({ status: 'empty', reason: 'stale-context' });
@@ -226,7 +234,7 @@ describe('surface resolvers', () => {
     const wrongPath = resolveWorkColumnContent({
       navigation: navigation(memoTarget),
       document: {
-        identity: documentIdentity({ path: '/notebook/old.md', transitionId: 1 }),
+        identity: memoDocumentIdentity({ path: '/notebook/old.md', transitionId: 1 }),
         memo: memo({}),
         surface: markdownSurface({ filePath: '/notebook/old.md', transitionId: 1 }),
       },

@@ -143,7 +143,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "preferences.format.font.description": "Choose the app-wide font family",
     "preferences.format.documentWidth.title": "Document width",
     "preferences.format.documentWidth.description":
-      "Adjust the maximum editor width (px)",
+      "Adjust editor width; values above 1000px use the full available width",
     "preferences.format.documentWidth.fullWidth": "100%",
     "preferences.format.fontSize.title": "Font size",
     "preferences.format.fontSize.description": "Adjust body text size (px)",

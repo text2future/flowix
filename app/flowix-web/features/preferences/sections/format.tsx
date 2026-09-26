@@ -19,6 +19,7 @@ import {
   DOCUMENT_WIDTH_MIN,
   DOCUMENT_WIDTH_MAX,
   DOCUMENT_WIDTH_STEP,
+  DOCUMENT_WIDTH_FULL_THRESHOLD,
   DEFAULT_USER_SETTINGS,
 } from '@/lib/constants';
 import { FieldRow, SectionHeader } from '@features/preferences/sections/primitives';
@@ -76,7 +77,8 @@ function SliderRow({
   formatValue?: (v: number) => string;
 }) {
   const display = formatValue ? formatValue(value) : String(value);
-  const percent = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  const sliderValue = Math.max(min, Math.min(max, value));
+  const percent = max === min ? 0 : ((sliderValue - min) / (max - min)) * 100;
   return (
     <div className="flex w-64 items-center gap-3">
       <input
@@ -84,7 +86,7 @@ function SliderRow({
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={sliderValue}
         onChange={(e) => onChange(Number(e.target.value))}
         className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--primary)]"
         style={{
@@ -219,7 +221,7 @@ export function FormatSection({ settings, updateSettings }: FormatSectionProps) 
           step={DOCUMENT_WIDTH_STEP}
           onChange={(v) => updateSettings({ format: { documentWidth: v } })}
           formatValue={(v) =>
-            v > 1200
+            v > DOCUMENT_WIDTH_FULL_THRESHOLD
               ? t('preferences.format.documentWidth.fullWidth')
               : `${v}px`
           }

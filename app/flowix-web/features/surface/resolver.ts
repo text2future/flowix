@@ -122,7 +122,7 @@ function isMemoDocumentContext(
   target: Extract<WorkColumnTarget, { kind: 'memo' }>,
   document: DocumentSurfaceContext,
 ): document is Extract<DocumentSurfaceContext, { identity: { kind: 'memo' } }> {
-  if (document.identity.kind !== 'memo' || document.surface.kind !== 'note') return false;
+  if (!('surface' in document) || document.identity.kind !== 'memo' || document.surface.kind !== 'note') return false;
   const props = document.surface.props;
   return document.identity.kind === 'memo'
     && document.identity.memoId === target.memoId
@@ -145,7 +145,7 @@ function isExternalDocumentContext(
   target: Extract<WorkColumnTarget, { kind: 'external' }>,
   document: DocumentSurfaceContext,
 ): document is Extract<DocumentSurfaceContext, { identity: { kind: 'external' } }> {
-  if (document.identity.kind !== 'external') return false;
+  if (!('documentProps' in document) || document.identity.kind !== 'external') return false;
   const props = document.documentProps;
   return samePath(document.identity.path, target.path)
     && ((document.identity.scopePath == null && target.scopePath == null)

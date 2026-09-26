@@ -137,7 +137,7 @@ const zhCN = {
     "preferences.format.font.description": "选择应用整体使用的字体",
     "preferences.format.documentWidth.title": "文档宽度",
     "preferences.format.documentWidth.description":
-      "拖动调节文档编辑区的最大宽度 (px)",
+      "拖动调节文档编辑区宽度；超过 1000px 后为全宽",
     "preferences.format.documentWidth.fullWidth": "100%",
     "preferences.format.fontSize.title": "字号",
     "preferences.format.fontSize.description": "拖动调节正文字号 (px)",

@@ -4,8 +4,10 @@ import { CodeSurfaceFileBrowser } from './work-file-browser-view';
 import {
   type ComponentType,
   type ReactNode,
+  useLayoutEffect,
 } from 'react';
 import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
+import { useDocumentStore } from '@features/document/store/document-store';
 import { MediaResourceView } from './media-resource-view';
 import { LazyAgentConversationDetail } from '@features/agent/components/lazy-agent-conversation-detail';
 import {
@@ -106,7 +108,7 @@ function HtmlFileSurfaceView({ surface }: { surface: HtmlFileSurface }) {
 }
 
 function UnavailableFileSurfaceView({ surface }: { surface: UnavailableFileSurface }) {
-  return <UnavailableFileView filePath={surface.filePath} openContainingFolder />;
+  return <UnavailableFileView filePath={surface.filePath} />;
 }
 
 function MediaResourceSurfaceView({ surface }: { surface: MediaResourceSurface }) {
@@ -240,7 +242,28 @@ export function surfaceSupports(
   return getWorkColumnSurfaceDefinition(surface).capabilities.includes(capability);
 }
 
+function transitionFinishedOnMount(surface: WorkColumnSurface): number | null {
+  switch (surface.kind) {
+    case 'image-file':
+    case 'video-file':
+    case 'unavailable-file':
+      return surface.props.transitionId ?? null;
+    default:
+      return null;
+  }
+}
+
 function WorkColumnSurfaceMount({ surface }: { surface: WorkColumnSurface }) {
+  const immediateTransitionId = transitionFinishedOnMount(surface);
+
+  useLayoutEffect(() => {
+    // These views have no DocumentContainer to finish the transition after
+    // reading content; their own loading UI remains active.
+    if (typeof immediateTransitionId === 'number') {
+      useDocumentStore.getState().finishDocumentTransition(immediateTransitionId);
+    }
+  }, [immediateTransitionId]);
+
   return getWorkColumnSurfaceDefinition(surface).render(surface);
 }
 

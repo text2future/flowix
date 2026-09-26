@@ -50,6 +50,7 @@ import type { AppUpdaterState } from '@features/shell/hooks/use-app-updater';
 import {
   WorkColumnContentHost,
   resolveWorkColumnPresentation,
+  type DocumentSurfaceContext,
 } from '@features/surface/public/shell-api';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import {
@@ -490,7 +491,7 @@ export function MainLayout({
     return () => window.removeEventListener('flowix:view-source-mode', handleViewSource);
   }, [handleViewSourceMode]);
 
-  const workColumnDocument = currentDocumentPath
+  const workColumnDocument: DocumentSurfaceContext | null = currentDocumentPath
     ? activeMemoSession
       ? {
           identity: {

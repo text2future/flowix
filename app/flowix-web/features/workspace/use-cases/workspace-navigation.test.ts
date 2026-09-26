@@ -215,7 +215,7 @@ describe('workspace navigation', () => {
     expect(mocks.clearDocument).not.toHaveBeenCalled();
   });
 
-  it('keeps the work-column document open when switching notebooks', async () => {
+  it('clears the work-column memo from the previous notebook after switching', async () => {
     const previousNotebook = { id: 'notebook-1', path: '/notes/one' };
     const nextNotebook = {
       id: 'notebook-2',
@@ -250,13 +250,13 @@ describe('workspace navigation', () => {
       '/notes/one/memo-1.md',
       undefined,
     );
-    expect(mocks.clearDocument).not.toHaveBeenCalled();
+    expect(mocks.clearDocument).toHaveBeenCalledOnce();
     expect(mocks.setCurrentNotebook).toHaveBeenCalledWith(nextNotebook.id);
-    expect(mocks.memoState.setSelectedMemo).not.toHaveBeenCalledWith(null);
-    expect(mocks.commitNavigation).toHaveBeenCalledWith(1, mocks.navigationTarget);
+    expect(mocks.memoState.setSelectedMemo).toHaveBeenCalledWith(null);
+    expect(mocks.commitNavigation).toHaveBeenCalledWith(1, { kind: 'empty' });
   });
 
-  it('preserves an independent artifact target when switching notebooks', async () => {
+  it('clears an artifact target owned by the previous notebook', async () => {
     const previousNotebook = { id: 'notebook-1', path: '/notes/one' };
     const nextNotebook = {
       id: 'notebook-2',
@@ -279,8 +279,9 @@ describe('workspace navigation', () => {
 
     await selectNotebook(nextNotebook);
 
-    expect(mocks.clearDocument).not.toHaveBeenCalled();
+    expect(mocks.clearDocument).toHaveBeenCalledOnce();
     expect(mocks.setCurrentNotebook).toHaveBeenCalledWith(nextNotebook.id);
-    expect(mocks.commitNavigation).toHaveBeenCalledWith(1, mocks.navigationTarget);
+    expect(mocks.memoState.setSelectedMemo).toHaveBeenCalledWith(null);
+    expect(mocks.commitNavigation).toHaveBeenCalledWith(1, { kind: 'empty' });
   });
 });

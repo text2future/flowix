@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { headingContentY, nodeContentX, nodeContentY } from './positioning'
+import { textBlockContentY, nodeContentX, nodeContentY } from './positioning'
 
 describe('drag handle scroll-content coordinates', () => {
   it('keeps a non-ProseMirror header in the block Y coordinate', () => {
@@ -21,45 +21,56 @@ describe('drag handle scroll-content coordinates', () => {
   })
 })
 
-describe('heading text-line coordinates', () => {
+describe('text-block text-line coordinates', () => {
   const headingInfo = {
     typeName: 'heading',
     pos: 7,
     attrs: { level: 1 },
-  } as unknown as Parameters<typeof headingContentY>[1]
+  } as unknown as Parameters<typeof textBlockContentY>[1]
 
-  it('anchors to the first text line, including heading padding', () => {
+  it('anchors headings to the first text line, including heading padding', () => {
     const view = {
       coordsAtPos: (pos: number) => {
         expect(pos).toBe(8)
         return { top: 236, bottom: 273, left: 0, right: 0 }
       },
-    } as unknown as Parameters<typeof headingContentY>[0]
+    } as unknown as Parameters<typeof textBlockContentY>[0]
 
-    expect(headingContentY(view, headingInfo, 100, 0)).toBe(140)
-    expect(headingContentY(view, headingInfo, 136, 36)).toBe(140)
+    expect(textBlockContentY(view, headingInfo, 100, 0)).toBe(140)
+    expect(textBlockContentY(view, headingInfo, 136, 36)).toBe(140)
   })
 
-  it('returns null for non-heading blocks', () => {
-    const view = {} as Parameters<typeof headingContentY>[0]
-    expect(headingContentY(view, { ...headingInfo, typeName: 'paragraph' }, 100, 0)).toBeNull()
+  it('anchors paragraphs to the measured text line, including top padding', () => {
+    const view = {
+      coordsAtPos: (pos: number) => {
+        expect(pos).toBe(8)
+        return { top: 150, bottom: 177, left: 0, right: 0 }
+      },
+    } as unknown as Parameters<typeof textBlockContentY>[0]
+
+    expect(textBlockContentY(view, { ...headingInfo, typeName: 'paragraph' }, 100, 0)).toBe(50)
+  })
+
+  it('returns null for non-text blocks', () => {
+    const view = {} as Parameters<typeof textBlockContentY>[0]
+    expect(textBlockContentY(view, { ...headingInfo, typeName: 'image' }, 100, 0)).toBeNull()
   })
 
   it('only nudges H1-H3', () => {
     const view = {
       coordsAtPos: () => ({ top: 236, bottom: 273, left: 0, right: 0 }),
-    } as unknown as Parameters<typeof headingContentY>[0]
+    } as unknown as Parameters<typeof textBlockContentY>[0]
 
-    expect(headingContentY(view, { ...headingInfo, attrs: { level: 2 } }, 100, 0)).toBe(139)
-    expect(headingContentY(view, { ...headingInfo, attrs: { level: 3 } }, 100, 0)).toBe(138)
-    expect(headingContentY(view, { ...headingInfo, attrs: { level: 4 } }, 100, 0)).toBe(136)
+    expect(textBlockContentY(view, { ...headingInfo, attrs: { level: 2 } }, 100, 0)).toBe(139)
+    expect(textBlockContentY(view, { ...headingInfo, attrs: { level: 3 } }, 100, 0)).toBe(138)
+    expect(textBlockContentY(view, { ...headingInfo, attrs: { level: 4 } }, 100, 0)).toBe(136)
   })
 
   it('falls back when the PM view cannot resolve the position', () => {
     const view = {
       coordsAtPos: () => { throw new Error('destroyed') },
-    } as unknown as Parameters<typeof headingContentY>[0]
+    } as unknown as Parameters<typeof textBlockContentY>[0]
 
-    expect(headingContentY(view, headingInfo, 100, 0)).toBeNull()
+    expect(textBlockContentY(view, headingInfo, 100, 0)).toBeNull()
   })
 })

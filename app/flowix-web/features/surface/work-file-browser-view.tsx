@@ -1,5 +1,4 @@
-import { useCallback, useRef, type ComponentProps } from 'react';
-import type { DocumentContainer } from '@features/document/components/document-container';
+import { useCallback, useRef } from 'react';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { openExternalTarget } from '@features/workspace/use-cases/workspace-navigation';
 import { openMediaTarget } from '@features/workspace/use-cases/workspace-navigation';
@@ -10,8 +9,6 @@ import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { externalFileViewKind } from '@features/editor/public/code-file';
 import type { CodeSurface } from './types';
-
-type DocumentProps = ComponentProps<typeof DocumentContainer>;
 
 export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
   const props = surface.props;

@@ -82,7 +82,7 @@ describe('work column presentation', () => {
         externalFilePath: null,
       },
     });
-    expect(presentation.content).toEqual({ status: 'surface', surface: markdown() });
+    expect(presentation.content).toEqual({ status: 'surface', surface: note() });
     expect(presentation.capabilities).toContain('edit');
   });
 
