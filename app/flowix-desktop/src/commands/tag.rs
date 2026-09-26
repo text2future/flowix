@@ -1,7 +1,7 @@
 //! Tag IPC：从 memo index 的 YAML/正文标签并集派生标签列表，并在用户
 //! 显式重命名或删除标签时同时改写两个真实来源。
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::app::search_index::try_index_upsert;
 use crate::lock_utils::read_lock;
@@ -44,18 +44,26 @@ pub struct CreateTagReport {
 }
 
 #[tauri::command]
-pub fn get_all_tags(notebook_id: Option<String>, state: State<AppState>) -> GetAllTagsResponse {
-    let tags = read_lock(&state.memo_file, "memo_file")
-        .derived_tags_for_notebook_id(notebook_id.as_deref());
-    GetAllTagsResponse {
-        tags: tags
-            .into_iter()
-            .map(|t| TagWithId {
-                id: t.id,
-                name: t.name,
-            })
-            .collect(),
-    }
+pub async fn get_all_tags(
+    notebook_id: Option<String>,
+    app: AppHandle,
+) -> Result<GetAllTagsResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let tags = read_lock(&state.memo_file, "memo_file")
+            .derived_tags_for_notebook_id(notebook_id.as_deref());
+        GetAllTagsResponse {
+            tags: tags
+                .into_iter()
+                .map(|t| TagWithId {
+                    id: t.id,
+                    name: t.name,
+                })
+                .collect(),
+        }
+    })
+    .await
+    .map_err(|error| format!("tag list task failed: {error}"))
 }
 
 #[tauri::command]
@@ -178,15 +186,20 @@ pub fn delete_memo_tag(
 /// 挂了"以�? prefix 起�?�?tag"的去�?memo 数。用于侧栏树节点�?/// 显示的数�?—必须�?memo �? 不能�?tag 数累�?(同一 memo 多个
 /// �?tag 在父 prefix 下只�?1)�?
 #[tauri::command]
-pub fn get_tag_prefix_counts(
+pub async fn get_tag_prefix_counts(
     notebook_id: Option<String>,
-    state: State<AppState>,
-) -> std::collections::HashMap<String, usize> {
-    let memo_file = state.memo_file.read().unwrap_or_else(|poisoned| {
-        tracing::error!("memo_file read lock poisoned, recovering");
-        poisoned.into_inner()
-    });
-    memo_file
-        .read_tag_prefix_counts_for_notebook_id(notebook_id.as_deref())
-        .unwrap_or_default()
+    app: AppHandle,
+) -> Result<std::collections::HashMap<String, usize>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let memo_file = state.memo_file.read().unwrap_or_else(|poisoned| {
+            tracing::error!("memo_file read lock poisoned, recovering");
+            poisoned.into_inner()
+        });
+        memo_file
+            .read_tag_prefix_counts_for_notebook_id(notebook_id.as_deref())
+            .unwrap_or_default()
+    })
+    .await
+    .map_err(|error| format!("tag count task failed: {error}"))
 }

@@ -1,5 +1,5 @@
 ---
-name: 事实核查
+name: fact-checking
 description: 当文章含数据、引用、专有名词、外部结论时触发，逐条核实并标注待核实项。
 ---
 

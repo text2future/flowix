@@ -1,5 +1,5 @@
 ---
-name: 结构修订
+name: structural-revision
 description: 处理情节、节奏、结构层面的问题（删章、并章、调序、补线）。触发于用户说"结构有问题/节奏拖/砍一砍"时。
 ---
 

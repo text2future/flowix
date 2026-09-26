@@ -1,5 +1,5 @@
 ---
-name: 场景设计与诊断
+name: scene-design-and-diagnosis
 description: 把章节细化为场景单元（目标-冲突-转折-结果），并诊断场景是否有效。触发于用户说"设计场景/这场戏/这场不够好看"时。
 ---
 

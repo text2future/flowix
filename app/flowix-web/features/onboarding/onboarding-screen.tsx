@@ -435,6 +435,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
         name,
         path: notebookPath ?? undefined,
         icon: notebookIcon,
+        reuseExisting: true,
       });
       const notebook = registration.notebook;
       if (selectedTemplateId) {

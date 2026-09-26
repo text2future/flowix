@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MemoItem } from '@/types/memo-item';
 import type { WorkColumnNavigationState, WorkColumnTarget } from '@features/workspace/store/work-column-target';
 import { resolveWorkColumnPresentation } from './presentation';
-import type { MarkdownSurface } from './types';
+import type { NoteSurface } from './types';
 
 function navigation(target: WorkColumnTarget): WorkColumnNavigationState {
   return {
@@ -34,13 +34,13 @@ function memo(): MemoItem {
   };
 }
 
-function markdown(): MarkdownSurface {
+function note(): NoteSurface {
   return {
-    kind: 'markdown',
+    kind: 'note',
+    memoId: 'memo-1',
     instanceKey: 'memo:memo-1',
     props: {
       filePath: '/notebook/note.md',
-      memoId: 'memo-1',
       notebookId: 'notebook-1',
       notebookPath: '/notebook',
       transitionId: null,
@@ -70,7 +70,7 @@ describe('work column presentation', () => {
           transitionId: null,
         },
         memo: memo(),
-        markdown: markdown(),
+        surface: note(),
       },
       emptyMessage: 'Select a note',
     });

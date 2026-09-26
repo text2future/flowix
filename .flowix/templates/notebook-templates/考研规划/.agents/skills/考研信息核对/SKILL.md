@@ -1,5 +1,5 @@
 ---
-name: 考研信息核对
+name: exam-information-verification
 description: 核对并固化考研目标、院校专业、考试科目与大纲、报名与时间节点，写入 目标与规则/。触发于用户说"核对考研信息/查院校/大纲变了/报名时间"或开始备考时。
 ---
 

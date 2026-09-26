@@ -1,5 +1,5 @@
 ---
-name: 选题评估与排期
+name: topic-evaluation-and-planning
 description: 评估选题价值并排入内容日历。触发于用户说"这个选题行不行/排期/定选题/内容日历"时。
 ---
 

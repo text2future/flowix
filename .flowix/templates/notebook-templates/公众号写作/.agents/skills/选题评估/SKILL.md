@@ -1,5 +1,5 @@
 ---
-name: 选题评估
+name: topic-evaluation
 description: 当选题池中存在待评估选题时触发，用五维打分决定是否动笔，并规划进入写作中。
 ---
 

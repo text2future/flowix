@@ -349,6 +349,11 @@ function normalizePersistedTabs(value: unknown, activeTabId: unknown): BrowserCo
   for (const candidate of value) {
     const tab = parseBrowserColumnTab(candidate);
     if (!tab || seenIds.has(tab.id)) continue;
+    const filePath = tab.target.kind === 'file-browser' || tab.target.kind === 'memo'
+      ? tab.target.kind === 'file-browser' ? tab.target.activeFilePath : tab.target.filePath
+      : null;
+    // Keep agent configuration out of automatic session restoration.
+    if (filePath?.split(/[\\/]/).pop() === 'AGENTS.md') continue;
     const targetKey = browserColumnTargetKey(tab.target);
     if (!targetKey) continue;
     if (seenKeys.has(targetKey)) {

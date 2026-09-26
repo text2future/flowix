@@ -39,6 +39,7 @@ export function DocumentTitlebarWin({
   },
   contentCapabilities: {
     copyFullText: canCopyFullText,
+    memoColors: canEditMemoColors,
     exportContent: canExportContent,
     saveAsTemplate: canSaveAsTemplate,
     versionHistory: canViewVersionHistory,
@@ -143,6 +144,7 @@ export function DocumentTitlebarWin({
             onExportPdf={onExportPdf}
             onRequestDeleteMemo={onRequestDeleteMemo}
             onColorsChange={onColorsChange ?? (() => {})}
+            showColorPicker={canEditMemoColors}
             editorMode={editorMode}
             onToggleEditorMode={onToggleEditorMode}
             canCopyFullText={canCopyFullText}

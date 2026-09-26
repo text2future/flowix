@@ -1739,7 +1739,7 @@ fn reconcile_registers_root_and_nested_markdown_files() {
 }
 
 #[test]
-fn reconcile_skips_hidden_paths_and_generated_directories() {
+fn reconcile_indexes_root_agents_but_skips_hidden_paths_and_generated_directories() {
     let (mf, base) = fresh_memo_file();
     for directory in [
         ".hidden",
@@ -1756,11 +1756,14 @@ fn reconcile_skips_hidden_paths_and_generated_directories() {
     fs::write(base.join("docs/public/Visible.md"), "# Visible\n").unwrap();
 
     let report = mf.reconcile_with_disk_bidirectional().unwrap();
-    assert_eq!(report.added, 1);
-    assert_eq!(
-        mf.read_all_memos()[0].relative_path,
-        "docs/public/Visible.md"
-    );
+    assert_eq!(report.added, 2);
+    let indexed_paths = mf
+        .read_all_memos()
+        .into_iter()
+        .map(|memo| memo.relative_path)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(indexed_paths.contains("AGENTS.md"));
+    assert!(indexed_paths.contains("docs/public/Visible.md"));
 }
 
 #[test]

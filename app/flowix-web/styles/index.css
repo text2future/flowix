@@ -254,6 +254,11 @@
 	z-index: 1;
 }
 
+.notebook-file-tree--dragging,
+.notebook-file-tree--dragging * {
+	cursor: default !important;
+}
+
 .notebook-file-tree__item--moving {
 	opacity: 0.62;
 }

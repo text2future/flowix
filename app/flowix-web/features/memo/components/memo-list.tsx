@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDownUp,
@@ -44,11 +44,13 @@ import {
 import { useI18n } from '@/lib/i18n';
 import {
   setMemoListViewPreference,
+  useShowNotebookAgentsFile,
   useMemoListViewPreference,
 } from '@features/preferences/public/runtime-api';
 import { createLogger } from '@/lib/logger';
 import { useDocumentStore } from '@features/document/store';
-import { memos as memoApi } from '@platform/tauri/client';
+import { files as fileApi, memos as memoApi } from '@platform/tauri/client';
+import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
 
 import {
   COLOR_LABEL_KEYS,
@@ -113,6 +115,7 @@ export function MemoList({
   const memos = useMemoStore((s) => s.memos);
   const selectedMemo = useMemoStore((s) => s.selectedMemo);
   const memoListView = useMemoListViewPreference();
+  const showNotebookAgentsFile = useShowNotebookAgentsFile();
   const selectedNotebook = useMemoStore((s) => s.selectedNotebook);
   const refreshTrigger = useMemoStore((s) => s.refreshTrigger);
   const activeFilter = useMemoStore((s) => s.activeFilter);
@@ -131,6 +134,7 @@ export function MemoList({
   const memoListQueryKey = useMemoStore((s) => s.memoListQueryKey);
   const middleColumnView = useMemoStore((s) => s.middleColumnView);
   const selectedNotebookId = selectedNotebook?.id;
+  const [hiddenListFolders, setHiddenListFolders] = useState<string[]>([]);
   const selectedTagId = useTagStore((s) => s.selectedTagId);
   const tagMetadataRefreshVersion = useTagStore((s) => s.metadataRefreshVersion);
   const runningAgentTypeIndex = useRunningAgentTypeIndex();
@@ -187,6 +191,21 @@ export function MemoList({
     setCreateFolderRequest(null);
     setCreateNoteRequest(null);
   }, [selectedNotebook?.id]);
+
+  useEffect(() => {
+    let current = true;
+    setHiddenListFolders([]);
+    if (!selectedNotebook) return () => { current = false; };
+    void fileApi.getNotebookViewPreferences(selectedNotebook.path)
+      .then((preferences) => {
+        if (current) setHiddenListFolders(preferences.hiddenListFolders ?? []);
+      })
+      .catch((error) => {
+        logger.warn('load notebook view preferences failed', { error, notebookId: selectedNotebook.id });
+        if (current) setHiddenListFolders([]);
+      });
+    return () => { current = false; };
+  }, [selectedNotebook?.id, selectedNotebook?.path]);
 
   useEffect(() => {
     if (!navigationDrawerEnabled && controlledNavigationDrawerOpen === undefined) {
@@ -348,9 +367,42 @@ export function MemoList({
     scrollerRef: listContainerRef,
     isActive: isActive && dataLoadingEnabled,
   });
-
+  const hiddenListFolderSet = useMemo(
+    () => new Set(hiddenListFolders.map((path) => canonicalPath(path).replace(/^\/+|\/+$/g, ''))),
+    [hiddenListFolders],
+  );
+  const isMemoHiddenFromList = useCallback((memo: MemoItem) => {
+    const relativePath = canonicalPath(memo.relativePath || memo.filename).replace(/^\/+/, '');
+    for (const folder of hiddenListFolderSet) {
+      if (relativePath.startsWith(`${folder}/`)) return true;
+    }
+    return false;
+  }, [hiddenListFolderSet]);
+  const isMemoVisibleInList = useCallback((memo: MemoItem) => {
+    const relativePath = canonicalPath(memo.relativePath || memo.filename).replace(/^\/+/, '');
+    const isRootAgentsFile = memo.filename === 'AGENTS.md' && relativePath === 'AGENTS.md';
+    return (showNotebookAgentsFile || !isRootAgentsFile) && !isMemoHiddenFromList(memo);
+  }, [isMemoHiddenFromList, showNotebookAgentsFile]);
+  const listRenderedMemos = renderedMemos.filter(isMemoVisibleInList);
+  const listFilteredMemosCount = filteredMemos.filter(isMemoVisibleInList).length;
+  const handleToggleListFolderVisibility = useCallback(async (folderPath: string) => {
+    if (!selectedNotebook) return;
+    const root = canonicalDirectoryPath(selectedNotebook.path);
+    const folder = canonicalDirectoryPath(folderPath);
+    const relative = folder.startsWith(`${root}/`) ? folder.slice(root.length + 1) : folder;
+    const next = hiddenListFolderSet.has(relative)
+      ? hiddenListFolders.filter((path) => canonicalPath(path) !== relative)
+      : [...hiddenListFolders, relative];
+    try {
+      await fileApi.setNotebookViewPreferences(selectedNotebook.path, { hiddenListFolders: next });
+      setHiddenListFolders(next);
+    } catch (error) {
+      logger.warn('save notebook view preferences failed', { error, notebookId: selectedNotebook.id });
+      toast.error(t('memo.fileTree.preferenceSaveFailed'));
+    }
+  }, [hiddenListFolderSet, hiddenListFolders, selectedNotebook, t]);
   const memoVirtualizationEnabled =
-    filteredMemos.length > MEMO_VIRTUALIZATION_THRESHOLD;
+    listFilteredMemosCount > MEMO_VIRTUALIZATION_THRESHOLD;
   // ResizeObserver is required for dynamic rows. Older/non-browser test
   // environments gracefully keep the existing document-flow renderer.
   const canVirtualizeMemos =
@@ -367,7 +419,7 @@ export function MemoList({
     isVirtualizationReady,
     onScroll: handleVirtualListScroll,
   } = useDynamicVirtualList({
-    items: renderedMemos,
+    items: listRenderedMemos,
     getKey: getMemoKey,
     estimateSize: estimateMemoSize,
     scrollerRef: listContainerRef,
@@ -483,7 +535,7 @@ export function MemoList({
 
   const renderedMemoRows = shouldVirtualizeMemos
     ? virtualItems.map(({ item, start }) => renderMemoRow(item, start))
-    : renderedMemos.map((memo) => renderMemoRow(memo));
+    : listRenderedMemos.map((memo) => renderMemoRow(memo));
 
   const handleFilterChange = (filter: typeof activeFilter) => {
     if (filter !== 'tagged') {
@@ -664,17 +716,10 @@ export function MemoList({
 
   const handleCreateFolder = useCallback(() => {
     if (!selectedNotebook) return;
-    const parentRelativePath = parentRelativePathForTreeCreate(
-      useDocumentStore.getState().activeMemoSession,
-      selectedNotebook.id,
-      selectedNotebook.path,
-    );
     const notebookRoot = selectedNotebook.path.replace(/\/+$/, '');
     setCreateFolderRequest({
       id: Date.now(),
-      parentPath: parentRelativePath
-        ? `${notebookRoot}/${parentRelativePath}`
-        : notebookRoot,
+      parentPath: notebookRoot,
     });
   }, [selectedNotebook]);
 
@@ -984,6 +1029,8 @@ export function MemoList({
               onCreateFolder={handleCreateFolder}
               sort={activeSort}
               visibleMemos={activeFilter === 'all' && !activeTagId && !activePluginId ? null : memos}
+              hiddenListFolders={hiddenListFolders}
+              onToggleListFolderVisibility={(folderPath) => { void handleToggleListFolderVisibility(folderPath); }}
               isActive={isActive && dataLoadingEnabled}
               onCreateNote={handleCreateNoteInFolder}
             />
@@ -999,7 +1046,7 @@ export function MemoList({
             handleVirtualListScroll(event);
           }}
         >
-          {memos.length > 0 ? (
+          {listRenderedMemos.length > 0 ? (
             <div
               className={cn(
                 'relative min-w-0 w-full',

@@ -207,9 +207,13 @@ pub fn filename_from_notebook_relative_path(relative: &str) -> String {
 
 /// Returns true when a notebook-relative path belongs to an internal,
 /// generated, or hidden location that must never be indexed as a note.
+/// The notebook-root `AGENTS.md` is intentionally indexed as a note; nested
+/// `AGENTS.md` files remain agent configuration and stay excluded.
 /// Keep this rule in core so startup reconciliation and the desktop watcher
 /// classify the same path identically.
 pub fn is_ignored_notebook_relative_path(path: &Path) -> bool {
+    let is_root_agents_file = path.components().count() == 1
+        && path.file_name().and_then(|name| name.to_str()) == Some("AGENTS.md");
     path.components().any(|component| {
         let std::path::Component::Normal(name) = component else {
             return true;
@@ -218,9 +222,10 @@ pub fn is_ignored_notebook_relative_path(path: &Path) -> bool {
         name.starts_with('.')
             || matches!(
                 name.as_ref(),
-                "AGENTS.md" | "attachments" | "attachments-cache" | "node_modules"
+                "attachments" | "attachments-cache" | "node_modules"
             )
-    })
+    }) || (path.file_name().and_then(|name| name.to_str()) == Some("AGENTS.md")
+        && !is_root_agents_file)
 }
 
 /// 跟 `flowix-desktop::fs_watcher::normalize_for_compare` 同口径的路径归一。

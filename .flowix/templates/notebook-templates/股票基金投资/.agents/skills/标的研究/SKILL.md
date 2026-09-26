@@ -1,5 +1,5 @@
 ---
-name: 标的研究
+name: investment-research
 description: 当观察名单或市场笔记中出现待研究标的，或用户说「研究一下 XX」时触发，生成结构化的标的研究文档并给出买/观察/放弃结论。
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: 文字润色
+name: prose-polishing
 description: 句层打磨——语言、节奏、描写、对白，不改情节。触发于用户说"润色/改文笔/这段读着不顺"时。
 ---
 

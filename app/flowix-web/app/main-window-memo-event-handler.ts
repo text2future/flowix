@@ -65,10 +65,13 @@ export function handleMainWindowMemoEvent(
   }
 
   const selectedNotebookId = actions.getSelectedNotebookId();
-  const shouldOpenCreatedNote = event.kind === 'created' && (
-    event.source === 'external_tool'
-    || (!!selectedNotebookId && selectedNotebookId !== event.notebookId)
-  ) && event.source !== 'notebook_template'
+  const shouldOpenCreatedNote = event.kind === 'created'
+    && event.memo.filename !== 'AGENTS.md'
+    && (
+      event.source === 'external_tool'
+      || (!!selectedNotebookId && selectedNotebookId !== event.notebookId)
+    )
+    && event.source !== 'notebook_template'
     && useUserSettingsStore.getState().settings.autoOpenCreatedNotesInBrowser;
   if (shouldOpenCreatedNote) {
     void actions.openMemoInBrowserColumn(event.memo.id).catch(actions.reportOpenFailure);

@@ -1,5 +1,5 @@
 ---
-name: 内容包创建
+name: content-package-creation
 description: 为一个选题创建内容包（主稿 + 素材清单 + 各平台版本占位）。触发于用户说"写这篇内容/做内容包/开始做某选题"时。
 ---
 

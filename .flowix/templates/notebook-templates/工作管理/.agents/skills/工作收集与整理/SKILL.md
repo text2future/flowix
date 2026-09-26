@@ -1,5 +1,5 @@
 ---
-name: 工作收集与整理
+name: work-intake-and-organization
 description: 把零散 incoming（想法、消息、邮件、杂事）倒进收件箱并分类为项目/任务/资料。触发于用户说"收集/整理一下/这些事怎么处理"或丢来一堆待处理项时。
 ---
 

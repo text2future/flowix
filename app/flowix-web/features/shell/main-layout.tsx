@@ -339,7 +339,6 @@ export function MainLayout({
     ? memos.find((memo) => memo.id === activeMemoSession.memoId)
       ?? (selectedMemo?.id === activeMemoSession.memoId ? selectedMemo : null)
     : null;
-  const isExternalDocument = currentDocumentSource === 'external';
   const currentDocumentInstanceKey =
     currentDocumentSource === 'memo' && activeMemoSession
       ? activeMemoSession.id
@@ -492,34 +491,56 @@ export function MainLayout({
   }, [handleViewSourceMode]);
 
   const workColumnDocument = currentDocumentPath
-    ? {
-        identity: activeMemoSession
-          ? {
-              kind: 'memo' as const,
-              memoId: activeMemoSession.memoId,
-              path: activeMemoSession.path,
+    ? activeMemoSession
+      ? {
+          identity: {
+            kind: 'memo' as const,
+            memoId: activeMemoSession.memoId,
+            path: activeMemoSession.path,
+            notebookId: activeMemoSession.notebookId,
+            notebookPath: activeMemoSession.notebookPath,
+            transitionId: activeMemoSession.transitionId,
+          },
+          memo: currentMemo,
+          surface: {
+            kind: 'note' as const,
+            memoId: activeMemoSession.memoId,
+            instanceKey: currentDocumentInstanceKey ?? getDocumentInstanceKey(currentDocumentPath),
+            props: {
+              filePath: currentDocumentPath,
               notebookId: activeMemoSession.notebookId,
               notebookPath: activeMemoSession.notebookPath,
               transitionId: activeMemoSession.transitionId,
-            }
-          : {
-              kind: 'external' as const,
-              path: activeExternalSession?.path ?? currentDocumentPath,
-              scopePath: activeExternalSession?.scopePath ?? null,
-              transitionId: activeExternalSession?.transitionId ?? null,
+              initialFocus: activeMemoSession.initialFocus,
+              isExternalDocument: false,
+              externalScopePath: null,
+              searchPanelOpen: isSearchPanelOpen,
+              onSearchPanelOpenChange: setIsSearchPanelOpen,
+              toolbarCollapsed,
+              onToolbarCollapsedChange: setToolbarCollapsed,
+              onMetainfoData: (data: { memoContent: string }) => {
+                currentDocumentContentRef.current = data.memoContent;
+              },
+              onEditorReady: handleDocumentEditorReady,
             },
-        memo: currentMemo,
-        markdown: {
-          kind: 'markdown' as const,
+          },
+        }
+      : {
+          identity: {
+            kind: 'external' as const,
+            path: activeExternalSession?.path ?? currentDocumentPath,
+            scopePath: activeExternalSession?.scopePath ?? null,
+            transitionId: activeExternalSession?.transitionId ?? null,
+          },
           instanceKey: currentDocumentInstanceKey ?? getDocumentInstanceKey(currentDocumentPath),
-          props: {
+          memo: null,
+          documentProps: {
             filePath: currentDocumentPath,
-            memoId: activeMemoSession?.memoId ?? null,
-            notebookId: activeMemoSession?.notebookId ?? null,
-            notebookPath: activeMemoSession?.notebookPath ?? null,
-            transitionId: activeMemoSession?.transitionId ?? activeExternalSession?.transitionId ?? null,
-            initialFocus: activeMemoSession?.initialFocus,
-            isExternalDocument,
+            memoId: null,
+            notebookId: null,
+            notebookPath: null,
+            transitionId: activeExternalSession?.transitionId ?? null,
+            isExternalDocument: true,
             externalScopePath: activeExternalSession?.scopePath ?? null,
             searchPanelOpen: isSearchPanelOpen,
             onSearchPanelOpenChange: setIsSearchPanelOpen,
@@ -530,8 +551,7 @@ export function MainLayout({
             },
             onEditorReady: handleDocumentEditorReady,
           },
-        },
-      }
+        }
     : null;
   const visibleNavigationState = selectedNotebook && (
     (navigationState.target.kind === 'memo'
@@ -587,6 +607,7 @@ export function MainLayout({
     },
     contentCapabilities: {
       copyFullText: workColumnPresentation.capabilities.includes('copy-content'),
+      memoColors: workColumnPresentation.capabilities.includes('memo-colors'),
       exportContent: workColumnPresentation.capabilities.includes('export-content'),
       saveAsTemplate: workColumnPresentation.capabilities.includes('save-template'),
       versionHistory: workColumnPresentation.capabilities.includes('version-history'),

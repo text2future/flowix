@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::lock_utils::read_lock;
 use crate::watcher::path::normalize_for_compare;
@@ -23,7 +23,7 @@ use super::*;
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn get_memos(
+pub async fn get_memos(
     notebook_id: Option<String>,
     filter: Option<String>,
     sort: Option<String>,
@@ -31,47 +31,51 @@ pub fn get_memos(
     color: Option<String>,
     cursor: Option<String>,
     limit: Option<usize>,
-    state: State<AppState>,
-    _app: AppHandle,
+    app: AppHandle,
 ) -> Result<GetMemosResponse, String> {
-    // Read the requested notebook directly. Do not switch current notebook here;
-    // switching would rebind watcher/reconcile/search and slow down list loading.
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let mut service = MemoService::new(&memo_file);
-    let filter = filter.as_deref().unwrap_or("all");
-    let sort = sort.as_deref().unwrap_or("createdAt");
-    // Preserve the old no-pagination behavior for non-migrated transports.
-    // The desktop frontend always supplies `limit`, so it uses the bounded
-    // page path below without changing the legacy command's result shape.
-    let page = if cursor.is_none() && limit.is_none() && color.is_none() {
-        MemoPage {
-            memos: service.list_memos_filtered(
-                notebook_id.as_deref(),
-                filter,
-                sort,
-                tag_id.as_deref(),
-            ),
-            next_cursor: None,
-            has_more: false,
-        }
-    } else {
-        service
-            .list_memos_filtered_page(
-                notebook_id.as_deref(),
-                filter,
-                sort,
-                tag_id.as_deref(),
-                color.as_deref(),
-                cursor.as_deref(),
-                limit,
-            )
-            .map_err(|error: FlowixError| error.to_string())?
-    };
-    Ok(GetMemosResponse {
-        memos: page.memos,
-        next_cursor: page.next_cursor,
-        has_more: page.has_more,
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // Read the requested notebook directly. Do not switch current notebook here;
+        // switching would rebind watcher/reconcile/search and slow down list loading.
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let mut service = MemoService::new(&memo_file);
+        let filter = filter.as_deref().unwrap_or("all");
+        let sort = sort.as_deref().unwrap_or("createdAt");
+        // Preserve the old no-pagination behavior for non-migrated transports.
+        // The desktop frontend always supplies `limit`, so it uses the bounded
+        // page path below without changing the legacy command's result shape.
+        let page = if cursor.is_none() && limit.is_none() && color.is_none() {
+            MemoPage {
+                memos: service.list_memos_filtered(
+                    notebook_id.as_deref(),
+                    filter,
+                    sort,
+                    tag_id.as_deref(),
+                ),
+                next_cursor: None,
+                has_more: false,
+            }
+        } else {
+            service
+                .list_memos_filtered_page(
+                    notebook_id.as_deref(),
+                    filter,
+                    sort,
+                    tag_id.as_deref(),
+                    color.as_deref(),
+                    cursor.as_deref(),
+                    limit,
+                )
+                .map_err(|error: FlowixError| error.to_string())?
+        };
+        Ok(GetMemosResponse {
+            memos: page.memos,
+            next_cursor: page.next_cursor,
+            has_more: page.has_more,
+        })
     })
+    .await
+    .map_err(|error| format!("memo list task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -195,24 +199,29 @@ pub fn list_agent_role_memos(state: State<AppState>) -> Vec<AgentRoleMemoItem> {
 }
 
 #[tauri::command]
-pub fn get_used_memo_tag_ids(
+pub async fn get_used_memo_tag_ids(
     notebook_id: Option<String>,
-    state: State<AppState>,
-) -> UsedMemoTagIdsResponse {
-    let (used_tag_ids, tag_counts, total_memo_count, agent_memo_count, todo_memo_count) =
-        MemoService::new(&read_lock(&state.memo_file, "memo_file"))
-            .tag_usage_summary(notebook_id.as_deref())
-            .unwrap_or_default();
-    UsedMemoTagIdsResponse {
-        used_tag_ids,
-        tag_counts: tag_counts
-            .into_iter()
-            .map(|(tag_id, count)| MemoTagCount { tag_id, count })
-            .collect(),
-        total_memo_count,
-        agent_memo_count,
-        todo_memo_count,
-    }
+    app: AppHandle,
+) -> Result<UsedMemoTagIdsResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (used_tag_ids, tag_counts, total_memo_count, agent_memo_count, todo_memo_count) =
+            MemoService::new(&read_lock(&state.memo_file, "memo_file"))
+                .tag_usage_summary(notebook_id.as_deref())
+                .unwrap_or_default();
+        UsedMemoTagIdsResponse {
+            used_tag_ids,
+            tag_counts: tag_counts
+                .into_iter()
+                .map(|(tag_id, count)| MemoTagCount { tag_id, count })
+                .collect(),
+            total_memo_count,
+            agent_memo_count,
+            todo_memo_count,
+        }
+    })
+    .await
+    .map_err(|error| format!("tag summary task failed: {error}"))
 }
 
 #[tauri::command]

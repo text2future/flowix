@@ -1,5 +1,5 @@
 ---
-name: 月度复盘
+name: monthly-investment-review
 description: 当月末到来，或用户说「做月度复盘」时触发，汇总当月交易、收益、规则命中与偏离、风险事件，沉淀投资教训并规划下月。
 ---
 

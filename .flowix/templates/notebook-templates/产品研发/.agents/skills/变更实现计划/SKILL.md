@@ -1,5 +1,5 @@
 ---
-name: 变更实现计划
+name: change-implementation-planning
 description: 把影响分析变成一份可执行、可验收、可回滚的实现计划。用于变更立项后的方案设计与任务拆解。产出 `变更/<id>/实现计划.md` 与 `任务与进度.md`。
 ---
 

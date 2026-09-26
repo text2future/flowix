@@ -42,6 +42,7 @@ export function DocumentTitlebarMac({
   },
   contentCapabilities: {
     copyFullText: canCopyFullText,
+    memoColors: canEditMemoColors,
     exportContent: canExportContent,
     saveAsTemplate: canSaveAsTemplate,
     versionHistory: canViewVersionHistory,
@@ -146,6 +147,7 @@ export function DocumentTitlebarMac({
             onExportPdf={onExportPdf}
             onRequestDeleteMemo={onRequestDeleteMemo}
             onColorsChange={onColorsChange ?? (() => {})}
+            showColorPicker={canEditMemoColors}
             editorMode={editorMode}
             onToggleEditorMode={onToggleEditorMode}
             canCopyFullText={canCopyFullText}

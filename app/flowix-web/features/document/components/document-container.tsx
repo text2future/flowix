@@ -1,8 +1,7 @@
 ﻿'use client';
 
-import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { useMemoStore } from '@features/memo/store/memo-store';
-import { files } from '@platform/tauri/client';
 import {
   applyLoadedDocumentContent,
   registerDocumentCapture,
@@ -46,7 +45,6 @@ import type {
 } from '@features/document/components/memo-title-editor';
 import type { MarkdownEditorHandle } from '@features/editor/markdown-editor';
 import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
-import { isEditableTextFilePath, isImageFilePath, isVideoFilePath } from '@features/editor/code-file';
 import { useI18n } from '@/lib/i18n';
 import { CenteredLoadingSpinner } from '@shared/ui/centered-loading-spinner';
 import { WorkspaceEmptyState } from '@shared/ui/workspace-empty-state';
@@ -65,6 +63,7 @@ export function DocumentContainer({
   onMetainfoData,
   isExternalDocument = false,
   externalScopePath = null,
+  externalEditorMode = 'code',
   searchPanelOpen = false,
   onSearchPanelOpenChange,
   toolbarCollapsed = false,
@@ -91,18 +90,10 @@ export function DocumentContainer({
     [filePath, isExternalDocument, memoId],
   );
   const editorMode = useDocumentEditorMode(hostId, documentIdentity);
-  const isImagePreview = isExternalDocument && isImageFilePath(filePath);
-  const isVideoPreview = isExternalDocument && isVideoFilePath(filePath);
-  const isUnsupportedExternalFile = isExternalDocument
-    && !isEditableTextFilePath(filePath)
-    && !isImagePreview
-    && !isVideoPreview;
-  // Every text file in the file tree, including Markdown, is source text and
-  // therefore uses CodeMirror. Internal memo documents can opt into the same
-  // source editor without changing their document identity or persistence
-  // channel.
+  // External Markdown files use Tiptap while other external text files use
+  // CodeMirror. Memo documents keep their per-memo rich/source editor setting.
   const usesCodeEditor = isExternalDocument
-    ? isEditableTextFilePath(filePath)
+    ? externalEditorMode === 'code'
     : editorMode === 'source';
   const loadedDocumentInstanceKeyRef = useRef<string | null>(null);
   const prevFilePathRef = useRef<string | null>(null);
@@ -119,7 +110,6 @@ export function DocumentContainer({
     notebookPath,
     isExternalDocument,
     externalScopePath,
-    skipContentLoad: isImagePreview || isVideoPreview || isUnsupportedExternalFile,
     transitionId,
     isolatedSession: documentSessionMode === 'isolated',
   });
@@ -133,20 +123,11 @@ export function DocumentContainer({
     if (
       transitionId === null
       || usesCodeEditor
-      || isImagePreview
-      || isVideoPreview
-      || isUnsupportedExternalFile
     ) {
       return;
     }
     preloadDocumentEditor();
-  }, [
-    isImagePreview,
-    isUnsupportedExternalFile,
-    isVideoPreview,
-    transitionId,
-    usesCodeEditor,
-  ]);
+  }, [transitionId, usesCodeEditor]);
   const flushPendingEditorChanges = useCallback(() => {
     return editorHandleRef.current?.flushPendingChanges() ?? null;
   }, []);
@@ -449,10 +430,6 @@ export function DocumentContainer({
     );
   }
 
-  if (isUnsupportedExternalFile) {
-    return <UnavailableFileView filePath={filePath} openContainingFolder />;
-  }
-
   const memoDocumentHeader = !isExternalDocument && memoId ? (
     <MemoDocumentHeader
       titleRef={titleEditorRef}
@@ -473,12 +450,6 @@ export function DocumentContainer({
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
         {state.isLoading && (
           <CenteredLoadingSpinner className="h-full w-full" />
-        )}
-        {!state.isLoading && isImagePreview && (
-          <ImageFilePreview filePath={filePath} scopePath={externalScopePath} />
-        )}
-        {!state.isLoading && isVideoPreview && (
-          <VideoFilePreview filePath={filePath} />
         )}
         {!state.isLoading && usesCodeEditor && (
           !isExternalDocument && memoId ? (
@@ -552,7 +523,7 @@ export function DocumentContainer({
   );
 }
 
-function UnavailableFileView({
+export function UnavailableFileView({
   filePath,
   openContainingFolder = false,
 }: {
@@ -580,70 +551,6 @@ function UnavailableFileView({
       >
         {t(openContainingFolder ? 'document.file.openContainingFolder' : 'document.file.reveal')}
       </button>
-    </div>
-  );
-}
-
-function ImageFilePreview({ filePath, scopePath }: { filePath: string; scopePath: string | null }) {
-  const { t } = useI18n();
-  const [src, setSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setSrc(null);
-    setLoading(true);
-    setFailed(false);
-    void files.readImage(filePath, scopePath ?? undefined).then((dataUrl) => {
-      if (cancelled) return;
-      setSrc(dataUrl);
-      setFailed(!dataUrl);
-      setLoading(false);
-    }).catch(() => {
-      if (cancelled) return;
-      setFailed(true);
-      setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [filePath, scopePath]);
-
-  if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">{t('document.file.loading')}</div>;
-  }
-  if (failed || !src) return <UnavailableFileView filePath={filePath} />;
-
-  return (
-    <div className="flex h-full w-full items-center justify-center overflow-auto bg-[var(--background)] p-6">
-      <img
-        src={src}
-        alt={filePath.split(/[\\/]/).pop() ?? filePath}
-        className="max-h-full max-w-full object-contain"
-        onError={() => setFailed(true)}
-      />
-    </div>
-  );
-}
-
-function VideoFilePreview({ filePath }: { filePath: string }) {
-  const [failed, setFailed] = useState(false);
-  const src = useMemo(() => files.toAssetUrl(filePath), [filePath]);
-
-  if (failed) return <UnavailableFileView filePath={filePath} />;
-
-  return (
-    <div className="flex h-full w-full items-center justify-center overflow-auto bg-[var(--background)] p-6">
-      <video
-        src={src}
-        controls
-        preload="metadata"
-        playsInline
-        className="max-h-full max-w-full"
-        aria-label={filePath.split(/[\\/]/).pop() ?? filePath}
-        onError={() => setFailed(true)}
-      />
     </div>
   );
 }

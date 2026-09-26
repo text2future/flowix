@@ -23,14 +23,16 @@ import { LANGUAGE_OPTIONS, useI18n, type AppLanguage } from '@/lib/i18n';
 interface GeneralSectionProps {
   language: AppLanguage;
   showHiddenNotebookFiles: boolean;
+  showNotebookAgentsFile: boolean;
   updateSettings: (updates: {
     language?: AppLanguage;
     showHiddenNotebookFiles?: boolean;
+    showNotebookAgentsFile?: boolean;
     productUpdates?: Partial<{ lastCheckedAt: number }>;
   }) => Promise<void>;
 }
 
-export function GeneralSection({ language, showHiddenNotebookFiles, updateSettings }: GeneralSectionProps) {
+export function GeneralSection({ language, showHiddenNotebookFiles, showNotebookAgentsFile, updateSettings }: GeneralSectionProps) {
   const { t } = useI18n();
   const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
   const updater = useAppUpdater();
@@ -103,6 +105,24 @@ export function GeneralSection({ language, showHiddenNotebookFiles, updateSettin
             ))}
           </SelectContent>
         </Select>
+      </FieldRow>
+
+      <FieldRow
+        title={t('preferences.general.showNotebookAgentsFile.title')}
+        description={t('preferences.general.showNotebookAgentsFile.description')}
+      >
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showNotebookAgentsFile}
+          aria-label={t('preferences.general.showNotebookAgentsFile.title')}
+          onClick={() => updateSettings({ showNotebookAgentsFile: !showNotebookAgentsFile })}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${showNotebookAgentsFile ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]'}`}
+        >
+          <span
+            className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${showNotebookAgentsFile ? 'translate-x-5' : 'translate-x-0'}`}
+          />
+        </button>
       </FieldRow>
 
       <FieldRow

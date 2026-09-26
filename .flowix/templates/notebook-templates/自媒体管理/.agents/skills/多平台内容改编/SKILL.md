@@ -1,5 +1,5 @@
 ---
-name: 多平台内容改编
+name: multi-platform-content-adaptation
 description: 把主内容改编成各平台版本（标题、结构、篇幅、形式按平台规范调整）。触发于用户说"改成小红书/做视频脚本/多平台改编"时。
 ---
 

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Trash2 } from 'lucide-react';
 import { CaretDownIcon, DotsThreeIcon, FolderSimpleIcon, PlusIcon } from '@phosphor-icons/react';
-import { DocumentContainer } from '@features/document/components/document-container';
 import { FolderFileTree } from '@features/memo/components/folder-file-tree';
 import { useFolderTree } from '@features/memo/components/use-folder-tree';
+import { useShowHiddenNotebookFiles, useShowNotebookAgentsFile } from '@features/preferences/public/runtime-api';
 import { useMemoStore } from '@features/memo/store';
 import type { FileBrowserContext } from '@features/workspace/store/file-browser-target';
 import { useAgentAccessStore } from '@features/agent/store/agent-access-store';
@@ -20,9 +20,6 @@ import { canonicalPath } from '@/lib/path';
 import { createLogger } from '@/lib/logger';
 import { resolveFileBrowserRoot, type FileBrowserTarget } from '@features/workspace/store/file-browser-target';
 import { ResourceFileIcon, ResourceFolderIcon } from './resource-file-icon';
-import { MediaResourceView } from './media-resource-view';
-import { HtmlResourceView } from './html-resource-view';
-import { isHtmlFilePath, resourceKindFromPath } from '@features/editor/public/code-file';
 
 const FILE_BROWSER_DIRECTORIES_CHANGED_EVENT = 'file-browser-directories-changed';
 const fileBrowserLogger = createLogger('file-browser-watch');
@@ -31,7 +28,7 @@ function canonicalDirectoryPath(path: string): string {
 }
 
 export interface FileBrowserViewSurface extends FileBrowserTarget {
-  documentProps: ComponentProps<typeof DocumentContainer>;
+  content?: ReactNode;
   onSelectFile: (path: string) => void;
   onSelectFolder?: (path: string) => void;
   onOpenFileInNewTab: (path: string) => void;
@@ -53,7 +50,12 @@ function BrowserBreadcrumbFolderTree({
   onFileSelect: (filePath: string) => void;
   onFileOpenInNewTab: (filePath: string) => void;
 }) {
-  const tree = useFolderTree(folderPath);
+  const showHiddenFolders = useShowHiddenNotebookFiles();
+  const showAgentsFile = useShowNotebookAgentsFile();
+  const tree = useFolderTree(folderPath, {
+    includeHiddenDirectories: showHiddenFolders,
+    showAgentsFile,
+  });
 
   return (
     <div className="w-[min(236px,calc(100vw-2rem))] overflow-hidden rounded-[inherit]">
@@ -350,30 +352,7 @@ export function FileBrowserView({ surface: input }: { surface: FileBrowserViewSu
       </nav>}
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <div className="min-w-0 flex-1">
-          {surface.activeFilePath ? (
-            isHtmlFilePath(surface.activeFilePath) ? (
-              <HtmlResourceView
-                filePath={surface.activeFilePath}
-                scopePath={surface.scopePath}
-                documentProps={surface.documentProps}
-              />
-            ) : resourceKindFromPath(surface.activeFilePath) === 'image'
-              || resourceKindFromPath(surface.activeFilePath) === 'video'
-              ? (
-                <MediaResourceView
-                  filePath={surface.activeFilePath}
-                  notebookPath={surface.scopePath}
-                  resourceKind={resourceKindFromPath(surface.activeFilePath) === 'image' ? 'image' : 'video'}
-                />
-              )
-              : (
-                <DocumentContainer
-                  {...surface.documentProps}
-                  filePath={surface.activeFilePath}
-                  externalScopePath={surface.scopePath}
-                />
-              )
-          ) : (
+          {surface.content ?? (
             <div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--muted-foreground)]">
               从右侧文件树选择文件
             </div>
@@ -408,7 +387,12 @@ function BrowserFileBrowserTreePane({
   onFileOpenInNewTab: (filePath: string) => void;
 }) {
   const setTreeWidth = surface.onTreeWidthChange;
-  const tree = useFolderTree(surface.folderPath);
+  const showHiddenFolders = useShowHiddenNotebookFiles();
+  const showAgentsFile = useShowNotebookAgentsFile();
+  const tree = useFolderTree(surface.folderPath, {
+    includeHiddenDirectories: showHiddenFolders,
+    showAgentsFile,
+  });
   const refreshDirectoriesRef = useRef(tree.refreshDirectories);
   refreshDirectoriesRef.current = tree.refreshDirectories;
   const [isResizing, setIsResizing] = useState(false);
@@ -430,7 +414,10 @@ function BrowserFileBrowserTreePane({
       },
     );
 
-    void files.watchRoot(surface.folderPath)
+    void files.watchRoot(surface.folderPath, {
+      ignoreHidden: !showHiddenFolders,
+      ignoreAgents: !showAgentsFile,
+    })
       .then((nextLeaseId) => {
         if (disposed) {
           void files.unwatchRoot(nextLeaseId).catch((error) => {
@@ -458,7 +445,7 @@ function BrowserFileBrowserTreePane({
         });
       }
     };
-  }, [surface.folderPath]);
+  }, [surface.folderPath, showHiddenFolders, showAgentsFile]);
 
   useEffect(() => {
     if (!isResizing) return;

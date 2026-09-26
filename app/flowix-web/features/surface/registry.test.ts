@@ -8,8 +8,32 @@ import type { WorkColumnSurface, WorkColumnSurfaceKind } from './types';
 
 function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
   switch (kind) {
-    case 'markdown':
-      return { kind, instanceKey: 'markdown:1', props: { filePath: '/note.md' } };
+    case 'note':
+      return { kind, memoId: 'memo-1', instanceKey: 'note:1', props: { filePath: '/note.md' } };
+    case 'md':
+      return { kind, instanceKey: 'md:1', props: { filePath: '/workspace/readme.md', isExternalDocument: true } };
+    case 'code':
+      return { kind, instanceKey: 'code:1', props: { filePath: '/workspace/main.ts', isExternalDocument: true } };
+    case 'image-file':
+      return {
+        kind, instanceKey: 'image:1', filePath: '/workspace/logo.png', scopePath: '/workspace',
+        props: { filePath: '/workspace/logo.png', isExternalDocument: true },
+      };
+    case 'video-file':
+      return {
+        kind, instanceKey: 'video:1', filePath: '/workspace/demo.mp4', scopePath: '/workspace',
+        props: { filePath: '/workspace/demo.mp4', isExternalDocument: true },
+      };
+    case 'html-file':
+      return {
+        kind, instanceKey: 'html-file:1', filePath: '/workspace/index.html', scopePath: '/workspace',
+        props: { filePath: '/workspace/index.html', isExternalDocument: true },
+      };
+    case 'unavailable-file':
+      return {
+        kind, instanceKey: 'unavailable:1', filePath: '/workspace/archive.bin',
+        props: { filePath: '/workspace/archive.bin', isExternalDocument: true },
+      };
     case 'media':
       return {
         kind,
@@ -67,27 +91,36 @@ describe('workColumnSurfaceRegistry', () => {
   it('registers every supported product-level surface kind', () => {
     expect(Object.keys(workColumnSurfaceRegistry).sort()).toEqual([
       'agent-conversation',
+      'code',
       'html',
+      'html-file',
+      'image-file',
       'json',
-      'markdown',
+      'md',
       'media',
       'mindmap',
+      'note',
       'plugin-artifact',
       'plugin-workbench',
       'text',
+      'unavailable-file',
+      'video-file',
       'web',
     ]);
   });
 
-  it('keeps Markdown content actions on the editable Markdown surface', () => {
-    const markdown = surface('markdown');
+  it('keeps note content actions on the note surface', () => {
+    const markdown = surface('note');
+    const externalMarkdown = surface('md');
 
     expect(getWorkColumnSurfaceDefinition(markdown).chrome).toBe('document');
     expect(surfaceSupports(markdown, 'edit')).toBe(true);
     expect(surfaceSupports(markdown, 'search')).toBe(true);
     expect(surfaceSupports(markdown, 'copy-content')).toBe(true);
+    expect(surfaceSupports(markdown, 'memo-colors')).toBe(true);
     expect(surfaceSupports(markdown, 'export-content')).toBe(true);
     expect(surfaceSupports(markdown, 'fit')).toBe(false);
+    expect(surfaceSupports(externalMarkdown, 'memo-colors')).toBe(false);
   });
 
   it('exposes canvas controls without leaking pointer-note editing actions', () => {

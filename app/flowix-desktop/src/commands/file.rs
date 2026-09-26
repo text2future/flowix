@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{State, WebviewWindow};
 
 use crate::config::path_is_inside;
@@ -13,7 +13,8 @@ use flowix_core::memo_file::{media_kind_for_path, notebook_path_from_relative, M
 
 use super::helpers::{
     can_access_document_path, can_access_scoped_file, is_agent_access_folder,
-    is_internal_notebook_path, is_registered_notebook_path, start_security_bookmark_access,
+    is_internal_notebook_path, is_registered_notebook_path, is_registered_notebook_root,
+    start_security_bookmark_access,
 };
 use crate::app::state::AppState;
 
@@ -241,6 +242,7 @@ fn read_dir_single_level(
     dir_path: &Path,
     memo_metadata: Option<&HashMap<std::path::PathBuf, MemoTreeMetadata>>,
     include_hidden_directories: bool,
+    show_agents_file: bool,
 ) -> Vec<DocTreeItem> {
     let mut items = Vec::new();
 
@@ -266,10 +268,9 @@ fn read_dir_single_level(
                 continue;
             }
 
-            // AGENTS.md is project-local Agent configuration, not a note or
-            // a user-facing file-tree item. It remains on disk for native
-            // Agent runtimes to load.
-            if name == "AGENTS.md" {
+            // AGENTS.md remains on disk for native Agent runtimes to load;
+            // visibility is controlled by the user preference.
+            if name == "AGENTS.md" && !show_agents_file {
                 continue;
             }
 
@@ -342,12 +343,112 @@ fn read_dir_single_level(
     items
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookViewPreferences {
+    #[serde(default)]
+    pub hidden_list_folders: Vec<String>,
+}
+
+fn notebook_preferences_path(root: &Path) -> Result<std::path::PathBuf, String> {
+    let flowix_dir = root.join(".flowix");
+    match fs::symlink_metadata(&flowix_dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err("INVALID_NOTEBOOK_CONFIG_DIRECTORY".to_string());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("inspect notebook config directory failed: {error}")),
+    }
+    Ok(flowix_dir.join("view-preferences.json"))
+}
+
+fn read_notebook_view_preferences(root: &Path) -> NotebookViewPreferences {
+    let Ok(path) = notebook_preferences_path(root) else {
+        return NotebookViewPreferences::default();
+    };
+    let Some(bytes) = (match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        // Compatibility with the release that stored view preferences in the
+        // same file as the notebook identity manifest.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::read(root.join(".flowix/notebook.json")).ok()
+        }
+        Err(_) => None,
+    }) else {
+        return NotebookViewPreferences::default();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+fn normalize_hidden_list_folders(folders: Vec<String>) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for folder in folders {
+        let trimmed = folder.trim_matches('/');
+        if trimmed.is_empty() || trimmed.contains('\\') || trimmed.contains('\0') {
+            return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
+        }
+        let path = Path::new(trimmed);
+        if path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
+        }
+        let value = path.to_string_lossy().replace('\\', "/");
+        if !normalized.contains(&value) {
+            normalized.push(value);
+        }
+    }
+    Ok(normalized)
+}
+
+#[tauri::command]
+pub fn get_notebook_view_preferences(
+    notebook_path: String,
+    state: State<AppState>,
+) -> Result<NotebookViewPreferences, String> {
+    let root = Path::new(&notebook_path);
+    if !is_registered_notebook_root(root, &state) {
+        return Err("NOTEBOOK_NOT_REGISTERED".to_string());
+    }
+    Ok(read_notebook_view_preferences(root))
+}
+
+#[tauri::command]
+pub fn set_notebook_view_preferences(
+    notebook_path: String,
+    preferences: NotebookViewPreferences,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let root = Path::new(&notebook_path);
+    if !is_registered_notebook_root(root, &state) {
+        return Err("NOTEBOOK_NOT_REGISTERED".to_string());
+    }
+    let root = fs::canonicalize(root)
+        .map_err(|error| format!("resolve notebook directory failed: {error}"))?;
+    let path = notebook_preferences_path(&root)?;
+    let parent = path
+        .parent()
+        .expect("notebook preferences have a parent directory");
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("create notebook config directory failed: {error}"))?;
+    let preferences = NotebookViewPreferences {
+        hidden_list_folders: normalize_hidden_list_folders(preferences.hidden_list_folders)?,
+    };
+    let bytes = serde_json::to_vec_pretty(&preferences)
+        .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
+    flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
+        .map_err(|error| format!("write notebook preferences failed: {error}"))
+}
+
 // ==================== IPC ====================
 
 #[tauri::command]
 pub fn get_file_tree(
     space_path: String,
     include_hidden_directories: Option<bool>,
+    show_agents_file: Option<bool>,
     state: State<AppState>,
 ) -> Option<Vec<DocTreeItem>> {
     let path = Path::new(&space_path);
@@ -363,6 +464,7 @@ pub fn get_file_tree(
         path,
         memo_metadata.as_ref(),
         include_hidden_directories.unwrap_or(false),
+        show_agents_file.unwrap_or(false),
     ))
 }
 
@@ -370,6 +472,7 @@ pub fn get_file_tree(
 pub fn get_dir_children(
     dir_path: String,
     include_hidden_directories: Option<bool>,
+    show_agents_file: Option<bool>,
     state: State<AppState>,
 ) -> Vec<DocTreeItem> {
     let path = Path::new(&dir_path);
@@ -385,6 +488,7 @@ pub fn get_dir_children(
         path,
         memo_metadata.as_ref(),
         include_hidden_directories.unwrap_or(false),
+        show_agents_file.unwrap_or(false),
     )
 }
 
@@ -607,6 +711,61 @@ pub fn move_file(
     read_lock(&state.memo_file, "memo_file")
         .rename_file(source, &target)
         .map_err(file_mutation_error)?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// Move a folder within the caller's notebook/access-folder scope.
+#[tauri::command]
+pub fn move_folder(
+    folder_path: String,
+    target_directory_path: String,
+    space_path: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let source = Path::new(&folder_path);
+    let target_directory = Path::new(&target_directory_path);
+    let scope = Path::new(&space_path);
+    if source == scope
+        || !is_browsable_scope(scope, &state)
+        || !path_is_inside(source, scope)
+        || !path_is_inside(target_directory, scope)
+        || is_internal_notebook_path(source, &state)
+        || is_internal_notebook_path(target_directory, &state)
+    {
+        return Err("FILE_PERMISSION_DENIED".to_string());
+    }
+    start_security_bookmark_access(&state, source);
+    start_security_bookmark_access(&state, target_directory);
+    if !fs::symlink_metadata(source)
+        .map_err(file_mutation_error)?
+        .is_dir()
+    {
+        return Err("SOURCE_NOT_DIRECTORY".to_string());
+    }
+    if !fs::symlink_metadata(target_directory)
+        .map_err(file_mutation_error)?
+        .is_dir()
+    {
+        return Err("TARGET_NOT_DIRECTORY".to_string());
+    }
+    if path_is_inside(target_directory, source) {
+        return Err("INVALID_MOVE_TARGET".to_string());
+    }
+    let folder_name = source.file_name().ok_or("INVALID_FILE_PATH")?;
+    let target = target_directory.join(folder_name);
+    if !path_is_inside(&target, scope) || is_internal_notebook_path(&target, &state) {
+        return Err("FILE_PERMISSION_DENIED".to_string());
+    }
+    if source == target {
+        return Ok(source.to_string_lossy().into_owned());
+    }
+    if fs::symlink_metadata(&target).is_ok() {
+        return Err(file_mutation_error(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "target already exists",
+        )));
+    }
+    fs::rename(source, &target).map_err(file_mutation_error)?;
     Ok(target.to_string_lossy().into_owned())
 }
 
@@ -837,14 +996,14 @@ mod tests {
         fs::create_dir(directory.path().join("folder")).unwrap();
         fs::create_dir(directory.path().join(".flowix")).unwrap();
         fs::write(directory.path().join(".hidden.md"), "hidden").unwrap();
-        let items = read_dir_single_level(directory.path(), None, false);
+        let items = read_dir_single_level(directory.path(), None, false, false);
         assert_eq!(items.len(), 2);
         assert!(items.iter().all(|item| item.name != "photo.png.yaml"));
         assert!(items.iter().all(|item| item.name != "AGENTS.md"));
         assert_eq!(items[0].name, "folder");
         assert_eq!(items[1].name, "note.md");
 
-        let hidden_items = read_dir_single_level(directory.path(), None, true);
+        let hidden_items = read_dir_single_level(directory.path(), None, true, false);
         assert!(hidden_items.iter().all(|item| item.name != ".flowix"));
     }
 
@@ -855,7 +1014,7 @@ mod tests {
         fs::write(directory.path().join("video.mp4.yml"), "kind: demo").unwrap();
         fs::write(directory.path().join("config.yaml"), "enabled: true").unwrap();
 
-        let items = read_dir_single_level(directory.path(), None, false);
+        let items = read_dir_single_level(directory.path(), None, false, false);
         assert_eq!(
             items
                 .iter()
@@ -884,7 +1043,7 @@ mod tests {
             },
         );
 
-        let items = read_dir_single_level(directory.path(), Some(&metadata), false);
+        let items = read_dir_single_level(directory.path(), Some(&metadata), false, false);
         assert_eq!(items[0].memo_created_ms, Some(42));
         let memo = items[0].memo_meta.as_ref().expect("indexed memo metadata");
         assert_eq!(memo.id, "memo-1");
@@ -917,7 +1076,7 @@ mod tests {
         fs::write(hidden.join("skill.md"), "skill").unwrap();
         fs::write(directory.path().join(".gitignore"), "ignored").unwrap();
 
-        let items = read_dir_single_level(directory.path(), None, true);
+        let items = read_dir_single_level(directory.path(), None, true, false);
         assert_eq!(
             items
                 .iter()
@@ -925,7 +1084,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![".codex"]
         );
-        let hidden_children = read_dir_single_level(&hidden, None, true);
+        let hidden_children = read_dir_single_level(&hidden, None, true, false);
         assert_eq!(hidden_children[0].name, "skill.md");
     }
 
@@ -942,7 +1101,7 @@ mod tests {
         symlink(&outside, root.join("outside.md")).unwrap();
         symlink(root.join("missing"), root.join("dangling.md")).unwrap();
         symlink(root.join("note.md"), root.join("inside.md")).unwrap();
-        let names: Vec<_> = read_dir_single_level(&root, None, false)
+        let names: Vec<_> = read_dir_single_level(&root, None, false, false)
             .into_iter()
             .map(|item| item.name)
             .collect();

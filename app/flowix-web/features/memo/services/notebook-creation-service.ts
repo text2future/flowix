@@ -15,6 +15,7 @@ interface CreateNotebookRegistrationInput {
   name: string;
   path?: string;
   icon?: string | null;
+  reuseExisting?: boolean;
 }
 
 function comparablePath(path: string): string {
@@ -89,6 +90,7 @@ export async function createNotebookRegistration({
   name,
   path,
   icon,
+  reuseExisting = false,
 }: CreateNotebookRegistrationInput): Promise<NotebookRegistrationResult> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error('INVALID_NAME');
@@ -102,7 +104,7 @@ export async function createNotebookRegistration({
   } catch (error) {
     // A second onboarding attempt can race with another registration. Resolve
     // the backend duplicate response to the already registered notebook.
-    if (String(error).includes('PATH_ALREADY_REGISTERED')) {
+    if (reuseExisting && String(error).includes('PATH_ALREADY_REGISTERED')) {
       const registered = await findNotebookByPath(pathForCreate);
       if (registered) {
         return {

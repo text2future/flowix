@@ -1,5 +1,5 @@
 ---
-name: 商业合作管理
+name: partnership-management
 description: 跟进商业合作，从线索到项目到复盘全程管理。触发于用户说"接了个合作/这个商单/合作跟进"时。
 ---
 

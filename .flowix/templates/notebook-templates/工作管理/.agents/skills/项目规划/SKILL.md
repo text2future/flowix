@@ -1,5 +1,5 @@
 ---
-name: 项目规划
+name: project-planning
 description: 对一个成形项目做规划立项，在 项目/进行中/<slug>/ 下生成 项目说明.md。触发于用户说"规划某项目/立项/开个新项目"且已确认要做时。
 ---
 

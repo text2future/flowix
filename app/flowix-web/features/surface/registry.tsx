@@ -1,11 +1,11 @@
-import { WorkFileBrowserView } from './work-file-browser-view';
 'use client';
 
+import { CodeSurfaceFileBrowser } from './work-file-browser-view';
 import {
   type ComponentType,
   type ReactNode,
 } from 'react';
-import { DocumentContainer } from '@features/document/components/document-container';
+import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
 import { MediaResourceView } from './media-resource-view';
 import { LazyAgentConversationDetail } from '@features/agent/components/lazy-agent-conversation-detail';
 import {
@@ -14,10 +14,17 @@ import {
 } from '@features/plugin/public/surface-api';
 import { SurfaceSuspenseHost } from '@shared/ui/surface-suspense-host';
 import { WorkspaceEmptyState } from '@shared/ui/workspace-empty-state';
+import { HtmlResourceView } from './html-resource-view';
 import type {
   AgentConversationSurface,
-  MarkdownSurface,
+  CodeSurface,
+  HtmlFileSurface,
+  ImageFileSurface,
+  MDSurface,
+  NoteSurface,
   MediaResourceSurface,
+  UnavailableFileSurface,
+  VideoFileSurface,
   PluginArtifactSurfaceBase,
   PluginWorkbenchSurface,
   WorkColumnContentPresentation,
@@ -60,8 +67,46 @@ function defineSurface<K extends WorkColumnSurfaceKind>(
   });
 }
 
-function MarkdownSurfaceView({ surface }: { surface: MarkdownSurface }) {
-  return surface.props.isExternalDocument ? <WorkFileBrowserView props={surface.props} /> : <DocumentContainer {...surface.props} />;
+function NoteSurfaceView({ surface }: { surface: NoteSurface }) {
+  return <DocumentContainer {...surface.props} memoId={surface.memoId} />;
+}
+
+function MDSurfaceView({ surface }: { surface: MDSurface }) {
+  return <DocumentContainer {...surface.props} externalEditorMode="markdown" />;
+}
+
+function CodeSurfaceView({ surface }: { surface: CodeSurface }) {
+  return <CodeSurfaceFileBrowser surface={surface} />;
+}
+
+function ImageFileSurfaceView({ surface }: { surface: ImageFileSurface }) {
+  return <MediaResourceView
+    filePath={surface.filePath}
+    notebookPath={surface.scopePath}
+    resourceKind="image"
+    propertiesVisibleByDefault={false}
+  />;
+}
+
+function VideoFileSurfaceView({ surface }: { surface: VideoFileSurface }) {
+  return <MediaResourceView
+    filePath={surface.filePath}
+    notebookPath={surface.scopePath}
+    resourceKind="video"
+    propertiesVisibleByDefault={false}
+  />;
+}
+
+function HtmlFileSurfaceView({ surface }: { surface: HtmlFileSurface }) {
+  return <HtmlResourceView
+    filePath={surface.filePath}
+    scopePath={surface.scopePath}
+    documentProps={surface.props}
+  />;
+}
+
+function UnavailableFileSurfaceView({ surface }: { surface: UnavailableFileSurface }) {
+  return <UnavailableFileView filePath={surface.filePath} openContainingFolder />;
 }
 
 function MediaResourceSurfaceView({ surface }: { surface: MediaResourceSurface }) {
@@ -96,18 +141,45 @@ function WebSurfaceView({ surface }: { surface: WebSurface }) {
 const artifactBaseCapabilities = ['fullscreen'] as const;
 
 export const workColumnSurfaceRegistry = Object.freeze({
-  markdown: defineSurface('markdown', {
+  note: defineSurface('note', {
     chrome: 'document',
     capabilities: [
       'edit',
       'search',
+      'memo-colors',
       'properties',
       'copy-content',
       'export-content',
       'save-template',
       'version-history',
     ],
-    component: MarkdownSurfaceView,
+    component: NoteSurfaceView,
+  }),
+  md: defineSurface('md', {
+    chrome: 'document',
+    capabilities: ['edit', 'search', 'copy-content'],
+    component: MDSurfaceView,
+  }),
+  code: defineSurface('code', {
+    chrome: 'document',
+    capabilities: ['edit', 'search', 'copy-content'],
+    component: CodeSurfaceView,
+  }),
+  'image-file': defineSurface('image-file', {
+    chrome: 'document',
+    component: ImageFileSurfaceView,
+  }),
+  'video-file': defineSurface('video-file', {
+    chrome: 'document',
+    component: VideoFileSurfaceView,
+  }),
+  'html-file': defineSurface('html-file', {
+    chrome: 'document',
+    component: HtmlFileSurfaceView,
+  }),
+  'unavailable-file': defineSurface('unavailable-file', {
+    chrome: 'document',
+    component: UnavailableFileSurfaceView,
   }),
   media: defineSurface('media', {
     chrome: 'media',

@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-core"
-version = "1.4.9"
+version = "1.4.10"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-desktop"
-version = "1.4.9"
+version = "1.4.10"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1303,7 +1303,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-plugin-runtime"
-version = "1.4.9"
+version = "1.4.10"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -1318,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-sync"
-version = "1.4.9"
+version = "1.4.10"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",

@@ -1,5 +1,5 @@
 ---
-name: 会议整理与行动项
+name: meeting-notes-and-action-items
 description: 会后把录音/纪要整理成会议记录，提炼决策与待跟进行动项。触发于用户说"整理下会议/会议纪要/会议行动项"并提供会议素材时。
 ---
 

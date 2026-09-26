@@ -104,10 +104,13 @@ export interface FolderTreeState {
 export interface FolderTreeOptions {
   /** Include dot-directories in the loaded tree (dot-files stay hidden). */
   includeHiddenDirectories?: boolean;
+  /** Include the notebook AGENTS.md file when the global preference allows it. */
+  showAgentsFile?: boolean;
 }
 
 export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   const includeHiddenDirectories = options?.includeHiddenDirectories === true;
+  const showAgentsFile = options?.showAgentsFile === true;
   const [rootChildren, setRootChildren] = useState<DocTreeItem[]>([]);
   const [nodes, setNodes] = useState<Map<string, DocTreeItem>>(() => new Map());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -137,7 +140,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     setLoading(true);
     setError(null);
     try {
-      const items = await files.getTree(folderPath, includeHiddenDirectories);
+      const items = await files.getTree(folderPath, includeHiddenDirectories, showAgentsFile);
       if (!mountedRef.current || generation !== generationRef.current) return;
       if (items === null) {
         setRootChildren([]);
@@ -163,7 +166,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
         setLoading(false);
       }
     }
-  }, [folderPath, includeHiddenDirectories]);
+  }, [folderPath, includeHiddenDirectories, showAgentsFile]);
 
   const rootKey = canonicalDirectoryPath(folderPath);
 
@@ -181,7 +184,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     directoryRefreshSequenceRef.current.set(key, requestSequence);
 
     const generation = generationRef.current;
-    const request = files.getDirChildren(dirPath, includeHiddenDirectories)
+    const request = files.getDirChildren(dirPath, includeHiddenDirectories, showAgentsFile)
       .then((children) => {
         if (
           !mountedRef.current
@@ -218,7 +221,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       },
     );
     return request;
-  }, [includeHiddenDirectories]);
+  }, [includeHiddenDirectories, showAgentsFile]);
 
   /** 展开时惰性拉子级; 已有子级的 folder 只切展开态。 */
   const loadChildren = useCallback(async (dirPath: string) => {
@@ -284,7 +287,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     const requestSequence = rootRefreshSequenceRef.current + 1;
     rootRefreshSequenceRef.current = requestSequence;
     const generation = generationRef.current;
-    const request = files.getTree(folderPath, includeHiddenDirectories)
+    const request = files.getTree(folderPath, includeHiddenDirectories, showAgentsFile)
       .then((items) => {
         if (
           !mountedRef.current
@@ -323,7 +326,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
       },
     );
     return request;
-  }, [folderPath, includeHiddenDirectories, rootKey]);
+  }, [folderPath, includeHiddenDirectories, showAgentsFile, rootKey]);
 
   /** 局部刷新某个目录的子级 (新建/删除/重命名后调用)。 */
   const refresh = useCallback(async (dirPath?: string) => {

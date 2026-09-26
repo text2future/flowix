@@ -328,7 +328,7 @@ describe('ComposerSlashCommandController', () => {
   it('loads skills in the first-level menu', async () => {
     const { editor, controller } = setup();
     const listDshSkills = vi.fn(async () => [
-      { name: 'review', description: 'Review the current change.' },
+      { name: 'review', description: 'Review the current change.', scope: 'repo' },
     ]);
     controller.dispose();
     editor.destroy();
@@ -357,8 +357,12 @@ describe('ComposerSlashCommandController', () => {
     await vi.waitFor(() => expect(listDshSkills).toHaveBeenCalledOnce());
     expect(listDshSkills).toHaveBeenCalledOnce();
     await vi.waitFor(() => expect([...document.querySelectorAll('.agent-composer-slash-menu__name')]
-      .map((node) => node.textContent)).toContain('/review'));
+      .map((node) => node.textContent)).toContain('review'));
     expect(document.querySelector('.agent-composer-slash-menu__item--skill')).not.toBeNull();
+    expect(document.querySelector('.agent-composer-slash-menu__scope')?.textContent).toBe('项目');
+    type(nextEditor, '');
+    type(nextEditor, '/');
+    await vi.waitFor(() => expect(listDshSkills).toHaveBeenCalledTimes(2));
     nextController.dispose();
     nextEditor.destroy();
   });

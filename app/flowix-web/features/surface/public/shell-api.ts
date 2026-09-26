@@ -12,6 +12,15 @@ export type {
   WorkColumnPresentation,
 } from '@features/surface/presentation';
 export type {
+  CodeSurface,
+  DocumentSurfaceContext,
+  ExternalDocumentProps,
+  HtmlFileSurface,
+  ImageFileSurface,
+  MDSurface,
+  NoteSurface,
+  UnavailableFileSurface,
+  VideoFileSurface,
   WorkColumnContentPresentation,
   WorkColumnEmptyStateTone,
 } from '@features/surface/types';

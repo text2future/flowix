@@ -1,5 +1,5 @@
 ---
-name: 代码库理解与影响分析
+name: codebase-understanding-and-impact-analysis
 description: 在动代码之前，先搞清"改哪里、影响谁、有什么风险"。用于新变更立项、接手陌生模块、评估修改波及面。产出 `变更/<id>/影响分析.md`。
 ---
 

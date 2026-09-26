@@ -13,6 +13,7 @@ import type { WorkColumnNavigationState } from '@features/workspace/store/work-c
 export type WorkColumnSurfaceCapability =
   | 'edit'
   | 'search'
+  | 'memo-colors'
   | 'properties'
   | 'copy-content'
   | 'export-content'
@@ -40,9 +41,55 @@ interface SurfaceBase {
   instanceKey: string;
 }
 
-export interface MarkdownSurface extends SurfaceBase {
-  kind: 'markdown';
-  props: ComponentProps<typeof DocumentContainer>;
+export type ExternalDocumentProps = Omit<ComponentProps<typeof DocumentContainer>, 'isExternalDocument'> & {
+  isExternalDocument: true;
+};
+
+export interface NoteSurface extends SurfaceBase {
+  kind: 'note';
+  memoId: string;
+  props: Omit<ComponentProps<typeof DocumentContainer>, 'isExternalDocument' | 'memoId'> & {
+    isExternalDocument?: false;
+  };
+}
+
+/** Markdown files opened as external documents, outside the memo model. */
+export interface MDSurface extends SurfaceBase {
+  kind: 'md';
+  props: ExternalDocumentProps;
+}
+
+/** Plain-text/code documents opened from outside the notebook memo model. */
+export interface CodeSurface extends SurfaceBase {
+  kind: 'code';
+  props: ExternalDocumentProps;
+}
+
+export interface ImageFileSurface extends SurfaceBase {
+  kind: 'image-file';
+  filePath: string;
+  scopePath: string | null;
+  props: ExternalDocumentProps;
+}
+
+export interface VideoFileSurface extends SurfaceBase {
+  kind: 'video-file';
+  filePath: string;
+  scopePath: string | null;
+  props: ExternalDocumentProps;
+}
+
+export interface HtmlFileSurface extends SurfaceBase {
+  kind: 'html-file';
+  filePath: string;
+  scopePath: string | null;
+  props: ExternalDocumentProps;
+}
+
+export interface UnavailableFileSurface extends SurfaceBase {
+  kind: 'unavailable-file';
+  filePath: string;
+  props: ExternalDocumentProps;
 }
 
 export interface MediaResourceSurface extends SurfaceBase {
@@ -98,7 +145,13 @@ export interface WebSurface extends SurfaceBase {
 }
 
 export type WorkColumnSurface =
-  | MarkdownSurface
+  | NoteSurface
+  | MDSurface
+  | CodeSurface
+  | ImageFileSurface
+  | VideoFileSurface
+  | HtmlFileSurface
+  | UnavailableFileSurface
   | MediaResourceSurface
   | MindmapSurface
   | HtmlSurface
@@ -123,13 +176,6 @@ export type WorkColumnContentPresentation =
       message: string;
     };
 
-export interface DocumentSurfaceContext {
-  /** Identity captured from the document session, independent of props. */
-  identity: DocumentSurfaceIdentity;
-  memo: MemoItem | null;
-  markdown: MarkdownSurface;
-}
-
 export type DocumentSurfaceIdentity =
   | {
       kind: 'memo';
@@ -144,6 +190,22 @@ export type DocumentSurfaceIdentity =
       path: string;
       scopePath: string | null;
       transitionId: number | null;
+    };
+
+/** A document session contributes the surface matching its business identity. */
+export type DocumentSurfaceContext =
+  | {
+      /** Identity captured from the document session, independent of props. */
+      identity: Extract<DocumentSurfaceIdentity, { kind: 'memo' }>;
+      memo: MemoItem | null;
+      surface: NoteSurface;
+    }
+  | {
+      /** Identity captured from the document session, independent of props. */
+      identity: Extract<DocumentSurfaceIdentity, { kind: 'external' }>;
+      instanceKey: string;
+      memo: null;
+      documentProps: ExternalDocumentProps;
     };
 
 export interface PluginWorkbenchContext {

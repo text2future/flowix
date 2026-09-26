@@ -8,8 +8,13 @@ export {
 export { resolveWorkColumnContent } from './resolver';
 export { resolveWorkColumnPresentation } from './presentation';
 export type {
+  CodeSurface,
   DocumentSurfaceContext,
   DocumentSurfaceIdentity,
+  ExternalDocumentProps,
+  MDSurface,
+  HtmlFileSurface,
+  ImageFileSurface,
   PluginWorkbenchContext,
   ResolveWorkColumnContentInput,
   WorkColumnContentPresentation,
@@ -19,6 +24,9 @@ export type {
   WorkColumnSurfaceCapability,
   WorkColumnSurfaceChrome,
   WorkColumnSurfaceKind,
+  NoteSurface,
+  UnavailableFileSurface,
+  VideoFileSurface,
 } from './types';
 export type {
   WorkColumnDocumentHeaderPresentation,

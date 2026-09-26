@@ -9,6 +9,19 @@ use crate::lock_utils::{read_lock, write_lock};
 use crate::watcher::runtime::current_watcher;
 
 use crate::app::state::AppState;
+use flowix_core::memo_file::NotebookConfig;
+
+pub(crate) fn watch_created_notebook(state: &AppState, app: &AppHandle, config: &NotebookConfig) {
+    start_security_bookmark_access(state, Path::new(&config.path));
+    if let Some(watcher) = current_watcher(app) {
+        if let Ok(mut guard) = watcher.write() {
+            if guard.add_notebook_root(config) {
+                return;
+            }
+        }
+    }
+    refresh_watcher_roots(state, app);
+}
 
 pub(crate) fn start_security_bookmark_access(state: &AppState, path: &Path) {
     state.security_bookmarks.start_accessing_for_path(path);

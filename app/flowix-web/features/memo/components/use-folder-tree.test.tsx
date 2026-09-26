@@ -11,8 +11,8 @@ import {
 } from '@features/memo/components/use-folder-tree';
 
 // files IPC mock ── getTree / getDirChildren 均按测试用例注入。
-const getTreeMock = vi.fn<(path: string, includeHiddenDirectories: boolean) => Promise<DocTreeItem[] | null>>();
-const getDirChildrenMock = vi.fn<(path: string, includeHiddenDirectories: boolean) => Promise<DocTreeItem[]>>();
+const getTreeMock = vi.fn<(path: string, includeHiddenDirectories: boolean, showAgentsFile: boolean) => Promise<DocTreeItem[] | null>>();
+const getDirChildrenMock = vi.fn<(path: string, includeHiddenDirectories: boolean, showAgentsFile: boolean) => Promise<DocTreeItem[]>>();
 
 vi.mock('@platform/tauri/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@platform/tauri/client')>();
@@ -20,8 +20,8 @@ vi.mock('@platform/tauri/client', async (importOriginal) => {
     ...actual,
     files: {
       ...actual.files,
-      getTree: (path: string, includeHiddenDirectories: boolean) => getTreeMock(path, includeHiddenDirectories),
-      getDirChildren: (path: string, includeHiddenDirectories: boolean) => getDirChildrenMock(path, includeHiddenDirectories),
+      getTree: (path: string, includeHiddenDirectories: boolean, showAgentsFile: boolean) => getTreeMock(path, includeHiddenDirectories, showAgentsFile),
+      getDirChildren: (path: string, includeHiddenDirectories: boolean, showAgentsFile: boolean) => getDirChildrenMock(path, includeHiddenDirectories, showAgentsFile),
     },
   };
 });
@@ -73,7 +73,7 @@ describe('useFolderTree', () => {
     mount('/root');
     await vi.waitFor(() => expect(lastState?.loading).toBe(false));
     expect(lastState?.rootChildren).toHaveLength(2);
-    expect(getTreeMock).toHaveBeenCalledWith('/root', false);
+    expect(getTreeMock).toHaveBeenCalledWith('/root', false, false);
   });
 
   it('展开 folder 时惰性拉取子级, 收起再展开不重新请求', async () => {

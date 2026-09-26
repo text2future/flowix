@@ -1,5 +1,5 @@
 ---
-name: 章节续写
+name: chapter-continuation
 description: 依据大纲、场景卡片、人物状态与上一章，续写下一章正文。触发于用户说"写下一章/续写/接着写"时。
 ---
 

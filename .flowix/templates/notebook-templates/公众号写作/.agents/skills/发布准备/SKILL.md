@@ -1,5 +1,5 @@
 ---
-name: 发布准备
+name: publishing-preparation
 description: 当文章排版完成、准备对外发布时触发，执行终检清单并产出封面与摘要，归入待发布。
 ---
 

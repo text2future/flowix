@@ -66,13 +66,22 @@ export const BlockDragExtension = Extension.create({
             if (meta !== undefined) return meta
             if (!value || !tr.docChanged) return value
 
-            const from = tr.mapping.map(value.from, -1)
-            const to = tr.mapping.map(value.to, 1)
-            if (from >= to) return null
+            // Keep insertions at either boundary out of the dragged node.
+            const from = tr.mapping.mapResult(value.from, 1)
+            const to = tr.mapping.mapResult(value.to, -1)
+            if (from.deletedAcross || to.deletedAcross || from.pos >= to.pos) return null
+            const node = tr.doc.nodeAt(from.pos)
+            if (!node || node.type !== tr.before.nodeAt(value.from)?.type
+              || to.pos !== from.pos + node.nodeSize) return null
+            const $source = tr.doc.resolve(from.pos)
+            const parent = $source.parent
+            if (parent.type.name !== value.parentTypeName) return null
             return {
               ...value,
-              from,
-              to,
+              from: from.pos,
+              to: to.pos,
+              parentStart: $source.start($source.depth),
+              sourceDepth: value.isListItem ? getListItemDepth(tr.doc, from.pos) : 0,
               dropPos: value.dropPos == null ? null : tr.mapping.map(value.dropPos, -1),
               dropTarget: value.dropTarget ? mapDropTarget(value.dropTarget, tr.mapping) : null,
             }
@@ -196,6 +205,11 @@ function getValidDropTarget(
   clientX: number,
   clientY: number,
 ): BlockDropTarget | null {
+  const editorRect = view.dom.getBoundingClientRect()
+  if (editorRect.width > 0 && editorRect.height > 0
+    && (clientX < editorRect.left - 48 || clientX > editorRect.right + 48
+      || clientY < editorRect.top - 48 || clientY > editorRect.bottom + 48)) return null
+
   if (drag.isListItem) {
     const target = findListDropTarget(view, drag, clientX, clientY)
     return target && isValidDropPos(view, drag, target) ? target : null

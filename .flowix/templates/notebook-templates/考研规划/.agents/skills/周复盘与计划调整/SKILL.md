@@ -1,5 +1,5 @@
 ---
-name: 周复盘与计划调整
+name: weekly-review-and-plan-adjustment
 description: 周末对照计划做复盘，据错题与模考调整下周及总体计划。触发于用户说"周复盘/这周学得怎样/调整计划"时。
 ---
 

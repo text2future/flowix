@@ -61,6 +61,10 @@ export function useShowHiddenNotebookFiles() {
   return useUserSettingsStore((state) => state.settings.showHiddenNotebookFiles);
 }
 
+export function useShowNotebookAgentsFile() {
+  return useUserSettingsStore((state) => state.settings.showNotebookAgentsFile);
+}
+
 export function setShowHiddenNotebookFilesPreference(show: boolean): Promise<void> {
   return useUserSettingsStore.getState().updateSettings({ showHiddenNotebookFiles: show });
 }

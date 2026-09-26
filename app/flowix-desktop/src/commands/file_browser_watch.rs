@@ -32,6 +32,7 @@ struct WatchLease {
     window_label: String,
     root_path: PathBuf,
     ignore_hidden: bool,
+    ignore_agents: bool,
 }
 
 #[derive(Debug, Default)]
@@ -92,6 +93,7 @@ impl FileBrowserWatchState {
         window_label: &str,
         root_path: PathBuf,
         ignore_hidden: bool,
+        ignore_agents: bool,
     ) -> Result<String, String> {
         let lease_id = format!(
             "file-browser-watch:{}:{}",
@@ -126,6 +128,7 @@ impl FileBrowserWatchState {
                 window_label: window_label.to_string(),
                 root_path: root_path.clone(),
                 ignore_hidden,
+                ignore_agents,
             },
         );
         tracing::info!(
@@ -195,8 +198,6 @@ fn schedule_directory_changes(
         let directories = event
             .paths
             .iter()
-            // AGENTS.md is project-local Agent configuration. Its create,
-            // modify, and remove events must not refresh the visible tree.
             .filter(|path| !should_ignore_path(path, lease))
             .filter_map(|path| affected_directory(path, &lease.root_path))
             .collect::<HashSet<_>>();
@@ -215,7 +216,8 @@ fn is_agents_file(path: &Path) -> bool {
 }
 
 fn should_ignore_path(path: &Path, lease: &WatchLease) -> bool {
-    is_agents_file(path) || (lease.ignore_hidden && has_hidden_component(path, &lease.root_path))
+    (lease.ignore_agents && is_agents_file(path))
+        || (lease.ignore_hidden && has_hidden_component(path, &lease.root_path))
 }
 
 /// Test hidden-directory membership relative to the watched root. Hidden
@@ -354,6 +356,7 @@ pub fn watch_file_browser_root(
     app_state: tauri::State<'_, AppState>,
     root_path: String,
     ignore_hidden: Option<bool>,
+    ignore_agents: Option<bool>,
 ) -> Result<String, String> {
     let path = PathBuf::from(&root_path);
     start_security_bookmark_access(&app_state, &path);
@@ -366,7 +369,12 @@ pub fn watch_file_browser_root(
             path.display()
         ));
     }
-    watches.watch(window.label(), path, ignore_hidden.unwrap_or(false))
+    watches.watch(
+        window.label(),
+        path,
+        ignore_hidden.unwrap_or(false),
+        ignore_agents.unwrap_or(true),
+    )
 }
 
 #[tauri::command]
@@ -453,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn agents_file_is_not_a_directory_change() {
+    fn recognizes_agents_file() {
         let temp = tempdir().expect("create temp directory");
         let agents = temp.path().join("AGENTS.md");
         assert!(is_agents_file(&agents));
@@ -484,14 +492,19 @@ mod tests {
             window_label: "notebook".to_string(),
             root_path: root.clone(),
             ignore_hidden: true,
+            ignore_agents: true,
         };
         let browser_lease = WatchLease {
             window_label: "browser".to_string(),
             root_path: root,
             ignore_hidden: false,
+            ignore_agents: false,
         };
 
         assert!(should_ignore_path(&hidden, &notebook_lease));
         assert!(!should_ignore_path(&hidden, &browser_lease));
+        let agents = temp.path().join("notebook").join("AGENTS.md");
+        assert!(should_ignore_path(&agents, &notebook_lease));
+        assert!(!should_ignore_path(&agents, &browser_lease));
     }
 }

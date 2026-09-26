@@ -1,5 +1,5 @@
 ---
-name: 发布准备与回滚
+name: release-readiness-and-rollback
 description: 发布前逐项核对清单、明确灰度与回滚方案，发布后记录结果。用于任何一次上线（含热修）。产出 `变更/<id>/发布计划.md` 与 `发布与运行/发布记录/`。
 ---
 

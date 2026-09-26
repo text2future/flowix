@@ -120,6 +120,8 @@ export interface UserSettings {
   memoListView: MemoListView;
   /** Whether the notebook file tree includes hidden directories and their Markdown files. */
   showHiddenNotebookFiles: boolean;
+  /** Whether notebook file views include the project-local AGENTS.md file. */
+  showNotebookAgentsFile: boolean;
   /** Whether newly created notes are automatically opened in the Browser Column. */
   autoOpenCreatedNotesInBrowser: boolean;
   /**
@@ -245,6 +247,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   region: 'mainland',
   memoListView: 'detailed',
   showHiddenNotebookFiles: true,
+  showNotebookAgentsFile: false,
   autoOpenCreatedNotesInBrowser: true,
   // 启动时无任何用户覆盖, 所有 action 走 ActionDefinition.defaultBinding。
   shortcuts: {},

@@ -1,5 +1,5 @@
 ---
-name: 大纲与写作
+name: outlining-and-drafting
 description: 当选题通过评估且资料就绪时触发，套用体裁模板产出文章初稿。
 ---
 

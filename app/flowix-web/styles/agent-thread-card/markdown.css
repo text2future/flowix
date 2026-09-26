@@ -675,6 +675,8 @@
 }
 
 .markdown-editor .agent-thread-card__dsh-update-notice {
+  position: relative;
+  overflow: hidden;
   display: none;
   align-items: center;
   min-height: 26px;
@@ -685,6 +687,47 @@
   background: color-mix(in srgb, var(--primary) 7%, transparent);
   font-size: 13px;
   cursor: pointer;
+}
+
+.markdown-editor .agent-thread-card__dsh-update-label {
+  position: relative;
+  z-index: 1;
+}
+
+.markdown-editor .agent-thread-card__dsh-update-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 180ms ease;
+}
+
+.markdown-editor .agent-thread-card__dsh-update-notice.is-updating .agent-thread-card__dsh-update-progress {
+  transform: scaleX(1);
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--dsh-update-progress, 0%),
+    color-mix(in srgb, var(--primary) 18%, transparent) var(--dsh-update-progress, 0%)
+  );
+}
+
+.markdown-editor .agent-thread-card__dsh-update-notice.is-updating.is-indeterminate .agent-thread-card__dsh-update-progress {
+  background: var(--primary);
+  animation: dsh-update-progress-indeterminate 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.markdown-editor .agent-thread-card__dsh-update-notice:disabled {
+  cursor: default;
+}
+
+@keyframes dsh-update-progress-indeterminate {
+  from { transform: translateX(-100%) scaleX(0.35); }
+  to { transform: translateX(100%) scaleX(0.35); }
 }
 
 .markdown-editor.agent-conversation-detail .agent-thread-card__dsh-update-notice,

@@ -15,7 +15,7 @@ use flowix_core::MemoService;
 use flowix_sync::V2LocalNotebook;
 
 use super::agent_access::AGENT_ACCESS_CHANGED_EVENT;
-use super::helpers::{refresh_watcher_roots, switch_notebook_trusting_index};
+use super::helpers::{refresh_watcher_roots, switch_notebook_trusting_index, watch_created_notebook};
 use crate::app::state::{AppState, NotebookImportStatus, NotebookImportStatusKind};
 
 const NOTEBOOK_IMPORT_COMPLETE_EVENT: &str = "notebook-import-complete";
@@ -337,7 +337,7 @@ fn activate_created_notebook(
     set_current_notebook_inner(Some(config.id.clone()), state, app)?;
     // A newly registered root must be watched immediately; otherwise changes
     // made before the next app restart are invisible to the memo index.
-    refresh_watcher_roots(state, app);
+    watch_created_notebook(state, app, config);
     tracing::info!("[create_notebook] selected notebook id={}", config.id);
     Ok(())
 }
@@ -481,7 +481,7 @@ pub async fn create_notebook(
         } else {
             // The onboarding flow activates the notebook only after all steps are
             // complete. Keep the new root watched without changing global state.
-            refresh_watcher_roots(state.inner(), &app);
+            watch_created_notebook(state.inner(), &app, &config);
         }
         dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
 

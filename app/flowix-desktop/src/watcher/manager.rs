@@ -63,6 +63,31 @@ pub struct MemoWatcher {
 }
 
 impl MemoWatcher {
+    /// Add one newly registered notebook without restarting every existing watch.
+    /// Return false when the watcher has not started, so the caller can bind all roots.
+    pub fn add_notebook_root(&mut self, config: &NotebookConfig) -> bool {
+        let Some(watcher) = self._watcher.as_mut() else {
+            return false;
+        };
+        if self.suspended_notebook_ids.contains_key(&config.id) {
+            return true;
+        }
+        let root = PathBuf::from(&config.path);
+        if !root.is_dir() {
+            return false;
+        }
+        if watcher.watch(&root, RecursiveMode::Recursive).is_err() {
+            return false;
+        }
+        if let Ok(mut roots) = self.watched_roots.write() {
+            roots.push(NotebookWatchContext {
+                notebook_id: config.id.clone(),
+                root,
+            });
+        }
+        true
+    }
+
     pub fn new(memo_file: Arc<std::sync::RwLock<MemoFile>>) -> Self {
         Self {
             _watcher: None,

@@ -1,5 +1,5 @@
 ---
-name: 公众号排版
+name: wechat-article-formatting
 description: 当文章通过审校与核查后触发，按发布规范做微信友好的 Markdown 排版。
 ---
 

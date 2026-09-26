@@ -115,6 +115,7 @@ export class ComposerSlashCommandController {
   private activeIndex = 0;
   private isKeyboardNavigation = true;
   private dismissedValue: string | null = null;
+  private slashActive = false;
   private disposed = false;
 
   constructor(options: ComposerSlashCommandControllerOptions) {
@@ -181,6 +182,7 @@ export class ComposerSlashCommandController {
     // descriptors cannot accidentally make a command available to another
     // Agent.
     if (this.disposed || !this.agentType || getComposerSlashToken(this.editor)) {
+      this.slashActive = false;
       this.closeMenu();
       return;
     }
@@ -189,11 +191,23 @@ export class ComposerSlashCommandController {
     const value = this.editor.getMarkdown().trim();
     const cursorAtEnd = selection.empty && selection.from === doc.content.size - 1;
     const match = cursorAtEnd ? /^\/([a-z0-9._-]*)$/i.exec(value) : null;
-    if (!match || value === this.dismissedValue) {
+    if (!match) {
+      this.slashActive = false;
+      this.closeMenu();
+      return;
+    }
+    if (value === this.dismissedValue) {
       this.closeMenu();
       return;
     }
 
+    // Refresh once per slash entry, including after a transient failure.
+    // Filtering an open slash must not start another catalog request.
+    if (this.agentType === "deepseek-harness" && !this.slashActive &&
+      (this.skillsStatus === "ready" || this.skillsStatus === "error")) {
+      this.skillsStatus = "idle";
+    }
+    this.slashActive = true;
     const query = match[1].toLowerCase();
     const commands: readonly ComposerSlashMenuItem[] = this.commands
       .filter((command) => !command.agentType || command.agentType === this.agentType)
@@ -297,6 +311,7 @@ export class ComposerSlashCommandController {
         event.preventDefault();
         event.stopImmediatePropagation();
         this.dismissedValue = this.editor.getMarkdown().trim();
+        this.slashActive = false;
         this.closeMenu();
         return;
       }
@@ -319,6 +334,7 @@ export class ComposerSlashCommandController {
     const target = event.target as Node | null;
     if (target && (this.composer.contains(target) || this.menu.contains(target))) return;
     this.dismissedValue = this.editor.getMarkdown().trim();
+    this.slashActive = false;
     this.closeMenu();
   };
 

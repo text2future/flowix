@@ -47,7 +47,7 @@ import {
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
 import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
-import { agent, dshIntegration, memos as memosClient, windows } from "@platform/tauri/client";
+import { agent, dshIntegration, memos as memosClient } from "@platform/tauri/client";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
   applyPopoverPosition,
@@ -615,15 +615,86 @@ export class ExternalAgentSettingsController {
       updateNotice.type = "button";
       updateNotice.className = "agent-thread-card__dsh-update-notice";
       updateNotice.hidden = true;
+      const updateLabel = document.createElement("span");
+      updateLabel.className = "agent-thread-card__dsh-update-label";
+      const updateProgress = document.createElement("span");
+      updateProgress.className = "agent-thread-card__dsh-update-progress";
+      updateProgress.setAttribute("aria-hidden", "true");
+      updateNotice.append(updateLabel, updateProgress);
+      let updating = false;
+      let unlistenProgress: UnlistenFn | null = null;
+      let completionTimer: number | null = null;
+      const showProgress = (progress: {
+        phase: string;
+        percent?: number | null;
+      }) => {
+        const active = ["checking", "downloading", "downloaded", "installing"].includes(progress.phase);
+        if (!active) {
+          unlistenProgress?.();
+          unlistenProgress = null;
+          if (this.isDestroyed()) return;
+          if (progress.phase === "installed" || progress.phase === "up-to-date") {
+            updating = false;
+            updateNotice.disabled = false;
+            updateNotice.classList.remove("is-updating", "is-indeterminate");
+            updateNotice.classList.add("is-complete");
+            updateLabel.textContent = this.t("agent.dsh.updateComplete");
+            if (completionTimer !== null) window.clearTimeout(completionTimer);
+            completionTimer = window.setTimeout(() => {
+              completionTimer = null;
+              if (!this.isDestroyed()) updateNotice.hidden = true;
+            }, 4000);
+          } else if (progress.phase === "failed" || progress.phase === "cancelled") {
+            updating = false;
+            updateNotice.disabled = false;
+            updateNotice.classList.remove("is-updating", "is-indeterminate");
+            updateNotice.classList.add("is-failed");
+            updateLabel.textContent = this.t("agent.dsh.updateFailed");
+          }
+          return;
+        }
+        if (this.isDestroyed()) return;
+        updateNotice.hidden = false;
+        updateNotice.disabled = true;
+        updateNotice.classList.add("is-updating");
+        updateNotice.classList.remove("is-complete", "is-failed");
+        const percent = progress.percent;
+        if (progress.phase === "downloading" && typeof percent === "number") {
+          updateNotice.classList.remove("is-indeterminate");
+          updateNotice.style.setProperty("--dsh-update-progress", `${Math.max(0, Math.min(100, percent))}%`);
+          updateLabel.textContent = this.t("agent.dsh.updateDownloading").replace("{percent}", String(percent));
+        } else {
+          updateNotice.classList.add("is-indeterminate");
+          updateLabel.textContent = progress.phase === "installing"
+            ? this.t("agent.dsh.updateInstalling")
+            : this.t("agent.dsh.updatePreparing");
+        }
+      };
       updateNotice.addEventListener("click", (event) => {
         event.stopPropagation();
-        void windows.openPreferences("dsh?autoUpdate=1").catch(() => undefined);
+        if (updating) return;
+        if (completionTimer !== null) {
+          window.clearTimeout(completionTimer);
+          completionTimer = null;
+        }
+        updating = true;
+        updateNotice.hidden = false;
+        updateNotice.disabled = true;
+        updateNotice.classList.remove("is-failed", "is-complete");
+        updateNotice.classList.add("is-updating", "is-indeterminate");
+        updateLabel.textContent = this.t("agent.dsh.updatePreparing");
+        unlistenProgress = subscribe("dsh-download-progress", showProgress);
+        void dshIntegration.updateRuntime().then(() => {
+          showProgress({ phase: "installed" });
+        }).catch(() => {
+          showProgress({ phase: "failed" });
+        });
       });
       updateNotice.addEventListener("mousedown", (event) => event.stopPropagation());
       empty.append(updateNotice);
       void dshIntegration.checkUpdate().then((check) => {
         if (this.isDestroyed() || !check.updateAvailable || !check.latestVersion) return;
-        updateNotice.textContent = this.t("agent.dsh.updateAvailable")
+        updateLabel.textContent = this.t("agent.dsh.updateAvailable")
           .replace("{version}", check.latestVersion);
         updateNotice.hidden = false;
       }).catch(() => {

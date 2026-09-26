@@ -1,5 +1,5 @@
 ---
-name: 课堂复盘
+name: classroom-reflection
 description: 在单元授课后做整体复盘，沉淀课堂反思与教学问题。触发于用户要求"单元复盘 / 课后反思 / 期末复盘"且对应单元已授课时。
 ---
 

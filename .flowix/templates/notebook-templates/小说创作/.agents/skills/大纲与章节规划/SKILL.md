@@ -1,5 +1,5 @@
 ---
-name: 大纲与章节规划
+name: outline-and-chapter-planning
 description: 把故事构想拆成总纲、情节节点、章节总览，形成可动笔的写作蓝图。触发于用户说"做大纲/规划章节/这本书怎么走"时。
 ---
 

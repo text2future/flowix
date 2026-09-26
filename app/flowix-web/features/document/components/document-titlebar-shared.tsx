@@ -106,6 +106,7 @@ export interface DocumentTitlebarProps {
   };
   contentCapabilities: {
     copyFullText: boolean;
+    memoColors: boolean;
     exportContent: boolean;
     saveAsTemplate: boolean;
     versionHistory: boolean;
@@ -773,6 +774,7 @@ export function MemoActions({
   onExportPdf,
   onRequestDeleteMemo,
   onColorsChange,
+  showColorPicker,
   editorMode,
   onToggleEditorMode,
   canCopyFullText,
@@ -791,6 +793,7 @@ export function MemoActions({
   onExportPdf: () => void;
   onRequestDeleteMemo: () => void;
   onColorsChange: (next: MemoColor[]) => void;
+  showColorPicker: boolean;
   editorMode: DocumentEditorMode;
   onToggleEditorMode: () => void;
   canCopyFullText: boolean;
@@ -975,11 +978,13 @@ export function MemoActions({
 
   return (
     <>
-      <MemoColorPicker
-        colors={memo.colors}
-        iconButtonClass={iconButtonClass}
-        onChange={onColorsChange}
-      />
+      {showColorPicker && (
+        <MemoColorPicker
+          colors={memo.colors}
+          iconButtonClass={iconButtonClass}
+          onChange={onColorsChange}
+        />
+      )}
       {canUseNativeContextMenu() ? (
         <Tooltip content={t("document.titlebar.moreTooltip")}>
           <button

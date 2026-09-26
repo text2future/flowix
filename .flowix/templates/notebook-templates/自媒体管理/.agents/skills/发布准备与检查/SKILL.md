@@ -1,5 +1,5 @@
 ---
-name: 发布准备与检查
+name: publishing-readiness-check
 description: 发布前按平台清单逐项检查并记录发布信息。触发于用户说"准备发布/检查一下/发布这篇"时。
 ---
 

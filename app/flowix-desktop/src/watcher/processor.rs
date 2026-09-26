@@ -484,6 +484,7 @@ impl MemoEventProcessor {
             .map(|memo| memo.id.as_str())
             .collect::<std::collections::HashSet<_>>();
 
+        let mut changes = Vec::new();
         for memo in &after {
             let was_registered_by_reconcile = reconciled_added_ids.contains(memo.id.as_str());
             let pending_external_create = (was_registered_by_reconcile
@@ -492,16 +493,15 @@ impl MemoEventProcessor {
                     .consume_pending_external_memo_create(&memo.id, &ctx.notebook_id)
                     .unwrap_or(false);
             if was_registered_by_reconcile || pending_external_create {
-                try_update_search_index(app, &memo.id);
-                emit(
-                    app,
+                changes.push((
+                    Some(memo.id.clone()),
                     MemoEvent::Created {
                         memo: memo.clone(),
                         notebook_id: ctx.notebook_id.clone(),
                         derived_changed: MemoDerivedChanged::from_memos(None, memo),
                         source: MemoChangeSource::ExternalTool,
                     },
-                );
+                ));
                 continue;
             }
 
@@ -511,11 +511,10 @@ impl MemoEventProcessor {
                 // already published the create event.
                 None => {}
                 Some(previous) if previous.relative_path != memo.relative_path => {
-                    try_update_search_index(app, &memo.id);
                     let path = notebook_path_from_relative(&ctx.root, &memo.relative_path)
                         .unwrap_or_else(|_| ctx.root.join(&memo.filename));
-                    emit(
-                        app,
+                    changes.push((
+                        Some(memo.id.clone()),
                         MemoEvent::Updated {
                             id: memo.id.clone(),
                             path: path.to_string_lossy().into_owned(),
@@ -524,7 +523,7 @@ impl MemoEventProcessor {
                             derived_changed: MemoDerivedChanged::from_memos(Some(previous), memo),
                             source: MemoChangeSource::ExternalTool,
                         },
-                    );
+                    ));
                 }
                 _ => {}
             }
@@ -533,11 +532,10 @@ impl MemoEventProcessor {
             .iter()
             .filter(|memo| !after_ids.contains(memo.id.as_str()))
         {
-            try_remove_from_search_index(app, &memo.id);
             let path = notebook_path_from_relative(&ctx.root, &memo.relative_path)
                 .unwrap_or_else(|_| ctx.root.join(&memo.filename));
-            emit(
-                app,
+            changes.push((
+                None,
                 MemoEvent::Deleted {
                     id: memo.id.clone(),
                     path: path.to_string_lossy().into_owned(),
@@ -545,7 +543,16 @@ impl MemoEventProcessor {
                     derived_changed: MemoDerivedChanged::from_deleted(memo),
                     source: MemoChangeSource::ExternalTool,
                 },
-            );
+            ));
+        }
+        drop(mf);
+        for (upsert_id, event) in changes {
+            if let Some(id) = upsert_id {
+                try_update_search_index(app, &id);
+            } else if let MemoEvent::Deleted { id, .. } = &event {
+                try_remove_from_search_index(app, id);
+            }
+            emit(app, event);
         }
         tracing::info!(
             notebook_id = %ctx.notebook_id,
@@ -601,6 +608,8 @@ impl MemoEventProcessor {
             return;
         }
         let entry_path = path.display().to_string();
+        drop(_write_guard);
+        drop(mf);
         try_remove_from_search_index(app, &id);
         // emit 带真�?id �?Deleted, 让前�?handleMemoDeleted 能精准从
         // 列表 filter �?(避免 id=“�?�?filter 什么都不丢、只能靠

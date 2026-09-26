@@ -1,5 +1,5 @@
 ---
-name: 旧文检索与更新
+name: archive-search-and-update
 description: 当新文发布或定期复盘时触发，检索已发布/已归档中的相关或常青内容，决定刷新或互链。
 ---
 

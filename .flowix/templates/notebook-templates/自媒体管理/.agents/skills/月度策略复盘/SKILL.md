@@ -1,5 +1,5 @@
 ---
-name: 月度策略复盘
+name: monthly-strategy-review
 description: 月末汇总数据、内容与商业表现，调整账号策略。触发于用户说"月度复盘/这个月怎么样/调整策略"时。
 ---
 

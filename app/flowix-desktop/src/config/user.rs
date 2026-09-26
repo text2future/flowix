@@ -175,6 +175,9 @@ pub struct PreferenceFile {
     /// Whether the notebook file tree includes hidden directories and their Markdown files.
     #[serde(default)]
     pub show_hidden_notebook_files: bool,
+    /// Whether notebook file views include the project-local AGENTS.md file.
+    #[serde(default)]
+    pub show_notebook_agents_file: bool,
     /// Whether newly created notes are automatically opened in the Browser Column.
     #[serde(default = "default_true")]
     pub auto_open_created_notes_in_browser: bool,
@@ -211,6 +214,7 @@ impl Default for PreferenceFile {
             memo_card_variant: String::default(),
             memo_list_view: String::default(),
             show_hidden_notebook_files: bool::default(),
+            show_notebook_agents_file: bool::default(),
             auto_open_created_notes_in_browser: true,
             shortcuts: HashMap::default(),
             properties: PropertiesConfig::default(),

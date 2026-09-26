@@ -1,5 +1,5 @@
 ---
-name: 错题与薄弱点分析
+name: mistake-and-weakness-analysis
 description: 记录练习/模考错题，按知识点聚类成薄弱点清单，反推补漏动作。触发于用户说"整理错题/分析薄弱点/这道题又错了"时。
 ---
 

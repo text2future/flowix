@@ -1,5 +1,5 @@
 ---
-name: 人物与关系设计
+name: character-and-relationship-design
 description: 设计主要/次要人物档案与关系网络，维护人物当前状态。触发于用户说"设计人物/这个角色/人物关系"时。
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: API与数据契约设计
+name: api-and-data-contract-design
 description: 设计并固化前后端之间、服务之间、以及数据层的契约（API、事件、Schema、共享类型），保证"接口不漂、数据不烂"。产出/更新 `模块与契约/`。
 ---
 

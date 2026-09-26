@@ -7,6 +7,7 @@ import { createLogger } from '@/lib/logger';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { useShowHiddenNotebookFiles } from '@features/preferences/public/runtime-api';
+import { useShowNotebookAgentsFile } from '@features/preferences/public/runtime-api';
 import { useDocumentStore } from '@features/document/store';
 import { resourceKindFromPath } from '@features/editor/public/code-file';
 import {
@@ -53,8 +54,9 @@ export function isNotebookTreeItemVisible(
   item: DocTreeItem,
   notebookPath?: string,
   showHiddenNotebookFiles = false,
+  showAgentsFile = false,
 ): boolean {
-  if (item.name === 'AGENTS.md') return false;
+  if (item.name === 'AGENTS.md' && !showAgentsFile) return false;
   if (!showHiddenNotebookFiles && notebookPath && isInsideHiddenDirectory(item, notebookPath)) {
     return false;
   }
@@ -75,11 +77,13 @@ function memoPath(notebookPath: string, memo: { filename: string; relativePath?:
 export function filterNotebookTreeItems(
   items: DocTreeItem[],
   visibleMemoPaths: Set<string> | null,
+  showAgentsFile = false,
 ): DocTreeItem[] {
   if (!visibleMemoPaths) return items;
   return items.filter((item) => (
     item.type === 'folder'
       || (item.resourceKind ?? resourceKindFromPath(item.name)) !== 'note'
+      || (showAgentsFile && item.name === 'AGENTS.md')
       || visibleMemoPaths.has(canonicalPath(item.fullPath))
   ));
 }
@@ -110,6 +114,8 @@ export function NotebookFolderView({
   sort,
   onCreateNote,
   visibleMemos,
+  hiddenListFolders = [],
+  onToggleListFolderVisibility,
   isActive = true,
 }: {
   notebook: Notebook;
@@ -119,12 +125,16 @@ export function NotebookFolderView({
   sort: SortType;
   onCreateNote?: (parentPath: string, title: string) => Promise<void> | void;
   visibleMemos?: Array<{ filename: string; relativePath?: string }> | null;
+  hiddenListFolders?: string[];
+  onToggleListFolderVisibility?: (folderPath: string) => void;
   isActive?: boolean;
 }) {
   const { t } = useI18n();
   const showHiddenNotebookFiles = useShowHiddenNotebookFiles();
+  const showAgentsFile = useShowNotebookAgentsFile();
   const tree = useFolderTree(notebook.path, {
     includeHiddenDirectories: showHiddenNotebookFiles,
+    showAgentsFile,
   });
   const visibleMemoPaths = useMemo(() => {
     if (!isActive || visibleMemos == null) return null;
@@ -140,8 +150,10 @@ export function NotebookFolderView({
             item,
             notebook.path,
             showHiddenNotebookFiles,
+            showAgentsFile,
           )),
           visibleMemoPaths,
+          showAgentsFile,
         ),
         sort,
       ),
@@ -156,8 +168,10 @@ export function NotebookFolderView({
                     child,
                     notebook.path,
                     showHiddenNotebookFiles,
+                    showAgentsFile,
                   )),
                   visibleMemoPaths,
+                  showAgentsFile,
                 ),
                 sort,
               ),
@@ -169,6 +183,7 @@ export function NotebookFolderView({
     isActive,
     notebook.path,
     showHiddenNotebookFiles,
+    showAgentsFile,
     sort,
     visibleMemoPaths,
     tree.rootChildren,
@@ -201,7 +216,10 @@ export function NotebookFolderView({
       },
     );
 
-    void files.watchRoot(notebook.path, { ignoreHidden: !showHiddenNotebookFiles })
+    void files.watchRoot(notebook.path, {
+      ignoreHidden: !showHiddenNotebookFiles,
+      ignoreAgents: !showAgentsFile,
+    })
       .then((nextLeaseId) => {
         if (disposed) {
           void files.unwatchRoot(nextLeaseId).catch(() => undefined);
@@ -218,7 +236,7 @@ export function NotebookFolderView({
       unlisten();
       if (leaseId) void files.unwatchRoot(leaseId).catch(() => undefined);
     };
-  }, [isActive, notebook.path, showHiddenNotebookFiles]);
+  }, [isActive, notebook.path, showHiddenNotebookFiles, showAgentsFile]);
 
   const openFile = useCallback(async (filePath: string) => {
     try {
@@ -303,6 +321,11 @@ export function NotebookFolderView({
           movedPaths.push(importedPath);
           continue;
         }
+        if (source.isFolder) {
+          const movedPath = await files.moveFolder(sourcePath, target, notebook.path);
+          movedPaths.push(movedPath);
+          continue;
+        }
         const memo = source.memoId
           ? { memoId: source.memoId, notebookId: notebook.id }
           : source.resourceKind && source.resourceKind !== 'note'
@@ -365,6 +388,8 @@ export function NotebookFolderView({
       notebookPath={notebook.path}
       activeFilePath={currentDocumentPath}
       tree={noteTree}
+      hiddenListFolders={hiddenListFolders}
+      onToggleListFolderVisibility={onToggleListFolderVisibility}
       createFolderRequest={createFolderRequest}
       createNoteRequest={createNoteRequest}
       onCreateFolder={onCreateFolder}

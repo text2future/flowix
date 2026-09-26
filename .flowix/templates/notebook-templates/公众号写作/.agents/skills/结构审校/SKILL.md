@@ -1,5 +1,5 @@
 ---
-name: 结构审校
+name: structural-review
 description: 当文章初稿完成后触发，审查结构、逻辑流与可读性，给出可执行的修改清单。
 ---
 

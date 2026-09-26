@@ -34,14 +34,25 @@ function documentHeaderPresentation(
   surface: Extract<WorkColumnContentPresentation, { status: 'surface' }>['surface'],
   input: ResolveWorkColumnContentInput,
 ): WorkColumnDocumentHeaderPresentation {
-  if (surface.kind !== 'markdown') {
-    return { currentMemo: null, externalFilePath: null };
+  if (surface.kind === 'note') {
+    return {
+      currentMemo: input.document?.memo ?? null,
+      externalFilePath: null,
+    };
   }
 
-  return {
-    currentMemo: input.document?.memo ?? null,
-    externalFilePath: surface.props.isExternalDocument ? surface.props.filePath : null,
-  };
+  switch (surface.kind) {
+    case 'code':
+    case 'md':
+    case 'html-file':
+      return { currentMemo: null, externalFilePath: surface.props.filePath };
+    case 'image-file':
+    case 'video-file':
+    case 'unavailable-file':
+      return { currentMemo: null, externalFilePath: surface.filePath };
+    default:
+      return { currentMemo: null, externalFilePath: null };
+  }
 }
 
 /** Derive all host-facing presentation data from one resolved Work Column content. */

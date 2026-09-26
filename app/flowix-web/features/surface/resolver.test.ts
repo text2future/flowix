@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { MemoItem } from '@/types/memo-item';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import type {
-  MarkdownSurface,
+  ExternalDocumentProps,
+  NoteSurface,
   ResolveWorkColumnContentInput,
   WorkColumnSurface,
 } from './types';
@@ -32,22 +33,26 @@ function markdownSurface(options: {
   transitionId?: number | null;
   notebookId?: string | null;
   notebookPath?: string | null;
-  isExternalDocument?: boolean;
   externalScopePath?: string | null;
-} = {}): MarkdownSurface {
+} = {}): NoteSurface {
   return {
-    kind: 'markdown',
+    kind: 'note',
+    memoId: options.memoId ?? 'memo-1',
     instanceKey: options.memoId ? `memo:${options.memoId}` : `path:${options.filePath ?? '/notebook/note.md'}`,
     props: {
       filePath: options.filePath ?? '/notebook/note.md',
-      memoId: options.memoId === undefined ? 'memo-1' : options.memoId,
       transitionId: options.transitionId ?? null,
       notebookId: options.notebookId ?? 'notebook-1',
       notebookPath: options.notebookPath ?? '/notebook',
-      isExternalDocument: options.isExternalDocument,
+      isExternalDocument: false,
       externalScopePath: options.externalScopePath,
     },
   };
+}
+
+function externalDocumentProps(options: Parameters<typeof markdownSurface>[0] = {}): ExternalDocumentProps {
+  const markdown = markdownSurface(options);
+  return { ...markdown.props, memoId: null, isExternalDocument: true };
 }
 
 function plugin(id = 'mindmap'): PluginDescriptor {
@@ -132,7 +137,7 @@ describe('surface resolvers', () => {
     const markdown = markdownSurface({ transitionId: 1 });
     expect(surfaceFrom({
       navigation: navigation(memoTarget),
-      document: { identity: documentIdentity({ transitionId: 1 }), memo: memo({}), markdown },
+      document: { identity: documentIdentity({ transitionId: 1 }), memo: memo({}), surface: markdown },
       emptyMessage: 'empty',
     })).toBe(markdown);
 
@@ -145,17 +150,17 @@ describe('surface resolvers', () => {
       }),
       document: {
         identity: documentIdentity({ external: true, path: '/files/readme.md', transitionId: 2 }),
+        instanceKey: 'external:readme:2',
         memo: null,
-        markdown: markdownSurface({
+        documentProps: externalDocumentProps({
           filePath: '/files/readme.md',
           memoId: null,
           transitionId: 2,
-          isExternalDocument: true,
           externalScopePath: '/files',
         }),
       },
       emptyMessage: 'empty',
-    }).kind).toBe('markdown');
+    }).kind).toBe('md');
 
     expect(surfaceFrom({
       navigation: navigation({ kind: 'plugin-workbench', plugin: plugin('plugin-a') }),
@@ -197,7 +202,7 @@ describe('surface resolvers', () => {
       document: {
         identity: documentIdentity({ path: '/notebook/other.md', transitionId: 8 }),
         memo: memo({}, 'other-memo'),
-        markdown: markdownSurface({ filePath: '/notebook/other.md', transitionId: 8 }),
+        surface: markdownSurface({ filePath: '/notebook/other.md', transitionId: 8 }),
       },
       emptyMessage: 'empty',
     });
@@ -213,7 +218,7 @@ describe('surface resolvers', () => {
   it('rejects stale or cross-identity workspace contexts', () => {
     const stale = resolveWorkColumnContent({
       navigation: navigation(memoTarget),
-      document: { identity: documentIdentity({ transitionId: 1 }), memo: memo({}, 'other-memo'), markdown: markdownSurface({ transitionId: 1 }) },
+      document: { identity: documentIdentity({ transitionId: 1 }), memo: memo({}, 'other-memo'), surface: markdownSurface({ transitionId: 1 }) },
       emptyMessage: 'empty',
     });
     expect(stale).toMatchObject({ status: 'empty', reason: 'stale-context' });
@@ -223,7 +228,7 @@ describe('surface resolvers', () => {
       document: {
         identity: documentIdentity({ path: '/notebook/old.md', transitionId: 1 }),
         memo: memo({}),
-        markdown: markdownSurface({ filePath: '/notebook/old.md', transitionId: 1 }),
+        surface: markdownSurface({ filePath: '/notebook/old.md', transitionId: 1 }),
       },
       emptyMessage: 'empty',
     });

@@ -74,6 +74,12 @@ describe('handleMainWindowMemoEvent', () => {
     expect(actions.refreshSelectedNotebookMetadata).not.toHaveBeenCalled();
   });
 
+  it('does not auto-open AGENTS.md when the watcher reports it as a new note', () => {
+    const actions = createActions('notebook-a');
+    handleMainWindowMemoEvent(createdEvent({ memo: { ...memo, filename: 'AGENTS.md' } }), actions);
+    expect(actions.openMemoInBrowserColumn).not.toHaveBeenCalled();
+  });
+
   it('refreshes only the notebook-keyed todo count for a background notebook', () => {
     const actions = createActions('notebook-a');
     const event = createdEvent({

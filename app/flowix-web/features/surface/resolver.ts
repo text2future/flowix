@@ -1,5 +1,6 @@
 import type { PluginArtifactRendererId } from '@features/plugin/plugin-note';
 import { canonicalPath } from '@/lib/path';
+import { externalFileViewKind } from '@features/editor/public/code-file';
 import type {
   DocumentSurfaceContext,
   PluginWorkbenchContext,
@@ -46,8 +47,33 @@ function artifactSurface(
   }
 }
 
-function resolveDocumentSurface(document: DocumentSurfaceContext): WorkColumnSurface {
-  return document.markdown;
+function resolveDocumentSurface(
+  document: Extract<DocumentSurfaceContext, { identity: { kind: 'memo' } }>,
+): WorkColumnSurface {
+  return document.surface;
+}
+
+function resolveExternalDocumentSurface(
+  document: Extract<DocumentSurfaceContext, { identity: { kind: 'external' } }>,
+): WorkColumnSurface {
+  const { filePath } = document.documentProps;
+  const { instanceKey } = document;
+  const scopePath = document.identity.scopePath;
+
+  switch (externalFileViewKind(filePath)) {
+    case 'markdown':
+      return { kind: 'md', instanceKey, props: document.documentProps };
+    case 'html':
+      return { kind: 'html-file', instanceKey, filePath, scopePath, props: document.documentProps };
+    case 'image':
+      return { kind: 'image-file', instanceKey, filePath, scopePath, props: document.documentProps };
+    case 'video':
+      return { kind: 'video-file', instanceKey, filePath, scopePath, props: document.documentProps };
+    case 'code':
+      return { kind: 'code', instanceKey, props: document.documentProps };
+    case 'unavailable':
+      return { kind: 'unavailable-file', instanceKey, filePath, props: document.documentProps };
+  }
 }
 
 function resolveMediaTargetContent(
@@ -95,8 +121,9 @@ function sameTransition(left: number | null | undefined, right: number | null): 
 function isMemoDocumentContext(
   target: Extract<WorkColumnTarget, { kind: 'memo' }>,
   document: DocumentSurfaceContext,
-): boolean {
-  const props = document.markdown.props;
+): document is Extract<DocumentSurfaceContext, { identity: { kind: 'memo' } }> {
+  if (document.identity.kind !== 'memo' || document.surface.kind !== 'note') return false;
+  const props = document.surface.props;
   return document.identity.kind === 'memo'
     && document.identity.memoId === target.memoId
     && samePath(document.identity.path, target.path)
@@ -105,7 +132,7 @@ function isMemoDocumentContext(
       || samePath(document.identity.notebookPath, target.notebookPath))
     && sameTransition(document.identity.transitionId, target.transitionId)
     && document.memo?.id === target.memoId
-    && props.memoId === target.memoId
+    && document.surface.memoId === target.memoId
     && props.notebookId === target.notebookId
     && ((props.notebookPath == null && target.notebookPath == null)
       || samePath(props.notebookPath, target.notebookPath))
@@ -117,10 +144,10 @@ function isMemoDocumentContext(
 function isExternalDocumentContext(
   target: Extract<WorkColumnTarget, { kind: 'external' }>,
   document: DocumentSurfaceContext,
-): boolean {
-  const props = document.markdown.props;
-  return document.identity.kind === 'external'
-    && samePath(document.identity.path, target.path)
+): document is Extract<DocumentSurfaceContext, { identity: { kind: 'external' } }> {
+  if (document.identity.kind !== 'external') return false;
+  const props = document.documentProps;
+  return samePath(document.identity.path, target.path)
     && ((document.identity.scopePath == null && target.scopePath == null)
       || samePath(document.identity.scopePath, target.scopePath))
     && sameTransition(document.identity.transitionId, target.transitionId)
@@ -174,7 +201,7 @@ function resolveWorkColumnTarget(
         : emptyContent(input.emptyMessage, 'stale-context');
     case 'external':
       return input.document && isExternalDocumentContext(target, input.document)
-        ? surfaceContent(resolveDocumentSurface(input.document))
+        ? surfaceContent(resolveExternalDocumentSurface(input.document))
         : emptyContent(input.emptyMessage, 'stale-context');
     default:
       return assertNever(target);

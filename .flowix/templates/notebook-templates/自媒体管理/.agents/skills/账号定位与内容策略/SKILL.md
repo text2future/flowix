@@ -1,5 +1,5 @@
 ---
-name: 账号定位与内容策略
+name: account-positioning-and-content-strategy
 description: 确定/维护账号定位、受众、内容支柱、品牌声音与商业边界，写入 账号策略/。触发于用户说"账号定位/做什么内容/账号策略"时。
 ---
 

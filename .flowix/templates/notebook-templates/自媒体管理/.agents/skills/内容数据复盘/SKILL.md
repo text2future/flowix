@@ -1,5 +1,5 @@
 ---
-name: 内容数据复盘
+name: content-performance-review
 description: 按周期汇总各平台数据，写单篇内容复盘与数据总览，沉淀可复用洞察。触发于用户说"看数据/内容复盘/这条表现怎么样"时。
 ---
 

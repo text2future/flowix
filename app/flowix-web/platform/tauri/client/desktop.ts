@@ -44,15 +44,24 @@ export interface DocTreeItem {
   resourceKind?: DocTreeResourceKind | null;
 }
 
+export interface NotebookViewPreferences {
+  hiddenListFolders: string[];
+}
+
 export const files = {
-  getTree: (spacePath: string, includeHiddenDirectories = false) =>
-    invoke<DocTreeItem[] | null>('get_file_tree', { spacePath, includeHiddenDirectories }),
-  getDirChildren: (dirPath: string, includeHiddenDirectories = false) =>
-    invoke<DocTreeItem[]>('get_dir_children', { dirPath, includeHiddenDirectories }),
-  watchRoot: (rootPath: string, options?: { ignoreHidden?: boolean }) =>
+  getTree: (spacePath: string, includeHiddenDirectories = false, showAgentsFile = false) =>
+    invoke<DocTreeItem[] | null>('get_file_tree', { spacePath, includeHiddenDirectories, showAgentsFile }),
+  getDirChildren: (dirPath: string, includeHiddenDirectories = false, showAgentsFile = false) =>
+    invoke<DocTreeItem[]>('get_dir_children', { dirPath, includeHiddenDirectories, showAgentsFile }),
+  getNotebookViewPreferences: (notebookPath: string) =>
+    invoke<NotebookViewPreferences>('get_notebook_view_preferences', { notebookPath }),
+  setNotebookViewPreferences: (notebookPath: string, preferences: NotebookViewPreferences) =>
+    invoke<void>('set_notebook_view_preferences', { notebookPath, preferences }),
+  watchRoot: (rootPath: string, options?: { ignoreHidden?: boolean; ignoreAgents?: boolean }) =>
     invoke<string>('watch_file_browser_root', {
       rootPath,
       ignoreHidden: options?.ignoreHidden ?? false,
+      ignoreAgents: options?.ignoreAgents ?? true,
     }),
   unwatchRoot: (leaseId: string) => invoke<void>('unwatch_file_browser_root', { leaseId }),
   read: (filePath: string, spacePath?: string) => invoke<string | null>('read_file', { filePath, spacePath }),
@@ -69,6 +78,8 @@ export const files = {
     invoke<string>('rename_file', { filePath, name, spacePath }),
   move: (filePath: string, targetDirectoryPath: string, spacePath: string) =>
     invoke<string>('move_file', { filePath, targetDirectoryPath, spacePath }),
+  moveFolder: (folderPath: string, targetDirectoryPath: string, spacePath: string) =>
+    invoke<string>('move_folder', { folderPath, targetDirectoryPath, spacePath }),
   importFile: (filePath: string, targetDirectoryPath: string, spacePath: string) =>
     invoke<string>('import_file', { filePath, targetDirectoryPath, spacePath }),
   renameFolder: (folderPath: string, name: string, spacePath: string) =>

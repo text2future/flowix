@@ -1,5 +1,5 @@
 ---
-name: 线上事件诊断与复盘
+name: production-incident-diagnosis-and-review
 description: 先止血、后定位、再复盘。用于线上故障 / 严重告警的应急处理与事后复盘，产出可执行的防回归措施。产出 `事件与问题/事故复盘/` 与 `事件与问题/线上事件/`。
 ---
 

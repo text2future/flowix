@@ -1,5 +1,5 @@
 ---
-name: 评论与私信整理
+name: comments-and-messages-triage
 description: 整理评论与私信，沉淀高价值问题、常见问题与商业线索。触发于用户说"整理评论/私信/看看大家问什么"时。
 ---
 

@@ -169,6 +169,23 @@ describe('browser column store', () => {
     });
   });
 
+  it('does not restore an AGENTS.md tab after reload', async () => {
+    const store = useBrowserColumnStore.getState();
+    store.openTab(tab('memo:a', 'a'));
+    store.openTab({
+      id: 'file:/notes/AGENTS.md',
+      title: 'AGENTS',
+      icon: null,
+      target: { kind: 'file-browser', folderPath: '/notes', notebookId: 'notebook-1', scopePath: '/notes', fileTreeVisible: true, fileTreeWidth: 220, activeFilePath: '/notes/AGENTS.md' },
+    });
+    const persisted = localStorage.getItem('flowix-browser-column-storage');
+    store.reset();
+    localStorage.setItem('flowix-browser-column-storage', persisted!);
+    await useBrowserColumnStore.persist.rehydrate();
+    expect(useBrowserColumnStore.getState().tabs.map((item) => item.id)).toEqual(['memo:a']);
+    expect(useBrowserColumnStore.getState().activeTabId).toBe('memo:a');
+  });
+
   it('keeps web navigation runtime separate from the durable tab target', () => {
     const store = useBrowserColumnStore.getState();
     store.openTab({

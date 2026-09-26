@@ -1,5 +1,5 @@
 ---
-name: 性能与可靠性分析
+name: performance-and-reliability-analysis
 description: 用数据说话地分析性能瓶颈与可靠性风险，给出可验证的优化方案与 SLO 建议。用于压测、慢查询、容量评估、稳定性评审。
 ---
 

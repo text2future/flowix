@@ -1,6 +1,6 @@
 'use client';
 
-import { FileBrowserView, type FileBrowserViewSurface } from './file-browser-view';
+import type { FileBrowserViewSurface } from './file-browser-view';
 import { openBrowserColumnTarget, selectBrowserColumnFile } from '@features/workspace/use-cases/browser-column-navigation';
 
 import {
@@ -15,10 +15,13 @@ import {
 } from 'react';
 import { ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
 import { LazyAgentConversationDetail } from '@features/agent/components/lazy-agent-conversation-detail';
-import { DocumentContainer } from '@features/document/components/document-container';
+import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
 import { MediaResourceView } from './media-resource-view';
 import { LazyPluginDocumentView } from '@features/plugin/public/surface-api';
 import { SurfaceSuspenseHost } from '@shared/ui/surface-suspense-host';
+import { externalFileViewKind } from '@features/editor/public/code-file';
+import { HtmlResourceView } from './html-resource-view';
+import { CodeSurfaceView } from './code-surface-view';
 import {
   useBrowserColumnStore,
   type BrowserColumnTab,
@@ -54,7 +57,9 @@ export interface BrowserMediaSurface extends SurfaceBase {
   resourceKind: 'image' | 'video';
 }
 
-export interface BrowserFileBrowserSurface extends SurfaceBase, FileBrowserViewSurface {}
+export interface BrowserFileBrowserSurface extends SurfaceBase, FileBrowserViewSurface {
+  documentProps: ComponentProps<typeof DocumentContainer>;
+}
 
 export interface BrowserWebSurface extends SurfaceBase {
   kind: 'web';
@@ -344,7 +349,34 @@ function BrowserMediaSurfaceView({ surface }: { surface: BrowserMediaSurface }) 
 }
 
 function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowserSurface }) {
-  return <FileBrowserView surface={surface} />;
+  if (!surface.activeFilePath) {
+    return <CodeSurfaceView props={surface.documentProps} fileTree={surface} />;
+  }
+
+  const fileKind = externalFileViewKind(surface.activeFilePath);
+  switch (fileKind) {
+    case 'markdown':
+      return <DocumentContainer {...surface.documentProps} externalEditorMode="markdown" />;
+    case 'code':
+      return <CodeSurfaceView props={surface.documentProps} fileTree={surface} />;
+    case 'image':
+    case 'video':
+      return <MediaResourceView
+        filePath={surface.activeFilePath}
+        notebookPath={surface.scopePath}
+        resourceKind={fileKind}
+      />;
+    case 'html':
+      return <HtmlResourceView
+        filePath={surface.activeFilePath}
+        scopePath={surface.scopePath}
+        documentProps={surface.documentProps}
+      />;
+    case 'unavailable':
+      return <UnavailableFileView filePath={surface.activeFilePath} openContainingFolder />;
+  }
+
+  return <UnavailableFileView filePath={surface.activeFilePath} openContainingFolder />;
 }
 
 function BrowserArtifactSurfaceView({ surface }: { surface: BrowserArtifactSurface }) {

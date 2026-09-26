@@ -1,5 +1,5 @@
 ---
-name: 测试设计与验证
+name: test-design-and-validation
 description: 为变更设计分层测试与验证方案，并记录真实执行结果。用于实现完成后的验证阶段。产出 `变更/<id>/验证计划.md`、`验证记录.md`，必要时更新 `测试与验证/`。
 ---
 

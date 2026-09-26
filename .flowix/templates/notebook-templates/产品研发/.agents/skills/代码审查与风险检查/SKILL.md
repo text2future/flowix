@@ -1,5 +1,5 @@
 ---
-name: 代码审查与风险检查
+name: code-review-and-risk-check
 description: 以"审查者"视角检查代码 diff，重点抓正确性、边界、安全、兼容性与可维护性，而不是风格挑刺。用于 PR 评审与合入前把关。
 ---
 

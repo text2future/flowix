@@ -9,6 +9,7 @@ const VIDEO_EXTENSIONS = new Set([
 ]);
 
 export type ResourceKind = 'note' | 'image' | 'video' | 'other';
+export type ExternalFileViewKind = 'code' | 'markdown' | 'image' | 'video' | 'html' | 'unavailable';
 
 // Keep this list aligned with the extension allowlist in
 // `supported_text_document_path` in the desktop external-document command.
@@ -64,6 +65,16 @@ export function isVideoFilePath(path: string): boolean {
 
 export function isHtmlFilePath(path: string): boolean {
   return ['html', 'htm'].includes(fileExtension(path));
+}
+
+/** Pick the view for a file opened outside the notebook memo model. */
+export function externalFileViewKind(path: string): ExternalFileViewKind {
+  if (isImageFilePath(path)) return 'image';
+  if (isVideoFilePath(path)) return 'video';
+  if (isHtmlFilePath(path)) return 'html';
+  if (isMarkdownFilePath(path)) return 'markdown';
+  if (isEditableTextFilePath(path)) return 'code';
+  return 'unavailable';
 }
 
 /** Classify files shown by the notebook tree and external document view. */

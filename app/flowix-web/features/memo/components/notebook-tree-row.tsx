@@ -10,7 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { FilePlusIcon, FileTextIcon, FolderPlusIcon, LinkIcon, PencilSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
-import { ChevronRight, EyeOff, FolderPlus, MoreHorizontal, Plus } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, FolderPlus, MoreHorizontal, Plus } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
 import { cn, displayTitleFromFilename } from '@/lib/utils';
@@ -38,14 +38,14 @@ const TREE_MENU_DIVIDER_CLASS = 'mx-1 my-1 h-px bg-[var(--border-popup)] opacity
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
 
-const NOTEBOOK_FOLDER_DISPLAY_NAMES: Record<string, string> = {
-  '.agents': 'Agents',
-  '.codex': 'Codex',
-  '.claude': 'Claude',
-  '.dsh': 'DeepSeek Harness',
-  '.opencode': 'OpenCode',
-  '.hermes': 'Hermes',
-};
+const NOTEBOOK_AGENT_PROJECT_FOLDER_NAMES = new Set([
+  '.agents',
+  '.codex',
+  '.claude',
+  '.dsh',
+  '.opencode',
+  '.hermes',
+]);
 
 export const NotebookTreeRow = memo(function NotebookTreeRow({
   item,
@@ -64,6 +64,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onRename,
   onDeleteFolder,
   onDeleteResource,
+  hiddenFromList,
+  onToggleListVisibility,
   onPointerDown,
   onKeyDown,
   onFocus,
@@ -88,6 +90,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onPointerDown: (item: DocTreeItem, event: ReactPointerEvent<HTMLDivElement>) => void;
   onDeleteFolder?: (path: string) => Promise<void>;
   onDeleteResource?: (item: DocTreeItem) => Promise<void>;
+  hiddenFromList?: boolean;
+  onToggleListVisibility?: (folderPath: string) => void;
   onKeyDown?: (path: string, event: ReactKeyboardEvent<HTMLDivElement>) => void;
   onFocus?: (path: string) => void;
   onKeepAliveChange?: (path: string, active: boolean) => void;
@@ -98,9 +102,17 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   const isFolder = item.type === 'folder';
   const sourceFolderName = item.fullPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? item.name;
   const isHiddenFolder = isFolder && sourceFolderName.startsWith('.');
+  const isInHiddenDirectory = isFolder && (
+    isHiddenFolder
+    || item.fullPath
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .slice(0, -1)
+      .some((part) => part.startsWith('.') && part !== '.' && part !== '..')
+  );
   const isAgentProjectFolder = isFolder
     && depth === 0
-    && sourceFolderName in NOTEBOOK_FOLDER_DISPLAY_NAMES;
+    && NOTEBOOK_AGENT_PROJECT_FOLDER_NAMES.has(sourceFolderName);
   const actionParentPath = isFolder ? item.fullPath : parentPath;
   const resourceKind = isFolder ? null : item.resourceKind ?? resourceKindFromPath(item.name);
   const isNote = resourceKind === 'note';
@@ -258,6 +270,16 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       },
     ];
 
+    if (isFolder && onToggleListVisibility) {
+      items.push(
+        { item: 'Separator' },
+        {
+          text: t(hiddenFromList ? 'memo.fileTree.showInList' : 'memo.fileTree.hideFromList'),
+          action: () => onToggleListVisibility(item.fullPath),
+        },
+      );
+    }
+
     if (isFolder) {
       if (onDeleteFolder) {
         items.push({ text: t('memo.fileTree.copyLink'), action: () => void navigator.clipboard.writeText(item.fullPath) });
@@ -379,7 +401,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               event.stopPropagation();
               return;
             }
-            if (isFolder || event.button !== 0) return;
+            if (event.button !== 0) return;
             onPointerDown(item, event);
           }}
           onKeyDown={(event) => {
@@ -391,7 +413,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             onKeyDown?.(item.fullPath, event);
           }}
           className={cn(
-            'folder-file-tree__item group relative flex h-8 cursor-pointer items-center rounded-lg px-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]',
+            'folder-file-tree__item group relative flex h-8 cursor-default items-center rounded-lg px-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]',
             moveStatus === 'moving' && 'notebook-file-tree__item--moving',
             moveStatus === 'success' && 'notebook-file-tree__item--move-success',
             active || selected
@@ -410,8 +432,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             className={cn(
               'relative flex h-[15px] w-[15px] shrink-0 items-center justify-center',
               isFolder
-                ? (isHiddenFolder ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand)]')
+                ? (isInHiddenDirectory ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand)]')
                 : 'text-[color-mix(in_oklch,var(--foreground)_90%,white_10%)]',
+              isInHiddenDirectory && 'opacity-80',
             )}
           >
             {isFolder ? (
@@ -451,10 +474,13 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
           {isFolder ? (
             <span aria-hidden="true" className={cn(
               'relative h-[15px] w-[15px] shrink-0',
-              isHiddenFolder ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand)]',
+              isInHiddenDirectory ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand)]',
             )}>
               <span
-                className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
+                className={cn(
+                  'absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0',
+                  isInHiddenDirectory && 'opacity-80',
+                )}
                 dangerouslySetInnerHTML={{ __html: folderIcon }}
               />
               <ChevronRight className={cn(
@@ -479,13 +505,28 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               )}
             </span>
           )}
+          {!isFolder && isNote && displayedColors.length > 0 && (
+            <span
+              aria-label="Note colors"
+              className="ml-1.5 inline-flex h-6 shrink-0 items-center justify-center gap-0.5"
+            >
+              {displayedColors.map((color) => (
+                <span
+                  key={color}
+                  aria-hidden="true"
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: MEMO_COLOR_HEX[color] }}
+                />
+              ))}
+            </span>
+          )}
           <span className={cn(
             'min-w-0 flex-1 truncate',
-            'ml-1.5',
+            'ml-1',
             !isFolder && 'text-[color-mix(in_oklch,var(--foreground)_90%,transparent)]',
           )}>
             {isFolder
-              ? NOTEBOOK_FOLDER_DISPLAY_NAMES[item.name] ?? item.name
+              ? item.name
               : !isNote ? item.name : displayTitleFromFilename(item.name)}
           </span>
           {isFolder && (
@@ -522,21 +563,6 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             </span>
           )}
         </>
-      )}
-      {!renaming && isNote && displayedColors.length > 0 && (
-        <span
-          aria-label="Note colors"
-          className="ml-2 inline-flex h-6 shrink-0 items-center justify-center gap-0.5 px-2"
-        >
-          {displayedColors.map((color) => (
-            <span
-              key={color}
-              aria-hidden="true"
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: MEMO_COLOR_HEX[color] }}
-            />
-          ))}
-        </span>
       )}
       {!renaming && moveStatus && (
         <span
@@ -593,9 +619,18 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t('memo.fileTree.copyLink')}
           </ContextMenuItem>
         )}
-        {isFolder && (onDeleteFolder || isAgentProjectFolder) && (
+        {isFolder && (onDeleteFolder || isAgentProjectFolder || onToggleListVisibility) && (
           <>
             <div role="separator" aria-hidden="true" className={TREE_MENU_DIVIDER_CLASS} />
+            {onToggleListVisibility && (
+              <ContextMenuItem
+                onClick={() => onToggleListVisibility(item.fullPath)}
+                className={TREE_MENU_ITEM_CLASS}
+              >
+                {hiddenFromList ? <Eye className="mr-2 h-4 w-4" /> : <EyeOff className="mr-2 h-4 w-4" />}
+                {t(hiddenFromList ? 'memo.fileTree.showInList' : 'memo.fileTree.hideFromList')}
+              </ContextMenuItem>
+            )}
             {isAgentProjectFolder ? (
               <ContextMenuItem
                 onClick={() => void setShowHiddenNotebookFilesPreference(false)}

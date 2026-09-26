@@ -135,6 +135,107 @@ describe('resolveListDropTarget', () => {
 })
 
 describe('block drag transactions', () => {
+  it('updates the source list position after a preceding paragraph changes', () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+    const editor = new Editor({
+      element,
+      extensions: [StarterKit, BlockDragExtension],
+      content: { type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'prefix' }] },
+        { type: 'bulletList', content: [{ type: 'listItem', content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'A' }] },
+        ] }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'destination' }] },
+      ] },
+    })
+    try {
+      const { view } = editor
+      const sourcePos = view.state.doc.firstChild!.nodeSize + 1
+      const source = view.state.doc.nodeAt(sourcePos)!
+      expect(startBlockDragForView(view, { pos: sourcePos, nodeSize: source.nodeSize })).toBe(true)
+      view.dispatch(view.state.tr.insertText('more', 1))
+      view.state.doc.forEach((_node, pos, index) => {
+        const dom = view.nodeDOM(pos)
+        if (dom instanceof HTMLElement) Object.defineProperty(dom, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => ({ top: index * 30, bottom: index * 30 + 20 }),
+        })
+      })
+      expect(dropBlockDragAtForView(view, 0, 100)).toBe(true)
+      expect(view.state.doc.content.content.map(node => node.type.name))
+        .toEqual(['paragraph', 'paragraph', 'bulletList', 'paragraph'])
+      expect(view.state.doc.child(2).textContent).toBe('A')
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
+  it('keeps the original item when another item is inserted at its boundary during drag', () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+    const editor = new Editor({
+      element,
+      extensions: [StarterKit, BlockDragExtension],
+      content: { type: 'doc', content: [
+        { type: 'bulletList', content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }] }] },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'B' }] }] },
+        ] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'destination' }] },
+      ] },
+    })
+    try {
+      const { view } = editor
+      const source = view.state.doc.nodeAt(1)!
+      expect(startBlockDragForView(view, { pos: 1, nodeSize: source.nodeSize })).toBe(true)
+      const inserted = editor.schema.nodes.listItem.create(null,
+        editor.schema.nodes.paragraph.create(null, editor.schema.text('NEW')))
+      view.dispatch(view.state.tr.insert(1, inserted))
+      view.state.doc.forEach((_node, pos, index) => {
+        const dom = view.nodeDOM(pos)
+        if (dom instanceof HTMLElement) Object.defineProperty(dom, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => ({ top: index * 30, bottom: index * 30 + 20 }),
+        })
+      })
+      expect(dropBlockDragAtForView(view, 0, 100)).toBe(true)
+      expect(view.state.doc.textContent).toContain('A')
+      expect(view.state.doc.textContent).toContain('NEW')
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
+  it('rejects a release outside the editor bounds', () => {
+    const element = document.createElement('div')
+    document.body.append(element)
+    const editor = new Editor({
+      element,
+      extensions: [StarterKit, BlockDragExtension],
+      content: { type: 'doc', content: [{ type: 'bulletList', content: [
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }] }] },
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'B' }] }] },
+      ] }] },
+    })
+    try {
+      const { view } = editor
+      Object.defineProperty(view.dom, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({ left: 0, right: 200, top: 0, bottom: 100, width: 200, height: 100 }),
+      })
+      const source = view.state.doc.nodeAt(1)!
+      expect(startBlockDragForView(view, { pos: 1, nodeSize: source.nodeSize })).toBe(true)
+      expect(dropBlockDragAtForView(view, -1000, 45)).toBe(false)
+      expect(view.state.doc.firstChild?.textContent).toBe('AB')
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
   it('moves an item between two ordinary paragraphs and removes the empty source list', () => {
     const element = document.createElement('div')
     document.body.append(element)

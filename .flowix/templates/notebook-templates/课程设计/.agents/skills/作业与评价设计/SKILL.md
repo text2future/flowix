@@ -1,5 +1,5 @@
 ---
-name: 作业与评价设计
+name: assignment-and-assessment-design
 description: 为课时或单元设计作业、测验与评价量规，并归档到资源库。触发于用户要求"设计作业 / 出测验 / 做评价量规"时。
 ---
 

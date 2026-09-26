@@ -1,5 +1,5 @@
 ---
-name: 代码与规格收敛
+name: code-and-spec-alignment
 description: 变更结束时的"收口"技能：核对代码与文档是否一致，把过程产物归档，把新知识回写到 context 与 memory。产出 `变更/<id>/收敛记录.md`。
 ---
 

@@ -48,6 +48,12 @@ import { NotebookTreeRow } from '@features/memo/components/notebook-tree-row';
 import { files, memos, type DocTreeItem, type DocTreeResourceKind } from '@platform/tauri/client';
 import { resourceKindFromPath } from '@features/editor/code-file';
 import { useDynamicVirtualList } from '@features/memo/components/memo-list/use-dynamic-virtual-list';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@shared/ui/context-menu';
 
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
@@ -62,6 +68,12 @@ const TREE_DRAG_EXPAND_DELAY_MS = 650;
 const logger = createLogger('notebook-file-tree');
 // Row gutter (6px) + inline padding (6px) + half of the 12px caret.
 const FOLDER_CARET_CENTER_OFFSET = 12;
+
+function relativeFolderPath(notebookPath: string, folderPath: string): string {
+  const root = canonicalDirectoryPath(notebookPath);
+  const folder = canonicalPath(folderPath);
+  return folder.startsWith(`${root}/`) ? folder.slice(root.length + 1) : folder;
+}
 
 function resolveDropDirectory(
   hit: Element | null,
@@ -112,6 +124,7 @@ export interface NotebookMoveSource {
   path: string;
   memoId?: string;
   resourceKind?: DocTreeResourceKind | null;
+  isFolder?: boolean;
 }
 
 interface NotebookFileTreeProps {
@@ -131,9 +144,12 @@ interface NotebookFileTreeProps {
   ) => Promise<NotebookMoveResult>;
   onDeleteFolder?: (folderPath: string) => Promise<void>;
   onDeleteResource?: (item: DocTreeItem) => Promise<void>;
+  hiddenListFolders?: string[];
+  onToggleListFolderVisibility?: (folderPath: string) => void;
 }
 
 interface PointerNoteDrag {
+  sourceType: 'folder' | 'document';
   sourcePath: string;
   sourcePaths: string[];
   sourceItems: NotebookMoveSource[];
@@ -280,6 +296,8 @@ export function NotebookFileTree({
   onMoveNote,
   onDeleteFolder,
   onDeleteResource,
+  hiddenListFolders = [],
+  onToggleListFolderVisibility,
 }: NotebookFileTreeProps) {
   const { t } = useI18n();
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
@@ -296,6 +314,7 @@ export function NotebookFileTree({
     activeFilePath ? canonicalPath(activeFilePath) : null,
   );
   const externalDropSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const treeHeaderRef = useRef<HTMLDivElement | null>(null);
   const treeRootRef = useRef<HTMLDivElement | null>(null);
   const dragPreviewRef = useRef<HTMLDivElement | null>(null);
   const dragPreviewPositionRef = useRef({ x: 0, y: 0 });
@@ -697,7 +716,10 @@ export function NotebookFileTree({
     }
   }, [notebookPath, t, tree.refresh]);
 
-  const handleTogglePath = useCallback((path: string) => tree.toggle(path), [tree.toggle]);
+  const handleTogglePath = useCallback((path: string) => {
+    if (suppressOpenPathsRef.current.has(canonicalPath(path))) return;
+    tree.toggle(path);
+  }, [tree.toggle]);
   const handleOpenPath = useCallback((path: string, event?: ReactMouseEvent<HTMLDivElement>) => {
     if (suppressOpenPathsRef.current.has(canonicalPath(path))) return;
     selectNote(path, event);
@@ -719,7 +741,26 @@ export function NotebookFileTree({
     item: DocTreeItem,
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
-    if (item.type !== 'document' || dropPendingRef.current) return;
+    if (dropPendingRef.current || event.button !== 0) return;
+    if (item.type === 'folder') {
+      const captureElement = event.currentTarget;
+      captureElement.setPointerCapture(event.pointerId);
+      pointerDragRef.current = {
+        sourceType: 'folder',
+        sourcePath: item.fullPath,
+        sourcePaths: [item.fullPath],
+        sourceItems: [{ path: item.fullPath, isFolder: true }],
+        preserveSelectionAfterMove: false,
+        sourceName: item.name,
+        pointerId: event.pointerId,
+        captureElement,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+        targetDirectoryPath: null,
+      };
+      return;
+    }
     const currentPaths = selectedFilePathsRef.current;
     const isSelected = currentPaths.some((path) => samePath(path, item.fullPath));
     const sourcePaths = isSelected ? currentPaths : [item.fullPath];
@@ -741,6 +782,7 @@ export function NotebookFileTree({
     const captureElement = event.currentTarget;
     captureElement.setPointerCapture(event.pointerId);
     pointerDragRef.current = {
+      sourceType: 'document',
       sourcePath: item.fullPath,
       sourcePaths,
       sourceItems,
@@ -780,8 +822,7 @@ export function NotebookFileTree({
     const isMovingTarget = item.type === 'folder'
       && moveFeedback !== null
       && samePath(item.fullPath, moveFeedback.targetDirectoryPath);
-    const isMovingSource = item.type === 'document'
-      && moveFeedback !== null
+    const isMovingSource = moveFeedback !== null
       && moveFeedback.paths.some((path) => samePath(path, item.fullPath));
     const moveStatus = isMovingTarget || isMovingSource ? moveFeedback?.status : undefined;
 
@@ -840,6 +881,8 @@ export function NotebookFileTree({
           onDeleteResource={item.type === 'document' && onDeleteResource
             ? onDeleteResource
             : undefined}
+          hiddenFromList={item.type === 'folder' && hiddenListFolders.includes(relativeFolderPath(notebookPath, item.fullPath))}
+          onToggleListVisibility={item.type === 'folder' ? onToggleListFolderVisibility : undefined}
           onKeepAliveChange={handleRowKeepAliveChange}
           onPointerDown={handlePointerDownItem}
         />
@@ -996,14 +1039,21 @@ export function NotebookFileTree({
     if (!drag?.active || !treeRoot) return;
     const hit = document.elementFromPoint(clientX, clientY);
     const hitTree = hit?.closest<HTMLElement>('[data-notebook-tree-root="true"]');
+    const isOverHeader = Boolean(hit && treeHeaderRef.current?.contains(hit));
     const candidateDirectoryPath = hitTree === treeRoot
       ? resolveDropDirectory(hit, treeRoot, notebookPath)
-      : null;
+      : isOverHeader
+        ? notebookPath
+        : null;
     const targetDirectoryPath = candidateDirectoryPath
-      && drag.sourcePaths.some(
-        (sourcePath) => parentDirectoryPath(sourcePath, notebookPath)
-          !== canonicalDirectoryPath(candidateDirectoryPath),
-      )
+      && drag.sourcePaths.some((sourcePath) => {
+        const target = canonicalDirectoryPath(candidateDirectoryPath);
+        if (drag.sourceType === 'folder') {
+          const source = canonicalDirectoryPath(sourcePath);
+          if (target === source || target.startsWith(`${source}/`)) return false;
+        }
+        return parentDirectoryPath(sourcePath, notebookPath) !== target;
+      })
       ? candidateDirectoryPath
       : null;
     if (drag.targetDirectoryPath !== targetDirectoryPath) {
@@ -1134,7 +1184,10 @@ export function NotebookFileTree({
     <div
       ref={externalDropSurfaceRef}
       data-notebook-external-drop-target="true"
-      className="relative flex h-full min-h-0 flex-col select-none bg-[var(--list-bg)] text-[var(--foreground)]"
+      className={cn(
+        'relative flex h-full min-h-0 flex-col select-none bg-[var(--list-bg)] text-[var(--foreground)]',
+        dragPreview && 'notebook-file-tree--dragging',
+      )}
     >
       <div className="relative min-h-0 flex-1">
         <OverlayScrollbar
@@ -1146,7 +1199,16 @@ export function NotebookFileTree({
             setShowScrollTopHint(event.currentTarget.scrollTop > 0);
           }}
         >
-          <div className="flex h-6 shrink-0 items-center gap-1 px-3">
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div className="min-h-full">
+          <div
+            ref={treeHeaderRef}
+            className={cn(
+              'flex h-6 shrink-0 items-center gap-1 rounded-lg px-3 transition-colors duration-150',
+              isRootDropTarget && 'bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]',
+            )}
+          >
             <h3 className="text-xs font-medium leading-6 text-[var(--muted-foreground)] opacity-90">
               {t('memo.fileTree.sectionTitle')}
             </h3>
@@ -1162,12 +1224,13 @@ export function NotebookFileTree({
               </button>
             )}
           </div>
-          <div
+              <div
             ref={treeRootRef}
             role="tree"
             aria-multiselectable="true"
             aria-label={notebookName}
             data-notebook-tree-root="true"
+            style={{ minHeight: `calc(100% - ${TREE_HEADER_HEIGHT}px)` }}
             className={cn(
               'relative rounded-lg transition-colors duration-150',
               isRootDropTarget && 'bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]',
@@ -1263,6 +1326,25 @@ export function NotebookFileTree({
               ))}
             </div>
           </div>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+              <ContextMenuItem
+                onClick={() => handleCreateNoteAtPath(notebookPath)}
+                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                <File className="mr-2 h-4 w-4" aria-hidden="true" />
+                {t('memo.fileTree.newNote')}
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => handleCreateFolderAtPath(notebookPath)}
+                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                <FolderPlus className="mr-2 h-4 w-4" aria-hidden="true" />
+                {t('memo.fileTree.newFolder')}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </OverlayScrollbar>
         {dragPreview && (
           <div

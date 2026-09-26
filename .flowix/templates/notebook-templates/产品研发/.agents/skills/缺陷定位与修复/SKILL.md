@@ -1,5 +1,5 @@
 ---
-name: 缺陷定位与修复
+name: bug-localization-and-fix
 description: 从现象出发，用可复现路径定位根因，给出最小修复与防回归措施。用于 bug 处理全流程。产出 `事件与问题/缺陷队列.md` + `BUG-NNN` 记录。
 ---
 

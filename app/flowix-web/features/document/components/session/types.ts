@@ -41,6 +41,8 @@ export interface DocumentContainerProps {
   isExternalDocument?: boolean;
   /** Authorized file-tree root for external code/text files. */
   externalScopePath?: string | null;
+  /** Select the editor used to render an external document. Defaults to source code. */
+  externalEditorMode?: 'code' | 'markdown';
   // Controlled by main-layout so the titlebar button and Ctrl+F share one state.
   searchPanelOpen?: boolean;
   onSearchPanelOpenChange?: (open: boolean) => void;

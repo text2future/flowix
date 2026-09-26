@@ -7,8 +7,9 @@ export {
   isImageFilePath,
   isVideoFilePath,
   isHtmlFilePath,
+  externalFileViewKind,
   isNotebookResourcePath,
   resourceKindFromPath,
 } from '../code-file';
 
-export type { ResourceKind } from '../code-file';
+export type { ExternalFileViewKind, ResourceKind } from '../code-file';

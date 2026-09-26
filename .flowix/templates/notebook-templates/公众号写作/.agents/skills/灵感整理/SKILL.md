@@ -1,5 +1,5 @@
 ---
-name: 灵感整理
+name: idea-organization
 description: 当收件箱中出现零散灵感、链接、读者问题或待整理素材时触发，将其提炼为结构化选题卡并写入选题池。
 ---
 

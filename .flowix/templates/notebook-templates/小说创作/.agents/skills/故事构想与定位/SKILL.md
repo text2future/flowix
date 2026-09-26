@@ -1,5 +1,5 @@
 ---
-name: 故事构想与定位
+name: story-concept-and-positioning
 description: 把灵感凝练成小说的核心定位（题材、主题、卖点、基调、故事事实与规则）。触发于用户说"想写一个…/定一下故事/这个灵感能不能写成小说"时。
 ---
 
