@@ -5,6 +5,8 @@ import { AllSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state
 import type { Selection } from '@tiptap/pm/state';
 import { FrontmatterPropertyNodeView } from '@features/editor/extensions/frontmatter-node-view';
 import { updateVisibleFrontmatterProperty } from '@features/document/properties/frontmatter-model';
+import { resolvePropertyPreset } from '@features/document/properties/presets';
+import { getPropertyFieldPreferences } from '@features/preferences/public/runtime-api';
 
 // Consume a BOM both at the true file boundary and immediately after the
 // frontmatter block. The latter repairs legacy imports where key injection
@@ -58,10 +60,21 @@ const Frontmatter = Node.create({
         key: new PluginKey('frontmatter-add-first-property'),
         view: (view) => {
           const handleAddProperty = (event: Event) => {
-            const detail = (event as CustomEvent<{ propertyTargetId?: string }>).detail;
+            const detail = (event as CustomEvent<{ propertyTargetId?: string; presetKey?: string }>).detail;
             if (!this.options.propertyTargetId || detail?.propertyTargetId !== this.options.propertyTargetId || !view.editable) return;
             if (view.state.doc.firstChild?.type.name === this.name) return;
-            const yamlContent = updateVisibleFrontmatterProperty('', null, 'key1', '', 'Text');
+            // When a preset is requested, seed the frontmatter with that preset's
+            // key/kind so the first row matches the user's pick.
+            const preset = detail?.presetKey
+              ? resolvePropertyPreset(detail.presetKey, getPropertyFieldPreferences())
+              : null;
+            const yamlContent = updateVisibleFrontmatterProperty(
+              '',
+              null,
+              preset?.key ?? 'key1',
+              '',
+              preset?.kind ?? 'Text',
+            );
             view.dispatch(view.state.tr.insert(0, view.state.schema.nodes.frontmatter.create({ yamlContent })));
           };
           window.addEventListener('flowix:add-property', handleAddProperty);

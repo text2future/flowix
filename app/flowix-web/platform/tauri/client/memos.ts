@@ -29,6 +29,7 @@ export type {
   NoteSearchHit,
   NoteTemplate,
   NoteVersionSource,
+  PathArchiveSummary,
   PathVersionMeta,
   PruneMissingNoteOutcome,
   SortType,
@@ -206,7 +207,7 @@ export const memos = {
 };
 
 export type ExternalDocumentWriteOutcome =
-  | { status: 'saved'; path: string; content: string }
+  | { status: 'saved'; path: string; content: string; merged?: boolean }
   | { status: 'conflict'; diskContent: string }
   | { status: 'missing' }
   | { status: 'error'; message: string };

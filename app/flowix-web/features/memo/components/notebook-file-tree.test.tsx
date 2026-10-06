@@ -12,6 +12,8 @@ import {
   type NotebookMoveSource,
 } from './notebook-file-tree';
 
+const repositoryTreeTestState = vi.hoisted(() => ({ loadComplete: false }));
+
 vi.mock('@/lib/i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/i18n')>(),
   useI18n: () => ({ t: (key: string) => key }),
@@ -44,11 +46,37 @@ vi.mock('@shared/ui/context-menu', () => ({
   ContextMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ContextMenuSeparator: () => <hr />,
   useContextMenuContext: () => ({ openAt: vi.fn() }),
 }));
-vi.mock('@features/memo/components/file-type-icon', () => ({ FileTypeIcon: () => null }));
+vi.mock('@features/memo/components/file-type-icon', () => ({
+  FileTypeIcon: () => null,
+  NotebookTreeResourceIcon: () => null,
+}));
 vi.mock('@features/memo/components/memo-card-actions', () => ({ MemoCardActions: () => null }));
-vi.mock('@features/memo/services/note-repository', () => ({ noteRepository: {} }));
+vi.mock('@features/memo/services/note-repository', () => ({ noteRepository: { listByPath: vi.fn(async () => ({ notes: [] })) } }));
+vi.mock('@features/agent/public/workspace-api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@features/agent/public/workspace-api')>(),
+  getWorkspaceAgentRepositories: () => [{ path: '/repos/project', name: 'project', missing: false }],
+}));
+vi.mock('@features/memo/components/use-folder-tree', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@features/memo/components/use-folder-tree')>(),
+  useFolderTree: (_path: string, { enabled = true }: { enabled?: boolean } = {}) => ({
+    rootChildren: [],
+    nodes: new Map(),
+    expanded: new Set(),
+    loading: enabled && !repositoryTreeTestState.loadComplete,
+    error: null,
+    loadingDirectories: new Set(),
+    directoryErrors: new Set(),
+    toggle: vi.fn(),
+    expandTo: vi.fn(async () => {}),
+    collapseAll: vi.fn(),
+    refresh: vi.fn(async () => {}),
+    refreshDirectories: vi.fn(async () => {}),
+    reload: vi.fn(async () => {}),
+  }),
+}));
 vi.mock('@features/memo', () => ({
   NOTE_COLOR_HEX: { blue: '#0000ff' },
   useNoteStore: Object.assign(
@@ -102,6 +130,7 @@ describe('NotebookFileTree pointer dragging', () => {
     environment.IS_REACT_ACT_ENVIRONMENT = true;
     host = document.createElement('div');
     document.body.append(host);
+    repositoryTreeTestState.loadComplete = false;
     captured = false;
     capturedElement = null;
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(320);
@@ -235,6 +264,94 @@ describe('NotebookFileTree pointer dragging', () => {
     });
     expect(onFolderSelect).not.toHaveBeenCalled();
     expect(tree.toggle).toHaveBeenCalledWith('/notes/projects');
+    await act(async () => root.unmount());
+  });
+
+  it('scrolls an expanded repository to the top of the tree viewport after it renders', async () => {
+    const { root, tree } = await mount(successfulMove);
+    const scroller = host.querySelector<HTMLDivElement>('[data-test-tree-scroller="true"]')!;
+    const repositoryButton = host.querySelector<HTMLButtonElement>('button[title="/repos/project"]')!;
+    let scrollTop = 10;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        // Before the expanded tree finishes loading, the browser clamps the
+        // requested position to the old content's smaller scroll range.
+        scrollTop = Math.min(value, repositoryTreeTestState.loadComplete ? 500 : 80);
+      },
+    });
+
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === scroller) return new DOMRect(0, 50, 320, 204);
+      if (this.contains(repositoryButton)) return new DOMRect(0, 330, 300, 50);
+      return originalGetBoundingClientRect.call(this);
+    });
+
+    await act(async () => {
+      repositoryButton.dispatchEvent(clickEvent());
+    });
+
+    expect(repositoryButton.getAttribute('aria-expanded')).toBe('true');
+    expect(scroller.scrollTop).toBe(10);
+
+    repositoryTreeTestState.loadComplete = true;
+    await act(async () => root.render(
+      <NotebookFileTree notebookPath="/notes" notebookName="Notes" tree={tree}
+        onNoteSelect={vi.fn()} onCreateNote={vi.fn()} onMoveNote={successfulMove} />,
+    ));
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    });
+
+    expect(scroller.scrollTop).toBe(244);
+    await act(async () => root.unmount());
+  });
+
+  it('renders view items with the same more and context menu actions as access-space items', async () => {
+    vi.spyOn(files, 'listTableDocuments').mockResolvedValue([{
+      relativePath: 'views/Project.table.yml',
+      tableId: 'tbl_project',
+      name: 'Project',
+      modifiedMs: 1_700_000_000_000,
+      fileRevision: 1,
+      inViews: true,
+    }]);
+    const tree = {
+      rootChildren: [],
+      nodes: new Map(),
+      expanded: new Set<string>(),
+      loading: false,
+      error: null,
+      toggle: vi.fn(),
+      expandTo: vi.fn(async () => {}),
+      collapseAll: vi.fn(),
+      refresh: vi.fn(async () => {}),
+      refreshDirectories: vi.fn(async () => {}),
+      reload: vi.fn(async () => {}),
+    } as unknown as FolderTreeController;
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <NotebookFileTree
+        notebookId="notebook-1"
+        notebookPath="/notes"
+        notebookName="Notes"
+        tree={tree}
+        onNoteSelect={vi.fn()}
+        onCreateNote={vi.fn()}
+        onMoveNote={successfulMove}
+      />,
+    ));
+
+    await vi.waitFor(() => expect(host.querySelector('[data-notebook-tree-kind="other"]')).not.toBeNull());
+    const viewRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="other"]')!;
+    expect(viewRow.textContent).toContain('Project');
+    expect(viewRow.querySelector('button[aria-label="memo.fileTree.moreActions"]')).not.toBeNull();
+    expect(host.textContent).toContain('memo.fileTree.newNote');
+    expect(host.textContent).toContain('memo.fileTree.newFolder');
+    expect(host.textContent).toContain('memo.fileTree.rename');
+    expect(host.textContent).toContain('memo.fileTree.delete');
     await act(async () => root.unmount());
   });
 

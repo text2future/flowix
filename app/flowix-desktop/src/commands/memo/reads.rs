@@ -179,6 +179,23 @@ pub async fn list_notes_by_path(
     .map_err(|error| format!("path-based note list task failed: {error}"))?
 }
 
+/// Read one note from the current index projection without changing index state.
+#[tauri::command]
+pub async fn get_indexed_note_by_path(
+    notebook_id: String,
+    relative_path: String,
+    app: AppHandle,
+) -> Result<Option<NoteEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        memo_file.read_indexed_note_entry_by_path(&notebook_id, &relative_path)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("indexed note read task failed: {error}"))?
+}
+
 /// Return one page from the path-keyed Note index without consulting Memo IDs.
 #[tauri::command]
 #[allow(non_snake_case)]

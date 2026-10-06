@@ -26,11 +26,13 @@ pub async fn codex_default_model(
 #[tauri::command]
 pub async fn agent_supported_models(
     agent_type: String,
+    app: tauri::AppHandle,
     state: State<'_, crate::app::state::AppState>,
 ) -> Result<Vec<String>, String> {
     match agent_type.trim().to_ascii_lowercase().as_str() {
         "codex" => state.codex_app_server.supported_models().await,
         "opencode" => state.opencode.supported_models().await,
+        "pi" => state.pi.supported_models(&app).await,
         "deepseek-harness" | "deepseek_harness" | "dsh" => {
             state.deepseek_harness.supported_models().await
         }

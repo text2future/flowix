@@ -121,7 +121,8 @@ async function loadThread(
       type.key !== "deepseek-harness" &&
       type.key !== "codex" &&
       type.key !== "opencode" &&
-      type.key !== "claude"
+      type.key !== "claude" &&
+      type.key !== "pi"
     ) {
       const replay = await replayExternalEventsForThread(type.key, threadId, {
         canCommit: () =>

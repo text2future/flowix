@@ -315,6 +315,8 @@ const BLOCK_MATH_RE =
   /^ {0,3}(?:\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$)/;
 const BLOCK_MATH_START_RE = /^ {0,3}(?:\\\[|\$\$)/m;
 const INLINE_MATH_RE = /^\\\(([\s\S]*?)\\\)/;
+const CJK_STRONG_BOUNDARY_RE =
+  /^\*\*(?!\*)((?:(?!\*\*)[\s\S])+?)\*\*(?=\p{Script=Han})/u;
 const mathCopyContainers = new WeakSet<HTMLElement>();
 let katexPromise: Promise<KatexModule> | null = null;
 let katexLoaded: KatexModule | null = null;
@@ -412,6 +414,31 @@ const cardMarked = new Marked({
 
 cardMarked.use({
   extensions: [
+    {
+      name: "agentCjkStrong",
+      level: "inline",
+      start(src) {
+        const index = src.indexOf("**");
+        return index >= 0 ? index : undefined;
+      },
+      tokenizer(src) {
+        // CommonMark treats punctuation before a closing delimiter followed
+        // by CJK text as non-closing. Accept that boundary for agent output.
+        const match = CJK_STRONG_BOUNDARY_RE.exec(src);
+        if (!match || /^\s|\s$/.test(match[1]) || !/\p{P}$/u.test(match[1])) {
+          return;
+        }
+        return {
+          type: "agentCjkStrong",
+          raw: match[0],
+          tokens: this.lexer.inlineTokens(match[1]),
+        };
+      },
+      renderer(token) {
+        return `<strong>${this.parser.parseInline(token.tokens ?? [])}</strong>`;
+      },
+      childTokens: ["tokens"],
+    },
     {
       name: "agentMathBlock",
       level: "block",

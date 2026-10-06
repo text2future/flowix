@@ -9,7 +9,7 @@ use std::fs;
 use tauri::{AppHandle, State};
 
 use crate::lock_utils::read_lock;
-use flowix_core::memo_file::{FileWriteOutcome, MemoVersionMeta, MemoVersionSource, PathVersionMeta};
+use flowix_core::memo_file::{FileWriteOutcome, IsMd, MemoVersionMeta, MemoVersionSource, PathVersionMeta};
 use flowix_core::MemoService;
 
 use crate::app::state::AppState;
@@ -24,7 +24,7 @@ fn path_archive_document(state: &AppState, notebook_id: &str, relative_path: &st
     let notebook = memo_file.get_notebook_config_by_id(notebook_id)?;
     let root = std::path::PathBuf::from(notebook.path).canonicalize().ok()?;
     let relative = std::path::Path::new(relative_path);
-    if relative.is_absolute() || !relative_path.ends_with(".md")
+    if relative.is_absolute() || !relative.is_md()
         || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
         return None;
     }

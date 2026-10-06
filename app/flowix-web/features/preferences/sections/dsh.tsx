@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Check,
-  Cpu,
   Database,
   Loader2,
   PanelsTopLeft,
@@ -192,6 +191,7 @@ export function DshSettingsSection({ autoUpdate = false }: { autoUpdate?: boolea
             configChangeKind="dsh_config"
             testConnection={deepseekHarness.testConnection}
             modelDirectory={deepseekHarness}
+            hideSectionDivider
           />
         )}
         {activeTab === 'general' && <GeneralTab initialStatus={displayedStatus} onUninstalled={handleUninstalled} autoUpdate={autoUpdate} />}
@@ -338,16 +338,16 @@ function GeneralTab({
     useDshRuntimeInstaller(initialStatus);
   const autoUpdateStarted = useRef(false);
   const [uninstalling, setUninstalling] = useState(false);
+  const checkingUpdate = busy && progress?.phase === 'checking';
+  const showingUpdateProgress = busy
+    && (progress?.phase === 'downloading'
+      || progress?.phase === 'downloaded'
+      || progress?.phase === 'installing');
   const rows = [
     {
       icon: Tag,
       title: t('preferences.dsh.general.harnessVersion'),
       value: status?.harnessVersion ?? 'unknown',
-    },
-    {
-      icon: Cpu,
-      title: t('preferences.dsh.general.runtime'),
-      value: t('preferences.dsh.general.runtimeValue'),
     },
     {
       icon: Database,
@@ -408,23 +408,19 @@ function GeneralTab({
         title={t('preferences.dsh.general.title')}
         className="flex h-8 items-center border-b-0 pb-0"
       />
-      <div className="border-b border-[var(--divider)]" />
-      <div className="divide-y divide-[var(--divider)] rounded-lg border border-[var(--divider)] bg-[var(--card)]">
+      <div className="rounded-lg border border-[var(--divider)] bg-[var(--card)] py-2">
         {rows.map(({ icon: Icon, title, value }) => (
-          <div key={title} className="flex items-center gap-3 px-3.5 py-3">
+          <div key={title} className="flex items-center gap-3 px-3.5 py-2">
             <Icon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
             <span className="min-w-0 flex-1 text-sm text-[var(--foreground)]">{title}</span>
-            <span className="text-right text-xs text-[var(--muted-foreground)]">{value}</span>
+            <span className="text-right text-sm text-[var(--muted-foreground)]">{value}</span>
           </div>
         ))}
       </div>
       <div className="space-y-2 rounded-lg border border-[var(--divider)] bg-[var(--card)] px-3.5 py-3">
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-[var(--foreground)]">{t('preferences.dsh.runtime.uninstall')}</p>
-            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              {t('preferences.dsh.runtime.uninstallHint')}
-            </p>
+            <p className="text-sm text-[var(--foreground)]">{t('preferences.dsh.runtime.version')}</p>
           </div>
           <Button
             variant="outline"
@@ -432,9 +428,12 @@ function GeneralTab({
             disabled={busy || !status?.installed}
             onClick={() => void checkForUpdates()}
           >
-            {busy
-              ? t(progress?.phase === 'installing' ? 'preferences.dsh.runtime.installing' : 'preferences.dsh.runtime.downloading')
-              : t('preferences.dsh.runtime.check')}
+            {checkingUpdate && <Loader2 className="h-4 w-4 animate-spin" />}
+            {checkingUpdate
+              ? t('preferences.dsh.runtime.checking')
+              : busy
+                ? t(progress?.phase === 'installing' ? 'preferences.dsh.runtime.installing' : 'preferences.dsh.runtime.downloading')
+                : t('preferences.dsh.runtime.check')}
           </Button>
           <Button
             variant="outline"
@@ -449,7 +448,7 @@ function GeneralTab({
               : t('preferences.dsh.runtime.uninstallButton')}
           </Button>
         </div>
-        {busy && progress && (
+        {showingUpdateProgress && progress && (
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-[var(--muted-foreground)]">
               <span>{t(progress.phase === 'installing' ? 'preferences.dsh.runtime.installing' : 'preferences.dsh.runtime.downloading')}</span>
@@ -548,8 +547,7 @@ function PluginsTab() {
 
   return (
     <div className="space-y-2">
-      {/* 分割线单独一行铺满宽度; 标题去掉 SectionHeader 自带的 pb + border,
-          与搜索框同行 items-center 水平对齐 */}
+      {/* 标题与搜索框同行并水平对齐 */}
       <div className="flex h-8 items-center gap-3">
         <SectionHeader
           title={t('preferences.dsh.plugins.title')}
@@ -578,7 +576,6 @@ function PluginsTab() {
           </SelectContent>
         </Select>
       </div>
-      <div className="border-b border-[var(--divider)]" />
       {/* WKWebView 下外层滚动容器吃不到底部间距, 在列表自身留 pb-10 兜底 */}
       <div className="space-y-2 pb-10">
         {loadError && <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-3.5 py-3 text-xs text-red-600">{t('preferences.dsh.plugins.loadError')}: {loadError}</p>}
@@ -670,7 +667,6 @@ function PresetsTab() {
         title={t('preferences.dsh.presets.title')}
         className="flex h-8 items-center border-b-0 pb-0"
       />
-      <div className="border-b border-[var(--divider)]" />
       <div className="space-y-2">
         {DSH_PRESETS.map(({ id, titleKey, descriptionKey }) => (
           <div

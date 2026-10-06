@@ -14,6 +14,13 @@ import {
 } from '@features/workspace/public/browser-column-api';
 import { BrowserColumnHeader } from './browser-column-header';
 import { useI18n } from '@/lib/i18n';
+import { toast } from '@/lib/toast';
+import { useNoteStore } from '@features/memo/store/note-store';
+import { noteRepository } from '@features/memo/services';
+import { openBrowserColumnAgentConversation, openBrowserColumnNotebookNote } from '@features/workspace/use-cases/browser-column-navigation';
+import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
+import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
+import type { AgentTypeKey } from '@/types/agent';
 import {
   captureLatestDocumentContent,
   getDocumentEditorMode,
@@ -79,6 +86,32 @@ export function BrowserColumn({
     activePathHasDuplicateTab,
   } = useBrowserColumnViewModel();
   const { isFocused, focusBrowserColumn } = useBrowserColumnFocusViewModel();
+  const selectedNotebook = useNoteStore((state) => state.selectedNotebook);
+  const handleCreateNote = useCallback(async () => {
+    if (!selectedNotebook) return;
+    try {
+      const created = await noteRepository.create(undefined, selectedNotebook.id);
+      useNoteStore.getState().upsertCreatedNote(created);
+      await openBrowserColumnNotebookNote(created.path, selectedNotebook.id, selectedNotebook.path);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('tabWindow.createNote.failed'));
+    }
+  }, [selectedNotebook, t]);
+  const handleCreateAgentConversation = useCallback(async (typeKey: AgentTypeKey) => {
+    if (!selectedNotebook) return;
+    const instance = useAgentSessionStore.getState().createInstance({
+      agentType: typeKey,
+      title: '',
+      threadId: null,
+      source: { kind: 'dedicated', notebookId: selectedNotebook.id, documentPath: null },
+      runtimeConfig: buildInitialInstanceRuntimeConfig(typeKey),
+    });
+    try {
+      await openBrowserColumnAgentConversation(instance.instanceId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('tabWindow.createConversation.failed'));
+    }
+  }, [selectedNotebook, t]);
   const registerActiveFlush = useCallback<BrowserColumnFlushRegistration>((flush, discard) => {
     if (activeTabId === null) return;
     registerBrowserColumnFlush(activeTabId, flush, discard);
@@ -225,6 +258,9 @@ export function BrowserColumn({
         onCloseColumn={hideBrowserColumn}
         onContextMenuOpenChange={handleContextMenuOpenChange}
         isFocused={isFocused}
+        canCreate={Boolean(selectedNotebook)}
+        onCreateNote={() => { void handleCreateNote(); }}
+        onCreateAgentConversation={(typeKey) => { void handleCreateAgentConversation(typeKey); }}
       />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {activeSurface ? (

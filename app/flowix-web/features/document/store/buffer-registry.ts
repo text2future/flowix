@@ -1,6 +1,6 @@
 import { getDocumentSession, findDocumentSession, releaseDocumentSession, notifyDocumentSessions } from './document-runtime-session';
 import { hasTitleDraft } from './document-title-session';
-import { scheduleSave } from '@features/document/store/save-queue';
+import { scheduleSave, waitForSaveQueue } from '@features/document/store/save-queue';
 import { emptyDocumentBuffer, type DocumentBuffer } from '@features/document/store/document-buffer';
 import { canonicalPath } from '@/lib/path';
 import { isDocumentContentEqual } from '@features/document/store/buffer-equality';
@@ -16,7 +16,7 @@ import { pinFileDisplayId } from '@/lib/file-display-registry';
 let currentPath: string | null = null;
 let currentIdentity: DocumentIdentity | null = null;
 
-export type DocumentBufferChangeReason = 'edited' | 'loaded' | 'save_settled';
+export type DocumentBufferChangeReason = 'edited' | 'loaded' | 'save_settled' | 'merged';
 type DocumentBufferChangeListener = (
   identity: DocumentIdentity,
   reason: DocumentBufferChangeReason,
@@ -191,7 +191,12 @@ export async function flushDocument(
   const buf = getBuffer(normalized);
   if (!buf) return true;
   if (buf.conflicted) return false;
-  if (buf.savingRevision === null && !callbacks?.force && isDocumentContentEqual(normalized, buf.content, buf.lastSavedContent)) {
+  const currentBodyIsSaved = () => !buf.conflicted
+    && buf.saveError === null
+    && buf.savingRevision === null
+    && buf.savedRevision >= buf.capturedRevision
+    && isDocumentContentEqual(normalized, buf.content, buf.lastSavedContent);
+  if (!callbacks?.force && currentBodyIsSaved()) {
     return true;
   }
 
@@ -203,8 +208,9 @@ export async function flushDocument(
 
   const releaseDisplayPin = pinFileDisplayId(normalized.displayId);
   try {
-    return await scheduleSave({
-      queueKey: documentIdentityKey(normalized),
+    const queueKey = documentIdentityKey(normalized);
+    const saved = await scheduleSave({
+      queueKey,
       path: canonicalPath(path),
       revision,
       scopePath: callbacks?.scopePath ?? null,
@@ -215,13 +221,42 @@ export async function flushDocument(
         buf.savingRevision = revision; buf.saveState = 'saving';
         notifyDocumentBufferChanged(normalized, 'save_settled');
       },
-      onSaved: (writtenPath, writtenContent, savedRevision) => {
+      onSaved: (writtenPath, writtenContent, savedRevision, submittedContent, merged) => {
+        if (merged) {
+          // A rich editor may still have an unserialized keystroke. Capture it
+          // before deciding whether the merged save can replace its document.
+          const session = getDocumentSession(normalized);
+          const wasCapturing = session.capturing;
+          session.capturing = true;
+          try {
+            for (const capture of [...session.captures]) {
+              if (!capture.isActive || capture.isActive()) capture.capture();
+            }
+          } finally {
+            session.capturing = wasCapturing;
+          }
+        }
+        const canApplyMerge = merged && isDocumentContentEqual(normalized, buf.content, submittedContent);
+        const changedWhileMerging = merged && !canApplyMerge;
         buf.lastSavedContent = writtenContent;
+        if (canApplyMerge) {
+          buf.content = writtenContent;
+          buf.editRevision += 1;
+          buf.capturedRevision = buf.editRevision;
+          buf.pendingContent = null;
+          buf.pendingRevision = null;
+        }
         buf.saveError = null;
         buf.savedRevision = Math.max(buf.savedRevision, savedRevision);
         buf.durableRevision = Math.max(buf.durableRevision, savedRevision);
         if (buf.savingRevision === savedRevision) buf.savingRevision = null;
-        if (isDocumentContentEqual(normalized, buf.content, writtenContent)) {
+        if (changedWhileMerging) {
+          // The saved merge contains an older editor snapshot. Keep the newer
+          // draft in memory instead of letting a queued write erase disk edits.
+          buf.conflicted = true;
+          buf.conflictContent = writtenContent;
+          buf.saveState = 'conflict';
+        } else if (isDocumentContentEqual(normalized, buf.content, writtenContent)) {
           buf.pendingContent = null;
           buf.pendingRevision = null;
           // The current bytes are now canonical even if an equivalent edit
@@ -240,7 +275,7 @@ export async function flushDocument(
           void clearRecoveryDraftThrough({ ...normalized, path: writtenPath }, getDocumentSession(normalized).recoveryRevision);
         }
         callbacks?.onSaved?.(writtenPath, writtenContent, savedRevision);
-        notifyDocumentBufferChanged(normalized, 'save_settled');
+        notifyDocumentBufferChanged(normalized, canApplyMerge ? 'merged' : 'save_settled');
       },
       onCasRefused: (written, refusedRevision) => {
         // All queued body writes are blocked by this conflict, including a
@@ -259,6 +294,12 @@ export async function flushDocument(
         notifyDocumentBufferChanged(normalized, 'save_settled');
       },
     }, buf.content);
+    if (!saved) return false;
+    // A write can succeed while newer typing queues another revision. Report
+    // success only after that queue settles and the current editor bytes are
+    // the bytes acknowledged on disk.
+    await waitForSaveQueue(queueKey);
+    return currentBodyIsSaved();
   } finally {
     releaseDisplayPin();
   }

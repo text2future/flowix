@@ -108,6 +108,8 @@ impl SyncActivity {
 const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(1_200);
 const AUTO_SYNC_MAX_WAIT: Duration = Duration::from_secs(5);
 const CLOUD_POLL_INTERVAL: Duration = Duration::from_secs(30);
+const CLOUD_SYNC_PASS_TIMEOUT: Duration = Duration::from_secs(180);
+const MANUAL_SYNC_TIMEOUT: Duration = Duration::from_secs(300);
 
 static SYNC_COORDINATOR: OnceLock<SyncCoordinatorHandle> = OnceLock::new();
 static POLLING_STARTED: AtomicBool = AtomicBool::new(false);
@@ -135,7 +137,7 @@ fn automatic_sync_available(app: &AppHandle, notebook_id: &str) -> bool {
     state
         .cloud_sync
         .state()
-        .map(|cloud| cloud.enabled && cloud.authenticated)
+        .map(|cloud| cloud.authenticated)
         .unwrap_or(false)
         && state
             .cloud_sync
@@ -153,7 +155,7 @@ fn automatic_sync_target_available(app: &AppHandle, target: &SyncTarget) -> bool
             state
                 .cloud_sync
                 .state()
-                .map(|cloud| cloud.enabled && cloud.authenticated)
+                .map(|cloud| cloud.authenticated)
                 .unwrap_or(false)
                 && !state
                     .cloud_sync
@@ -207,6 +209,32 @@ fn emit_activity_status(
     }
 }
 
+fn fail_sync_activity(
+    app: &AppHandle,
+    activity: &SyncActivity,
+    batch: &mut PendingSyncBatch,
+    target: &SyncTarget,
+    error: String,
+) -> String {
+    let mut affected_notebooks = activity.notebooks.clone();
+    if let SyncTarget::Notebook(notebook_id) = target {
+        affected_notebooks.insert(notebook_id.clone());
+    }
+    emit_activity_status(
+        app,
+        activity,
+        affected_notebooks,
+        "error",
+        "failed",
+        Some(&error),
+    );
+    finish_responders(std::mem::take(&mut batch.responders), Err(error.clone()));
+    if batch.retry_on_failure {
+        schedule_retry_after_failure(app, target.clone());
+    }
+    error
+}
+
 async fn sync_v2_account_pass(
     state: &AppState,
     app: &AppHandle,
@@ -256,9 +284,22 @@ async fn sync_v2_account_pass(
     );
     let mut conflict_attempts = 0;
     let report_result = loop {
-        let result = state.cloud_sync
-            .sync_v2_snapshot_at_generation(notebook_scope, notebooks, notes, generation)
-            .await;
+        let result = match tokio::time::timeout(
+            CLOUD_SYNC_PASS_TIMEOUT,
+            state.cloud_sync.sync_v2_snapshot_at_generation(
+                notebook_scope,
+                notebooks,
+                notes,
+                generation,
+            ),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(SyncError::InvalidState(
+                "云同步超过 3 分钟仍未完成，请检查网络后重试。".into(),
+            )),
+        };
         match result {
             Err(SyncError::MoveConflict { operation_id, .. }) if conflict_attempts < 3 => {
                 conflict_attempts += 1;
@@ -278,7 +319,7 @@ async fn sync_v2_account_pass(
                 if operation_kind == "delete" {
                     resolve_v2_delete_conflict(state, app, &material)?;
                 } else {
-                    resolve_v2_markdown_conflict(state, app, &material)?;
+                    resolve_v2_file_put_conflict(state, app, &material)?;
                 }
                 (notebooks, notes) = v2_account_snapshot(state, true, notebook_scope)?;
             }
@@ -516,23 +557,9 @@ async fn run_sync_activity(
         let enabled = match enabled_notebooks_for_target(state.inner(), &target) {
             Ok(enabled) => enabled,
             Err(error) => {
-                let mut error_notebooks = activity.notebooks.clone();
-                if let SyncTarget::Notebook(notebook_id) = &target {
-                    error_notebooks.insert(notebook_id.clone());
-                }
-                emit_activity_status(
-                    app,
-                    &activity,
-                    error_notebooks,
-                    "error",
-                    "failed",
-                    Some(&error),
-                );
-                finish_responders(batch.responders, Err(error.clone()));
-                if batch.retry_on_failure {
-                    schedule_retry_after_failure(app, target);
-                }
-                return Err(error);
+                return Err(fail_sync_activity(
+                    app, &activity, &mut batch, &target, error,
+                ))
             }
         };
         activity
@@ -546,23 +573,9 @@ async fn run_sync_activity(
             let mut report = match sync_v2_account_pass(state.inner(), app, &target, &enabled, &activity).await {
                 Ok(report) => report,
                 Err(error) => {
-                    let mut error_notebooks = activity.notebooks.clone();
-                    if let SyncTarget::Notebook(notebook_id) = &target {
-                        error_notebooks.insert(notebook_id.clone());
-                    }
-                    emit_activity_status(
-                        app,
-                        &activity,
-                        error_notebooks,
-                        "error",
-                        "failed",
-                        Some(&error),
-                    );
-                    finish_responders(batch.responders, Err(error.clone()));
-                    if batch.retry_on_failure {
-                        schedule_retry_after_failure(app, target.clone());
-                    }
-                    return Err(error);
+                    return Err(fail_sync_activity(
+                        app, &activity, &mut batch, &target, error,
+                    ))
                 }
             };
             activity.absorb_report(&report);
@@ -573,8 +586,16 @@ async fn run_sync_activity(
                     Err("CLOUD_BOOTSTRAP_PAGE_LIMIT: bootstrap exceeded page limit".to_string())
                 } else {
                     async {
-                        let next = state.cloud_sync.v2_continue_bootstrap(&report, target.notebook_scope())
-                            .await.map_err(cloud_error)?;
+                        let next = tokio::time::timeout(
+                            CLOUD_SYNC_PASS_TIMEOUT,
+                            state.cloud_sync.v2_continue_bootstrap(&report, target.notebook_scope()),
+                        )
+                        .await
+                        .map_err(|_| {
+                            "云端笔记初始化超过 3 分钟仍未完成，请检查网络后重试。"
+                                .to_string()
+                        })?
+                        .map_err(cloud_error)?;
                         state.cloud_sync.complete_v2_sync_with_apply(&next, target.notebook_scope(), || {
                             apply_v2_report(state.inner(), app, &next).map_err(SyncError::InvalidState)
                         }).map_err(sync_error)?;
@@ -584,11 +605,9 @@ async fn run_sync_activity(
                 report = match next {
                     Ok(next) => next,
                     Err(error) => {
-                        emit_activity_status(app, &activity, activity.notebooks.clone(),
-                            "error", "failed", Some(&error));
-                        finish_responders(batch.responders, Err(error.clone()));
-                        if batch.retry_on_failure { schedule_retry_after_failure(app, target.clone()); }
-                        return Err(error);
+                        return Err(fail_sync_activity(
+                            app, &activity, &mut batch, &target, error,
+                        ))
                     }
                 };
                 activity.absorb_report(&report);
@@ -596,12 +615,13 @@ async fn run_sync_activity(
             let head = *first_head.get_or_insert(report.head_cursor);
             if report.cursor >= head { break; }
             if previous_cursor.is_some_and(|cursor| report.cursor <= cursor) {
-                let error = "CLOUD_SYNC_CURSOR_STALLED: remote cursor did not advance".to_string();
-                emit_activity_status(app, &activity, activity.notebooks.clone(),
-                    "error", "failed", Some(&error));
-                finish_responders(batch.responders, Err(error.clone()));
-                if batch.retry_on_failure { schedule_retry_after_failure(app, target.clone()); }
-                return Err(error);
+                return Err(fail_sync_activity(
+                    app,
+                    &activity,
+                    &mut batch,
+                    &target,
+                    "CLOUD_SYNC_CURSOR_STALLED: remote cursor did not advance".to_string(),
+                ));
             }
             previous_cursor = Some(report.cursor);
         }
@@ -738,11 +758,7 @@ pub(crate) fn start_cloud_sync_polling(app: AppHandle) {
                 let cloud_state = state.cloud_sync.state().ok();
                 matches!(
                     cloud_state,
-                    Some(CloudState {
-                        enabled: true,
-                        authenticated: true,
-                        ..
-                    })
+                    Some(CloudState { authenticated: true, .. })
                 ) && !state
                     .cloud_sync
                     .v2_enabled_notebooks()
@@ -772,9 +788,11 @@ pub(super) async fn sync_now(
         &app,
         SyncCoordinatorRequest::Manual(ManualSyncRequest { target, responder }),
     )?;
-    response
-        .await
-        .map_err(|_| "cloud sync coordinator stopped before completing the request".to_string())?
+    match tokio::time::timeout(MANUAL_SYNC_TIMEOUT, response).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("cloud sync coordinator stopped before completing the request".to_string()),
+        Err(_) => Err("云同步超过 5 分钟仍未完成，请检查网络后重试。".to_string()),
+    }
 }
 
 

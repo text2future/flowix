@@ -29,6 +29,7 @@ pub struct AgentRuntimeStatus {
     claude: AgentRuntimeAvailability,
     hermes: AgentRuntimeAvailability,
     opencode: AgentRuntimeAvailability,
+    pi: AgentRuntimeAvailability,
     #[serde(rename = "deepseek-harness")]
     deepseek_harness: AgentRuntimeAvailability,
 }
@@ -101,6 +102,7 @@ async fn codex_version_is_too_low() -> bool {
 
 #[tauri::command]
 pub async fn agent_runtime_status(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AgentRuntimeStatus, String> {
     // The external CLI path comes from agent-external-config.json. Runtime
@@ -119,6 +121,41 @@ pub async fn agent_runtime_status(
     let claude = external_availability(cfg.get_entry("claude"), "Claude Code CLI");
     let hermes = external_availability(cfg.get_entry("hermes"), "Hermes Agent CLI");
     let opencode = external_availability(cfg.get_entry("opencode"), "OpenCode CLI");
+    let pi = {
+        use tauri::Manager;
+        let platform = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        let bundled = app.path().resource_dir().ok().is_some_and(|resources| {
+            let name = if cfg!(windows) { "pi.exe" } else { "pi" };
+            let arch = match std::env::consts::ARCH {
+                "aarch64" => "arm64",
+                "x86_64" => "x64",
+                other => other,
+            };
+            let root = resources.join("pi").join(format!("{platform}-{arch}"));
+            root.join("dist").join(name).is_file() || root.join(name).is_file()
+        });
+        let env_path_available = std::env::var_os("PI_CLI_PATH")
+            .map(PathBuf::from)
+            .as_deref()
+            .is_some_and(crate::agent_external::cli_resolver::is_executable_file);
+        let path_available = crate::agent_external::cli_resolver::which_in_path(
+            if cfg!(windows) { "pi.exe" } else { "pi" },
+            std::env::var_os("PATH").as_deref(),
+        )
+        .is_some();
+        let installed_flowix = crate::agent_external::pi::installed_flowix_pi_binary().is_some();
+        let available = bundled || env_path_available || path_available || installed_flowix;
+        AgentRuntimeAvailability {
+            available,
+            installed: available,
+            reason_code: None,
+            reason: (!available)
+                .then(|| "Pi runtime not installed (or not included in this build)".to_string()),
+        }
+    };
     let dsh_status = crate::dsh::status();
     let deepseek_harness = if !dsh_status.installed {
         AgentRuntimeAvailability {
@@ -173,6 +210,7 @@ pub async fn agent_runtime_status(
         claude,
         hermes,
         opencode,
+        pi,
         deepseek_harness,
     })
 }

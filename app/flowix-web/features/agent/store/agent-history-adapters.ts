@@ -1,6 +1,7 @@
 import type { ChatMessage, ThreadListItem } from "@/types";
 import type { AgentTypeKey } from "@/types/agent";
 import { agentClient } from "@features/agent/store/agent-client";
+import { pagePiHistory, parsePiHistoryMessages } from "@features/agent/runtime/pi-history";
 
 export interface ThreadHistoryPage {
   messages: ChatMessage[];
@@ -118,6 +119,28 @@ function createOpenCodeHistoryAdapter(): AgentHistoryAdapter {
   };
 }
 
+function createPiHistoryAdapter(): AgentHistoryAdapter {
+  const readMessages = async (threadId: string) =>
+    parsePiHistoryMessages(threadId, await agentClient.getPiSessionMessages(threadId));
+  return {
+    typeKey: "pi",
+    externalSessionBacked: true,
+    listThreads: () => agentClient.listPiThreads(),
+    getFullHistory: readMessages,
+    async getInitialHistory(threadId, limit) {
+      return pagePiHistory(await readMessages(threadId), null, limit);
+    },
+    async getPage(threadId, beforeSequence, limit, snapshotSequence) {
+      return pagePiHistory(
+        await readMessages(threadId),
+        beforeSequence,
+        limit,
+        snapshotSequence,
+      );
+    },
+  };
+}
+
 function createDeepSeekHarnessHistoryAdapter(): AgentHistoryAdapter {
   return {
     typeKey: "deepseek-harness",
@@ -141,6 +164,7 @@ function createDeepSeekHarnessHistoryAdapter(): AgentHistoryAdapter {
 const historyAdapters: Partial<Record<AgentTypeKey, AgentHistoryAdapter>> = {
   // Codex history is projected by the backend from Codex App Server threads.
   codex: createCodexHistoryAdapter(),
+  pi: createPiHistoryAdapter(),
   claude: createClaudeHistoryAdapter(),
   hermes: createHermesHistoryAdapter(),
   // OpenCode 的唯一历史源是紧凑的 agent_external_events。后端以完整用户

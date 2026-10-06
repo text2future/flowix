@@ -16,6 +16,8 @@ import { BlockActionMenu } from '@features/editor/components/drag-context-menu/b
 import type { BlockMenuAction } from '@features/editor/components/drag-context-menu/block-menu-actions';
 import type { DocumentEditorMode } from '@features/document/store/document-editor-view-store';
 import { documentPropertyTargetId } from '@features/document/store/document-identity';
+import { BUILTIN_PRESETS } from '@features/document/properties/presets';
+import { canonicalizePropertyKey } from '@features/document/properties/property-key';
 
 interface MemoTitleEditorProps {
   displayId: string;
@@ -72,6 +74,11 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
   const [propertiesMenuPosition, setPropertiesMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [propertiesMenuIndex, setPropertiesMenuIndex] = useState(0);
   const [propertiesMenuInputMode, setPropertiesMenuInputMode] = useState<'mouse' | 'keyboard'>('mouse');
+  /**
+   * Canonical keys already present in the document frontmatter. Refreshed each
+   * time the menu opens so presets that are already added can be disabled.
+   */
+  const [occupiedPropertyKeys, setOccupiedPropertyKeys] = useState<ReadonlySet<string>>(new Set());
   const session = useMemoTitleSession(displayId, filename, renameTitle);
   const { snapshot } = session;
   const titleInput = useComposingValue(
@@ -94,10 +101,54 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
       left: Math.max(8, rect.right + 8),
       top: Math.max(8, rect.top),
     });
+    // Ask the editor which keys already exist before rendering the presets.
+    // The frontmatter node view answers synchronously by filling this array.
+    const keys: string[] = [];
+    window.dispatchEvent(new CustomEvent('flowix:query-occupied-property-keys', {
+      detail: { propertyTargetId: documentPropertyTargetId(displayId), keys },
+    }));
+    setOccupiedPropertyKeys(new Set(keys));
     setPropertiesMenuIndex(0);
     setPropertiesMenuInputMode('mouse');
     setPropertiesMenuOpen(true);
-  }, []);
+  }, [displayId]);
+
+  /**
+   * Preset rows offered under "添加属性". Sourced from `BUILTIN_PRESETS` so the
+   * labels and YAML keys stay in lockstep with the properties dialog instead of
+   * being duplicated here. `favorite` is excluded: pinning is already a
+   * top-level action in this menu.
+   *
+   * Submenu rows are label-only — the presets' Phosphor icons are deliberately
+   * omitted to keep the nested list visually quiet. `BlockMenuAction.icon`
+   * stays required, so an explicit `null` is passed.
+   *
+   * Presets already present in the frontmatter are disabled, mirroring the
+   * property row's own preset list, so a key cannot be added twice.
+   */
+  const propertyPresetMenuActions = useMemo<BlockMenuAction[]>(() => {
+    const targetId = documentPropertyTargetId(displayId);
+    return BUILTIN_PRESETS
+      .filter((preset) => preset.category !== 'favorite')
+      .map((preset) => {
+        const taken = occupiedPropertyKeys.has(canonicalizePropertyKey(preset.key));
+        return {
+          id: `add-property-${preset.key}`,
+          group: 'block',
+          icon: null,
+          label: t(preset.labelKey),
+          disabled: taken,
+          disabledReason: taken ? t('document.properties.commonKey.alreadyExists') : undefined,
+          onSelect: () => {
+            if (taken) return;
+            window.dispatchEvent(new CustomEvent('flowix:add-property', {
+              detail: { propertyTargetId: targetId, presetKey: preset.key },
+            }));
+            closePropertiesMenu();
+          },
+        };
+      });
+  }, [closePropertiesMenu, displayId, occupiedPropertyKeys, t]);
 
   const propertyMenuActions = useMemo<BlockMenuAction[]>(() => [
     {
@@ -116,12 +167,16 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
       group: 'block',
       icon: <PlusIcon size={16} weight="bold" />,
       label: t('document.properties.add'),
+      // Dual role: clicking the row adds a blank property, while hover /
+      // ArrowRight reveals the preset panel beneath it.
       onSelect: () => {
         window.dispatchEvent(new CustomEvent('flowix:add-property', {
           detail: { propertyTargetId: documentPropertyTargetId(displayId) },
         }));
         closePropertiesMenu();
       },
+      children: propertyPresetMenuActions,
+      childrenGroupLabel: t('document.properties.preset'),
     },
     {
       id: 'property-presets',
@@ -143,7 +198,7 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
         closePropertiesMenu();
       },
     }] : []),
-  ], [closePropertiesMenu, displayId, editorMode, onToggleEditorMode, propertiesVisible, t, togglePropertiesVisible]);
+  ], [closePropertiesMenu, displayId, editorMode, onToggleEditorMode, propertiesVisible, propertyPresetMenuActions, t, togglePropertiesVisible]);
 
   const handlePropertiesMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'Tab') {
@@ -157,7 +212,9 @@ export const MemoTitleEditor = forwardRef<MemoTitleEditorHandle, MemoTitleEditor
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();
-      propertyMenuActions[propertiesMenuIndex]?.onSelect();
+      const action = propertyMenuActions[propertiesMenuIndex];
+      // Disabled rows stay focusable but never activate.
+      if (!action?.disabled) action?.onSelect();
       return;
     }
     if (event.key === 'Escape') {

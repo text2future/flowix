@@ -12,7 +12,7 @@ import { ProductIntroDialog } from '@features/shell/components/status-bar/produc
 import {
   AgentConversationStatusBar,
   AgentIcon,
-  createAndOpenDshConversation,
+  createAndOpenPiConversation,
 } from '@features/agent/public/shell-api';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import { normalizeAgentRuntimeStatus } from '@features/agent/runtime/agent-runtime-status';
@@ -81,9 +81,9 @@ function DshDownloadProgressIcon({ percent }: { percent: number | null | undefin
   );
 }
 
-function DshRuntimeStatusIndicator({ onOpenPreferences }: { onOpenPreferences: () => void }) {
+function PiRuntimeStatusIndicator() {
   const { t } = useI18n();
-  const dshStatus = useAgentRuntimeStore((state) => state.statusByType['deepseek-harness']);
+  const piStatus = useAgentRuntimeStore((state) => state.statusByType.pi);
   const isChecking = useAgentRuntimeStore((state) => state.isChecking);
   const refreshIfStale = useAgentRuntimeStore((state) => state.refreshIfStale);
 
@@ -91,7 +91,7 @@ function DshRuntimeStatusIndicator({ onOpenPreferences }: { onOpenPreferences: (
     void refreshIfStale();
   }, [refreshIfStale]);
 
-  const runtimeStatus = normalizeAgentRuntimeStatus(dshStatus, isChecking);
+  const runtimeStatus = normalizeAgentRuntimeStatus(piStatus, isChecking);
   const statusText = runtimeStatus.state === 'ready'
     ? t('agent.status.available')
     : runtimeStatus.state === 'checking'
@@ -99,29 +99,19 @@ function DshRuntimeStatusIndicator({ onOpenPreferences }: { onOpenPreferences: (
       : runtimeStatus.state === 'unknown'
         ? t('agent.status.notChecked')
         : t('agent.status.setup');
-  const label = `${t('agent.types.deepseekHarness.name')} · ${statusText}`;
-  const available = runtimeStatus.state === 'ready';
-
-  const handleClick = () => {
-    if (available) {
-      createAndOpenDshConversation();
-      return;
-    }
-    onOpenPreferences();
-  };
+  const label = `${t('agent.types.pi.name')} · ${statusText}`;
 
   return (
     <Tooltip content={label} side="top">
       <button
         type="button"
-        onClick={handleClick}
+        onClick={createAndOpenPiConversation}
         className="h-full flex items-center justify-center px-1.5 py-0 hover:bg-[var(--muted)]"
         aria-label={label}
       >
         <AgentIcon
-          typeKey="deepseek-harness"
+          typeKey="pi"
           alt=""
-          color={available ? 'var(--foreground)' : 'var(--muted-foreground)'}
           className="h-3.5 w-3.5"
         />
       </button>
@@ -164,6 +154,7 @@ export function StatusBar({
     () => new Set(),
   );
   const [cloudSyncAvailable, setCloudSyncAvailable] = useState(false);
+  const [cloudPendingOperationCount, setCloudPendingOperationCount] = useState(0);
   const notebooks = useNoteStore((state) => state.notebooks);
   const selectedNotebook = useNoteStore((state) => state.selectedNotebook);
   const setNotebooks = useNoteStore((state) => state.setNotebooks);
@@ -175,7 +166,7 @@ export function StatusBar({
       void Promise.all([cloud.getState(), cloud.listNotebookStates()])
         .then(([cloudState, links]) => {
           if (requestId !== cloudStateRequestRef.current) return;
-          setCloudSyncAvailable(cloudState.authenticated && cloudState.enabled);
+          setCloudSyncAvailable(cloudState.authenticated);
           setCloudSyncedNotebookIds(
             new Set(links.filter((link) => link.enabled).map((link) => link.notebookId)),
           );
@@ -188,7 +179,7 @@ export function StatusBar({
     };
     refreshCloudSyncedNotebookIds();
     return listenToCloudStateChanges((cloudState) => {
-      setCloudSyncAvailable(cloudState.authenticated && cloudState.enabled);
+      setCloudSyncAvailable(cloudState.authenticated);
       refreshCloudSyncedNotebookIds();
     });
   }, []);
@@ -217,6 +208,40 @@ export function StatusBar({
     || status.state === 'syncing'
     || status.state === 'finalizing',
   );
+
+  useEffect(() => {
+    if (!cloudSyncInProgress) {
+      setCloudPendingOperationCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    let requestInFlight = false;
+    const refreshPendingOperationCount = () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      void cloud.listPendingFileOperationCounts()
+        .then((counts) => {
+          if (cancelled) return;
+          setCloudPendingOperationCount(
+            Object.values(counts).reduce((total, count) => total + count, 0),
+          );
+        })
+        .catch(() => {
+          // Keep the last known count through a transient IPC/database error.
+        })
+        .finally(() => {
+          requestInFlight = false;
+        });
+    };
+
+    refreshPendingOperationCount();
+    const interval = window.setInterval(refreshPendingOperationCount, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [cloudSyncInProgress]);
 
   return (
     <div className="flex h-[26px] shrink-0 select-none items-stretch text-xs text-[var(--muted-foreground)]">
@@ -272,24 +297,34 @@ export function StatusBar({
         <ProductUpdatePill updater={updater} />
         {cloudSyncInProgress && (
           <div
-            className="inline-flex h-[22px] items-center gap-0.5 px-1.5 text-xs leading-none text-[var(--muted-foreground)]"
+            className="inline-flex h-[22px] items-center gap-1 px-1.5 text-xs leading-none text-[var(--muted-foreground)]"
             role="status"
             aria-live="polite"
-            aria-label={t('shell.statusBar.syncing')}
+            aria-label={
+              cloudPendingOperationCount > 0
+                ? `${t('shell.statusBar.syncing')} ${cloudPendingOperationCount}`
+                : t('shell.statusBar.syncing')
+            }
           >
             <CloudStatusIcon
               status="connecting"
               size={14}
               className="!opacity-100"
             />
+            {cloudPendingOperationCount > 0 && (
+              <span className="font-mono tabular-nums">
+                {cloudPendingOperationCount}
+              </span>
+            )}
           </div>
         )}
         {charCount > 0 && (
           <span className="h-full inline-flex items-center gap-0.5 px-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)]">
-            {t('status.characters')} {charCount}
+            {t('status.characters')}{' '}
+            <span className="font-mono tabular-nums">{charCount}</span>
           </span>
         )}
-        <DshRuntimeStatusIndicator onOpenPreferences={onOpenDshPreferences} />
+        <PiRuntimeStatusIndicator />
         <Tooltip content={t('preferences.tabs.mcp')} side="top">
           <button
             type="button"

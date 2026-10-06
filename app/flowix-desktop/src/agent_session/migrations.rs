@@ -10,7 +10,7 @@ use rusqlite::{params, Connection};
 
 use super::error::ThreadError;
 
-pub(super) const THREAD_DB_SCHEMA_VERSION: i64 = 11;
+pub(super) const THREAD_DB_SCHEMA_VERSION: i64 = 12;
 pub(super) const WAL_AUTOCHECKPOINT_PAGES: i64 = 4000;
 pub(super) const WAL_JOURNAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 
@@ -154,6 +154,7 @@ impl super::store::ThreadManager {
         // legacy tables remain available to the old read/write paths. The
         // cut-over happens in a later migration once all callers are moved.
         Self::ensure_simplified_thread_schema(conn)?;
+        Self::ensure_pi_thread_metadata_columns(conn)?;
         Self::ensure_path_and_legacy_role_columns(conn)?;
         // Role files are no longer part of conversations. Clear values from
         // historical columns before marking the schema current.
@@ -253,6 +254,15 @@ impl super::store::ThreadManager {
                 schema_version INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY(thread_id) REFERENCES threads_index(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS threads_pi (
+                thread_id TEXT PRIMARY KEY,
+                external_id TEXT NOT NULL UNIQUE,
+                session_file TEXT,
+                cwd TEXT,
+                schema_version INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY(thread_id) REFERENCES threads_index(id) ON DELETE CASCADE
+            );
             ",
         )?;
 
@@ -349,10 +359,32 @@ impl super::store::ThreadManager {
             JOIN threads_index ti ON ti.id = s.thread_id
             WHERE s.runtime = 'claude'
               AND trim(s.external_session_id) <> '';
+
+            INSERT OR IGNORE INTO threads_pi (thread_id, external_id)
+            SELECT s.thread_id, s.external_session_id
+            FROM thread_external_sessions s
+            JOIN threads_index ti ON ti.id = s.thread_id
+            WHERE s.runtime = 'pi'
+              AND trim(s.external_session_id) <> '';
             ",
         )?;
 
         tx.commit()?;
+        Ok(())
+    }
+
+    fn ensure_pi_thread_metadata_columns(conn: &Connection) -> Result<(), ThreadError> {
+        let mut stmt = conn.prepare("PRAGMA table_info(threads_pi)")?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        if !columns.iter().any(|column| column == "session_file") {
+            conn.execute("ALTER TABLE threads_pi ADD COLUMN session_file TEXT", [])?;
+        }
+        if !columns.iter().any(|column| column == "cwd") {
+            conn.execute("ALTER TABLE threads_pi ADD COLUMN cwd TEXT", [])?;
+        }
         Ok(())
     }
 
@@ -448,7 +480,10 @@ impl super::store::ThreadManager {
 
     fn ensure_path_and_legacy_role_columns(conn: &Connection) -> Result<(), ThreadError> {
         for (table, required) in [
-            ("agent_conversation_instances", &["role_address", "source_relative_path"][..]),
+            (
+                "agent_conversation_instances",
+                &["role_address", "source_relative_path"][..],
+            ),
             ("agent_instances", &["role_address", "relative_path"][..]),
         ] {
             let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;

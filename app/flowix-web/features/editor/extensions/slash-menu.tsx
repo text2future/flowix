@@ -23,6 +23,7 @@ import { translate } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
 import { isAgentTypeComingSoon } from '@/lib/agent-types';
 import { applyListType } from './list-transforms';
+import { openTableReferencePicker } from '@features/multidimensional-table/table-reference-picker';
 
 export const slashMenuPluginKey = new PluginKey('slashMenu');
 
@@ -60,6 +61,7 @@ function disposeMenuRoot(root: Root, container: HTMLDivElement) {
 }
 
 const AGENT_THREAD_TYPE_BY_SLASH_ID: Record<AgentThreadSlashMenuItemId, AgentTypeKey> = {
+  'agent-thread-pi': 'pi',
   'agent-thread-codex': 'codex',
   'agent-thread-claude': 'claude',
   'agent-thread-gemini': 'gemini',
@@ -533,6 +535,32 @@ function handleSelect(item: SlashMenuItem): void {
     return;
   }
 
+  if (item.id === 'table-reference' || item.id === 'table-kanban-view' || item.id === 'table-calendar-view' || item.id === 'table-gallery-view') {
+    const slashMenuRect = menuContainer?.getBoundingClientRect();
+    const cursorCoords = editor.view.coordsAtPos(editor.state.selection.from);
+    const pickerAnchor = {
+      kind: 'slash' as const,
+      rect: slashMenuRect ?? {
+        left: cursorCoords.left,
+        top: cursorCoords.bottom + 6,
+        bottom: cursorCoords.bottom + 6,
+      },
+    };
+    const replaceRange = isBlockStartTrigger(editor)
+      ? slashBlockRange ?? undefined
+      : prepareSlashBlockTarget(editor);
+    closeMenu();
+    const preferredViewType = item.id === 'table-kanban-view'
+      ? 'kanban'
+      : item.id === 'table-calendar-view'
+        ? 'calendar'
+        : item.id === 'table-gallery-view'
+          ? 'gallery'
+          : 'table';
+    if (replaceRange) openTableReferencePicker(editor, replaceRange, pickerAnchor, preferredViewType);
+    return;
+  }
+
   if (item.id === 'math-block') {
     prepareSlashBlockTarget(editor);
     closeMenu();
@@ -567,6 +595,11 @@ function handleSelect(item: SlashMenuItem): void {
     if (agentThreadType === 'deepseek-harness' && runtimeState !== 'ready') {
       closeMenu();
       void windows.openPreferences('dsh');
+      return;
+    }
+    if (agentThreadType === 'pi' && runtimeState !== 'ready') {
+      closeMenu();
+      void windows.openPreferences('pi');
       return;
     }
     if (runtimeState === 'not-installed' || runtimeState === 'not-ready') {

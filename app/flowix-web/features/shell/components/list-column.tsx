@@ -65,7 +65,6 @@ export function ListColumn({
   selectedNotebook,
   noteNavigationPhase,
   onCollapseMemoList,
-  onToggleNoteNavigation,
   onOpenPreferences,
   onPreviewEnter,
   onPreviewLeave,

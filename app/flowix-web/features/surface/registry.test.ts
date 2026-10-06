@@ -28,6 +28,17 @@ function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
         kind, instanceKey: 'video:1', fileIdentity: fileIdentity('/workspace/demo.mp4'), scopePath: '/workspace',
         props: { isExternalDocument: true },
       };
+    case 'table-file':
+      return {
+        kind,
+        instanceKey: 'table:1',
+        fileIdentity: fileIdentity('/workspace/r1.table.yml'),
+        props: { filePath: '/workspace/r1.table.yml', notebookPath: '/workspace', notebookId: null },
+      };
+    case 'media-library-file':
+      return { kind, instanceKey: 'library:1', fileIdentity: fileIdentity('/workspace/Media.lib.yaml'), notebookPath: '/workspace', notebookId: null };
+    case 'table-file':
+      return { kind, instanceKey: 'table:1', fileIdentity: fileIdentity('/workspace/r1.table.yml'), props: { filePath: '/workspace/r1.table.yml', notebookPath: '/workspace', notebookId: null } };
     case 'html-file':
       return {
         kind, instanceKey: 'html-file:1', fileIdentity: fileIdentity('/workspace/index.html'), scopePath: '/workspace',
@@ -102,12 +113,14 @@ describe('workColumnSurfaceRegistry', () => {
       'json',
       'md',
       'media',
+      'media-library-file',
       'mindmap',
       'plugin-artifact',
       'plugin-workbench',
       'text',
       'unavailable-file',
       'video-file',
+      'table-file',
       'web',
     ]);
   });
@@ -140,7 +153,7 @@ describe('workColumnSurfaceRegistry', () => {
     const media = surface('media');
 
     expect(getWorkColumnSurfaceDefinition(media).chrome).toBe('media');
-    expect(surfaceSupports(media, 'properties')).toBe(true);
+    expect(surfaceSupports(media, 'properties')).toBe(false);
     expect(surfaceSupports(media, 'edit')).toBe(false);
   });
 

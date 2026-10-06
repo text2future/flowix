@@ -62,6 +62,7 @@ export type WorkColumnTarget =
       scopePath: string | null;
       transitionId: number | null;
     }
+  | { kind: 'table'; filePath: string; notebookPath: string | null; notebookId: string | null }
   | {
       kind: 'media';
       filePath: string;
@@ -69,6 +70,7 @@ export type WorkColumnTarget =
       notebookPath: string | null;
       resourceKind: 'image' | 'video';
     }
+  | { kind: 'media-library'; filePath: string; notebookPath: string | null; notebookId: string | null }
   | { kind: 'agent-conversation'; instanceId: string }
   /** View identity only. Plugin run state and artifacts live in host stores. */
   | { kind: 'plugin-workbench'; plugin: PluginDescriptor }
@@ -80,6 +82,10 @@ export function workColumnTargetFilePath(target: WorkColumnTarget): string | nul
     case 'external':
       return target.path;
     case 'media':
+      return target.filePath;
+    case 'table':
+      return target.filePath;
+    case 'media-library':
       return target.filePath;
     default:
       return null;

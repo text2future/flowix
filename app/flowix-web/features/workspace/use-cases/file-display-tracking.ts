@@ -18,6 +18,8 @@ function startFileDisplayTracking(): () => void {
     ];
     for (const target of workTargets) {
       if (target?.kind === 'external') addFile(target.path);
+      if (target?.kind === 'table') addFile(target.filePath);
+      if (target?.kind === 'media-library') addFile(target.filePath);
       if (target?.kind === 'media') addFile(target.filePath);
     }
     for (const tab of useBrowserColumnStore.getState().tabs) {

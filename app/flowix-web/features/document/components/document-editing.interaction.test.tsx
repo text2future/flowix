@@ -9,7 +9,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { ShortcutsProvider } from '@features/shortcuts';
 import '@features/shortcuts/actions';
 import { MemoTitleEditor } from './memo-title-editor';
-import { DocumentSaveStatus } from './document-save-status';
+import { DocumentConflictPanel, DocumentSaveStatus } from './document-save-status';
 import { useDocumentAutosave } from './session/use-document-autosave';
 import { initialDocumentContainerState } from './session/types';
 import { notifyDocumentBufferChanged } from '../store/buffer-registry';
@@ -47,6 +47,7 @@ function mountDocument() {
     return <I18nProvider language="en-US"><ShortcutsProvider overrides={{}}>
       {createPortal(<Toaster />, document.body)}
       <button data-testid="click" onClick={() => setClicks(value => value + 1)}>Clicks {clicks}</button>
+      <DocumentConflictPanel identity={identity} scopePath={null} />
       <DocumentSaveStatus identity={identity} scopePath={null} />
       <MarkdownEditor ref={handle} content={state.fullContent} onChange={autosave.handleChange} onDirty={autosave.handleDirty}
         onBeforeCreate={value => { editor = value; mounts++; }} editable

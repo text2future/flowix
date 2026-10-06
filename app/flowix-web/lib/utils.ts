@@ -34,8 +34,7 @@ export function formatDateTime(
 }
 
 /**
- * 展示用笔记名 ── 把磁盘文件名 (`Hello.md` / `untitled-2026-06-14.md` / `Foo-1.md`)
- * 剥掉末尾 `.md` 后缀, 供 UI 列表 / dropdown / 搜索结果 / 导出文件名等展示场景。
+ * 展示用名称 ── 把 Markdown、多维表格和媒体库文件扩展名剥掉，供 UI 展示使用。
  *
  * 物理路径拼接 / memo index `filename` key 跟磁盘对齐, **不要** 走本函数
  * (走 `lib/path` 里的 `joinNotebookMemoPath`)。
@@ -49,5 +48,29 @@ export function formatDateTime(
 export function displayTitleFromFilename(filename: string | null | undefined): string {
   if (!filename) return '';
   const basename = filename.split(/[\\/]/).pop() ?? filename;
-  return basename.replace(/\.(md|markdown)$/i, '');
+  return basename.replace(/\.(md|markdown)$/i, '').replace(/\.(table|lib)\.ya?ml$/i, '');
+}
+
+export function isTableDocumentFilename(filename: string | null | undefined): boolean {
+  if (!filename) return false;
+  const basename = filename.split(/[\\/]/).pop() ?? filename;
+  return /\.table\.ya?ml$/i.test(basename);
+}
+
+export function isMediaLibraryFilename(filename: string | null | undefined): boolean {
+  if (!filename) return false;
+  const basename = filename.split(/[\\/]/).pop() ?? filename;
+  return /\.lib\.ya?ml$/i.test(basename);
+}
+
+export function mediaLibraryExtension(filename: string | null | undefined): string {
+  if (!filename) return '';
+  const basename = filename.split(/[\\/]/).pop() ?? filename;
+  return basename.match(/\.lib\.ya?ml$/i)?.[0] ?? '';
+}
+
+export function tableDocumentExtension(filename: string | null | undefined): string {
+  if (!filename) return '';
+  const basename = filename.split(/[\\/]/).pop() ?? filename;
+  return basename.match(/\.table\.ya?ml$/i)?.[0] ?? '';
 }

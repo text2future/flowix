@@ -1,6 +1,19 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 import { translate, type AppLanguage, DEFAULT_APP_LANGUAGE } from "@/lib/i18n";
 
+function isWindowsPlatform(): boolean {
+	return /Windows/i.test(navigator.userAgent) || /Win/i.test(navigator.platform);
+}
+
+function isMacPlatform(): boolean {
+	return /Mac/i.test(navigator.userAgent) || /Mac/i.test(navigator.platform);
+}
+
+function isTauriApp(): boolean {
+	return typeof window !== "undefined"
+		&& ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
+}
+
 interface ErrorBoundaryProps {
 	children: ReactNode;
 	fallback?: ReactNode;
@@ -43,35 +56,48 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 			}
 
 			const lang = this.props.language ?? DEFAULT_APP_LANGUAGE;
+			const isWindows = isWindowsPlatform();
+			const showDragRegion = isTauriApp() && (isWindows || isMacPlatform());
 
 			return (
-				<div className="flex flex-col items-center justify-center h-full p-8 text-center">
-					<div className="mb-4 text-destructive">
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							className="w-12 h-12 mx-auto"
-							fill="none"
-							viewBox="0 0 24 24"
-							stroke="currentColor"
-						>
-							<path
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								strokeWidth={1.5}
-								d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-							/>
-						</svg>
+				<div className="flex h-full flex-col text-center">
+					{showDragRegion && (
+						<div
+							data-tauri-drag-region
+							aria-hidden="true"
+							className={`${isWindows ? "h-9" : "h-12"} w-full flex-none bg-[var(--bg-titlebar)]`}
+						/>
+					)}
+					<div className="flex flex-1 flex-col items-center justify-center p-8">
+						<div className="flex -translate-y-20 flex-col items-center">
+							<div className="mb-4 text-destructive">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									className="w-12 h-12 mx-auto"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+								>
+									<path
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										strokeWidth={1.5}
+										d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+									/>
+								</svg>
+							</div>
+							<h2 className="text-lg font-semibold text-foreground mb-2">{translate(lang, "error.title")}</h2>
+							<p className="text-sm text-muted-foreground mb-4">
+								{this.state.error?.message || translate(lang, "error.unexpected")}
+							</p>
+							<button
+								onClick={this.handleRetry}
+								className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-[color-mix(in_oklch,var(--primary)_90%,transparent)] transition-colors text-sm font-medium"
+							>
+								{translate(lang, "error.retry")}
+							</button>
+						</div>
 					</div>
-					<h2 className="text-lg font-semibold text-foreground mb-2">{translate(lang, "error.title")}</h2>
-					<p className="text-sm text-muted-foreground mb-4">
-						{this.state.error?.message || translate(lang, "error.unexpected")}
-					</p>
-					<button
-						onClick={this.handleRetry}
-						className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-[color-mix(in_oklch,var(--primary)_90%,transparent)] transition-colors text-sm font-medium"
-					>
-						{translate(lang, "error.retry")}
-					</button>
 				</div>
 			);
 		}

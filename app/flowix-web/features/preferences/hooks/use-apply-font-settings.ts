@@ -40,7 +40,10 @@ export function useApplyFontSettings(format: FormatConfig | undefined) {
     if (!format) return;
     const root = document.documentElement;
     if (format.fontFamily) {
-      root.style.setProperty('--app-font-family', format.fontFamily);
+      // Emoji must be considered before platform emoji fonts even when a user
+      // selects a custom document font. This face only covers emoji codepoints,
+      // so placing it first leaves ordinary text to the selected font stack.
+      root.style.setProperty('--app-font-family', `'Flowix Small Emoji', ${format.fontFamily}`);
     }
     if (typeof format.fontSize === 'number' && !Number.isNaN(format.fontSize)) {
       root.style.setProperty('--app-font-size', `${format.fontSize}px`);

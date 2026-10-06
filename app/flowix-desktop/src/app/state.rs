@@ -61,6 +61,7 @@ pub struct AppState {
     /// catalog; Flowix stores only the mapping to its local conversation.
     pub codex_app_server: Arc<crate::agent_external::codex::CodexAppServerManager>,
     pub opencode: Arc<crate::agent_external::opencode::OpenCodeAcpManager>,
+    pub pi: Arc<crate::agent_external::pi::PiRpcManager>,
     pub deepseek_harness: Arc<crate::agent_external::deepseek_harness::DeepSeekHarnessManager>,
     /// Product-level history policy and fallback orchestration. Runtime
     /// adapters remain responsible for their own protocol and transcript.

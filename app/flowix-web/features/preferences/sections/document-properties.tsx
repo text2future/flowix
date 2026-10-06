@@ -4,11 +4,11 @@ import { useMemo, useState } from 'react';
 import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import type { PropertyFieldConfig, PropertyFieldType } from '@/lib/constants';
+import { getPropertyTypeDefinition } from '@/lib/property-types';
 import { cn } from '@/lib/utils';
 import {
   isBuiltinPresetKey,
   PROPERTY_KINDS,
-  type PropertyKind,
 } from '@features/document/properties/presets';
 import { canonicalizePropertyKey } from '@features/document/properties/property-key';
 import { useI18n } from '@/lib/i18n';
@@ -20,24 +20,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 type DraftField = {
   key: string;
-  name: string;
   type: PropertyFieldType;
   optionsText: string;
 };
-
-function getPropertyTypeLabelKey(kind: PropertyKind) {
-  return `document.properties.type.${kind === 'MultiSelect' ? 'multiSelect' : kind === 'Tag' ? 'tag' : kind === 'Tags' ? 'tags' : kind === 'Color' ? 'color' : kind.toLowerCase()}` as
-    | 'document.properties.type.text'
-    | 'document.properties.type.boolean'
-    | 'document.properties.type.number'
-    | 'document.properties.type.date'
-    | 'document.properties.type.icon'
-    | 'document.properties.type.select'
-    | 'document.properties.type.multiSelect'
-    | 'document.properties.type.tag'
-    | 'document.properties.type.tags'
-    | 'document.properties.type.color';
-}
 
 function normalizeOptions(type: PropertyFieldType, optionsText: string): string[] | undefined {
   if (type !== 'Select' && type !== 'MultiSelect') return undefined;
@@ -51,7 +36,6 @@ function normalizeOptions(type: PropertyFieldType, optionsText: string): string[
 function fieldToDraft(field: PropertyFieldConfig): DraftField {
   return {
     key: field.key,
-    name: field.name,
     type: field.type,
     optionsText: field.options?.join(', ') ?? '',
   };
@@ -157,7 +141,7 @@ export function DocumentPropertiesSection() {
 
   const startAdd = () => {
     setEditingKey(null);
-    setDraft({ key: '', name: '', type: 'Text', optionsText: '' });
+    setDraft({ key: '', type: 'Text', optionsText: '' });
     setIsAdding(true);
   };
 
@@ -169,13 +153,8 @@ export function DocumentPropertiesSection() {
   const saveDraft = async () => {
     if (!draft) return;
     const key = draft.key.trim();
-    const name = draft.name.trim();
     if (!key) {
       toast.error(t('preferences.documentProperties.emptyKey'));
-      return;
-    }
-    if (!name) {
-      toast.error(t('preferences.documentProperties.emptyName'));
       return;
     }
     if (isBuiltinPresetKey(key)) {
@@ -191,7 +170,6 @@ export function DocumentPropertiesSection() {
     }
     const nextField: PropertyFieldConfig = {
       key,
-      name,
       type: draft.type,
       options: normalizeOptions(draft.type, draft.optionsText),
     };
@@ -210,7 +188,7 @@ export function DocumentPropertiesSection() {
 
   const deleteField = async (field: PropertyFieldConfig) => {
     const confirmed = window.confirm(
-      t('preferences.documentProperties.deleteConfirm').replace('{name}', field.name),
+      t('preferences.documentProperties.deleteConfirm').replace('{key}', field.key),
     );
     if (!confirmed) return;
 
@@ -239,15 +217,14 @@ export function DocumentPropertiesSection() {
 
       {isAdding && draft ? (
         <div className="rounded-lg border border-[var(--primary)] bg-[var(--card)] p-3">
-          <div className="grid gap-2 sm:grid-cols-[136px_1fr_1fr]">
+          <div className="grid gap-2 sm:grid-cols-[136px_1fr]">
             <Select value={draft.type} onValueChange={(value) => setDraft({ ...draft, type: value as PropertyFieldType })}>
-              <SelectTrigger className="bg-[var(--background)]"><SelectValue>{t(getPropertyTypeLabelKey(draft.type as PropertyKind))}</SelectValue></SelectTrigger>
+              <SelectTrigger className="bg-[var(--background)]"><SelectValue>{t(getPropertyTypeDefinition(draft.type).labelKey)}</SelectValue></SelectTrigger>
               <SelectContent align="end" fitViewport className="flowix-preferences-select-content max-w-[calc(100vw-1rem)]">
-                {PROPERTY_KINDS.map((kind) => <SelectItem key={kind} value={kind}>{t(getPropertyTypeLabelKey(kind))}</SelectItem>)}
+                {PROPERTY_KINDS.map((kind) => <SelectItem key={kind} value={kind}>{t(getPropertyTypeDefinition(kind).labelKey)}</SelectItem>)}
               </SelectContent>
             </Select>
             <Input value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} placeholder={t('preferences.documentProperties.keyPlaceholder')} />
-            <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder={t('preferences.documentProperties.namePlaceholder')} />
           </div>
           {draft.type === 'Select' ? (
             <div className="mt-2">
@@ -276,7 +253,7 @@ export function DocumentPropertiesSection() {
           {fields.map((field) => {
             const isEditing = editingKey === field.key;
             const currentDraft = isEditing ? draft : null;
-            const typeLabel = t(getPropertyTypeLabelKey(field.type as PropertyKind));
+            const typeLabel = t(getPropertyTypeDefinition(field.type).labelKey);
             const optionsLabel = field.options?.length ? field.options.join(', ') : '';
 
             return (
@@ -286,7 +263,7 @@ export function DocumentPropertiesSection() {
               >
                 {isEditing && currentDraft ? (
                   <div className="space-y-2">
-                    <div className="grid grid-cols-[136px_1fr_1fr] gap-2">
+                    <div className="grid grid-cols-[136px_1fr] gap-2">
                       <Select
                         value={currentDraft.type}
                         onValueChange={(value) => setDraft({
@@ -296,13 +273,13 @@ export function DocumentPropertiesSection() {
                       >
                         <SelectTrigger className="bg-[var(--background)]">
                           <SelectValue>
-                            {t(getPropertyTypeLabelKey(currentDraft.type as PropertyKind))}
+                            {t(getPropertyTypeDefinition(currentDraft.type).labelKey)}
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent align="end" fitViewport className="flowix-preferences-select-content max-w-[calc(100vw-1rem)]">
                           {PROPERTY_KINDS.map((kind) => (
                             <SelectItem key={kind} value={kind}>
-                              {t(getPropertyTypeLabelKey(kind))}
+                              {t(getPropertyTypeDefinition(kind).labelKey)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -311,11 +288,6 @@ export function DocumentPropertiesSection() {
                         value={currentDraft.key}
                         onChange={(event) => setDraft({ ...currentDraft, key: event.target.value })}
                         placeholder={t('preferences.documentProperties.keyPlaceholder')}
-                      />
-                      <Input
-                        value={currentDraft.name}
-                        onChange={(event) => setDraft({ ...currentDraft, name: event.target.value })}
-                        placeholder={t('preferences.documentProperties.namePlaceholder')}
                       />
                     </div>
                     {currentDraft.type === 'Select' ? (
@@ -366,14 +338,13 @@ export function DocumentPropertiesSection() {
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-sm text-[var(--foreground)]">
-                          {field.name}
+                          {field.key}
                         </span>
                         <span className="shrink-0 rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">
                           {typeLabel}
                         </span>
                       </div>
                       <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                        <span className="truncate font-mono">{field.key}</span>
                         {optionsLabel ? (
                           <span className="truncate">{optionsLabel}</span>
                         ) : null}
@@ -385,7 +356,7 @@ export function DocumentPropertiesSection() {
                         variant="ghost"
                         size="icon-sm"
                         tooltip={t('preferences.documentProperties.edit')}
-                        aria-label={`${t('preferences.documentProperties.edit')} ${field.name}`}
+                        aria-label={`${t('preferences.documentProperties.edit')} ${field.key}`}
                         onClick={() => startEdit(field)}
                         className="rounded-lg"
                       >
@@ -396,7 +367,7 @@ export function DocumentPropertiesSection() {
                         variant="ghost"
                         size="icon-sm"
                         tooltip={t('preferences.documentProperties.delete')}
-                        aria-label={`${t('preferences.documentProperties.delete')} ${field.name}`}
+                        aria-label={`${t('preferences.documentProperties.delete')} ${field.key}`}
                         onClick={() => void deleteField(field)}
                         className="text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--destructive)]"
                       >

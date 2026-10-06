@@ -79,6 +79,23 @@ describe('real document container session lifecycle', () => {
     await act(async () => { doc.render(); });
     expect(doc.editors.left?.getMarkdown()).toBe('Body');
   });
+  it('automatically reconciles an opening recovery draft with independent disk edits', async () => {
+    const doc = setup(false);
+    const base = 'first\nsecond\n';
+    const merged = 'FIRST\nSECOND\n';
+    mocks.read.mockResolvedValue('first\nSECOND\n');
+    mocks.recoveryRead.mockResolvedValue({
+      originalPath: doc.identity.path,
+      createdAt: 100, updatedAt: 300, revision: 1, bodyRevision: 1,
+      content: 'FIRST\nsecond\n', baseContent: base,
+    });
+    mocks.write.mockResolvedValueOnce({ status: 'saved', path: doc.identity.path, content: merged, merged: true });
+    await act(async () => { doc.render(); await waitForDocumentCommits('md:' + doc.identity.displayId); });
+    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ expectedContent: base }));
+    expect(getDocumentBuffer(doc.identity)).toMatchObject({ content: merged, conflicted: false, saveState: 'clean' });
+    expect(doc.editors.left?.getMarkdown()).toContain('FIRST');
+    expect(doc.editors.left?.getMarkdown()).toContain('SECOND');
+  });
   beforeEach(() => {
     vi.useFakeTimers(); environment.IS_REACT_ACT_ENVIRONMENT = true;
     mocks.read.mockReset().mockResolvedValue('Body');
@@ -163,17 +180,19 @@ describe('real document container session lifecycle', () => {
     expect(getDocumentBuffer(doc.identity).content).toContain('right');
     expect(getDocumentBuffer(doc.identity).content).toContain('left');
   });
-  it('keeps one named conflict notification when one of two views closes', async () => {
+  it('shows one conflict panel in the focused editor when another view closes', async () => {
     const doc = setup(); await act(async () => { doc.render(); });
     act(() => {
       const buffer = getDocumentBuffer(doc.identity); buffer.conflicted = true; buffer.saveState = 'conflict';
       notifyDocumentBufferChanged(doc.identity, 'save_settled');
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(container.querySelectorAll('[data-sonner-toast]')).toHaveLength(1);
-    expect(container.querySelector('[data-sonner-toast]')?.textContent).toContain('A.md');
+    expect(container.querySelectorAll('.document-container [role="alert"]')).toHaveLength(1);
+    expect(container.querySelector('.document-container [role="alert"]')?.textContent).toContain('Saved version conflicts');
+    expect([...container.querySelectorAll('.document-container [role="alert"] button')].map(button => button.textContent))
+      .toEqual(['Use the file version', 'Use editor version']);
     await act(async () => { doc.closeRight(); await vi.advanceTimersByTimeAsync(300); });
-    expect(container.querySelectorAll('[data-sonner-toast]')).toHaveLength(1);
-    expect(container.querySelectorAll('.document-container [role="status"]')).toHaveLength(0);
+    expect(container.querySelectorAll('.document-container [role="alert"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-sonner-toast]')).toHaveLength(0);
   });
 });

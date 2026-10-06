@@ -13,6 +13,7 @@
  *   - editor-attachment-link   附件 (file/video/image) + 上传卡片 + 正文链接 */
 @import './editor.css';
 @import './editor-frontmatter.css';
+@import './multidimensional-table.css';
 @import './editor-agent-thread-card.css';
 @import './editor-note-reference.css';
 @import './editor-code-block.css';
@@ -414,7 +415,7 @@
 		--radius: 0.625rem;
 
 		--font-heading: var(--font-sans);
-		--font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+		--font-sans: 'Flowix Small Emoji', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 		--font-nav: 'SF Mono';
 
 		/* User-configurable typography (Preferences → Format).
@@ -430,7 +431,7 @@
 		--app-document-width: 700px;
 
 		/* Shared code typography for rendered code blocks and CodeMirror. */
-		--code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'DengXian', '等线', 'Microsoft YaHei', '微软雅黑', monospace;
+		--code-font-family: 'Flowix Small Emoji', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'DengXian', '等线', 'Microsoft YaHei', '微软雅黑', monospace;
 		--code-font-size: 14px;
 		--code-line-height: 1.8;
 		/* Shared overlay geometry: the collapsed list preview uses this value
@@ -440,7 +441,7 @@
 		--flowix-note-navigation-motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
 
 		/* Agent 面板等宽字体 — 非颜色, 不参与主题 */
-		--agent-font: 'Anonymous Pro', 'PingFang SC', 'Microsoft YaHei', 'Inter', -apple-system, monospace;
+		--agent-font: 'Flowix Small Emoji', 'Anonymous Pro', 'PingFang SC', 'Microsoft YaHei', 'Inter', -apple-system, monospace;
 	}
 
 	/* Markdown viewer & Tiptap 编辑器: 跟随主题背景色,

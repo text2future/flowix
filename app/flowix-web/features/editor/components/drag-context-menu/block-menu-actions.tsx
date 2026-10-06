@@ -21,7 +21,22 @@ export interface BlockMenuAction {
   trailingIcon?: ReactNode
   checked?: boolean
   shortcut?: string
+  /** Renders the row inert: skipped by keyboard navigation and not activatable. */
+  disabled?: boolean
+  /** Tooltip explaining why the row is disabled. */
+  disabledReason?: string
   onSelect: () => void
+  /**
+   * Nested actions revealed on hover / ArrowRight.
+   *
+   * A parent row may still carry its own `onSelect`: the menu treats the row as
+   * a disclosure *and* an action, so activating it runs `onSelect` while the
+   * hover/ArrowRight affordance opens the panel. Leave `onSelect` a no-op only
+   * when the parent is a pure heading.
+   */
+  children?: BlockMenuAction[]
+  /** Optional non-interactive heading rendered above `children`. */
+  childrenGroupLabel?: string
 }
 
 export interface TableHeaderState {

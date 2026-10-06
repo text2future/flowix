@@ -45,6 +45,7 @@ export function createAttachmentCommands(memoId?: string): Partial<RawCommands> 
                     if (isTauriApp()) {
                         const paths = await invoke<string[] | null>('select_files', {
                             accept: params?.accept ?? null,
+                            multiple: params?.multiple ?? true,
                         });
                         if (!paths?.length || signal.aborted) return [];
                         return (await createAttachmentUploadFromPaths(paths, memoId, signal)).assets;

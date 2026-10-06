@@ -66,8 +66,6 @@ pub struct PropertyFieldConfig {
     #[serde(default)]
     pub key: String,
     #[serde(default)]
-    pub name: String,
-    #[serde(default)]
     pub r#type: String,
     #[serde(default)]
     pub options: Vec<String>,

@@ -18,6 +18,7 @@ export type AgentTypeKey =
   | "hermes"
   | "openclaw"
   | "opencode"
+  | "pi"
   | "deepseek-harness";
 
 export interface AgentType {
@@ -79,7 +80,7 @@ export type AgentPermissionMode =
   | "danger-full-access"
   | "yolo";
 export type AgentCodexModel = "inherit" | string;
-export type AgentCodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
+export type AgentCodexReasoningEffort = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 /** DeepSeek Harness Agent preset / conversation mode. */
 export type AgentHarnessPreset = "standard" | "code" | "minimal" | "cordis";
 
@@ -97,6 +98,11 @@ export interface CodexRuntimeConfig extends AgentRuntimeConfigBase {
 export interface DeepSeekHarnessRuntimeConfig extends CodexRuntimeConfig {
   mode?: AgentHarnessPreset;
   /** Native llm-pi-ai provider route, for example `deepseek` or `openai`. */
+  providerId?: string;
+}
+
+export interface PiRuntimeConfig extends CodexRuntimeConfig {
+  /** Pi chooses a provider/model pair from its configured model catalogue. */
   providerId?: string;
 }
 
@@ -118,6 +124,7 @@ export interface AgentRuntimeConfig {
   hermes?: HermesRuntimeConfig;
   openclaw?: SimpleCliRuntimeConfig;
   opencode?: CodexRuntimeConfig;
+  pi?: PiRuntimeConfig;
   deepseekHarness?: DeepSeekHarnessRuntimeConfig;
 }
 

@@ -9,6 +9,7 @@ import { toast } from '@/lib/toast';
 import { createLogger } from '@/lib/logger';
 import { agent } from '@platform/tauri/client/agent';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
+import type { AgentConversationInstance } from '@features/agent/store/agent-conversation-types';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { acquireThreadInterest } from '@features/agent/store/thread-interest';
 import type { ThreadState } from '@features/agent/store/thread-runtime-state';
@@ -69,6 +70,7 @@ import {
 import { isCodexGoalCommand } from '@features/agent/thread-card/agent-thread-card-selectors';
 import { getAgentConversationRuntimeCwd } from '@features/agent/conversation-presentation';
 import { WorkspaceEmptyState } from '@shared/ui/workspace-empty-state';
+import { Button } from '@shared/ui/button';
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 96;
 const TOP_HISTORY_LOAD_THRESHOLD_PX = 48;
@@ -126,9 +128,63 @@ export function AgentConversationDetail({
 }: {
   instanceId: string;
 }) {
-  const { language, t } = useI18n();
+  const { t } = useI18n();
   const instance = useAgentSessionStore((state) => state.getInstance(instanceId));
-  const threadId = instance?.threadId ?? null;
+  const [loadState, setLoadState] = useState<{
+    instanceId: string;
+    status: 'loading' | 'not-found' | 'error';
+  } | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  useEffect(() => {
+    if (instance) return;
+
+    let cancelled = false;
+    setLoadState({ instanceId, status: 'loading' });
+    void useAgentSessionStore.getState().hydrateInstance(instanceId)
+      .then((restored) => {
+        if (!cancelled && !restored) setLoadState({ instanceId, status: 'not-found' });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState({ instanceId, status: 'error' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [instance, instanceId, retryCount]);
+
+  if (instance) {
+    return <AgentConversationDetailContent key={instanceId} instanceId={instanceId} instance={instance} />;
+  }
+
+  const status = loadState?.instanceId === instanceId ? loadState.status : 'loading';
+  return (
+    <WorkspaceEmptyState
+      tone="agent"
+      message={status === 'loading' ? t('status.agent.loadingConversations') : (
+        <span className="flex flex-col items-center gap-3">
+          <span>{t(status === 'error' ? 'status.agent.loadConversationsFailed' : 'status.agent.conversationNotFound')}</span>
+          <Button variant="outline" size="sm" className="rounded-lg" onClick={() => {
+            setLoadState({ instanceId, status: 'loading' });
+            setRetryCount((count) => count + 1);
+          }}>
+            {t('error.retry')}
+          </Button>
+        </span>
+      )}
+    />
+  );
+}
+
+/** Mount the controller-owned DOM only after the instance identity is restored. */
+function AgentConversationDetailContent({
+  instanceId,
+  instance,
+}: {
+  instanceId: string;
+  instance: AgentConversationInstance;
+}) {
+  const { language, t } = useI18n();
+  const threadId = instance.threadId;
   const renderThreadId = threadId;
   const projection = useAgentSessionStore((state) => (
     renderThreadId ? state.threadProjections[renderThreadId] : undefined
@@ -150,11 +206,13 @@ export function AgentConversationDetail({
       : EMPTY_PENDING_CODEX_MESSAGES,
   );
   const initialHistoryStatus = projection?.pagination.initialStatus ?? 'idle';
+  const initialHistoryError = projection?.pagination.initialError;
   const isInitialHistoryLoading = shouldShowInitialHistorySkeleton(
     threadId,
     messages.length,
     initialHistoryStatus,
   );
+  const showHistoryError = initialHistoryStatus === 'error' && messages.length === 0;
   const domRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const composerMountRef = useRef<HTMLDivElement>(null);
@@ -789,7 +847,7 @@ export function AgentConversationDetail({
       composerImagesControllerRef.current = null;
       addMenuRef.current = null;
     };
-  }, []);
+  }, [instanceId]);
 
   useEffect(() => {
     messagesControllerRef.current?.render({
@@ -810,15 +868,6 @@ export function AgentConversationDetail({
   useEffect(() => {
     externalSettingsRef.current?.refreshEmptySettings();
   }, [instance?.threadId, isLoading, isCommandRunning]);
-
-  if (!instance) {
-    return (
-      <WorkspaceEmptyState
-        tone="agent"
-        message={t('status.agent.conversationNotFound')}
-      />
-    );
-  }
 
   const handleBodyScroll: UIEventHandler<HTMLDivElement> = (event) => {
     const target = event.currentTarget;
@@ -873,6 +922,33 @@ export function AgentConversationDetail({
               showScrollTopHint ? 'opacity-100' : 'opacity-0',
             ].join(' ')}
           />
+          {showHistoryError && (
+            <div className="absolute inset-0 z-[4]">
+              <WorkspaceEmptyState
+                tone="agent"
+                message={(
+                  <span className="flex flex-col items-center gap-3">
+                    <span>{t('status.agent.loadHistoryFailed')}</span>
+                    {initialHistoryError && (
+                      <span className="max-w-xl break-words text-center text-xs text-[var(--muted-foreground)]">
+                        {initialHistoryError}
+                      </span>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg"
+                      onClick={() => {
+                        if (threadId) void useAgentSessionStore.getState().loadMessages(instance.agentType, threadId);
+                      }}
+                    >
+                      {t('error.retry')}
+                    </Button>
+                  </span>
+                )}
+              />
+            </div>
+          )}
         </div>
         <div className="agent-conversation-detail__composer-stack">
           {instance.agentType === 'codex' && <CodexApprovalQueue threadId={threadId} />}

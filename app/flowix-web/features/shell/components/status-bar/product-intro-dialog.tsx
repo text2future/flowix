@@ -6,8 +6,8 @@ import {
   Code2,
   FolderOpen,
   GraduationCap,
-  Image,
   Link2,
+  PenLine,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -24,9 +24,11 @@ const featureItems = [
   { key: 'workspace', icon: BookOpen },
   { key: 'library', icon: FolderOpen },
   { key: 'links', icon: Link2 },
-  { key: 'development', icon: Code2 },
-  { key: 'investment', icon: ChartLine },
-  { key: 'teaching', icon: GraduationCap },
+  { key: 'pi', icon: Sparkles },
+  { key: 'development', icon: Code2, caseStudy: true },
+  { key: 'fiction', icon: PenLine, caseStudy: true },
+  { key: 'investment', icon: ChartLine, caseStudy: true },
+  { key: 'teaching', icon: GraduationCap, caseStudy: true },
 ] as const;
 
 interface ProductIntroDialogProps {
@@ -60,15 +62,20 @@ export function ProductIntroDialog({ open, onOpenChange }: ProductIntroDialogPro
           </div>
 
           <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2 sm:gap-4 sm:p-7 lg:p-9">
-            {featureItems.map(({ key, icon: Icon }, index) => {
+            {featureItems.map(({ key, icon: Icon, caseStudy }, index) => {
               return (
                 <section
                   key={key}
                   className="group relative min-h-36 overflow-hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--background)_54%,var(--card))] p-5 transition-colors hover:bg-[color-mix(in_oklch,var(--primary)_3%,var(--card))] sm:p-6"
                 >
-                  <span aria-hidden="true" className="absolute right-4 top-2 select-none text-5xl font-semibold tracking-tighter text-[color-mix(in_oklch,var(--muted-foreground)_8%,transparent)]">
+                  <span aria-hidden="true" className={`absolute right-4 ${caseStudy ? 'top-12' : 'top-2'} select-none text-5xl font-semibold tracking-tighter text-[color-mix(in_oklch,var(--muted-foreground)_8%,transparent)]`}>
                     {String(index + 1).padStart(2, '0')}
                   </span>
+                  {caseStudy && (
+                    <span className="absolute right-4 top-4 rounded-full border border-[color-mix(in_oklch,var(--primary)_24%,var(--border))] bg-[color-mix(in_oklch,var(--primary)_8%,var(--card))] px-2 py-0.5 text-[10px] font-medium text-[var(--primary)]">
+                      {t('shell.productIntro.caseTag')}
+                    </span>
+                  )}
                   <div className="relative">
                     <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_oklch,var(--primary)_10%,var(--card))] text-[var(--primary)]">
                       <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
@@ -86,8 +93,7 @@ export function ProductIntroDialog({ open, onOpenChange }: ProductIntroDialogPro
           </div>
 
           <div className="px-5 pb-6 sm:px-7 sm:pb-8 lg:px-9">
-            <div className="flex items-center gap-3 rounded-xl bg-[color-mix(in_oklch,var(--primary)_6%,var(--card))] px-4 py-3.5 text-xs leading-5 text-[var(--muted-foreground)] sm:px-5 sm:text-sm">
-              <Image className="h-4 w-4 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+            <div className="flex items-center justify-center rounded-xl bg-[color-mix(in_oklch,var(--primary)_6%,var(--card))] px-4 py-3.5 text-center text-xs leading-5 text-[var(--muted-foreground)] sm:px-5 sm:text-sm">
               <span>{t('shell.productIntro.footer')}</span>
             </div>
           </div>

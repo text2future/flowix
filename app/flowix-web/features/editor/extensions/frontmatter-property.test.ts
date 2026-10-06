@@ -1,9 +1,10 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 
 import Frontmatter from './frontmatter';
+import { useUserSettingsStore } from '@features/preferences/store/user-settings-store';
 import {
   FrontmatterPropertyError,
   extractFrontmatter,
@@ -790,6 +791,132 @@ describe('frontmatter property helpers', () => {
     host.remove();
   });
 
+  it('marks occupied presets inert with an explanatory tooltip', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const editor = new Editor({
+      element: host,
+      extensions: [StarterKit, Markdown, Frontmatter],
+      content: '---\nflowix_key: 8c7dxu0l\nstatus: todo\ntags:\n  - a\n---\nBody',
+      contentType: 'markdown',
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    host.querySelector<HTMLElement>(
+      '[data-property-key="status"] .frontmatter-property__type-icon',
+    )?.click();
+    const menu = document.body.querySelector<HTMLElement>('.frontmatter-property__item-menu');
+    menu?.querySelector<HTMLElement>('.frontmatter-property__preset-item')
+      ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    const presetMenu = menu?.querySelector<HTMLElement>('.frontmatter-property__preset-menu');
+
+    const tags = presetMenu?.querySelector<HTMLButtonElement>('[data-value="tags"]');
+    expect(tags?.disabled).toBe(true);
+    expect(tags?.getAttribute('aria-disabled')).toBe('true');
+    expect(tags?.title).toBe('该属性已存在');
+
+    const name = presetMenu?.querySelector<HTMLButtonElement>('[data-value="name"]');
+    expect(name?.disabled).toBe(false);
+    expect(name?.getAttribute('aria-disabled')).toBeNull();
+
+    editor.destroy();
+    host.remove();
+  });
+
+  it('treats the row’s own key as occupied in its preset list', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const editor = new Editor({
+      element: host,
+      extensions: [StarterKit, Markdown, Frontmatter],
+      content: '---\nflowix_key: 8c7dxu0l\ntags:\n  - a\n---\nBody',
+      contentType: 'markdown',
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    host.querySelector<HTMLElement>(
+      '[data-property-key="tags"] .frontmatter-property__type-icon',
+    )?.click();
+    const menu = document.body.querySelector<HTMLElement>('.frontmatter-property__item-menu');
+    menu?.querySelector<HTMLElement>('.frontmatter-property__preset-item')
+      ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    const presetMenu = menu?.querySelector<HTMLElement>('.frontmatter-property__preset-menu');
+
+    // The row's own preset cannot be applied again, so it is inert too.
+    const tags = presetMenu?.querySelector<HTMLButtonElement>('[data-value="tags"]');
+    expect(tags?.disabled).toBe(true);
+    expect(tags?.title).toBe('该属性已存在');
+
+    // Clicking it must not rewrite the document.
+    tags?.click();
+    expect(editor.getMarkdown()).toContain('tags:\n  - a');
+    expect(host.querySelector('[data-property-key="tags"]')).not.toBeNull();
+
+    editor.destroy();
+    host.remove();
+  });
+
+  it('keeps a custom field key in the tooltip when the preset is occupied', async () => {
+    // Custom presets come from user settings. Seed them synchronously through
+    // `setState` and always restore: leaving them behind would leak custom
+    // presets into every later test in this file.
+    const store = useUserSettingsStore.getState();
+    const previousFields = store.settings.properties.fields;
+    useUserSettingsStore.setState({
+      settings: {
+        ...store.settings,
+        properties: {
+          ...store.settings.properties,
+          fields: [
+            { key: 'status', type: 'Text' },
+            { key: 'owner', type: 'Text' },
+          ],
+        },
+      },
+    });
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    let editor: Editor | undefined;
+    try {
+      editor = new Editor({
+        element: host,
+        extensions: [StarterKit, Markdown, Frontmatter],
+        content: '---\nflowix_key: 8c7dxu0l\nstatus: todo\npriority: high\n---\nBody',
+        contentType: 'markdown',
+      });
+
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+      host.querySelector<HTMLElement>(
+        '[data-property-key="priority"] .frontmatter-property__type-icon',
+      )?.click();
+      const menu = document.body.querySelector<HTMLElement>('.frontmatter-property__item-menu');
+      menu?.querySelector<HTMLElement>('.frontmatter-property__preset-item')
+        ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      const presetMenu = menu?.querySelector<HTMLElement>('.frontmatter-property__preset-menu');
+
+      // The disabled row must still name the field it refers to, not only the
+      // conflict reason.
+      const status = presetMenu?.querySelector<HTMLButtonElement>('[data-value="status"]');
+      expect(status?.disabled).toBe(true);
+      expect(status?.title).toBe('status · 该属性已存在');
+
+      const owner = presetMenu?.querySelector<HTMLButtonElement>('[data-value="owner"]');
+      expect(owner?.disabled).toBe(false);
+      expect(owner?.title).toBe('owner');
+    } finally {
+      editor?.destroy();
+      host.remove();
+      const current = useUserSettingsStore.getState().settings;
+      useUserSettingsStore.setState({
+        settings: { ...current, properties: { ...current.properties, fields: previousFields } },
+      });
+    }
+  });
+
   it('does not opt into the browser native drag lifecycle', async () => {
     const host = document.createElement('div');
     document.body.append(host);
@@ -1232,6 +1359,36 @@ describe('frontmatter property helpers', () => {
     expect(editor.state.doc.firstChild?.attrs.yamlContent).toBe('key1: ""');
     expect(parseVisibleFrontmatter(String(editor.state.doc.firstChild?.attrs.yamlContent ?? '')).userData.key1).toBe('');
     expect(host.querySelector('[data-property-key="key1"]')).not.toBeNull();
+
+    editor.destroy();
+    host.remove();
+  });
+
+  it('reports occupied property keys so callers can disable taken presets', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const editor = new Editor({
+      element: host,
+      extensions: [StarterKit, Markdown, Frontmatter.configure({ propertyTargetId: 'file:display-frontmatter' })],
+      content: '---\nflowix_key: 8c7dxu0l\nstatus: done\ntags:\n  - a\n---\nBody',
+      contentType: 'markdown',
+    });
+
+    const keys: string[] = [];
+    window.dispatchEvent(new CustomEvent('flowix:query-occupied-property-keys', {
+      detail: { propertyTargetId: 'file:display-frontmatter', keys },
+    }));
+
+    // User properties are reported. `flowix_key` (the system key) is excluded
+    // by `parseVisibleFrontmatter`, matching the preset lists it feeds.
+    expect(new Set(keys)).toEqual(new Set(['status', 'tags']));
+
+    // A query aimed at another target must not be answered by this view.
+    const otherKeys: string[] = [];
+    window.dispatchEvent(new CustomEvent('flowix:query-occupied-property-keys', {
+      detail: { propertyTargetId: 'file:someone-else', keys: otherKeys },
+    }));
+    expect(otherKeys).toEqual([]);
 
     editor.destroy();
     host.remove();

@@ -33,14 +33,13 @@ export async function restoreAgentConversationWorkspace(): Promise<void> {
     : '';
   if (!instanceId) return;
 
-  const instance = await hydrateWorkspaceAgentConversation(instanceId);
-  if (!instance) {
-    useWorkspaceRestoreStore.getState().clearAgentConversation(instanceId);
-    return;
+  try {
+    await hydrateWorkspaceAgentConversation(instanceId);
+  } catch (error) {
+    console.error('Failed to restore agent conversation:', error);
   }
 
-  // Selection belongs to the conversations list, while the detail is a
-  // separate work-column target. Reopen it independently of the current
-  // middle-column filter so switching lists does not lose the detail.
+  // The detail owns missing/error presentation and retry. Keep the restored
+  // target visible even when this eager lookup did not return an instance.
   await selectAndOpenAgentConversation(instanceId, { history: 'skip' });
 }

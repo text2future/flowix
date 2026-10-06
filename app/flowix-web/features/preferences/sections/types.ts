@@ -21,6 +21,7 @@ export type SettingsTab =
   | 'tools'
   | 'history'
   | 'dsh'
+  | 'pi'
   | 'codex'
   | 'aiAgent'
   | 'plugins'

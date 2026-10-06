@@ -1,16 +1,9 @@
 import { canonicalizePropertyKey } from './property-key';
 import type { PropertyFieldConfig } from '@/lib/constants';
-import { resolvePropertyPreset, type PropertyKind } from './presets';
+import { getPropertyTypeDefinition, type PropertyDisplayKind, type PropertyKind } from '@/lib/property-types';
+import { resolvePropertyPreset } from './presets';
 
-export type PropertyDisplayKind =
-  | 'text'
-  | 'number'
-  | 'date'
-  | 'url'
-  | 'boolean'
-  | 'array'
-  | 'color'
-  | 'icon';
+export type { PropertyDisplayKind } from '@/lib/property-types';
 
 export interface ResolvedPropertyType {
   kind: PropertyKind;
@@ -38,34 +31,6 @@ function inferValueKind(value: unknown): PropertyKind {
   return 'Text';
 }
 
-function toDisplayKind(kind: PropertyKind, value: unknown): PropertyDisplayKind {
-  switch (kind) {
-    case 'Boolean':
-      return 'boolean';
-    case 'Number':
-      return 'number';
-    case 'Date':
-      return 'date';
-    case 'Tags':
-      return 'array';
-    case 'Tag':
-      return 'array';
-    case 'Color':
-      return 'color';
-    case 'URL':
-      return 'url';
-    case 'Icon':
-      return 'icon';
-    case 'Select':
-      return typeof value === 'boolean' ? 'boolean' : 'text';
-    case 'MultiSelect':
-      return 'array';
-    case 'Text':
-    default:
-      return 'text';
-  }
-}
-
 export function resolvePropertyType(
   key: string,
   value: unknown,
@@ -83,6 +48,8 @@ export function resolvePropertyType(
     // Color became an explicit semantic preset type.
     displayKind: canonicalKey === 'flowix_colors'
       ? 'color'
-      : toDisplayKind(kind, value),
+      : kind === 'Select' && typeof value === 'boolean'
+        ? 'boolean'
+        : getPropertyTypeDefinition(kind).displayKind,
   };
 }

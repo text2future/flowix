@@ -424,7 +424,7 @@ describe('NativeDshAdapter thread launch', () => {
     const adapter = new NativeDshAdapter(ctx)
 
     await adapter.startThread('thread-1', {
-      cwd: '/workspace', workspacePaths: ['/workspace', '/notes'],
+      cwd: '/workspace',
       provider: 'deepseek', model: 'deepseek-chat', maxTokens: 4096,
       agentPreset: 'standard', permissionMode: 'workspace-write',
     })

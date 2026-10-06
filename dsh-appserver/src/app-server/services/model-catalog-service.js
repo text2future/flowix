@@ -12,6 +12,7 @@ export class ModelCatalogService {
     return Object.entries(configuration.providers).map(([provider, profile]) => ({
       provider,
       ...(typeof profile?.displayName === 'string' ? { displayName: profile.displayName } : {}),
+      ...(typeof profile?.api === 'string' ? { api: profile.api } : {}),
       ...(typeof (profile?.baseURL ?? profile?.baseUrl) === 'string' ? { baseUrl: profile.baseURL ?? profile.baseUrl } : {}),
       takesApiKey: provider !== 'ollama',
       models: Array.isArray(profile?.models)
@@ -27,22 +28,46 @@ export class ModelCatalogService {
       if (!llm?.listConfigurableProviders || !llm?.listModels) return { providers: configured }
       const entries = await llm.listConfigurableProviders()
       const configuredRoutes = new Set(configured.map(provider => provider.provider))
+      const configuredByRoute = new Map(configured.map(provider => [provider.provider, provider]))
       const builtinCatalog = await this.loadBuiltinCatalog()
       const builtins = new Map((builtinCatalog?.builtinProviders?.() ?? []).map(provider => [provider.id, provider]))
       const visible = builtinCatalog ? entries.filter(entry => builtins.has(entry.provider) || configuredRoutes.has(entry.provider)) : entries
       const providers = await Promise.all(visible.map(async entry => {
         const builtin = builtins.get(entry.provider)
+        const builtinModels = builtinCatalog?.getBuiltinModels?.(entry.provider) ?? []
+        const builtinModelsById = new Map(builtinModels.map(model => [model.id, model]))
+        const configuredProvider = configuredByRoute.get(entry.provider)
         let models = []
         if (configuredRoutes.has(entry.provider)) {
           try { models = await llm.listModels(entry.provider) } catch { models = [] }
         }
-        if (models.length === 0 && builtinCatalog?.getBuiltinModels) models = builtinCatalog.getBuiltinModels(entry.provider) ?? []
+        if (models.length === 0) {
+          models = builtinModels
+        } else if (builtinModels.length > 0) {
+          // Active routes return their effective model list, but model metadata
+          // such as `api` may be omitted there. Retain user additions and
+          // overrides while filling those gaps from pi-ai's installed catalog.
+          models = models.map(model => {
+            const builtinModel = builtinModelsById.get(model.id)
+            if (!builtinModel) return model
+            return {
+              ...builtinModel,
+              ...model,
+              api: model.api ?? builtinModel.api,
+              baseUrl: model.baseUrl ?? builtinModel.baseUrl,
+              contextWindow: model.contextWindow ?? builtinModel.contextWindow,
+              maxTokens: model.maxTokens ?? builtinModel.maxTokens,
+            }
+          })
+        }
         const first = models[0]
+        const api = first?.api ?? configuredProvider?.api ?? builtinModels[0]?.api
+        const baseUrl = configuredProvider?.baseUrl ?? first?.baseUrl ?? builtinModels[0]?.baseUrl
         return {
           provider: entry.provider,
           displayName: builtin?.name || entry.displayName || entry.provider,
-          ...(first?.baseUrl ? { baseUrl: first.baseUrl } : {}),
-          ...(first?.api ? { api: first.api } : {}),
+          ...(baseUrl ? { baseUrl } : {}),
+          ...(api ? { api } : {}),
           takesApiKey: builtin?.auth?.apiKey !== undefined || entry.provider !== 'ollama',
           models: models.map(model => ({
             id: model.id,

@@ -9,9 +9,10 @@ import { captureLatestDocumentContent, getDocumentBuffer, protectDocumentDraft, 
 import { notifyDocumentBufferChanged, subscribeDocumentBufferChanges } from '../store/buffer-registry';
 import type { DocumentIdentity } from '../store/document-identity';
 import { localDocumentOperations } from '../use-cases/local-document-operations';
+import { Button } from '@shared/ui/button';
 
-export function DocumentSaveStatus({ identity, scopePath }: {
-  identity: DocumentIdentity; scopePath: string | null;
+export function DocumentSaveStatus({ identity, scopePath, inline = false }: {
+  identity: DocumentIdentity; scopePath: string | null; inline?: boolean;
 }) {
   const { t } = useI18n();
   const subscribe = useCallback((notify: () => void) => {
@@ -57,8 +58,8 @@ export function DocumentSaveStatus({ identity, scopePath }: {
           void protectDocumentDraft(identity, path, 'autosave');
           return;
         }
-        // This explicit decision, unlike an automatic retry, authorizes replacing
-        // the disk version just read. A newer external write still fails CAS.
+        // This decision authorizes replacing the disk version just read. If
+        // the file changes again, the conditional writer reconciles it anew.
         buffer.lastSavedContent = disk;
         buffer.conflicted = false;
         buffer.conflictContent = null;
@@ -73,20 +74,33 @@ export function DocumentSaveStatus({ identity, scopePath }: {
     }
   };
   const notificationId = `document-save:${identity.displayId}`;
-  useEffect(() => () => { notifications.dismiss(notificationId); }, [notificationId]);
+  useEffect(() => () => { if (!inline) notifications.dismiss(notificationId); }, [inline, notificationId]);
   useEffect(() => {
-    if (!buffer.conflicted && !buffer.saveError) { notifications.dismiss(notificationId); return; }
+    if (inline) return;
+    if (buffer.conflicted || !buffer.saveError) { notifications.dismiss(notificationId); return; }
     notifications.custom(() => <div role="status" aria-live="polite" className="flex w-[var(--width)] flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--floating-bg)] px-4 py-3 text-sm text-[var(--floating-foreground)] shadow-lg">
     <span className="w-full truncate font-medium" title={identity.path}>{identity.path.split(/[\\/]/).pop()}</span>
-    <span>{buffer.conflicted ? t('document.save.conflictHelp')
-      : t('document.save.failed', { message: buffer.saveError ?? '' })}</span>
-    {buffer.conflicted ? <>
-      <button className="underline" disabled={working || saving} onClick={() => void resolve('local')}>{t('document.save.keepLocal')}</button>
-      <button className="underline" disabled={working || saving} onClick={() => void resolve('disk')}>{t('document.save.useDisk')}</button>
-    </> : buffer.saveError ? <button className="underline" disabled={working || saving} onClick={() => void resolve('retry')}>{t('document.save.retry')}</button> : null}
+    <span>{t('document.save.failed', { message: buffer.saveError ?? '' })}</span>
+    <button className="underline" disabled={working || saving} onClick={() => void resolve('retry')}>{t('document.save.retry')}</button>
   </div>, { id: notificationId, duration: Infinity });
   });
+  if (inline && buffer.conflicted) {
+    return <div role="alert" aria-live="polite"
+      className="absolute left-1/2 top-0 z-[30] flex w-max max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2 text-sm text-[var(--foreground)] shadow-lg animate-in slide-in-from-top-2 fade-in duration-200">
+      <span className="px-1 font-medium whitespace-nowrap">{t('document.save.conflictPrompt')}</span>
+      <Button variant="outline" size="sm" className="rounded-lg" disabled={working || saving} onClick={() => void resolve('disk')}>
+        {t('document.save.useDisk')}
+      </Button>
+      <Button size="sm" className="rounded-lg" disabled={working || saving} onClick={() => void resolve('local')}>
+        {t('document.save.keepLocal')}
+      </Button>
+    </div>;
+  }
   return null;
+}
+
+export function DocumentConflictPanel(props: { identity: DocumentIdentity; scopePath: string | null }) {
+  return <DocumentSaveStatus {...props} inline />;
 }
 
 const subscribeNotifications = (notify: () => void) => {
@@ -96,7 +110,7 @@ const subscribeNotifications = (notify: () => void) => {
   return () => { stopSessions(); stopBody(); stopTitle(); };
 };
 const notificationSnapshot = () => JSON.stringify(listDocumentSessions()
-  .filter(session => session.buffer?.conflicted || session.buffer?.saveError)
+  .filter(session => !session.buffer?.conflicted && session.buffer?.saveError)
   .map(session => session.identity.displayId).sort());
 
 /** Exactly one host per window, independent of editor mounts. */

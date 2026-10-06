@@ -30,6 +30,12 @@ export interface MediaResourceResponse {
   resource: MediaResource;
 }
 
+export interface MediaResourcePage {
+  resources: MediaResource[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export interface DocTreeItem {
   id: string;
   fullPath: string;
@@ -81,16 +87,43 @@ export interface DocumentPage {
   hasMore: boolean;
 }
 
+export interface TableDocumentListItem {
+  relativePath: string;
+  tableId: string;
+  name: string;
+  modifiedMs: number;
+  fileRevision: number;
+  inViews: boolean;
+  identityConflict?: boolean;
+}
+
+export interface MediaLibraryListItem {
+  relativePath: string;
+  libraryId: string;
+  name: string;
+  modifiedMs: number;
+  inViews: boolean;
+  identityConflict?: boolean;
+}
+
 export const files = {
   listDocumentPage: (request: {
     notebookId: string;
     folderPath: string;
     resourceKinds?: string[];
-    customFilter?: { documentType: string; key: string; operator: string; value: string } | null;
     cursor?: string | null;
     limit?: number;
-    refreshDirectories?: string[];
   }) => invoke<DocumentPage>('list_document_page', { request }),
+  listTableDocuments: (notebookId: string) =>
+    invoke<TableDocumentListItem[]>('list_table_documents', { notebookId }),
+  setTableDocumentInViews: (notebookId: string, tableId: string, inViews: boolean) =>
+    invoke<void>('set_table_document_in_views', { notebookId, tableId, inViews }),
+  listMediaLibraries: (notebookId: string) =>
+    invoke<MediaLibraryListItem[]>('list_media_libraries', { notebookId }),
+  setMediaLibraryInViews: (notebookId: string, libraryId: string, inViews: boolean) =>
+    invoke<void>('set_media_library_in_views', { notebookId, libraryId, inViews }),
+  makeViewDocumentIdentityUnique: (notebookId: string, relativePath: string) =>
+    invoke<string>('make_view_document_identity_unique', { notebookId, relativePath }),
   getTree: (spacePath: string) =>
     invoke<DocTreeItem[] | null>('get_file_tree', { spacePath }),
   getDirChildren: (dirPath: string) =>
@@ -110,6 +143,9 @@ export const files = {
   unwatchRoot: (leaseId: string) => invoke<void>('unwatch_file_browser_root', { leaseId }),
   read: (filePath: string, spacePath?: string) => invoke<string | null>('read_file', { filePath, spacePath }),
   readImage: (filePath: string, spacePath?: string) => invoke<string | null>('read_image_file', { filePath, spacePath }),
+  readImagePreview: (filePath: string, spacePath?: string) => invoke<string | null>('read_image_preview', { filePath, spacePath }),
+  readVideoPreview: (filePath: string, spacePath?: string) =>
+    invoke<string | null>('read_video_preview', { filePath, spacePath }),
   // Video stays a native media URL so playback does not load the whole file
   // into a base64 string like the existing image preview does.
   toAssetUrl: (filePath: string) => convertFileSrc(filePath),
@@ -135,10 +171,16 @@ export const files = {
 };
 
 export const mediaResources = {
+  listPage: (notebookPath: string, kinds: Array<'image' | 'video'>, cursor?: string | null, limit?: number) =>
+    invoke<MediaResourcePage>('list_media_resources_page', { notebookPath, kinds, cursor, limit }),
   get: (filePath: string, notebookPath: string) => invoke<MediaResourceResponse>(
     'get_media_resource',
     { filePath, notebookPath },
   ),
+  thumbnail: (filePath: string, notebookPath: string, kind: 'image' | 'video', requestId: string) =>
+    invoke<string | null>('get_media_thumbnail', { filePath, spacePath: notebookPath, kind, requestId }),
+  cancelThumbnail: (requestId: string) =>
+    invoke<void>('cancel_media_thumbnail', { requestId }),
   update: (
     filePath: string,
     notebookPath: string,
@@ -166,7 +208,10 @@ export interface SaveFileFilter {
 
 export const dialogs = {
   selectDirectory: () => invoke<string | null>('select_directory'),
-  selectFiles: () => invoke<string[] | null>('select_files'),
+  selectFiles: (options?: { accept?: string; multiple?: boolean }) => invoke<string[] | null>('select_files', {
+    accept: options?.accept ?? null,
+    multiple: options?.multiple ?? true,
+  }),
   saveFile: (suggestedName?: string, filters?: SaveFileFilter[]) =>
     invoke<string | null>('save_file_dialog', {
       suggestedName,
@@ -178,6 +223,11 @@ export const dialogs = {
     invoke<boolean>('export_pdf', { filePath }),
   copyAttachmentFile: (sourcePath: string, targetPath: string) =>
     invoke<boolean>('copy_attachment_file', { sourcePath, targetPath }),
+};
+
+export const attachments = {
+  saveFromPath: (sourcePath: string, notebookId: string) =>
+    invoke<string | null>('save_attachment', { sourcePath, notebookId, memoId: null }),
 };
 
 export interface ExternalDocumentChangedEvent {

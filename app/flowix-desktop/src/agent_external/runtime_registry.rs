@@ -16,6 +16,7 @@ use super::codex::{CodexAppServerManager, AGENT_TYPE as CODEX_AGENT_TYPE};
 use super::deepseek_harness::{DeepSeekHarnessManager, AGENT_TYPE as DSH_AGENT_TYPE};
 use super::hermes::HermesAcpManager;
 use super::opencode::{OpenCodeAcpManager, AGENT_TYPE as OPENCODE_AGENT_TYPE};
+use super::pi::{PiRpcManager, AGENT_TYPE as PI_AGENT_TYPE};
 use crate::agent_wire::{AgentUserMessage, RunInfo};
 
 const HERMES_AGENT_TYPE: &str = "hermes";
@@ -26,15 +27,17 @@ pub enum ExternalRuntimeKind {
     Claude,
     Hermes,
     OpenCode,
+    Pi,
     DeepSeekHarness,
 }
 
 impl ExternalRuntimeKind {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Codex,
         Self::Claude,
         Self::Hermes,
         Self::OpenCode,
+        Self::Pi,
         Self::DeepSeekHarness,
     ];
 
@@ -44,6 +47,7 @@ impl ExternalRuntimeKind {
             Self::Claude => CLAUDE_AGENT_TYPE,
             Self::Hermes => HERMES_AGENT_TYPE,
             Self::OpenCode => OPENCODE_AGENT_TYPE,
+            Self::Pi => PI_AGENT_TYPE,
             Self::DeepSeekHarness => DSH_AGENT_TYPE,
         }
     }
@@ -54,6 +58,7 @@ impl ExternalRuntimeKind {
             "claude" => Ok(Self::Claude),
             "hermes" => Ok(Self::Hermes),
             "opencode" => Ok(Self::OpenCode),
+            "pi" => Ok(Self::Pi),
             "deepseek-harness" | "deepseek_harness" | "dsh" => Ok(Self::DeepSeekHarness),
             other => Err(format!("unsupported agent type: {other}")),
         }
@@ -165,6 +170,7 @@ impl_external_runtime!(ClaudeCliManager, ExternalRuntimeKind::Claude);
 impl_external_runtime!(DeepSeekHarnessManager, ExternalRuntimeKind::DeepSeekHarness);
 impl_external_runtime!(HermesAcpManager, ExternalRuntimeKind::Hermes);
 impl_external_runtime!(OpenCodeAcpManager, ExternalRuntimeKind::OpenCode);
+impl_external_runtime!(PiRpcManager, ExternalRuntimeKind::Pi);
 
 pub struct ExternalRuntimeRegistry {
     runtimes: HashMap<ExternalRuntimeKind, Box<dyn ExternalCliRuntime>>,
@@ -178,6 +184,7 @@ impl ExternalRuntimeRegistry {
         claude: Arc<ClaudeCliManager>,
         hermes: Arc<HermesAcpManager>,
         opencode: Arc<OpenCodeAcpManager>,
+        pi: Arc<PiRpcManager>,
         deepseek_harness: Arc<DeepSeekHarnessManager>,
     ) -> Self {
         let codex_for_registry = codex.clone();
@@ -187,6 +194,7 @@ impl ExternalRuntimeRegistry {
             Box::new(claude),
             Box::new(hermes),
             Box::new(opencode),
+            Box::new(pi),
             Box::new(deepseek_harness),
         ])
         .expect("built-in external runtimes must have unique kinds")
@@ -460,6 +468,7 @@ mod tests {
             Arc::new(ClaudeCliManager::new(threads.clone())),
             Arc::new(HermesAcpManager::new(threads.clone())),
             Arc::new(OpenCodeAcpManager::new(threads.clone())),
+            Arc::new(PiRpcManager::new(threads.clone())),
             Arc::new(DeepSeekHarnessManager::new(
                 threads,
                 user_config,
@@ -473,7 +482,14 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             keys,
-            ["codex", "claude", "hermes", "opencode", "deepseek-harness"]
+            [
+                "codex",
+                "claude",
+                "hermes",
+                "opencode",
+                "pi",
+                "deepseek-harness"
+            ]
         );
         for kind in ExternalRuntimeKind::ALL {
             assert_eq!(registry.get(kind).map(ExternalCliRuntime::kind), Some(kind));

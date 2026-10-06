@@ -40,6 +40,10 @@ export type SlashMenuItemId =
   | 'blockquote'
   | 'code-block'
   | 'table'
+  | 'table-reference'
+  | 'table-kanban-view'
+  | 'table-calendar-view'
+  | 'table-gallery-view'
   | 'math-block'
   | 'web-card'
   | 'horizontal-rule'
@@ -56,6 +60,7 @@ export type SlashMenuItemId =
   | 'agent-thread-openclaw'
   | 'agent-thread-opencode'
   | 'agent-thread-deepseek-harness'
+  | 'agent-thread-pi'
   | 'create-child-note'
   | 'reference-note';
 
@@ -115,6 +120,15 @@ export function getSlashMenuItemSection(item: SlashMenuItem, language: AppLangua
 }
 
 export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
+  {
+    id: 'agent-thread-pi',
+    label: getAgentType('pi').name,
+    description: 'AI Agent',
+    keywords: ['pi', 'coding agent', 'agent', 'code', 'bianma', '任务', 'renwu', 'task'],
+    icon: getAgentType('pi').icon,
+    sectionKey: 'editor.slash.section.agent',
+    alwaysVisible: true,
+  },
   {
     id: 'agent-thread-deepseek-harness',
     label: getAgentType('deepseek-harness').name,
@@ -279,6 +293,35 @@ export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
     keywords: ['divider', 'hr', 'horizontal', 'rule', 'fenge', '分割'],
     icon: MinusIcon,
     sectionKey: 'editor.slash.section.addBlock',
+  },
+  {
+    id: 'table-reference',
+    labelKey: 'editor.slash.label.multidimensionalTable',
+    description: '插入多维表格引用视图',
+    keywords: ['data table', 'multidimensional table', 'table view', 'biaoge', 'duowei', '数据表', '多维表', '引用'],
+    icon: TableIcon,
+    sectionKey: 'editor.slash.section.view',
+  },
+  {
+    id: 'table-kanban-view',
+    labelKey: 'editor.slash.label.kanbanView',
+    keywords: ['kanban', 'board', '看板', '多维表格'],
+    icon: TableIcon,
+    sectionKey: 'editor.slash.section.view',
+  },
+  {
+    id: 'table-calendar-view',
+    labelKey: 'editor.slash.label.calendarView',
+    keywords: ['calendar', '日历', '多维表格'],
+    icon: TableIcon,
+    sectionKey: 'editor.slash.section.view',
+  },
+  {
+    id: 'table-gallery-view',
+    labelKey: 'editor.slash.label.galleryView',
+    keywords: ['gallery', 'gallery list', '画廊', '画廊列表', '多维表格'],
+    icon: TableIcon,
+    sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'image',

@@ -16,7 +16,7 @@ import { SelectValueInput } from '@features/document/properties/select-value-inp
 import { MultiSelectValueInput } from '@features/document/properties/multi-select-value-input';
 import { ColorValueInput } from '@features/document/properties/color-value-input';
 import { IconValueInput } from '@features/document/properties/icon-value-input';
-import { generatePropertyKey } from '@features/document/properties/property-key';
+import { canonicalizePropertyKey } from '@features/document/properties/property-key';
 import {
   extractFrontmatter,
   FrontmatterPropertyError,
@@ -161,15 +161,13 @@ export function NotePropertiesDialog({
   };
 
   const persistCustomFieldDefinition = (
-    field: { key: string; name: string; type: PropertyFieldType; options?: string[] },
+    field: { key: string; type: PropertyFieldType; options?: string[] },
     previousKey?: string
   ) => {
-    const key = field.key.trim();
-    const name = field.name.trim();
-    if (!key || !name) return;
+    const key = canonicalizePropertyKey(field.key.trim());
+    if (!key) return;
     const definition: PropertyFieldConfig = {
       key,
-      name,
       type: field.type,
       options: normalizeFieldOptions(field.type, field.options),
     };
@@ -180,15 +178,13 @@ export function NotePropertiesDialog({
     void saveFields(nextFields);
   };
 
-  // 自定义添加: name 是展示名, key 按固定 kebab-case 规则生成。
-  const addCustomField = async (payload: { name: string; type: PropertyFieldType; options?: string[] }) => {
-    const name = payload.name.trim();
-    if (!name) return;
-    const key = await generatePropertyKey(name);
+  // 自定义添加: key 是属性标识和展示名称。
+  const addCustomField = (payload: { key: string; type: PropertyFieldType; options?: string[] }) => {
+    const key = canonicalizePropertyKey(payload.key.trim());
+    if (!key) return;
     const options = normalizeFieldOptions(payload.type, payload.options);
     const preset = getCustomPresets([{
       key,
-      name,
       type: payload.type,
       options,
     }])[0];
@@ -203,7 +199,7 @@ export function NotePropertiesDialog({
         options,
       },
     ]);
-    persistCustomFieldDefinition({ key, name, type: payload.type, options });
+    persistCustomFieldDefinition({ key, type: payload.type, options });
     closePopover();
   };
 
@@ -222,20 +218,18 @@ export function NotePropertiesDialog({
     closePopover();
   };
 
-  // 编辑现有行: 自定义路径, 以展示名重新生成 key, 并更新 type/options。
+  // 编辑现有行: 自定义路径, 直接更新 key/type/options。
   // 与 addCustomField 区别: 改的是已有行而不是 push 新行; preset 字段清掉。
-  const updateRowFromEdit = async (
+  const updateRowFromEdit = (
     id: string,
-    payload: { name: string; type: PropertyFieldType; options?: string[] }
+    payload: { key: string; type: PropertyFieldType; options?: string[] }
   ) => {
-    const name = payload.name.trim();
-    if (!name) return;
-    const key = await generatePropertyKey(name);
+    const key = canonicalizePropertyKey(payload.key.trim());
+    if (!key) return;
     const options = normalizeFieldOptions(payload.type, payload.options);
     const previousKey = rows.find((row) => row.id === id)?.key;
     const preset = getCustomPresets([{
       key,
-      name,
       type: payload.type,
       options,
     }])[0];
@@ -249,7 +243,7 @@ export function NotePropertiesDialog({
         options,
       };
     }));
-    persistCustomFieldDefinition({ key, name, type: payload.type, options }, previousKey);
+    persistCustomFieldDefinition({ key, type: payload.type, options }, previousKey);
     closePopover();
   };
 

@@ -10,6 +10,7 @@ import { DEFAULT_THEME_ID, type ThemeId } from '@/lib/theme';
 import type { ShortcutOverrides } from '@/lib/shortcuts';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage, type Region } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
+import type { PresetPropertyKind } from './property-types';
 
 // 文件类型
 export const BINARY_EXTENSIONS = [
@@ -68,21 +69,10 @@ export interface FormatConfig {
   documentWidth: number;
 }
 
-export type PropertyFieldType =
-  | 'Text'
-  | 'Boolean'
-  | 'Number'
-  | 'Date'
-  | 'Icon'
-  | 'Select'
-  | 'MultiSelect'
-  | 'Tag'
-  | 'Tags'
-  | 'Color';
+export type PropertyFieldType = PresetPropertyKind;
 
 export interface PropertyFieldConfig {
   key: string;
-  name: string;
   type: PropertyFieldType;
   options?: string[];
 }

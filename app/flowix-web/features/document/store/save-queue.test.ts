@@ -40,5 +40,5 @@ it('retries a refused in-flight save only after a confirmed path rebase', async 
   expect(await pending).toBe(true);
   expect(mocks.write.mock.calls[1][0]).toMatchObject({ path: '/retry/After.md', expectedContent: 'old content' });
   expect(onCasRefused).not.toHaveBeenCalled();
-  expect(onSaved).toHaveBeenCalledWith('/retry/After.md', 'unsaved edit', 1);
+  expect(onSaved).toHaveBeenCalledWith('/retry/After.md', 'unsaved edit', 1, 'unsaved edit', false);
 });

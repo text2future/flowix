@@ -64,6 +64,7 @@ pub struct AgentRuntimeConfig {
     pub claude: Option<RuntimePathConfig>,
     pub hermes: Option<RuntimePathConfig>,
     pub opencode: Option<RuntimePathConfig>,
+    pub pi: Option<RuntimePathConfig>,
     pub deepseek_harness: Option<RuntimePathConfig>,
 }
 
@@ -163,6 +164,7 @@ impl AgentUserMessage {
             "claude" => config.claude.as_ref(),
             "hermes" => config.hermes.as_ref(),
             "opencode" => config.opencode.as_ref(),
+            "pi" => config.pi.as_ref(),
             "deepseek-harness" => config.deepseek_harness.as_ref(),
             _ => None,
         }

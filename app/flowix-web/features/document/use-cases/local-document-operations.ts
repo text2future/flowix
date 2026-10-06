@@ -2,6 +2,7 @@ import { canonicalPath } from '@/lib/path';
 import { externalDocuments } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
 import { updateNoteLinksAfterMove } from '@features/memo/services/note-link-rewriter';
+import { beginExternalDocumentRename, isExternalDocumentRenameInProgress } from '@features/document/store/external-document-operation';
 
 import type { EditableDocumentOperations } from './editable-document-operations';
 
@@ -33,3 +34,73 @@ export const localDocumentOperations: EditableDocumentOperations = {
     return { path: canonicalPath(path) };
   },
 };
+
+export interface RenameMarkdownTitleRequest {
+  path: string;
+  title: string;
+  scopePath: string;
+  displayId: string;
+  expectFollowupWrite?: boolean;
+  onPathChanged: (oldPath: string, newPath: string) => void;
+}
+
+export interface RenameMarkdownTitleResult {
+  path: string;
+  filename: string;
+  changed: boolean;
+}
+
+/** Build a Markdown filename from a title while preserving its extension. */
+export function markdownFilenameForTitle(path: string, requestedTitle: string): string | null {
+  const filename = path.split(/[\\/]/).pop() ?? '';
+  const extension = filename.match(/(\.markdown|\.md)$/i)?.[0] ?? '';
+  let title = requestedTitle.trim();
+  if (extension && title.toLowerCase().endsWith(extension.toLowerCase())) {
+    title = title.slice(0, -extension.length).trimEnd();
+  }
+  if (!title || title === '.' || title === '..') return null;
+  return `${title}${extension}`;
+}
+
+/**
+ * Rename a note title through the shared scoped file operation, coordinating
+ * open editor buffers and publishing the new path before releasing the rename
+ * lock. The backend owns index and table-reference maintenance.
+ */
+export async function renameMarkdownTitle({
+  path,
+  title,
+  scopePath,
+  displayId,
+  expectFollowupWrite = false,
+  onPathChanged,
+}: RenameMarkdownTitleRequest): Promise<RenameMarkdownTitleResult | null> {
+  const sourcePath = canonicalPath(path);
+  const filename = markdownFilenameForTitle(sourcePath, title);
+  if (!filename) return null;
+  const currentFilename = sourcePath.split(/[\\/]/).pop() ?? '';
+  if (filename === currentFilename) {
+    return { path: sourcePath, filename, changed: false };
+  }
+  if (isExternalDocumentRenameInProgress(displayId)) {
+    throw new Error('此笔记正在重命名，请稍后重试');
+  }
+
+  const operation = beginExternalDocumentRename(displayId);
+  const cancelExpectedDelete = operation.expectSourceDelete(sourcePath);
+  try {
+    const renamed = await localDocumentOperations.rename({ path: sourcePath, name: filename, scopePath });
+    if (expectFollowupWrite) operation.expectFollowupWrite(renamed.path);
+    onPathChanged(sourcePath, renamed.path);
+    return {
+      path: renamed.path,
+      filename: renamed.path.split(/[\\/]/).pop() ?? filename,
+      changed: true,
+    };
+  } catch (error) {
+    cancelExpectedDelete();
+    throw error;
+  } finally {
+    operation.finish();
+  }
+}

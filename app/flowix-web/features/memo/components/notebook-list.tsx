@@ -87,7 +87,7 @@ export function NotebookList({
     void Promise.all([cloud.getState(), cloud.listNotebookStates()])
       .then(([cloudState, links]) => {
         if (requestId !== cloudStateRequestRef.current) return;
-        setCloudSyncAvailable(cloudState.authenticated && cloudState.enabled);
+        setCloudSyncAvailable(cloudState.authenticated);
         setCloudSyncedNotebookIds(
           new Set(links.filter((link) => link.enabled).map((link) => link.notebookId)),
         );
@@ -106,7 +106,7 @@ export function NotebookList({
   useEffect(() => {
     if (!experimental) return;
     return listenToCloudStateChanges((cloudState) => {
-      setCloudSyncAvailable(cloudState.authenticated && cloudState.enabled);
+      setCloudSyncAvailable(cloudState.authenticated);
       refreshCloudSyncedNotebookIds();
     });
   }, [experimental, refreshCloudSyncedNotebookIds]);

@@ -10,7 +10,7 @@ export type NotePathStatus = 'present' | 'missing';
 export type NoteDeleteOutcome = 'deleted' | 'missingCleaned';
 export type PruneMissingNoteOutcome = 'present' | 'missingCleaned';
 export type MatchField = 'title' | 'tag' | 'body';
-export type NoteVersionSource = 'auto' | 'manual' | 'restore_backup';
+export type NoteVersionSource = 'auto' | 'manual' | 'restore_backup' | 'cloud_conflict';
 
 export interface NoteEntry {
   relativePath: string;
@@ -71,6 +71,14 @@ export interface PathVersionMeta {
   contentHash: string;
 }
 
+export interface PathArchiveSummary {
+  notebookId: string;
+  notebookName: string;
+  relativePath: string;
+  latestAt: number;
+  versionCount: number;
+}
+
 /** Path-identified Markdown operations. Existing IPC command names remain adapters. */
 export const notes = {
   resolveLocation: (filePath: string) =>
@@ -93,6 +101,8 @@ export const notes = {
   moveToDirectory: (filePath: string, notebookId: string, parentRelativePath: string) =>
     invoke<{ path: string }>('move_memo_to_directory', { filePath, notebookId, parentRelativePath }),
   list: (notebookId: string) => invoke<NoteEntry[]>('list_notes_by_path', { notebookId }),
+  getIndexed: (notebookId: string, relativePath: string) =>
+    invoke<NoteEntry | null>('get_indexed_note_by_path', { notebookId, relativePath }),
   getPage: (params: {
     notebookId: string;
     filter?: FilterType;
@@ -115,6 +125,7 @@ export const notes = {
   pathStatus: (filePath: string) => invoke<NotePathStatus>('note_path_status', { filePath }),
   delete: (filePath: string) => invoke<NoteDeleteOutcome>('delete_memo', { filePath }),
   pruneMissing: (filePath: string) => invoke<PruneMissingNoteOutcome>('prune_missing_memo', { filePath }),
+  /** Omitted parent uses the notebook's default create folder; '' explicitly targets the notebook root. */
   create: (notebookId: string, tag?: string, parentRelativePath?: string, title?: string) =>
     invoke<CreatedNoteDocument>('add_path_document', { tag, notebookId, parentRelativePath, title }),
   createFromTemplate: (templateId: string, notebookId: string) =>
@@ -126,6 +137,9 @@ export const notes = {
     invoke<CreatedNoteDocument>('import_external_document_by_path', { filePath, content, notebookId }),
   listVersions: (notebookId: string, relativePath: string) =>
     invoke<PathVersionMeta[]>('list_path_versions', { notebookId, relativePath }),
+  listArchives: () => invoke<PathArchiveSummary[]>('list_local_path_archives'),
+  restoreArchivedVersion: (notebookId: string, relativePath: string, versionId: string) =>
+    invoke<void>('restore_local_path_version', { notebookId, relativePath, versionId }),
   createVersion: (notebookId: string, relativePath: string) =>
     invoke<PathVersionMeta | null>('create_path_version', { notebookId, relativePath, source: 'manual' }),
   restoreVersion: (notebookId: string, relativePath: string, versionId: string, expectedContent?: string) =>

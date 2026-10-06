@@ -31,7 +31,7 @@ migration still moves plugin output from `.plugin-output/` into that directory.
 | Store | Ownership | Contents | Rebuild policy |
 | --- | --- | --- | --- |
 | `~/.flowix/index.db` | Device | Notebook registry and legacy source rows for import | Preserve; it is not a notebook cache |
-| `<notebook>/.flowix/notebook.db` | Notebook | Path-keyed note and full-text projections, legacy memo-ID compatibility records, media identities and properties | Rebuild note and search projections selectively; preserve user-owned media properties and compatibility data |
+| `<notebook>/.flowix/notebook.db` | Notebook | Path-keyed note and full-text projections, the multidimensional-table listing catalog, legacy memo-ID compatibility records, media identities and properties | Rebuild note, search, and table-listing projections selectively; preserve user-owned media properties and compatibility data |
 
 The notebook database deliberately remains one file. Its tables have different
 lifecycles, so maintenance code must target the relevant tables and must not
@@ -40,6 +40,10 @@ delete the whole database to rebuild the note projection.
 Media bytes remain in notebook files. The `media_resources` table stores a
 notebook-relative path, resource identity, file fingerprint, and user
 properties. Those properties cannot be reconstructed from the media file.
+
+The multidimensional-table listing is a rebuildable file catalog. Its
+view-group membership preference is stored separately by stable `table_id`,
+so a catalog refresh or file rename does not reset the user's choice.
 `missing_since` records when a startup scan first found a resource absent;
 its metadata remains readable for recovery. `deleted_at` records an explicit
 watcher deletion and hides the resource from normal reads. These fields have
@@ -123,7 +127,8 @@ those filenames requires a separate, downgrade-aware migration.
   them. Startup maintenance and directory-level recovery reconcile the media
   catalog under the same policy. Opening or editing a resource also refreshes
   that path.
-- The file browser reads directory entries directly and uses its watcher to
-  refresh the visible tree. The notebook watcher writes the media catalog.
+- The file tree and folder document list read the current directory directly;
+  folder document lists do not keep a separate file-entry catalog. The notebook
+  watcher writes the media catalog.
 - The legacy memo-ID search remains an in-memory projection. Search caches may
   be rebuilt; user properties and media metadata must be preserved.

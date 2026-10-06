@@ -1,5 +1,5 @@
-import { captureLatestDocumentContent } from '../../store/document-session-service';
-import { useEffect, useRef } from 'react';
+import { captureLatestDocumentContent, reconcileUnsavedExternalDocumentChange } from '../../store/document-session-service';
+import { useEffect } from 'react';
 import { getCurrentWindow } from '@platform/tauri/window';
 
 import { hasDocumentUnsavedChanges } from '@features/document/store/document-session-service';
@@ -23,9 +23,6 @@ interface UseExternalDocumentChangeWatchOptions {
   reloadDocument: (path: string, options?: { preservePending?: boolean; showLoading?: boolean }) => Promise<void>;
 }
 
-// fs_watcher 单次外部写入可能发多次事件 (FSEvents 双触发 + 编辑器
-// debounce save), cooldown 收敛冲突警告避免 toast 风暴。
-const CONFLICT_WARNING_COOLDOWN_MS = 5000;
 const logger = createLogger('external-document-watch');
 
 export function useExternalDocumentChangeWatch({
@@ -35,16 +32,6 @@ export function useExternalDocumentChangeWatch({
   clearSaveTimer,
   reloadDocument,
 }: UseExternalDocumentChangeWatchOptions) {
-  const lastConflictWarningAtRef = useRef(0);
-
-  const maybeWarnAboutConflict = () => {
-    if (!hasDocumentUnsavedChanges(identity)) return;
-    if (Date.now() - lastConflictWarningAtRef.current < CONFLICT_WARNING_COOLDOWN_MS) return;
-    lastConflictWarningAtRef.current = Date.now();
-    const language = getCurrentAppLanguage();
-    toast.warning(translate(language, 'document.external.changeWarning'), { duration: 5000 });
-  };
-
   useEffect(() => {
     if (!filePath) return;
 
@@ -75,13 +62,15 @@ export function useExternalDocumentChangeWatch({
             payload.revision,
           )) return;
           captureLatestDocumentContent(identity);
-          if (hasDocumentUnsavedChanges(identity)) {
-            maybeWarnAboutConflict();
-            return;
-          }
           if (payload.kind === 'deleted') {
             const language = getCurrentAppLanguage();
             toast.warning(translate(language, 'document.external.changeWarning'), { duration: 5000 });
+            return;
+          }
+          if (hasDocumentUnsavedChanges(identity)) {
+            // The write boundary performs the shared diffy merge under the
+            // cross-process file lock. A real overlap surfaces the conflict UI.
+            await reconcileUnsavedExternalDocumentChange(identity, filePath, scopePath);
             return;
           }
           clearSaveTimer();

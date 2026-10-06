@@ -36,6 +36,19 @@ function resolveExternalDocumentSurface(
   const filePath = fileIdentity.path;
   const scopePath = document.identity.scopePath;
 
+  if (/\.lib\.ya?ml$/i.test(filePath)) {
+    return { kind: 'media-library-file', instanceKey, fileIdentity, notebookPath: scopePath, notebookId: null };
+  }
+
+  if (/\.table\.ya?ml$/i.test(filePath)) {
+    return {
+      kind: 'table-file',
+      instanceKey,
+      fileIdentity,
+      props: { filePath, fileIdentity, notebookPath: scopePath, notebookId: null },
+    };
+  }
+
   switch (externalFileViewKind(filePath)) {
     case 'markdown':
       return { kind: 'md', instanceKey, fileIdentity, props: document.documentProps };
@@ -129,6 +142,29 @@ function resolveWorkColumnTarget(
     }
     case 'media':
       return resolveMediaTargetContent(target);
+    case 'table': {
+      const filePath = target.filePath.trim();
+      if (!filePath) return emptyContent('多维表格路径无效', 'invalid-target');
+      const fileIdentity = requireFileDisplayIdentity(filePath);
+      return surfaceContent({
+        kind: 'table-file',
+        instanceKey: fileIdentity.displayId,
+        fileIdentity,
+        props: { filePath, fileIdentity, notebookPath: target.notebookPath, notebookId: target.notebookId },
+      });
+    }
+    case 'media-library': {
+      const filePath = target.filePath.trim();
+      if (!filePath) return emptyContent('媒体库路径无效', 'invalid-target');
+      const fileIdentity = requireFileDisplayIdentity(filePath);
+      return surfaceContent({
+        kind: 'media-library-file',
+        instanceKey: fileIdentity.displayId,
+        fileIdentity,
+        notebookPath: target.notebookPath,
+        notebookId: target.notebookId,
+      });
+    }
     case 'external':
       return input.document && isExternalDocumentContext(target, input.document)
         ? surfaceContent(resolveExternalDocumentSurface(input.document))

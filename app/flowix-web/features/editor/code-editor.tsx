@@ -643,7 +643,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     };
   }, [hasScrollHeader, scrollHeaderMount]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const view = viewRef.current;
     if (!view || view.state.doc.toString() === content) return;
     syncingContentRef.current = true;

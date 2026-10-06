@@ -286,6 +286,7 @@ impl ThreadManager {
                 &product_thread_id,
                 external_session_id,
                 session_cwd.as_deref(),
+                session_metadata.as_ref(),
                 now,
             )?;
         } else {

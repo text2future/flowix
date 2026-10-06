@@ -26,6 +26,7 @@ export type {
   WorkColumnSurfaceKind,
   UnavailableFileSurface,
   VideoFileSurface,
+  TableFileSurface,
 } from './types';
 export type {
   WorkColumnDocumentHeaderPresentation,

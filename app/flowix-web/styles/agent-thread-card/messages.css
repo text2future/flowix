@@ -451,7 +451,7 @@
   padding: 4px 0;
   background: var(--document-bg);
   color: var(--muted-foreground);
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   line-height: 18px;
 }
 
@@ -484,7 +484,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--foreground);
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   line-height: 18px;
   cursor: pointer;
   transition: color 150ms ease;
@@ -735,7 +735,7 @@
   overflow: hidden;
   color: var(--muted-foreground);
   font-family: var(--font-sans);
-  font-size: calc(var(--app-font-size, 15px) * 0.9); /* text-xs */
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;

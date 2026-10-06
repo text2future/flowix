@@ -27,6 +27,7 @@ sha2 = { workspace = true }
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
 fs2 = { workspace = true }
+diffy = "0.5.2"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = "0.2"

@@ -60,10 +60,12 @@ function getMonthTitle(language: AppLanguage, date: Date): string {
 export function DateValueInput({
   value,
   disabled,
+  variant = 'default',
   onChange,
 }: {
   value: string;
   disabled?: boolean;
+  variant?: 'default' | 'table';
   onChange: (value: string) => void;
 }) {
   const { t, language } = useI18n();
@@ -72,6 +74,7 @@ export function DateValueInput({
   // 因为 react 批处理有微小延迟, 这里也能拿到最新值。
   const effectiveLanguage = (settingsLanguage ?? language) as AppLanguage;
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const selectedDate = parseDateValue(value);
   const [viewMonth, setViewMonth] = useState(() => selectedDate ?? new Date());
 
@@ -106,7 +109,7 @@ export function DateValueInput({
   };
 
   return (
-    <Popover open={open} onOpenChange={disabled ? undefined : setOpen}>
+    <Popover open={disabled ? false : open} onOpenChange={disabled ? undefined : setOpen} cellPopup={variant === 'table'}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -117,7 +120,11 @@ export function DateValueInput({
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span className={cn('min-w-0 flex-1 truncate', value ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]')}>
+          <span className={cn(
+            'min-w-0 flex-1 truncate',
+            value ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]',
+            !value && variant === 'table' && 'opacity-80',
+          )}>
             {value || t('document.properties.selectDate')}
           </span>
           {value && !disabled && (
@@ -136,7 +143,7 @@ export function DateValueInput({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="frontmatter-property__date-picker-popover w-[272px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+        className={cn('frontmatter-property__date-picker-popover w-[272px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', variant === 'table' ? 'p-1' : 'p-2')}
       >
         <div className="rounded-lg bg-[var(--card)]">
           <div className="mb-2 flex items-center justify-between px-1">

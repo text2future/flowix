@@ -252,6 +252,12 @@ impl PathNoteEventProcessor {
             event.rename_from_notebook_id.as_ref(),
             event.rename_from_root.as_ref(),
         ) {
+            if let Ok(memo_file) = memo_file.read() {
+                if let Ok(_write_guard) = memo_file.acquire_cross_process_write_lock() {
+                    crate::commands::document_list::refresh_view_document_path(&memo_file, old_path);
+                    crate::commands::document_list::refresh_view_document_path(&memo_file, &event.path);
+                }
+            }
             let old_ctx = NotebookWatchContext { notebook_id: old_notebook_id.clone(), root: old_root.clone() };
             if let (Ok(old_relative), Ok(new_relative)) = (
                 notebook_relative_path(&old_ctx.root, old_path),
@@ -275,12 +281,30 @@ impl PathNoteEventProcessor {
         let Ok(_write_guard) = memo_file.acquire_cross_process_write_lock() else { return; };
 
         if let Some(old_path) = &event.rename_from {
+            crate::commands::document_list::refresh_view_document_path(&memo_file, old_path);
+            crate::commands::document_list::refresh_view_document_path(&memo_file, &event.path);
             let rebase = notebook_relative_path(&ctx.root, old_path).ok()
                 .zip(notebook_relative_path(&ctx.root, &event.path).ok());
             let cloud_move = rebase.as_ref().is_some_and(|(old, new)|
                 record_confirmed_cloud_move(app, &ctx.notebook_id, old, new));
             if let Err(error) = memo_file.reconcile_note_index(&ctx.notebook_id) {
                 tracing::warn!(notebook_id = %ctx.notebook_id, "path rename reconciliation failed: {error}");
+            }
+            drop(_write_guard);
+            let old_path_is_markdown = is_markdown_path(old_path);
+            let new_path_is_markdown = is_markdown_path(&event.path);
+            if event.path.is_dir() || (old_path_is_markdown && new_path_is_markdown) {
+                if let (Ok(old_relative), Ok(new_relative)) = (
+                    notebook_relative_path(&ctx.root, old_path),
+                    notebook_relative_path(&ctx.root, &event.path),
+                ) {
+                    crate::commands::document_list::rebase_table_note_paths(
+                        &memo_file,
+                        &ctx.notebook_id,
+                        &old_relative,
+                        &new_relative,
+                    );
+                }
             }
             let mut emitted = false;
             if let Ok(relative_path) = indexable_relative_path(ctx, old_path) {
@@ -294,7 +318,6 @@ impl PathNoteEventProcessor {
                 emitted = true;
             }
             if !emitted { emit_path_changed(app, ctx, "", false); }
-            drop(_write_guard);
             drop(memo_file);
             if let Some((old_relative, new_relative)) = rebase {
                 let state = app.state::<crate::app::state::AppState>();
@@ -314,6 +337,7 @@ impl PathNoteEventProcessor {
 
         match event.kind {
             FsEventKind::Create | FsEventKind::Modify | FsEventKind::Remove => {
+                crate::commands::document_list::refresh_view_document_path(&memo_file, &event.path);
                 match refresh_path(&memo_file, ctx, &event.path) {
                     Ok(DispatchOutcome::PathIndexed { relative_path }) => {
                         emit_path_changed(app, ctx, &relative_path, !event.path.exists());
@@ -329,6 +353,7 @@ impl PathNoteEventProcessor {
     }
 
     fn reconcile_directory_change(app: &AppHandle, memo_file: &MemoFile, ctx: &NotebookWatchContext) {
+        crate::commands::document_list::refresh_view_document_catalog(memo_file, &ctx.notebook_id, &ctx.root);
         match memo_file.reconcile_note_index(&ctx.notebook_id) {
             Ok(report) => tracing::info!(notebook_id = %ctx.notebook_id,
                 added = report.added, updated = report.updated, removed = report.removed,
@@ -359,6 +384,7 @@ impl PathNoteEventProcessor {
         }
         let Ok(memo_file) = memo_file.read() else { return; };
         let Ok(_write_guard) = memo_file.acquire_cross_process_write_lock() else { return; };
+        crate::commands::document_list::refresh_view_document_path(&memo_file, path);
         if let Ok(DispatchOutcome::PathIndexed { relative_path }) = refresh_path(&memo_file, ctx, path) {
             emit_path_changed(app, ctx, &relative_path, !path.exists());
         }

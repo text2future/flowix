@@ -12,6 +12,7 @@ import {
 	NoteSettingsSection,
 	AgentsSection,
 	DshSettingsSection,
+	PiSettingsSection,
 	ShortcutsSection,
 	CliSection,
 	McpSection,
@@ -192,12 +193,13 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 						<div className="min-h-full">
 							<div className="flex justify-center p-6 pb-0">
 								{/* DSH 页信息密度更高(模型/插件/预设卡片), 放宽到 760px, 其余 tab 保持 500px。 */}
-								<div className={cn('w-full', ['dsh', 'codex'].includes(activeTab) ? 'max-w-[760px]' : 'max-w-[500px]')}>
+								<div className={cn('w-full', ['dsh', 'codex', 'pi'].includes(activeTab) ? 'max-w-[760px]' : 'max-w-[500px]')}>
 									{activeTab === 'general' && <GeneralSettingsSection />}
 									{activeTab === 'format' && <FormatSettingsSection />}
 									{activeTab === 'noteSettings' && <NoteSettingsSection />}
 									{activeTab === 'aiAgent' && <AgentsSection />}
 									{activeTab === 'dsh' && <DshSettingsSection autoUpdate={autoUpdateDsh} />}
+									{activeTab === 'pi' && <PiSettingsSection />}
 									{activeTab === 'shortcuts' && <ShortcutsSection />}
 									{activeTab === 'mcp' && (
 										<div className="space-y-8">

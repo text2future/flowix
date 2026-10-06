@@ -9,6 +9,7 @@ import type { PluginArtifactRendererId } from '@features/plugin/plugin-note';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import type { WorkColumnNavigationState } from '@features/workspace/store/work-column-target';
 import type { FileDisplayIdentity } from '@/lib/file-display-registry';
+import type { TableDocumentViewProps } from '@features/multidimensional-table/public/surface-api';
 
 export type WorkColumnSurfaceCapability =
   | 'edit'
@@ -72,6 +73,17 @@ export interface VideoFileSurface extends FileSurfaceBase {
   kind: 'video-file';
   scopePath: string | null;
   props: ExternalDocumentProps;
+}
+
+export interface TableFileSurface extends FileSurfaceBase {
+  kind: 'table-file';
+  props: TableDocumentViewProps;
+}
+
+export interface MediaLibraryFileSurface extends FileSurfaceBase {
+  kind: 'media-library-file';
+  notebookPath: string | null;
+  notebookId: string | null;
 }
 
 export interface HtmlFileSurface extends FileSurfaceBase {
@@ -150,6 +162,8 @@ export type WorkColumnSurface =
   | CodeSurface
   | ImageFileSurface
   | VideoFileSurface
+  | TableFileSurface
+  | MediaLibraryFileSurface
   | HtmlFileSurface
   | UnavailableFileSurface
   | MediaResourceSurface

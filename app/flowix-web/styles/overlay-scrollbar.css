@@ -16,6 +16,14 @@
 	background: transparent;
 }
 
+/* Popup list scrollbars should stay inside the rounded popup corners. Native
+ * scrollbars are painted over the edge of the scroll container, so inset the
+ * track inside popup surfaces instead of changing their stacking order. */
+:is([data-flowix-surface="select"], [data-flowix-surface="popover"], [data-flowix-surface="context-menu"])::-webkit-scrollbar-track,
+:is([data-flowix-surface="select"], [data-flowix-surface="popover"], [data-flowix-surface="context-menu"]) ::-webkit-scrollbar-track {
+	margin-block: 8px;
+}
+
 ::-webkit-scrollbar-thumb {
 	background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
 	border-radius: 3px;
@@ -60,6 +68,28 @@ html[data-platform="mac"] *::-webkit-scrollbar-thumb:active {
 	background: var(--muted-foreground);
 }
 
+/* Select popups keep their scrollbar track space, but only paint the thumb
+ * while the list is actively scrolling. */
+[data-flowix-surface="select"]:not([data-scrolling="true"]) {
+	scrollbar-color: transparent transparent;
+}
+
+[data-flowix-surface="select"][data-scrolling="true"] {
+	scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+}
+
+[data-flowix-surface="select"]:not([data-scrolling="true"])::-webkit-scrollbar-thumb {
+	background: transparent;
+}
+
+[data-flowix-surface="select"][data-scrolling="true"]::-webkit-scrollbar-thumb {
+	background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
+}
+
+html[data-platform="mac"] [data-flowix-surface="select"][data-scrolling="true"]::-webkit-scrollbar-thumb {
+	background: color-mix(in oklch, var(--muted-foreground) 78%, transparent);
+}
+
 html[data-platform="non-mac"] .overlay-scrollbar,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar {
 	overflow: auto;
@@ -79,8 +109,8 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 	height: 0;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-thumb,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb {
+html[data-platform="non-mac"] .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb--vertical {
 	position: absolute;
 	top: 0;
 	right: 0;
@@ -102,7 +132,7 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 }
 
 /* macOS 自绘滚动条的滑块和拖动命中区域均为 6px，贴住右边缘。 */
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb {
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb--vertical {
 	box-sizing: border-box;
 	width: 6px;
 	border: 0;
@@ -112,10 +142,10 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 	transition: opacity 220ms ease-in-out, background-color 160ms ease;
 }
 
-/* 滚动条区域 hover 命中层 ── 默认右侧 16px，macOS 自绘滚动条为 6px。
+/* 纵向滚动条 hover 命中层 ── 默认右侧 16px，macOS 自绘滚动条为 6px。
  * 落在 thumb 之外的部分也属于这一区域, 保证鼠标从 track 滑到 thumb 时不闪烁。 */
-html[data-platform="non-mac"] .overlay-scrollbar-track,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track {
+html[data-platform="non-mac"] .overlay-scrollbar-track--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--vertical {
 	position: absolute;
 	top: 0;
 	right: 0;
@@ -125,20 +155,79 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 	background: transparent;
 }
 
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track {
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--vertical {
 	width: 6px;
 }
 
+/* Horizontal counterpart of the product scrollbar: matching capsule thumb,
+ * track hit area, fade behavior, and drag support. */
+html[data-platform="non-mac"] .overlay-scrollbar-track--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--horizontal {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 16px;
+	z-index: 1;
+	background: transparent;
+}
+
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--horizontal {
+	height: 6px;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-scrollbar="true"] > .overlay-scrollbar-track--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-scrollbar="true"] > .overlay-scrollbar-track--horizontal {
+	right: 1rem;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-thumb--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb--horizontal {
+	position: absolute;
+	left: 0;
+	bottom: 0;
+	z-index: 2;
+	width: var(--overlay-scrollbar-thumb-width, 24px);
+	height: 9px;
+	border: 2px solid transparent;
+	border-radius: 999px;
+	background:
+		color-mix(in oklch, var(--muted-foreground) 34%, transparent)
+		content-box;
+	cursor: default;
+	opacity: 0;
+	pointer-events: auto;
+	touch-action: none;
+	transform: translateX(var(--overlay-scrollbar-thumb-left, 0));
+	transition: opacity 120ms ease, background-color 120ms ease;
+	user-select: none;
+}
+
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar-thumb--horizontal {
+	box-sizing: border-box;
+	height: 6px;
+	border: 0;
+	background:
+		color-mix(in oklch, var(--muted-foreground) 78%, transparent)
+		content-box;
+	transition: opacity 220ms ease-in-out, background-color 160ms ease;
+}
+
+.overlay-scrollbar-frame[data-horizontal-scrollbar="false"] > .overlay-scrollbar-track--horizontal,
+.overlay-scrollbar-frame[data-horizontal-scrollbar="false"] > .overlay-scrollbar-thumb--horizontal {
+	display: none;
+}
+
 /* 滚动中或悬停滚动条区域时显示滑块。 */
-html[data-platform="non-mac"] .overlay-scrollbar-track:hover ~ .overlay-scrollbar-thumb,
-html[data-platform="non-mac"] .overlay-scrollbar-thumb:hover,
-html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrolling="true"] > .overlay-scrollbar-thumb,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrolling="true"] > .overlay-scrollbar-thumb {
+html[data-platform="non-mac"] .overlay-scrollbar-track--vertical:hover ~ .overlay-scrollbar-thumb--vertical,
+html[data-platform="non-mac"] .overlay-scrollbar-thumb--vertical:hover,
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrolling="true"] > .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrolling="true"] > .overlay-scrollbar-thumb--vertical {
 	opacity: 1;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-frame[data-dragging="true"] > .overlay-scrollbar-thumb {
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-dragging="true"] > .overlay-scrollbar-thumb--vertical {
 	background:
 		color-mix(in oklch, var(--muted-foreground) 68%, transparent)
 		content-box;
@@ -146,8 +235,32 @@ html[data-platform="non-mac"] .overlay-scrollbar-frame[data-dragging="true"] > .
 	opacity: 1;
 }
 
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-dragging="true"] > .overlay-scrollbar-thumb {
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-track-hover="true"] > .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-dragging="true"] > .overlay-scrollbar-thumb--vertical {
+	background:
+		var(--muted-foreground)
+		content-box;
+	opacity: 1;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-track--horizontal:hover ~ .overlay-scrollbar-thumb--horizontal,
+html[data-platform="non-mac"] .overlay-scrollbar-thumb--horizontal:hover,
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrolling="true"] > .overlay-scrollbar-thumb--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-track-hover="true"] > .overlay-scrollbar-thumb--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrolling="true"] > .overlay-scrollbar-thumb--horizontal {
+	opacity: 1;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-dragging="true"] > .overlay-scrollbar-thumb--horizontal {
+	background:
+		color-mix(in oklch, var(--muted-foreground) 68%, transparent)
+		content-box;
+	cursor: default;
+	opacity: 1;
+}
+
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-track-hover="true"] > .overlay-scrollbar-thumb--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-dragging="true"] > .overlay-scrollbar-thumb--horizontal {
 	background:
 		var(--muted-foreground)
 		content-box;
@@ -155,12 +268,23 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-dragging="tr
 }
 
 /* 捕获指针拖动滑块时，鼠标经过可点击内容仍保持箭头光标。 */
-html[data-platform="mac"]:has(.overlay-scrollbar-frame--custom-mac[data-dragging="true"]) * {
+html[data-platform="mac"]:has(.overlay-scrollbar-frame--custom-mac:is([data-dragging="true"], [data-horizontal-dragging="true"])) * {
 	cursor: default !important;
 }
 
-html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrollable="false"] > .overlay-scrollbar-thumb,
-html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrollable="false"] > .overlay-scrollbar-thumb {
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-scrollable="false"] > .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-scrollable="false"] > .overlay-scrollbar-thumb--vertical {
 	opacity: 0;
+	pointer-events: none;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-scrollable="false"] > .overlay-scrollbar-thumb--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-scrollable="false"] > .overlay-scrollbar-thumb--horizontal {
+	opacity: 0;
+	pointer-events: none;
+}
+
+html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-scrollable="false"] > .overlay-scrollbar-track--horizontal,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-scrollable="false"] > .overlay-scrollbar-track--horizontal {
 	pointer-events: none;
 }

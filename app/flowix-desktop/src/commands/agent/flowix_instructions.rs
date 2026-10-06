@@ -64,7 +64,7 @@ pub(crate) fn sync_native_agent_instructions(
     agent_type: &str,
     workspace_paths: &[String],
 ) -> Result<(), String> {
-    if !matches!(agent_type, "codex" | "deepseek-harness") {
+    if !matches!(agent_type, "codex" | "deepseek-harness" | "pi") {
         return Ok(());
     }
     if !cwd.is_dir() {

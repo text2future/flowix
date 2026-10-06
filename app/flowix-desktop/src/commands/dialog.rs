@@ -83,6 +83,7 @@ pub async fn select_files(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     accept: Option<String>,
+    multiple: Option<bool>,
 ) -> Option<Vec<String>> {
     let generation = app
         .state::<AppState>()
@@ -111,22 +112,25 @@ pub async fn select_files(
                 ],
             ),
         };
-        let result = dialog
-            .add_filter("All files", &["*"])
-            .blocking_pick_files()
-            .map(|paths| {
-                paths
-                    .into_iter()
-                    .filter_map(|path| {
-                        let path = path.to_string();
-                        handle
-                            .state::<AppState>()
-                            .document_access
-                            .grant_for_generation(window.label(), generation, Path::new(&path))
-                            .then_some(path)
-                    })
-                    .collect::<Vec<String>>()
-            });
+        let dialog = dialog.add_filter("All files", &["*"]);
+        let result = if multiple.unwrap_or(true) {
+            dialog.blocking_pick_files()
+        } else {
+            dialog.blocking_pick_file().map(|path| vec![path])
+        }
+        .map(|paths| {
+            paths
+                .into_iter()
+                .filter_map(|path| {
+                    let path = path.to_string();
+                    handle
+                        .state::<AppState>()
+                        .document_access
+                        .grant_for_generation(window.label(), generation, Path::new(&path))
+                        .then_some(path)
+                })
+                .collect::<Vec<String>>()
+        });
         result
     })
     .await

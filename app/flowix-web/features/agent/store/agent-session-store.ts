@@ -380,6 +380,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           try {
             await dispatchChatStream({
               threadId,
+              instanceId: options?.instanceId,
               content: trimmed,
               llmContent,
               runId,

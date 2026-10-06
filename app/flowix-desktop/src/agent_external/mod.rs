@@ -17,6 +17,7 @@ pub mod hermes;
 pub mod lifecycle;
 pub mod node;
 pub mod opencode;
+pub mod pi;
 pub mod runtime_registry;
 pub mod shared;
 

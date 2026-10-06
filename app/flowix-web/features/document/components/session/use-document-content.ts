@@ -1,4 +1,4 @@
-import { getBuffer, notifyDocumentBufferChanged } from '../../store/buffer-registry';
+import { getBuffer } from '../../store/buffer-registry';
 import { getDocumentSession } from '../../store/document-runtime-session';
 import { restoreTitleDraft } from '@features/document/store/document-title-session';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,6 +10,8 @@ import {
   applyLoadedDocumentContent,
   consumeStagedDocumentSnapshot,
   applyRecoveryDraftContent,
+  protectDocumentDraft,
+  saveDocumentContent,
 } from '@features/document/store/document-session-service';
 import { readRecoveryDraft, type RecoveryDraft } from '@features/document/store/recovery-draft-store';
 import { useDocumentStore } from '@features/document/store/document-store';
@@ -105,16 +107,20 @@ export function useDocumentContent({
         session.recoveryRevision = Math.max(session.recoveryRevision, recovery.revision);
       }
       if (recovery?.title && recovery.originalPath === path) restoreTitleDraft(identity.displayId, recovery.title);
+      const recoveryNeedsMerge = Boolean(recovery
+        && recovery.originalPath === path
+        && recovery.content !== fullContent
+        && recovery.baseContent !== fullContent);
       if (
         recovery
         && recovery.originalPath === path
       ) {
         applyRecoveryDraftContent(identity, recovery.content, recovery.bodyRevision ?? recovery.revision);
-        if (recovery.content !== fullContent && recovery.baseContent !== fullContent) {
-          buf.conflicted = true;
-          buf.conflictContent = fullContent;
+        if (recoveryNeedsMerge) {
+          // The same conditional write used by live edits attempts a diffy
+          // merge. An overlap will mark the buffer conflicted for review.
           buf.lastSavedContent = recovery.baseContent;
-          buf.saveState = 'conflict';
+          buf.saveState = 'dirty';
         }
       }
       // A document heading does not imply that the file was just created.
@@ -140,13 +146,19 @@ export function useDocumentContent({
         isFavorited: false,
         frontmatterMeta: {},
       });
+      if (recoveryNeedsMerge && recovery) {
+        void saveDocumentContent({
+          identity, path, content: recovery.content,
+          scopePath: externalScopePath, force: true,
+        });
+      }
       logOpenDocPerf('applyLoadedContent', startedAt, {
         transitionId,
         bytes: fullContent.length,
         chars: initialCharCount,
       });
     },
-    [identity, isolatedSession, transitionId],
+    [identity, externalScopePath, isolatedSession, transitionId],
   );
 
   const reloadDocument = useCallback(
@@ -273,9 +285,16 @@ export function useDocumentContent({
         if (options?.showLoading === false && liveBuffer
           && (liveBuffer.capturedRevision !== startRevision || liveBuffer.pendingContent !== null)) {
           if (fullContent !== liveBuffer.lastSavedContent) {
-            liveBuffer.conflicted = true; liveBuffer.conflictContent = fullContent;
-            liveBuffer.saveState = 'conflict';
-            notifyDocumentBufferChanged(identity, 'save_settled');
+            // Input arrived while the disk read was in flight. Reconcile it
+            // through the same conditional merge used by normal saves.
+            if (await protectDocumentDraft(identity, readPath, 'autosave')) {
+              if (currentLoadId !== counter.current || !isFileDisplayIdLive(identity.displayId)) return;
+              captureLatestDocumentContent(identity);
+              void saveDocumentContent({
+                identity, path: readPath, content: getBuffer(identity)?.content ?? liveBuffer.content,
+                scopePath: externalScopePath, force: true,
+              });
+            }
           }
           return;
         }

@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { NoteNavigationPanelHeaderMac } from '@features/memo/components/note-navigation-panel-header-mac';
 import { NoteNavigationPanelHeaderWin } from '@features/memo/components/note-navigation-panel-header-win';
-import { CustomFilterList, NavFilterButtons } from '@features/memo/components/nav-filter-buttons';
+import { NavFilterButtons } from '@features/memo/components/nav-filter-buttons';
 import { TagTree } from '@features/memo/components/tag-tree';
 import { type Notebook } from '@features/memo/store/note-store';
 import { cn } from '@/lib/utils';
@@ -82,9 +82,6 @@ export function NoteNavigationPanel({
               activePluginId={activePluginId}
               onOpenPlugin={onOpenPlugin}
             />
-            {/* Keep the editor host for requests from the file-tree view; the
-                filter list and its management controls stay out of this drawer. */}
-            <CustomFilterList showFilterRows={false} />
             <TagTree
               selectedNotebook={selectedNotebook}
               onCountsChange={handleCountsChange}

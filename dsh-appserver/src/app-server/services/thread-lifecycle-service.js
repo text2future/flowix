@@ -29,7 +29,10 @@ export class ThreadLifecycleService {
       // Returning it unconditionally makes `thread/resume` silently ignore a
       // model switch made between turns. Dispose only when the requested route
       // actually differs; the durable session remains available for resume.
-      if (!runtimeRouteChanged(existing, config)) return this.projectThread(existing)
+      if (!runtimeRouteChanged(existing, config)) {
+        this.applyPermission(existing, config.permissionMode)
+        return this.projectThread(existing)
+      }
       await this.registry.close(key)
     }
     const active = this.registry.resolutions.get(key)

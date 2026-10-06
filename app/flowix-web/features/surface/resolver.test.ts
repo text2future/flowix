@@ -9,6 +9,7 @@ import type {
 } from './types';
 import type { WorkColumnNavigationState, WorkColumnTarget } from '@features/workspace/store/work-column-target';
 import { resolveWorkColumnContent } from './resolver';
+import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 
 function markdownSurface(options: {
   filePath?: string;
@@ -103,6 +104,18 @@ function externalDocumentIdentity(
 }
 
 describe('surface resolvers', () => {
+  it('resolves a standalone table target without an external document session', () => {
+    ensureFileDisplayIdentity('/notebook/Tasks.table.yml');
+    const surface = surfaceFrom({
+      navigation: navigation({ kind: 'table', filePath: '/notebook/Tasks.table.yml', notebookPath: '/notebook', notebookId: 'notebook-1' }),
+      emptyMessage: 'empty',
+    });
+    expect(surface.kind).toBe('table-file');
+    if (surface.kind === 'table-file') {
+      expect(surface.props).toEqual({ filePath: '/notebook/Tasks.table.yml', notebookPath: '/notebook', notebookId: 'notebook-1' });
+    }
+  });
+
   it('resolves memo, external, plugin, agent, web, and empty workspace targets', () => {
     expect(surfaceFrom({
       navigation: navigation({

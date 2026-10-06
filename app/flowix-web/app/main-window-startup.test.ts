@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   captureWorkspaceRestoreTarget: vi.fn(),
   restoreExternalDocumentWorkspace: vi.fn(),
   restoreMediaWorkspace: vi.fn(),
+  restoreTableWorkspace: vi.fn(),
   setWorkspaceRestoreStatus: vi.fn(),
   restoreAgentConversationWorkspace: vi.fn(),
   calls: [] as string[],
@@ -22,6 +23,7 @@ vi.mock('@features/workspace/public/startup-api', () => ({
   captureWorkspaceRestoreTarget: mocks.captureWorkspaceRestoreTarget,
   restoreExternalDocumentWorkspace: mocks.restoreExternalDocumentWorkspace,
   restoreMediaWorkspace: mocks.restoreMediaWorkspace,
+  restoreTableWorkspace: mocks.restoreTableWorkspace,
   setWorkspaceRestoreStatus: mocks.setWorkspaceRestoreStatus,
   restoreAgentConversationWorkspace: mocks.restoreAgentConversationWorkspace,
 }));

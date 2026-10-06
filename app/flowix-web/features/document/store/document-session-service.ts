@@ -143,6 +143,32 @@ export async function protectDocumentDraft(
   return true;
 }
 
+/** Reconcile an external write without losing the editor's scheduled save.
+ * A failed or stale recovery checkpoint falls back to the ordinary session
+ * save clock, which will retry protection and the conditional disk write.
+ */
+export async function reconcileUnsavedExternalDocumentChange(
+  identity: DocumentIdentity,
+  path: string,
+  scopePath: string | null,
+): Promise<void> {
+  captureLatestDocumentContent(identity);
+  if (!hasUnsavedLocalChanges(identity)) return;
+  const buffer = getOrCreateBuffer(identity);
+  const revision = buffer.capturedRevision;
+  const protectedDraft = await protectDocumentDraft(identity, path, 'autosave').catch(() => false);
+  captureLatestDocumentContent(identity);
+  if (!hasUnsavedLocalChanges(identity)) return;
+  if (!protectedDraft || buffer.capturedRevision !== revision) {
+    scheduleDocumentSessionSave(identity);
+    return;
+  }
+  cancelDocumentCapture(documentIdentityKey(identity));
+  await saveDocumentContent({
+    identity, path, content: buffer.content, scopePath, force: true,
+  });
+}
+
 export function applyRecoveryDraftContent(
   identity: DocumentIdentity,
   content: string,

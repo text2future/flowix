@@ -10,11 +10,15 @@ import { agentClient } from "@features/agent/store/agent-client";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
 import { resolveNotebookAgentFiles } from "@/lib/agent-access-defaults";
 import type { OutgoingUserPayload } from "@features/agent/store/user-message";
-import { normalizeWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
+import {
+  markConversationWorkspaceStarted,
+  normalizeWorkspaceSnapshot,
+} from "@features/agent/runtime/workspace-snapshot";
 import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
 
 export interface DispatchChatStreamArgs {
   threadId: string;
+  instanceId?: string;
   content: string;
   llmContent: string;
   runId: string;
@@ -40,6 +44,7 @@ export interface DispatchChatStreamArgs {
  */
 export async function dispatchChatStream({
   threadId,
+  instanceId,
   content,
   llmContent,
   runId,
@@ -72,6 +77,7 @@ export async function dispatchChatStream({
     defaultFiles,
     workspaceSnapshot,
   });
+  if (instanceId) markConversationWorkspaceStarted(instanceId);
   await agentClient.chatStream(threadId, {
     content,
     llmContent,

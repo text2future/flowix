@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Compo
 import { ChevronRight, FoldVertical, MoreHorizontal } from 'lucide-react';
 import { FolderOpenIcon, FolderSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { toast } from '@/lib/toast';
-import { cn } from '@/lib/utils';
+import { cn, displayTitleFromFilename, isTableDocumentFilename, tableDocumentExtension } from '@/lib/utils';
 import { files, type DocTreeItem } from '@platform/tauri/client';
 import { localDocumentOperations } from '@features/document/public/file-operations-api';
 import { openPath } from '@platform/tauri/opener';
@@ -157,10 +157,13 @@ export function FolderFileTree({
   const handleRename = useCallback(async (item: DocTreeItem, nextName: string) => {
     const trimmed = nextName.trim();
     setRenaming(null);
-    if (!trimmed || trimmed === item.name) return;
+    const isTableDocument = item.type === 'document' && isTableDocumentFilename(item.name);
+    const currentName = isTableDocument ? displayTitleFromFilename(item.name) : item.name;
+    if (!trimmed || trimmed === currentName) return;
     if (item.type === 'document') {
       try {
-        await localDocumentOperations.rename({ path: item.fullPath, name: trimmed, scopePath: folderPath });
+        const extension = isTableDocument ? tableDocumentExtension(item.name) : '';
+        await localDocumentOperations.rename({ path: item.fullPath, name: `${trimmed}${extension}`, scopePath: folderPath });
       } catch (error) {
         toast.error(t(String(error).includes('FILE_EXISTS') ? 'memo.fileTree.nameConflict' : 'memo.fileTree.renameFailed'));
         return;
@@ -321,7 +324,9 @@ export function FolderFileTree({
                     />
                   )}
                   <span className="ml-1.5 min-w-0 flex-1 truncate">
-                    {item.name}
+                    {item.type === 'document' && isTableDocumentFilename(item.name)
+                      ? displayTitleFromFilename(item.name)
+                      : item.name}
                   </span>
                   {isDirectoryLoading && (
                     <ListSurfaceSpinner
@@ -377,7 +382,7 @@ export function FolderFileTree({
                         {t('memo.fileTree.newFolder')}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => setRenaming({ item, value: item.name })}
+                        onClick={() => setRenaming({ item, value: item.type === 'document' && isTableDocumentFilename(item.name) ? displayTitleFromFilename(item.name) : item.name })}
                         className={FOLDER_MENU_ITEM_CLASS}
                       >
                         {t('memo.fileTree.rename')}
@@ -438,7 +443,7 @@ export function FolderFileTree({
               {t('memo.fileTree.newFolder')}
             </ContextMenuItem>
             <ContextMenuItem
-              onClick={() => setRenaming({ item, value: item.name })}
+              onClick={() => setRenaming({ item, value: item.type === 'document' && isTableDocumentFilename(item.name) ? displayTitleFromFilename(item.name) : item.name })}
               className={FOLDER_MENU_ITEM_CLASS}
             >
               {t('memo.fileTree.rename')}
@@ -481,7 +486,7 @@ export function FolderFileTree({
                     <span className="min-w-0 flex-1 truncate">{t('memo.fileTree.unreadableHint')}</span>
                     <button
                       type="button"
-                      className="shrink-0 rounded px-1.5 py-0.5 text-[var(--foreground)] hover:bg-[var(--muted)]"
+                      className="shrink-0 rounded-lg px-1.5 py-0.5 text-[var(--foreground)] hover:bg-[var(--muted)]"
                       onClick={(event) => {
                         event.stopPropagation();
                         void tree.retryDirectory(item.fullPath);
@@ -566,7 +571,7 @@ export function FolderFileTree({
               <span>{t('memo.fileTree.unreadableHint')}</span>
               <button
                 type="button"
-                className="shrink-0 rounded px-1.5 py-0.5 text-[var(--foreground)] hover:bg-[var(--muted)]"
+                className="shrink-0 rounded-lg px-1.5 py-0.5 text-[var(--foreground)] hover:bg-[var(--muted)]"
                 onClick={() => void tree.reload()}
               >
                 {t('error.retry')}

@@ -18,9 +18,9 @@ const label = (key: string) => key;
 
 describe('property preset runtime model', () => {
   const fields: PropertyFieldConfig[] = [
-    { key: 'priority', name: '优先级', type: 'Select', options: ['高', '低'] },
-    { key: 'labels', name: '标签组', type: 'MultiSelect', options: ['前端', '后端'] },
-    { key: 'archived', name: '是否归档', type: 'Boolean' },
+    { key: 'priority', type: 'Select', options: ['高', '低'] },
+    { key: 'labels', type: 'MultiSelect', options: ['前端', '后端'] },
+    { key: 'archived', type: 'Boolean' },
   ];
 
   it('exposes custom presets with the same shape as built-ins', () => {
@@ -29,7 +29,7 @@ describe('property preset runtime model', () => {
         source: 'custom',
         category: 'custom',
         key: 'priority',
-        label: '优先级',
+        label: 'priority',
         kind: 'Select',
         options: ['高', '低'],
       },
@@ -37,7 +37,7 @@ describe('property preset runtime model', () => {
         source: 'custom',
         category: 'custom',
         key: 'labels',
-        label: '标签组',
+        label: 'labels',
         kind: 'MultiSelect',
         options: ['前端', '后端'],
       },
@@ -45,35 +45,35 @@ describe('property preset runtime model', () => {
         source: 'custom',
         category: 'custom',
         key: 'archived',
-        label: '是否归档',
+        label: 'archived',
         kind: 'Boolean',
         options: undefined,
       },
     ]);
     expect(getAllPresets(fields, label).find((preset) => preset.key === 'priority'))
-      .toMatchObject({ source: 'custom', label: '优先级', kind: 'Select' });
+      .toMatchObject({ source: 'custom', label: 'priority', kind: 'Select' });
   });
 
   it('keeps built-in keys authoritative over conflicting custom settings', () => {
     expect(isBuiltinPresetKey('NAME')).toBe(true);
     expect(isBuiltinPresetKey('tag')).toBe(true);
     expect(getCustomPresets([
-      { key: 'name', name: '自定义名称', type: 'Text' },
-      { key: 'TAG', name: '自定义标签', type: 'Text' },
-      { key: 'Priority', name: '优先级', type: 'Number' },
-      { key: 'priority', name: '重复优先级', type: 'Text' },
+      { key: 'name', type: 'Text' },
+      { key: 'TAG', type: 'Text' },
+      { key: 'Priority', type: 'Number' },
+      { key: 'priority', type: 'Text' },
     ])).toEqual([
       {
         source: 'custom',
         category: 'custom',
         key: 'Priority',
-        label: '优先级',
+        label: 'Priority',
         kind: 'Number',
         options: undefined,
       },
     ]);
     expect(resolvePropertyPreset('name', [
-      { key: 'name', name: '自定义名称', type: 'Number' },
+      { key: 'name', type: 'Number' },
     ], label)).toMatchObject({ source: 'builtin', key: 'name' });
   });
 
@@ -85,9 +85,9 @@ describe('property preset runtime model', () => {
     );
 
     expect(rows.map((row) => [row.key, row.preset?.label, row.type])).toEqual([
-      ['priority', '优先级', 'Select'],
-      ['labels', '标签组', 'MultiSelect'],
-      ['archived', '是否归档', 'Boolean'],
+      ['priority', 'priority', 'Select'],
+      ['labels', 'labels', 'MultiSelect'],
+      ['archived', 'archived', 'Boolean'],
     ]);
     expect(rows[0]?.preset?.options).toEqual(['高', '低']);
     expect(rows[1]?.preset?.options).toEqual(['前端', '后端']);
@@ -107,15 +107,15 @@ describe('property preset runtime model', () => {
 
   it('ignores options for semantic tag and color presets', () => {
     expect(getCustomPresets([
-      { key: 'topics', name: '主题', type: 'Tags', options: ['旧选项'] },
-      { key: 'keywords', name: '关键词', type: 'Tag', options: ['旧选项'] },
-      { key: 'accent', name: '强调色', type: 'Color', options: ['blue'] },
+      { key: 'topics', type: 'Tags', options: ['旧选项'] },
+      { key: 'keywords', type: 'Tag', options: ['旧选项'] },
+      { key: 'accent', type: 'Color', options: ['blue'] },
     ])).toEqual([
       {
         source: 'custom',
         category: 'custom',
         key: 'topics',
-        label: '主题',
+        label: 'topics',
         kind: 'Tags',
         options: undefined,
       },
@@ -123,7 +123,7 @@ describe('property preset runtime model', () => {
         source: 'custom',
         category: 'custom',
         key: 'keywords',
-        label: '关键词',
+        label: 'keywords',
         kind: 'Tag',
         options: undefined,
       },
@@ -131,7 +131,7 @@ describe('property preset runtime model', () => {
         source: 'custom',
         category: 'custom',
         key: 'accent',
-        label: '强调色',
+        label: 'accent',
         kind: 'Color',
         options: undefined,
       },

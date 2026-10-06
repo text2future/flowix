@@ -277,7 +277,7 @@ export function createConversationSlice(
         return normalized;
       } catch (error) {
         console.error("[AgentSession] Failed to hydrate instance:", error);
-        return null;
+        throw error;
       }
     },
     createInstance: (input) => {

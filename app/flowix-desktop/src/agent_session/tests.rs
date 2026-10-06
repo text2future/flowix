@@ -526,13 +526,29 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(saved.source.relative_path.as_deref(), Some("Notes/Source.md"));
-        manager.rebase_agent_note_paths(
-            "nb-1", "nb-1", "Notes/Source.md", "Notes/Renamed.md",
-            "C:/Notebook/Notes/Source.md", "C:/Notebook/Notes/Renamed.md",
-        ).unwrap();
-        let loaded = manager.find_agent_conversation_by_thread_id("thread-path-role").await.unwrap().unwrap();
-        assert_eq!(loaded.source.relative_path.as_deref(), Some("Notes/Renamed.md"));
+        assert_eq!(
+            saved.source.relative_path.as_deref(),
+            Some("Notes/Source.md")
+        );
+        manager
+            .rebase_agent_note_paths(
+                "nb-1",
+                "nb-1",
+                "Notes/Source.md",
+                "Notes/Renamed.md",
+                "C:/Notebook/Notes/Source.md",
+                "C:/Notebook/Notes/Renamed.md",
+            )
+            .unwrap();
+        let loaded = manager
+            .find_agent_conversation_by_thread_id("thread-path-role")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded.source.relative_path.as_deref(),
+            Some("Notes/Renamed.md")
+        );
         let conn = manager.lock_conn();
         let source_id: Option<String> = conn
             .query_row(
@@ -1556,6 +1572,18 @@ mod tests {
             .await
             .expect("bind claude provider session");
         manager
+            .upsert_external_session(
+                "thread-simplified-index",
+                "pi",
+                "pi-provider-id",
+                Some(serde_json::json!({
+                    "sessionFile": "/sessions/pi-session.jsonl",
+                    "cwd": "/workspace/pi"
+                })),
+            )
+            .await
+            .expect("bind Pi provider session");
+        manager
             .insert_agent_external_event(NewAgentExternalEvent {
                 runtime: "claude".to_string(),
                 thread_id: "thread-simplified-index".to_string(),
@@ -1633,6 +1661,21 @@ mod tests {
                 Some("/workspace/claude".to_string())
             )
         );
+        let pi: (String, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT external_id, session_file, cwd FROM threads_pi WHERE thread_id = ?1",
+                ["thread-simplified-index"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read Pi binding and runtime metadata");
+        assert_eq!(
+            pi,
+            (
+                "pi-provider-id".to_string(),
+                Some("/sessions/pi-session.jsonl".to_string()),
+                Some("/workspace/pi".to_string())
+            )
+        );
         let claude_event_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM agent_external_events
@@ -1647,7 +1690,7 @@ mod tests {
             .query_row(
                 "SELECT COUNT(*) FROM thread_external_sessions
                  WHERE thread_id = ?1 AND runtime IN (
-                    'codex', 'deepseek-harness', 'opencode', 'hermes', 'claude'
+                    'codex', 'deepseek-harness', 'opencode', 'hermes', 'claude', 'pi'
                  )",
                 ["thread-simplified-index"],
                 |row| row.get(0),
@@ -1674,6 +1717,14 @@ mod tests {
                 .expect("resolve claude provider id")
                 .as_deref(),
             Some("claude-provider-id")
+        );
+        assert_eq!(
+            manager
+                .get_external_session("thread-simplified-index", "pi")
+                .await
+                .expect("resolve Pi provider id")
+                .as_deref(),
+            Some("pi-provider-id")
         );
         assert_eq!(
             manager

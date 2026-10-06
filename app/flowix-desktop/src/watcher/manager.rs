@@ -401,14 +401,8 @@ fn handle_notify_event(
             context_for_path(watched_roots, new),
         ) {
             if old_ctx.notebook_id == ctx.notebook_id {
-                let new_allowed = new
-                    .strip_prefix(&ctx.root)
-                    .ok()
-                    .is_some_and(|p| !FileManagementPolicy::from_notebook_root(&ctx.root).is_index_ignored_at(&ctx.root, p));
-                let old_allowed = old
-                    .strip_prefix(&ctx.root)
-                    .ok()
-                    .is_some_and(|p| !FileManagementPolicy::from_notebook_root(&ctx.root).is_index_ignored_at(&ctx.root, p));
+                let new_allowed = path_allowed_for_watch(&ctx.root, new, new.is_dir());
+                let old_allowed = path_allowed_for_watch(&ctx.root, old, new.is_dir() || old.is_dir());
                 let new_markdown = new.extension().is_some_and(|extension| {
                     extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
                 });
@@ -436,6 +430,8 @@ fn handle_notify_event(
                     );
                     raw.rename_from = Some(old.clone());
                     if new.is_dir() || !new_allowed
+                        || crate::commands::document_list::is_table_document_path(old)
+                        || crate::commands::document_list::is_table_document_path(new)
                         || matches!(
                             crate::watcher::filter::run_pipeline(&raw, &path_filter),
                             crate::watcher::event::FilterDecision::Pass
@@ -457,7 +453,15 @@ fn handle_notify_event(
             Ok(relative) => relative,
             Err(_) => continue,
         };
-        if FileManagementPolicy::from_notebook_root(&ctx.root).is_index_ignored_at(&ctx.root, relative) {
+        let mut fs_kind = FsEventKind::from_notify(&event.kind);
+        let removed_directory = matches!(event.kind, notify::EventKind::Remove(notify::event::RemoveKind::Folder));
+        let directory_event = path.is_dir()
+            || removed_directory
+            || (removed_known_directories.contains(&path) && matches!(fs_kind, FsEventKind::Remove));
+        if directory_event {
+            fs_kind = FsEventKind::DirectoryChange;
+        }
+        if !path_allowed_for_watch(&ctx.root, &path, directory_event) {
             tracing::debug!(
                 "[MemoWatcher] ignored hidden/internal notebook path: {}",
                 path.display()
@@ -467,11 +471,6 @@ fn handle_notify_event(
         // notify callback only performs cheap path filtering. Revision-aware
         // self-write suppression and dedup happen after the worker observes a
         // stable file snapshot.
-        let mut fs_kind = FsEventKind::from_notify(&event.kind);
-        let removed_directory = matches!(event.kind, notify::EventKind::Remove(notify::event::RemoveKind::Folder));
-        if path.is_dir() || removed_directory || (removed_known_directories.contains(&path) && matches!(fs_kind, FsEventKind::Remove)) {
-            fs_kind = FsEventKind::DirectoryChange;
-        }
         if matches!(fs_kind, FsEventKind::Create | FsEventKind::Modify) {
             // A rename can arrive as Remove(old) followed by Create/Modify(new).
             // The new path may itself be marked as a self-write after the internal
@@ -492,7 +491,8 @@ fn handle_notify_event(
         }
         let raw = RawFsEvent::new(fs_kind, path.clone());
         match if matches!(fs_kind, FsEventKind::DirectoryChange)
-            || media_kind_for_path(&path).is_some() {
+            || media_kind_for_path(&path).is_some()
+            || crate::commands::document_list::is_table_document_path(&path) {
             crate::watcher::event::FilterDecision::Pass
         } else {
             crate::watcher::filter::run_pipeline(&raw, &path_filter)
@@ -523,6 +523,16 @@ fn handle_notify_event(
         // 重 `process` (含 `wait_for_markdown_copy_to_settle` ≤400ms + 磁盘读写) 移到
         // worker 线程串行 drain, 不阻塞 notify 共享线程。`send` 非阻塞 (unbounded channel)。
         let _ = worker_tx.send((raw, ctx));
+    }
+}
+
+fn path_allowed_for_watch(root: &Path, path: &Path, directory_event: bool) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else { return false; };
+    let policy = FileManagementPolicy::from_notebook_root(root);
+    if directory_event || crate::commands::document_list::is_table_document_path(path) {
+        !policy.is_tree_hidden_at(root, relative)
+    } else {
+        !policy.is_index_ignored_at(root, relative)
     }
 }
 

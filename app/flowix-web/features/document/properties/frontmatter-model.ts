@@ -63,7 +63,7 @@ export interface FrontmatterPropertyValue {
   kind?: FrontmatterInputKind;
 }
 
-type FrontmatterInputKind = PropertyKind | 'Boolean';
+type FrontmatterInputKind = PropertyKind;
 
 function nodeKeyToString(key: unknown): string {
   if (isScalar(key)) return String(key.value ?? '');

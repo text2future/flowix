@@ -3,6 +3,7 @@
 import { getDocumentSession } from '../store/document-runtime-session';
 
 import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import {
   captureLatestDocumentContent,
   hasDocumentUnsavedChanges,
@@ -17,11 +18,11 @@ import {
   documentIdentityFromFile,
   documentPropertyTargetId,
 } from '@features/document/store/document-identity';
-import { canonicalPath, fileNameFromPath } from '@/lib/path';
+import { fileNameFromPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { product } from '@platform/tauri/client/desktop';
 import { notes } from '@platform/tauri/client/notes';
-import { localDocumentOperations } from '@features/document/use-cases/local-document-operations';
+import { markdownFilenameForTitle, renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
 import { openPath } from '@platform/tauri/opener';
 import {
   initialDocumentContainerState,
@@ -34,6 +35,7 @@ import {
 import { useDocumentContent } from '@features/document/components/session/use-document-content';
 import { useDocumentAutosave } from '@features/document/components/session/use-document-autosave';
 import { useExternalDocumentChangeWatch } from '@features/document/components/session/use-external-document-change-watch';
+import { DocumentConflictPanel } from '@features/document/components/document-save-status';
 import {
   LazyDocumentEditor,
   preloadDocumentEditor,
@@ -50,27 +52,16 @@ import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/
 import { useI18n } from '@/lib/i18n';
 import { CenteredLoadingSpinner } from '@shared/ui/centered-loading-spinner';
 import { WorkspaceEmptyState } from '@shared/ui/workspace-empty-state';
-import { replaceExternalDocumentPath } from '@features/workspace/use-cases/workspace-navigation';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { getBuffer, subscribeDocumentBufferChanges } from '@features/document/store/buffer-registry';
 import { documentIdentityKey } from '@features/document/store/document-identity';
 import {
-  beginExternalDocumentRename,
   expectExternalDocumentWrite,
   isExternalDocumentRenameInProgress,
 } from '@features/document/store/external-document-operation';
 import { rebaseActiveDocumentPath } from '@features/document/store/document-session-service';
 import type { Editor } from '@tiptap/core';
-
-function externalMarkdownTitleParts(path: string): { title: string; extension: string } {
-  const filename = fileNameFromPath(path);
-  const extensionMatch = filename.match(/(\.markdown|\.md)$/i);
-  const extension = extensionMatch?.[0] ?? '';
-  return {
-    title: extension ? filename.slice(0, -extension.length) : filename,
-    extension,
-  };
-}
+import { replaceExternalDocumentPath } from '@features/workspace/use-cases/workspace-navigation';
 
 export function DocumentContainer({
   fileIdentity,
@@ -145,7 +136,8 @@ export function DocumentContainer({
     const key = documentIdentityKey(documentIdentity);
     let cancelled = false;
     const unsubscribe = subscribeDocumentBufferChanges((identity, reason) => {
-      if (reason !== 'save_settled' || documentIdentityKey(identity) !== key) return;
+      if (documentIdentityKey(identity) !== key) return;
+      if (reason !== 'save_settled' && reason !== 'merged') return;
       void notes.modifiedAt(filePath).then((modifiedAt) => {
         if (!cancelled && modifiedAt) {
           setState((previous) => ({ ...previous, updatedAtDate: new Date(modifiedAt) }));
@@ -247,60 +239,37 @@ export function DocumentContainer({
       throw new Error(t('document.save.externalChanged'));
     }
 
-    const current = externalMarkdownTitleParts(currentPath);
-    let nextTitle = requestedTitle.trim();
-    if (current.extension && nextTitle.toLowerCase().endsWith(current.extension.toLowerCase())) {
-      nextTitle = nextTitle.slice(0, -current.extension.length).trimEnd();
-    }
-    if (!nextTitle || nextTitle === '.' || nextTitle === '..') return null;
-    if (nextTitle === current.title) {
+    const nextFilename = markdownFilenameForTitle(currentPath, requestedTitle);
+    if (!nextFilename) return null;
+    if (nextFilename === currentFilename) {
       if (options?.expectBodyMutation) expectExternalDocumentWrite(currentPath);
       return currentFilename;
     }
 
     renameInProgressRef.current = true;
-    let renameOperation: ReturnType<typeof beginExternalDocumentRename> | null = null;
     try {
       if (
         getCurrentFilePath() !== currentPath
         || isExternalDocumentRenameInProgress(resolvedExternalDisplayId)
       ) return null;
 
-      // Keep editing live. Saves started during the filesystem rename wait for
-      // this operation and then resolve the new path before writing.
-      renameOperation = beginExternalDocumentRename(resolvedExternalDisplayId);
-      const cancelExpectedDelete = renameOperation.expectSourceDelete(currentPath);
-      let newPath: string;
-      try {
-        ({ path: newPath } = await localDocumentOperations.rename({
-          path: currentPath,
-          name: `${nextTitle}${current.extension}`,
-          scopePath: externalScopePath,
-        }));
-      } catch (error) {
-        cancelExpectedDelete();
-        throw error;
-      }
-      const normalizedNewPath = canonicalPath(newPath);
-      if (options?.expectBodyMutation) {
-        // Boundary edits continue the rename by writing the changed body at
-        // the new path. A plain filename edit does not reserve this event.
-        renameOperation.expectFollowupWrite(normalizedNewPath);
-      }
-      // Publish the new path synchronously for editor callbacks created by the
-      // previous render. React/store propagation can complete afterwards.
-      replaceExternalDocumentPath(resolvedExternalDisplayId, currentPath, normalizedNewPath);
-      return fileNameFromPath(normalizedNewPath);
+      // Keep editing live. The shared operation coordinates open buffers,
+      // performs the scoped rename, and publishes the new path before unlock.
+      const result = await renameMarkdownTitle({
+        path: currentPath,
+        title: requestedTitle,
+        scopePath: externalScopePath,
+        displayId: resolvedExternalDisplayId,
+        expectFollowupWrite: options?.expectBodyMutation,
+        onPathChanged: (oldPath, newPath) => replaceExternalDocumentPath(resolvedExternalDisplayId, oldPath, newPath),
+      });
+      return result?.filename ?? null;
     } finally {
-      renameOperation?.finish();
       renameInProgressRef.current = false;
     }
   }, [
-    clearSaveTimer,
-    documentIdentity,
     externalEditorMode,
     externalScopePath,
-    flushDocument,
     isExternalDocument,
     resolvedExternalDisplayId,
     t,
@@ -327,8 +296,10 @@ export function DocumentContainer({
             }
       ));
     };
-    const unsubscribeBuffer = subscribeDocumentBufferChanges((identity) => {
-      if (documentIdentityKey(identity) === key) sync();
+    const unsubscribeBuffer = subscribeDocumentBufferChanges((identity, reason) => {
+      if (documentIdentityKey(identity) !== key) return;
+      if (reason === 'merged') flushSync(sync);
+      else sync();
     });
     const unsubscribeFocus = useWorkspaceFocusStore.subscribe((next, previous) => {
       if (previous.focusedHostId === hostId && next.focusedHostId !== hostId) {
@@ -456,6 +427,8 @@ export function DocumentContainer({
       onPointerDownCapture={() => useWorkspaceFocusStore.getState().focusHost(hostId)}
       className="document-container h-full w-full min-w-0 flex flex-col bg-transparent relative overflow-hidden"
     >
+      {focusedHostId === hostId &&
+        <DocumentConflictPanel identity={documentIdentity} scopePath={externalScopePath} />}
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
         {state.isLoading && (
           <CenteredLoadingSpinner className="h-full w-full" />

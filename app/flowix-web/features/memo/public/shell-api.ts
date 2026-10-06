@@ -4,6 +4,7 @@ import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
 import { useNoteStore } from '@features/memo/store/note-store';
 
 export { MemoList } from '@features/memo/components/memo-list';
+export { NotebookTreeFileIcon } from '@features/memo/components/notebook-tree-file-icon';
 export { useMemoListHoverPreview } from '@features/memo/components/use-memo-list-hover-preview';
 export { MemoListTitlebarWin } from '@features/memo/components/memo-list-titlebar-win';
 export { MemoListTitlebarMac } from '@features/memo/components/memo-list-titlebar-mac';

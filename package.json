@@ -28,8 +28,11 @@
     "dsh:publish": "node scripts/publish-dsh-release.mjs",
     "test:dsh:packaging": "node --test scripts/dsh-native-deps.test.mjs",
     "tauri:dev": "node scripts/tauri-dev.mjs app/flowix-desktop/tauri.conf.dev.json",
+    "tauri:dev:pi": "node scripts/tauri-dev.mjs --with-pi app/flowix-desktop/tauri.conf.dev.json",
     "tauri:dev:win": "node scripts/tauri-dev.mjs app/flowix-desktop/tauri.windows.dev.conf.json",
     "tauri:build:prod": "node scripts/build-tauri-production.mjs",
+    "tauri:build:prod:pi": "node scripts/build-tauri-production.mjs --with-pi",
+    "pi:bundle:prepare": "node scripts/prepare-pi-bundle.mjs",
     "release:updater": "bash scripts/release.sh",
     "verify:flowix-package": "node scripts/verify-flowix-package.mjs",
     "icons:phosphor:bold": "node scripts/extract-phosphor-bold-paths.mjs"
@@ -89,6 +92,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "1.0.3",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

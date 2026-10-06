@@ -9,7 +9,7 @@ export interface DocumentWriteRequest {
 }
 
 export type DocumentWriteOutcome =
-  | ({ status: 'saved'; path: string; content: string } & MemoContentCommit)
+  | ({ status: 'saved'; path: string; content: string; merged?: boolean } & MemoContentCommit)
   | { status: 'conflict'; diskContent: string }
   | { status: 'refused' }
   | { status: 'missing' }

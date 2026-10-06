@@ -84,7 +84,15 @@ pub(crate) fn create(notebook_key: &str, content: &str) -> Result<Value, CliErro
         return Err(CliError::Usage("create: content is empty".into()));
     }
     let mf = store::open()?;
-    let document = NoteService::new(&mf).create(notebook_key, None, "Untitled", content)?;
+    let notebook = MemoService::new(&mf).resolve_notebook(notebook_key)?;
+    let parent = flowix_core::memo_file::default_create_folder_for_notebook(Path::new(&notebook.path))
+        .map_err(CliError::Other)?;
+    let document = NoteService::new(&mf).create(
+        &notebook.id,
+        parent.as_deref(),
+        "Untitled",
+        content,
+    )?;
     Ok(json!({"ok": true, "action": "created", "note": document_json(&document)}))
 }
 

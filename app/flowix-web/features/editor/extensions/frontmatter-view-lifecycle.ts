@@ -6,6 +6,7 @@ interface FrontmatterViewHandlers {
   pointerDown: (event: Event) => void;
   selectStart: (event: Event) => void;
   addProperty: (event: Event) => void;
+  occupiedKeys: (event: Event) => void;
   pointerMove: (event: PointerEvent) => void;
   pointerUp: (event: PointerEvent) => void;
   pointerCancel: (event: PointerEvent) => void;
@@ -25,6 +26,7 @@ export function observeFrontmatterView(document: Document, handlers: Frontmatter
   document.addEventListener('pointerdown', handlers.pointerDown, { capture: true, signal });
   document.addEventListener('selectstart', handlers.selectStart, { capture: true, signal });
   view?.addEventListener('flowix:add-property', handlers.addProperty, { signal });
+  view?.addEventListener('flowix:query-occupied-property-keys', handlers.occupiedKeys, { signal });
   view?.addEventListener('pointermove', handlers.pointerMove, { signal });
   view?.addEventListener('pointerup', handlers.pointerUp, { signal });
   view?.addEventListener('pointercancel', handlers.pointerCancel, { signal });

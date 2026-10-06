@@ -161,6 +161,44 @@ fn external_cas_conflict_preserves_the_current_file() {
 }
 
 #[test]
+fn markdown_write_merges_independent_edits_and_keeps_overlaps_for_review() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("document.md");
+    let store = MemoFile::new(directory.path().join("config"));
+    let base = "# Notes\nleft: old\nright: old\n";
+    fs::write(&path, "# Notes\nleft: old\nright: disk\n").unwrap();
+    assert_eq!(
+        store
+            .write_markdown_merging(&path, "# Notes\nleft: editor\nright: old\n", Some(base))
+            .unwrap(),
+        MergedFileWriteOutcome::Saved {
+            content: "# Notes\nleft: editor\nright: disk\n".into(),
+            merged: true,
+        },
+    );
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "# Notes\nleft: editor\nright: disk\n"
+    );
+
+    let disk = "# Notes\nleft: disk again\nright: disk\n";
+    fs::write(&path, disk).unwrap();
+    assert_eq!(
+        store
+            .write_markdown_merging(
+                &path,
+                "# Notes\nleft: editor again\nright: disk\n",
+                Some("# Notes\nleft: editor\nright: disk\n")
+            )
+            .unwrap(),
+        MergedFileWriteOutcome::Conflict {
+            disk_content: disk.into()
+        },
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), disk);
+}
+
+#[test]
 fn external_cas_does_not_recreate_a_deleted_document() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("missing.txt");

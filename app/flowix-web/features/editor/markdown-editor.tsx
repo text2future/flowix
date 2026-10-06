@@ -31,6 +31,7 @@ import { TagMention } from '@features/editor/extensions/tag-mention';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
 import { MathBlock } from '@features/editor/extensions/math-block';
 import { WebCard } from '@features/editor/extensions/web-card';
+import { TableReference } from '@features/multidimensional-table/table-reference-node';
 import { SearchAndReplace } from '@features/editor/extensions/search-replace';
 import { SearchReplacePanel } from '@features/editor/components/search-replace-panel';
 import Frontmatter, { selectEditableDocumentContent } from '@features/editor/extensions/frontmatter';
@@ -986,6 +987,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         CodeBlockShiki.configure({ traceId: transitionId }),
         MathBlock,
         WebCard,
+        TableReference,
         FlowixHighlight.configure({ multicolor: true }),
         TablePlugin,
         TaskList,
@@ -1190,7 +1192,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     );
   }, [resolvedPlaceholder]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const editor = editorRef.current;
     const normalizedContent = normalizeMarkdownTableEmptyCells(content);
     if (editor && pendingSerializeDirtyRef.current) {
@@ -1218,6 +1220,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     if (editorRef.current) {
       editorRef.current.setEditable(editable, false);
       const editorDom = editorRef.current.view.dom;
+      editorDom.dispatchEvent(new Event('flowix:editor-editability-change'));
       if (editable) {
         editorDom.removeAttribute('tabindex');
         editorDom.removeAttribute('aria-readonly');

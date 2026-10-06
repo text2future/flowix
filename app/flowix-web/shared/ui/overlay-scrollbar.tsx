@@ -22,6 +22,8 @@ export interface OverlayScrollbarHandle {
 interface OverlayScrollbarProps {
   children: ReactNode;
   className?: string;
+  /** Render a matching custom horizontal scrollbar when the scroller overflows on x. */
+  horizontalScrollbar?: boolean;
   /** Use the shared overlay scrollbar on macOS. Defaults to true; opt out for native scrolling. */
   customOnMac?: boolean;
   /** Recalculate the thumb when content is changed outside React. */
@@ -38,6 +40,7 @@ export const OverlayScrollbar = forwardRef<OverlayScrollbarHandle, OverlayScroll
     {
       children,
       className,
+      horizontalScrollbar = false,
       customOnMac = true,
       observeContent = false,
       scrollerClassName,
@@ -52,6 +55,7 @@ export const OverlayScrollbar = forwardRef<OverlayScrollbarHandle, OverlayScroll
     const {
       overlayScrollbarFrameRef,
       overlayScrollbarThumbProps,
+      overlayHorizontalScrollbarThumbProps,
       updateOverlayScrollbar,
       scheduleOverlayScrollbar,
       hasUserScrollIntent,
@@ -111,6 +115,8 @@ export const OverlayScrollbar = forwardRef<OverlayScrollbarHandle, OverlayScroll
     return (
       <div
         ref={overlayScrollbarFrameRef}
+        data-horizontal-scrollbar={String(horizontalScrollbar)}
+        data-horizontal-scrollable="false"
         className={cn('overlay-scrollbar-frame', customOnMac && 'overlay-scrollbar-frame--custom-mac', className)}
       >
         <div
@@ -122,8 +128,10 @@ export const OverlayScrollbar = forwardRef<OverlayScrollbarHandle, OverlayScroll
         >
           {children}
         </div>
-        <div className="overlay-scrollbar-track" aria-hidden="true" />
-        <div className="overlay-scrollbar-thumb" {...overlayScrollbarThumbProps} />
+        <div className="overlay-scrollbar-track overlay-scrollbar-track--vertical" aria-hidden="true" />
+        <div className="overlay-scrollbar-thumb overlay-scrollbar-thumb--vertical" {...overlayScrollbarThumbProps} />
+        <div className="overlay-scrollbar-track overlay-scrollbar-track--horizontal" aria-hidden="true" />
+        <div className="overlay-scrollbar-thumb overlay-scrollbar-thumb--horizontal" {...overlayHorizontalScrollbarThumbProps} />
       </div>
     );
   },

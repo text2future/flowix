@@ -200,6 +200,7 @@ export function createThreadHistorySlice(
           pagination: {
             ...projection.pagination,
             initialStatus: "loading",
+            initialError: null,
             loadingInitial: true,
           },
         }));
@@ -253,6 +254,7 @@ export function createThreadHistorySlice(
                 }).messages;
           const pagination = {
             initialStatus: "ready",
+            initialError: null,
             oldestSequence: page.oldestSequence,
             snapshotSequence: page.snapshotSequence ?? null,
             hasMoreHistory: page.hasMore,
@@ -288,6 +290,7 @@ export function createThreadHistorySlice(
             pagination: {
               ...projection.pagination,
               initialStatus: "error",
+              initialError: error instanceof Error ? error.message : String(error),
               loadingInitial: false,
             },
           }));
@@ -328,6 +331,7 @@ export function createThreadHistorySlice(
         pagination: {
           ...projection.pagination,
           initialStatus: "ready",
+          initialError: null,
           oldestSequence: null,
           snapshotSequence: null,
           hasMoreHistory: false,

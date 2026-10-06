@@ -11,7 +11,7 @@
 - 同步状态保存在独立 SQLite 中，并按 Cloud workspace 隔离 notebook link、cursor 与 note revision。
 - Push 成功会把服务端返回的 revision/hash/syncSeq 与 inflight ACK 原子写入本地基线；各端共用 dirty + 磁盘 hash 判定，避免 watcher settle 窗口覆盖本地编辑。
 - Blob reservation 同时兼容旧 Cloud 代理路径与短期直传 capability；直传请求不会携带 Flowix Bearer token，下载后仍按 SHA-256 校验。
-- 当前协议按服务端提交顺序选择可见 head（last commit wins），revision 历史保留在 Cloud；切换为 CAS 冲突副本属于后续独立协议决策。
+- 当前协议按服务端提交顺序选择可见 head（last commit wins）。旧 revision 的本地提交被拒绝时，Markdown 先用 `diffy` 做三方合并；无法合并或缺少共同版本时，桌面端将未提交内容记入笔记本的路径版本历史，再采用云端 head。该历史保存在本机笔记本中；云端 revision 历史仍由 Cloud 保留。
 
 验证：
 

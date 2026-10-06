@@ -44,6 +44,9 @@ import type {
   WorkColumnSurfaceKind,
   WebSurface,
 } from './types';
+import { TableDocumentView } from '@features/multidimensional-table/public/surface-api';
+import { MediaLibraryView } from '@features/media-library/media-library-view';
+import type { MediaLibraryFileSurface, TableFileSurface } from './types';
 
 type SurfaceOfKind<K extends WorkColumnSurfaceKind> = Extract<WorkColumnSurface, { kind: K }>;
 
@@ -142,7 +145,6 @@ function ImageFileSurfaceView({ surface }: { surface: ImageFileSurface }) {
     filePath={surface.fileIdentity.path}
     notebookPath={surface.scopePath}
     resourceKind="image"
-    propertiesVisibleByDefault={false}
   />;
 }
 
@@ -151,8 +153,15 @@ function VideoFileSurfaceView({ surface }: { surface: VideoFileSurface }) {
     filePath={surface.fileIdentity.path}
     notebookPath={surface.scopePath}
     resourceKind="video"
-    propertiesVisibleByDefault={false}
   />;
+}
+
+function TableFileSurfaceView({ surface }: { surface: TableFileSurface }) {
+  return <TableDocumentView {...surface.props} fileIdentity={surface.fileIdentity} />;
+}
+
+function MediaLibraryFileSurfaceView({ surface }: { surface: MediaLibraryFileSurface }) {
+  return <MediaLibraryView filePath={surface.fileIdentity.path} fileIdentity={surface.fileIdentity} notebookPath={surface.notebookPath} notebookId={surface.notebookId} />;
 }
 
 function HtmlFileSurfaceView({ surface }: { surface: HtmlFileSurface }) {
@@ -172,7 +181,6 @@ function MediaResourceSurfaceView({ surface }: { surface: MediaResourceSurface }
     filePath={surface.fileIdentity.path}
     notebookPath={surface.notebookPath}
     resourceKind={surface.resourceKind}
-    propertiesVisibleByDefault={false}
   />;
 }
 
@@ -217,6 +225,16 @@ export const workColumnSurfaceRegistry = Object.freeze({
     chrome: 'document',
     component: VideoFileSurfaceView,
   }),
+  'table-file': defineSurface('table-file', {
+    chrome: 'document',
+    capabilities: [],
+    component: TableFileSurfaceView,
+  }),
+  'media-library-file': defineSurface('media-library-file', {
+    chrome: 'document',
+    capabilities: [],
+    component: MediaLibraryFileSurfaceView,
+  }),
   'html-file': defineSurface('html-file', {
     chrome: 'document',
     component: HtmlFileSurfaceView,
@@ -227,7 +245,7 @@ export const workColumnSurfaceRegistry = Object.freeze({
   }),
   media: defineSurface('media', {
     chrome: 'media',
-    capabilities: ['properties', 'fullscreen'],
+    capabilities: ['fullscreen'],
     component: MediaResourceSurfaceView,
   }),
   mindmap: defineSurface('mindmap', {

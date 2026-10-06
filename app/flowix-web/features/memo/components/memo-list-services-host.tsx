@@ -473,7 +473,7 @@ export function MemoListServicesHost({
       .then(([cloudState, link]) => {
         if (cancelled) return;
         const enabled = Boolean(link?.enabled);
-        setCloudSyncAvailable(cloudState.authenticated && cloudState.enabled);
+        setCloudSyncAvailable(cloudState.authenticated);
         setEditCloudSync(enabled);
         setOriginalEditCloudSync(enabled);
       })
@@ -524,7 +524,7 @@ export function MemoListServicesHost({
   }, [editOpen, editingNotebook?.id, editingNotebook?.path]);
 
   useEffect(() => listenToCloudStateChanges((state) => {
-    setCloudSyncAvailable(state.authenticated && state.enabled);
+    setCloudSyncAvailable(state.authenticated);
   }), []);
 
   useEffect(() => {
@@ -682,7 +682,7 @@ export function MemoListServicesHost({
   const openRemoteNotebooks = useCallback(async () => {
     try {
       const state = await cloud.getState();
-      setCloudSyncAvailable(state.authenticated && state.enabled);
+      setCloudSyncAvailable(state.authenticated);
       if (!state.authenticated) {
         resetCreateState();
         await tauriWindows.openPreferences('cloudSync');

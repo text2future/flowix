@@ -18,22 +18,36 @@ import {
   CODEX_REASONING_OPTIONS,
   formatModelDisplayLabel,
 } from "@features/agent/config/codex-options";
+
+const PI_THINKING_OPTIONS = [
+  { id: "off", label: "Off" },
+  { id: "minimal", label: "Minimal" },
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+  { id: "xhigh", label: "Extra High" },
+  { id: "max", label: "Max" },
+] as const;
 import {
   getAgentAccessOptions,
-  getAgentRuntimeSpec,
   supportsAgentRuntimeSetting,
   type AgentAccessOption,
   type AgentRuntimeSettingKind,
 } from "@features/agent/runtime/agent-runtime-spec";
 import { useAgentAccessStore } from "@features/agent/store/agent-access-store";
+import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
 import { useAgentSessionStore } from "@features/agent/store/agent-session-store";
 import { loadDshModelConfigs } from "@features/agent/store/dsh-model-config-store";
 import { useNoteStore } from "@features/memo/store/note-store";
 import { FeaturedNotesController } from './featured-notes-controller';
 import { resolvePrimaryWorkspace } from "@features/agent/runtime/primary-workspace";
 import { normalizeWorkspacePath } from "@features/agent/runtime/workspace-path";
-import { normalizeConversationWorkspaceState } from "@features/agent/runtime/conversation-workspace";
-import { agent, dshIntegration } from "@platform/tauri/client";
+import {
+  normalizeConversationWorkspaceState,
+  selectDesiredWorkspace,
+} from "@features/agent/runtime/conversation-workspace";
+import { ensureConversationWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
+import { agent, dshIntegration, piModels } from "@platform/tauri/client";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
@@ -174,7 +188,6 @@ export class ExternalAgentSettingsController {
   private readonly getLanguage: () => AppLanguage;
   private readonly t: (key: I18nKey, params?: I18nParams) => string;
   private readonly isDestroyed: () => boolean;
-  private readonly isRunning: () => boolean;
   private readonly consumeOutsidePointer?: (event: PointerEvent) => void;
   private readonly toast?: (
     kind: "success" | "error" | "info",
@@ -205,6 +218,9 @@ export class ExternalAgentSettingsController {
   private codexDefaultModel = "";
   private dshDefaultModel = "";
   private dshDefaultProviderId: string | undefined;
+  private piDefaultModel = "";
+  private piDefaultProviderId: string | undefined;
+  private piModelsLoadFailed = false;
   private localSupportedModelsTypeKey: AgentTypeKey | null = null;
   private localSupportedModels: AgentModelOption[] = [];
   private readonly unlistenCodexSettings: UnlistenFn;
@@ -221,7 +237,6 @@ export class ExternalAgentSettingsController {
     this.getLanguage = options.getLanguage;
     this.t = options.t;
     this.isDestroyed = options.isDestroyed;
-    this.isRunning = options.isRunning ?? (() => false);
     this.consumeOutsidePointer = options.consumeOutsidePointer;
     this.featuredNotes = new FeaturedNotesController({
       getNotebookId: () => this.getCurrentNotebookId(),
@@ -357,10 +372,6 @@ export class ExternalAgentSettingsController {
         instanceStore.setRuntimeConfig(instanceId, {
           access: { sandbox: value as AgentPermissionMode },
         });
-        void useAgentAccessStore.getState().setDefaultRuntime(typeKey, {
-          access: { sandbox: value as AgentPermissionMode },
-        });
-        this.syncCodexThreadSetting(instanceId, kind, value);
         return;
       }
       if (kind === "mode") {
@@ -468,6 +479,51 @@ export class ExternalAgentSettingsController {
 
   loadDefaultModel(): void {
     const typeKey = this.getTypeKey();
+    if (typeKey === "pi") {
+      this.piModelsLoadFailed = false;
+      void Promise.all([piModels.list(), agent.listSupportedModels("pi")])
+        .then(([providers, models]) => {
+          if (this.isDestroyed() || this.getTypeKey() !== typeKey) return;
+          const configuredDefault = providers.find((provider) => provider.defaultModelId);
+          this.piDefaultModel = configuredDefault?.defaultModelId ?? "";
+          this.piDefaultProviderId = configuredDefault?.id;
+          const providerNames = new Map(providers.map((provider) => [provider.id, provider.displayName]));
+          const seen = new Set<string>();
+          this.localSupportedModelsTypeKey = typeKey;
+          this.localSupportedModels = models.flatMap((model) => {
+            const separator = model.indexOf("::");
+            if (separator < 1) return [];
+            const providerId = model.slice(0, separator);
+            const id = model.slice(separator + 2);
+            const key = `${providerId}\u0000${id}`;
+            if (!id || seen.has(key)) return [];
+            seen.add(key);
+            return [{
+              id,
+              label: formatModelDisplayLabel(id),
+              providerId,
+              providerName: providerNames.get(providerId) ?? providerId,
+            }];
+          });
+          this.refreshEmptySettings();
+          if (this.open && this.kind === "model") {
+            this.renderPopover();
+            this.schedulePosition();
+          }
+        })
+        .catch(() => {
+          if (this.isDestroyed() || this.getTypeKey() !== typeKey) return;
+          this.piModelsLoadFailed = true;
+          this.localSupportedModelsTypeKey = typeKey;
+          this.localSupportedModels = [];
+          this.refreshEmptySettings();
+          if (this.open && this.kind === "model") {
+            this.renderPopover();
+            this.schedulePosition();
+          }
+        });
+      return;
+    }
     const isDeepseekHarness = typeKey === "deepseek-harness";
     if (isDeepseekHarness) {
       void loadDshModelConfigs()
@@ -559,12 +615,18 @@ export class ExternalAgentSettingsController {
             seen.add(model);
             return true;
           })
-          .map((model) => ({
-            id: model,
+          .map((model) => {
+            const providerId = undefined;
+            const piModelId = model;
+            return {
+            id: piModelId,
             // 后端拉取的 model key 同样按展示规则美化 label;
             // 不匹配规则的 key (例如 "inherit") 原样返回。
-            label: formatModelDisplayLabel(model),
-          }));
+            label: providerId
+              ? `${providerId} · ${formatModelDisplayLabel(piModelId)}`
+              : formatModelDisplayLabel(piModelId),
+            ...(providerId ? { providerId, providerName: providerId } : {}),
+          }; });
         this.refreshEmptySettings();
         if (this.open && this.kind === "model") {
           this.renderPopover();
@@ -592,6 +654,28 @@ export class ExternalAgentSettingsController {
     // 控件组独立成行, 让独立对话 / 全屏能在其上方叠加 Agent 图标并整体居中；
     // 非全屏 thread card 通过 CSS 让这层保持原有的单行 flex 表现。
     empty.append(createExternalAgentEmptyIcon(this.getTypeKey()));
+    if (this.getTypeKey() === "pi") {
+      const unavailableNotice = document.createElement("div");
+      unavailableNotice.className =
+        "agent-thread-card__dsh-update-notice agent-thread-card__pi-unavailable-notice";
+      unavailableNotice.setAttribute("role", "status");
+      unavailableNotice.hidden = true;
+      const unavailableLabel = document.createElement("span");
+      unavailableLabel.className = "agent-thread-card__dsh-update-label";
+      unavailableLabel.textContent = this.t("agent.pi.unavailable");
+      unavailableNotice.append(unavailableLabel);
+      empty.append(unavailableNotice);
+
+      void useAgentRuntimeStore.getState().refreshIfStale().then(() => {
+        if (this.isDestroyed()) return;
+        const status = useAgentRuntimeStore.getState().statusByType.pi;
+        if (!status) return;
+        unavailableNotice.hidden = status.available;
+        if (!status.available && status.reason) {
+          unavailableNotice.title = status.reason;
+        }
+      });
+    }
     if (this.getTypeKey() === "deepseek-harness") {
       const updateNotice = document.createElement("button");
       updateNotice.type = "button";
@@ -917,7 +1001,6 @@ export class ExternalAgentSettingsController {
     const label = this.t("agent.permission.title");
     this.composerPermissionButton.title = `${label}: ${value}`;
     this.composerPermissionButton.setAttribute("aria-label", `${label}: ${value}`);
-    this.refreshCodexPermissionFrozenState();
   }
 
   refreshEmptySettings(): void {
@@ -949,7 +1032,6 @@ export class ExternalAgentSettingsController {
         this.getCurrentPermissionLabel(),
       );
     }
-    this.refreshCodexPermissionFrozenState();
     if (this.modeButton) {
       updateExternalAgentEmptyControl(
         this.modeButton,
@@ -1027,7 +1109,7 @@ export class ExternalAgentSettingsController {
       : undefined;
     const runtimeConfig = instance?.runtimeConfig;
     const state = normalizeConversationWorkspaceState(runtimeConfig);
-    const snapshot = state?.applied ?? state?.desired ?? runtimeConfig?.workspaceSnapshot;
+    const snapshot = state?.desired ?? runtimeConfig?.workspaceSnapshot;
     const cwdPath = normalizeWorkspacePath(snapshot?.cwd ?? this.getCurrentWorkspacePath());
     const configuredNotebookId = runtimeConfig?.notebookId ?? snapshot?.notebookId;
     const memoState = useNoteStore.getState();
@@ -1088,29 +1170,6 @@ export class ExternalAgentSettingsController {
     };
   }
 
-  /**
-   * Codex App Server receives the legacy sandbox setting only on thread/start.
-   * A resumed thread therefore cannot apply a changed permission mode, so make
-   * that immutable once the product conversation has a Codex thread.
-   */
-  private refreshCodexPermissionFrozenState(): void {
-    // App Server settings updates are queued for the next turn, so an
-    // existing Codex thread remains editable. Only disable while a turn is
-    // active if the control cannot safely queue a change.
-    const disabled =
-      this.getTypeKey() === "codex" &&
-      this.isRunning() &&
-      !getAgentRuntimeSpec(this.getTypeKey()).workspace.switchWhileRunning;
-    for (const button of [this.permissionButton, this.composerPermissionButton]) {
-      if (!button) continue;
-      button.disabled = disabled;
-      button.setAttribute("aria-disabled", disabled ? "true" : "false");
-    }
-    if (disabled && this.open && this.kind === "permission") {
-      this.setSettingsPopoverOpen(false);
-    }
-  }
-
   toggleSettingsPopover(
     kind: AgentRuntimeSettingKind,
     anchor: HTMLButtonElement,
@@ -1156,6 +1215,13 @@ export class ExternalAgentSettingsController {
       open && kind === "mode",
     );
     this.syncControlOpenState(open, kind);
+
+    // Pi's model directory is edited from Preferences in another window. Refresh
+    // it whenever the composer picker opens so newly saved providers/models are
+    // immediately available without recreating the conversation card.
+    if (open && kind === "model" && this.getTypeKey() === "pi") {
+      this.loadDefaultModel();
+    }
 
     if (open && kind && anchor) {
       this.renderPopover();
@@ -1492,6 +1558,10 @@ export class ExternalAgentSettingsController {
       this.toast?.("error", this.t("agent.access.saveFailed"));
       return;
     }
+    this.updateCurrentConversationWorkspaceFolders([
+      ...(latestFiles?.folders ?? []),
+      result.entry.path,
+    ]);
     this.rerenderRepositories();
   }
 
@@ -1509,8 +1579,28 @@ export class ExternalAgentSettingsController {
       this.toast?.("error", this.t("agent.access.saveFailed"));
       return;
     }
+    this.updateCurrentConversationWorkspaceFolders(nextFolders);
     this.toast?.("success", this.t("agent.access.folderDeleted", { name }));
     this.rerenderRepositories();
+  }
+
+  private updateCurrentConversationWorkspaceFolders(folders: string[]): void {
+    const instanceId = this.getInstanceId();
+    if (!instanceId) return;
+    const session = useAgentSessionStore.getState();
+    if (!session.getInstance(instanceId)) return;
+    const runtimeConfig = ensureConversationWorkspaceSnapshot(instanceId);
+    const current = normalizeConversationWorkspaceState(runtimeConfig);
+    if (!current) return;
+    const desired = {
+      ...current.desired,
+      workspacePaths: Array.from(new Set(folders.map(normalizeWorkspacePath).filter(Boolean))),
+      capturedAt: Date.now(),
+    };
+    session.setRuntimeConfig(instanceId, {
+      workspaceState: selectDesiredWorkspace(current, desired),
+      workspaceSnapshot: desired,
+    });
   }
 
   /** 增删后重绘当前页 ── 行数与高度都会变, 所以定位也要跟着重算。 */
@@ -1526,7 +1616,7 @@ export class ExternalAgentSettingsController {
       : undefined;
     const runtimeConfig = instance?.runtimeConfig;
     const state = normalizeConversationWorkspaceState(runtimeConfig);
-    const snapshot = state?.applied ?? state?.desired ?? runtimeConfig?.workspaceSnapshot;
+    const snapshot = state?.desired ?? runtimeConfig?.workspaceSnapshot;
     const configuredNotebookId = runtimeConfig?.notebookId ?? snapshot?.notebookId;
     if (configuredNotebookId) return configuredNotebookId;
     return useNoteStore.getState().selectedNotebook?.id ?? undefined;
@@ -1656,6 +1746,9 @@ export class ExternalAgentSettingsController {
     ) {
       return fromThread as AgentCodexModel;
     }
+    if (this.getTypeKey() === "pi") {
+      return this.piDefaultModel || "";
+    }
     // DSH 不提供 inherit 选项，未单独设置时直接选中全局 dsh-settings
     // 中的真实默认模型。配置异步加载完成后 refreshEmptySettings 会更新选中项。
     if (this.getTypeKey() === "deepseek-harness") {
@@ -1679,9 +1772,9 @@ export class ExternalAgentSettingsController {
       .config.defaults?.runtime?.[this.getTypeKey()]
       ?.model?.providerId;
     if (typeDefault?.trim()) return typeDefault.trim();
-    return this.getTypeKey() === "deepseek-harness"
-      ? this.dshDefaultProviderId
-      : undefined;
+    if (this.getTypeKey() === "deepseek-harness") return this.dshDefaultProviderId;
+    if (this.getTypeKey() === "pi") return this.piDefaultProviderId;
+    return undefined;
   }
 
   private setExternalAgentModel(option: AgentModelOption): void {
@@ -1692,6 +1785,15 @@ export class ExternalAgentSettingsController {
   // available. Codex now renders the actual default model instead of this
   // synthetic label; DeepSeek Harness deliberately does not use inherit.
   private getExternalModelDefaultLabel(): string {
+    if (this.getTypeKey() === "pi") {
+      const model = this.readRuntimeSetting("model");
+      if (!model || model === "inherit") {
+        return this.piDefaultModel
+          ? formatModelDisplayLabel(this.piDefaultModel)
+          : "";
+      }
+      return formatModelDisplayLabel(model);
+    }
     if (this.getTypeKey() === "claude" || this.getTypeKey() === "opencode") {
       return this.t("agent.permission.default");
     }
@@ -1713,7 +1815,7 @@ export class ExternalAgentSettingsController {
       }));
     // DSH 无硬编码 fallback —— 列表完全来自后端 (用户目录 / llm-pi-ai
     // catalog); 拉取失败时仅显示当前值, 不显示 Codex 的模型。
-    if (this.getTypeKey() === "deepseek-harness" || this.getTypeKey() === "opencode") {
+    if (this.getTypeKey() === "deepseek-harness" || this.getTypeKey() === "opencode" || this.getTypeKey() === "pi") {
       return [];
     }
     return this.getTypeKey() === "claude"
@@ -1758,6 +1860,16 @@ export class ExternalAgentSettingsController {
         providerId: defaultOption?.providerId ?? providerId,
       };
     }
+    if (id === "inherit" && this.getTypeKey() === "pi" && this.piDefaultModel) {
+      const defaultOption = loaded.find(
+        (option) => option.id === this.piDefaultModel
+          && (!this.piDefaultProviderId || option.providerId === this.piDefaultProviderId),
+      );
+      return {
+        id: defaultOption?.id ?? this.piDefaultModel,
+        providerId: defaultOption?.providerId ?? this.piDefaultProviderId ?? providerId,
+      };
+    }
     if (id === "inherit") return { id, providerId };
 
     if (
@@ -1774,13 +1886,18 @@ export class ExternalAgentSettingsController {
   }
 
   private getExternalModelOptions(): AgentModelOption[] {
+    if (this.shouldShowPiModelEmptyState()) return [];
+
     const selection = this.resolveCurrentSelection();
     const modelOptions = this.getLoadedModelOptions();
+    const piDefaultProvider = this.getTypeKey() === "pi"
+      ? modelOptions.find((option) => option.providerId === this.piDefaultProviderId)
+      : undefined;
     const inheritLabel = this.getTypeKey() === "deepseek-harness"
       ? ""
       : this.getExternalModelDefaultLabel();
     const showInheritOption =
-      this.getTypeKey() !== "deepseek-harness" && this.getTypeKey() !== "codex";
+      this.getTypeKey() !== "deepseek-harness" && this.getTypeKey() !== "codex" && this.getTypeKey() !== "pi";
     const options: AgentModelOption[] = [
       ...(showInheritOption && inheritLabel
         ? [{
@@ -1788,7 +1905,12 @@ export class ExternalAgentSettingsController {
             label: inheritLabel,
             providerId: this.getTypeKey() === "deepseek-harness"
               ? this.dshDefaultProviderId
-              : undefined,
+              : this.getTypeKey() === "pi"
+                ? this.piDefaultProviderId
+                : undefined,
+            ...(piDefaultProvider?.providerName
+              ? { providerName: piDefaultProvider.providerName }
+              : {}),
           }]
         : []),
       ...modelOptions,
@@ -1798,6 +1920,7 @@ export class ExternalAgentSettingsController {
     // reconciled above and rendered as its real option, never duplicated here.
     if (
       selection.id !== "inherit" &&
+      !(this.getTypeKey() === "pi" && !selection.id) &&
       !options.some((option) =>
         option.id === selection.id
         && (option.providerId ?? "") === (selection.providerId ?? ""),
@@ -1816,7 +1939,16 @@ export class ExternalAgentSettingsController {
   }
 
   private getCurrentExternalModelLabel(): string {
+    if (this.shouldShowPiModelEmptyState()) {
+      return this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound");
+    }
+
     const { id: model, providerId } = this.resolveCurrentSelection();
+    if (this.getTypeKey() === "pi" && (!model || model === "inherit")) {
+      return this.piDefaultModel
+        ? formatModelDisplayLabel(this.piDefaultModel)
+        : "";
+    }
     const options = this.getExternalModelOptions();
     const match = options.find((option) =>
       option.id === model
@@ -1835,6 +1967,12 @@ export class ExternalAgentSettingsController {
     return this.getTypeKey() === "codex"
       ? ""
       : this.getExternalModelDefaultLabel();
+  }
+
+  private shouldShowPiModelEmptyState(): boolean {
+    return this.getTypeKey() === "pi"
+      && this.localSupportedModelsTypeKey === "pi"
+      && this.localSupportedModels.length === 0;
   }
 
   /**
@@ -1914,38 +2052,66 @@ export class ExternalAgentSettingsController {
       return;
     }
 
-    if (this.getTypeKey() === "deepseek-harness") {
-      const groups = new Map<string, { label: string; options: AgentModelOption[] }>();
-      options.forEach((option) => {
-        const label = option.providerName?.trim() || option.providerId?.trim() || "Other";
-        const key = option.providerId?.trim() || label;
-        const group = groups.get(key);
-        if (group) {
-          group.options.push(option);
-        } else {
-          groups.set(key, { label, options: [option] });
-        }
-      });
-
-      groups.forEach((group) => {
-        const providerSection = document.createElement("div");
-        providerSection.className =
-          "agent-thread-card__codex-settings-section agent-thread-card__codex-settings-section--provider";
-        providerSection.textContent = group.label;
-        this.popover.append(providerSection);
-        group.options.forEach((option) => {
-          this.popover.append(this.createModelSettingsItem(option, current, currentProviderId));
+    if (this.getTypeKey() === "deepseek-harness" || this.getTypeKey() === "pi") {
+      if (this.getTypeKey() === "pi" && this.shouldShowPiModelEmptyState()) {
+        const modelSection = document.createElement("div");
+        modelSection.className = "agent-thread-card__codex-settings-section";
+        modelSection.textContent = this.t("agent.model.title");
+        this.popover.append(modelSection);
+        this.popover.append(
+          createCodexSettingsItem(
+            this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound"),
+            false,
+            () => {},
+            undefined,
+            { readOnly: true },
+          ),
+        );
+      } else {
+        const groups = new Map<string, { label: string; options: AgentModelOption[] }>();
+        options.forEach((option) => {
+          const label = option.providerName?.trim() || option.providerId?.trim() || "Other";
+          const key = option.providerId?.trim() || label;
+          const group = groups.get(key);
+          if (group) {
+            group.options.push(option);
+          } else {
+            groups.set(key, { label, options: [option] });
+          }
         });
-      });
+
+        groups.forEach((group) => {
+          const providerSection = document.createElement("div");
+          providerSection.className =
+            "agent-thread-card__codex-settings-section agent-thread-card__codex-settings-section--provider";
+          providerSection.textContent = group.label;
+          this.popover.append(providerSection);
+          group.options.forEach((option) => {
+            this.popover.append(this.createModelSettingsItem(option, current, currentProviderId));
+          });
+        });
+      }
     } else {
       const modelSection = document.createElement("div");
       modelSection.className = "agent-thread-card__codex-settings-section";
       modelSection.textContent = this.t("agent.model.title");
       this.popover.append(modelSection);
 
-      options.forEach((option) => {
-        this.popover.append(this.createModelSettingsItem(option, current, currentProviderId));
-      });
+      if (this.shouldShowPiModelEmptyState()) {
+        this.popover.append(
+          createCodexSettingsItem(
+            this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound"),
+            false,
+            () => {},
+            undefined,
+            { readOnly: true },
+          ),
+        );
+      } else {
+        options.forEach((option) => {
+          this.popover.append(this.createModelSettingsItem(option, current, currentProviderId));
+        });
+      }
     }
 
     if (!this.supportsRuntimeSetting("reasoning")) return;
@@ -2165,7 +2331,10 @@ export class ExternalAgentSettingsController {
     const current =
       this.readRuntimeSetting("reasoning") ??
       useAgentSessionStore.getState().sessionMeta.settings.agentCodexReasoningEffort;
-    CODEX_REASONING_OPTIONS.forEach((option) => {
+    const reasoningOptions = this.getTypeKey() === "pi"
+      ? PI_THINKING_OPTIONS
+      : CODEX_REASONING_OPTIONS;
+    reasoningOptions.forEach((option) => {
       this.popover.append(
         createCodexSettingsItem(option.label, option.id === current, () => {
           this.writeRuntimeSetting("reasoning", option.id);

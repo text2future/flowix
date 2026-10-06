@@ -48,6 +48,7 @@ interface NavigationSubmenuProps {
    */
   hideHeader?: boolean;
   submenuContent?: ReactNode;
+  submenuClassName?: string;
   onOpenChange: (open: boolean) => void;
   onCloseMenu?: () => void;
   onSelect?: (id: string) => void;
@@ -68,6 +69,7 @@ export function MemoNavigationSubmenu({
   loadingText,
   hideHeader = false,
   submenuContent,
+  submenuClassName,
   onOpenChange,
   onCloseMenu,
   onSelect,
@@ -129,7 +131,7 @@ export function MemoNavigationSubmenu({
         </span>
       </button>
       {open && (
-        <div className="absolute left-full top-0 z-[151] flex max-h-[min(560px,calc(100vh-16px))] w-[220px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <div className={cn('absolute left-full top-0 z-[151] flex max-h-[min(560px,calc(100vh-16px))] w-[220px] flex-col overflow-hidden rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', submenuClassName)}>
           {!hideHeader && (
             <div
               className="mention-note-header"

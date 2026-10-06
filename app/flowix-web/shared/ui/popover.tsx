@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-click";
 
 // Context for managing popover state
 interface PopoverContextValue {
@@ -8,6 +9,10 @@ interface PopoverContextValue {
 	setOpen: (open: boolean) => void;
 	triggerRef: React.RefObject<HTMLElement | null>;
 	anchorRect: DOMRect | null;
+	setTriggerAnchorRect: (rect: DOMRect | null) => void;
+	cellAnchorRect: DOMRect | null;
+	setCellAnchorRect: (rect: DOMRect | null) => void;
+	cellPopup: boolean;
 }
 
 const PopoverContext = React.createContext<PopoverContextValue | null>(null);
@@ -26,11 +31,14 @@ interface PopoverProps {
 	onOpenChange?: (open: boolean) => void;
 	anchorElement?: HTMLElement | null;
 	anchorRect?: DOMRect | null;
+	cellPopup?: boolean;
 }
 
-function Popover({ children, open: controlledOpen, onOpenChange, anchorElement = null, anchorRect = null }: PopoverProps) {
+function Popover({ children, open: controlledOpen, onOpenChange, anchorElement = null, anchorRect = null, cellPopup = false }: PopoverProps) {
 	const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
 	const triggerRef = React.useRef<HTMLElement>(null);
+	const [triggerAnchorRect, setTriggerAnchorRect] = React.useState<DOMRect | null>(null);
+	const [cellAnchorRect, setCellAnchorRect] = React.useState<DOMRect | null>(null);
 	if (anchorElement) triggerRef.current = anchorElement;
 	const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
 	const setOpen = React.useCallback(
@@ -44,7 +52,7 @@ function Popover({ children, open: controlledOpen, onOpenChange, anchorElement =
 	);
 
 	return (
-		<PopoverContext.Provider value={{ open, setOpen, triggerRef, anchorRect }}>
+		<PopoverContext.Provider value={{ open, setOpen, triggerRef, anchorRect: triggerAnchorRect ?? anchorRect, setTriggerAnchorRect, cellAnchorRect, setCellAnchorRect, cellPopup }}>
 			<div className="relative">{children}</div>
 		</PopoverContext.Provider>
 	);
@@ -55,18 +63,29 @@ interface PopoverTriggerProps {
 	asChild?: boolean;
 	className?: string;
 	render?: React.ReactNode;
+	anchorToCell?: boolean;
+	disabled?: boolean;
 }
 
 interface PopoverTriggerChildProps {
 	ref?: React.Ref<HTMLElement>;
 	onClick?: React.MouseEventHandler<HTMLElement>;
 	"data-state"?: "open" | "closed";
+	"data-flowix-cell-popup-trigger"?: "true";
+	"aria-disabled"?: boolean;
 }
 
-function PopoverTrigger({ children, asChild, className, render }: PopoverTriggerProps) {
-	const { open, setOpen, triggerRef } = usePopoverContext();
+function PopoverTrigger({ children, asChild, className, render, anchorToCell = false, disabled = false }: PopoverTriggerProps) {
+	const { open, setOpen, triggerRef, setTriggerAnchorRect, setCellAnchorRect, cellPopup } = usePopoverContext();
 
 	const handleClick = (e: React.MouseEvent) => {
+		if (disabled) return;
+		if (anchorToCell) {
+			const cell = e.currentTarget.closest("td") ?? e.currentTarget.closest<HTMLElement>("[data-flowix-cell-anchor]");
+			const rect = cell?.getBoundingClientRect() ?? e.currentTarget.getBoundingClientRect();
+			setTriggerAnchorRect(rect);
+			setCellAnchorRect(rect);
+		}
 		e.stopPropagation();
 		setOpen(!open);
 	};
@@ -80,6 +99,8 @@ function PopoverTrigger({ children, asChild, className, render }: PopoverTrigger
 			},
 			onClick: handleClick,
 			"data-state": open ? "open" : "closed",
+			"data-flowix-cell-popup-trigger": cellPopup || anchorToCell ? "true" : undefined,
+			"aria-disabled": disabled || undefined,
 		});
 	}
 
@@ -91,6 +112,8 @@ function PopoverTrigger({ children, asChild, className, render }: PopoverTrigger
 			},
 			onClick: handleClick,
 			"data-state": open ? "open" : "closed",
+			"data-flowix-cell-popup-trigger": cellPopup || anchorToCell ? "true" : undefined,
+			"aria-disabled": disabled || undefined,
 		});
 	}
 
@@ -100,6 +123,7 @@ function PopoverTrigger({ children, asChild, className, render }: PopoverTrigger
 			onClick={handleClick}
 			className={cn("cursor-pointer", className)}
 			data-state={open ? "open" : "closed"}
+			data-flowix-cell-popup-trigger={cellPopup || anchorToCell ? "true" : undefined}
 		>
 			{children}
 		</div>
@@ -113,7 +137,13 @@ interface PopoverContentProps {
 	sideOffset?: number;
 	offsetY?: number;
 	className?: string;
+	style?: React.CSSProperties;
+	matchAnchorWidth?: boolean | number;
+	matchAnchorHeight?: boolean;
 	onExitComplete?: () => void;
+	ignoreSelectOutside?: boolean;
+	ignorePopoverOutside?: boolean;
+	fitViewport?: boolean;
 }
 
 type PopoverMotionState = "starting" | "open" | "closing";
@@ -127,9 +157,15 @@ function PopoverContent({
 	sideOffset = 4,
 	offsetY = 0,
 	className,
+	style,
+	matchAnchorWidth = false,
+	matchAnchorHeight = false,
 	onExitComplete,
+	ignoreSelectOutside = true,
+	ignorePopoverOutside = false,
+	fitViewport = false,
 }: PopoverContentProps) {
-	const { open, setOpen, triggerRef, anchorRect } = usePopoverContext();
+	const { open, setOpen, triggerRef, anchorRect, cellAnchorRect, cellPopup } = usePopoverContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
 	const [position, setPosition] = React.useState({ top: 0, left: 0 });
 	const [present, setPresent] = React.useState(open);
@@ -170,14 +206,20 @@ function PopoverContent({
 
 	// Position the invisible starting frame before paint, then enter next frame.
 	React.useLayoutEffect(() => {
-			if (!open || !present || (!anchorRect && !triggerRef.current)) return;
+			if (!open || !present || (!cellAnchorRect && !anchorRect && !triggerRef.current)) return;
 
 		let rafId: number;
 		let settleTimerId: number;
 
 		const updatePosition = () => {
+			const content = contentRef.current;
+			if (fitViewport && content) {
+				content.style.maxWidth = `${Math.max(0, window.innerWidth - 16)}px`;
+				content.style.maxHeight = `${Math.max(0, window.innerHeight - 8)}px`;
+				content.style.overflowY = 'auto';
+			}
 			const trigger = triggerRef.current;
-			const rect = anchorRect ?? trigger?.getBoundingClientRect();
+			const rect = cellAnchorRect ?? anchorRect ?? trigger?.getBoundingClientRect();
 			if (!rect) return;
 			const width = contentRef.current?.offsetWidth ?? 200;
 			const height = contentRef.current?.offsetHeight ?? 200;
@@ -192,7 +234,10 @@ function PopoverContent({
 				resolvedSide = 'right';
 			}
 
-			if (resolvedSide === "right" || resolvedSide === "left") {
+			if (cellAnchorRect) {
+				leftPos = rect.left;
+				topPos = rect.top;
+			} else if (resolvedSide === "right" || resolvedSide === "left") {
 				leftPos = resolvedSide === "right" ? rect.right + sideOffset : rect.left - width - sideOffset;
 				topPos = align === "center"
 					? rect.top + rect.height / 2 - height / 2
@@ -233,7 +278,14 @@ function PopoverContent({
 			window.removeEventListener('scroll', updatePosition, true);
 			window.removeEventListener('resize', updatePosition);
 		};
-	}, [open, present, side, sideOffset, offsetY, align, anchorRect]);
+	}, [open, present, side, sideOffset, offsetY, align, anchorRect, cellAnchorRect, fitViewport]);
+
+	React.useEffect(() => {
+		if (!open || !cellAnchorRect) return;
+		const closeOnTableScroll = () => setOpen(false);
+		window.addEventListener("flowix:multidimensional-table-scroll", closeOnTableScroll);
+		return () => window.removeEventListener("flowix:multidimensional-table-scroll", closeOnTableScroll);
+	}, [open, cellAnchorRect, setOpen]);
 
 	// Close on pointerdown outside. Capture matches DropdownMenu's behavior and
 	// makes the close reliable when an ancestor stops propagation (for example
@@ -245,20 +297,22 @@ function PopoverContent({
 			const target = e.target as Node;
 			if (
 				contentRef.current?.contains(target) ||
-				(!anchorRect && triggerRef.current?.contains(target)) ||
-				(target instanceof Element && target.closest('[data-flowix-surface="select"]'))
+				triggerRef.current?.contains(target) ||
+				(ignoreSelectOutside && target instanceof Element && target.closest('[data-flowix-surface="select"]')) ||
+				(ignorePopoverOutside && target instanceof Element && target.closest('[data-flowix-surface="popover"]'))
 			) {
 				return;
 			}
 
 			if (contentRef.current) {
+				if (cellPopup) consumeCellPopupTriggerClick(e);
 				setOpen(false);
 			}
 		};
 
 		document.addEventListener("pointerdown", handlePointerDownOutside, true);
 		return () => document.removeEventListener("pointerdown", handlePointerDownOutside, true);
-	}, [open, setOpen, anchorRect]);
+	}, [open, setOpen, anchorRect, cellPopup, ignoreSelectOutside, ignorePopoverOutside]);
 
 	// Close on escape
 	React.useEffect(() => {
@@ -295,6 +349,11 @@ function PopoverContent({
 			data-side={side}
 				data-flowix-surface="popover"
 			style={{
+				...style,
+				...(matchAnchorWidth && cellAnchorRect
+					? { width: cellAnchorRect.width * (typeof matchAnchorWidth === "number" ? matchAnchorWidth : 1) }
+					: {}),
+				...(matchAnchorHeight && cellAnchorRect ? { minHeight: cellAnchorRect.height } : {}),
 				top: position.top,
 				left: position.left,
 			}}

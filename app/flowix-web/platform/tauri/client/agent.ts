@@ -225,6 +225,7 @@ export interface AgentRuntimeStatus {
   hermes: AgentRuntimeAvailability;
   openclaw: AgentRuntimeAvailability;
   opencode: AgentRuntimeAvailability;
+  pi: AgentRuntimeAvailability;
   'deepseek-harness': AgentRuntimeAvailability;
 }
 
@@ -333,6 +334,11 @@ export const agent = {
     invoke<ThreadInfo[]>('thread_list'),
   listLocalAgentThreads: (agentType: AgentTypeKey) =>
     invoke<ThreadInfo[]>('local_agent_thread_list', { agentType }),
+  listPiThreads: () => invoke<ThreadInfo[]>('pi_thread_list'),
+  getPiSessionMessages: (threadId: string) =>
+    invoke<Array<Record<string, unknown>>>('pi_thread_get_messages', { threadId }),
+  getPiSessionId: (threadId: string) =>
+    invoke<string | null>('pi_thread_session_id', { threadId }),
   createThread: (title: string) =>
     invoke<ThreadInfo>('thread_create', { title }),
   getThread: (threadId: string) =>
@@ -636,7 +642,7 @@ export function listenToCodexApprovalRequests(
 // 璺ㄧ獥鍙ｅ悓姝?// ============================================
 // 鍚庣 set_preference / set_deepseek_harness_config 鎴愬姛鍚?emit 'user-config-changed',
 // payload 鏄?"preference" | "ai_config" 鎸囨槑鍝釜鏂囦欢鍙樹簡銆?// 鍏跺畠绐楀彛鏀跺埌鍚庝粠纾佺洏閲嶆柊 load, 瑙ｅ喅: 涓や釜 Tauri 绐楀彛鍚勮窇鐙珛 React 鏍?// + 鐙珛 zustand store, 涓€杈规敼鍔ㄥ彟涓€杈圭湅涓嶅埌鐨勯棶棰樸€?
-export type UserConfigChangeKind = 'preference' | 'dsh_config';
+export type UserConfigChangeKind = 'preference' | 'dsh_config' | 'pi_config';
 type UserConfigChangeHandler = (kind: UserConfigChangeKind) => void;
 
 export function listenToUserConfigChanges(

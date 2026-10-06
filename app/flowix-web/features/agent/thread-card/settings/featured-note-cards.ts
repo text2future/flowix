@@ -36,6 +36,13 @@ export interface FeaturedNoteFilterConfig {
   conditions: FeaturedNoteFilter[];
 }
 
+export interface FeaturedNotesTableSelection {
+  relativePath: string;
+  tableId: string;
+  /** Kept optional for compatibility with selections saved by older versions. */
+  viewId?: string;
+}
+
 export const DEFAULT_FEATURED_NOTE_FILTER: FeaturedNoteFilter = {
   key: "type",
   operator: "equals",
@@ -204,6 +211,29 @@ export async function writeFeaturedNoteFilter(
   return normalized;
 }
 
+export async function readFeaturedNotesTableSelection(notebookId: string): Promise<FeaturedNotesTableSelection | null> {
+  try {
+    const stored = await system.getFeaturedNoteFilter(notebookId);
+    const selection = stored?.tableSelection;
+    return selection?.relativePath && selection.tableId
+      ? { relativePath: selection.relativePath, tableId: selection.tableId, ...(selection.viewId ? { viewId: selection.viewId } : {}) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeFeaturedNotesTableSelection(
+  notebookId: string,
+  selection: FeaturedNotesTableSelection | null,
+): Promise<void> {
+  const stored = await system.getFeaturedNoteFilter(notebookId).catch(() => ({ conditions: [] }));
+  await system.setFeaturedNoteFilter(notebookId, {
+    conditions: stored.conditions ?? [],
+    tableSelection: selection,
+  });
+}
+
 function noteTitle(filename: string): string {
   return filename.replace(/\.md$/iu, "").trim() || filename;
 }
@@ -285,10 +315,10 @@ export function getFeaturedNoteCards(
 
 export function getFeaturedPathNoteCards(
   notes: NoteEntry[],
-  config: FeaturedNoteFilterConfig = DEFAULT_FEATURED_NOTE_FILTER_CONFIG,
+  config: FeaturedNoteFilterConfig | null = DEFAULT_FEATURED_NOTE_FILTER_CONFIG,
 ): FeaturedNoteCard[] {
-  const { conditions } = normalizeFeaturedNoteFilterConfig(config);
-  return notes.filter((note) => matchesAnyCondition(note.properties ?? {}, conditions))
+  const conditions = config ? normalizeFeaturedNoteFilterConfig(config).conditions : null;
+  return notes.filter((note) => !conditions || matchesAnyCondition(note.properties ?? {}, conditions))
     .map((note) => ({
       id: note.relativePath,
       icon: propertyString(note.properties, "icon") || note.icon?.trim() || DEFAULT_FEATURED_NOTE_ICON,

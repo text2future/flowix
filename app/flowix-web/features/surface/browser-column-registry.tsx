@@ -29,6 +29,8 @@ import { canonicalUrl } from '@features/workspace/store/workspace-content-identi
 import { requireFileDisplayIdentity, type FileDisplayIdentity } from '@/lib/file-display-registry';
 import { openUrl } from '@platform/tauri/opener';
 import { styleAccessibleIframeScrollbar } from '@shared/ui/iframe-scrollbar';
+import { TableDocumentView } from '@features/multidimensional-table/public/surface-api';
+import { MediaLibraryView } from '@features/media-library/media-library-view';
 
 export type BrowserColumnSurfaceCapability =
   | 'edit'
@@ -346,6 +348,12 @@ function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowse
   }
 
   const fileKind = externalFileViewKind(surface.activeFilePath);
+  if (/\.lib\.ya?ml$/i.test(surface.activeFilePath)) {
+    return <MediaLibraryView filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
+  }
+  if (/\.table\.ya?ml$/i.test(surface.activeFilePath)) {
+    return <TableDocumentView filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
+  }
   switch (fileKind) {
     case 'markdown':
       return <DocumentContainer {...surface.documentProps} fileIdentity={surface.fileIdentity} externalEditorMode="markdown" />;

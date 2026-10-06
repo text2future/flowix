@@ -163,7 +163,6 @@ pub struct CloudCheckout {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudState {
-    pub enabled: bool,
     pub authenticated: bool,
     pub account: Option<crate::v2::V2CloudAccount>,
     pub membership: Option<CloudMembership>,

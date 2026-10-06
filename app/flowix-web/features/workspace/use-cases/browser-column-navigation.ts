@@ -16,6 +16,7 @@ import {
   activateExistingWorkspaceContentAsync,
   findExistingWorkspaceContent,
   browserColumnTargetIdentity,
+  workColumnTargetIdentity,
 } from './workspace-content-activation';
 import {
   enqueueBrowserColumnNavigation,
@@ -26,8 +27,11 @@ import {
   openMediaTarget,
   openWebTarget,
   closeAgentTarget,
+  clearWorkspaceDocument,
+  flushWorkspaceDocument,
 } from './workspace-navigation';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
+import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import type { ContentIdentity } from '@features/workspace/store/workspace-content-identity';
 
 export type BrowserColumnOpenResult =
@@ -87,11 +91,28 @@ export function openBrowserColumnTarget(
           : 'empty';
 
   return enqueueBrowserColumnNavigation(async () => {
+    let moveWorkColumnTarget = false;
     if (disposition === 'focus-existing') {
       const existing = findExistingWorkspaceContent(browserColumnTargetIdentity(target));
       if (existing?.host === 'main-third') {
-        activateExistingWorkspaceContent(browserColumnTargetIdentity(target));
-        return openResult(existing);
+        const workTarget = useWorkColumnStore.getState().navigation.target;
+        const workIdentity = workColumnTargetIdentity(workTarget);
+        const requestedIdentity = browserColumnTargetIdentity(target);
+        moveWorkColumnTarget = !!workIdentity
+          && contentIdentityKey(workIdentity) === contentIdentityKey(requestedIdentity);
+        if (!moveWorkColumnTarget) {
+          activateExistingWorkspaceContent(browserColumnTargetIdentity(target));
+          return openResult(existing);
+        }
+        // List-column "open in right" is a move when the same content is
+        // already in the work column. Save before mounting the right-side copy.
+        if (target.kind !== 'agent_conversation') await flushWorkspaceDocument();
+        if (moveWorkColumnTarget) {
+          const currentIdentity = workColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
+          if (!currentIdentity || contentIdentityKey(currentIdentity) !== contentIdentityKey(requestedIdentity)) {
+            return null;
+          }
+        }
       }
       if (existing?.host === 'browser-column') {
         const store = useBrowserColumnStore.getState();
@@ -112,6 +133,10 @@ export function openBrowserColumnTarget(
           }
         }
         store.commitTab(existing.tabId);
+        if (moveWorkColumnTarget) {
+          if (target.kind === 'agent_conversation') closeAgentTarget();
+          else await clearWorkspaceDocument();
+        }
         return { host: 'browser-column', tabId: existing.tabId, alreadyOpen: true };
       }
     }
@@ -122,6 +147,10 @@ export function openBrowserColumnTarget(
       const existing = store.tabs.find((tab) => contentIdentityKey(browserColumnTargetIdentity(tab.target)) === key);
       if (existing) {
         store.commitTab(existing.id);
+        if (moveWorkColumnTarget) {
+          if (target.kind === 'agent_conversation') closeAgentTarget();
+          else await clearWorkspaceDocument();
+        }
         return { host: 'browser-column', tabId: existing.id, alreadyOpen: true };
       }
     }
@@ -135,6 +164,9 @@ export function openBrowserColumnTarget(
       if (folderTab) {
         if (target.activeFilePath) store.selectFileBrowserFile(folderTab.id, target.activeFilePath);
         store.commitTab(folderTab.id);
+        if (moveWorkColumnTarget) {
+          await clearWorkspaceDocument();
+        }
         return { host: 'browser-column', tabId: folderTab.id, alreadyOpen: true };
       }
     }
@@ -144,6 +176,10 @@ export function openBrowserColumnTarget(
       icon: targetTabIcon(target),
       target,
     }, disposition);
+    if (moveWorkColumnTarget) {
+      if (target.kind === 'agent_conversation') closeAgentTarget();
+      else await clearWorkspaceDocument();
+    }
     return { host: 'browser-column', tabId, alreadyOpen: false };
   });
 }
@@ -228,12 +264,7 @@ export function openBrowserColumnAgentConversation(instanceId: string): Promise<
   return openBrowserColumnTarget({ kind: 'agent_conversation', instanceId });
 }
 
-/** Open the currently displayed work-column target in the right browser column.
- *
- * This intentionally bypasses the normal cross-host duplicate check: the
- * action is explicitly a split view, so the same target may stay open in the
- * work column while also being opened as a browser-column tab.
- */
+/** Move the currently displayed work-column target into the right browser column. */
 export function openWorkColumnTargetInBrowserColumn(
   target: WorkColumnTarget,
 ): Promise<BrowserColumnOpenResult | null> {
@@ -261,6 +292,22 @@ export function openWorkColumnTargetInBrowserColumn(
   if (!browserTarget) return Promise.resolve(null);
 
   return enqueueBrowserColumnNavigation(async () => {
+    const isStillCurrentTarget = () => {
+      const identity = workColumnTargetIdentity(target);
+      const currentIdentity = workColumnTargetIdentity(useWorkColumnStore.getState().navigation.target);
+      return !!identity && !!currentIdentity
+        && contentIdentityKey(identity) === contentIdentityKey(currentIdentity);
+    };
+    if (!isStillCurrentTarget()) {
+      return null;
+    }
+
+    // Flush the work-column editor before the BrowserColumn mounts its own
+    // document surface. This action moves the document; it must not leave two
+    // independently editable copies open in separate columns.
+    if (target.kind !== 'agent-conversation') await flushWorkspaceDocument();
+    if (!isStillCurrentTarget()) return null;
+
     const id = browserTarget.kind === 'agent_conversation'
         ? `agent:${browserTarget.instanceId}`
         : browserTarget.kind === 'web'
@@ -274,6 +321,8 @@ export function openWorkColumnTargetInBrowserColumn(
     });
     if (target.kind === 'agent-conversation') {
       closeAgentTarget();
+    } else {
+      await clearWorkspaceDocument();
     }
     return { host: 'browser-column', tabId, alreadyOpen: false };
   });

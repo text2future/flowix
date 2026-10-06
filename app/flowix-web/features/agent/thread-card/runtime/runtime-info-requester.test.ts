@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getCodexSessionId: vi.fn(),
   getCodexRuntimeInfo: vi.fn(),
   getDeepSeekHarnessSessionId: vi.fn(),
+  getPiSessionId: vi.fn(),
   getOpenCodeSessionId: vi.fn(),
   sessionUsage: vi.fn(),
 }));
@@ -14,6 +15,7 @@ vi.mock("@platform/tauri/client", () => ({
     getCodexSessionId: mocks.getCodexSessionId,
     getCodexRuntimeInfo: mocks.getCodexRuntimeInfo,
     getDeepSeekHarnessSessionId: mocks.getDeepSeekHarnessSessionId,
+    getPiSessionId: mocks.getPiSessionId,
     getOpenCodeSessionId: mocks.getOpenCodeSessionId,
   },
   deepseekHarness: { sessionUsage: mocks.sessionUsage },
@@ -26,6 +28,29 @@ describe("createRuntimeInfoRequester", () => {
 
   it("returns undefined for agent types without a runtime provider", () => {
     expect(createRuntimeInfoRequester("claude", () => "thread-1")).toBeUndefined();
+  });
+
+  it("loads the persisted Pi session id after the conversation is restored", async () => {
+    mocks.getPiSessionId.mockResolvedValue("pi-session-1");
+    const request = createRuntimeInfoRequester("pi", () => "thread-1");
+
+    await expect(request?.()).resolves.toEqual({
+      sessionId: "pi-session-1",
+      usage: {},
+    });
+    expect(mocks.getPiSessionId).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("does not expose the Flowix thread id as a Pi session id", async () => {
+    mocks.getPiSessionId.mockResolvedValue("native-pi-session");
+    const request = createRuntimeInfoRequester(
+      "pi",
+      () => "thread-1",
+      () => "thread-1",
+    );
+
+    await expect(request?.()).resolves.toMatchObject({ sessionId: "native-pi-session" });
+    expect(mocks.getPiSessionId).toHaveBeenCalledWith("thread-1");
   });
 
   it("resolves null without invoking when the thread id is missing for thread-scoped runtimes", async () => {

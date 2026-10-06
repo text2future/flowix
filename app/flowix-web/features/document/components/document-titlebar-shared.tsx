@@ -200,7 +200,7 @@ export function ExternalDocumentActions({
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
   const [versionRefreshKey, setVersionRefreshKey] = useState(0);
   const fontSwitch = useEditorFontSwitch();
-  const itemClass = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
+  const itemClass = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]';
 
   const changePathColors = async (colors: NoteColor[]) => {
     try {
@@ -793,6 +793,7 @@ const VERSION_SOURCE_LABEL_KEYS: Record<MemoVersionMeta['source'], I18nKey> = {
   auto: "document.version.source.auto",
   manual: "document.version.source.manual",
   restore_backup: "document.version.source.restoreBackup",
+  cloud_conflict: "document.version.source.cloudConflict",
 };
 
 function formatVersionTime(timestamp: number, language: AppLanguage): string {
@@ -875,12 +876,12 @@ function VersionHistorySubmenu({
     >
       <button
         type="button"
-        className="group flex h-7 w-full cursor-pointer items-center justify-start gap-2 rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+        className="group flex h-7 w-full cursor-pointer items-center justify-start gap-2 rounded-lg px-2 py-0 text-left text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
         onFocus={() => setOpen(true)}
       >
         <ClockIcon className="w-4 h-4 mr-2" />
         <span className="flex-1 text-left">{t("document.version.menuLabel")}</span>
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)]" />
+        <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]" />
       </button>
 
       {open && (
@@ -896,7 +897,7 @@ function VersionHistorySubmenu({
               {t("document.version.allHistory")}
             </div>
             <div className="text-[11px] text-[var(--muted-foreground)]">
-              {orderedVersions.length}/20
+              {orderedVersions.length}
             </div>
           </div>
 
@@ -984,14 +985,14 @@ export function MediaActions({
       <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <DropdownMenuItem
           onClick={() => { void onCopyLink(); }}
-          className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+          className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
         >
           <LinkSimpleIcon className="mr-2 h-4 w-4" />
           {t('document.action.copyLink')}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={onRevealInFileManager}
-          className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+          className="group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]"
         >
           <FolderOpenIcon className="mr-2 h-4 w-4" />
           {t('memo.fileTree.reveal')}

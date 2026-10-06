@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyLoadedDocumentContent, getDocumentBuffer, recordDocumentEdit, saveDocumentContent, protectDocumentDraft, prepareDocumentLeave, registerDocumentCapture, registerDocumentPersistence, flushAllDocumentSessions } from './document-session-service';
+import { applyLoadedDocumentContent, getDocumentBuffer, recordDocumentEdit, saveDocumentContent, protectDocumentDraft, prepareDocumentLeave, registerDocumentCapture, registerDocumentPersistence, flushAllDocumentSessions, reconcileUnsavedExternalDocumentChange } from './document-session-service';
 import { waitForDocumentCommits } from './document-commit-queue';
 
 const mocks = vi.hoisted(() => ({ write: vi.fn(), checkpoint: vi.fn() }));
@@ -40,6 +40,46 @@ describe('persistence under slow and failed writes', () => {
     recordDocumentEdit(identity, 'newer local'); expect(await save(identity)).toBe(false);
     expect(mocks.write).toHaveBeenCalledTimes(1);
     expect(getDocumentBuffer(identity)).toMatchObject({ content: 'newer local', lastSavedContent: 'A', conflicted: true });
+  });
+  it('adopts an automatically merged save as the next editor baseline', async () => {
+    const identity = document();
+    mocks.write.mockResolvedValueOnce({ status: 'saved', path: identity.path, content: 'local and disk', merged: true });
+    recordDocumentEdit(identity, 'local');
+    expect(await save(identity)).toBe(true);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(getDocumentBuffer(identity)).toMatchObject({
+      content: 'local and disk', lastSavedContent: 'local and disk',
+      pendingContent: null, conflicted: false, saveState: 'clean',
+    });
+  });
+  it('keeps newer typing when an older snapshot is merged on disk', async () => {
+    const identity = document(); let finish!: (value: unknown) => void;
+    mocks.write.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    recordDocumentEdit(identity, 'local'); const pending = save(identity);
+    recordDocumentEdit(identity, 'newer local');
+    finish({ status: 'saved', path: identity.path, content: 'local and disk', merged: true });
+    expect(await pending).toBe(false);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(getDocumentBuffer(identity)).toMatchObject({
+      content: 'newer local', lastSavedContent: 'local and disk',
+      conflicted: true, saveState: 'conflict',
+    });
+  });
+  it('keeps a save scheduled when recovery protection fails during an external change', async () => {
+    vi.useFakeTimers();
+    try {
+      const identity = document();
+      mocks.checkpoint.mockResolvedValueOnce(false);
+      recordDocumentEdit(identity, 'local');
+      await reconcileUnsavedExternalDocumentChange(identity, identity.path, null);
+      expect(mocks.write).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(await waitForDocumentCommits('md:' + identity.displayId)).toBe(true);
+      expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ content: 'local' }));
+      expect(getDocumentBuffer(identity).saveState).toBe('clean');
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('releases the saving state when a conflict blocks a newer queued revision', async () => {
     const identity = document(); let finish!: (value: unknown) => void;

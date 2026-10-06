@@ -95,6 +95,17 @@ pub struct NotebookFeaturedNotesData {
     /// 多条条件之间是并集关系: 命中任意一条即视为常用笔记。
     #[serde(default)]
     pub conditions: Vec<FeaturedNoteConditionData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table_selection: Option<FeaturedNotesTableSelectionData>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeaturedNotesTableSelectionData {
+    pub relative_path: String,
+    pub table_id: String,
+    #[serde(default)]
+    pub view_id: String,
 }
 
 /// 单条常用笔记筛选条件。
@@ -422,6 +433,7 @@ mod tests {
                         value: "skill".to_string(),
                     },
                 ],
+                table_selection: None,
             },
         );
         let file = SystemFile {

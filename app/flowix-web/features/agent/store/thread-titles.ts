@@ -23,6 +23,7 @@ const AGENT_SESSION_TITLE_KEYS: Record<AgentTypeKey, I18nKey> = {
   hermes: "agent.hermesSession.title",
   openclaw: "agent.openclawSession.title",
   opencode: "agent.opencodeSession.title",
+  pi: "agent.piSession.title",
   "deepseek-harness": "agent.deepseekHarnessSession.title",
 };
 

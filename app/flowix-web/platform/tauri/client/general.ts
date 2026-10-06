@@ -121,6 +121,53 @@ export const deepseekHarness = {
   },
 };
 
+export interface PiModelEntryConfig {
+  id: string;
+  name: string;
+  api?: string;
+  reasoning: boolean;
+  vision: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+export interface PiProviderConfig {
+  id: string;
+  displayName: string;
+  api: string;
+  baseUrl: string;
+  /** Write-only. Empty preserves the credential already saved for this provider. */
+  apiKey?: string;
+  credentialConfigured: boolean;
+  defaultModelId?: string;
+  models: PiModelEntryConfig[];
+}
+
+export interface PiModelCatalogProvider {
+  id: string;
+  displayName: string;
+  api: string;
+  baseUrl: string;
+  takesApiKey: boolean;
+  models: PiModelEntryConfig[];
+}
+
+export interface PiModelCatalog {
+  piVersion: string;
+  piAiVersion: string;
+  apis: string[];
+  providers: PiModelCatalogProvider[];
+}
+
+export const piModels = {
+  list: () => invoke<PiProviderConfig[]>('get_pi_model_configs'),
+  catalog: () => invoke<PiModelCatalog>('get_pi_model_catalog'),
+  save: (config: PiProviderConfig) => invoke<void>('save_pi_model_config', { config }),
+  delete: (providerId: string) => invoke<void>('delete_pi_model_config', { providerId }),
+  test: (config: PiProviderConfig) => invoke<number>('test_pi_model_config', { config }),
+  discover: (config: PiProviderConfig) => invoke<PiModelEntryConfig[]>('discover_pi_models', { config }),
+};
+
 export interface DshIntegrationStatus {
   installed: boolean;
   executablePath?: string | null;
@@ -198,6 +245,8 @@ export interface DeepSeekHarnessSessionUsage {
 export interface DeepSeekHarnessModel {
   id: string;
   name?: string;
+  api?: string;
+  baseUrl?: string;
   contextWindow?: number;
   maxTokens?: number;
 }
@@ -287,6 +336,11 @@ export interface NotebookFeaturedNoteCondition {
 /** 常用笔记筛选配置 (Agent 空状态)。conditions 之间是并集关系。 */
 export interface NotebookFeaturedNoteFilter {
   conditions: NotebookFeaturedNoteCondition[];
+  tableSelection?: {
+    relativePath: string;
+    tableId: string;
+    viewId?: string;
+  } | null;
 }
 
 export interface NotebookCustomViewFilter {

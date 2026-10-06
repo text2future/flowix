@@ -175,6 +175,17 @@ const AGENT_RUNTIME_SPECS: Record<AgentTypeKey, AgentRuntimeSpec> = {
       opencode: { cwd, workspacePaths, permissionMode, model: codexModel },
     }),
   },
+  pi: {
+    typeKey: "pi",
+    // Pi RPC has no sandbox prompt, but its built-in tools can be selected with
+    // --tools. The permission mode maps to the available tool set in the host.
+    emptySettings: ["model", "permission"],
+    accessOptions: SHARED_ACCESS_OPTIONS,
+    workspace: { selectBeforeFirstRun: false, switchWhileRunning: false, switchBetweenRuns: false, switchRequiresRuntimeRestart: true, preservesConversationSession: true },
+    buildRuntimeConfig: ({ cwd, workspacePaths, permissionMode, codexModel }) => ({
+      pi: { cwd, workspacePaths, permissionMode: normalizeCodexPermissionMode(permissionMode), model: codexModel },
+    }),
+  },
   "deepseek-harness": {
     typeKey: "deepseek-harness",
     // DSH follows the native llm-pi-ai provider configuration but allows a per-card
@@ -262,15 +273,15 @@ export function buildAgentRuntimeConfig({
   // 走 workspace-write; instance 配置仍优先于全局 / 类型默认。
   const instancePermission = instanceRuntimeConfig?.access?.sandbox;
   const effectivePermissionMode = instancePermission ?? permissionMode;
-  const effectiveModel =
-    instanceRuntimeConfig?.model?.key ?? codexModel;
+  const effectiveModel = instanceRuntimeConfig?.model?.key ??
+    (typeKey === "pi" ? undefined : codexModel);
   const effectiveReasoningEffort =
     instanceRuntimeConfig?.reasoningEffort ?? codexReasoningEffort;
   const runtimeConfig = getAgentRuntimeSpec(typeKey).buildRuntimeConfig({
     cwd: primaryWorkspace,
     workspacePaths,
     permissionMode: effectivePermissionMode,
-    codexModel: effectiveModel,
+    codexModel: effectiveModel ?? "",
     codexReasoningEffort: effectiveReasoningEffort,
   });
   if (typeKey === "deepseek-harness" && runtimeConfig.deepseekHarness) {
@@ -278,6 +289,10 @@ export function buildAgentRuntimeConfig({
       instanceRuntimeConfig?.deepseekHarness?.mode ?? "standard";
     runtimeConfig.deepseekHarness.providerId =
       instanceRuntimeConfig?.model?.providerId;
+  }
+  if (typeKey === "pi" && runtimeConfig.pi) {
+    runtimeConfig.pi.providerId = instanceRuntimeConfig?.model?.providerId;
+    runtimeConfig.pi.reasoningEffort = instanceRuntimeConfig?.reasoningEffort;
   }
   return runtimeConfig;
 }

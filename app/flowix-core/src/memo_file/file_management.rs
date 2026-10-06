@@ -172,3 +172,43 @@ impl FileManagementPolicy {
         }
     }
 }
+
+/// Read and validate the notebook-local default parent folder used when a
+/// note creation command does not specify a destination. An empty preference
+/// means the notebook root.
+pub fn default_create_folder_for_notebook(root: &Path) -> Result<Option<String>, String> {
+    let preferences_path = root.join(".flowix/view-preferences.json");
+    let bytes = match std::fs::read(&preferences_path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::read(root.join(".flowix/notebook.json")).ok()
+        }
+        Err(_) => None,
+    };
+    let folder = bytes
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|value| {
+            value
+                .get("defaultCreateFolder")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    let Some(folder) = folder else {
+        return Ok(None);
+    };
+    let trimmed = folder.trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.contains('\\') || trimmed.contains('\0') {
+        return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
+    }
+    let path = Path::new(trimmed);
+    if path
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
+    }
+    Ok(Some(path.to_string_lossy().replace('\\', "/")))
+}

@@ -4,6 +4,7 @@ const CANONICAL_EXTERNAL_AGENTS = new Set<AgentTypeKey>([
   "codex",
   "claude",
   "hermes",
+  "pi",
   "opencode",
   "deepseek-harness",
 ]);

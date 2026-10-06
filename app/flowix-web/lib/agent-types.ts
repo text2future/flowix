@@ -14,6 +14,7 @@ import iconHermesAgent from '@/assets/icon-hermes-agent.svg';
 import iconOpenClaw from '@/assets/icon-openclaw.svg';
 import iconOpenCode from '@/assets/icon-opencode.svg';
 import iconDeepSeek from '@/assets/icon-deepseek.svg';
+import iconPi from '@/assets/icon-pi.svg';
 
 // DSH is an optional separately installed runtime. Keep the product default on
 // an external CLI path so users who never install DSH do not create unusable
@@ -56,6 +57,7 @@ export const ALWAYS_VISIBLE_NEW_CONVERSATION_AGENT_KEYS = new Set<AgentTypeKey>(
   'deepseek-harness',
   'codex',
   'claude',
+  'pi',
 ]);
 
 export function isAlwaysVisibleNewConversationAgent(typeKey: AgentTypeKey): boolean {
@@ -91,6 +93,13 @@ const SIMPLE_CLI_CAPABILITIES: AgentRuntimeCapabilities = {
 };
 
 export const AGENT_TYPES: AgentType[] = [
+  {
+    key: 'pi',
+    icon: iconPi,
+    name: 'Pi',
+    desc: 'Use Pi coding agent',
+    capabilities: STREAMING_EXTERNAL_CLI_CAPABILITIES,
+  },
   {
     key: 'deepseek-harness',
     icon: iconDeepSeek,

@@ -142,7 +142,11 @@ export const useWorkColumnStore = create<WorkColumnStore>()((set, get) => ({
     const replace = (target: WorkColumnTarget): WorkColumnTarget => (
       target.kind === 'external' && canonicalPath(target.path) === canonicalPath(previousPath)
         ? { ...target, path }
-        : target
+        : target.kind === 'table' && canonicalPath(target.filePath) === canonicalPath(previousPath)
+          ? { ...target, filePath: path }
+          : target.kind === 'media-library' && canonicalPath(target.filePath) === canonicalPath(previousPath)
+            ? { ...target, filePath: path }
+          : target
     );
     const navigation = state.navigation;
     return {

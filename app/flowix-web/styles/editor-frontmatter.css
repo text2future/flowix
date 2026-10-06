@@ -276,8 +276,8 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 
 .frontmatter-property__item-menu-button:hover,
 .frontmatter-property__item-menu-button:focus-visible {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -291,23 +291,32 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
   position: relative;
 }
 
-.frontmatter-property__preset-button::after {
-  content: '›';
-  margin-left: auto;
-  color: var(--muted-foreground);
-  font-size: 1.05rem;
-  line-height: 1;
+.frontmatter-property__preset-button-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.frontmatter-property__preset-button:hover::after,
-.frontmatter-property__preset-button:focus-visible::after,
-.frontmatter-property__preset-item[data-open='true'] .frontmatter-property__preset-button::after {
+/* The disclosure caret is an inline icon, not a `›` text glyph: it inherits
+ * the button's colour so hover / open states tint it along with the label. */
+.frontmatter-property__preset-caret {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.frontmatter-property__preset-button:hover .frontmatter-property__preset-caret,
+.frontmatter-property__preset-button:focus-visible .frontmatter-property__preset-caret,
+.frontmatter-property__preset-item[data-open='true'] .frontmatter-property__preset-caret {
   color: currentColor;
 }
 
 .frontmatter-property__preset-item[data-open='true'] > .frontmatter-property__preset-button {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -509,13 +518,21 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 
 .frontmatter-property__edit-key-option:hover,
 .frontmatter-property__edit-key-option:focus-visible {
-  background: var(--muted);
+  background: var(--hover-bg);
 }
 
-.frontmatter-property__edit-key-option:disabled {
+/* Occupied presets are inert: flat colour, no hover affordance. `[disabled]`
+ * and `[aria-disabled]` are both covered so the two stay in sync. */
+.frontmatter-property__edit-key-option:disabled,
+.frontmatter-property__edit-key-option[aria-disabled='true'] {
   color: var(--muted-foreground);
   cursor: default;
   opacity: 0.55;
+}
+
+.frontmatter-property__edit-key-option:disabled:hover,
+.frontmatter-property__edit-key-option[aria-disabled='true']:hover {
+  background: transparent;
 }
 
 .frontmatter-property__edit-colors {
@@ -549,7 +566,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 .frontmatter-property__edit-color-option:hover,
 .frontmatter-property__edit-color-option:focus-visible,
 .frontmatter-property__edit-color-option[data-selected='true'] {
-  background: var(--muted);
+  background: var(--hover-bg);
   outline: none;
 }
 
@@ -710,7 +727,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 
 .frontmatter-property__edit-icon-clear:hover,
 .frontmatter-property__edit-icon-clear:focus-visible {
-  background: var(--muted);
+  background: var(--hover-bg);
   color: var(--foreground);
 }
 
@@ -760,7 +777,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 .frontmatter-property__edit-icon-option:focus-visible,
 .frontmatter-property__edit-icon-option[aria-selected='true'] {
   border-color: var(--border);
-  background: var(--muted);
+  background: var(--hover-bg);
 }
 
 .frontmatter-property__edit-checkbox-label {
@@ -895,7 +912,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 .frontmatter-property__edit-type-option:hover,
 .frontmatter-property__edit-type-option:focus-visible,
 .frontmatter-property__edit-type-option[aria-selected='true'] {
-  background: var(--muted);
+  background: var(--hover-bg);
 }
 
 .markdown-editor .frontmatter-property__display:hover,
@@ -1243,8 +1260,8 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
 
 .markdown-editor .frontmatter-property__key-option:hover,
 .markdown-editor .frontmatter-property__key-option:focus-visible {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
 }
 
 .markdown-editor .frontmatter-property__key-option:disabled {
@@ -1268,7 +1285,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
   .frontmatter-property__key-option-added,
 .markdown-editor .frontmatter-property__key-option:focus-visible
   .frontmatter-property__key-option-added {
-  color: var(--primary-foreground);
+  color: var(--foreground);
 }
 
 .markdown-editor .frontmatter-property__key-option-label {
@@ -1296,7 +1313,7 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
   .frontmatter-property__key-option-check,
 .markdown-editor .frontmatter-property__key-option:focus-visible
   .frontmatter-property__key-option-check {
-  color: var(--primary-foreground);
+  color: var(--primary);
 }
 
 .markdown-editor .frontmatter-property__key-option-added {

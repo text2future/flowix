@@ -3,6 +3,7 @@ import type { EditorView, NodeView } from '@tiptap/pm/view';
 import { createElement as createReactElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { translate, type I18nKey } from '@/lib/i18n';
+import { getPropertyTypeDefinition } from '@/lib/property-types';
 import { NOTE_COLORS, NOTE_COLOR_HEX } from '@features/memo/store/note-store';
 import type { NoteColor } from '@/types/note-item';
 import {
@@ -26,6 +27,7 @@ import {
   CUSTOM_PROPERTY_KINDS,
   PROPERTY_KINDS,
   getAllPresets,
+  resolvePropertyDisplayName,
   resolvePropertyPreset,
   type PropertyKind,
 } from '@features/document/properties/presets';
@@ -41,6 +43,7 @@ import {
   getPropertyFieldPreferences,
 } from '@features/preferences/public/runtime-api';
 import { canonicalizePropertyKey } from '@features/document/properties/property-key';
+import { createPropertySvgIcon } from '@features/document/properties/property-type-icon';
 import { isImeKeyboardEvent } from '@/lib/input-method';
 import { observeFrontmatterView } from './frontmatter-view-lifecycle';
 import { useSettingsStore } from '@/lib/store/settings-store';
@@ -60,20 +63,6 @@ const PROPERTY_EDIT_POPOVER_WIDTH = 320;
 const PROPERTY_EDIT_KINDS = PROPERTY_KINDS;
 
 type PropertyEditKind = PropertyKind;
-
-const PROPERTY_EDIT_KIND_LABEL_KEYS = {
-  Text: 'document.properties.type.text',
-  Boolean: 'document.properties.type.boolean',
-  Number: 'document.properties.type.number',
-  Date: 'document.properties.type.date',
-  URL: 'document.properties.type.url',
-  Icon: 'document.properties.type.icon',
-  Select: 'document.properties.type.select',
-  MultiSelect: 'document.properties.type.multiSelect',
-  Tag: 'document.properties.type.tag',
-  Tags: 'document.properties.type.tags',
-  Color: 'document.properties.type.color',
-} as const;
 
 const FLOWIX_COLOR_LABEL_KEYS: Record<NoteColor, I18nKey> = {
   red: 'document.color.red',
@@ -115,102 +104,24 @@ function getPropertyEditKind(
   return resolvePropertyType(key, value, isFlowSequence).kind;
 }
 
-function createPropertySvgIcon(
-  kind: PropertyDisplayKind | 'properties',
-): SVGSVGElement {
-  if (kind === 'number') return createNumberPropertySvgIcon();
-  if (kind === 'color') return createColorPropertySvgIcon();
-  if (kind === 'date') return createDatePropertySvgIcon();
-  if (kind === 'boolean') return createBooleanPropertySvgIcon();
+/**
+ * The standard disclosure caret, matching `CaretRight` (weight="bold") from
+ * `@phosphor-icons/react` that the menus use. Path data is copied verbatim so
+ * the node view renders the same glyph without pulling React into a vanilla
+ * DOM node view.
+ */
+const CARET_RIGHT_BOLD_PATH = 'M184.49,136.49l-80,80a12,12,0,0,1-17-17L159,128,87.51,56.49a12,12,0,1,1,17-17l80,80A12,12,0,0,1,184.49,136.49Z';
 
-  const paths: Record<Exclude<PropertyDisplayKind, 'number' | 'date' | 'boolean'> | 'properties', string> = {
-    properties: 'M5 6h14M5 12h14M5 18h14M3.5 6h.01M3.5 12h.01M3.5 18h.01',
-    text: 'M5 6h14M5 12h14M5 18h9',
-    url: 'm9 15 6-6M7 17H6a4 4 0 0 1 0-8h3M17 7h1a4 4 0 0 1 0 8h-3',
-    array: 'M8 5v14M16 5v14M5 8h14M5 16h14',
-    color: 'M9 16.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Zm6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z',
-    icon: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM9 10h.01M15 10h.01M8.5 14a5 5 0 0 0 7 0',
-  };
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  svg.classList.add('frontmatter-property__svg-icon');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', paths[kind]);
-  svg.append(path);
-  return svg;
-}
-
-function createDatePropertySvgIcon(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  svg.classList.add('frontmatter-property__svg-icon');
-
-  const outer = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  outer.setAttribute('d', 'M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z');
-
-  const days = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  days.setAttribute('d', 'M9 13.6h5.6');
-  days.setAttribute('stroke-width', '1.8');
-
-  const bindings = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  bindings.setAttribute('d', 'M8 3v4M16 3v4');
-  bindings.setAttribute('stroke-width', '1.3');
-
-  svg.append(outer, bindings, days);
-  return svg;
-}
-
-function createBooleanPropertySvgIcon(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  svg.classList.add('frontmatter-property__svg-icon');
-
-  const lines = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  lines.setAttribute('d', 'M13 7h8M13 17h8');
-
-  const check = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  check.setAttribute('d', 'm3 17 2 2 4-4');
-
-  const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  box.setAttribute('x', '3');
-  box.setAttribute('y', '4');
-  box.setAttribute('width', '6');
-  box.setAttribute('height', '6');
-  box.setAttribute('rx', '1');
-
-  svg.append(lines, check, box);
-  return svg;
-}
-
-function createColorPropertySvgIcon(): SVGSVGElement {
+function createCaretRightIcon(className: string): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 256 256');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
-  svg.classList.add('frontmatter-property__svg-icon', 'frontmatter-property__svg-icon--color');
-
+  svg.classList.add(className);
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   path.setAttribute('fill', 'currentColor');
   path.setAttribute('stroke', 'none');
-  path.setAttribute('d', 'M200.77,53.89A103.27,103.27,0,0,0,128,24h-1.07A104,104,0,0,0,24,128c0,43,26.58,79.06,69.36,94.17A32,32,0,0,0,136,192a16,16,0,0,1,16-16h46.21a31.81,31.81,0,0,0,31.2-24.88,104.43,104.43,0,0,0,2.59-24A103.28,103.28,0,0,0,200.77,53.89Zm13,93.71A15.89,15.89,0,0,1,198.21,160H152a32,32,0,0,0-32,32,16,16,0,0,1-21.31,15.07C62.49,194.3,40,164,40,128a88,88,0,0,1,87.09-88h.9a88.35,88.35,0,0,1,88,87.25A88.86,88.86,0,0,1,213.81,147.6ZM140,76a12,12,0,1,1-12-12A12,12,0,0,1,140,76ZM96,100A12,12,0,1,1,84,88,12,12,0,0,1,96,100Zm0,56a12,12,0,1,1-12-12A12,12,0,0,1,96,156Zm88-56a12,12,0,1,1-12-12A12,12,0,0,1,184,100Z');
-  svg.append(path);
-  return svg;
-}
-
-function createNumberPropertySvgIcon(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  svg.classList.add('frontmatter-property__svg-icon', 'frontmatter-property__svg-icon--number');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', 'M6.8 19V6.4c0-1.25 1.35-1.6 2-.6L15 18.2c.7 1 2 .7 2-.6V5.1');
+  path.setAttribute('d', CARET_RIGHT_BOLD_PATH);
   svg.append(path);
   return svg;
 }
@@ -365,9 +276,22 @@ export class FrontmatterPropertyNodeView implements NodeView {
     event.preventDefault();
   };
   private readonly handleAddPropertyRequest = (event: Event) => {
-    const detail = (event as CustomEvent<{ propertyTargetId?: string }>).detail;
+    const detail = (event as CustomEvent<{ propertyTargetId?: string; presetKey?: string }>).detail;
     if (detail?.propertyTargetId !== this.propertyTargetId || !this.view.editable) return;
-    this.addEmptyProperty();
+    this.addEmptyProperty(detail?.presetKey);
+  };
+
+  /**
+   * Answer a synchronous "which keys are already occupied?" query so callers
+   * outside the editor (e.g. the title menu) can disable presets that would be
+   * rejected as duplicates. The requester owns the mutable array passed in
+   * `detail.keys`; we only push canonical keys into it.
+   */
+  private readonly handleOccupiedKeysRequest = (event: Event) => {
+    const detail = (event as CustomEvent<{ propertyTargetId?: string; keys?: string[] }>).detail;
+    if (detail?.propertyTargetId !== this.propertyTargetId || !detail.keys) return;
+    const parsed = parseVisibleFrontmatter(String(this.node.attrs.yamlContent ?? ''));
+    detail.keys.push(...parsed.properties.map(({ key }) => canonicalizePropertyKey(key)));
   };
 
   constructor(
@@ -386,6 +310,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
       pointerDown: this.handleDocumentPointerDown,
       selectStart: this.handleDocumentSelectStart,
       addProperty: this.handleAddPropertyRequest,
+      occupiedKeys: this.handleOccupiedKeysRequest,
       pointerMove: this.handlePropertyPointerMove,
       pointerUp: this.handlePropertyPointerUp,
       pointerCancel: this.handlePropertyPointerCancel,
@@ -867,6 +792,45 @@ export class FrontmatterPropertyNodeView implements NodeView {
     });
   }
 
+  /**
+   * Build one preset row. Occupied keys are rendered inert and keep any
+   * caller-supplied description in the tooltip, so the disabled row still
+   * explains which field it refers to.
+   */
+  private createPropertyKeyOption(
+    preset: { key: string; label: string },
+    occupiedKeys: ReadonlySet<string>,
+    describe: string | undefined,
+    onSelect: (key: string) => void,
+  ): HTMLButtonElement {
+    const option = createElement(
+      'button',
+      'frontmatter-property__edit-key-option',
+      preset.label,
+    );
+    const alreadyExists = occupiedKeys.has(canonicalizePropertyKey(preset.key));
+    option.type = 'button';
+    option.dataset.value = preset.key;
+    option.setAttribute('role', 'option');
+    option.disabled = alreadyExists;
+    // `aria-disabled` keeps the reason announced even where the native
+    // `disabled` attribute suppresses hover tooltips.
+    if (alreadyExists) option.setAttribute('aria-disabled', 'true');
+    // Compose instead of overwrite: dropping `describe` would hide the field's
+    // own key exactly when the user needs it to disambiguate the conflict.
+    option.title = alreadyExists
+      ? [describe, this.t('document.properties.commonKey.alreadyExists')]
+        .filter(Boolean)
+        .join(' · ')
+      : (describe ?? '');
+    option.addEventListener('click', (event) => {
+      event.preventDefault();
+      if (option.disabled) return;
+      onSelect(preset.key);
+    });
+    return option;
+  }
+
   private appendCommonPropertyOptions(
     menu: HTMLElement,
     occupiedKeys: ReadonlySet<string>,
@@ -876,23 +840,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
       getPropertyFieldPreferences(),
       (key) => this.t(key),
     ).filter((preset) => preset.source === 'builtin' && preset.key !== 'flowix_favorited').forEach((preset) => {
-      const option = createElement(
-        'button',
-        'frontmatter-property__edit-key-option',
-        preset.label,
-      );
-      const alreadyExists = occupiedKeys.has(canonicalizePropertyKey(preset.key));
-      option.type = 'button';
-      option.dataset.value = preset.key;
-      option.setAttribute('role', 'option');
-      option.disabled = alreadyExists;
-      if (alreadyExists) option.title = this.t('document.properties.commonKey.alreadyExists');
-      option.addEventListener('click', (event) => {
-        event.preventDefault();
-        if (option.disabled) return;
-        onSelect(preset.key);
-      });
-      menu.append(option);
+      menu.append(this.createPropertyKeyOption(preset, occupiedKeys, undefined, onSelect));
     });
   }
 
@@ -906,25 +854,13 @@ export class FrontmatterPropertyNodeView implements NodeView {
       (key) => this.t(key),
     ).filter((preset) => preset.source === 'custom');
     customPresets.forEach((preset) => {
-      const option = createElement(
-        'button',
-        'frontmatter-property__edit-key-option',
-        preset.label,
-      );
-      const key = canonicalizePropertyKey(preset.key);
-      option.type = 'button';
-      option.dataset.value = preset.key;
-      option.setAttribute('role', 'option');
-      option.title = `${preset.label} (${preset.key})`;
-      const alreadyExists = occupiedKeys.has(key);
-      option.disabled = alreadyExists;
-      if (alreadyExists) option.title = this.t('document.properties.commonKey.alreadyExists');
-      option.addEventListener('click', (event) => {
-        event.preventDefault();
-        if (option.disabled) return;
-        onSelect(preset.key);
-      });
-      menu.append(option);
+      // Custom fields use their key as both the visible label and tooltip.
+      menu.append(this.createPropertyKeyOption(
+        preset,
+        occupiedKeys,
+        preset.key,
+        onSelect,
+      ));
     });
   }
 
@@ -944,16 +880,21 @@ export class FrontmatterPropertyNodeView implements NodeView {
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', property.key);
 
+    // Every visible key is treated as occupied, including the row's own key:
+    // a preset that is already on the document cannot be added again.
     const occupiedKeys = new Set(
-      parsed.properties
-        .filter(({ key }) => key !== property.key)
-        .map(({ key }) => canonicalizePropertyKey(key)),
+      parsed.properties.map(({ key }) => canonicalizePropertyKey(key)),
     );
     const presetItem = createElement('div', 'frontmatter-property__preset-item');
     const presetButton = createElement(
       'button',
       'frontmatter-property__item-menu-button frontmatter-property__preset-button',
-      this.t('document.properties.preset'),
+    );
+    presetButton.append(
+      createElement('span', 'frontmatter-property__preset-button-label', this.t('document.properties.preset')),
+      // Standard disclosure caret instead of the previous `›` text glyph, so it
+      // matches the nested-menu carets used elsewhere.
+      createCaretRightIcon('frontmatter-property__preset-caret'),
     );
     const presetMenu = createElement('div', 'frontmatter-property__preset-menu');
     presetButton.type = 'button';
@@ -1775,7 +1716,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
       const typeLabel = createElement(
         'span',
         'frontmatter-property__edit-type-label',
-        this.t(PROPERTY_EDIT_KIND_LABEL_KEYS[initialKind]),
+        this.t(getPropertyTypeDefinition(initialKind).labelKey),
       );
       if (isFixedPropertyKind) {
         typeLabel.append(createElement(
@@ -1803,7 +1744,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
         const option = createElement(
           'button',
           'frontmatter-property__edit-type-option',
-          this.t(PROPERTY_EDIT_KIND_LABEL_KEYS[kind]),
+          this.t(getPropertyTypeDefinition(kind).labelKey),
         );
         option.type = 'button';
         option.dataset.value = kind;
@@ -1822,7 +1763,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
           activeEdit.control.destroy?.();
           activeEdit.control.dom.replaceWith(nextControl.dom);
           activeEdit.control = nextControl;
-          typeLabel.textContent = this.t(PROPERTY_EDIT_KIND_LABEL_KEYS[kind]);
+          typeLabel.textContent = this.t(getPropertyTypeDefinition(kind).labelKey);
           typeMenu.querySelectorAll<HTMLElement>('[role="option"]').forEach((item) => {
             item.setAttribute('aria-selected', String(item === option));
           });
@@ -2058,14 +1999,11 @@ export class FrontmatterPropertyNodeView implements NodeView {
 
     const key = createElement('span', 'frontmatter-property__display-key');
     key.title = property.key;
-    const preset = resolvePropertyPreset(
+    const propertyLabel = resolvePropertyDisplayName(
       property.key,
       getPropertyFieldPreferences(),
       (labelKey) => this.t(labelKey),
     );
-    const propertyLabel = property.key === 'flowix_plugin'
-      ? this.t('document.properties.commonKey.plugin')
-      : preset?.label ?? property.key;
     key.append(createElement(
       'span',
       'frontmatter-property__key',
@@ -2081,15 +2019,33 @@ export class FrontmatterPropertyNodeView implements NodeView {
     return row;
   }
 
-  private addEmptyProperty() {
+  /**
+   * Append a property row. `presetKey` narrows the new row to a built-in /
+   * configured preset so the caller can add e.g. `tags` in one step; without
+   * it a fresh `keyN` Text row is created.
+   */
+  private addEmptyProperty(presetKey?: string) {
     const yamlContent = String(this.node.attrs.yamlContent ?? '');
     const parsed = parseVisibleFrontmatter(yamlContent);
     const existingKeys = new Set(Object.keys(parsed.data));
-    let index = 1;
-    let nextKey = `key${index}`;
-    while (existingKeys.has(nextKey)) {
-      index += 1;
+
+    const preset = presetKey ? resolveRuntimePropertyPreset(presetKey) : null;
+    let nextKey: string;
+    let nextKind: PropertyKind | 'Boolean';
+    if (preset) {
+      // A preset already present in the frontmatter is a no-op rather than a
+      // duplicate key, which the YAML writer would reject.
+      if (existingKeys.has(preset.key)) return;
+      nextKey = preset.key;
+      nextKind = preset.kind;
+    } else {
+      let index = 1;
       nextKey = `key${index}`;
+      while (existingKeys.has(nextKey)) {
+        index += 1;
+        nextKey = `key${index}`;
+      }
+      nextKind = 'Text';
     }
 
     try {
@@ -2098,7 +2054,7 @@ export class FrontmatterPropertyNodeView implements NodeView {
         null,
         nextKey,
         '',
-        'Text',
+        nextKind,
       );
       const pos = this.getPos();
       if (typeof pos !== 'number') return;

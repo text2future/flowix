@@ -1,0 +1,641 @@
+.multidimensional-table {
+  --multidimensional-table-content-inset: 8px;
+}
+
+.multidimensional-table__condition-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.multidimensional-table__condition-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.multidimensional-table__condition-tab:hover {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  color: var(--foreground);
+}
+
+.multidimensional-table__condition-tab[aria-pressed='true'] {
+  background: color-mix(in oklch, var(--muted) 80%, transparent);
+  color: var(--foreground);
+}
+
+.multidimensional-table thead,
+.multidimensional-table thead th {
+  background-color: var(--document-bg);
+}
+
+.multidimensional-table thead th {
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.multidimensional-table__column-action-header,
+.multidimensional-table__row-action-cell {
+  position: relative;
+}
+
+.multidimensional-table__column-action-header::after,
+.multidimensional-table__row-action-cell--bordered::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+/* Keep the vertical thumb clear of the rounded lower corner. */
+html[data-platform="non-mac"] .multidimensional-table__scrollbar--bottom-clearance .overlay-scrollbar-track--vertical,
+html[data-platform="mac"] .multidimensional-table__scrollbar--bottom-clearance.overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--vertical {
+  bottom: 1rem;
+}
+
+.multidimensional-table__kanban-lane {
+  min-height: 500px;
+  max-height: 800px;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--background) 98%, var(--brand) 2%);
+}
+
+.multidimensional-table__kanban-lane[data-kanban-all-records='true'] {
+  background-color: var(--muted);
+}
+
+.multidimensional-table__kanban-card {
+  background-color: var(--card);
+  transition: background-color 120ms ease;
+}
+
+.multidimensional-table__kanban-card,
+.multidimensional-table__kanban-card *,
+.multidimensional-table__kanban-empty {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.multidimensional-table__kanban-card:hover {
+  background-color: color-mix(in srgb, var(--card) 50%, var(--hover-bg) 50%);
+}
+
+.multidimensional-table__calendar-card,
+.multidimensional-table__calendar-card * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.multidimensional-table__calendar {
+  --multidimensional-table-calendar-weekend-bg: color-mix(in srgb, var(--foreground) 1.6%, var(--background));
+  --multidimensional-table-calendar-active-bg: color-mix(in srgb, var(--foreground) 3.2%, var(--background));
+}
+
+.multidimensional-table__calendar-drop-target {
+  box-shadow: inset 0 0 0 2px var(--brand);
+}
+
+.multidimensional-table__cell-content {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding-inline: var(--multidimensional-table-content-inset);
+}
+
+.multidimensional-table__text-value {
+  overflow-wrap: anywhere;
+}
+
+.multidimensional-table thead th:first-child .multidimensional-table__cell-content,
+.multidimensional-table tbody td:first-child .multidimensional-table__cell-content {
+  padding-left: 0;
+}
+
+/* Keep the cell's disabled behavior without dimming it during persistence. */
+.multidimensional-table tbody .multidimensional-table__cell-content :disabled,
+.multidimensional-table tbody .multidimensional-table__cell-content [aria-disabled='true'],
+.multidimensional-table tbody .multidimensional-table__cell-content [class~='opacity-50'],
+.multidimensional-table tbody .multidimensional-table__cell-content [class~='opacity-40'] {
+  opacity: 1 !important;
+}
+
+.multidimensional-table__cell-content > :not(input[type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+}
+
+.multidimensional-table__cell-content.multidimensional-table__primary-cell {
+  gap: 0;
+}
+
+.multidimensional-table__primary-cell > .relative {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.multidimensional-table__primary-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+button.multidimensional-table__primary-title {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--brand);
+  text-align: left;
+  font-size: 0.875rem;
+  cursor: text;
+}
+
+.multidimensional-table__rule-link-icon {
+  display: inline-block;
+  width: 0.82rem;
+  height: 0.82rem;
+  margin-right: 0.12rem;
+  vertical-align: -0.125em;
+  color: currentColor;
+}
+
+button.multidimensional-table__primary-title--placeholder {
+  color: var(--muted-foreground);
+}
+
+.multidimensional-table__primary-editor {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.multidimensional-table__primary-title-input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 2rem;
+  max-height: 50vh;
+  min-width: 0;
+  resize: none;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.25rem 0;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  outline: none;
+}
+
+.multidimensional-table__primary-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.multidimensional-table__primary-editor-actions button {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: var(--muted-foreground);
+}
+
+.multidimensional-table__primary-editor-actions button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.multidimensional-table__primary-editor-actions button[aria-expanded='true'] {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.multidimensional-table__primary-editor-actions button:last-child:hover {
+  color: var(--destructive);
+}
+
+.multidimensional-table__primary-editor-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.multidimensional-table__open-note {
+  display: inline-flex;
+  width: 1.5rem !important;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 0;
+  color: var(--muted-foreground);
+  opacity: 1;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.multidimensional-table__open-note:hover {
+  border-color: var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.multidimensional-table__open-note:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .multidimensional-table__open-note {
+    opacity: 0;
+  }
+
+  .multidimensional-table__primary-cell:hover .multidimensional-table__open-note,
+  .multidimensional-table__open-note:focus-visible {
+    opacity: 1;
+  }
+}
+
+.multidimensional-table__cell-content.multidimensional-table__header-trigger > :first-child {
+  width: 1.25rem;
+  min-width: 1.25rem;
+}
+
+.multidimensional-table__cell-content.multidimensional-table__header-trigger {
+  min-height: 2.25rem;
+}
+
+.multidimensional-table__cell-content.multidimensional-table__header-trigger > :last-child {
+  width: auto;
+}
+
+.multidimensional-table__select-trigger > svg:last-child {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.multidimensional-table__number-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.multidimensional-table__number-input::-webkit-inner-spin-button,
+.multidimensional-table__number-input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.frontmatter-property__edit-input.multidimensional-table__tag-input::placeholder {
+  color: var(--muted-foreground) !important;
+  font-size: 0.875rem !important;
+  opacity: 0.8 !important;
+}
+
+.table-reference-node {
+  display: block;
+  width: 100%;
+  margin: 0 0 0.5rem;
+}
+
+.table-reference-node__surface {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--document-bg);
+}
+
+.multidimensional-table__view-nav-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.multidimensional-table__view-nav:hover .multidimensional-table__view-nav-actions,
+.multidimensional-table__view-nav:focus-within .multidimensional-table__view-nav-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.multidimensional-table__view-nav-actions:has(button[aria-label="管理数据集"][data-state="open"]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .multidimensional-table__view-nav .multidimensional-table__view-nav-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.table-reference-node__remove {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.table-reference-node__remove:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.table-reference-picker.slash-menu-dropdown {
+  width: 272px;
+  min-height: 0;
+  max-height: min(320px, calc(100vh - 16px));
+}
+
+.agent-thread-card__featured-notes-view-picker {
+  position: fixed;
+  z-index: 2147483647;
+  display: flex;
+  width: 272px;
+  max-width: calc(100vw - 16px);
+  max-height: min(320px, calc(100vh - 16px));
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.25rem;
+  border: 1px solid var(--border-popup);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
+}
+
+.agent-thread-card__featured-notes-view-picker[hidden] {
+  display: none;
+}
+
+.agent-thread-card__featured-notes-view-heading {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.3125rem 0.1875rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.agent-thread-card__featured-notes-view-list {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  margin-right: -0.25rem;
+}
+
+.agent-thread-card__featured-notes-view-items {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.agent-thread-card__featured-notes-view-status {
+  padding: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.agent-thread-card__featured-notes-view-option {
+  display: flex;
+  width: 100%;
+  height: 2rem;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-thread-card__featured-notes-view-option:hover,
+.agent-thread-card__featured-notes-view-option:focus-visible,
+.agent-thread-card__featured-notes-view-option[aria-selected="true"] {
+  outline: none;
+  background: var(--hover-bg);
+  color: var(--foreground);
+}
+
+.agent-thread-card__featured-notes-view-option-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+
+.agent-thread-card__featured-notes-view-option-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  line-height: 1.15rem;
+}
+
+.agent-thread-card__featured-notes-view-option-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-card__featured-notes-view-option-title {
+  font-size: 0.875rem;
+}
+
+.agent-thread-card__featured-notes-view-create-row {
+  display: block;
+  padding: 0.375rem 0 0.125rem;
+}
+
+.agent-thread-card__featured-notes-view-create {
+  display: flex;
+  width: 100%;
+  min-height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.agent-thread-card__featured-notes-view-create:hover,
+.agent-thread-card__featured-notes-view-create:focus-visible {
+  outline: none;
+  background: var(--hover-bg);
+  color: var(--foreground);
+}
+
+.table-reference-picker .slash-menu-item {
+  height: auto;
+  min-height: 2.75rem;
+  align-items: center;
+  padding-block: 0.375rem;
+}
+
+.table-reference-picker .slash-menu-item.table-reference-picker__view-action {
+  height: 2rem;
+  min-height: 2rem;
+  padding-block: 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.table-reference-picker .slash-menu-item-label {
+  line-height: 1.15rem;
+}
+
+.table-reference-picker.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:hover,
+.table-reference-picker.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:focus-visible {
+  background: var(--hover-bg);
+  color: var(--foreground);
+  outline: none;
+}
+
+.table-reference-node__content {
+  height: auto;
+  min-width: 0;
+  overflow: visible;
+  background: var(--document-bg);
+}
+
+.table-reference-node__content > div {
+  height: auto;
+  min-height: 0;
+}
+
+.table-reference-node__content > div > div {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+}
+
+.table-reference-node__content .overlay-scrollbar-frame {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: auto;
+}
+
+.table-reference-node__content .overlay-scrollbar {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: auto;
+}
+
+/* The shared scrollbar stylesheet loads later and defaults to vertical containment.
+   Embedded tables only scroll horizontally; let vertical wheel input reach the editor. */
+html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .overlay-scrollbar {
+  overscroll-behavior-y: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.table-reference-node__content .overlay-scrollbar > *,
+.table-reference-node__content .multidimensional-table__calendar,
+.table-reference-node__content .multidimensional-table__calendar > :first-child,
+.table-reference-node__content .multidimensional-table__calendar > :first-child > :last-child,
+.table-reference-node__content .multidimensional-table__calendar > :last-child {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.table-reference-node__content nav,
+.table-reference-node__content .multidimensional-table thead {
+  position: static;
+}
+
+.table-reference-node__content nav {
+  padding-inline: 0;
+}
+
+.table-reference-node__content .multidimensional-table__calendar {
+  --multidimensional-table-calendar-day-row-min-height: 150px;
+  margin-inline: 0;
+}
+
+.table-reference-node__content .multidimensional-table__gallery {
+  padding-inline: 0;
+}
+
+.table-reference-node__content .multidimensional-table__gallery-grid {
+  padding-top: 0;
+}
+
+.table-reference-node__content .multidimensional-table__calendar,
+.table-reference-node__content .multidimensional-table__kanban-lanes {
+  padding-top: 0;
+}
+
+.table-reference-node__content .multidimensional-table__kanban-lanes {
+  padding-inline: 0;
+}
+
+.table-reference-node__content .overlay-scrollbar > .min-w-max {
+  padding-inline: 0;
+}
+
+.table-reference-node__message {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-align: center;
+}

@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::config::{AiConfigFile, AiModelConfig, PreferenceFile};
 use crate::connection_probe::TestConnectionResult;
 
+use crate::agent_external::pi::config::{self as pi_model_config, PiProviderConfig};
 use crate::app::state::AppState;
 
 /// 跨窗口同步事�?—任一窗口成功写入偏好 / AI 配置�?emit, 其它窗口
@@ -203,4 +204,42 @@ pub async fn discover_deepseek_harness_models(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     state.deepseek_harness.discover_models(&config).await
+}
+
+#[tauri::command]
+pub fn get_pi_model_configs() -> Result<Vec<PiProviderConfig>, String> {
+    pi_model_config::list()
+}
+
+#[tauri::command]
+pub fn get_pi_model_catalog(
+    app: AppHandle,
+) -> Result<crate::agent_external::pi::config::PiModelCatalog, String> {
+    pi_model_config::catalog(&app)
+}
+
+#[tauri::command]
+pub fn save_pi_model_config(config: PiProviderConfig, app: AppHandle) -> Result<(), String> {
+    pi_model_config::save(config, &app)?;
+    dispatcher::emit_to(&app, USER_CONFIG_CHANGED_EVENT, "pi_config");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_pi_model_config(provider_id: String, app: AppHandle) -> Result<(), String> {
+    pi_model_config::delete(&provider_id)?;
+    dispatcher::emit_to(&app, USER_CONFIG_CHANGED_EVENT, "pi_config");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_pi_model_config(config: PiProviderConfig) -> Result<u64, String> {
+    pi_model_config::test_connection(config).await
+}
+
+#[tauri::command]
+pub async fn discover_pi_models(
+    config: PiProviderConfig,
+) -> Result<Vec<crate::agent_external::pi::config::PiModelEntry>, String> {
+    pi_model_config::discover_models(config).await
 }

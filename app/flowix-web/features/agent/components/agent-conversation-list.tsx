@@ -4,16 +4,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import {
   ArchiveIcon,
   PencilSimpleIcon,
-  PlusIcon,
   SquareSplitHorizontalIcon,
   StarIcon,
   TrashSimpleIcon,
 } from '@phosphor-icons/react';
-import { MoreHorizontal } from 'lucide-react';
+import { MessageCirclePlus, MoreHorizontal } from 'lucide-react';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import type { AgentConversationInstance } from '@features/agent/store/agent-conversation-types';
 import { normalizeBackendInstance } from '@features/agent/store/conversation-slice';
-import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
+import { createAndOpenAgentConversation } from '@features/agent/public/shell-api';
 import { useWorkspaceRestoreStore } from '@features/workspace/store/workspace-restore-store';
 import { selectAndOpenAgentConversation } from '@features/workspace/use-cases/agent-conversation-navigation';
 import { openBrowserColumnAgentConversation } from '@features/workspace/use-cases/browser-column-navigation';
@@ -629,18 +628,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
   const createConversation = useCallback(
     (typeKey: AgentTypeKey) => {
       if (!currentNotebookId) return;
-      const instance = useAgentSessionStore.getState().createInstance({
-        agentType: typeKey,
-        title: '',
-        threadId: null,
-        source: {
-          kind: 'dedicated',
-          notebookId: currentNotebookId,
-          documentPath: null,
-        },
-        runtimeConfig: buildInitialInstanceRuntimeConfig(typeKey),
-      });
-      void selectAndOpenAgentConversation(instance.instanceId);
+      createAndOpenAgentConversation(typeKey, currentNotebookId);
     },
     [currentNotebookId],
   );
@@ -699,11 +687,10 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
                   disabled={!currentNotebookId}
                   aria-label={t('agent.chat.newThread')}
                   title={currentNotebookId ? t('agent.chat.newThread') : t('memo.list.selectNotebook')}
-                  className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-white p-0 text-gray-900 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <PlusIcon
+                  <MessageCirclePlus
                     className="h-4 w-4 transition-[filter] duration-150 group-hover:brightness-105"
-                    weight="bold"
                     aria-hidden="true"
                   />
                 </button>

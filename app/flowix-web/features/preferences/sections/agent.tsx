@@ -108,6 +108,8 @@ interface AgentSectionProps {
   startWithAddModel?: boolean;
   /** Render only the model editor card, without configured model cards. */
   modelFormOnly?: boolean;
+  /** Hide the section divider when embedded in a tab with a shared visual layout. */
+  hideSectionDivider?: boolean;
   /** Expose model form actions so onboarding can place them in its footer. */
   onModelFormActionsReady?: (actions: AgentSectionModelFormActions | null) => void;
 }
@@ -421,6 +423,7 @@ export function AgentSection({
   modelDirectory,
   startWithAddModel = false,
   modelFormOnly = false,
+  hideSectionDivider = false,
   onModelFormActionsReady,
 }: AgentSectionProps) {
 	const { t } = useI18n();
@@ -1625,7 +1628,7 @@ export function AgentSection({
             title={t('preferences.agent.title')}
             className="flex h-8 items-center border-b-0 pb-0"
           />
-          <div className="border-b border-[var(--divider)]" />
+          {!hideSectionDivider && <div className="border-b border-[var(--divider)]" />}
         </>
       )}
 

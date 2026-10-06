@@ -24,7 +24,7 @@ use regex::Regex;
 use std::collections::HashSet;
 
 use super::frontmatter::{
-    extract_body_content, extract_document_metadata_preserving_invalid_tag_paths,
+    extract_body_content, extract_document_metadata_tolerant,
 };
 use super::types::{AgentThreadItem, Memo, TodoItem};
 
@@ -837,7 +837,7 @@ pub fn apply_derived_memo_fields(memo: &mut Memo, full_content: &str) {
     memo.thumbnail = extract_thumbnail(full_content);
     memo.todos = extract_todos_from_body(full_content);
     memo.agents = extract_agent_threads_from_body(full_content);
-    if let Ok(metadata) = extract_document_metadata_preserving_invalid_tag_paths(full_content) {
+    if let Ok(metadata) = extract_document_metadata_tolerant(full_content) {
         let mut seen = HashSet::new();
         let yaml_tags = metadata
             .tags

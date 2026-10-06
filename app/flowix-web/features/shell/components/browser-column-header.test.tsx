@@ -34,6 +34,7 @@ it('moves actual focus across successive arrow presses and Home/End, and shows t
       onCloseTab={vi.fn()} onCloseOtherTabs={vi.fn()} onCloseTabsToRight={vi.fn()}
       onCloseAllTabs={vi.fn()} onToggleMemoEditorMode={vi.fn()} onOpenTabInWorkColumn={vi.fn()} onReorderTab={vi.fn()}
       isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onContextMenuOpenChange={vi.fn()}
+      canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()}
       isFocused={false} />;
   }
   try {
@@ -94,6 +95,7 @@ async function withHeader(
       onCloseTab={vi.fn()} onCloseOtherTabs={vi.fn()} onCloseTabsToRight={vi.fn()}
       onCloseAllTabs={vi.fn()} onToggleMemoEditorMode={options.onToggleMemoEditorMode ?? vi.fn()} onOpenTabInWorkColumn={vi.fn()} onReorderTab={vi.fn()}
       isTabMenuOpen={false} onTabMenuOpenChange={vi.fn()} onCloseColumn={options.onCloseColumn} onContextMenuOpenChange={vi.fn()}
+      canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()}
       isFocused={false} />));
     await check(Array.from(element.querySelectorAll<HTMLButtonElement>('[role="tab"]')), outside);
   } finally {
@@ -145,6 +147,9 @@ it('uses the Agent surface titlebar skin for an active Agent conversation', asyn
         isTabMenuOpen={false}
         onTabMenuOpenChange={vi.fn()}
         onContextMenuOpenChange={vi.fn()}
+        canCreate={false}
+        onCreateNote={vi.fn()}
+        onCreateAgentConversation={vi.fn()}
         isFocused={false}
       />,
     ));

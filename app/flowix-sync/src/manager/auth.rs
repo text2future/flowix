@@ -59,6 +59,27 @@ impl SyncManager {
         .await
     }
 
+    pub async fn sign_in_with_google_desktop(
+        &self,
+        code: &str,
+        state: &str,
+        code_verifier: &str,
+    ) -> Result<AuthOutcome, SyncError> {
+        let generation = self.begin_auth_attempt();
+        let auth = self.client.google_desktop_exchange(code, state, code_verifier).await?;
+        let runtime: RuntimeSession = auth.session.into();
+        let me = self.client.me(&runtime.access_token).await?;
+        self.accept_auth(
+            generation,
+            V2CloudAccount {
+                user: me.user,
+                protocol_epoch: crate::v2::PROTOCOL_EPOCH,
+            },
+            runtime,
+        )
+        .await
+    }
+
     pub async fn link_apple(
         &self,
         authorization: &AppleAuthorization,
@@ -155,17 +176,25 @@ impl SyncManager {
         &self,
         cleanup: impl FnOnce() -> Result<(), SyncError>,
     ) -> Result<(), SyncError> {
-        let token = self.clear_auth_with_cleanup(cleanup)?;
-        if let Some(token) = token {
-            let _ = self.client.logout(&token).await;
+        let (refresh_token, local_cleanup) = self.clear_auth_with_cleanup(cleanup);
+        let remote_logout = if let Some(refresh_token) = refresh_token {
+            self.client.logout_with_refresh_token(&refresh_token).await
+        } else {
+            Ok(())
+        };
+        if let Err(error) = local_cleanup {
+            if let Err(remote_error) = remote_logout {
+                tracing::warn!("failed to revoke Flowix Cloud session during local logout: {remote_error}");
+            }
+            return Err(error);
         }
-        Ok(())
+        remote_logout
     }
 
     fn clear_auth_with_cleanup(
         &self,
         cleanup: impl FnOnce() -> Result<(), SyncError>,
-    ) -> Result<Option<String>, SyncError> {
+    ) -> (Option<String>, Result<(), SyncError>) {
         let mut generation = self
             .auth_generation
             .lock()
@@ -176,16 +205,14 @@ impl SyncManager {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take()
-            .map(|session| session.access_token);
+            .map(|session| session.refresh_token);
         *self
             .membership
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         let account_result = self.store.clear_v2_account();
         let cleanup_result = cleanup();
-        account_result?;
-        cleanup_result?;
-        Ok(token)
+        (token, account_result.and(cleanup_result))
     }
 
     fn begin_auth_attempt(&self) -> u64 {
@@ -457,11 +484,8 @@ mod tests {
         let generation = manager.begin_auth_attempt();
         *manager.session.write().unwrap() = Some(runtime("first"));
         assert_eq!(
-            manager
-                .clear_auth_with_cleanup(|| Ok(()))
-                .unwrap()
-                .as_deref(),
-            Some("access-first")
+            manager.clear_auth_with_cleanup(|| Ok(())).0.as_deref(),
+            Some("first")
         );
         assert!(manager
             .install_refreshed_session(generation, "first", runtime("late"))
@@ -503,11 +527,10 @@ mod tests {
         )
         .unwrap();
         *manager.session.write().unwrap() = Some(runtime("current"));
-        assert!(manager
-            .clear_auth_with_cleanup(|| Err(SyncError::InvalidState(
-                "secret store unavailable".into()
-            )))
-            .is_err());
+        let (_, cleanup) = manager.clear_auth_with_cleanup(|| {
+            Err(SyncError::InvalidState("secret store unavailable".into()))
+        });
+        assert!(cleanup.is_err());
         manager.with_current_refresh_token(|token| assert!(token.is_none()));
         assert!(!manager.state().unwrap().authenticated);
     }

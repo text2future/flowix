@@ -3,6 +3,7 @@ use crate::agent_external::codex::CodexAppServerManager;
 use crate::agent_external::deepseek_harness::DeepSeekHarnessManager;
 use crate::agent_external::hermes::HermesAcpManager;
 use crate::agent_external::opencode::OpenCodeAcpManager;
+use crate::agent_external::pi::PiRpcManager;
 use crate::agent_external::runtime_registry::ExternalRuntimeRegistry;
 use crate::agent_external_config::AgentExternalConfig;
 use crate::agent_session::ThreadManager;
@@ -185,6 +186,7 @@ pub fn run() {
     let claude_cli_manager = Arc::new(ClaudeCliManager::new(thread_manager_arc.clone()));
     let hermes_cli_manager = Arc::new(HermesAcpManager::new(thread_manager_arc.clone()));
     let opencode_acp_manager = Arc::new(OpenCodeAcpManager::new(thread_manager_arc.clone()));
+    let pi_rpc_manager = Arc::new(PiRpcManager::new(thread_manager_arc.clone()));
     let deepseek_harness_manager = Arc::new(DeepSeekHarnessManager::new(
         thread_manager_arc.clone(),
         user_config.clone(),
@@ -195,6 +197,7 @@ pub fn run() {
         claude_cli_manager,
         hermes_cli_manager.clone(),
         opencode_acp_manager.clone(),
+        pi_rpc_manager.clone(),
         deepseek_harness_manager.clone(),
     ));
     let agent_history = Arc::new(crate::agent_history::AgentHistoryService::new(
@@ -208,6 +211,7 @@ pub fn run() {
         codex_app_server.clone(),
         opencode_acp_manager.clone(),
         hermes_cli_manager.clone(),
+        pi_rpc_manager.clone(),
         deepseek_harness_manager.clone(),
     ));
 
@@ -288,6 +292,7 @@ pub fn run() {
                 external_runtimes: external_runtimes.clone(),
                 codex_app_server: codex_app_server.clone(),
                 opencode: opencode_acp_manager.clone(),
+                pi: pi_rpc_manager.clone(),
                 deepseek_harness: deepseek_harness_manager.clone(),
                 agent_history: agent_history.clone(),
                 agent_lifecycle: agent_lifecycle.clone(),
@@ -442,6 +447,12 @@ pub fn run() {
             commands::settings::deepseek_harness_plugin_catalog,
             commands::settings::set_deepseek_harness_plugin_enabled,
             commands::settings::discover_deepseek_harness_models,
+            commands::settings::get_pi_model_configs,
+            commands::settings::get_pi_model_catalog,
+            commands::settings::save_pi_model_config,
+            commands::settings::delete_pi_model_config,
+            commands::settings::test_pi_model_config,
+            commands::settings::discover_pi_models,
             commands::dsh::dsh_status,
             commands::dsh::dsh_check_update,
             commands::dsh::dsh_archive_size,
@@ -469,11 +480,12 @@ pub fn run() {
             commands::cloud::cloud_register,
             commands::cloud::cloud_login,
             commands::cloud::cloud_sign_in_with_apple,
+            commands::cloud::cloud_start_google_sign_in,
             commands::cloud::cloud_link_apple,
             commands::cloud::cloud_logout,
-            commands::cloud::cloud_set_enabled,
             commands::cloud::cloud_get_notebook_state,
             commands::cloud::cloud_list_notebook_states,
+            commands::cloud::cloud_list_pending_file_operation_counts,
             commands::cloud::cloud_list_notebooks,
             commands::cloud::cloud_link_notebook,
             commands::cloud::cloud_set_notebook_enabled,
@@ -482,6 +494,8 @@ pub fn run() {
             commands::cloud::cloud_create_checkout,
             commands::cloud::cloud_sync_now,
             commands::cloud::cloud_note_history,
+            commands::cloud::list_local_path_archives,
+            commands::cloud::restore_local_path_version,
             commands::cloud::cloud_preview_note_revision,
             commands::cloud::cloud_list_conflicts,
             commands::cloud::cloud_resolve_markdown_conflict,
@@ -510,10 +524,12 @@ pub fn run() {
             // 解析�? `commands::memo::xxx` 顶层�?��不传�?macro re-export.
             commands::memo::reads::get_memos,
             commands::memo::reads::list_notes_by_path,
+            commands::memo::reads::get_indexed_note_by_path,
             commands::memo::reads::get_path_notes,
             commands::memo::reads::resolve_markdown_location,
             commands::memo::reads::search_mention_notes,
             commands::media::get_media_resource,
+            commands::media::list_media_resources_page,
             commands::media::update_media_resource,
             commands::media::delete_media_resource,
             commands::memo::reads::get_used_memo_tag_ids,
@@ -586,6 +602,11 @@ pub fn run() {
             commands::file::get_file_tree,
             commands::file::get_dir_children,
             commands::document_list::list_document_page,
+            commands::document_list::list_table_documents,
+            commands::document_list::set_table_document_in_views,
+            commands::document_list::list_media_libraries,
+            commands::document_list::set_media_library_in_views,
+            commands::document_list::make_view_document_identity_unique,
             commands::file::get_notebook_view_preferences,
             commands::file::get_file_management_candidates,
             commands::file::get_notebook_folder_options,
@@ -593,6 +614,10 @@ pub fn run() {
             commands::file::set_notebook_view_preferences,
             commands::file::read_file,
             commands::file::read_image_file,
+            commands::file::read_image_preview,
+            commands::file::read_video_preview,
+            commands::file::get_media_thumbnail,
+            commands::file::cancel_media_thumbnail,
             commands::file::write_file,
             commands::file::rename_file,
             commands::file::move_file,
@@ -665,6 +690,9 @@ pub fn run() {
             commands::thread::agent_conversation_delete,
             commands::thread::agent_conversation_delete_for_thread,
             commands::thread::local_agent_thread_list,
+            commands::thread::pi_thread_list,
+            commands::thread::pi_thread_get_messages,
+            commands::thread::pi_thread_session_id,
             commands::thread::codex_thread_list,
             commands::thread::codex_thread_get,
             commands::thread::codex_thread_get_page,
@@ -878,7 +906,9 @@ fn run_startup_reconciliation(
     for notebook in initial_notebooks {
         let root = Path::new(&notebook.path);
         if root.is_dir() {
-            if let Err(error) = crate::commands::file::migrate_legacy_watcher_rules(root, &legacy_watcher) {
+            if let Err(error) =
+                crate::commands::file::migrate_legacy_watcher_rules(root, &legacy_watcher)
+            {
                 tracing::warn!(notebook = %notebook.id, %error, "legacy watcher rule migration deferred");
             }
         }
@@ -975,18 +1005,31 @@ fn reconcile_startup_notebook(
     let started = Instant::now();
     let memo_file = crate::lock_utils::read_lock(memo_file, "memo_file");
     match memo_file.migrate_note_properties_for_notebook(&notebook.id) {
-        Ok(report) if report.notes_written > 0 => tracing::info!(notebook = %notebook.id, notes = report.notes_written, "[startup] note properties migrated"),
-        Err(error) => tracing::warn!(notebook = %notebook.id, %error, "[startup] note property migration will retry"),
+        Ok(report) if report.notes_written > 0 => {
+            tracing::info!(notebook = %notebook.id, notes = report.notes_written, "[startup] note properties migrated")
+        }
+        Err(error) => {
+            tracing::warn!(notebook = %notebook.id, %error, "[startup] note property migration will retry")
+        }
         _ => {}
     }
     match memo_file.migrate_note_todo_metadata_for_notebook(&notebook.id) {
-        Ok(report) if report.notes_written > 0 => tracing::info!(notebook = %notebook.id, notes = report.notes_written, "[startup] task metadata migrated"),
-        Err(error) => tracing::warn!(notebook = %notebook.id, %error, "[startup] task migration will retry"),
+        Ok(report) if report.notes_written > 0 => {
+            tracing::info!(notebook = %notebook.id, notes = report.notes_written, "[startup] task metadata migrated")
+        }
+        Err(error) => {
+            tracing::warn!(notebook = %notebook.id, %error, "[startup] task migration will retry")
+        }
         _ => {}
     }
     let report = memo_file
         .reconcile_note_index(&notebook.id)
-        .map_err(|error| format!("notebook {} path reconciliation failed: {error}", notebook.id))?;
+        .map_err(|error| {
+            format!(
+                "notebook {} path reconciliation failed: {error}",
+                notebook.id
+            )
+        })?;
     tracing::info!(
         notebook = %notebook.id,
         added = report.added,
@@ -1053,6 +1096,98 @@ fn maintain_startup_versions(
     record_slow_notebook_stage(&notebook.id, "version-maintenance", started.elapsed());
 }
 
+async fn restore_cloud_session_until_ready(
+    app: tauri::AppHandle,
+    cloud_sync: Arc<flowix_sync::SyncManager>,
+    user_config: Arc<user_config::UserConfigStore>,
+    refresh_token: String,
+    restore_generation: u64,
+) {
+    let mut retry_delay = Duration::from_secs(2);
+    loop {
+        // An explicit login or logout supersedes startup restoration. Keeping
+        // this generation fixed prevents a delayed retry from winning a race
+        // against a user-initiated authentication attempt.
+        if cloud_sync.session_restore_generation() != restore_generation {
+            break;
+        }
+        if cloud_sync.state().is_ok_and(|state| state.authenticated) {
+            break;
+        }
+        match user_config.load_cloud_refresh_token() {
+            Ok(Some(stored)) if stored == refresh_token => {}
+            Ok(_) => break,
+            Err(error) => {
+                tracing::warn!("failed to read Flowix Cloud refresh token during restore: {error}");
+                tokio::time::sleep(retry_delay).await;
+                retry_delay = (retry_delay * 2).min(Duration::from_secs(60));
+                continue;
+            }
+        }
+
+        match cloud_sync
+            .restore_at_generation(&refresh_token, restore_generation)
+            .await
+        {
+            Ok(_) => {
+                if let Err(error) = cloud_sync.with_current_refresh_token(|token| match token {
+                    Some(token) => user_config.save_cloud_refresh_token(token),
+                    None => Ok(()),
+                }) {
+                    tracing::warn!("failed to persist rotated cloud refresh token: {error}");
+                }
+                break;
+            }
+            Err(error) if error.is_invalid_refresh_token() => {
+                tracing::warn!("stored Flowix Cloud refresh token is invalid or expired");
+                cloud_sync.with_current_refresh_token(|current| {
+                    if current.is_none()
+                        && user_config
+                            .load_cloud_refresh_token()
+                            .ok()
+                            .flatten()
+                            .as_deref()
+                            == Some(refresh_token.as_str())
+                    {
+                        let _ = user_config.delete_cloud_refresh_token();
+                    }
+                });
+                break;
+            }
+            Err(error) if cloud_restore_error_is_retryable(&error) => {
+                tracing::warn!("failed to restore Flowix Cloud session; retrying: {error}");
+                if let Ok(state) = cloud_sync.state() {
+                    let _ = app.emit("cloud-state-changed", state);
+                }
+                if cloud_sync.session_restore_generation() != restore_generation {
+                    break;
+                }
+                tokio::time::sleep(retry_delay).await;
+                retry_delay = (retry_delay * 2).min(Duration::from_secs(60));
+            }
+            Err(error) => {
+                tracing::warn!("Flowix Cloud session restore cannot be retried: {error}");
+                break;
+            }
+        }
+    }
+
+    if let Ok(state) = cloud_sync.state() {
+        let _ = app.emit("cloud-state-changed", state);
+    }
+}
+
+fn cloud_restore_error_is_retryable(error: &flowix_sync::SyncError) -> bool {
+    matches!(
+        error,
+        flowix_sync::SyncError::Http(_)
+            | flowix_sync::SyncError::Api {
+                status: 408 | 429 | 500..=599,
+                ..
+            }
+    )
+}
+
 fn start_post_startup_services(
     app: tauri::AppHandle,
     cloud_sync: Arc<flowix_sync::SyncManager>,
@@ -1066,39 +1201,14 @@ fn start_post_startup_services(
         let app_handle = app.clone();
         let restore_generation = cloud_sync.session_restore_generation();
         tauri::async_runtime::spawn(async move {
-            match cloud_sync
-                .restore_at_generation(&refresh_token, restore_generation)
-                .await
-            {
-                Ok(_) => {
-                    if let Err(error) = cloud_sync.with_current_refresh_token(|token| match token {
-                        Some(token) => user_config.save_cloud_refresh_token(token),
-                        None => Ok(()),
-                    }) {
-                        tracing::warn!("failed to persist rotated cloud refresh token: {error}");
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!("failed to restore Flowix Cloud session: {error}");
-                    if error.is_invalid_refresh_token() {
-                        cloud_sync.with_current_refresh_token(|current| {
-                            if current.is_none()
-                                && user_config
-                                    .load_cloud_refresh_token()
-                                    .ok()
-                                    .flatten()
-                                    .as_deref()
-                                    == Some(refresh_token.as_str())
-                            {
-                                let _ = user_config.delete_cloud_refresh_token();
-                            }
-                        });
-                    }
-                }
-            }
-            if let Ok(state) = cloud_sync.state() {
-                let _ = app_handle.emit("cloud-state-changed", state);
-            }
+            restore_cloud_session_until_ready(
+                app_handle,
+                cloud_sync,
+                user_config,
+                refresh_token,
+                restore_generation,
+            )
+            .await;
         });
     }
 }
@@ -1146,7 +1256,43 @@ fn register_deep_links(app: &mut tauri::App) {
                 return;
             }
             for url in urls {
-                emit_open_target_if_resolved(&app, &url);
+                let Ok(url) = url::Url::parse(&url) else {
+                    continue;
+                };
+                if url.scheme() == "flowix"
+                    && url.host_str() == Some("auth")
+                    && url.path() == "/google/callback"
+                {
+                    let mut code = None;
+                    let mut oauth_state = None;
+                    let mut auth_error = None;
+                    for (key, value) in url.query_pairs() {
+                        match key.as_ref() {
+                            "code" => code = Some(value.into_owned()),
+                            "state" => oauth_state = Some(value.into_owned()),
+                            "error" => auth_error = Some(value.into_owned()),
+                            _ => {}
+                        }
+                    }
+                    if let Some(error) = auth_error {
+                        let _ = app.emit("cloud-google-auth-error", error);
+                    } else if let (Some(code), Some(oauth_state)) = (code, oauth_state) {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(error) = commands::cloud::complete_google_deep_link(
+                                app.clone(),
+                                code,
+                                oauth_state,
+                            )
+                            .await
+                            {
+                                let _ = app.emit("cloud-google-auth-error", error);
+                            }
+                        });
+                    }
+                } else {
+                    emit_open_target_if_resolved(&app, url.as_str());
+                }
             }
         });
     });
@@ -1310,19 +1456,16 @@ fn checkpoint_thread_database(app: &tauri::AppHandle, phase: &str) {
 
 /// 退出路径上等待 5 个 CLI manager `stop_all` 的总时长上界。
 ///
-/// `stop_all` -> `kill_child_tree` 在 Unix 同步发 SIGTERM/SIGKILL、在 Windows 跑
-/// `taskkill /T /F`, 正常 ms 级完成; 若某子进程句柄 `child.kill().await` 卡住,
-/// 无上界会让 `block_on` 永不返回 ── 表现为 app 退不掉。超时即放行退出: kill 信号
-/// 已在超时前并发送出, 句柄是否回收不影响子进程已被杀。
+/// 超时会取消尚未完成的清理，因此只能承诺尽力停止；运行时本身持有
+/// `kill_on_drop` 的子进程句柄，但进程树清理仍需 manager 完成显式终止。
 const EXTERNAL_AGENT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn stop_external_agent_children(app: &tauri::AppHandle, phase: &str) {
     let state = app.state::<AppState>();
     tauri::async_runtime::block_on(async {
-        // ExternalRuntimeRegistry 并发停止所有 manager，既缩短
-        // 正常退出耗时, 也保证即便某个 `child.kill().await` 卡住, 其余 manager 的
-        // kill 信号仍及时送出。超时后整个 join future 被 drop ── 取消未完成的
-        // `stop_all`, 但 SIGTERM/SIGKILL 已在 `kill_child_tree` 内同步发出。
+        // ExternalRuntimeRegistry 并发停止所有 manager。Pi manager 也并发清理
+        // 各会话，避免多个 500ms graceful-exit 等待串行累加。若总超时触发，
+        // 尚未完成的清理会被取消，日志需如实说明为尽力清理。
         let stopped = tokio::time::timeout(
             EXTERNAL_AGENT_SHUTDOWN_TIMEOUT,
             state.external_runtimes.stop_all(),
@@ -1343,7 +1486,7 @@ fn stop_external_agent_children(app: &tauri::AppHandle, phase: &str) {
             }
             Err(_) => {
                 tracing::warn!(
-                    "external agent shutdown on {phase} exceeded {EXTERNAL_AGENT_SHUTDOWN_TIMEOUT:?}; kill signals already dispatched, proceeding with exit"
+                    "external agent shutdown on {phase} exceeded {EXTERNAL_AGENT_SHUTDOWN_TIMEOUT:?}; cleanup may be incomplete, proceeding with exit"
                 );
             }
         }

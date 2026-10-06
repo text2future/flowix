@@ -10,6 +10,12 @@ pub enum FileWriteOutcome {
     Conflict { disk_content: String },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum MergedFileWriteOutcome {
+    Saved { content: String, merged: bool },
+    Conflict { disk_content: String },
+}
+
 pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> io::Result<()> {
     let path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let parent = path
@@ -131,6 +137,38 @@ impl MemoFile {
         }
         atomic_write_bytes(path, content.as_bytes())?;
         Ok(FileWriteOutcome::Saved)
+    }
+
+    /// Merge a Markdown edit against a concurrent disk edit while holding the
+    /// same cross-process lock used by ordinary conditional writes.
+    pub fn write_markdown_merging(
+        &self,
+        path: &Path,
+        content: &str,
+        expected: Option<&str>,
+    ) -> io::Result<MergedFileWriteOutcome> {
+        let _guard = self.acquire_cross_process_write_lock()?;
+        let disk_content = fs::read_to_string(path)?;
+        let (content, merged) = match expected {
+            Some(base) if base != disk_content => {
+                match crate::text_merge::merge_markdown(
+                    base.as_bytes(),
+                    content.as_bytes(),
+                    disk_content.as_bytes(),
+                ) {
+                    crate::text_merge::MergeOutcome::Merged(bytes) => {
+                        (String::from_utf8(bytes).map_err(io::Error::other)?, true)
+                    }
+                    crate::text_merge::MergeOutcome::Conflict
+                    | crate::text_merge::MergeOutcome::Unsupported => {
+                        return Ok(MergedFileWriteOutcome::Conflict { disk_content });
+                    }
+                }
+            }
+            _ => (content.to_owned(), false),
+        };
+        atomic_write_bytes(path, content.as_bytes())?;
+        Ok(MergedFileWriteOutcome::Saved { content, merged })
     }
 }
 

@@ -38,6 +38,8 @@ function documentHeaderPresentation(
       return { externalFilePath: surface.fileIdentity.path };
     case 'image-file':
     case 'video-file':
+    case 'table-file':
+    case 'media-library-file':
     case 'unavailable-file':
       return { externalFilePath: surface.fileIdentity.path };
     default:

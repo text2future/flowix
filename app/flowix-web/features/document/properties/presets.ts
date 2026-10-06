@@ -1,18 +1,17 @@
 /**
  * Note property preset catalog.
  *
- * Single source of truth for the guided property input in
- * `note-properties-dialog.tsx`. The catalog is render-time only — preset
- * metadata (category, icon, mapped label) is never written to the YAML
- * frontmatter. The storage layer (`properties: Value` in Rust, opaque
- * `Record<string, unknown>` in TypeScript) is unchanged.
+ * Preset-specific metadata for the guided property input in
+ * `note-properties-dialog.tsx`. Shared property type metadata lives in
+ * `lib/property-types.ts`. This catalog is render-time only — preset metadata
+ * (category, icon, mapped label) is never written to YAML frontmatter.
  *
  * Adding a built-in preset:
  *  1. Append an entry to `BUILTIN_PRESETS`.
  *  2. Add its label / hint / option i18n keys to `locales.ts` (both
  *     `zh-CN` and `en-US`).
- *  3. If the preset's kind needs a new value, extend `PropertyKind`
- *     and the dialog's value-column switch.
+ *  3. Add or change property kinds in `lib/property-types.ts`, then update
+ *     the dialog's value-column editor when a kind needs new value behavior.
  */
 
 import type { Icon } from '@phosphor-icons/react';
@@ -26,44 +25,11 @@ import {
 } from '@phosphor-icons/react';
 import type { I18nKey } from '@/lib/i18n';
 import type { PropertyFieldConfig } from '@/lib/constants';
+import { CUSTOM_PROPERTY_KINDS, PROPERTY_KINDS, type PresetPropertyKind, type PropertyKind } from '@/lib/property-types';
 import { canonicalizePropertyKey } from './property-key';
 
-/** UI-side data types. PascalCase to match the existing `PROPERTY_TYPES` array. */
-export type PropertyKind =
-  | 'Text'
-  | 'Boolean'
-  | 'Number'
-  | 'Date'
-  | 'URL'
-  | 'Icon'
-  | 'Select'
-  | 'MultiSelect'
-  | 'Tag'
-  | 'Tags'
-  | 'Color';
-
-/** Types available to configured/preset properties. */
-export const PROPERTY_KINDS: readonly PropertyKind[] = [
-  'Text',
-  'Boolean',
-  'Number',
-  'Date',
-  'Select',
-  'MultiSelect',
-  'Tag',
-  'Tags',
-  'Color',
-  'Icon',
-];
-
-/** Types available to unconfigured custom fields. */
-export const CUSTOM_PROPERTY_KINDS: readonly PropertyKind[] = [
-  'Text',
-  'Boolean',
-  'Number',
-  'Date',
-  'Tag',
-];
+export { CUSTOM_PROPERTY_KINDS, PROPERTY_KINDS };
+export type { PropertyKind };
 
 /**
  * Categories that drive the picker grouping. Values are camelCase to align
@@ -92,7 +58,7 @@ export interface PropertyPreset {
   /** Resolved display name. Built-ins resolve this from i18n at runtime. */
   label: string;
   /** Semantic kind used by preset-bound rows; row editors keep preset kinds locked. */
-  kind: PropertyKind;
+  kind: PresetPropertyKind;
   /** Option values for `Select` / `MultiSelect`. */
   options?: readonly string[];
   /** Optional description / hint (i18n key). */
@@ -106,7 +72,7 @@ interface BuiltinPropertyPreset {
   category: Exclude<PropertyCategory, 'custom'>;
   key: string;
   labelKey: I18nKey;
-  kind: PropertyKind;
+  kind: PresetPropertyKind;
   options?: readonly string[];
   icon: Icon;
 }
@@ -192,7 +158,7 @@ export function getCustomPresets(fields: readonly PropertyFieldConfig[]): Proper
       source: 'custom' as const,
       category: 'custom' as const,
       key,
-      label: field.name,
+      label: key,
       kind: field.type,
       options: field.type === 'Select' || field.type === 'MultiSelect'
         ? field.options
@@ -227,4 +193,21 @@ export function resolvePropertyPreset(
   return getCustomPresets(fields).find(
     (preset) => comparablePresetKey(preset.key) === comparablePresetKey(trimmed),
   ) ?? null;
+}
+
+/** Resolve the display label while keeping the YAML key canonical. */
+export function resolvePropertyDisplayName(
+  key: string,
+  fields: readonly PropertyFieldConfig[] = [],
+  labelResolver?: (key: I18nKey) => string,
+): string {
+  const trimmed = key.trim();
+  if (!trimmed) return key;
+  if (canonicalizePropertyKey(trimmed).toLowerCase() === 'flowix_plugin') {
+    return labelResolver?.('document.properties.commonKey.plugin') ?? 'document.properties.commonKey.plugin';
+  }
+  if (canonicalizePropertyKey(trimmed).toLowerCase() === 'note') {
+    return labelResolver?.('document.properties.type.note') ?? 'document.properties.type.note';
+  }
+  return resolvePropertyPreset(trimmed, fields, labelResolver)?.label ?? trimmed;
 }

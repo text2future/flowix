@@ -15,6 +15,7 @@ import {
 } from '@features/workspace/store/browser-column-store';
 import { documentIdentityFromFile } from '@features/document/public/workspace-api';
 import {
+  ensureFileDisplayIdentity,
   suspendFileDisplayReconciliation,
 } from '@/lib/file-display-registry';
 import {
@@ -47,6 +48,7 @@ export interface OpenExternalTargetOptions {
   destination?: 'main-third';
   history?: 'push' | 'skip';
   scopePath?: string | null;
+  notebookId?: string | null;
   markdownLocation?: MarkdownLocation | null;
   initialFocus?: 'title' | 'body';
 }
@@ -157,6 +159,10 @@ function commitNavigation(
     }
     const desiredTarget: PersistedWorkspaceTarget | null = target.kind === 'document-list'
       ? target
+      : target.kind === 'table'
+        ? { kind: 'table', filePath: canonicalPath(target.filePath), notebookPath: target.notebookPath ? canonicalPath(target.notebookPath) : null, notebookId: target.notebookId }
+      : target.kind === 'media-library'
+        ? { kind: 'external', path: canonicalPath(target.filePath), scopePath: target.notebookPath }
       : target.kind === 'external' && target.path
         ? { kind: 'external', path: canonicalPath(target.path), scopePath: target.scopePath }
         : target.kind === 'media'
@@ -196,6 +202,71 @@ export async function restoreExternalDocumentWorkspace(
     history: 'skip',
     destination: 'main-third',
   });
+}
+
+export function restoreTableWorkspace(
+  restored: Extract<PersistedWorkspaceTarget, { kind: 'table' }>,
+): Promise<void> {
+  return openTableTarget(restored.filePath, restored.notebookPath, restored.notebookId, { history: 'skip' });
+}
+
+export async function openTableTarget(
+  filePath: string,
+  notebookPath: string | null,
+  notebookId: string | null,
+  options?: { history?: 'push' | 'skip'; destination?: 'main-third' },
+): Promise<void> {
+  const normalizedPath = canonicalPath(filePath);
+  const normalizedNotebookPath = notebookPath ? canonicalPath(notebookPath) : null;
+  const workspaceMemo = getWorkspaceMemoState();
+  const resolvedNotebookId = notebookId
+    ?? workspaceMemo.notebooks.find((notebook) => normalizedNotebookPath && canonicalPath(notebook.path) === normalizedNotebookPath)?.id
+    ?? (workspaceMemo.selectedNotebook?.path && normalizedNotebookPath
+      && canonicalPath(workspaceMemo.selectedNotebook.path) === normalizedNotebookPath
+      ? workspaceMemo.selectedNotebook.id
+      : null);
+  ensureFileDisplayIdentity(normalizedPath);
+  const target: WorkColumnTarget = { kind: 'table', filePath: normalizedPath, notebookPath: normalizedNotebookPath, notebookId: resolvedNotebookId };
+  const existing = options?.destination === 'main-third'
+    ? null
+    : activateExistingContentForNavigation({ kind: 'external', path: normalizedPath });
+  if (existing instanceof Promise) {
+    if (await existing) return;
+  } else if (existing) return;
+  const requestId = beginNavigation(target, null, false, false);
+  commitNavigation(requestId, target, options?.history ?? 'push');
+}
+
+export async function openMediaLibraryTarget(
+  filePath: string,
+  notebookPath: string | null,
+  notebookId: string | null,
+  options?: { history?: 'push' | 'skip'; destination?: 'main-third' },
+): Promise<void> {
+  const normalizedPath = canonicalPath(filePath);
+  const normalizedNotebookPath = notebookPath ? canonicalPath(notebookPath) : null;
+  const workspaceMemo = getWorkspaceMemoState();
+  const resolvedNotebookId = notebookId
+    ?? workspaceMemo.notebooks.find((notebook) => normalizedNotebookPath && canonicalPath(notebook.path) === normalizedNotebookPath)?.id
+    ?? (workspaceMemo.selectedNotebook?.path && normalizedNotebookPath
+      && canonicalPath(workspaceMemo.selectedNotebook.path) === normalizedNotebookPath
+      ? workspaceMemo.selectedNotebook.id
+      : null);
+  ensureFileDisplayIdentity(normalizedPath);
+  const target: WorkColumnTarget = {
+    kind: 'media-library',
+    filePath: normalizedPath,
+    notebookPath: normalizedNotebookPath,
+    notebookId: resolvedNotebookId,
+  };
+  const existing = options?.destination === 'main-third'
+    ? null
+    : activateExistingContentForNavigation({ kind: 'external', path: normalizedPath });
+  if (existing instanceof Promise) {
+    if (await existing) return;
+  } else if (existing) return;
+  const requestId = beginNavigation(target, null, false, false);
+  commitNavigation(requestId, target, options?.history ?? 'push');
 }
 
 export async function restoreMediaWorkspace(
@@ -302,6 +373,20 @@ export function historyEntryFromWorkColumnTarget(
         openedAt: Date.now(),
       };
     }
+    case 'table':
+      return target.filePath ? {
+        kind: 'external',
+        path: target.filePath,
+        scopePath: target.notebookPath,
+        openedAt: Date.now(),
+      } : null;
+    case 'media-library':
+      return target.filePath ? {
+        kind: 'external',
+        path: target.filePath,
+        scopePath: target.notebookPath,
+        openedAt: Date.now(),
+      } : null;
     case 'media': {
       if (!target.filePath) return null;
       return {
@@ -453,6 +538,28 @@ export async function openExternalTarget(
   path: string | null,
   options?: OpenExternalTargetOptions,
 ): Promise<WorkspaceContentLocation | null> {
+  if (path && /\.lib\.ya?ml$/i.test(path)) {
+    const capturedFileBrowser = options?.fileBrowser ?? captureFileBrowserContext(path, options?.scopePath);
+    const scopePath = options?.scopePath ?? capturedFileBrowser.scopePath;
+    const notebookId = options?.notebookId
+      ?? options?.fileBrowser?.notebookId
+      ?? getWorkspaceMemoState().notebooks.find((notebook) => scopePath && canonicalPath(notebook.path) === canonicalPath(scopePath))?.id
+      ?? capturedFileBrowser.notebookId
+      ?? null;
+    await openMediaLibraryTarget(path, scopePath, notebookId, { history: options?.history, destination: options?.destination });
+    return null;
+  }
+  if (path && /\.table\.ya?ml$/i.test(path)) {
+    const capturedFileBrowser = options?.fileBrowser ?? captureFileBrowserContext(path, options?.scopePath);
+    const scopePath = options?.scopePath ?? capturedFileBrowser.scopePath;
+    const notebookId = options?.notebookId
+      ?? options?.fileBrowser?.notebookId
+      ?? getWorkspaceMemoState().notebooks.find((notebook) => scopePath && canonicalPath(notebook.path) === canonicalPath(scopePath))?.id
+      ?? capturedFileBrowser.notebookId
+      ?? null;
+    await openTableTarget(path, scopePath, notebookId, { history: options?.history, destination: options?.destination });
+    return null;
+  }
   const markdownLocation = path && /\.(md|markdown)$/i.test(path)
     ? options?.markdownLocation ?? await notesClient.resolveLocation(path)
     : null;

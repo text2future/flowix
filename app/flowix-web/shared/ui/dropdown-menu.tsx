@@ -2,6 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
+import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-click";
 
 type DropdownAlign = "start" | "center" | "end";
 type DropdownSide = "top" | "bottom";
@@ -13,8 +14,12 @@ const POSITION_STABILIZE_DELAY_MS = 50;
 // Context for managing dropdown state
 interface DropdownMenuContextValue {
 	open: boolean;
+	disabled: boolean;
 	setOpen: (open: boolean) => void;
 	triggerRef: React.RefObject<HTMLElement | null>;
+	anchorRect: DOMRect | null;
+	setAnchorRect: (rect: DOMRect | null) => void;
+	anchorToCell: boolean;
 }
 
 const DropdownMenuContext = React.createContext<DropdownMenuContextValue | null>(null);
@@ -32,6 +37,8 @@ interface DropdownMenuProps {
 	className?: string;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
+	anchorToCell?: boolean;
+	disabled?: boolean;
 }
 
 interface DropdownTriggerChildProps {
@@ -39,6 +46,8 @@ interface DropdownTriggerChildProps {
 	onClick?: React.MouseEventHandler<HTMLElement>;
 	className?: string;
 	"data-state"?: "open" | "closed";
+	"data-flowix-cell-popup-trigger"?: "true";
+	disabled?: boolean;
 }
 
 interface DropdownMenuContentProps {
@@ -94,22 +103,29 @@ function getMenuPosition({
 	};
 }
 
-function DropdownMenu({ children, className, open: controlledOpen, onOpenChange }: DropdownMenuProps) {
+function DropdownMenu({ children, className, open: controlledOpen, onOpenChange, anchorToCell = false, disabled = false }: DropdownMenuProps) {
 	const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
 	const triggerRef = React.useRef<HTMLElement>(null);
-	const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
+	const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null);
+	const open = disabled ? false : controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
+	React.useEffect(() => {
+		if (!disabled) return;
+		if (controlledOpen === undefined) setUncontrolledOpen(false);
+		else if (controlledOpen) onOpenChange?.(false);
+	}, [controlledOpen, disabled, onOpenChange]);
 	const setOpen = React.useCallback(
 		(newOpen: boolean) => {
+			if (disabled) return;
 			if (controlledOpen === undefined) {
 				setUncontrolledOpen(newOpen);
 			}
 			onOpenChange?.(newOpen);
 		},
-		[controlledOpen, onOpenChange]
+		[controlledOpen, disabled, onOpenChange]
 	);
 
 	return (
-		<DropdownMenuContext.Provider value={{ open, setOpen, triggerRef }}>
+		<DropdownMenuContext.Provider value={{ open, disabled, setOpen, triggerRef, anchorRect, setAnchorRect, anchorToCell }}>
 			<div className={cn("relative", className)}>{children}</div>
 		</DropdownMenuContext.Provider>
 	);
@@ -119,11 +135,18 @@ function DropdownMenuTrigger({
 	children,
 	className,
 	asChild,
+	disabled: triggerDisabled,
 	...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }) {
-	const { open, setOpen, triggerRef } = useDropdownContext();
+	const { open, disabled, setOpen, triggerRef, setAnchorRect, anchorToCell } = useDropdownContext();
+	const isDisabled = disabled || Boolean(triggerDisabled);
 
 	const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+		if (isDisabled) return;
+		if (anchorToCell) {
+			const cell = e.currentTarget.closest("td");
+			setAnchorRect(cell?.getBoundingClientRect() ?? e.currentTarget.getBoundingClientRect());
+		}
 		setOpen(!open);
 		props.onClick?.(e);
 	};
@@ -139,17 +162,21 @@ function DropdownMenuTrigger({
 				else if (childRef && typeof childRef === "object") childRef.current = el;
 			},
 			onClick: handleClick,
+			disabled: isDisabled || Boolean(child.props.disabled),
 			'data-state': open ? 'open' : 'closed',
+			'data-flowix-cell-popup-trigger': anchorToCell ? 'true' : undefined,
 		} as Record<string, unknown>);
 	}
 
 	return (
 		<button
 			ref={triggerRef as React.Ref<HTMLButtonElement>}
+			{...props}
+			disabled={isDisabled}
 			onClick={handleClick}
 			className={cn("cursor-pointer", className)}
 			data-state={open ? "open" : "closed"}
-			{...props}
+			data-flowix-cell-popup-trigger={anchorToCell ? 'true' : undefined}
 		>
 			{children}
 		</button>
@@ -166,7 +193,7 @@ function DropdownMenuContent({
 	onMouseEnter,
 	onMouseLeave,
 }: DropdownMenuContentProps) {
-	const { open, setOpen, triggerRef } = useDropdownContext();
+	const { open, setOpen, triggerRef, anchorRect, anchorToCell } = useDropdownContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
 	const [position, setPosition] = React.useState<MenuPosition>({ top: 0, left: 0 });
 	const [positioned, setPositioned] = React.useState(false);
@@ -186,14 +213,16 @@ function DropdownMenuContent({
 			const menuWidth = menu?.offsetWidth ?? FALLBACK_MENU_SIZE;
 			const menuHeight = menu?.offsetHeight ?? FALLBACK_MENU_SIZE;
 
-			setPosition(getMenuPosition({
-				triggerRect: trigger.getBoundingClientRect(),
+			setPosition(anchorToCell && anchorRect
+				? { top: anchorRect.top, left: anchorRect.left }
+				: getMenuPosition({
+				triggerRect: anchorRect ?? trigger.getBoundingClientRect(),
 				menuWidth,
 				menuHeight,
 				align,
 				side,
 				sideOffset,
-			}));
+				}));
 			setPositioned(true);
 		};
 
@@ -210,7 +239,14 @@ function DropdownMenuContent({
 			window.removeEventListener("scroll", updatePosition, true);
 			window.removeEventListener("resize", updatePosition);
 		};
-	}, [open, triggerRef, side, sideOffset, align]);
+	}, [open, triggerRef, side, sideOffset, align, anchorRect, anchorToCell]);
+
+	React.useEffect(() => {
+		if (!open || !anchorToCell) return;
+		const closeOnTableScroll = () => setOpen(false);
+		window.addEventListener("flowix:multidimensional-table-scroll", closeOnTableScroll);
+		return () => window.removeEventListener("flowix:multidimensional-table-scroll", closeOnTableScroll);
+	}, [open, anchorToCell, setOpen]);
 
 	// Close on click outside
 	// 用 pointerdown + capture 是因为:
@@ -231,12 +267,13 @@ function DropdownMenuContent({
 				return;
 			}
 
+			if (anchorToCell) consumeCellPopupTriggerClick(e);
 			setOpen(false);
 		};
 
 		document.addEventListener("pointerdown", handleClickOutside, true);
 		return () => document.removeEventListener("pointerdown", handleClickOutside, true);
-	}, [open, setOpen, triggerRef]);
+	}, [open, setOpen, triggerRef, anchorToCell]);
 
 	// Close on escape
 	React.useEffect(() => {
@@ -298,7 +335,7 @@ function DropdownMenuItem({
 	children: React.ReactNode;
 	className?: string;
 	disabled?: boolean;
-	onClick?: () => void;
+	onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 	onMouseDown?: (e: React.MouseEvent) => void;
 	onTrailingAction?: () => void;
 	trailingAction?: React.ReactNode;
@@ -311,7 +348,7 @@ function DropdownMenuItem({
 	const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
 		e.stopPropagation();
 		if (disabled) return;
-		onClick?.();
+		onClick?.(e);
 		setOpen(false);
 	};
 

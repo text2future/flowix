@@ -31,7 +31,8 @@ export interface SaveContext {
    * `writtenPath` 是磁盘上最终物理路径 ── rename 后可能跟 caller
    * 传的 path 不同, 前端需要据此切 buf / 更新 closure。
    */
-  onSaved: (writtenPath: string, writtenContent: string, revision: number) => void;
+  onSaved: (writtenPath: string, writtenContent: string, revision: number,
+    submittedContent: string, merged: boolean) => void;
   /** Called on CAS refusal (write returned false). */
   onCasRefused: (writtenContent: string, revision: number) => void;
   /** Called on transport / IPC error. */
@@ -45,16 +46,16 @@ export function scheduleSave(ctx: SaveContext, content: string): Promise<boolean
     if (ctx.isBlocked?.()) return false;
     const snapshot = ctx.latest?.() ?? { content, revision: ctx.revision };
     ctx.onStarted?.(snapshot.revision);
-    const saved = await runOne({ ...ctx, revision: snapshot.revision }, snapshot.content);
+    const savedContent = await runOne({ ...ctx, revision: snapshot.revision }, snapshot.content);
     const latest = ctx.latest?.();
-    if (saved && latest && latest.content !== snapshot.content && !ctx.isBlocked?.()) {
+    if (savedContent !== null && latest && latest.content !== savedContent && !ctx.isBlocked?.()) {
       void scheduleSave(ctx, latest.content);
     }
-    return saved;
+    return savedContent !== null && !ctx.isBlocked?.();
   });
 }
 
-async function runOne(ctx: SaveContext, content: string): Promise<boolean> {
+async function runOne(ctx: SaveContext, content: string): Promise<string | null> {
   const expected = ctx.readExpected();
   try {
     const displayId = ctx.queueKey.startsWith('md:') ? ctx.queueKey.slice(3) : null;
@@ -73,21 +74,21 @@ async function runOne(ctx: SaveContext, content: string): Promise<boolean> {
     if (result.status === 'saved') {
       const latestPath = displayId ? findFileDisplayPath(displayId) : null;
       const writtenPath = canonicalPath(result.path) === canonicalPath(attemptedPath) && latestPath ? latestPath : result.path;
-      ctx.onSaved(writtenPath, result.content, ctx.revision);
-      return true;
+      ctx.onSaved(writtenPath, result.content, ctx.revision, content, result.merged === true);
+      return result.content;
     }
     if (result.status === 'conflict' || result.status === 'refused') {
       ctx.onCasRefused(content, ctx.revision);
-      return false;
+      return null;
     }
     const message = result.status === 'missing'
       ? `External document is unavailable: ${ctx.path}`
       : result.message;
     ctx.onError(content, ctx.revision, new Error(message));
-    return false;
+    return null;
   } catch (err) {
     console.error('[runOne] IPC threw', { path: ctx.path, err });
     ctx.onError(content, ctx.revision, err);
-    return false;
+    return null;
   }
 }

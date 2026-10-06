@@ -21,6 +21,10 @@ export function workColumnTargetIdentity(target: WorkColumnTarget): ContentIdent
       return { kind: 'media', path: target.filePath };
     case 'external':
       return { kind: 'external', path: target.path };
+    case 'table':
+      return { kind: 'external', path: target.filePath };
+    case 'media-library':
+      return { kind: 'external', path: target.filePath };
     case 'agent-conversation':
       return { kind: 'agent-conversation', instanceId: target.instanceId };
     case 'web':

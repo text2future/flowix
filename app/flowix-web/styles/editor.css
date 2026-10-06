@@ -450,12 +450,12 @@ html[data-platform="mac"] .markdown-editor .editor-content {
   margin-top: 0.8rem !important;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h1:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h2:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h3:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h4:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h5:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h6:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h1:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h2:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h3:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h4:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h5:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h6:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)) {
   margin: 0;
   padding-top: 1.5rem;
   padding-bottom: 0.5rem;
@@ -464,29 +464,29 @@ html[data-platform="mac"] .markdown-editor .editor-content {
   white-space: pre-wrap;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h1:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h1:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)) {
   font-size: calc(1.9rem * var(--editor-scale));
   padding-top: 1rem;
   padding-bottom: calc(0.3rem * var(--editor-scale));
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h2:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h2:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)) {
   font-size: calc(1.5rem * var(--editor-scale));
   padding-top: 0.6rem;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h3:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h3:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)) {
   font-size: calc(1.2rem * var(--editor-scale));
   padding-top: 0.4rem;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h4:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h4:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)) {
   font-size: calc(1.05rem * var(--editor-scale));
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h4:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h5:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h6:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h4:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h5:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) h6:where(:not(.agent-thread-card__message, .agent-thread-card__message *, .table-reference-node, .table-reference-node *)) {
   padding-top: 0.3rem;
 }
 
@@ -615,8 +615,8 @@ html[data-platform="mac"] .markdown-editor .editor-content {
   padding-left: 2px;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table td p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table th p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) td p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) th p:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   margin-bottom: 0;
   padding-bottom: 0;
 }
@@ -718,7 +718,7 @@ html[data-platform="mac"] .markdown-editor .editor-content {
   --flowix-mark-fg: var(--flowix-text-gray);
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table):where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -728,8 +728,8 @@ html[data-platform="mac"] .markdown-editor .editor-content {
   border-radius: 8px;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   border: 1px solid var(--border);
   border-top: none;
   border-left: none;
@@ -740,39 +740,39 @@ html[data-platform="mac"] .markdown-editor .editor-content {
   vertical-align: top;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   background: var(--table-header-fill);
   font-weight: 600;
   text-align: left;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child,
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child,
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child {
   border-left: 1px solid var(--border);
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:first-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:first-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:first-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)),
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:first-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)) {
   border-top: 1px solid var(--border);
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:first-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child,
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:first-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:first-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child,
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:first-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child {
   border-top-left-radius: 8px;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:first-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child,
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:first-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:first-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child,
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:first-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child {
   border-top-right-radius: 8px;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:last-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child,
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:last-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:last-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child,
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:last-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):first-child {
   border-bottom-left-radius: 8px;
 }
 
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:last-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child,
-.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table tr:last-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:last-child td:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child,
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) table:not(.multidimensional-table) tr:last-child th:where(:not(.agent-thread-card__message, .agent-thread-card__message *)):last-child {
   border-bottom-right-radius: 8px;
 }
 

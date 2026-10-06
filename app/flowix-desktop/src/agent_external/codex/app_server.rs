@@ -721,7 +721,11 @@ impl CodexAppServerManager {
         let started = async {
             let (codex_thread_id, cwd) = self.resolve_codex_thread(&flowix_thread_id, &message).await?;
             let approval = app_server_approval_policy(message.permission_mode_for_runtime(AGENT_TYPE));
-            let sandbox = app_server_sandbox(message.permission_mode_for_runtime(AGENT_TYPE));
+            let workspace_roots = message.workspace_paths_for_runtime(AGENT_TYPE);
+            let sandbox = app_server_sandbox_with_roots(
+                message.permission_mode_for_runtime(AGENT_TYPE),
+                &workspace_roots,
+            );
             let mut input = vec![json!({ "type": "text", "text": message.llm_content.clone().unwrap_or_else(|| message.content.clone()) })];
             let mut attached_files = Vec::new();
             for path in message.image_paths.iter().filter(|path| std::path::Path::new(path).is_file()) {
@@ -2987,12 +2991,16 @@ fn canonical_codex_tool_name(kind: &str) -> Option<&'static str> {
 /// Translate Flowix permission names into the App Server sandbox object.
 /// Keep this separate from the App Server v2 `permissions` profile API.
 fn app_server_sandbox(permission: Option<&str>) -> Value {
+    app_server_sandbox_with_roots(permission, &[])
+}
+
+fn app_server_sandbox_with_roots(permission: Option<&str>, writable_roots: &[String]) -> Value {
     match permission.map(str::trim) {
         Some("read-only") => json!({ "type": "readOnly" }),
         Some("danger-full-access" | "yolo") => json!({ "type": "dangerFullAccess" }),
         None | Some("workspace-write") => json!({
             "type": "workspaceWrite",
-            "writableRoots": [],
+            "writableRoots": writable_roots,
             "networkAccess": false
         }),
         _ => json!({ "type": "readOnly" }),

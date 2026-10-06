@@ -1,10 +1,10 @@
 import {
-  CloudArrowUpIcon,
   FadersHorizontalIcon,
   KeyboardIcon,
-  NotePencilIcon,
+  RulerIcon,
   StarFourIcon,
   TextAUnderlineIcon,
+  UserIcon,
 } from '@phosphor-icons/react';
 import type { I18nKey } from '@/lib/i18n';
 import mcpPluginIcon from '@/assets/mcp-plugin-settings.svg';
@@ -29,14 +29,15 @@ export const PREFERENCE_TAB_GROUPS: readonly PreferencesTabGroup[] = [
     tabs: [
       { id: 'general', labelKey: 'preferences.tabs.general', icon: <FadersHorizontalIcon className="w-4 h-4" /> },
       { id: 'format', labelKey: 'preferences.tabs.format', icon: <TextAUnderlineIcon className="w-4 h-4" /> },
-      { id: 'noteSettings', labelKey: 'preferences.tabs.noteSettings', icon: <NotePencilIcon className="w-4 h-4" /> },
+      { id: 'noteSettings', labelKey: 'preferences.tabs.noteSettings', icon: <RulerIcon className="w-4 h-4" /> },
       { id: 'shortcuts', labelKey: 'preferences.tabs.shortcuts', icon: <KeyboardIcon className="w-4 h-4" /> },
-      { id: 'cloudSync', labelKey: 'preferences.tabs.cloudSync', icon: <CloudArrowUpIcon className="w-4 h-4" /> },
+      { id: 'cloudSync', labelKey: 'preferences.tabs.cloudSync', icon: <UserIcon className="w-4 h-4" /> },
     ],
   },
   {
     labelKey: 'preferences.groups.ai',
     tabs: [
+      { id: 'pi', labelKey: 'preferences.tabs.pi', icon: <AgentIcon typeKey="pi" alt="" className="w-4 h-4 object-contain" /> },
       { id: 'dsh', labelKey: 'preferences.tabs.dsh', icon: <AgentIcon typeKey="deepseek-harness" alt="" className="w-4 h-4 object-contain" /> },
       { id: 'aiAgent', labelKey: 'preferences.tabs.aiAgent', icon: <StarFourIcon className="w-4 h-4" weight="regular" /> },
       {

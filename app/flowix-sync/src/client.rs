@@ -1,4 +1,4 @@
-use reqwest::{Method, StatusCode};
+use reqwest::Method;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
@@ -195,6 +195,22 @@ impl CloudClient {
         .map(|value| value.data)
     }
 
+    pub(crate) async fn google_desktop_exchange(
+        &self,
+        code: &str,
+        state: &str,
+        code_verifier: &str,
+    ) -> Result<AuthData, SyncError> {
+        self.send::<DataEnvelope<AuthData>>(
+            Method::POST,
+            "/v1/auth/google/desktop/exchange",
+            None,
+            Some(json!({ "code": code, "state": state, "codeVerifier": code_verifier })),
+        )
+        .await
+        .map(|value| value.data)
+    }
+
     pub(crate) async fn apple_link(
         &self,
         access_token: &str,
@@ -221,22 +237,20 @@ impl CloudClient {
         .map(|value| value.data)
     }
 
-    pub(crate) async fn logout(&self, access_token: &str) -> Result<(), SyncError> {
+    pub(crate) async fn logout_with_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<(), SyncError> {
         let response = self
             .http
-            .post(format!("{}/v1/auth/logout", self.base_url))
-            .bearer_auth(access_token)
+            .post(format!("{}/v1/auth/logout/refresh", self.base_url))
+            .json(&json!({ "refreshToken": refresh_token }))
             .send()
             .await?;
-        if response.status().is_success() || response.status() == StatusCode::UNAUTHORIZED {
+        if response.status().is_success() {
             Ok(())
         } else {
-            Err(SyncError::Api {
-                status: response.status().as_u16(),
-                code: "LOGOUT_FAILED".into(),
-                message: "Cloud logout failed".into(),
-                details: None,
-            })
+            Self::decode::<serde_json::Value>(response).await.map(|_| ())
         }
     }
 
@@ -360,13 +374,15 @@ impl CloudClient {
                 "cloud returned an unsupported v2 upload method".into(),
             ));
         }
+        let content_length = content.len();
         let direct_upload = upload.url.is_some();
         let response = if let Some(url) = upload.url.as_deref() {
             Self::validate_direct_blob_url(url)?;
             let mut request = self
                 .http
                 .put(url)
-                .header(reqwest::header::CONTENT_TYPE, content_type);
+                .header(reqwest::header::CONTENT_TYPE, content_type)
+                .header(reqwest::header::CONTENT_LENGTH, content_length);
             for (name, value) in &upload.headers {
                 if Self::allowed_capability_header(name) {
                     request = request.header(name, value);

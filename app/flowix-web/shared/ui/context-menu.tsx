@@ -214,6 +214,7 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 		<div
 			ref={contentRef}
 			role="menu"
+			data-flowix-surface="context-menu"
 			// Start at the cursor position; the layout effect above clamps
 			// these values once the element's true size is known.
 			style={{ left: position?.x ?? 0, top: position?.y ?? 0, ...style }}

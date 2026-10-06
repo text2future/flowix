@@ -828,7 +828,12 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
               this.refreshAttrs();
             }
           },
-        );
+        ).catch((error) => {
+          if (this.hydratingInstanceId === existingInstanceId) {
+            this.hydratingInstanceId = null;
+          }
+          logger.error("Failed to hydrate conversation instance", { error });
+        });
       }
       return;
     }

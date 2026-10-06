@@ -112,6 +112,7 @@ impl ThreadManager {
                         WHEN 'opencode' THEN (SELECT external_id FROM threads_opencode WHERE thread_id = ti.id)
                         WHEN 'hermes' THEN (SELECT external_id FROM threads_hermes WHERE thread_id = ti.id)
                         WHEN 'claude' THEN (SELECT external_id FROM threads_claude WHERE thread_id = ti.id)
+                        WHEN 'pi' THEN (SELECT external_id FROM threads_pi WHERE thread_id = ti.id)
                     END,
                     (SELECT external_session_id FROM thread_external_sessions
                      WHERE thread_id = ti.id AND runtime = i.agent)
@@ -195,6 +196,7 @@ impl ThreadManager {
                         WHEN 'opencode' THEN (SELECT external_id FROM threads_opencode WHERE thread_id = ti.id)
                         WHEN 'hermes' THEN (SELECT external_id FROM threads_hermes WHERE thread_id = ti.id)
                         WHEN 'claude' THEN (SELECT external_id FROM threads_claude WHERE thread_id = ti.id)
+                        WHEN 'pi' THEN (SELECT external_id FROM threads_pi WHERE thread_id = ti.id)
                     END,
                     (SELECT external_session_id FROM thread_external_sessions
                      WHERE thread_id = ti.id AND runtime = i.agent)
@@ -277,6 +279,7 @@ impl ThreadManager {
                         WHEN 'opencode' THEN (SELECT external_id FROM threads_opencode WHERE thread_id = ti.id)
                         WHEN 'hermes' THEN (SELECT external_id FROM threads_hermes WHERE thread_id = ti.id)
                         WHEN 'claude' THEN (SELECT external_id FROM threads_claude WHERE thread_id = ti.id)
+                        WHEN 'pi' THEN (SELECT external_id FROM threads_pi WHERE thread_id = ti.id)
                     END,
                     (SELECT external_session_id FROM thread_external_sessions
                      WHERE thread_id = ti.id AND runtime = i.agent)
@@ -318,6 +321,7 @@ impl ThreadManager {
                         WHEN 'opencode' THEN (SELECT external_id FROM threads_opencode WHERE thread_id = ti.id)
                         WHEN 'hermes' THEN (SELECT external_id FROM threads_hermes WHERE thread_id = ti.id)
                         WHEN 'claude' THEN (SELECT external_id FROM threads_claude WHERE thread_id = ti.id)
+                        WHEN 'pi' THEN (SELECT external_id FROM threads_pi WHERE thread_id = ti.id)
                     END,
                     (SELECT external_session_id FROM thread_external_sessions
                      WHERE thread_id = ti.id AND runtime = i.agent)
@@ -528,6 +532,7 @@ impl ThreadManager {
                             WHEN 'opencode' THEN (SELECT external_id FROM threads_opencode WHERE thread_id = ti.id)
                             WHEN 'hermes' THEN (SELECT external_id FROM threads_hermes WHERE thread_id = ti.id)
                             WHEN 'claude' THEN (SELECT external_id FROM threads_claude WHERE thread_id = ti.id)
+                            WHEN 'pi' THEN (SELECT external_id FROM threads_pi WHERE thread_id = ti.id)
                         END,
                         (SELECT external_session_id FROM thread_external_sessions
                          WHERE thread_id = ti.id AND runtime = i.agent)
@@ -582,6 +587,8 @@ impl ThreadManager {
                        SELECT h.external_id FROM threads_hermes h WHERE h.thread_id = ?1
                        UNION ALL
                        SELECT cl.external_id FROM threads_claude cl WHERE cl.thread_id = ?1
+                       UNION ALL
+                       SELECT p.external_id FROM threads_pi p WHERE p.thread_id = ?1
                     )
                     OR i.thread_id IN (
                         SELECT c.thread_id FROM threads_codex c WHERE c.external_id = ?1
@@ -593,6 +600,8 @@ impl ThreadManager {
                        SELECT h.thread_id FROM threads_hermes h WHERE h.external_id = ?1
                        UNION ALL
                        SELECT cl.thread_id FROM threads_claude cl WHERE cl.external_id = ?1
+                       UNION ALL
+                       SELECT p.thread_id FROM threads_pi p WHERE p.external_id = ?1
                     )
                  ORDER BY CASE WHEN i.thread_id = ?1 THEN 0 ELSE 1 END,
                           i.updated_at DESC
@@ -653,6 +662,8 @@ impl ThreadManager {
                  SELECT h.external_id FROM threads_hermes h WHERE h.thread_id = ?3
                  UNION ALL
                  SELECT cl.external_id FROM threads_claude cl WHERE cl.thread_id = ?3
+                 UNION ALL
+                 SELECT p.external_id FROM threads_pi p WHERE p.thread_id = ?3
                     )
                     OR i.thread_id IN (
                         SELECT c.thread_id FROM threads_codex c WHERE c.external_id = ?3
@@ -664,6 +675,8 @@ impl ThreadManager {
                  SELECT h.thread_id FROM threads_hermes h WHERE h.external_id = ?3
                  UNION ALL
                  SELECT cl.thread_id FROM threads_claude cl WHERE cl.external_id = ?3
+                 UNION ALL
+                 SELECT p.thread_id FROM threads_pi p WHERE p.external_id = ?3
                     )
                  ORDER BY CASE WHEN i.thread_id = ?3 THEN 0 ELSE 1 END,
                           i.updated_at DESC
@@ -814,7 +827,9 @@ impl ThreadManager {
              UNION ALL
              SELECT thread_id FROM threads_hermes WHERE external_id = ?1
              UNION ALL
-             SELECT thread_id FROM threads_claude WHERE external_id = ?1",
+             SELECT thread_id FROM threads_claude WHERE external_id = ?1
+             UNION ALL
+             SELECT thread_id FROM threads_pi WHERE external_id = ?1",
             [thread_id],
         )?;
         tx.execute(

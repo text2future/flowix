@@ -40,11 +40,13 @@ import {
   type StartupStatus,
   type DshDownloadProgress,
 } from '@platform/tauri/client';
+import { files } from '@platform/tauri/client/desktop';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { NotebookDeleteDialog } from '@features/shell/components/notebook-delete-dialog';
 import { MarkdownFileDropOverlay } from '@features/shell/components/drag-overlay/markdown-file-drop-overlay';
 import { useMainMiddleColumnController } from '@features/shell/hooks/use-main-middle-column-controller';
 import { useMainPanelController } from '@features/shell/hooks/use-main-panel-controller';
+import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { ListColumn } from '@features/shell/components/list-column';
 import { ListColumnContent } from '@features/shell/components/list-column-content';
 import { useI18n } from '@/lib/i18n';
@@ -361,16 +363,38 @@ export function MainLayout({
     onExported: handleDocumentExported,
   });
 
-  const handleDeleteExternalFile = useCallback(async () => {
+  const handleDeleteExternalFile = useCallback(async (expectedFilePath: string, notebookPath: string | null) => {
     try {
-      if (await deleteMainExternalDocument() === 'unsaved') {
+      const outcome = await deleteMainExternalDocument(expectedFilePath);
+      if (outcome === 'unsaved') {
         toast.error(t('document.external.deleteFileUnsaved'));
+        return;
+      }
+      if (outcome !== 'deleted') {
+        if (!notebookPath) {
+          toast.error('无法确定多维表格所属的笔记本，无法删除。');
+          return;
+        }
+        const deleted = await files.delete(expectedFilePath, notebookPath);
+        if (!deleted) throw new Error('删除多维表格失败');
+        useBrowserColumnStore.getState().clearExternalPath(expectedFilePath);
       }
     } catch (error) {
       logger.warn('[MainLayout] Failed to delete external file:', { error: error });
       toast.error(t('document.external.deleteFileFailed'));
     }
   }, [t]);
+
+  useEffect(() => {
+    const handleRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ filePath?: unknown; notebookPath?: unknown }>).detail;
+      if (typeof detail?.filePath === 'string' && detail.filePath) {
+        void handleDeleteExternalFile(detail.filePath, typeof detail.notebookPath === 'string' ? detail.notebookPath : null);
+      }
+    };
+    window.addEventListener('flowix:request-delete-external-file', handleRequest);
+    return () => window.removeEventListener('flowix:request-delete-external-file', handleRequest);
+  }, [handleDeleteExternalFile]);
 
   // The DocumentContainer owns the import hook because it needs the editor's contentRef and saveDoc.
   // The titlebar renders the path, so it receives the container API through this bridge.
@@ -559,7 +583,12 @@ export function MainLayout({
       onSaveAsTemplate: handleSaveAsTemplate,
       onExportWord: handleExportWord,
       onExportPdf: handleExportPdf,
-      onDeleteExternalFile: handleDeleteExternalFile,
+      onDeleteExternalFile: () => {
+        const header = workColumnPresentation.header;
+        if (header.kind === 'document' && header.document.externalFilePath) {
+          void handleDeleteExternalFile(header.document.externalFilePath, selectedNotebook?.path ?? null);
+        }
+      },
     },
     mediaActions: mediaTarget ? {
       onCopyLink: handleCopyMediaLink,

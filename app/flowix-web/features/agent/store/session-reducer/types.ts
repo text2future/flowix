@@ -55,6 +55,8 @@ export interface ThreadProjection {
     /** Initial history request lifecycle. Optional keeps older in-memory/test
      * projections compatible; production projections are created with `idle`. */
     initialStatus?: "idle" | "loading" | "ready" | "error";
+    /** Last initial history failure, shown with the retry affordance. */
+    initialError?: string | null;
     oldestSequence: number | null;
     /** Provider/journal revision that owns oldestSequence and all loaded pages. */
     snapshotSequence?: number | null;

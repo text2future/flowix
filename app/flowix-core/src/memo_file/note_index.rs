@@ -21,7 +21,8 @@ use super::{
 };
 
 const SCHEMA_VERSION: i64 = 3;
-const PARSER_VERSION: i64 = 7;
+// Version 9 tolerates legacy malformed tags while retaining ordinary properties.
+const PARSER_VERSION: i64 = 9;
 const NOTE_SEARCH_FTS_VERSION: i64 = 1;
 const NOTE_INDEX_REFRESH_PENDING: &str = "note-index-refresh-pending";
 const NOTE_INDEX_REFRESH_PENDING_DIR: &str = "note-index-refresh-pending.d";
@@ -227,7 +228,7 @@ impl MemoFile {
                 "empty note title",
             ));
         }
-        super::extract_document_metadata(content)
+        super::frontmatter::extract_document_metadata_tolerant(content)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
         let mut suffix = 0u32;
         let path = loop {
@@ -263,7 +264,7 @@ impl MemoFile {
     ) -> io::Result<NoteWriteOutcome> {
         let root = self.notebook_root_for_note(notebook_id)?;
         let path = self.validate_note_path(&root, relative_path, true)?;
-        super::extract_document_metadata(content)
+        super::frontmatter::extract_document_metadata_tolerant(content)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
         match self.write_file_if_matches(&path, content, expected_content)? {
             super::FileWriteOutcome::Conflict { disk_content } => {
@@ -597,6 +598,16 @@ impl MemoFile {
         relative_path: &str,
     ) -> io::Result<Option<NoteEntry>> {
         self.refresh_note_path(notebook_id, relative_path)?;
+        self.read_indexed_note_entry_by_path(notebook_id, relative_path)
+    }
+
+    /// Query the existing projection without refreshing it from the file.
+    /// Table references use index presence as the source of truth.
+    pub fn read_indexed_note_entry_by_path(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+    ) -> io::Result<Option<NoteEntry>> {
         let conn = self.open_note_index_connection(notebook_id)?;
         let row: Option<(String, String, String, Option<String>, i64, i64, i64, Option<String>, String, String)> = conn
             .query_row(
@@ -2353,6 +2364,40 @@ fn discard_legacy_v2_note_projection(conn: &mut Connection) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::memo_file::NotebookConfig;
+
+    #[test]
+    fn parser_upgrade_repairs_null_tag_properties_without_changing_note() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(&root).unwrap();
+        let content = "---\ntags: null\n哈哈哈: \"111\"\n测试111日起: 2026-10-13\ntest: hhhhh\n---\nbody\n";
+        let path = root.join("哈哈-1哈哈哈.md");
+        fs::write(&path, content).unwrap();
+        let store = MemoFile::new(temp.path().join("config"));
+        store.write_notebook_configs(&[NotebookConfig {
+            id: "nb_null_tags".into(), name: "Null tags".into(), icon: None,
+            path: root.to_string_lossy().into_owned(), is_default: true,
+            sort: 0, created_at: 0, updated_at: 0,
+        }]).unwrap();
+        store.reconcile_note_index("nb_null_tags").unwrap();
+        // Reproduce a version-7 projection: the hash is current but parsing
+        // null tags discarded every frontmatter property.
+        let conn = store.open_note_index_connection("nb_null_tags").unwrap();
+        conn.execute("UPDATE notes SET properties_json='{}'", []).unwrap();
+        conn.execute("UPDATE note_index_meta SET value='7' WHERE key='parser_version'", []).unwrap();
+        drop(conn);
+
+        assert!(!store.note_index_is_ready("nb_null_tags").unwrap());
+        let report = store.reconcile_note_index("nb_null_tags").unwrap();
+        assert_eq!(report.updated, 1);
+        let note = store.read_note_entries("nb_null_tags").unwrap().remove(0);
+        assert_eq!(note.properties["哈哈哈"], "111");
+        assert_eq!(note.properties["测试111日起"], "2026-10-13");
+        assert_eq!(note.properties["test"], "hhhhh");
+        assert_eq!(fs::read_to_string(path).unwrap(), content);
+        assert_eq!(store.reconcile_note_index("nb_null_tags").unwrap().unchanged, 1);
+    }
+
 
     #[test]
     fn mixed_v2_and_note_tables_keep_current_note_rows() {

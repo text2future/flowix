@@ -9,8 +9,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use super::{
-    journal_policy, provider_policy, ExternalRuntimeKind, HistoryAdapter, HistoryPageRequest,
-    HistoryPolicy,
+    ExternalRuntimeKind, HistoryAdapter, HistoryPageRequest, HistoryPolicy, journal_policy,
+    provider_policy,
 };
 use crate::agent_external::{
     codex::CodexAppServerManager, deepseek_harness::DeepSeekHarnessManager,

@@ -100,9 +100,12 @@ export function AgentTasksSection({
     }
     const conversations = [...merged.values()]
       .filter((instance) => !isSyntheticOpenCodeHistoryInstance(instance))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
+      .sort((left, right) => {
+        const favoriteOrder = Number(favoriteIds.has(right.instanceId)) - Number(favoriteIds.has(left.instanceId));
+        return favoriteOrder || right.updatedAt - left.updatedAt;
+      });
     return conversations;
-  }, [liveInstances, notebookId, storedConversations]);
+  }, [favoriteIds, liveInstances, notebookId, storedConversations]);
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -253,6 +256,7 @@ export function AgentTasksSection({
           <ChevronRight className={`h-3.5 w-3.5 opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-within:opacity-100 ${collapsed ? 'opacity-100' : 'rotate-90'}`} />
         </button>
         <div className="ml-auto flex items-center">
+          {sectionActions}
           <DropdownMenu
             open={createMenuOpen}
             onOpenChange={(open) => {
@@ -265,7 +269,7 @@ export function AgentTasksSection({
                 type="button"
                 aria-label={t('agent.chat.newThread')}
                 title={t('agent.chat.newThread')}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-[color,opacity] hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] group-hover:opacity-100"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -300,7 +304,6 @@ export function AgentTasksSection({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-          {sectionActions}
         </div>
       </div>
       {!collapsed && (tasks.length > 0 ? (
@@ -344,6 +347,24 @@ export function AgentTasksSection({
                 )}>
                   {instance.title?.trim() || t('common.untitled')}
                 </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={favoriteIds.has(instance.instanceId) ? t('agent.chat.conversation.unfavorite') : t('agent.chat.conversation.favorite')}
+                  aria-pressed={favoriteIds.has(instance.instanceId)}
+                  title={favoriteIds.has(instance.instanceId) ? t('agent.chat.conversation.unfavorite') : t('agent.chat.conversation.favorite')}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleFavorite(instance.instanceId);
+                  }}
+                  className={cn(
+                    'shrink-0 overflow-hidden rounded p-1 text-[var(--muted-foreground)] transition-[width,opacity,color] duration-[37.5ms] hover:text-[var(--foreground)] focus-visible:opacity-100',
+                    favoriteIds.has(instance.instanceId)
+                      ? 'w-6 opacity-100'
+                      : 'w-0 opacity-0 group-focus-within:w-6 group-focus-within:opacity-100 group-hover:w-6 group-hover:opacity-100',
+                  )}
+                >
+                  <StarIcon className="h-4 w-4" weight={favoriteIds.has(instance.instanceId) ? 'fill' : 'regular'} aria-hidden="true" />
                 </button>
                 <DropdownMenu
                   open={openMenuId === instance.instanceId}

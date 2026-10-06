@@ -11,7 +11,6 @@ pub struct SyncStore {
 }
 
 mod schema;
-mod settings;
 mod v2;
 
 #[cfg(test)]

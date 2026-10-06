@@ -1,6 +1,20 @@
 /* Flowix runs in modern WebViews, so only the used Latin weights and woff2
  * assets are bundled. CJK and less common scripts intentionally use the
  * platform font stack. */
+/* Put this face before system emoji fonts in each app stack. The local order
+ * prefers Noto Color Emoji, with the platform color emoji fonts as fallback. */
+@font-face {
+	font-family: 'Flowix Small Emoji';
+	font-style: normal;
+	font-weight: 400;
+	src:
+		local('Segoe UI Emoji'),
+		local('Noto Color Emoji'),
+		local('Apple Color Emoji');
+	size-adjust: 86%;
+	unicode-range: U+1F000-1FAFF, U+2600-27FF, U+FE0F, U+20E3;
+}
+
 @font-face {
 	font-family: 'Flowix Tag Icon';
 	font-style: normal;

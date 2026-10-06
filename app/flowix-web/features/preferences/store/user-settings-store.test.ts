@@ -108,30 +108,30 @@ describe('user-settings-store · legacy quickPhrases migration', () => {
 });
 
 describe('user-settings-store · property preset sanitization', () => {
-  it('filters built-in key collisions, aliases, and removed URL fields', async () => {
+  it('drops legacy names, built-in key collisions, and removed URL fields', async () => {
     const fields = [
-      { key: 'name', name: '自定义名称', type: 'Text' },
-      { key: 'priority', name: '优先级', type: 'Number' },
-      { key: 'PRIORITY', name: '重复优先级', type: 'Text' },
+      { key: 'name', name: '旧别名', type: 'Text' },
+      { key: 'priority', name: '旧别名', type: 'Number' },
+      { key: 'PRIORITY', name: '旧重复别名', type: 'Text' },
       { key: 'legacy-url', name: '旧链接', type: 'URL' },
     ] as unknown as PropertyFieldConfig[];
 
     await useUserSettingsStore.getState().updateSettings({ properties: { fields } });
 
     expect(useUserSettingsStore.getState().settings.properties.fields).toEqual([
-      { key: 'priority', name: '优先级', type: 'Number', options: undefined },
+      { key: 'priority', type: 'Number', options: undefined },
     ]);
   });
 
   it('migrates the removed List preset type to MultiSelect', async () => {
     const fields = [
-      { key: 'labels', name: '标签', type: 'List' },
+      { key: 'labels', name: '旧标签别名', type: 'List' },
     ] as unknown as PropertyFieldConfig[];
 
     await useUserSettingsStore.getState().updateSettings({ properties: { fields } });
 
     expect(useUserSettingsStore.getState().settings.properties.fields).toEqual([
-      { key: 'labels', name: '标签', type: 'MultiSelect', options: undefined },
+      { key: 'labels', type: 'MultiSelect', options: undefined },
     ]);
   });
 });

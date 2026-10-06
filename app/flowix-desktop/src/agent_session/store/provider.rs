@@ -18,6 +18,7 @@ pub(super) enum ProviderThreadStore {
     OpenCode,
     Hermes,
     Claude,
+    Pi,
 }
 
 impl ProviderThreadStore {
@@ -28,6 +29,7 @@ impl ProviderThreadStore {
             "opencode" => Some(Self::OpenCode),
             "hermes" => Some(Self::Hermes),
             "claude" => Some(Self::Claude),
+            "pi" => Some(Self::Pi),
             _ => None,
         }
     }
@@ -39,6 +41,7 @@ impl ProviderThreadStore {
             Self::OpenCode => "threads_opencode",
             Self::Hermes => "threads_hermes",
             Self::Claude => "threads_claude",
+            Self::Pi => "threads_pi",
         }
     }
 
@@ -91,6 +94,7 @@ impl ProviderThreadStore {
         thread_id: &str,
         external_id: &str,
         project_path: Option<&str>,
+        session_metadata: Option<&serde_json::Value>,
         now: i64,
     ) -> Result<(), ThreadError> {
         let sql = format!(
@@ -106,6 +110,20 @@ impl ProviderThreadStore {
                      last_reconciled_at = ?2
                  WHERE thread_id = ?3",
                 params![project_path, now, thread_id],
+            )?;
+        } else if self == Self::Pi {
+            let session_file = session_metadata
+                .and_then(|metadata| metadata.get("sessionFile"))
+                .and_then(serde_json::Value::as_str);
+            let cwd = session_metadata
+                .and_then(|metadata| metadata.get("cwd"))
+                .and_then(serde_json::Value::as_str);
+            conn.execute(
+                "UPDATE threads_pi
+                 SET session_file = COALESCE(?1, session_file),
+                     cwd = COALESCE(?2, cwd)
+                 WHERE thread_id = ?3",
+                params![session_file, cwd, thread_id],
             )?;
         }
         Ok(())

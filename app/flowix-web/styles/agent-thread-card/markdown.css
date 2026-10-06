@@ -12,19 +12,18 @@
   .agent-thread-card__message--end
   .agent-thread-card__message-content {
   color: var(--muted-foreground);
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   text-align: center;
 }
 
 /* 消息正文容器 ── 现在内容是 marked 输出的 HTML 树, 不能再用
  * white-space: pre-wrap (会把 <p> 节点当文本节点, 不再分段)。改成
  * 默认 block 流式 + overflow-wrap: anywhere (替代 word-break:
- * break-word, 语义更准), 字号 14px 与面板 message-assistant 节奏
- * 接近。 */
+ * break-word, 语义更准), 正文字号为 0.94 倍 app 字号。 */
 .markdown-editor .agent-thread-card__message-content {
   color: var(--foreground);
   cursor: text;
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   line-height: 1.7;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -36,13 +35,12 @@
   cursor: text;
 }
 
-/* reasoning 的正文用 muted-foreground + 13px, 与面板 reasoning
- * 颜色一致。 */
+/* reasoning 的正文为 0.94 倍 app 字号, 使用 muted-foreground。 */
 .markdown-editor
   .agent-thread-card__message--reasoning
   .agent-thread-card__message-content {
   color: var(--muted-foreground);
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
 }
 
 /* end 角色的 content: 居中灰字 (保留在 .--end 修饰里)。 */
@@ -50,15 +48,14 @@
   .agent-thread-card__message--end
   .agent-thread-card__message-content {
   color: var(--muted-foreground);
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   text-align: center;
 }
 
 /* ── markdown 元素排版 ── 对齐面板 markdown-renderer WRAPPER_CLASS
  * 子选择器 (面板走 Tailwind arbitrary variant, 卡片走原生 CSS 子选择器,
- * 效果相同)。面板整体节奏 text-[0.82rem] / leading-[1.8] / mt-1.5,
- * 卡片统一为 13px / 1.6 / mt-6px ── 比面板略紧凑, 让卡片小尺寸下
- * 信息密度更合适。 */
+ * 效果相同)。标题尺寸为 H1–H3 1.2 倍 app 字号、H4–H6 0.94 倍；
+ * 正文为 0.94 倍 app 字号。 */
 .markdown-editor .agent-thread-card__message-content > *:first-child {
   margin-top: 0;
 }
@@ -84,7 +81,7 @@
   width: fit-content;
   border: 0;
   padding: 2px 0;
-  background: transparent;
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
   color: var(--muted-foreground);
   cursor: pointer;
   font-size: calc(var(--app-font-size, 15px) * 0.82);
@@ -130,12 +127,12 @@
   font-size: calc(var(--app-font-size, 15px) * 1.2);
 }
 .markdown-editor .agent-thread-card__message-content h4 {
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   font-weight: 500;
 }
 .markdown-editor .agent-thread-card__message-content h5,
 .markdown-editor .agent-thread-card__message-content h6 {
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: calc(var(--app-font-size, 15px) * 0.94);
   font-weight: 500;
 }
 
@@ -590,7 +587,7 @@
 /* 头行底色对齐编辑器 (--muted); thead transparent 让 th 的底色
  * 直接透出, 不与 table 自身重叠。 */
 .markdown-editor .agent-thread-card__message-content th {
-  background: var(--muted);
+  background: color-mix(in srgb, var(--muted) 50%, var(--background));
   font-weight: 600;
 }
 /* 相邻 cell 共用一条边 ── 把每条边归属到"左/上"侧, 让行内/列内交界
@@ -739,8 +736,9 @@
   display: none;
 }
 
-.markdown-editor .agent-thread-card__dsh-update-notice:hover {
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
+.markdown-editor .agent-thread-card__pi-unavailable-notice:not([hidden]) {
+  display: inline-flex;
+  cursor: default;
 }
 
 .markdown-editor.agent-conversation-detail

@@ -15,8 +15,6 @@ pub enum SyncError {
     },
     #[error("not authenticated")]
     NotAuthenticated,
-    #[error("cloud sync is disabled")]
-    Disabled,
     #[error("notebook is not enabled for cloud sync")]
     NotebookDisabled,
     #[error("invalid cloud state: {0}")]

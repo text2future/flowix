@@ -6,6 +6,7 @@ import path from 'node:path'
 import { applyTauriSigningKey } from './resolve-tauri-signing-key.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
+if (process.argv.includes('--with-pi')) process.env.FLOWIX_BUNDLE_PI = '1'
 applyTauriSigningKey()
 const npmEntrypoint = process.env.npm_execpath
 const tauriEntrypoint = path.resolve(repoRoot, 'node_modules/@tauri-apps/cli/tauri.js')
@@ -76,16 +77,26 @@ function npmRun(script) {
 if (targetPlatform === 'darwin') npmRun('cli:build:prod:macos')
 else npmRun('cli:build:prod')
 
-const configPath = run(
-  process.execPath,
-  ['scripts/prepare-tauri-production-config.mjs', '--platform', targetPlatform],
-  { capture: true },
-)
-if (!configPath) throw new Error('Production config generator did not return a config path.')
+if (process.env.FLOWIX_BUNDLE_PI === '1') {
+  run(process.execPath, ['scripts/prepare-pi-bundle.mjs', '--platform', targetPlatform])
+} else {
+  run(process.execPath, ['scripts/prepare-pi-catalog.mjs'])
+}
 
 const tauriTargets = targetPlatform === 'darwin' ? MACOS_TARGETS : [null]
 const buildStartedAt = Date.now()
 for (const target of tauriTargets) {
+  if (target) {
+    process.env.FLOWIX_PI_TARGET_ARCH = target.startsWith('aarch64-') ? 'arm64' : 'x64'
+  } else {
+    delete process.env.FLOWIX_PI_TARGET_ARCH
+  }
+  const configPath = run(
+    process.execPath,
+    ['scripts/prepare-tauri-production-config.mjs', '--platform', targetPlatform],
+    { capture: true },
+  )
+  if (!configPath) throw new Error('Production config generator did not return a config path.')
   const buildArgs = ['build', '--config', configPath]
   if (target) buildArgs.push('--target', target)
   run(process.execPath, [tauriEntrypoint, ...buildArgs])

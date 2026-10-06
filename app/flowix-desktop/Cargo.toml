@@ -49,6 +49,7 @@ tempfile = { workspace = true }
 fs2 = { workspace = true }
 dunce = { workspace = true }
 uuid = { workspace = true }
+url = "2"
 hostname = "0.4"
 machine-uid = "0.5"
 sha2 = { workspace = true }

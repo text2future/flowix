@@ -61,9 +61,9 @@ pub use derivation::{
 };
 pub use file_io::{
     atomic_create_bytes, atomic_write_bytes, filesystem_identity, rename_file_noclobber,
-    FileWriteOutcome,
+    FileWriteOutcome, MergedFileWriteOutcome,
 };
-pub use file_management::FileManagementPolicy;
+pub use file_management::{default_create_folder_for_notebook, FileManagementPolicy};
 pub use frontmatter::{
     build_md_content, extract_body_content, extract_document_metadata, extract_frontmatter_key,
     extract_frontmatter_properties, is_system_frontmatter_key, merge_frontmatter,
@@ -73,7 +73,7 @@ pub use frontmatter::{
 };
 pub use index_store::{MemoContentCommit, MemoContentRevision};
 pub use internal_migration::{NotebookInternalMigrationReport, NOTEBOOK_INTERNAL_MIGRATION_KEY};
-pub use media_resource::{media_kind_for_path, MediaResource, MediaResourceKind};
+pub use media_resource::{media_kind_for_path, MediaResource, MediaResourceKind, MediaResourcePage};
 pub use migration::{DataMigrationReport, NotebookMigrationReport, LATEST_DATA_MIGRATION_VERSION};
 pub use ops::{
     base_filename, filename_from_notebook_relative_path, is_ignored_notebook_relative_path,
@@ -88,7 +88,7 @@ pub use types::{
     PathTodoEntry, ReconcileReport, TodoItem,
 };
 pub use versions::{
-    MemoVersionManifest, MemoVersionMeta, MemoVersionSource, PathVersionMeta, MEMO_AUTO_VERSION_INTERVAL_MS,
+    MemoVersionManifest, MemoVersionMeta, MemoVersionSource, PathArchiveSummary, PathVersionMeta, MEMO_AUTO_VERSION_INTERVAL_MS,
     MEMO_ORPHAN_VERSION_RETENTION, MEMO_VERSION_LIMIT,
 };
 

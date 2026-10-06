@@ -313,7 +313,6 @@
   align-self: stretch;
   width: auto;
   flex: none;
-  line-height: 1.35;
 }
 
 .markdown-editor .agent-composer--expanded .agent-thread-card__composer-actions {
@@ -630,7 +629,8 @@
   caret-color: var(--brand);
   padding: 0;
   font: inherit;
-  font-size: calc(var(--app-font-size, 15px) * 0.9);
+  font-size: var(--app-font-size, 15px);
+  line-height: 1.6;
   cursor: text;
   outline: none;
   user-select: text;
@@ -648,7 +648,6 @@
 
 .markdown-editor .agent-thread-card__composer-input > p {
   min-height: 1rem;
-  line-height: 20px;
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   white-space: pre-wrap;
@@ -696,7 +695,7 @@
   color: var(--brand);
   font: inherit;
   font-size: inherit;
-  line-height: 1.5;
+  line-height: inherit;
   cursor: pointer;
 }
 
@@ -710,9 +709,12 @@
   vertical-align: top;
 }
 
-.markdown-editor .agent-thread-card__slash-token:hover,
+.markdown-editor .agent-thread-card__slash-token:hover {
+  color: color-mix(in oklch, var(--foreground) 75%, white 25%);
+  outline: none;
+}
+
 .markdown-editor .agent-thread-card__slash-token:focus-visible {
-  background: transparent;
   color: color-mix(in oklch, var(--brand) 82%, var(--foreground));
   outline: none;
 }
@@ -725,23 +727,24 @@
   .agent-thread-card__folder-token
 ) {
   display: inline-flex;
-  height: 20px;
+  height: 1.6em;
   max-width: 100%;
   align-items: center;
   padding: 0 0.45rem;
-  border: 1px solid color-mix(in oklch, var(--border) 90%, var(--foreground) 10%);
+  border: 1px solid color-mix(in oklch, var(--border) 75%, var(--input-bg, var(--document-bg)) 25%);
   border-radius: 0.35rem;
   background: transparent;
   color: var(--foreground);
-  font-size: 0.9em;
-  line-height: 20px;
+  font-size: inherit;
+  line-height: inherit;
   vertical-align: top;
 }
 
-.markdown-editor :is(
-  .agent-thread-card__slash-token--control,
-  .agent-thread-card__folder-token
-):hover,
+.markdown-editor .agent-thread-card__slash-token--control:hover,
+.markdown-editor .agent-thread-card__folder-token:hover {
+  color: color-mix(in oklch, var(--foreground) 75%, white 25%);
+}
+
 .markdown-editor :is(
   .agent-thread-card__slash-token--control,
   .agent-thread-card__folder-token
@@ -753,17 +756,17 @@
 
 .markdown-editor .agent-thread-card__skill-token {
   display: inline-flex;
-  height: 20px;
+  height: 1.6em;
   max-width: 100%;
   align-items: center;
   padding: 0 0.45rem;
-  border: 1px solid color-mix(in oklch, var(--border) 90%, var(--foreground) 10%);
+  border: 1px solid color-mix(in oklch, var(--border) 75%, var(--input-bg, var(--document-bg)) 25%);
   border-radius: 0.35rem;
   background: transparent;
   color: var(--foreground);
   font: inherit;
-  font-size: 0.9em;
-  line-height: 20px;
+  font-size: inherit;
+  line-height: inherit;
   white-space: nowrap;
   vertical-align: top;
   cursor: pointer;
@@ -795,23 +798,30 @@
 .agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card {
   display: inline-flex;
   box-sizing: border-box;
-  height: 20px;
+  height: 1.6em;
   max-width: 100%;
   align-items: center;
   padding: 0 0.45rem;
-  border: 1px solid color-mix(in oklch, var(--border) 90%, var(--foreground) 10%);
+  border: 1px solid color-mix(in oklch, var(--border) 75%, var(--input-bg, var(--document-bg)) 25%);
   border-radius: 0.35rem;
   background: transparent;
   color: var(--foreground);
   font: inherit;
-  font-size: 0.9em;
-  line-height: 20px;
+  font-size: inherit;
+  line-height: inherit;
   vertical-align: top;
 }
 
-.markdown-editor .agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card:hover,
+.markdown-editor .agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card:hover :is(
+  .editor-note-reference__name,
+  .editor-note-reference__title,
+  .editor-note-reference__notebook,
+  .editor-note-reference__chevron
+) {
+  color: color-mix(in oklch, var(--foreground) 75%, white 25%);
+}
+
 .markdown-editor .agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card:focus-visible,
-.agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card:hover,
 .agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card:focus-visible {
   border-color: color-mix(in oklch, var(--border) 68%, var(--foreground) 32%);
   background: transparent;

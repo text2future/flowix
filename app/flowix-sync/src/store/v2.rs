@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 use crate::v2::{
     V2CloudAccount, V2DirtyEntity, V2EntityType, V2FreezeOperation, V2InflightOperation,
     V2NoteState, V2NotebookState, V2OperationKind, V2RemoteApply, V2SyncedNotebook, PROTOCOL_EPOCH,
@@ -289,6 +290,35 @@ impl SyncStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(SyncError::from)
     }
 
+    /// Count queued file operations by enabled notebook. Dirty note rows stay
+    /// present while their frozen operation is in flight, so adding the
+    /// inflight table here would count the same work twice.
+    pub fn v2_pending_file_operation_counts(
+        &self,
+    ) -> Result<HashMap<String, i64>, SyncError> {
+        let connection = self.open()?;
+        let mut statement = connection.prepare(
+            r#"SELECT notebook_id, COUNT(*) FROM (
+                   SELECT dirty.notebook_id AS notebook_id
+                     FROM v2_dirty_entities AS dirty
+                     JOIN v2_synced_notebooks AS notebook
+                       ON notebook.notebook_id = dirty.notebook_id
+                    WHERE dirty.entity_type = 'note' AND notebook.enabled = 1
+                   UNION ALL
+                   SELECT movement.notebook_id AS notebook_id
+                     FROM v2_pending_moves AS movement
+                     JOIN v2_synced_notebooks AS notebook
+                       ON notebook.notebook_id = movement.notebook_id
+                    WHERE notebook.enabled = 1
+               ) GROUP BY notebook_id"#,
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        rows.collect::<Result<HashMap<_, _>, _>>()
+            .map_err(SyncError::from)
+    }
+
     pub fn complete_v2_notebook_bootstrap(&self, notebook_id: &str) -> Result<(), SyncError> {
         self.open()?.execute(
             "UPDATE v2_synced_notebooks SET bootstrap_required = 0, updated_at = ?2 WHERE notebook_id = ?1",
@@ -565,7 +595,7 @@ impl SyncStore {
     }
 
     /// Replace a rejected local operation's base with the remote head only
-    /// after the desktop adapter has safely merged or preserved the local bytes.
+    /// after the desktop adapter has merged or versioned the rejected local bytes.
     pub fn rebase_v2_note_after_conflict(
         &self,
         remote: &crate::v2::V2BootstrapNote,

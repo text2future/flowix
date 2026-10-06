@@ -6,9 +6,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDownUp,
+  ChevronDown,
   Check,
+  SwatchBook,
   ListFilter,
   Loader2,
+  MoreHorizontal,
   SquarePen,
 } from 'lucide-react';
 import {
@@ -47,16 +50,33 @@ import {
 import { MemoListDataLoader } from '@features/memo/components/memo-list-data-loader';
 import { noteRepository } from '@features/memo/services/note-repository';
 import { initializeMainWindowStartup } from '@app/main-window-startup';
-import { clearWorkspaceDocument } from '@features/workspace/use-cases/workspace-navigation';
+import { clearWorkspaceDocument, openExternalTarget } from '@features/workspace/use-cases/workspace-navigation';
 import { openBrowserColumnText } from '@features/workspace/use-cases/browser-column-navigation';
 import { useI18n } from '@/lib/i18n';
 import {
   useMemoListViewPreference,
 } from '@features/preferences/public/runtime-api';
 import { createLogger } from '@/lib/logger';
+import { orderNoteTemplates } from '@/lib/note-template-order';
 import { useDocumentStore } from '@features/document/store';
-import { files as fileApi } from '@platform/tauri/client';
+import { files as fileApi, notes as noteApi, type NoteTemplate } from '@platform/tauri/client';
 import { canonicalDirectoryPath } from '@/lib/path';
+import { AGENT_TYPES, isAgentTypeSelectable, isAlwaysVisibleNewConversationAgent } from '@/lib/agent-types';
+import type { AgentTypeKey } from '@/types/agent';
+import { AgentIcon } from '@features/agent/components/agent-icon';
+import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
+import { createAndOpenAgentConversation } from '@features/agent/public/shell-api';
+import { isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus } from '@features/agent/runtime/agent-runtime-status';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@shared/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
+import { createTableDocumentFile, type TableViewType } from '@features/multidimensional-table/public/create-api';
+import { createMediaLibraryFile } from '@features/media-library/model';
 
 import {
   COLOR_LABEL_KEYS,
@@ -98,6 +118,11 @@ interface MemoListProps {
   dataLoadingEnabled?: boolean;
 }
 
+interface OpenCreateTableDialogRequest {
+  notebookId: string;
+  onCreated?: (selection: { relativePath: string; tableId: string; viewId: string }) => void | Promise<void>;
+}
+
 export function MemoList({
   navigationDrawerEnabled = true,
   navigationDrawerOpen: controlledNavigationDrawerOpen,
@@ -122,6 +147,21 @@ export function MemoList({
   const memoListView = useMemoListViewPreference();
   const selectedNotebook = useNoteStore((s) => s.selectedNotebook);
   const showFolderView = memoListView === 'folders' && Boolean(selectedNotebook);
+  const [createTypeMenuOpen, setCreateTypeMenuOpen] = useState(false);
+  const [newTableDialogOpen, setNewTableDialogOpen] = useState(false);
+  const [newTableName, setNewTableName] = useState('新建多维表格');
+  const [newTableViewType, setNewTableViewType] = useState<TableViewType>('table');
+  const [createTableDialogNotebookId, setCreateTableDialogNotebookId] = useState<string | null>(null);
+  const createTableOnCreatedRef = useRef<OpenCreateTableDialogRequest['onCreated'] | null>(null);
+  const [createMoreMenuOpen, setCreateMoreMenuOpen] = useState(false);
+  const [isCreatingTable, setIsCreatingTable] = useState(false);
+  const [newLibraryDialogOpen, setNewLibraryDialogOpen] = useState(false);
+  const [newLibraryName, setNewLibraryName] = useState('');
+  const [isCreatingLibrary, setIsCreatingLibrary] = useState(false);
+  const [createTemplates, setCreateTemplates] = useState<NoteTemplate[]>([]);
+  const agentRuntimeStatusByType = useAgentRuntimeStore((s) => s.statusByType);
+  const agentRuntimeIsChecking = useAgentRuntimeStore((s) => s.isChecking);
+  const refreshAgentRuntimeIfStale = useAgentRuntimeStore((s) => s.refreshIfStale);
   const refreshTrigger = useNoteStore((s) => s.refreshTrigger);
   const activeFilter = useNoteStore((s) => s.activeFilter);
   const activePluginId = useNoteStore((s) => s.activePluginId);
@@ -140,9 +180,59 @@ export function MemoList({
   const memoListQueryKey = useNoteStore((s) => s.memoListQueryKey);
   const selectedNotebookId = selectedNotebook?.id;
   useEffect(() => {
+    const handleOpenCreateTableDialog = (event: Event) => {
+      const requestEvent = event as CustomEvent<OpenCreateTableDialogRequest>;
+      const notebook = useNoteStore.getState().notebooks.find((entry) => entry.id === requestEvent.detail?.notebookId);
+      if (!notebook || notebook.missing) return;
+      requestEvent.preventDefault();
+      createTableOnCreatedRef.current = requestEvent.detail.onCreated;
+      setCreateTableDialogNotebookId(notebook.id);
+      setNewTableViewType('table');
+      setNewTableName(t('memo.create.tableDefaultName'));
+      setNewTableDialogOpen(true);
+    };
+    window.addEventListener('flowix:open-create-table-dialog', handleOpenCreateTableDialog);
+    return () => window.removeEventListener('flowix:open-create-table-dialog', handleOpenCreateTableDialog);
+  }, [t]);
+  const newConversationAgentTypes = AGENT_TYPES.filter((type) => {
+    if (!isAgentTypeSelectable(type.key)) return false;
+    if (isAlwaysVisibleNewConversationAgent(type.key)) return true;
+    return isAgentRuntimeInstalledState(normalizeAgentRuntimeStatus(
+      agentRuntimeStatusByType[type.key],
+      agentRuntimeIsChecking,
+    ));
+  });
+  useEffect(() => {
+    if (createTypeMenuOpen && memoListView === 'folders') void refreshAgentRuntimeIfStale();
+  }, [createTypeMenuOpen, memoListView, refreshAgentRuntimeIfStale]);
+  useEffect(() => {
+    if (!createTypeMenuOpen) return;
+    let cancelled = false;
+    void noteApi.listTemplates()
+      .then((templates) => {
+        if (!cancelled) setCreateTemplates(orderNoteTemplates(templates).slice(0, 5));
+      })
+      .catch((error) => {
+        if (!cancelled) logger.warn('load note templates for create menu failed', { error });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [createTypeMenuOpen]);
+  useEffect(() => {
     if (selectedNotebookId) void loadNotebookFilters(selectedNotebookId);
   }, [loadNotebookFilters, selectedNotebookId]);
-  const [defaultCreateFolder, setDefaultCreateFolder] = useState<string | null>(null);
+  const [defaultCreateFolderState, setDefaultCreateFolderState] = useState<{
+    notebookId: string;
+    path: string | null;
+  } | null>(null);
+  const defaultCreateFolder = defaultCreateFolderState !== null
+    && selectedNotebook != null
+    && defaultCreateFolderState.notebookId === selectedNotebook.id
+    ? defaultCreateFolderState.path
+    : null;
+  const defaultCreateFolderReady = selectedNotebook != null
+    && defaultCreateFolderState?.notebookId === selectedNotebook.id;
   const selectedTagId = useTagStore((s) => s.selectedTagId);
   const tagMetadataRefreshVersion = useTagStore((s) => s.metadataRefreshVersion);
   const runningAgentTypeIndex = useRunningAgentTypeIndex();
@@ -199,7 +289,10 @@ export function MemoList({
       if (!selectedNotebook || canonicalDirectoryPath(selectedNotebook.path) !== canonicalDirectoryPath(notebookPath)) return;
       void fileApi.getNotebookViewPreferences(selectedNotebook.path).then((preferences) => {
         if (useNoteStore.getState().selectedNotebook?.id === selectedNotebook.id) {
-          setDefaultCreateFolder(preferences.defaultCreateFolder ?? null);
+          setDefaultCreateFolderState({
+            notebookId: selectedNotebook.id,
+            path: preferences.defaultCreateFolder ?? null,
+          });
         }
       }).catch((error) => {
         logger.warn('refresh notebook default create folder failed', { error, notebookId: selectedNotebook.id });
@@ -248,16 +341,20 @@ export function MemoList({
 
   useEffect(() => {
     let current = true;
-    setDefaultCreateFolder(null);
+    setDefaultCreateFolderState(null);
     if (!selectedNotebook) return () => { current = false; };
     void fileApi.getNotebookViewPreferences(selectedNotebook.path)
       .then((preferences) => {
         if (current) {
-          setDefaultCreateFolder(preferences.defaultCreateFolder ?? null);
+          setDefaultCreateFolderState({
+            notebookId: selectedNotebook.id,
+            path: preferences.defaultCreateFolder ?? null,
+          });
         }
       })
       .catch((error) => {
         logger.warn('load notebook view preferences failed', { error, notebookId: selectedNotebook.id });
+        if (current) setDefaultCreateFolderState({ notebookId: selectedNotebook.id, path: null });
       });
     return () => { current = false; };
   }, [selectedNotebook?.id, selectedNotebook?.path]);
@@ -477,7 +574,7 @@ export function MemoList({
         ...preferences,
         defaultCreateFolder: nextDefaultFolder,
       });
-      setDefaultCreateFolder(nextDefaultFolder);
+      setDefaultCreateFolderState({ notebookId: selectedNotebook.id, path: nextDefaultFolder });
       toast.success(t(defaultCreateFolder === relative
         ? 'memo.fileTree.defaultCreateFolderCleared'
         : 'memo.fileTree.defaultCreateFolderSet'));
@@ -737,8 +834,8 @@ export function MemoList({
         useDocumentStore.getState().activeExternalSession,
         selectedNotebook.id,
         selectedNotebook.path,
-      )
-      : (await fileApi.getNotebookViewPreferences(selectedNotebook.path)).defaultCreateFolder ?? undefined);
+      ) ?? ''
+      : undefined);
     const result = await noteRepository.create(
       activeTagId ?? undefined,
       selectedNotebook.id,
@@ -829,6 +926,70 @@ export function MemoList({
     });
   }, [selectedNotebook]);
 
+  const handleCreateTable = useCallback(async () => {
+    const targetNotebook = createTableDialogNotebookId
+      ? useNoteStore.getState().notebooks.find((entry) => entry.id === createTableDialogNotebookId) ?? null
+      : selectedNotebook;
+    if (!targetNotebook || targetNotebook.missing || isCreatingTable) return;
+    const onCreated = createTableOnCreatedRef.current;
+    const useSelectedNotebookFolder = targetNotebook.id === selectedNotebook?.id && defaultCreateFolderReady;
+    setIsCreatingTable(true);
+    try {
+      const parentRelativePath = useSelectedNotebookFolder
+        ? defaultCreateFolder ?? undefined
+        : (await fileApi.getNotebookViewPreferences(targetNotebook.path)).defaultCreateFolder ?? undefined;
+      const created = await createTableDocumentFile(targetNotebook.path, parentRelativePath, newTableName, newTableViewType);
+      const view = created.table.table.views[0];
+      if (!view) throw new Error('新建多维表格没有可用视图');
+      await onCreated?.({ relativePath: created.relativePath, tableId: created.table.table.id, viewId: view.id });
+      setNewTableDialogOpen(false);
+      setCreateTypeMenuOpen(false);
+      setCreateTableDialogNotebookId(null);
+      createTableOnCreatedRef.current = null;
+      await openExternalTarget(created.filePath, { scopePath: targetNotebook.path, notebookId: targetNotebook.id, destination: 'main-third' });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建多维表格失败');
+    } finally {
+      setIsCreatingTable(false);
+    }
+  }, [createTableDialogNotebookId, defaultCreateFolder, defaultCreateFolderReady, isCreatingTable, newTableName, newTableViewType, selectedNotebook]);
+
+  const handleCreateMediaLibrary = useCallback(async () => {
+    if (!selectedNotebook || isCreatingLibrary) return;
+    setIsCreatingLibrary(true);
+    try {
+      const parentRelativePath = defaultCreateFolderReady
+        ? defaultCreateFolder ?? undefined
+        : (await fileApi.getNotebookViewPreferences(selectedNotebook.path)).defaultCreateFolder ?? undefined;
+      const { filePath } = await createMediaLibraryFile(selectedNotebook.path, parentRelativePath, newLibraryName);
+      setNewLibraryDialogOpen(false);
+      setCreateTypeMenuOpen(false);
+      await openExternalTarget(filePath, { scopePath: selectedNotebook.path, notebookId: selectedNotebook.id, destination: 'main-third' });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建媒体库失败');
+    } finally {
+      setIsCreatingLibrary(false);
+    }
+  }, [defaultCreateFolder, defaultCreateFolderReady, isCreatingLibrary, newLibraryName, selectedNotebook]);
+
+  const handleCreateAgentConversation = useCallback((typeKey: AgentTypeKey) => {
+    if (!selectedNotebookId) return;
+    createAndOpenAgentConversation(typeKey, selectedNotebookId);
+  }, [selectedNotebookId]);
+
+  const handleCreateFromTemplate = useCallback(async (templateId: string) => {
+    if (!selectedNotebook) return;
+    try {
+      const created = await noteApi.createFromTemplate(templateId, selectedNotebook.id);
+      await useNoteStore.getState().loadNotes({ notebookId: selectedNotebook.id });
+      setCreateTypeMenuOpen(false);
+      await openNotebookNote(created.path, selectedNotebook);
+    } catch (error) {
+      logger.error('create note from template failed', { error, templateId, notebookId: selectedNotebook.id });
+      toast.error(error instanceof Error ? error.message : t('memo.create.templateFailed'));
+    }
+  }, [selectedNotebook, t]);
+
   const handleCreateFolder = useCallback(() => {
     if (!selectedNotebook) return;
     const notebookRoot = selectedNotebook.path.replace(/\/+$/, '');
@@ -864,6 +1025,123 @@ export function MemoList({
       : activeSort === 'filenameDesc'
         ? t('memo.list.sortFilenameDesc')
         : t('memo.list.sortCreated');
+  const createTypeMenuContent = (
+    <DropdownMenuContent align="end" className="w-[190px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
+        {t('memo.create.documents')}
+      </DropdownMenuLabel>
+      <DropdownMenuItem
+        disabled={!selectedNotebook}
+        onClick={() => {
+          if (memoListView === 'folders') handleRequestCreateNote();
+          else void handleCreateMemo();
+        }}
+        className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+      >
+        <SquarePen className="h-4 w-4" aria-hidden="true" />
+        {t('memo.create.note')}
+      </DropdownMenuItem>
+      {createTemplates.map((template) => (
+        <DropdownMenuItem
+          key={template.id}
+          disabled={!selectedNotebook}
+          onClick={() => void handleCreateFromTemplate(template.id)}
+          className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+        >
+          <SwatchBook className="h-4 w-4" aria-hidden="true" />
+          <span className="min-w-0 truncate">{template.name}</span>
+        </DropdownMenuItem>
+      ))}
+      <MemoNavigationSubmenu
+        label={t('editor.toolbar.more')}
+        icon={<MoreHorizontal className="h-4 w-4" aria-hidden="true" />}
+        open={createMoreMenuOpen}
+        onOpenChange={setCreateMoreMenuOpen}
+        emptyText=""
+        loadingText=""
+        hideHeader
+        onCloseMenu={() => setCreateTypeMenuOpen(false)}
+        submenuClassName="w-[147px]"
+        submenuContent={(
+          <div className="flex flex-col gap-0.5">
+            {([
+              { type: 'table' as const, label: t('memo.create.table') },
+              { type: 'gallery' as const, label: t('editor.slash.label.galleryView') },
+              { type: 'kanban' as const, label: t('editor.slash.label.kanbanView') },
+              { type: 'calendar' as const, label: t('editor.slash.label.calendarView') },
+            ]).map(({ type, label }) => (
+              <button
+                key={type}
+                type="button"
+                disabled={!selectedNotebook}
+                className="memo-navigation-submenu-item mention-note-item !h-7 !min-h-7 !rounded-lg !py-0 !pl-[6px] !pr-2 hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setNewTableViewType(type);
+                  setNewTableName(t('memo.create.tableDefaultName'));
+                  setCreateTableDialogNotebookId(null);
+                  createTableOnCreatedRef.current = null;
+                  setCreateMoreMenuOpen(false);
+                  setCreateTypeMenuOpen(false);
+                  setNewTableDialogOpen(true);
+                }}
+              >
+                <span className="mention-note-title">{label}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={!selectedNotebook || isCreatingLibrary}
+              className="memo-navigation-submenu-item mention-note-item !h-7 !min-h-7 !rounded-lg !py-0 !pl-[6px] !pr-2 hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setNewLibraryName(t('memo.create.mediaLibraryDefaultName'));
+                setCreateMoreMenuOpen(false);
+                setCreateTypeMenuOpen(false);
+                setNewLibraryDialogOpen(true);
+              }}
+            >
+              <span className="mention-note-title">{t('memo.create.mediaLibrary')}</span>
+            </button>
+          </div>
+        )}
+      />
+      {memoListView === 'folders' && (
+        <>
+          <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
+            {t('memo.create.conversations')}
+          </DropdownMenuLabel>
+          {newConversationAgentTypes.map((type) => {
+            const runtimeStatus = normalizeAgentRuntimeStatus(
+              agentRuntimeStatusByType[type.key],
+              agentRuntimeIsChecking,
+            );
+            const showNotInstalled = isAlwaysVisibleNewConversationAgent(type.key)
+              && runtimeStatus.state === 'not-installed';
+            const name = type.nameKey
+              ? t(type.nameKey as Parameters<typeof t>[0])
+              : type.name;
+            return (
+              <DropdownMenuItem
+                key={type.key}
+                disabled={!selectedNotebook}
+                onClick={() => handleCreateAgentConversation(type.key)}
+                className="agent-conversation-new-agent-item group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                <AgentIcon typeKey={type.key} alt="" className="h-4 w-4 shrink-0 object-contain" />
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                {showNotInstalled && (
+                  <span className="shrink-0 text-xs text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)]">
+                    {t('agent.status.notInstalled')}
+                  </span>
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+        </>
+      )}
+    </DropdownMenuContent>
+  );
   return (
     <div className="memo-list relative flex h-full min-w-0 select-none flex-col bg-[var(--list-bg)]">
       <MemoListDataLoader
@@ -1041,24 +1319,111 @@ export function MemoList({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Tooltip content={t("memo.list.newMemoTooltip")} shortcut="memo.create">
-            <Button
-              size="icon"
-              disabled={isCreatingMemo}
-              aria-busy={isCreatingMemo}
-              className="h-[30px] w-[30px] justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
-              onClick={() => {
-                if (memoListView === 'folders') handleRequestCreateNote();
-                else void handleCreateMemo();
-              }}
-            >
-              {isCreatingMemo
-                ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                : <SquarePen className="h-4 w-4" aria-hidden="true" />}
-            </Button>
-          </Tooltip>
+          {memoListView === 'folders' ? (
+            <div className="flex h-[30px] items-center overflow-hidden rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90">
+              <Tooltip content={t('memo.create.note')} shortcut="memo.create">
+                <Button
+                  size="icon"
+                  disabled={!selectedNotebook || isCreatingMemo || isCreatingTable}
+                  aria-busy={isCreatingMemo || isCreatingTable}
+                  aria-label={t('memo.create.note')}
+                  onClick={handleRequestCreateNote}
+                  className="h-[30px] w-[25px] justify-start rounded-none border-0 bg-transparent pl-[7px] pr-[2px] text-[var(--primary-foreground)] hover:bg-white/10"
+                >
+                  {isCreatingMemo || isCreatingTable
+                    ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    : <SquarePen className="h-4 w-4" aria-hidden="true" />}
+                </Button>
+              </Tooltip>
+              <DropdownMenu open={createTypeMenuOpen} onOpenChange={setCreateTypeMenuOpen}>
+                <Tooltip content={t('memo.create.chooseType')}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon"
+                      disabled={isCreatingMemo || isCreatingTable}
+                      aria-label={t('memo.create.chooseType')}
+                      aria-haspopup="menu"
+                      className="h-[30px] w-[16px] justify-end rounded-none border-0 bg-transparent pr-[4px] text-[var(--primary-foreground)] hover:bg-white/10"
+                    >
+                      <ChevronDown className="size-[12px]" aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </Tooltip>
+                {createTypeMenuContent}
+              </DropdownMenu>
+            </div>
+          ) : (
+            <DropdownMenu open={createTypeMenuOpen} onOpenChange={setCreateTypeMenuOpen}>
+              <Tooltip content={t('memo.create.chooseType')} shortcut="memo.create">
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    disabled={isCreatingMemo || isCreatingTable}
+                    aria-busy={isCreatingMemo || isCreatingTable}
+                    aria-label={t('memo.create.chooseType')}
+                    className="h-[30px] w-[30px] justify-center rounded-xl border border-transparent bg-[var(--primary)] p-0 text-[var(--primary-foreground)] hover:opacity-90"
+                  >
+                    {isCreatingMemo || isCreatingTable
+                      ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      : <SquarePen className="h-4 w-4" aria-hidden="true" />}
+                  </Button>
+                </DropdownMenuTrigger>
+              </Tooltip>
+              {createTypeMenuContent}
+            </DropdownMenu>
+          )}
         </div>
       </div>
+
+      <Dialog open={newTableDialogOpen} onOpenChange={(open) => {
+        setNewTableDialogOpen(open);
+        if (!open) {
+          setCreateTableDialogNotebookId(null);
+          createTableOnCreatedRef.current = null;
+        }
+      }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">{newTableViewType === 'table' ? t('memo.create.tableDialogTitle') : `${t('memo.create.tableDialogTitle')} · ${newTableViewType === 'gallery' ? t('editor.slash.label.galleryView') : newTableViewType === 'kanban' ? t('editor.slash.label.kanbanView') : t('editor.slash.label.calendarView')}`}</DialogTitle>
+            <DialogDescription>{t('memo.create.tableDescription')}</DialogDescription>
+          </DialogHeader>
+          <form className="mt-2 space-y-4" onSubmit={(event) => { event.preventDefault(); void handleCreateTable(); }}>
+            <input
+              autoFocus
+              value={newTableName}
+              onChange={(event) => setNewTableName(event.target.value)}
+              placeholder={t('memo.create.tableDefaultName')}
+              className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)]"
+            />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg text-sm" onClick={() => {
+                setNewTableDialogOpen(false);
+                setCreateTableDialogNotebookId(null);
+                createTableOnCreatedRef.current = null;
+              }}>{t('dialog.cancel')}</Button>
+              <Button type="submit" size="sm" className="h-8 rounded-lg text-sm" disabled={!newTableName.trim() || isCreatingTable}>
+                {isCreatingTable ? t('memo.create.creating') : t('memo.create.confirm')}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={newLibraryDialogOpen} onOpenChange={setNewLibraryDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('memo.create.mediaLibraryTitle')}</DialogTitle>
+            <DialogDescription>{t('memo.create.mediaLibraryDescription')}</DialogDescription>
+          </DialogHeader>
+          <form className="mt-4 space-y-4" onSubmit={(event) => { event.preventDefault(); void handleCreateMediaLibrary(); }}>
+            <input autoFocus value={newLibraryName} onChange={(event) => setNewLibraryName(event.target.value)} placeholder={t('memo.create.mediaLibraryDefaultName')} className="h-9 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)]" />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => setNewLibraryDialogOpen(false)}>{t('dialog.cancel')}</Button>
+              <Button type="submit" size="sm" className="rounded-lg" disabled={!newLibraryName.trim() || isCreatingLibrary}>{isCreatingLibrary ? t('memo.create.creating') : t('memo.create.confirm')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <ListSurfaceViewport className="flex">
         {navigationDrawerEnabled && !navigationDrawerControlled && (
@@ -1093,8 +1458,8 @@ export function MemoList({
         )}
         {foldersMounted && selectedNotebook && (
           <div
-            className={cn('absolute inset-0', showFolderView ? '' : 'hidden')}
-            aria-hidden={!showFolderView}
+            className={cn('absolute inset-0', showFolderView && defaultCreateFolderReady ? '' : 'hidden')}
+            aria-hidden={!showFolderView || !defaultCreateFolderReady}
           >
             <NotebookFolderView
               key={selectedNotebook.id}
@@ -1108,6 +1473,12 @@ export function MemoList({
               onCreateNote={handleCreateNoteInFolder}
             />
           </div>
+        )}
+        {foldersMounted && selectedNotebook && showFolderView && !defaultCreateFolderReady && (
+          <ListSurfaceLoadingState
+            label={t('memo.list.loadingNotebook')}
+            className="absolute inset-0 z-10 bg-[var(--card)]/80"
+          />
         )}
         <div
           className={cn('absolute inset-0', showFolderView ? 'hidden' : '')}

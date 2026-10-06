@@ -21,7 +21,6 @@ export interface CloudMembership {
 }
 
 export interface CloudState {
-  enabled: boolean;
   authenticated: boolean;
   account?: {
     user: CloudUser;
@@ -121,14 +120,15 @@ export const cloud = {
   login: (email: string, password: string) =>
     invoke<CloudState>('cloud_login', { email, password }),
   signInWithApple: () => invoke<CloudState>('cloud_sign_in_with_apple'),
+  startGoogleSignIn: () => invoke<void>('cloud_start_google_sign_in'),
   linkApple: () => invoke<CloudState>('cloud_link_apple'),
   logout: () => invoke<CloudState>('cloud_logout'),
-  setEnabled: (enabled: boolean) =>
-    invoke<CloudState>('cloud_set_enabled', { enabled }),
   getNotebookState: (notebookId: string) =>
     invoke<CloudNotebookSyncState | null>('cloud_get_notebook_state', { notebookId }),
   listNotebookStates: () =>
     invoke<CloudNotebookSyncState[]>('cloud_list_notebook_states'),
+  listPendingFileOperationCounts: () =>
+    invoke<Record<string, number>>('cloud_list_pending_file_operation_counts'),
   listNotebooks: () => invoke<CloudNotebook[]>('cloud_list_notebooks'),
   linkNotebook: (notebookId: string, cloudNotebookId: string) =>
     invoke<CloudNotebookSyncState>('cloud_link_notebook', { notebookId, cloudNotebookId }),

@@ -22,10 +22,6 @@ impl SyncStore {
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
-            CREATE TABLE IF NOT EXISTS sync_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
             "#,
         )?;
         Self::initialize_v2_schema(&connection)?;

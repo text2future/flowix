@@ -15,6 +15,16 @@ export function createRuntimeInfoRequester(
   getSessionId: () => string | null | undefined = () => undefined,
 ): (() => Promise<BadgeHoverCardRuntimeInfo | null>) | undefined {
   switch (typeKey) {
+    case "pi":
+      return async () => {
+        const threadId = getThreadId();
+        if (!threadId) return null;
+        const candidateSessionId = getSessionId();
+        const sessionId = candidateSessionId && candidateSessionId !== threadId
+          ? candidateSessionId
+          : await agent.getPiSessionId(threadId);
+        return { sessionId: sessionId ?? undefined, usage: {} };
+      };
     case "deepseek-harness":
       return async () => {
         const threadId = getThreadId();

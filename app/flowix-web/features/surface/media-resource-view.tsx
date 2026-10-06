@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { SlidersHorizontal } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
 import { files, mediaResources } from '@platform/tauri/client';
-import { MediaPropertiesPanel } from './media-properties-panel';
+import videoCardPlaceholder from '@/assets/placeholder-video-card.jpg';
+import { getNotebookVideoPreview } from './video-preview-cache';
 
 type MediaKind = 'image' | 'video';
 
@@ -70,23 +70,35 @@ function VideoResourcePreview({ filePath, notebookPath }: { filePath: string; no
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   const [authorized, setAuthorized] = useState(false);
+  const [poster, setPoster] = useState(videoCardPlaceholder);
   const src = useMemo(() => files.toAssetUrl(filePath), [filePath]);
 
   // The media command establishes the notebook-scoped security access before
   // the native asset URL is mounted. It does not create a document session.
   useEffect(() => {
     let cancelled = false;
+    const requestId = crypto.randomUUID();
     setAuthorized(false);
     setFailed(false);
-    void mediaResources.get(filePath, notebookPath).catch(() => {
+    setPoster(videoCardPlaceholder);
+    void mediaResources.get(filePath, notebookPath).then(() => {
+      if (cancelled) return;
+      setAuthorized(true);
+      void getNotebookVideoPreview(
+        filePath,
+        notebookPath,
+        requestId,
+      ).then((preview) => {
+        if (!cancelled && preview) setPoster(preview);
+      });
+    }).catch(() => {
       if (!cancelled) setFailed(true);
-    }).then((response) => {
-      if (!cancelled && response) setAuthorized(true);
     });
     return () => {
       cancelled = true;
+      void mediaResources.cancelThumbnail(requestId).catch(() => undefined);
     };
-  }, [filePath, notebookPath]);
+  }, [filePath, notebookPath, src]);
 
   if (failed) return <MediaUnavailable filePath={filePath} />;
   if (!authorized) {
@@ -97,6 +109,7 @@ function VideoResourcePreview({ filePath, notebookPath }: { filePath: string; no
     <div className="flex h-full w-full items-center justify-center overflow-auto bg-[var(--agent-bg,var(--document-bg))] p-6">
       <video
         src={src}
+        poster={poster}
         controls
         preload="metadata"
         playsInline
@@ -112,19 +125,11 @@ export function MediaResourceView({
   filePath,
   notebookPath,
   resourceKind,
-  propertiesVisibleByDefault = true,
 }: {
   filePath: string;
   notebookPath: string | null;
   resourceKind: MediaKind;
-  propertiesVisibleByDefault?: boolean;
 }) {
-  const { t } = useI18n();
-  const [propertiesVisible, setPropertiesVisible] = useState(propertiesVisibleByDefault);
-  useEffect(() => {
-    setPropertiesVisible(propertiesVisibleByDefault);
-  }, [filePath, notebookPath, propertiesVisibleByDefault]);
-
   const preview = notebookPath ? (
     resourceKind === 'image'
       ? <ImageResourcePreview filePath={filePath} notebookPath={notebookPath} />
@@ -137,24 +142,6 @@ export function MediaResourceView({
     <div className="flex h-full min-w-0 flex-col bg-[var(--agent-bg,var(--document-bg))]">
       <div className="relative flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">{preview}</div>
-        {notebookPath && propertiesVisible && (
-          <MediaPropertiesPanel
-            filePath={filePath}
-            notebookPath={notebookPath}
-            onClose={() => setPropertiesVisible(false)}
-          />
-        )}
-        {notebookPath && !propertiesVisible && (
-          <button
-            type="button"
-            onClick={() => setPropertiesVisible(true)}
-            title={t('media.properties.open')}
-            aria-label={t('media.properties.open')}
-            className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-popup)] bg-[var(--card)] text-xs text-[var(--foreground)] hover:bg-[var(--muted)]"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-          </button>
-        )}
       </div>
     </div>
   );

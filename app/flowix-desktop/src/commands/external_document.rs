@@ -11,18 +11,25 @@ use crate::commands::helpers::{
     start_security_bookmark_access,
 };
 use crate::lock_utils::read_lock;
-use flowix_core::memo_file::FileWriteOutcome;
+use flowix_core::memo_file::{FileWriteOutcome, MergedFileWriteOutcome};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ExternalDocumentWriteOutcome {
-    Saved { path: String, content: String },
-    Conflict { disk_content: String },
+    Saved {
+        path: String,
+        content: String,
+        merged: bool,
+    },
+    Conflict {
+        disk_content: String,
+    },
     Missing,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
-#[cfg(test)]
 fn is_markdown_document_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -229,18 +236,31 @@ pub async fn write_external_document(
 
                 let memo_file = read_lock(&state.memo_file, "memo_file");
                 watches.begin_window_write(&path);
-                let outcome = memo_file.write_file_if_matches(
-                    &path,
-                    &content,
-                    expectedContent.as_deref(),
-                );
+                let outcome = if is_markdown_document_path(&path) {
+                    memo_file.write_markdown_merging(&path, &content, expectedContent.as_deref())
+                } else {
+                    memo_file.write_file_if_matches(&path, &content, expectedContent.as_deref())
+                        .map(|outcome| match outcome {
+                            FileWriteOutcome::Saved => MergedFileWriteOutcome::Saved {
+                                content: content.clone(), merged: false,
+                            },
+                            FileWriteOutcome::Conflict { disk_content } => {
+                                MergedFileWriteOutcome::Conflict { disk_content }
+                            }
+                        })
+                };
+                let saved_content = match &outcome {
+                    Ok(MergedFileWriteOutcome::Saved { content, .. }) => Some(content.as_str()),
+                    _ => None,
+                };
                 watches.finish_window_write(
                     &app, window.label(), &path,
-                    matches!(&outcome, Ok(FileWriteOutcome::Saved)).then_some(content.as_str()),
+                    saved_content,
                 );
-                match outcome {
-                    Ok(FileWriteOutcome::Saved) => {
+                let (saved_content, merged) = match outcome {
+                    Ok(MergedFileWriteOutcome::Saved { content, merged }) => {
                         refresh_notebook_note_index(&memo_file, &path);
+                        crate::commands::document_list::refresh_view_document_path(&memo_file, &path);
                         if let Ok(notebooks) = memo_file.read_notebook_configs() {
                             for notebook in notebooks {
                                 let root = Path::new(&notebook.path);
@@ -253,8 +273,9 @@ pub async fn write_external_document(
                                 }
                             }
                         }
+                        (content, merged)
                     }
-                    Ok(FileWriteOutcome::Conflict { disk_content }) => {
+                    Ok(MergedFileWriteOutcome::Conflict { disk_content }) => {
                         return ExternalDocumentWriteOutcome::Conflict { disk_content };
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -265,10 +286,11 @@ pub async fn write_external_document(
                             message: format!("failed to save {}: {error}", path.display()),
                         };
                     }
-                }
+                };
                 ExternalDocumentWriteOutcome::Saved {
                     path: path.to_string_lossy().to_string(),
-                    content,
+                    content: saved_content,
+                    merged,
                 }
             })())
         },

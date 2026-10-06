@@ -1,70 +1,30 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Cloud, RefreshCw } from 'lucide-react';
+import { Cloud } from 'lucide-react';
 
-import appleLogo from '@/assets/apple.svg';
+import googleLogo from '@/assets/google.svg';
 import { errorMessage } from '@/lib/error-message';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { openUrl } from '@platform/tauri/opener';
 import { cloudSyncErrorMessage } from '@platform/tauri/errors';
+import { subscribe } from '@platform/tauri/event-bus';
 import {
   cloud,
   listenToCloudStateChanges,
   type CloudProduct,
   type CloudState,
-  type CloudNotebookSyncState,
-  type CloudNoteHistory,
 } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
 import { Input } from '@shared/ui/input';
 import { SectionHeader } from '@features/preferences/sections/primitives';
 import { cn } from '@/lib/utils';
-import { isMac } from '@/lib/shortcuts/platform';
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function originalPathFromConflictCopy(path: string): string {
-  return path.replace(/ \(Flowix conflict [^)]+\)(?=(?:\.[^./]+)?$)/u, '');
-}
-
-function Toggle({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        checked ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]',
-      )}
-    >
-      <span
-        className={cn(
-          'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform',
-          checked ? 'translate-x-5' : 'translate-x-0',
-        )}
-      />
-    </button>
-  );
 }
 
 export function CloudSyncSection() {
@@ -73,35 +33,28 @@ export function CloudSyncSection() {
   const [products, setProducts] = useState<CloudProduct[]>([]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [legacyLoginOpen, setLegacyLoginOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [syncedNotebooks, setSyncedNotebooks] = useState<CloudNotebookSyncState[]>([]);
-  const [notebookNames, setNotebookNames] = useState<Record<string, string>>({});
-  const [selectedNotebook, setSelectedNotebook] = useState('');
-  const [relativePath, setRelativePath] = useState('');
-  const [history, setHistory] = useState<CloudNoteHistory | null>(null);
-  const [preview, setPreview] = useState<{ revision: string; content: string } | null>(null);
-  const [conflicts, setConflicts] = useState<string[]>([]);
+  const [stateLoadError, setStateLoadError] = useState<string | null>(null);
+  const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const [nextState, nextProducts] = await Promise.all([
-        cloud.getState(),
-        cloud.listProducts(),
-      ]);
-      setState(nextState);
-      setProducts(nextProducts);
-      if (nextState.authenticated) {
-        const notebooks = (await cloud.listNotebookStates().catch(() => [])).filter((notebook) => notebook.enabled);
-        setSyncedNotebooks(notebooks);
-        setSelectedNotebook((current) => current || notebooks[0]?.notebookId || '');
-        const remote = await cloud.listNotebooks().catch(() => []);
-        setNotebookNames(Object.fromEntries(remote.map((notebook) => [notebook.id, notebook.name])));
-      }
-    } catch (error) {
-      setLoadError(errorMessage(error));
+    setStateLoadError(null);
+    setProductsLoadError(null);
+    const [stateResult, productsResult] = await Promise.allSettled([
+      cloud.getState(),
+      cloud.listProducts(),
+    ]);
+
+    if (stateResult.status === 'fulfilled') {
+      setState(stateResult.value);
+    } else {
+      setStateLoadError(errorMessage(stateResult.reason));
+    }
+
+    if (productsResult.status === 'fulfilled') {
+      setProducts(productsResult.value);
+    } else {
+      setProductsLoadError(errorMessage(productsResult.reason));
     }
   }, []);
 
@@ -129,21 +82,6 @@ export function CloudSyncSection() {
       const next = await task();
       setState(next);
       setPassword('');
-      if (next.authenticated) {
-        const notebooks = (await cloud.listNotebookStates().catch(() => [])).filter((notebook) => notebook.enabled);
-        setSyncedNotebooks(notebooks);
-        setSelectedNotebook((current) => notebooks.some((notebook) => notebook.notebookId === current)
-          ? current : notebooks[0]?.notebookId || '');
-        const remote = await cloud.listNotebooks().catch(() => []);
-        setNotebookNames(Object.fromEntries(remote.map((notebook) => [notebook.id, notebook.name])));
-      } else {
-        setSyncedNotebooks([]);
-        setSelectedNotebook('');
-        setNotebookNames({});
-        setHistory(null);
-        setPreview(null);
-        setConflicts([]);
-      }
     } catch (error) {
       toast.error(cloudSyncErrorMessage(error, t));
     } finally {
@@ -151,32 +89,33 @@ export function CloudSyncSection() {
     }
   };
 
-  const resolveConflict = (path: string, useLocal: boolean) => {
-    setBusy(true);
-    const resolve = path.startsWith('attachments/')
-      ? cloud.resolveAttachmentConflict
-      : cloud.resolveMarkdownConflict;
-    void resolve(selectedNotebook, relativePath.trim(), path, useLocal)
-      .then(() => {
-        setConflicts((current) => current.filter((item) => item !== path));
-        toast.success(t('preferences.cloud.conflictResolved'));
-      })
-      .catch((error) => toast.error(errorMessage(error)))
-      .finally(() => setBusy(false));
-  };
-
   const submitLegacyLogin = () => {
     if (!email.trim() || !password) return;
     void run(() => cloud.login(email.trim(), password));
   };
 
+  const startGoogleSignIn = async () => {
+    setBusy(true);
+    try {
+      await cloud.startGoogleSignIn();
+    } catch (error) {
+      toast.error(cloudSyncErrorMessage(error, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => subscribe<string>('cloud-google-auth-error', (message) => {
+    toast.error(cloudSyncErrorMessage(message, t));
+  }), [t]);
+
   if (!state) {
     return (
       <div className="space-y-4">
         <SectionHeader title={t('preferences.cloud.title')} />
-        {loadError ? (
+        {stateLoadError ? (
           <p className="break-words text-sm text-[var(--destructive)]">
-            {loadError}
+            {stateLoadError}
           </p>
         ) : (
           <div className="flex h-[100px] items-center justify-center text-center text-sm text-[var(--muted-foreground)]">
@@ -195,69 +134,55 @@ export function CloudSyncSection() {
       </p>
 
       {!state.authenticated ? (
-        <div className="space-y-4 rounded-xl border border-[var(--border)] p-4">
-          {isMac() ? (
+        <div className="space-y-4">
+          <div id="cloud-email-login" className="space-y-3">
+            <Input
+              type="email"
+              className="mx-auto h-10 w-[64%] rounded-lg bg-[var(--card)]"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder={t('preferences.cloud.email')}
+              autoComplete="username"
+            />
+            <Input
+              type="password"
+              className="mx-auto h-10 w-[64%] rounded-lg bg-[var(--card)]"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') submitLegacyLogin();
+              }}
+              placeholder={t('preferences.cloud.password')}
+              autoComplete="current-password"
+            />
             <Button
-              className="w-full gap-2 rounded-2xl bg-black text-white hover:bg-black/85"
-              disabled={busy}
-              onClick={() => void run(() => cloud.signInWithApple())}
+              className="mx-auto flex h-10 w-[64%] rounded-lg"
+              disabled={busy || !email.trim() || !password}
+              onClick={submitLegacyLogin}
             >
-              <img
-                src={appleLogo}
-                alt=""
-                aria-hidden="true"
-                className="h-4 w-4 object-contain"
-              />
               {busy
                 ? t('preferences.cloud.working')
-                : t('preferences.cloud.appleSignIn')}
+                : t('preferences.cloud.login')}
             </Button>
-          ) : (
-            <p className="rounded-lg bg-[var(--muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
-              {t('preferences.cloud.registrationMacOnly')}
-            </p>
-          )}
-          <button
-            type="button"
-            aria-expanded={legacyLoginOpen}
-            aria-controls="cloud-email-login"
-            onClick={() => setLegacyLoginOpen((open) => !open)}
-            className="mx-auto block text-center text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          </div>
+          <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+            <span className="h-px flex-1 bg-[var(--border)]" />
+            <span>{t('preferences.cloud.orContinueWith')}</span>
+            <span className="h-px flex-1 bg-[var(--border)]" />
+          </div>
+          <Button
+            variant="outline"
+            className="mx-auto flex h-10 w-[64%] gap-2 rounded-lg bg-[var(--card)]"
+            disabled={busy}
+            onClick={() => void startGoogleSignIn()}
           >
-            {t('preferences.cloud.existingAccount')}
-          </button>
-          {legacyLoginOpen && (
-            <div id="cloud-email-login" className="space-y-3">
-              <Input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder={t('preferences.cloud.email')}
-              />
-              <Input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') submitLegacyLogin();
-                }}
-                placeholder={t('preferences.cloud.password')}
-              />
-              <Button
-                className="w-full"
-                disabled={busy || !email.trim() || !password}
-                onClick={submitLegacyLogin}
-              >
-                {busy
-                  ? t('preferences.cloud.working')
-                  : t('preferences.cloud.login')}
-              </Button>
-            </div>
-          )}
+            <img src={googleLogo} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+            {t('preferences.cloud.googleSignIn')}
+          </Button>
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-[var(--border)] p-4">
+          <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--muted)]">
                 <Cloud className="h-5 w-5" />
@@ -271,23 +196,6 @@ export function CloudSyncSection() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isMac() && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    disabled={busy}
-                    onClick={() => void run(() => cloud.linkApple())}
-                  >
-                    <img
-                      src={appleLogo}
-                      alt=""
-                      aria-hidden="true"
-                      className="h-3.5 w-3.5 object-contain"
-                    />
-                    {t('preferences.cloud.linkApple')}
-                  </Button>
-                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -299,206 +207,75 @@ export function CloudSyncSection() {
                 </Button>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] p-4">
-            <div>
-              <div className="text-sm font-medium">{t('preferences.cloud.masterSwitch')}</div>
-              <div className="mt-1 text-xs text-[var(--muted-foreground)]">
-                {t('preferences.cloud.masterSwitchDescription')}
+            <div className="space-y-3 border-t border-[var(--border)] pt-4">
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium">{t('preferences.cloud.membership')}</div>
+                <span className={cn(
+                  'rounded-full px-2 py-0.5 text-xs',
+                  state.membership?.active
+                    ? 'bg-emerald-500/15 text-emerald-600'
+                    : 'bg-amber-500/15 text-amber-600',
+                )}>
+                  {state.membership?.active
+                    ? t('preferences.cloud.active')
+                    : t('preferences.cloud.inactive')}
+                </span>
               </div>
-            </div>
-            <Toggle
-              checked={state.enabled}
-              disabled={busy}
-              label={t('preferences.cloud.masterSwitch')}
-              onChange={(enabled) => void run(() => cloud.setEnabled(enabled))}
-            />
-          </div>
-
-          <div className="space-y-3 rounded-xl border border-[var(--border)] p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">{t('preferences.cloud.membership')}</div>
-              <span className={cn(
-                'rounded-full px-2 py-0.5 text-xs',
-                state.membership?.active
-                  ? 'bg-emerald-500/15 text-emerald-600'
-                  : 'bg-amber-500/15 text-amber-600',
-              )}>
-                {state.membership?.active
-                  ? t('preferences.cloud.active')
-                  : t('preferences.cloud.inactive')}
-              </span>
-            </div>
-            <div className="text-sm text-[var(--muted-foreground)]">
-              {t('preferences.cloud.usage')}: {formatBytes(state.membership?.usedBytes ?? 0)}
-              {' / '}
-              {formatBytes(state.membership?.quotaBytes ?? 0)}
-            </div>
-            {state.membership?.expiresAt && (
-              <div className="text-xs text-[var(--muted-foreground)]">
-                {t('preferences.cloud.expires')}:{' '}
-                {new Date(state.membership.expiresAt).toLocaleDateString()}
+              <div className="text-sm text-[var(--muted-foreground)]">
+                {t('preferences.cloud.usage')}: {formatBytes(state.membership?.usedBytes ?? 0)}
+                {' / '}
+                {formatBytes(state.membership?.quotaBytes ?? 0)}
               </div>
-            )}
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              disabled={busy || !state.enabled}
-              onClick={() => {
-                setBusy(true);
-                void cloud.syncNow()
-                  .then((result) => {
-                    toast.success(
-                      `${t('preferences.cloud.syncComplete')}: ↑${result.uploaded} ↓${result.downloaded}`,
-                    );
-                  })
-                  .catch((error) => toast.error(cloudSyncErrorMessage(error, t)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              <RefreshCw className={cn('h-4 w-4', busy && 'animate-spin')} />
-              {t('preferences.cloud.syncNow')}
-            </Button>
-          </div>
-
-          <div className="space-y-3 rounded-xl border border-[var(--border)] p-4">
-            <div className="text-sm font-medium">{t('preferences.cloud.recoveryTitle')}</div>
-            <p className="text-xs text-[var(--muted-foreground)]">{t('preferences.cloud.recoveryDescription')}</p>
-            <select
-              aria-label={t('preferences.cloud.recoveryNotebook')}
-              value={selectedNotebook}
-              onChange={(event) => {
-                setSelectedNotebook(event.target.value);
-                setHistory(null);
-                setPreview(null);
-                setConflicts([]);
-              }}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-sm"
-            >
-              {syncedNotebooks.map((notebook) => (
-                <option key={notebook.notebookId} value={notebook.notebookId}>
-                  {notebookNames[notebook.notebookId] || notebook.notebookId}
-                </option>
-              ))}
-            </select>
-            <Input
-              aria-label={t('preferences.cloud.recoveryPath')}
-              value={relativePath}
-              onChange={(event) => {
-                setRelativePath(event.target.value);
-                setHistory(null);
-                setPreview(null);
-              }}
-              placeholder={t('preferences.cloud.recoveryPath')}
-            />
-            <div className="flex gap-2">
-              <Button variant="outline" disabled={busy || !selectedNotebook || !relativePath.trim()}
-                onClick={() => {
-                  setBusy(true);
-                  void cloud.noteHistory(selectedNotebook, relativePath.trim())
-                    .then((result) => {
-                      setHistory(result);
-                      setPreview(null);
-                    })
-                    .catch((error) => toast.error(errorMessage(error)))
-                    .finally(() => setBusy(false));
-                }}>{t('preferences.cloud.viewHistory')}</Button>
-              <Button variant="outline" disabled={busy || !selectedNotebook}
-                onClick={() => {
-                  setBusy(true);
-                  void cloud.listConflicts(selectedNotebook)
-                    .then(setConflicts)
-                    .catch((error) => toast.error(errorMessage(error)))
-                    .finally(() => setBusy(false));
-                }}>{t('preferences.cloud.viewConflicts')}</Button>
-            </div>
-            {history && <div className="space-y-2 text-xs">
-              {history.revisions.map((entry) => <div key={entry.revision}
-                className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] p-2">
-                <span>{new Date(entry.createdAt).toLocaleString()} · {entry.revision}
-                  {` · ${formatBytes(entry.sizeBytes)}`}
-                  {entry.deleted ? ` · ${t('preferences.cloud.deletedRevision')}` : ''}</span>
-                {!entry.deleted && <div className="flex gap-2">
-                  {!relativePath.startsWith('attachments/') && <Button size="sm" variant="outline" disabled={busy}
-                    onClick={() => {
-                      setBusy(true);
-                      void cloud.previewNoteRevision(selectedNotebook, relativePath.trim(), entry.revision)
-                        .then((content) => setPreview({ revision: entry.revision, content }))
-                        .catch((error) => toast.error(errorMessage(error)))
-                        .finally(() => setBusy(false));
-                    }}>{t('preferences.cloud.previewRevision')}</Button>}
-                  <Button size="sm" variant="outline" disabled={busy}
-                  onClick={() => {
-                    setBusy(true);
-                    void cloud.restoreNoteRevision(selectedNotebook, relativePath.trim(), entry.revision)
-                      .then(() => {
-                        toast.success(t('preferences.cloud.restoreQueued'));
-                        setHistory(null);
-                        setPreview(null);
-                      })
-                      .catch((error) => toast.error(errorMessage(error)))
-                      .finally(() => setBusy(false));
-                  }}>{t('preferences.cloud.restoreRevision')}</Button>
-                </div>}
-              </div>)}
-              {preview && <div className="space-y-1">
-                <div className="font-medium">{t('preferences.cloud.previewRevision')} · {preview.revision}</div>
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--muted)] p-3">{preview.content}</pre>
-              </div>}
-            </div>}
-            {conflicts.length > 0 && <div className="space-y-1 text-xs">
-              <div className="font-medium">{t('preferences.cloud.conflictCopies')}</div>
-              {conflicts.map((path) => <div key={path} className="space-y-2 break-all rounded-lg bg-[var(--muted)] p-2">
-                <button type="button" className="text-left underline-offset-2 hover:underline"
-                  onClick={() => {
-                    setRelativePath(originalPathFromConflictCopy(path));
-                    setHistory(null);
-                    setPreview(null);
-                  }}>{path}</button>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" disabled={busy || !relativePath.trim()}
-                    onClick={() => resolveConflict(path, true)}>{t('preferences.cloud.useConflictCopy')}</Button>
-                  <Button size="sm" variant="outline" disabled={busy || !relativePath.trim()}
-                    onClick={() => resolveConflict(path, false)}>{t('preferences.cloud.keepCloudVersion')}</Button>
+              {state.membership?.expiresAt && (
+                <div className="text-xs text-[var(--muted-foreground)]">
+                  {t('preferences.cloud.expires')}:{' '}
+                  {new Date(state.membership.expiresAt).toLocaleDateString()}
                 </div>
-              </div>)}
-              <p className="text-[var(--muted-foreground)]">{t('preferences.cloud.conflictHint')}</p>
-            </div>}
+              )}
+            </div>
           </div>
+
 
           <div className="space-y-3">
             <div className="text-sm font-medium">{t('preferences.cloud.plans')}</div>
-            {products.map((product) => (
-              <div
-                key={product.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-4"
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{product.name}</div>
-                  <div className="mt-1 text-xs text-[var(--muted-foreground)]">
-                    {product.description}
-                  </div>
-                  <div className="mt-1 text-sm">
-                    {(product.price.amount / 100).toFixed(2)} {product.price.currency.toUpperCase()}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  className="rounded-xl"
-                  disabled={busy}
-                  onClick={() => {
-                    setBusy(true);
-                    void cloud.createCheckout(product.id)
-                      .then((checkout) => openUrl(checkout.checkoutUrl))
-                      .catch((error) => toast.error(errorMessage(error)))
-                      .finally(() => setBusy(false));
-                  }}
+            {productsLoadError && (
+              <p className="break-words text-sm text-[var(--destructive)]">
+                {productsLoadError}
+              </p>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {products.map((product) => (
+                <div
+                  key={product.id}
+                  className="flex min-h-40 flex-col justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 transition-colors hover:border-[var(--primary)]/40"
                 >
-                  {t('preferences.cloud.buy')}
-                </Button>
-              </div>
-            ))}
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-[var(--foreground)]">{product.name}</div>
+                    <div className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-[var(--muted-foreground)]">
+                      {product.description}
+                    </div>
+                    <div className="mt-3 text-lg font-semibold tabular-nums text-[var(--foreground)]">
+                      {(product.price.amount / 100).toFixed(2)} {product.price.currency.toUpperCase()}
+                    </div>
+                  </div>
+                  <Button
+                    size="lg"
+                    className="h-9 w-full rounded-lg"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void cloud.createCheckout(product.id)
+                        .then((checkout) => openUrl(checkout.checkoutUrl))
+                        .catch((error) => toast.error(errorMessage(error)))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    {t('preferences.cloud.buy')}
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}

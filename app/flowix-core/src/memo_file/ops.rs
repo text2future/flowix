@@ -21,11 +21,13 @@ use rusqlite::OptionalExtension;
 
 use super::derivation::{apply_derived_memo_fields, extract_title_and_preview};
 pub(super) use super::file_io::{atomic_create_bytes, atomic_write_bytes, rename_file_noclobber};
+use super::frontmatter::extract_document_metadata_preserving_invalid_tag_paths;
 use super::frontmatter::{
-    extract_document_metadata, extract_document_metadata_preserving_invalid_tag_paths,
+    extract_document_metadata_tolerant,
     is_system_frontmatter_key, merge_frontmatter, replace_frontmatter_tags,
     replace_frontmatter_tags_preserving_invalid_paths, MergeOverrides,
 };
+use super::extract_document_metadata;
 use super::notebook::sqlite_to_io;
 use super::types::{DeleteTagReport, Memo, MoveTagReport, ReconcileReport};
 use super::MemoFile;
@@ -36,7 +38,7 @@ fn fallback_filename(now: chrono::DateTime<chrono::Local>) -> String {
 }
 
 fn validate_document_frontmatter(content: &str) -> std::io::Result<()> {
-    extract_document_metadata(content)
+    extract_document_metadata_tolerant(content)
         .map(|_| ())
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string()))
 }

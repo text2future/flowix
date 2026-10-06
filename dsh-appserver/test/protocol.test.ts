@@ -129,7 +129,7 @@ describe('dsh-appserver protocol', () => {
     const result = await server.dispatch({
       jsonrpc: '2.0', id: 2, method: 'thread/start',
       params: {
-        threadId: 'root', cwd: '/workspace', workspacePaths: ['/workspace', '/notes'],
+        threadId: 'root', cwd: '/workspace',
         provider: 'deepseek', model: 'deepseek-chat', maxTokens: 4096,
         agentPreset: 'standard', permissionMode: 'workspace-write',
       },

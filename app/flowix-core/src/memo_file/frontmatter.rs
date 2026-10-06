@@ -200,7 +200,7 @@ fn extract_legacy_frontmatter_key(content: &str) -> Option<String> {
 }
 
 pub fn extract_frontmatter_properties(content: &str) -> Value {
-    extract_document_metadata(content)
+    extract_document_metadata_tolerant(content)
         .map(|metadata| metadata.properties)
         .unwrap_or_else(|_| Value::Object(Map::new()))
 }
@@ -211,6 +211,7 @@ pub fn extract_frontmatter_properties(content: &str) -> Value {
 pub fn extract_document_metadata(
     content: &str,
 ) -> Result<DocumentMetadata, FrontmatterMetadataError> {
+    validate_raw_document_tag_values(content)?;
     let mut metadata = extract_document_metadata_preserving_invalid_tag_paths(content)?;
     metadata.tags = normalize_document_tag_values(
         &metadata
@@ -231,9 +232,36 @@ pub fn extract_document_metadata(
     Ok(metadata)
 }
 
+fn validate_raw_document_tag_values(content: &str) -> Result<(), FrontmatterMetadataError> {
+    let Some(caps) = FRONTMATTER_RE.captures(content) else {
+        return Ok(());
+    };
+    let inner = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+    if inner.is_empty() {
+        return Ok(());
+    }
+    let parsed = serde_yaml::from_str::<Value>(inner)
+        .map_err(|error| FrontmatterMetadataError::InvalidYaml(error.to_string()))?;
+    let Value::Object(properties) = parsed else {
+        return Err(FrontmatterMetadataError::NonMapping);
+    };
+    match properties.get("tags").or_else(|| properties.get("tag")) {
+        None | Some(Value::Null) => Ok(()),
+        Some(Value::Array(values)) => {
+            for (index, value) in values.iter().enumerate() {
+                if !value.is_string() {
+                    return Err(FrontmatterMetadataError::InvalidTagValue { index });
+                }
+            }
+            Ok(())
+        }
+        Some(_) => Err(FrontmatterMetadataError::InvalidTagsType),
+    }
+}
+
 /// Parse YAML structure and tag value types while preserving legacy tag paths
-/// that no longer satisfy the current path grammar. Mutation paths use this to
-/// avoid an unrelated legacy value blocking deletion of a different tag.
+/// that no longer satisfy the current path grammar. Tag mutation paths use this
+/// to avoid an unrelated legacy value blocking deletion of a different tag.
 pub(crate) fn extract_document_metadata_preserving_invalid_tag_paths(
     content: &str,
 ) -> Result<DocumentMetadata, FrontmatterMetadataError> {
@@ -259,7 +287,9 @@ pub(crate) fn extract_document_metadata_preserving_invalid_tag_paths(
 
     let tag_value = properties.get("tags").or_else(|| properties.get("tag"));
     let tags = match tag_value {
-        None => Vec::new(),
+        // A cleared YAML property may be written as `tags: null` or `tags:`.
+        // Treat it as an empty tag list, preserving all other properties.
+        None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(values)) => values
             .iter()
             .enumerate()
@@ -278,6 +308,53 @@ pub(crate) fn extract_document_metadata_preserving_invalid_tag_paths(
         );
     }
 
+    Ok(DocumentMetadata {
+        properties: Value::Object(properties),
+        tags,
+    })
+}
+
+/// Lenient metadata parser for note indexing and ordinary note editing. It
+/// keeps the whole frontmatter mapping even when a legacy `tags` field has an
+/// unsupported type, while collecting only valid string entries as tags.
+pub(crate) fn extract_document_metadata_tolerant(
+    content: &str,
+) -> Result<DocumentMetadata, FrontmatterMetadataError> {
+    let Some(caps) = FRONTMATTER_RE.captures(content) else {
+        return Ok(DocumentMetadata {
+            properties: Value::Object(Map::new()),
+            tags: Vec::new(),
+        });
+    };
+    let inner = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+    if inner.is_empty() {
+        return Ok(DocumentMetadata {
+            properties: Value::Object(Map::new()),
+            tags: Vec::new(),
+        });
+    }
+    let parsed = serde_yaml::from_str::<Value>(inner)
+        .map_err(|error| FrontmatterMetadataError::InvalidYaml(error.to_string()))?;
+    let Value::Object(mut properties) = parsed else {
+        return Err(FrontmatterMetadataError::NonMapping);
+    };
+    let tag_value = properties.get("tags").or_else(|| properties.get("tag"));
+    let tags: Vec<String> = match tag_value {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(values)) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        Some(_) => Vec::new(),
+    };
+    if properties.contains_key("tags") || properties.contains_key("tag") {
+        properties.remove("tag");
+        properties.insert(
+            "tags".to_string(),
+            Value::Array(tags.iter().cloned().map(Value::String).collect()),
+        );
+    }
     Ok(DocumentMetadata {
         properties: Value::Object(properties),
         tags,
@@ -1093,6 +1170,20 @@ mod tests {
         let error = extract_document_metadata("---\ntags: product\n---\nbody\n").unwrap_err();
         assert!(matches!(error, FrontmatterMetadataError::InvalidTagsType));
     }
+
+    #[test]
+    fn document_metadata_preserves_table_properties_with_null_tags() {
+        for tag_line in ["tags: null", "tags:", "tag: null"] {
+            let input = format!("---\n{tag_line}\n哈哈哈: \"111\"\n测试111日起: 2026-10-13\ntest: hhhhh\n---\nbody\n");
+            let metadata = extract_document_metadata(&input).unwrap();
+            assert!(metadata.tags.is_empty());
+            assert_eq!(metadata.properties["tags"], serde_json::json!([]));
+            assert_eq!(metadata.properties["哈哈哈"], "111");
+            assert_eq!(metadata.properties["测试111日起"], "2026-10-13");
+            assert_eq!(metadata.properties["test"], "hhhhh");
+        }
+    }
+
 
     #[test]
     fn replace_tags_preserves_unrelated_yaml_and_body() {

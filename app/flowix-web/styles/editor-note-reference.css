@@ -34,8 +34,11 @@
   transition: background-color 0.15s ease;
 }
 
-.markdown-editor :is(.tiptap:not(.agent-thread-card__composer-editor), .agent-thread-card__composer-input) .editor-note-reference__card:hover {
+.markdown-editor .tiptap:not(.agent-thread-card__composer-editor) .editor-note-reference__card:hover {
   border-color: transparent;
+}
+
+.markdown-editor :is(.tiptap:not(.agent-thread-card__composer-editor), .agent-thread-card__composer-input) .editor-note-reference__card:hover {
   background: transparent;
   box-shadow: none;
 }

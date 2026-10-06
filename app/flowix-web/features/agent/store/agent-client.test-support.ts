@@ -23,6 +23,8 @@ export function createAgentClientMock(
     externalEvents: vi.fn<AgentClient["externalEvents"]>().mockResolvedValue([]),
     listThreads: vi.fn<AgentClient["listThreads"]>().mockResolvedValue([]),
     listLocalAgentThreads: vi.fn<AgentClient["listLocalAgentThreads"]>().mockResolvedValue([]),
+    listPiThreads: vi.fn<AgentClient["listPiThreads"]>().mockResolvedValue([]),
+    getPiSessionMessages: vi.fn<AgentClient["getPiSessionMessages"]>().mockResolvedValue([]),
     createThread: vi.fn<AgentClient["createThread"]>().mockImplementation(async (title) => ({
       threadId: "thread-created",
       title,

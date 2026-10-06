@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 use base64::Engine;
@@ -11,7 +13,12 @@ use tauri::{State, WebviewWindow};
 
 use crate::config::path_is_inside;
 use crate::lock_utils::read_lock;
-use flowix_core::memo_file::{notebook_path_from_relative, FileManagementPolicy, MemoColor};
+use flowix_core::memo_file::{
+    media_kind_for_path, notebook_path_from_relative, FileManagementPolicy, MediaResourceKind,
+    MemoColor,
+};
+use sha2::{Digest, Sha256};
+use tokio::sync::{Notify, Semaphore};
 
 use super::helpers::{
     can_access_document_path, can_access_scoped_file, is_agent_access_folder,
@@ -250,7 +257,10 @@ fn read_dir_single_level_with_policy(
             let name = entry.file_name().to_string_lossy().to_string();
 
             if let Some((root, rules)) = policy {
-                if path.strip_prefix(root).is_ok_and(|relative| rules.is_tree_hidden_at(root, relative)) {
+                if path
+                    .strip_prefix(root)
+                    .is_ok_and(|relative| rules.is_tree_hidden_at(root, relative))
+                {
                     continue;
                 }
             }
@@ -335,9 +345,14 @@ fn read_dir_single_level_with_policy(
     items
 }
 
-fn notebook_policy_for_path(state: &AppState, path: &Path) -> Option<(std::path::PathBuf, FileManagementPolicy)> {
+fn notebook_policy_for_path(
+    state: &AppState,
+    path: &Path,
+) -> Option<(std::path::PathBuf, FileManagementPolicy)> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let root = memo_file.registered_notebook_paths().into_iter()
+    let root = memo_file
+        .registered_notebook_paths()
+        .into_iter()
         .filter(|root| path.starts_with(root))
         .max_by_key(|root| root.components().count())?;
     let policy = FileManagementPolicy::from_notebook_root(&root);
@@ -373,7 +388,9 @@ pub struct NotebookSettingsTreeEntry {
     pub collapsed: bool,
 }
 
-fn is_false(value: &bool) -> bool { !*value }
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 fn notebook_preferences_path(root: &Path) -> Result<std::path::PathBuf, String> {
     let flowix_dir = root.join(".flowix");
@@ -406,38 +423,66 @@ fn read_notebook_view_preferences(root: &Path) -> NotebookViewPreferences {
     serde_json::from_slice(&bytes).unwrap_or_default()
 }
 
+pub(crate) fn default_create_folder_for_notebook(root: &Path) -> Result<Option<String>, String> {
+    flowix_core::memo_file::default_create_folder_for_notebook(root)
+}
+
 pub(crate) fn migrate_legacy_watcher_rules(
     root: &Path,
     config: &crate::watcher::WhitelistConfig,
 ) -> Result<(), String> {
     static MIGRATION_LOCK: Mutex<()> = Mutex::new(());
-    let _guard = MIGRATION_LOCK.lock().map_err(|_| "FILE_MANAGEMENT_MIGRATION_LOCK_FAILED")?;
+    let _guard = MIGRATION_LOCK
+        .lock()
+        .map_err(|_| "FILE_MANAGEMENT_MIGRATION_LOCK_FAILED")?;
     let mut preferences = read_notebook_view_preferences(root);
-    if preferences.file_management.legacy_watcher_migrated { return Ok(()); }
+    if preferences.file_management.legacy_watcher_migrated {
+        return Ok(());
+    }
     let policy = &mut preferences.file_management;
-    policy.legacy_skip_dirs = config.skip_dirs.iter()
-        .filter(|name| !matches!(name.as_str(), ".flowix" | ".plugin-output" | ".git" | ".DS_Store" | "node_modules" | ".cache" | ".trash" | "attachments" | "attachments-cache"))
-        .cloned().collect();
-    policy.legacy_skip_files = config.skip_files.iter()
-        .filter(|name| !matches!(name.as_str(), "*.tmp" | "*.swp" | "*~" | ".DS_Store" | "Thumbs.db" | "*.bak" | "*.lock"))
-        .cloned().collect();
+    policy.legacy_skip_dirs = config
+        .skip_dirs
+        .iter()
+        .filter(|name| {
+            !matches!(
+                name.as_str(),
+                ".flowix"
+                    | ".plugin-output"
+                    | ".git"
+                    | ".DS_Store"
+                    | "node_modules"
+                    | ".cache"
+                    | ".trash"
+                    | "attachments"
+                    | "attachments-cache"
+            )
+        })
+        .cloned()
+        .collect();
+    policy.legacy_skip_files = config
+        .skip_files
+        .iter()
+        .filter(|name| {
+            !matches!(
+                name.as_str(),
+                "*.tmp" | "*.swp" | "*~" | ".DS_Store" | "Thumbs.db" | "*.bak" | "*.lock"
+            )
+        })
+        .cloned()
+        .collect();
     policy.legacy_watcher_migrated = true;
     let path = notebook_preferences_path(root)?;
     fs::create_dir_all(path.parent().ok_or("INVALID_NOTEBOOK_CONFIG_DIRECTORY")?)
         .map_err(|error| error.to_string())?;
     if !policy.legacy_skip_dirs.is_empty() || !policy.legacy_skip_files.is_empty() {
         flowix_core::memo_file::atomic_write_bytes(
-            &root.join(".flowix/file-management-refresh-pending"), b"pending",
-        ).map_err(|error| error.to_string())?;
+            &root.join(".flowix/file-management-refresh-pending"),
+            b"pending",
+        )
+        .map_err(|error| error.to_string())?;
     }
     let bytes = serde_json::to_vec_pretty(&preferences).map_err(|error| error.to_string())?;
     flowix_core::memo_file::atomic_write_bytes(&path, &bytes).map_err(|error| error.to_string())?;
-    let database = root.join(".flowix/notebook.db");
-    if database.is_file() {
-        if let Ok(connection) = rusqlite::Connection::open(database) {
-            let _ = connection.execute("DELETE FROM document_list_meta WHERE key='version'", []);
-        }
-    }
     Ok(())
 }
 
@@ -488,39 +533,49 @@ pub fn get_notebook_view_preferences(
         return Err("NOTEBOOK_NOT_REGISTERED".to_string());
     }
     migrate_legacy_watcher_rules(root, &state.user_config.get_preference().watcher)?;
-    if root.join(".flowix/file-management-refresh-pending").exists() {
+    if root
+        .join(".flowix/file-management-refresh-pending")
+        .exists()
+    {
         if let Ok(canonical_root) = fs::canonicalize(root) {
             let _ = refresh_file_management_indexes(&canonical_root, &state, &app);
         }
     }
     let mut preferences = read_notebook_view_preferences(root);
-    preferences.refresh_pending = root.join(".flowix/file-management-refresh-pending").exists();
+    preferences.refresh_pending = root
+        .join(".flowix/file-management-refresh-pending")
+        .exists();
     Ok(preferences)
 }
 
-fn refresh_file_management_indexes(root: &Path, state: &AppState, app: &AppHandle) -> Result<(), String> {
+fn refresh_file_management_indexes(
+    root: &Path,
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let notebook = memo_file.read_notebook_configs()
+    let notebook = memo_file
+        .read_notebook_configs()
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|notebook| fs::canonicalize(&notebook.path).ok().as_deref() == Some(root))
         .ok_or("NOTEBOOK_NOT_REGISTERED")?;
-    memo_file.reconcile_note_index(&notebook.id)
+    memo_file
+        .reconcile_note_index(&notebook.id)
         .map_err(|error| format!("refresh note index failed: {error}"))?;
-    memo_file.reconcile_media_resources(&notebook.id)
+    memo_file
+        .reconcile_media_resources(&notebook.id)
         .map_err(|error| format!("refresh media index failed: {error}"))?;
-    let database = memo_file.notebook_db_path(&notebook.id)
-        .map_err(|error| error.to_string())?;
-    let connection = rusqlite::Connection::open(database)
-        .map_err(|error| format!("open document index failed: {error}"))?;
-    connection.execute("DELETE FROM document_list_meta WHERE key='version'", [])
-        .map_err(|error| format!("invalidate document index failed: {error}"))?;
+    crate::commands::document_list::refresh_view_document_catalog_checked(&memo_file, &notebook.id, root)?;
     fs::remove_file(root.join(".flowix/file-management-refresh-pending"))
         .map_err(|error| format!("clear index refresh marker failed: {error}"))?;
-    let _ = app.emit("file-management-changed", serde_json::json!({
-        "notebookId": notebook.id,
-        "notebookPath": root.to_string_lossy(),
-    }));
+    let _ = app.emit(
+        "file-management-changed",
+        serde_json::json!({
+            "notebookId": notebook.id,
+            "notebookPath": root.to_string_lossy(),
+        }),
+    );
     Ok(())
 }
 
@@ -548,18 +603,28 @@ pub fn get_file_management_candidates(
     let policy = read_notebook_view_preferences(root).file_management;
     let defaults = FileManagementPolicy::default();
     let mut pending = vec![root.to_path_buf()];
-    let mut candidates = [".flowix", ".plugin-output"].into_iter()
+    let mut candidates = [".flowix", ".plugin-output"]
+        .into_iter()
         .filter(|name| *name == ".flowix" || root.join(name).exists())
         .map(|name| FileManagementCandidate {
-            relative_path: name.to_string(), is_directory: root.join(name).is_dir(), locked: true,
-        }).collect::<Vec<_>>();
+            relative_path: name.to_string(),
+            is_directory: root.join(name).is_dir(),
+            locked: true,
+        })
+        .collect::<Vec<_>>();
     while let Some(directory) = pending.pop() {
         let entries = fs::read_dir(&directory).map_err(|error| error.to_string())?;
         for entry in entries.flatten() {
             let path = entry.path();
-            let Ok(relative) = path.strip_prefix(root) else { continue; };
-            let Ok(metadata) = fs::symlink_metadata(&path) else { continue; };
-            if metadata.file_type().is_symlink() { continue; }
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let Ok(metadata) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
             let is_directory = metadata.is_dir();
             let name = Path::new(entry.file_name().as_os_str()).to_path_buf();
             let own_name_ignored = defaults.is_ignored(&name)
@@ -593,7 +658,9 @@ fn collect_notebook_folders(
     let entries = fs::read_dir(directory).map_err(|error| error.to_string())?;
     for entry in entries.flatten() {
         let path = entry.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else { continue; };
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             continue;
         }
@@ -601,13 +668,18 @@ fn collect_notebook_folders(
         if name.starts_with('.') || FileManagementPolicy::has_hidden_attribute(&path) {
             continue;
         }
-        let Ok(relative) = path.strip_prefix(root) else { continue; };
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
         if policy.is_ignored_at(root, relative) {
             continue;
         }
         let relative_path = relative.to_string_lossy().replace('\\', "/");
         let depth = relative.components().count();
-        folders.push(NotebookFolderOption { relative_path, depth });
+        folders.push(NotebookFolderOption {
+            relative_path,
+            depth,
+        });
         collect_notebook_folders(root, &path, policy, folders)?;
     }
     Ok(())
@@ -638,9 +710,15 @@ fn collect_notebook_settings_tree(
     let children = fs::read_dir(directory).map_err(|error| error.to_string())?;
     for child in children.flatten() {
         let path = child.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else { continue; };
-        if metadata.file_type().is_symlink() { continue; }
-        let Ok(relative) = path.strip_prefix(root) else { continue; };
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
         let relative_path = relative.to_string_lossy().replace('\\', "/");
         let hidden = policy.is_tree_hidden_at(root, relative);
         let default_hidden = FileManagementPolicy::default().is_ignored_at(root, relative)
@@ -653,12 +731,22 @@ fn collect_notebook_settings_tree(
                 || relative_path == ".plugin-output"
                 || relative_path.starts_with(".flowix/")
                 || relative_path.starts_with(".plugin-output/");
-            entries.push(NotebookSettingsTreeEntry { relative_path, is_directory: true, locked, hidden, default_hidden, collapsed });
+            entries.push(NotebookSettingsTreeEntry {
+                relative_path,
+                is_directory: true,
+                locked,
+                hidden,
+                default_hidden,
+                collapsed,
+            });
             if !collapsed {
                 collect_notebook_settings_tree(root, &path, policy, entries)?;
             }
         } else if relative.components().count() == 1
-            && matches!(child.file_name().to_string_lossy().as_ref(), "AGENTS.md" | ".DS_Store")
+            && matches!(
+                child.file_name().to_string_lossy().as_ref(),
+                "AGENTS.md" | ".DS_Store"
+            )
         {
             entries.push(NotebookSettingsTreeEntry {
                 relative_path,
@@ -714,9 +802,15 @@ pub fn set_notebook_view_preferences(
     let preferences = NotebookViewPreferences {
         default_create_folder: normalize_default_create_folder(preferences.default_create_folder)?,
         file_management: FileManagementPolicy {
-            included_paths: normalize_relative_folder_paths(preferences.file_management.included_paths)?,
-            hidden_paths: normalize_relative_folder_paths(preferences.file_management.hidden_paths)?,
-            excluded_index_paths: normalize_excluded_index_paths(preferences.file_management.excluded_index_paths)?,
+            included_paths: normalize_relative_folder_paths(
+                preferences.file_management.included_paths,
+            )?,
+            hidden_paths: normalize_relative_folder_paths(
+                preferences.file_management.hidden_paths,
+            )?,
+            excluded_index_paths: normalize_excluded_index_paths(
+                preferences.file_management.excluded_index_paths,
+            )?,
             legacy_skip_dirs: previous_policy.legacy_skip_dirs.clone(),
             legacy_skip_files: previous_policy.legacy_skip_files.clone(),
             legacy_watcher_migrated: previous_policy.legacy_watcher_migrated,
@@ -725,8 +819,10 @@ pub fn set_notebook_view_preferences(
     };
     let bytes = serde_json::to_vec_pretty(&preferences)
         .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
-    let tree_visibility_changed = previous_policy.hidden_paths != preferences.file_management.hidden_paths;
-    let default_create_folder_changed = previous_preferences.default_create_folder != preferences.default_create_folder;
+    let tree_visibility_changed =
+        previous_policy.hidden_paths != preferences.file_management.hidden_paths;
+    let default_create_folder_changed =
+        previous_preferences.default_create_folder != preferences.default_create_folder;
     let refresh_marker = root.join(".flowix/file-management-refresh-pending");
     if previous_policy.included_paths != preferences.file_management.included_paths
         || previous_policy.excluded_index_paths != preferences.file_management.excluded_index_paths
@@ -737,14 +833,35 @@ pub fn set_notebook_view_preferences(
     flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
         .map_err(|error| format!("write notebook preferences failed: {error}"))?;
     if tree_visibility_changed || default_create_folder_changed {
-        let _ = app.emit("notebook-view-preferences-changed", serde_json::json!({
-            "notebookPath": notebook_path,
-            "treeVisibilityChanged": tree_visibility_changed,
-            "defaultCreateFolderChanged": default_create_folder_changed,
-        }));
+        let _ = app.emit(
+            "notebook-view-preferences-changed",
+            serde_json::json!({
+                "notebookPath": notebook_path,
+                "treeVisibilityChanged": tree_visibility_changed,
+                "defaultCreateFolderChanged": default_create_folder_changed,
+            }),
+        );
     }
-    if refresh_marker.exists() {
+    let refresh_indexes = refresh_marker.exists();
+    if refresh_indexes {
         refresh_file_management_indexes(&root, &state, &app)?;
+    }
+    if tree_visibility_changed && !refresh_indexes {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        if let Some(notebook) = memo_file
+            .read_notebook_configs()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|notebook| {
+                dunce::canonicalize(&notebook.path).ok().as_deref() == Some(root.as_path())
+            })
+        {
+            crate::commands::document_list::refresh_view_document_catalog_checked(
+                &memo_file,
+                &notebook.id,
+                &root,
+            )?;
+        }
     }
     Ok(())
 }
@@ -773,10 +890,7 @@ fn normalize_default_create_folder(folder: Option<String>) -> Result<Option<Stri
 // ==================== IPC ====================
 
 #[tauri::command]
-pub fn get_file_tree(
-    space_path: String,
-    state: State<AppState>,
-) -> Option<Vec<DocTreeItem>> {
+pub fn get_file_tree(space_path: String, state: State<AppState>) -> Option<Vec<DocTreeItem>> {
     let path = Path::new(&space_path);
     start_security_bookmark_access(&state, path);
     if !path.exists()
@@ -790,15 +904,14 @@ pub fn get_file_tree(
     Some(read_dir_single_level_with_policy(
         path,
         memo_metadata.as_ref(),
-        notebook_policy.as_ref().map(|(root, policy)| (root.as_path(), policy)),
+        notebook_policy
+            .as_ref()
+            .map(|(root, policy)| (root.as_path(), policy)),
     ))
 }
 
 #[tauri::command]
-pub fn get_dir_children(
-    dir_path: String,
-    state: State<AppState>,
-) -> Vec<DocTreeItem> {
+pub fn get_dir_children(dir_path: String, state: State<AppState>) -> Vec<DocTreeItem> {
     let path = Path::new(&dir_path);
     start_security_bookmark_access(&state, path);
     if !path.exists()
@@ -812,7 +925,9 @@ pub fn get_dir_children(
     read_dir_single_level_with_policy(
         path,
         memo_metadata.as_ref(),
-        notebook_policy.as_ref().map(|(root, policy)| (root.as_path(), policy)),
+        notebook_policy
+            .as_ref()
+            .map(|(root, policy)| (root.as_path(), policy)),
     )
 }
 
@@ -876,6 +991,349 @@ pub fn read_image_file(
     ))
 }
 
+/// Read a downscaled JPEG preview for an in-scope raster image. The full-size
+/// image remains unloaded until the user opens the media resource.
+#[tauri::command]
+pub fn read_image_preview(
+    file_path: String,
+    space_path: Option<String>,
+    state: State<AppState>,
+) -> Option<String> {
+    let path = Path::new(&file_path);
+    if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
+        return None;
+    }
+    start_security_bookmark_access(&state, path);
+    let bytes = fs::read(path).ok()?;
+    let preview = image::load_from_memory(&bytes).ok()?.thumbnail(640, 640).to_rgb8();
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 76)
+        .encode_image(&preview)
+        .ok()?;
+    Some(format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(jpeg)
+    ))
+}
+
+const MEDIA_PREVIEW_CONCURRENCY: usize = 2;
+const MEDIA_PREVIEW_CACHE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
+static MEDIA_PREVIEW_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static MEDIA_PREVIEW_CACHE_WRITES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static MEDIA_PREVIEW_TEMP_SEQUENCE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static MEDIA_PREVIEW_PRUNE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static MEDIA_PREVIEW_REQUESTS: OnceLock<Mutex<HashMap<String, Arc<MediaPreviewCancellation>>>> =
+    OnceLock::new();
+
+struct MediaPreviewCancellation {
+    cancelled: AtomicBool,
+    notify: Notify,
+}
+
+impl MediaPreviewCancellation {
+    fn new() -> Self {
+        Self { cancelled: AtomicBool::new(false), notify: Notify::new() }
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.notify.notify_one();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+}
+
+/// Generate or reuse a small image/video thumbnail on a bounded blocking pool.
+/// The command returns a cache file path so the WebView loads the bytes through
+/// the asset protocol instead of transferring base64 data over IPC.
+#[tauri::command]
+pub async fn get_media_thumbnail(
+    file_path: String,
+    space_path: Option<String>,
+    kind: String,
+    request_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    if request_id.is_empty() || request_id.len() > 128 {
+        return Err("invalid media preview request id".to_string());
+    }
+    let path = dunce::canonicalize(&file_path).map_err(|error| error.to_string())?;
+    if !can_access_scoped_file(&path, space_path.as_deref(), &state) || !path.is_file() {
+        return Err("media path is outside the permitted scope".to_string());
+    }
+    let actual_kind = media_kind_for_path(&path);
+    let is_image = kind == "image" && actual_kind == Some(MediaResourceKind::Image);
+    let is_video = kind == "video" && actual_kind == Some(MediaResourceKind::Video);
+    if !is_image && !is_video {
+        return Err("unsupported media thumbnail kind".to_string());
+    }
+    start_security_bookmark_access(&state, &path);
+
+    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let identity = format!("v1:{}:{}:{}:{}", path.display(), metadata.len(), modified_ns, kind);
+    let digest = format!("{:x}", Sha256::digest(identity.as_bytes()));
+    let cache_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?
+        .join("media-thumbnails");
+    let cache_path = cache_root.join(format!("{digest}.jpg"));
+    if cache_path.is_file() {
+        return Ok(Some(cache_path.to_string_lossy().into_owned()));
+    }
+
+    let cancellation = Arc::new(MediaPreviewCancellation::new());
+    MEDIA_PREVIEW_REQUESTS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "media preview request registry poisoned".to_string())?
+        .insert(request_id.clone(), cancellation.clone());
+
+    let slots = MEDIA_PREVIEW_SLOTS
+        .get_or_init(|| Arc::new(Semaphore::new(MEDIA_PREVIEW_CONCURRENCY)))
+        .clone();
+    let acquire = slots.acquire_owned();
+    tokio::pin!(acquire);
+    let notified = cancellation.notify.notified();
+    tokio::pin!(notified);
+    let permit = tokio::select! {
+        result = &mut acquire => result.map_err(|error| format!("media preview queue closed: {error}"))?,
+        _ = &mut notified => {
+            remove_media_preview_request(&request_id, &cancellation);
+            return Ok(None);
+        }
+    };
+    if cancellation.is_cancelled() {
+        remove_media_preview_request(&request_id, &cancellation);
+        return Ok(None);
+    }
+    let output = cache_path.clone();
+    let worker_cancellation = cancellation.clone();
+    let join_result = tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        let _permit = permit;
+        if worker_cancellation.is_cancelled() { return Ok(false); }
+        if output.is_file() {
+            return Ok(true);
+        }
+        fs::create_dir_all(&cache_root).map_err(|error| error.to_string())?;
+        let generated = if is_image {
+            write_image_thumbnail(&path, &output, &worker_cancellation)
+        } else {
+            write_video_thumbnail(&path, &output, &worker_cancellation)
+        }?;
+        if generated {
+            let writes = MEDIA_PREVIEW_CACHE_WRITES.fetch_add(1, Ordering::Relaxed) + 1;
+            if writes % 32 == 0 {
+                prune_media_thumbnail_cache(&cache_root);
+            }
+        }
+        Ok(generated)
+    })
+    .await;
+    remove_media_preview_request(&request_id, &cancellation);
+    let result = join_result.map_err(|error| format!("media preview task failed: {error}"))??;
+
+    Ok(result.then(|| cache_path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn cancel_media_thumbnail(request_id: String) {
+    let Some(requests) = MEDIA_PREVIEW_REQUESTS.get() else { return; };
+    if let Ok(requests) = requests.lock() {
+        if let Some(request) = requests.get(&request_id) { request.cancel(); }
+    }
+}
+
+fn remove_media_preview_request(request_id: &str, expected: &Arc<MediaPreviewCancellation>) {
+    let Some(requests) = MEDIA_PREVIEW_REQUESTS.get() else { return; };
+    if let Ok(mut requests) = requests.lock() {
+        if requests.get(request_id).is_some_and(|current| Arc::ptr_eq(current, expected)) {
+            requests.remove(request_id);
+        }
+    }
+}
+
+fn write_image_thumbnail(
+    source: &Path,
+    output: &Path,
+    cancellation: &MediaPreviewCancellation,
+) -> Result<bool, String> {
+    let bytes = fs::read(source).map_err(|error| error.to_string())?;
+    if cancellation.is_cancelled() { return Ok(false); }
+    let image = image::load_from_memory(&bytes).map_err(|error| error.to_string())?;
+    if cancellation.is_cancelled() { return Ok(false); }
+    let preview = image.thumbnail(640, 640).to_rgb8();
+    write_thumbnail_jpeg(output, &preview, 76, cancellation)
+}
+
+fn write_video_thumbnail(
+    source: &Path,
+    output: &Path,
+    cancellation: &MediaPreviewCancellation,
+) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let mut child = std::process::Command::new("/usr/bin/qlmanage")
+            .args(["-t", "-s", "480", "-o"])
+            .arg(directory.path())
+            .arg(source)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        let started = std::time::Instant::now();
+        let status = loop {
+            if cancellation.is_cancelled() {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(false);
+            }
+            if started.elapsed() >= Duration::from_secs(8) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(false);
+            }
+            if let Some(status) = child.try_wait().map_err(|error| error.to_string())? { break status; }
+            std::thread::sleep(Duration::from_millis(60));
+        };
+        if !status.success() || cancellation.is_cancelled() {
+            return Ok(false);
+        }
+        let thumbnail = fs::read_dir(directory.path())
+            .map_err(|error| error.to_string())?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|candidate| candidate.extension().is_some_and(|extension| extension == "png"));
+        let Some(thumbnail) = thumbnail else { return Ok(false); };
+        let bytes = fs::read(thumbnail).map_err(|error| error.to_string())?;
+        if cancellation.is_cancelled() { return Ok(false); }
+        let image = image::load_from_memory(&bytes)
+            .map_err(|error| error.to_string())?
+            .thumbnail(480, 480)
+            .to_rgb8();
+        return write_thumbnail_jpeg(output, &image, 72, cancellation);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (source, output, cancellation);
+        Ok(false)
+    }
+}
+
+fn write_thumbnail_jpeg(
+    output: &Path,
+    image: &image::RgbImage,
+    quality: u8,
+    cancellation: &MediaPreviewCancellation,
+) -> Result<bool, String> {
+    if cancellation.is_cancelled() { return Ok(false); }
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality)
+        .encode_image(image)
+        .map_err(|error| error.to_string())?;
+    if cancellation.is_cancelled() { return Ok(false); }
+    let nonce = MEDIA_PREVIEW_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = output.with_extension(format!("{nonce}.tmp"));
+    fs::write(&temporary, jpeg).map_err(|error| error.to_string())?;
+    match fs::rename(&temporary, output) {
+        Ok(()) => Ok(true),
+        Err(_error) if output.is_file() => {
+            let _ = fs::remove_file(temporary);
+            Ok(true)
+        }
+        Err(error) => {
+            let _ = fs::remove_file(temporary);
+            Err(error.to_string())
+        }
+    }
+}
+
+fn prune_media_thumbnail_cache(cache_root: &Path) {
+    let lock = MEDIA_PREVIEW_PRUNE_LOCK.get_or_init(|| Mutex::new(()));
+    let Ok(_guard) = lock.lock() else { return; };
+    let Ok(entries) = fs::read_dir(cache_root) else { return; };
+    let mut files: Vec<(SystemTime, u64, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            metadata.is_file().then(|| (
+                metadata.modified().unwrap_or(UNIX_EPOCH),
+                metadata.len(),
+                entry.path(),
+            ))
+        })
+        .collect();
+    let total = files.iter().map(|(_, size, _)| *size).sum::<u64>();
+    if total <= MEDIA_PREVIEW_CACHE_LIMIT_BYTES { return; }
+    files.sort_by_key(|(modified, _, _)| *modified);
+    let mut retained = total;
+    for (_, size, path) in files {
+        if retained <= MEDIA_PREVIEW_CACHE_LIMIT_BYTES { break; }
+        if fs::remove_file(path).is_ok() { retained = retained.saturating_sub(size); }
+    }
+}
+
+/// Read a temporary Quick Look thumbnail for an in-scope video file.
+#[tauri::command]
+pub fn read_video_preview(
+    file_path: String,
+    space_path: Option<String>,
+    state: State<AppState>,
+) -> Option<String> {
+    let path = Path::new(&file_path);
+    if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
+        eprintln!("[read_video_preview] refused file: {}", file_path);
+        return None;
+    }
+    start_security_bookmark_access(&state, path);
+
+    #[cfg(target_os = "macos")]
+    {
+        let directory = tempfile::tempdir().ok()?;
+        let output = std::process::Command::new("/usr/bin/qlmanage")
+            .args(["-t", "-s", "480", "-o"])
+            .arg(directory.path())
+            .arg(path)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let thumbnail = fs::read_dir(directory.path())
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|candidate| candidate.extension().is_some_and(|extension| extension == "png"))?;
+        let bytes = fs::read(thumbnail).ok()?;
+        let preview = image::load_from_memory(&bytes).ok()?.thumbnail(480, 480).to_rgb8();
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 72)
+            .encode_image(&preview)
+            .ok()?;
+        return Some(format!(
+            "data:image/jpeg;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(jpeg)
+        ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 #[tauri::command]
 pub fn write_file(
     file_path: String,
@@ -894,6 +1352,7 @@ pub fn write_file(
     let saved = memo_file.write_file(path, content.as_bytes()).is_ok();
     if saved {
         refresh_notebook_note_index(&memo_file, path);
+        crate::commands::document_list::refresh_view_document_path(&memo_file, path);
     }
     saved
 }
@@ -910,6 +1369,7 @@ pub fn delete_file(file_path: String, space_path: Option<String>, state: State<A
     let deleted = memo_file.delete_file(path).is_ok();
     if deleted {
         refresh_notebook_note_index(&memo_file, path);
+        crate::commands::document_list::refresh_view_document_path(&memo_file, path);
     }
     deleted
 }
@@ -950,6 +1410,11 @@ pub fn delete_folder(folder_path: String, space_path: String, state: State<AppSt
             if let Err(error) = memo_file.reconcile_note_index(&notebook.id) {
                 tracing::warn!(notebook_id = %notebook.id, "V2 index refresh after folder deletion failed: {error}");
             }
+            crate::commands::document_list::refresh_view_document_catalog(
+                &memo_file,
+                &notebook.id,
+                &canonical_scope,
+            );
         }
     }
     deleted
@@ -989,6 +1454,13 @@ fn rename_path_and_notify(
     state: &AppState,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
+    let source_was_directory = source.is_dir();
+    let source_was_markdown = source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown")
+        });
     let mf = read_lock(&state.memo_file, "memo_file");
     let changes = mf
         .rename_indexed_path(source, target)
@@ -1005,10 +1477,55 @@ fn rename_path_and_notify(
             if let Err(error) = mf.reconcile_note_index(&config.id) {
                 tracing::warn!(notebook_id = %config.id, "V2 index refresh after folder move failed: {error}");
             }
+            if let Ok(root) = dunce::canonicalize(&config.path) {
+                crate::commands::document_list::refresh_view_document_catalog(
+                    &mf, &config.id, &root,
+                );
+            }
         }
     } else {
         refresh_notebook_note_index(&mf, source);
         refresh_notebook_note_index(&mf, target);
+        crate::commands::document_list::refresh_view_document_path(&mf, source);
+        crate::commands::document_list::refresh_view_document_path(&mf, target);
+    }
+    let target_is_markdown = target
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown")
+        });
+    if source_was_directory || (source_was_markdown && target_is_markdown) {
+        crate::commands::document_list::rebase_table_note_paths_for_move(&mf, source, target);
+        if let Some((notebook_id, relative_path, previous_path)) = mf
+            .read_notebook_configs()
+            .unwrap_or_default()
+            .into_iter()
+            .find_map(|notebook| {
+                let root = dunce::canonicalize(&notebook.path).ok()?;
+                let relative = target.strip_prefix(&root).ok()?;
+                let previous = source
+                    .strip_prefix(&root)
+                    .ok()
+                    .map(|path| path.to_string_lossy().replace('\\', "/"));
+                Some((
+                    notebook.id,
+                    relative.to_string_lossy().replace('\\', "/"),
+                    previous,
+                ))
+            })
+        {
+            let _ = app.emit(
+                "flowix:path-note-changed",
+                serde_json::json!({
+                    "notebookId": notebook_id,
+                    "relativePath": relative_path,
+                    "previousRelativePath": previous_path,
+                    "kind": "path",
+                    "deleted": false,
+                }),
+            );
+        }
     }
     for (notebook_id, before, memo) in changes {
         let Some(config) = mf.get_notebook_config_by_id(&notebook_id) else {
@@ -1031,17 +1548,34 @@ fn rename_path_and_notify(
         );
     }
     let notebooks = mf.read_notebook_configs().unwrap_or_default();
-    let address_for = |path: &Path| notebooks.iter().find_map(|notebook| {
-        let relative = path.strip_prefix(Path::new(&notebook.path)).ok()?;
-        Some((notebook.id.clone(), relative.to_string_lossy().replace('\\', "/")))
-    });
+    let address_for = |path: &Path| {
+        notebooks.iter().find_map(|notebook| {
+            let relative = path.strip_prefix(Path::new(&notebook.path)).ok()?;
+            Some((
+                notebook.id.clone(),
+                relative.to_string_lossy().replace('\\', "/"),
+            ))
+        })
+    };
     let rebase = address_for(source).zip(address_for(target));
     drop(mf);
     if let Some(((old_notebook_id, old_relative), (new_notebook_id, new_relative))) = rebase {
-        state.thread_manager.rebase_agent_note_paths(
-            &old_notebook_id, &new_notebook_id, &old_relative, &new_relative,
-            &source.to_string_lossy(), &target.to_string_lossy(),
-        ).map_err(|error| error.to_string())?;
+        if let Err(error) = state.thread_manager.rebase_agent_note_paths(
+            &old_notebook_id,
+            &new_notebook_id,
+            &old_relative,
+            &new_relative,
+            &source.to_string_lossy(),
+            &target.to_string_lossy(),
+        ) {
+            tracing::warn!(
+                old_notebook_id = %old_notebook_id,
+                new_notebook_id = %new_notebook_id,
+                old_relative = %old_relative,
+                new_relative = %new_relative,
+                "note was renamed but agent note references could not be rebased: {error}"
+            );
+        }
     }
     Ok(())
 }
@@ -1516,11 +2050,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![".codex"]
         );
-        let hidden_children = read_dir_single_level_with_policy(
-            &hidden,
-            None,
-            Some((directory.path(), &policy)),
-        );
+        let hidden_children =
+            read_dir_single_level_with_policy(&hidden, None, Some((directory.path(), &policy)));
         assert_eq!(hidden_children[0].name, "skill.md");
     }
 

@@ -46,11 +46,23 @@ pub struct CreatedPathDocumentResult {
     entry: flowix_core::memo_file::NoteEntry,
 }
 
+fn default_parent_relative_path(
+    memo_file: &MemoFile,
+    notebook_id: &str,
+) -> Result<Option<String>, flowix_core::FlowixError> {
+    let Some(notebook) = memo_file.get_notebook_config_by_id(notebook_id) else {
+        return Ok(None);
+    };
+    crate::commands::file::default_create_folder_for_notebook(Path::new(&notebook.path))
+        .map_err(flowix_core::FlowixError::InvalidInput)
+}
+
 #[tauri::command]
 pub async fn add_path_document(
     tag: Option<String>,
     title: Option<String>,
     notebook_id: String,
+    // None uses the notebook's default create folder; Some("") explicitly uses its root.
     parent_relative_path: Option<String>,
     app: AppHandle,
 ) -> Result<CreatedPathDocumentResult, MemoCreateError> {
@@ -63,8 +75,13 @@ pub async fn add_path_document(
                 .map_err(|error| flowix_core::FlowixError::InvalidInput(error.to_string()))?,
             None => String::new(),
         };
-        let created = NoteService::new(&read_lock(&state.memo_file, "memo_file"))
-            .create(&notebook_id, parent_relative_path.as_deref(), &title, &body)?;
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let effective_parent = match parent_relative_path {
+            Some(parent) => Some(parent),
+            None => default_parent_relative_path(&memo_file, &notebook_id)?,
+        };
+        let created = NoteService::new(&memo_file)
+            .create(&notebook_id, effective_parent.as_deref(), &title, &body)?;
         mark_self_write_for(&app, &created.path);
         Ok::<_, MemoCreateError>(CreatedPathDocumentResult {
             notebook_id: created.notebook.id,
@@ -226,8 +243,11 @@ pub fn create_path_from_template(
     let content = fs::read_to_string(&path).map_err(|e| format!("read template failed: {e}"))?;
     let body = extract_body_content(&content);
     let title = template_name_from_path(&path);
-    let created = NoteService::new(&read_lock(&state.memo_file, "memo_file"))
-        .create(&notebook_id, None, &title, body)
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let parent = default_parent_relative_path(&memo_file, &notebook_id)
+        .map_err(|error| error.to_string())?;
+    let created = NoteService::new(&memo_file)
+        .create(&notebook_id, parent.as_deref(), &title, body)
         .map_err(|e| e.to_string())?;
     mark_self_write_for(&app, &created.path);
     Ok(CreatedPathDocumentResult {
@@ -250,8 +270,11 @@ pub fn import_external_document_by_path(
 ) -> Result<CreatedPathDocumentResult, String> {
     let title = Path::new(&file_path).file_stem().and_then(|stem| stem.to_str())
         .unwrap_or("imported");
-    let created = NoteService::new(&read_lock(&state.memo_file, "memo_file"))
-        .create(&notebook_id, None, title, &content)
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let parent = default_parent_relative_path(&memo_file, &notebook_id)
+        .map_err(|error| error.to_string())?;
+    let created = NoteService::new(&memo_file)
+        .create(&notebook_id, parent.as_deref(), title, &content)
         .map_err(|error| error.to_string())?;
     mark_self_write_for(&app, &created.path);
     Ok(CreatedPathDocumentResult {
@@ -1129,10 +1152,31 @@ pub fn move_memo_to_directory(
         });
         (moved, before, compatibility_memo, relative_path, original.path)
     };
-    state.thread_manager.rebase_agent_note_paths(
+    {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        crate::commands::document_list::rebase_table_note_paths(
+            &memo_file,
+            &notebook_id,
+            &old_relative,
+            &moved.entry.relative_path,
+        );
+    }
+    if let Err(error) = state.thread_manager.rebase_agent_note_paths(
         &notebook_id, &notebook_id, &old_relative, &moved.entry.relative_path,
         &old_path.to_string_lossy(), &moved.path.to_string_lossy(),
-    ).map_err(|error| error.to_string())?;
+    ) {
+        tracing::warn!(
+            notebook_id = %notebook_id,
+            old_relative = %old_relative,
+            new_relative = %moved.entry.relative_path,
+            "note was moved but agent note references could not be rebased: {error}"
+        );
+    }
+    let _ = app.emit("flowix:path-note-changed", serde_json::json!({
+        "notebookId": notebook_id.clone(),
+        "relativePath": moved.entry.relative_path.clone(),
+        "deleted": false,
+    }));
     if let Some(memo) = compatibility_memo.as_ref() {
         let derived_changed = MemoDerivedChanged::from_memos(before.as_ref(), memo);
         emit_updated_memo_event(
@@ -1231,10 +1275,26 @@ fn rename_memo_title_blocking(
         mark_self_write_for(&app, &renamed.path);
         (renamed, relative_path, original.path)
     };
-    state.thread_manager.rebase_agent_note_paths(
+    {
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        crate::commands::document_list::rebase_table_note_paths(
+            &memo_file,
+            &renamed.notebook.id,
+            &old_relative,
+            &renamed.entry.relative_path,
+        );
+    }
+    if let Err(error) = state.thread_manager.rebase_agent_note_paths(
         &renamed.notebook.id, &renamed.notebook.id, &old_relative, &renamed.entry.relative_path,
         &old_path.to_string_lossy(), &renamed.path.to_string_lossy(),
-    ).map_err(|error| error.to_string())?;
+    ) {
+        tracing::warn!(
+            notebook_id = %renamed.notebook.id,
+            old_relative = %old_relative,
+            new_relative = %renamed.entry.relative_path,
+            "note was renamed but agent note references could not be rebased: {error}"
+        );
+    }
     let path = renamed.path.to_string_lossy().into_owned();
     let _ = app.emit("flowix:path-note-changed", serde_json::json!({
         "notebookId": renamed.notebook.id,

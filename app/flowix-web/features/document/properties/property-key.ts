@@ -4,6 +4,8 @@ const KNOWN_PROPERTY_KEYS: Readonly<Record<string, string>> = {
   type: 'type',
   kind: 'type',
   leixing: 'type',
+  shifou: 'boolean',
+  'shi-fou': 'boolean',
   icon: 'icon',
   tubiao: 'icon',
   'ref-url': 'ref-url',

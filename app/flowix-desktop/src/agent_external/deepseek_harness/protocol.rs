@@ -28,7 +28,6 @@ pub fn app_thread_start_request(
     id: u64,
     flowix_thread_id: &str,
     cwd: &str,
-    workspace_paths: &[String],
     provider: &str,
     model: &str,
     agent_preset: &str,
@@ -42,7 +41,7 @@ pub fn app_thread_start_request(
             // The App Server owns the DSH session identity. `flowixThreadId`
             // is correlation metadata only; it must never be reused as the
             // provider-owned `threadId`/session id.
-            "flowixThreadId": flowix_thread_id, "cwd": cwd, "workspacePaths": workspace_paths,
+            "flowixThreadId": flowix_thread_id, "cwd": cwd,
             "provider": provider, "model": model, "agentPreset": agent_preset,
             "permissionMode": permission_mode
         }
@@ -62,7 +61,8 @@ pub fn app_thread_resume_request(
         "id": id,
         "method": "thread/resume",
         "params": {
-            "threadId": thread_id, "provider": provider, "model": model,
+            "threadId": thread_id,
+            "provider": provider, "model": model,
             "agentPreset": agent_preset, "permissionMode": permission_mode
         }
     })
@@ -1131,7 +1131,6 @@ mod tests {
             2,
             "thread-1",
             "/tmp",
-            &["/tmp".to_string()],
             "deepseek",
             "deepseek-chat",
             "standard",

@@ -1,6 +1,6 @@
 //! Thread IPC ── 对话线程 CRUD。
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::agent_history::ExternalRuntimeKind;
 use crate::agent_session::{
@@ -59,6 +59,36 @@ pub async fn local_agent_thread_list(
         .list_threads_by_agent(&agent_type)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn pi_thread_list(state: State<'_, AppState>) -> Result<Vec<ThreadInfo>, String> {
+    state
+        .thread_manager
+        .list_external_threads("pi")
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn pi_thread_get_messages(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    state.pi.get_session_messages(&app, &thread_id).await
+}
+
+#[tauri::command]
+pub async fn pi_thread_session_id(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    state
+        .thread_manager
+        .get_external_session(&thread_id, "pi")
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

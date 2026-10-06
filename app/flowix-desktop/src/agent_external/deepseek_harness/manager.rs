@@ -675,7 +675,6 @@ impl DeepSeekHarnessManager {
                 host.next_request_id(),
                 thread_id,
                 &cwd.to_string_lossy(),
-                &message.workspace_paths_for_runtime(AGENT_TYPE),
                 &runtime_config.provider,
                 &runtime_config.model,
                 agent_preset,
@@ -784,7 +783,6 @@ impl DeepSeekHarnessManager {
                     host.next_request_id(),
                     thread_id,
                     &cwd.to_string_lossy(),
-                    &message.workspace_paths_for_runtime(AGENT_TYPE),
                     &runtime_config.provider,
                     &runtime_config.model,
                     agent_preset,
@@ -822,10 +820,7 @@ impl DeepSeekHarnessManager {
         // Keep the Flowix local id only as the projection destination below.
         let turn_input = self.turn_input(message).await?;
         let mut events = host.subscribe(&session_id, run_id).await;
-        // Workspace roots are already passed through runtime.ensure and
-        // DSH_WORKSPACE_ROOTS. Do not append a human-readable workspace block
-        // to the user prompt: it becomes part of the persisted user message
-        // and leaks internal Flowix context into the transcript.
+        // Keep workspace metadata out of the persisted user message.
         let start =
             protocol::app_turn_start_request(host.next_request_id(), &session_id, turn_input);
         if let Err(error) = host.request(start).await {

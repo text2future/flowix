@@ -294,23 +294,9 @@
 .slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:hover,
 .slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:focus-visible,
 .slash-menu-item.is-selected {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
-}
-
-/* 智能体 SVG 有两种渲染方式: 品牌图标是 img, 主题自适应图标是 mask。
- * slash item 进入品牌色背景后，两者都统一显示为白色。 */
-.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:hover .slash-menu-agent-icon > img,
-.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:focus-visible .slash-menu-agent-icon > img,
-.slash-menu-item.is-selected .slash-menu-agent-icon > img {
-  filter: brightness(0) invert(1);
-}
-
-.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:hover .slash-menu-agent-icon .agent-icon--masked,
-.slash-menu-dropdown:not(.is-keyboard-navigation) .slash-menu-item:focus-visible .slash-menu-agent-icon .agent-icon--masked,
-.slash-menu-item.is-selected .slash-menu-agent-icon .agent-icon--masked {
-  background-color: #fff;
 }
 
 .slash-menu-item-label {
@@ -363,8 +349,8 @@
 
 .slash-menu-empty--cta:hover,
 .slash-menu-empty--cta:focus-visible {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -495,8 +481,8 @@
 .mention-note-dropdown:not(.is-keyboard-navigation) .mention-note-item:hover,
 .mention-note-dropdown:not(.is-keyboard-navigation) .mention-note-item:focus-visible,
 .mention-note-dropdown .mention-note-item.is-selected {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -530,7 +516,7 @@
 .mention-note-dropdown:not(.is-keyboard-navigation) .mention-note-item:hover .mention-tag-separator,
 .mention-note-dropdown:not(.is-keyboard-navigation) .mention-note-item:focus-visible .mention-tag-separator,
 .mention-note-dropdown .mention-note-item.is-selected .mention-tag-separator {
-  color: var(--primary-foreground);
+  color: var(--foreground);
 }
 
 .mention-tag-title {
@@ -624,7 +610,7 @@
 
 .mention-note-dropdown .mention-note-more:hover,
 .mention-note-dropdown .mention-note-more:focus-visible {
-  background: var(--brand);
-  color: var(--primary-foreground);
+  background: var(--hover-bg);
+  color: var(--foreground);
   outline: none;
 }

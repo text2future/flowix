@@ -20,7 +20,6 @@ impl SyncManager {
 
     pub fn state(&self) -> Result<CloudState, SyncError> {
         Ok(CloudState {
-            enabled: self.store.enabled()?,
             authenticated: self
                 .session
                 .read()
@@ -38,11 +37,6 @@ impl SyncManager {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone(),
         })
-    }
-
-    pub fn set_enabled(&self, enabled: bool) -> Result<CloudState, SyncError> {
-        self.store.set_enabled(enabled)?;
-        self.state()
     }
 
     /// Returns the currently rotated refresh token for persistence by the

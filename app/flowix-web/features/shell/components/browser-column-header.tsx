@@ -1,24 +1,24 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { Check, ChevronDown, ChevronRight, Code2, File as FileIcon, FileText, Folder, Globe, MessageSquare, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Code2, FileText, FilePlus2, Folder, Globe, MessageCirclePlus, X } from 'lucide-react';
+import { NotebookTreeFileIcon } from '@features/memo/public/shell-api';
 import {
   canMoveBrowserColumnTargetToWorkColumn,
   type BrowserColumnTab,
 } from '@features/workspace/public/browser-column-api';
 import {
   AgentThreadCardFullscreenExitButton,
-  getDocumentEditorMode,
   useDocumentEditorMode,
   useFullscreenAgentThreadCardInfo,
 } from '@features/document/public/shell-api';
 import { AgentIcon } from '@features/agent/public/shell-api';
+import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import type { BrowserColumnSurfaceChrome } from '@features/surface/public/shell-api';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
+import { DEFAULT_AGENT_TYPE_KEY } from '@/lib/agent-types';
 import { WORK_COLUMN_TITLEBAR_GRADIENT } from './work-column-titlebar-shell';
-import { canUseNativeContextMenu, logNativeContextMenuError, popupNativeContextMenu } from '@platform/tauri/native-context-menu';
-import { buildBrowserTabContextMenuItems } from '@features/shell/menus/browser-tab-context-menu';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -35,13 +35,17 @@ import {
 } from '@shared/ui/dropdown-menu';
 import { documentIdentityFromFile } from '@features/document/public/shell-api';
 import { requireFileDisplayIdentity } from '@/lib/file-display-registry';
+import { AGENT_TYPES, isAgentTypeSelectable, isAlwaysVisibleNewConversationAgent } from '@/lib/agent-types';
+import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
+import { isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus } from '@features/agent/runtime/agent-runtime-status';
+import type { AgentTypeKey } from '@/types/agent';
 
 function isWindowsPlatform(): boolean {
   return typeof navigator !== 'undefined'
     && (/Windows/i.test(navigator.userAgent) || /Win/i.test(navigator.platform));
 }
 
-function tabIcon(tab: BrowserColumnTab) {
+function tabIcon(tab: BrowserColumnTab, agentTypeKey = DEFAULT_AGENT_TYPE_KEY) {
   if (tab.icon?.startsWith('http://') || tab.icon?.startsWith('https://')) {
     return (
       <span className="relative flex h-4 w-4 items-center justify-center">
@@ -57,10 +61,12 @@ function tabIcon(tab: BrowserColumnTab) {
   }
   if (tab.icon) return <span className="text-sm leading-none">{tab.icon}</span>;
   if (tab.target.kind === 'file-browser' && !tab.target.activeFilePath) return <Folder className="h-3.5 w-3.5" />;
-  if (tab.target.kind === 'agent_conversation') return <MessageSquare className="h-3.5 w-3.5" />;
+  if (tab.target.kind === 'agent_conversation') {
+    return <AgentIcon typeKey={agentTypeKey} alt="" className="h-3.5 w-3.5" />;
+  }
   if (tab.target.kind === 'web') return <Globe className="h-3.5 w-3.5" />;
   if (tab.target.kind === 'file-browser' && tab.target.activeFilePath?.toLowerCase().endsWith('.md'))
-    return <FileIcon className="h-[15px] w-[15px]" strokeWidth={1.3} />;
+    return <NotebookTreeFileIcon className="h-4 w-4" />;
   return <FileText className="h-3.5 w-3.5" />;
 }
 
@@ -109,6 +115,9 @@ export interface BrowserColumnHeaderProps {
   onCloseColumn?: () => void;
   onContextMenuOpenChange: (tabId: string, open: boolean) => void;
   isFocused: boolean;
+  canCreate: boolean;
+  onCreateNote: () => void;
+  onCreateAgentConversation: (typeKey: AgentTypeKey) => void;
 }
 
 export function BrowserColumnHeader({
@@ -128,8 +137,24 @@ export function BrowserColumnHeader({
   onCloseColumn = () => {},
   onContextMenuOpenChange,
   isFocused,
+  canCreate,
+  onCreateNote,
+  onCreateAgentConversation,
 }: BrowserColumnHeaderProps) {
   const { t } = useI18n();
+  const [agentTypeMenuAnchor, setAgentTypeMenuAnchor] = useState<{ left: number; top: number } | null>(null);
+  const agentRuntimeStatusByType = useAgentRuntimeStore((state) => state.statusByType);
+  const agentRuntimeIsChecking = useAgentRuntimeStore((state) => state.isChecking);
+  const conversationInstances = useAgentSessionStore((state) => state.conversationRegistry.instances);
+  const refreshAgentRuntimeIfStale = useAgentRuntimeStore((state) => state.refreshIfStale);
+  const newConversationAgentTypes = useMemo(() => AGENT_TYPES.filter((type) => {
+    if (!isAgentTypeSelectable(type.key)) return false;
+    if (isAlwaysVisibleNewConversationAgent(type.key)) return true;
+    return isAgentRuntimeInstalledState(normalizeAgentRuntimeStatus(
+      agentRuntimeStatusByType[type.key],
+      agentRuntimeIsChecking,
+    ));
+  }), [agentRuntimeIsChecking, agentRuntimeStatusByType]);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const selectionRequest = useRef(0);
   const activeTabIdRef = useRef(activeTabId);
@@ -176,11 +201,29 @@ export function BrowserColumnHeader({
   const isAgentSurface = activeSurfaceChrome === 'agent' || Boolean(fullscreenInfo);
   const isMediaSurface = activeSurfaceChrome === 'media';
 
+  const tabLabel = (tab: BrowserColumnTab) => {
+    if (tab.target.kind !== 'agent_conversation') return tab.title;
+    const title = conversationInstances[tab.target.instanceId]?.title.trim();
+    return title || tab.title;
+  };
+  const tabAgentTypeKey = (tab: BrowserColumnTab) => tab.target.kind === 'agent_conversation'
+    ? conversationInstances[tab.target.instanceId]?.agentType ?? DEFAULT_AGENT_TYPE_KEY
+    : DEFAULT_AGENT_TYPE_KEY;
+
   useEffect(() => {
     if (displayedActiveTabId) {
       tabButtons.current.get(displayedActiveTabId)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
   }, [displayedActiveTabId]);
+
+  useEffect(() => {
+    if (agentTypeMenuAnchor) void refreshAgentRuntimeIfStale();
+  }, [agentTypeMenuAnchor, refreshAgentRuntimeIfStale]);
+
+  const openAgentTypeMenu = (event: MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setAgentTypeMenuAnchor({ left: rect.right + 2, top: rect.top });
+  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex = index;
@@ -196,52 +239,6 @@ export function BrowserColumnHeader({
     button?.focus();
     button?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     void selectTab(nextTab.id);
-  };
-
-  const showNativeTabContextMenu = async (
-    event: MouseEvent<HTMLDivElement>,
-    tab: BrowserColumnTab,
-    index: number,
-  ) => {
-    if (!canUseNativeContextMenu()) return;
-
-    try {
-      const canMoveToWorkColumn = canMoveBrowserColumnTargetToWorkColumn(tab.target);
-      const editorMode = tab.target.kind === 'file-browser' && Boolean(tab.target.activeFilePath)
-        ? getDocumentEditorMode(
-            'browser-column',
-            documentIdentityFromFile(
-              requireFileDisplayIdentity(tab.target.activeFilePath!),
-            ),
-          )
-        : null;
-      await popupNativeContextMenu(event, buildBrowserTabContextMenuItems({
-        tab,
-        index,
-        tabCount: tabs.length,
-        canMoveToWorkColumn,
-        editorMode,
-        labels: {
-          close: t('tabWindow.context.close'),
-          closeOther: t('tabWindow.context.closeOther'),
-          closeRight: t('tabWindow.context.closeRight'),
-          closeAll: t('tabWindow.context.closeAll'),
-          sourceMode: t('document.action.sourceMode'),
-          richTextMode: t('document.action.richTextMode'),
-          openInWorkColumn: t('tabWindow.context.openInWorkColumn'),
-        },
-        actions: {
-          close: () => void onCloseTab(tab.id),
-          closeOther: () => void onCloseOtherTabs(tab.id),
-          closeRight: () => void onCloseTabsToRight(tab.id),
-          closeAll: () => void onCloseAllTabs(),
-          toggleMemoEditorMode: () => void onToggleMemoEditorMode(tab.id),
-          openInWorkColumn: () => void onOpenTabInWorkColumn(tab.id),
-        },
-      }));
-    } catch (error) {
-      logNativeContextMenuError('browser tab', error);
-    }
   };
 
   return (
@@ -295,7 +292,6 @@ export function BrowserColumnHeader({
               <ContextMenuTrigger asChild>
                 <div
                   draggable
-                  onContextMenu={(event) => void showNativeTabContextMenu(event, tab, index)}
                   onDragStart={(event: DragEvent<HTMLDivElement>) => {
                     if ((event.target as HTMLElement).closest('[data-tab-close]')) {
                       event.preventDefault();
@@ -343,14 +339,14 @@ export function BrowserColumnHeader({
                 }}
                 aria-selected={selected}
                 tabIndex={selected ? 0 : -1}
-                title={tabFullscreen?.title ?? tab.title}
+                title={tabFullscreen?.title ?? tabLabel(tab)}
                 draggable={false}
                 onClick={() => { void selectTab(tab.id); }}
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 className="min-w-0 flex-1 cursor-default select-none truncate py-2 pl-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] [-webkit-app-region:no-drag]"
               >
                 {tabFullscreen ? (
-                  <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="flex min-w-0 items-center">
                     <AgentIcon
                       typeKey={tabFullscreen.typeKey}
                       alt=""
@@ -359,9 +355,11 @@ export function BrowserColumnHeader({
                     <span className="min-w-0 truncate">{tabFullscreen.title}</span>
                   </span>
                 ) : (
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center">{tabIcon(tab)}</span>
-                    <span className="min-w-0 truncate">{tab.title}</span>
+                  <span className="flex min-w-0 items-center">
+                    <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center">
+                      {tabIcon(tab, tabAgentTypeKey(tab))}
+                    </span>
+                    <span className="min-w-0 truncate">{tabLabel(tab)}</span>
                   </span>
                 )}
               </button>
@@ -438,7 +436,88 @@ export function BrowserColumnHeader({
             </ContextMenu>
           );
         })}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
+              data-tauri-drag-region
+              aria-hidden="true"
+              className="h-8 min-w-2 flex-1 self-stretch [-webkit-app-region:no-drag]"
+            />
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+            <ContextMenuItem
+              disabled={!canCreate}
+              onClick={onCreateNote}
+              className="h-7 items-center justify-start gap-0 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+            >
+              <FilePlus2 className="mr-2 h-4 w-4" />
+              <span className="leading-5">{t('tabWindow.context.newNote')}</span>
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={!canCreate}
+              onClick={openAgentTypeMenu}
+              className="h-7 items-center justify-start gap-0 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+            >
+              <MessageCirclePlus className="mr-2 h-4 w-4" />
+              <span className="flex-1 leading-5">{t('tabWindow.context.newConversation')}</span>
+              <ChevronRight className="ml-2 h-3.5 w-3.5" />
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
+      <DropdownMenu
+        open={agentTypeMenuAnchor !== null}
+        onOpenChange={(open) => { if (!open) setAgentTypeMenuAnchor(null); }}
+      >
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+            className="pointer-events-none fixed h-px w-px opacity-0"
+            style={agentTypeMenuAnchor ?? { left: -100, top: -100 }}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          side="bottom"
+          sideOffset={0}
+          className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+        >
+          <DropdownMenuLabel className="flex items-center gap-1.5 px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
+            {t('tabWindow.context.newConversation')}
+          </DropdownMenuLabel>
+          {newConversationAgentTypes.map((type) => {
+            const status = normalizeAgentRuntimeStatus(
+              agentRuntimeStatusByType[type.key],
+              agentRuntimeIsChecking,
+            );
+            const showNotInstalled = isAlwaysVisibleNewConversationAgent(type.key)
+              && status.state === 'not-installed';
+            const name = type.nameKey
+              ? t(type.nameKey as Parameters<typeof t>[0])
+              : type.name;
+            return (
+              <DropdownMenuItem
+                key={type.key}
+                onClick={() => {
+                  setAgentTypeMenuAnchor(null);
+                  onCreateAgentConversation(type.key);
+                }}
+                className="agent-conversation-new-agent-item group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                <AgentIcon typeKey={type.key} alt="" className="h-4 w-4 shrink-0 object-contain" />
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                {showNotInstalled && (
+                  <span className="shrink-0 text-xs text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)]">
+                    {t('agent.status.notInstalled')}
+                  </span>
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
       {/* 全屏 Thread Card 接管本列内容区时，退出按钮落在浏览器列头部，
           紧邻右侧的下拉按钮左侧，与第三列 titlebar 的 exit 按钮同一组件/样式，
           仅 host 作用域不同。 */}
@@ -477,26 +556,19 @@ export function BrowserColumnHeader({
                   return (
                     <DropdownMenuItem
                       key={tab.id}
-                      title={tab.title}
+                      title={tabLabel(tab)}
                       onClick={() => { void selectTab(tab.id); }}
-                      className="group h-7 gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+                      className="group h-7 gap-1 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
                     >
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)]">
-                        {tabIcon(tab)}
+                        {tabIcon(tab, tabAgentTypeKey(tab))}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-left">{tab.title}</span>
+                      <span className="min-w-0 flex-1 truncate text-left">{tabLabel(tab)}</span>
                       {selected && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--brand)] group-hover:text-[var(--primary-foreground)]" />}
                     </DropdownMenuItem>
                   );
                 })}
               </div>
-              <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-              <DropdownMenuItem
-                onClick={onCloseColumn}
-                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                {t('tabWindow.closeColumn')}
-              </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
       </div>

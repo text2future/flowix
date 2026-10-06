@@ -15,6 +15,7 @@ use crate::agent_external::codex::CodexAppServerManager;
 use crate::agent_external::deepseek_harness::DeepSeekHarnessManager;
 use crate::agent_external::hermes::HermesAcpManager;
 use crate::agent_external::opencode::OpenCodeAcpManager;
+use crate::agent_external::pi::PiRpcManager;
 pub use crate::agent_external::runtime_registry::ExternalRuntimeKind;
 use crate::agent_session::ThreadManager;
 
@@ -47,10 +48,11 @@ impl AgentLifecycleService {
         codex: Arc<CodexAppServerManager>,
         opencode: Arc<OpenCodeAcpManager>,
         hermes: Arc<HermesAcpManager>,
+        pi: Arc<PiRpcManager>,
         deepseek_harness: Arc<DeepSeekHarnessManager>,
     ) -> Self {
         let dsh = deepseek_harness.clone();
-        let adapters: [Arc<dyn ThreadLifecycleAdapter>; 4] = [
+        let adapters: [Arc<dyn ThreadLifecycleAdapter>; 5] = [
             Arc::new(CodexLifecycleAdapter {
                 threads: threads.clone(),
                 client: codex,
@@ -69,6 +71,7 @@ impl AgentLifecycleService {
                     Box::pin(async move { client.delete_thread(&thread_id).await })
                 }),
             }),
+            Arc::new(PiLifecycleAdapter { manager: pi }),
             Arc::new(DeepSeekHarnessLifecycleAdapter { manager: dsh }),
         ];
         Self::try_from_adapters(adapters)
@@ -132,6 +135,24 @@ struct AcpLifecycleAdapter {
 
 struct DeepSeekHarnessLifecycleAdapter {
     manager: Arc<DeepSeekHarnessManager>,
+}
+
+struct PiLifecycleAdapter {
+    manager: Arc<PiRpcManager>,
+}
+
+#[async_trait]
+impl ThreadLifecycleAdapter for PiLifecycleAdapter {
+    fn runtime(&self) -> ExternalRuntimeKind {
+        ExternalRuntimeKind::Pi
+    }
+
+    async fn apply(&self, thread_id: &str, action: LifecycleAction) -> Result<bool, String> {
+        match action {
+            LifecycleAction::Archive => Ok(false),
+            LifecycleAction::Delete => self.manager.delete_session(thread_id).await,
+        }
+    }
 }
 
 #[async_trait]
@@ -237,6 +258,7 @@ mod tests {
             Arc::new(CodexAppServerManager::new(threads.clone())),
             Arc::new(OpenCodeAcpManager::new(threads.clone())),
             Arc::new(HermesAcpManager::new(threads)),
+            Arc::new(PiRpcManager::new(ThreadManager::for_tests())),
             Arc::new(DeepSeekHarnessManager::new(
                 ThreadManager::for_tests(),
                 Arc::new(crate::config::UserConfigStore::new(

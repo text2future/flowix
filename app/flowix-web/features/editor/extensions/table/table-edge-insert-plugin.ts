@@ -27,12 +27,10 @@ function getEdgeTarget(view: EditorView, eventTarget: EventTarget | null): EdgeT
   const table = cell?.closest('table');
   if (!cell || !(table instanceof HTMLTableElement)) return null;
 
-  // AgentThreadCard 是只读 NodeView (`contentEditable='false'`), 卡片内
-  // 的 markdown 表格用 `marked` 实时渲染, 不属于 ProseMirror 表格节点 ──
-  // 它的 cell 在 ProseMirror 文档里没有对应位置, 触发 addColumnAfter/
-  // addRowAfter 会出错, 按钮本身也会错位叠加在卡片边缘. 命中则当作
-  // "非编辑器表格" 直接忽略.
-  if (cell.closest('.agent-thread-card')) return null;
+  // NodeView 内部的 HTML 表格不属于 ProseMirror 表格节点，它们的 cell
+  // 在编辑器文档中没有对应位置。若继续显示边缘插入按钮，控件会错位，
+  // 点击 addRowAfter/addColumnAfter 也会作用到编辑器里的其他表格。
+  if (cell.closest('.agent-thread-card, .table-reference-node')) return null;
 
   const row = cell.parentElement;
   if (!(row instanceof HTMLTableRowElement)) return null;

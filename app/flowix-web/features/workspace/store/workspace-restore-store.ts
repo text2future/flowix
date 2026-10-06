@@ -12,6 +12,7 @@ interface AgentConversationRestoreState {
 export type PersistedWorkspaceTarget =
   | DocumentListTarget
   | { kind: 'external'; path: string; scopePath: string | null }
+  | { kind: 'table'; filePath: string; notebookPath: string | null; notebookId: string | null }
   | {
       kind: 'media';
       filePath: string;
@@ -96,6 +97,7 @@ export const useWorkspaceRestoreStore = create<WorkspaceRestoreStore>()(
           version: 6 as const,
           agentConversation: state?.agentConversation ?? EMPTY_AGENT_CONVERSATION_RESTORE,
           desiredTarget: desiredTarget?.kind === 'external'
+            || desiredTarget?.kind === 'table'
             || desiredTarget?.kind === 'media'
             || desiredTarget?.kind === 'agent-conversation'
             || desiredTarget?.kind === 'document-list'

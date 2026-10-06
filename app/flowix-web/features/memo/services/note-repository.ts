@@ -36,6 +36,7 @@ export const noteRepository = {
     limit?: number;
   }): Promise<NoteListPage> => notes.getPage(params),
   listAllByPath: (notebookId: string) => notes.list(notebookId),
+  /** Omit parentRelativePath to use the notebook default; pass '' for its root. */
   create: (tag: string | undefined, notebookId: string, parentRelativePath?: string, title?: string) =>
     notes.create(notebookId, tag, parentRelativePath, title),
   delete: (path: string) => notes.delete(path),

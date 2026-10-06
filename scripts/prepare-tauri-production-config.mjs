@@ -98,6 +98,18 @@ if (targetPlatform === "win32") {
 
 const production = mergeConfig(mergeConfig(base, platformOverride), productionOverride);
 production.bundle ??= {};
+production.bundle.resources = {
+  ...(production.bundle.resources && !Array.isArray(production.bundle.resources) ? production.bundle.resources : {}),
+  [path.join(repoRoot, ".build", "pi-runtime", "provider-catalog.json")]: "pi/provider-catalog.json",
+};
+if (process.env.FLOWIX_BUNDLE_PI === "1") {
+  const piResources = JSON.parse(fs.readFileSync(path.join(repoRoot, ".build", "pi-runtime", "resources.json"), "utf8"));
+  const targetArch = process.env.FLOWIX_PI_TARGET_ARCH;
+  const selectedPiResources = Object.fromEntries(Object.entries(piResources).filter(([, target]) =>
+    !targetArch || target.endsWith(`-${targetArch}`),
+  ));
+  Object.assign(production.bundle.resources, selectedPiResources);
+}
 if (allowUnsigned) {
   // Local builds may omit updater artifacts; signed production Flowix builds
   // keep this enabled and require TAURI_SIGNING_PRIVATE_KEY.
@@ -171,7 +183,15 @@ const updaterEndpointDefault = {
   win32: "https://download.flowix.cc/updater/windows/latest.json",
   linux: "https://download.flowix.cc/updater/linux/latest.json",
 }[targetPlatform];
-const updaterEndpoint = process.env[updaterEndpointEnv]?.trim() || updaterEndpointDefault;
+const piUpdaterEndpointEnv = {
+  darwin: "FLOWIX_UPDATER_ENDPOINT_PI_MACOS",
+  win32: "FLOWIX_UPDATER_ENDPOINT_PI_WINDOWS",
+  linux: "FLOWIX_UPDATER_ENDPOINT_PI_LINUX",
+}[targetPlatform];
+const updaterEndpoint = process.env[piUpdaterEndpointEnv]?.trim()
+  || (process.env.FLOWIX_BUNDLE_PI === "1"
+    ? `https://download.flowix.cc/updater/pi/${targetPlatform === "darwin" ? "macos" : targetPlatform === "win32" ? "windows" : "linux"}/latest.json`
+    : process.env[updaterEndpointEnv]?.trim() || updaterEndpointDefault);
 production.plugins ??= {};
 production.plugins.updater ??= {};
 production.plugins.updater.endpoints = [updaterEndpoint];

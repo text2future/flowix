@@ -1,4 +1,4 @@
-export type UserConfigChangeKind = 'preference' | 'ai_config' | 'dsh_config';
+export type UserConfigChangeKind = 'preference' | 'ai_config' | 'dsh_config' | 'pi_config';
 
 interface UserConfigSyncActions {
   reloadPreferences: () => void | Promise<void>;
@@ -19,6 +19,7 @@ export function syncUserConfigChange(
     void actions.reloadPreferences();
     return;
   }
+  if (kind === 'pi_config') return;
 
   // Runtime freshness currently has one timestamp for the complete status
   // snapshot. Refresh the complete snapshot so unrelated agent statuses are

@@ -9,7 +9,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use flowix_core::memo_file::{
-    media_kind_for_path, notebook_relative_path, MediaResource, MemoFile,
+    media_kind_for_path, notebook_relative_path, MediaResource, MediaResourceKind,
+    MediaResourcePage, MemoFile,
 };
 
 use crate::app::state::AppState;
@@ -38,6 +39,44 @@ fn registered_notebook_for_path(
 #[serde(rename_all = "camelCase")]
 pub struct MediaResourceResponse {
     pub resource: MediaResource,
+}
+
+#[tauri::command]
+pub fn list_media_resources_page(
+    notebook_path: String,
+    kinds: Vec<String>,
+    cursor: Option<String>,
+    limit: Option<usize>,
+    state: State<AppState>,
+) -> Result<MediaResourcePage, String> {
+    let requested = dunce::canonicalize(&notebook_path).map_err(|error| error.to_string())?;
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let (notebook_id, root) = registered_notebook_for_path(&memo_file, &requested)?;
+    if root != requested {
+        return Err("media library must use a notebook root path".to_string());
+    }
+    let kinds = kinds
+        .iter()
+        .map(|kind| match kind.as_str() {
+            "image" => Ok(MediaResourceKind::Image),
+            "video" => Ok(MediaResourceKind::Video),
+            _ => Err("invalid media kind".to_string()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if kinds.is_empty() {
+        return Ok(MediaResourcePage { resources: Vec::new(), next_cursor: None, has_more: false });
+    }
+    let cursor = cursor
+        .map(|value| {
+            let (created_at, id) = value.split_once(':').ok_or("INVALID_CURSOR")?;
+            let created_at = created_at.parse::<i64>().map_err(|_| "INVALID_CURSOR")?;
+            if id.is_empty() || id.contains('\0') { return Err("INVALID_CURSOR"); }
+            Ok((created_at, id.to_string()))
+        })
+        .transpose()?;
+    memo_file
+        .list_media_resources_page(&notebook_id, &kinds, cursor, limit.unwrap_or(60))
+        .map_err(|error| error.to_string())
 }
 
 /// Read or create the notebook-local media index entry for a file.

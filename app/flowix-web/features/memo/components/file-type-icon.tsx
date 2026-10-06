@@ -1,4 +1,5 @@
 import type { Icon } from '@phosphor-icons/react';
+import { GalleryHorizontalEnd } from 'lucide-react';
 import {
   FileCodeIcon,
   FileDocIcon,
@@ -57,6 +58,7 @@ const PHOSPHOR_ICON_BY_KIND: Record<FileIconKind, Icon> = {
 
 /** Resolve a file's semantic icon kind once for every file-tree renderer. */
 export function getFileIconKind(path: string): FileIconKind {
+  if (isTableDocumentPath(path)) return 'spreadsheet';
   const extension = fileExtension(path);
 
   if (isMarkdownFilePath(path)) return 'markdown';
@@ -79,6 +81,10 @@ export function getFileIcon(path: string): Icon {
 }
 
 export function FileTypeIcon({ path, className }: { path: string; className?: string }) {
+  if (/\.lib\.ya?ml$/i.test(path)) return <GalleryHorizontalEnd aria-hidden="true" className={className} />;
+  if (isTableDocumentPath(path)) {
+    return <TableDocumentIcon className={className} />;
+  }
   const kind = getFileIconKind(path);
   if (kind === 'image' || kind === 'video' || kind === 'code' || kind === 'fallback') {
     return <CustomFileIcon kind={kind} className={className} />;
@@ -90,7 +96,37 @@ export function FileTypeIcon({ path, className }: { path: string; className?: st
 
 /** Resolve the custom icons used for non-note files in the notebook tree. */
 export function NotebookTreeResourceIcon({ path, className }: { path: string; className?: string }) {
+  if (/\.lib\.ya?ml$/i.test(path)) return <MediaLibraryIcon className={className} />;
+  if (isTableDocumentPath(path)) {
+    return <TableDocumentIcon className={className} />;
+  }
   return <CustomFileIcon kind={getFileIconKind(path)} className={className} />;
+}
+
+function isTableDocumentPath(path: string): boolean {
+  return /\.table\.ya?ml$/i.test(path);
+}
+
+function TableDocumentIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
+      <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
+      </g>
+    </svg>
+  );
+}
+
+function MediaLibraryIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
+      <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 7v10" />
+        <path d="M6 5v14" />
+        <rect width="12" height="18" x="10" y="3" rx="2" />
+      </g>
+    </svg>
+  );
 }
 
 function CustomFileIcon({ kind, className }: { kind: FileIconKind; className?: string }) {

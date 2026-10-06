@@ -49,6 +49,14 @@ pub struct MediaResource {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaResourcePage {
+    pub resources: Vec<MediaResource>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
 struct MediaResourceRecord {
     resource: MediaResource,
     deleted_at: Option<i64>,
@@ -212,7 +220,9 @@ impl MemoFile {
         }
         tx.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_media_resources_missing
-                 ON media_resources(missing_since, deleted_at);",
+                 ON media_resources(missing_since, deleted_at);
+             CREATE INDEX IF NOT EXISTS idx_media_resources_library_page
+                 ON media_resources(notebook_id, deleted_at, missing_since, created_at DESC, id DESC);",
         )
         .map_err(sqlite_to_io)?;
         tx.commit().map_err(sqlite_to_io)?;
@@ -307,6 +317,72 @@ impl MemoFile {
             return Ok(None);
         }
         Ok(Some(record.resource))
+    }
+
+    /// Query the notebook media catalog by a stable descending creation cursor.
+    /// Media bytes and per-file metadata are never loaded as part of this query.
+    pub fn list_media_resources_page(
+        &self,
+        notebook_id: &str,
+        kinds: &[MediaResourceKind],
+        cursor: Option<(i64, String)>,
+        limit: usize,
+    ) -> std::io::Result<MediaResourcePage> {
+        let conn = self.open_notebook_db(notebook_id)?;
+        let kind_filter = match kinds {
+            [] => String::new(),
+            [MediaResourceKind::Image] => " AND kind = 'image'".to_owned(),
+            [MediaResourceKind::Video] => " AND kind = 'video'".to_owned(),
+            _ => " AND kind IN ('image', 'video')".to_owned(),
+        };
+        let cursor_filter = if cursor.is_some() {
+            " AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))"
+        } else {
+            ""
+        };
+        let limit = limit.clamp(1, 120).saturating_add(1) as i64;
+        let sql = format!(
+            "SELECT id, notebook_id, relative_path, kind, size_bytes, modified_ms,
+                    fingerprint, properties, properties_revision, created_at, updated_at
+             FROM media_resources
+             WHERE notebook_id = ?1 AND deleted_at IS NULL AND missing_since IS NULL{kind_filter}{cursor_filter}
+             ORDER BY created_at DESC, id DESC LIMIT ?{limit_param}",
+            limit_param = if cursor.is_some() { 4 } else { 2 },
+        );
+        let mut statement = conn.prepare(&sql).map_err(sqlite_to_io)?;
+        let decode_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<MediaResource> {
+            let kind: String = row.get(3)?;
+            Ok(MediaResource {
+                id: row.get(0)?,
+                notebook_id: row.get(1)?,
+                relative_path: row.get(2)?,
+                kind: parse_kind(&kind).ok_or(rusqlite::Error::InvalidQuery)?,
+                size_bytes: row.get::<_, i64>(4)?.max(0) as u64,
+                modified_ms: row.get::<_, i64>(5)?.max(0) as u64,
+                fingerprint: row.get(6)?,
+                properties: serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(7)?)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+                properties_revision: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        };
+        let mut resources = if let Some((created_at, id)) = cursor {
+            statement.query_map(params![notebook_id, created_at, id, limit], decode_row)
+                .map_err(sqlite_to_io)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_to_io)?
+        } else {
+            statement.query_map(params![notebook_id, limit], decode_row)
+                .map_err(sqlite_to_io)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_to_io)?
+        };
+        let has_more = resources.len() > limit as usize - 1;
+        if has_more { resources.pop(); }
+        let next_cursor = has_more.then(|| resources.last()).flatten()
+            .map(|resource| format!("{}:{}", resource.created_at, resource.id));
+        Ok(MediaResourcePage { resources, next_cursor, has_more })
     }
 
     /// Register or refresh a media path. The file itself is never modified.

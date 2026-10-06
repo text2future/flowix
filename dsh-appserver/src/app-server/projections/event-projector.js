@@ -126,7 +126,8 @@ function isHiddenSystemUserMessage(event, payload, content) {
     || source?.kind === 'skill-invocation') {
     return true
   }
-  if (source?.kind === 'plugin' && source?.plugin === '@deepseek-ai/dsh-system-prompt') {
+  if (source?.kind === 'plugin'
+    && (source?.plugin === '@deepseek-ai/dsh-system-prompt' || source?.plugin === 'tool-jobs')) {
     return true
   }
   return content.startsWith('<system-reminder>') || content.startsWith('Current runtime context.')
