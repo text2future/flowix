@@ -156,6 +156,12 @@ if (targetPlatform === "win32") {
   }
   production.bundle.macOS.entitlements = "entitlements.plist";
   production.bundle.macOS.hardenedRuntime = true;
+  if (signingIdentity) {
+    production.build ??= {};
+    production.build.beforeBundleCommand = "node scripts/sign-macos-resources.mjs";
+  } else {
+    delete production.build?.beforeBundleCommand;
+  }
 } else {
   // The base config targets NSIS for the Windows release. Linux must opt in
   // to AppImage explicitly; otherwise it cannot produce the updater archive
