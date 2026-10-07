@@ -687,7 +687,7 @@ export function AgentConversationList({ isActive = true }: AgentConversationList
                   disabled={!currentNotebookId}
                   aria-label={t('agent.chat.newThread')}
                   title={currentNotebookId ? t('agent.chat.newThread') : t('memo.list.selectNotebook')}
-                  className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-white p-0 text-gray-900 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="group flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-0 text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <MessageCirclePlus
                     className="h-4 w-4 transition-[filter] duration-150 group-hover:brightness-105"

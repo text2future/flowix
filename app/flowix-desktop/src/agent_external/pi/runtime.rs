@@ -963,6 +963,7 @@ impl PiRpcManager {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        crate::process_window::hide_command_window(&mut command);
         let mut child = command
             .spawn()
             .map_err(|error| format!("failed to start Pi model catalog: {error}"))?;

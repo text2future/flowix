@@ -95,7 +95,13 @@ for (const arch of arches) {
   if (extraction.error) throw extraction.error
   if (extraction.status !== 0) throw new Error(`Could not extract ${archive}`)
 
-  const packageDir = path.join(extracted, 'pi')
+  // Releases may either wrap the package in a top-level `pi/` directory or
+  // place the package files directly at the archive root. Keep the staged
+  // resource layout identical for both forms.
+  const nestedPackageDir = path.join(extracted, 'pi')
+  const packageDir = (await stat(nestedPackageDir).catch(() => null))?.isDirectory()
+    ? nestedPackageDir
+    : extracted
   const binaryName = platform === 'win32' ? 'pi.exe' : 'pi'
   let resolvedBinaryPath
   // Accept both a standalone dist/pi executable and the release package's
