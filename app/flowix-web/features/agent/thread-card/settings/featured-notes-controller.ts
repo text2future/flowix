@@ -54,22 +54,30 @@ export class FeaturedNotesController {
     const requestId = ++this.featuredNotesRequestId;
     const selection = await readFeaturedNotesTableSelection(notebookId);
     if (this.isDestroyed() || requestId !== this.featuredNotesRequestId) return;
-    try {
-      const indexed = await notesClient.list(notebookId);
-      const notes = selection
-        ? getFeaturedPathNoteCards(await this.loadSelectedTableNotes(notebookId, selection, indexed), null)
-        : [];
+    const renderPanel = (notes: FeaturedNoteCard[]): void => {
       if (this.isDestroyed() || requestId !== this.featuredNotesRequestId || !empty.isConnected) return;
-
       let panel: HTMLElement;
       panel = this.createFeaturedNotesElement(notes, selection, notebookId, () => {
         panel.remove();
         void this.appendFeaturedNotes(empty);
       });
       empty.append(panel);
+    };
+    if (!selection) {
+      renderPanel([]);
+      return;
+    }
+    try {
+      const indexed = await notesClient.list(notebookId);
+      const notes = getFeaturedPathNoteCards(
+        await this.loadSelectedTableNotes(notebookId, selection, indexed),
+        null,
+      );
+      renderPanel(notes);
     } catch {
-      // Featured notes are an enhancement to the empty state. A failed or
-      // unavailable memo query must never block starting a conversation.
+      // Keep the settings toggle available when the note index is unavailable;
+      // otherwise users cannot choose a table to recover the empty state.
+      renderPanel([]);
     }
   }
 

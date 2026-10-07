@@ -215,8 +215,8 @@ export async function readFeaturedNotesTableSelection(notebookId: string): Promi
   try {
     const stored = await system.getFeaturedNoteFilter(notebookId);
     const selection = stored?.tableSelection;
-    return selection?.relativePath && selection.collectionId
-      ? { relativePath: selection.relativePath, collectionId: selection.collectionId, ...(selection.viewId ? { viewId: selection.viewId } : {}) }
+    return selection?.relativePath && selection.tableId
+      ? { relativePath: selection.relativePath, collectionId: selection.tableId, ...(selection.viewId ? { viewId: selection.viewId } : {}) }
       : null;
   } catch {
     return null;
@@ -230,7 +230,13 @@ export async function writeFeaturedNotesTableSelection(
   const stored = await system.getFeaturedNoteFilter(notebookId).catch(() => ({ conditions: [] }));
   await system.setFeaturedNoteFilter(notebookId, {
     conditions: stored.conditions ?? [],
-    tableSelection: selection,
+    tableSelection: selection
+      ? {
+          relativePath: selection.relativePath,
+          tableId: selection.collectionId,
+          ...(selection.viewId ? { viewId: selection.viewId } : {}),
+        }
+      : null,
   });
 }
 

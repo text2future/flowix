@@ -338,7 +338,8 @@ export interface NotebookFeaturedNoteFilter {
   conditions: NotebookFeaturedNoteCondition[];
   tableSelection?: {
     relativePath: string;
-    collectionId: string;
+    /** Rust persists this as `table_id` / JSON `tableId`. */
+    tableId: string;
     viewId?: string;
   } | null;
 }
