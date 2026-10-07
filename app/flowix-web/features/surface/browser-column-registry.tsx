@@ -1,3 +1,4 @@
+import { collectionDisplayDescriptor, findCollectionDisplayPath, ensureCollectionDisplay } from '@/lib/collection-display-registry';
 'use client';
 
 import { FileBrowserView, type FileBrowserViewSurface } from './file-browser-view';
@@ -16,6 +17,7 @@ import {
 import { ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
 import { LazyAgentConversationDetail } from '@features/agent/components/lazy-agent-conversation-detail';
 import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
+import { DocxPreview } from '@features/document/components/docx-preview';
 import { MediaResourceView } from './media-resource-view';
 import { SurfaceSuspenseHost } from '@shared/ui/surface-suspense-host';
 import { externalFileViewKind } from '@features/editor/public/code-file';
@@ -31,6 +33,8 @@ import { openUrl } from '@platform/tauri/opener';
 import { styleAccessibleIframeScrollbar } from '@shared/ui/iframe-scrollbar';
 import { TableDocumentView } from '@features/multidimensional-table/public/surface-api';
 import { MediaLibraryView } from '@features/media-library/media-library-view';
+import { useExternalFileMime } from '@features/editor/use-external-file-mime';
+import { useI18n } from '@/lib/i18n';
 
 export type BrowserColumnSurfaceCapability =
   | 'edit'
@@ -59,7 +63,7 @@ export interface BrowserMediaSurface extends FileSurfaceBase {
 
 export type BrowserFileBrowserSurface = SurfaceBase
   & FileBrowserViewSurface
-  & { documentProps: Omit<ComponentProps<typeof DocumentContainer>, 'fileIdentity'> }
+  & { collectionUnavailableReason?: string; documentProps: Omit<ComponentProps<typeof DocumentContainer>, 'fileIdentity'> }
   & (
     | { activeFilePath: string; fileIdentity: FileDisplayIdentity }
     | { activeFilePath: null; fileIdentity?: never }
@@ -343,18 +347,48 @@ function BrowserMediaSurfaceView({ surface }: { surface: BrowserMediaSurface }) 
 }
 
 function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowserSurface }) {
+  const { t } = useI18n();
+  const baseFileKind = surface.activeFilePath
+    ? externalFileViewKind(surface.activeFilePath)
+    : null;
+  const { mimeType, loading: mimeLoading } = useExternalFileMime(
+    surface.activeFilePath,
+    baseFileKind === 'unavailable',
+  );
   if (!surface.activeFilePath) {
     return <FileBrowserView surface={{ ...surface, sourceMenuEnabled: false }} />;
   }
 
-  const fileKind = externalFileViewKind(surface.activeFilePath);
+  if (surface.collectionUnavailableReason) return <div className="p-4 text-sm">{surface.collectionUnavailableReason}</div>;
+  if (surface.fileIdentity && collectionDisplayDescriptor(surface.fileIdentity.displayId) && !findCollectionDisplayPath(surface.fileIdentity.displayId)) return <div className="p-4 text-sm">正在解析集合位置…</div>;
+  if (mimeLoading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-sm text-[var(--muted-foreground)]">
+        {t('document.file.loading')}
+      </div>
+    );
+  }
+  const fileKind = externalFileViewKind(surface.activeFilePath, mimeType);
   if (/\.lib\.ya?ml$/i.test(surface.activeFilePath)) {
-    return <MediaLibraryView filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
+    return <MediaLibraryView filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} expectedCollectionId={collectionDisplayDescriptor(surface.fileIdentity.displayId)?.collectionId} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
   }
   if (/\.table\.ya?ml$/i.test(surface.activeFilePath)) {
-    return <TableDocumentView filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
+    return <TableDocumentView initialViewId={collectionDisplayDescriptor(surface.fileIdentity.displayId)?.viewId} onActiveViewChange={(viewId) => {
+      const tab = useBrowserColumnStore.getState().tabs.find((candidate) => candidate.id === surface.tabId);
+      if (tab?.target.kind !== 'file-browser' || !tab.target.collectionDisplay) return;
+      const { notebookId, collectionId } = tab.target.collectionDisplay;
+      const collectionDisplay = ensureCollectionDisplay({ notebookId, collectionId, viewId });
+      void openBrowserColumnTarget({ ...tab.target, collectionDisplay }, 'replace-active');
+    }} filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} expectedCollectionId={collectionDisplayDescriptor(surface.fileIdentity.displayId)?.collectionId} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
   }
   switch (fileKind) {
+    case 'docx':
+      return <FileBrowserView surface={{
+        ...surface,
+        fileTreeEnabled: false,
+        sourceMenuEnabled: false,
+        content: <DocxPreview filePath={surface.activeFilePath} scopePath={surface.scopePath} />,
+      }} />;
     case 'markdown':
       return <DocumentContainer {...surface.documentProps} fileIdentity={surface.fileIdentity} externalEditorMode="markdown" />;
     case 'code':
@@ -382,10 +416,10 @@ function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowse
         documentProps={{ ...surface.documentProps, fileIdentity: surface.fileIdentity }}
       />;
     case 'unavailable':
-      return <UnavailableFileView filePath={surface.activeFilePath} openContainingFolder />;
+      return <UnavailableFileView filePath={surface.activeFilePath} openContainingFolder scopePath={surface.scopePath} />;
   }
 
-  return <UnavailableFileView filePath={surface.activeFilePath} openContainingFolder />;
+  return <UnavailableFileView filePath={surface.activeFilePath} openContainingFolder scopePath={surface.scopePath} />;
 }
 
 function BrowserAgentConversationSurfaceView({ surface }: { surface: BrowserAgentConversationSurface }) {
@@ -472,7 +506,7 @@ export function resolveBrowserColumnSurface(
           readOnly, onFlushReady, toolbarCollapsed, onToolbarCollapsedChange,
         },
         onSelectFile: (path) => { void selectBrowserColumnFile(tab.id, path); },
-        onOpenFileInNewTab: (path) => { void openBrowserColumnTarget({ ...target, activeFilePath: path, folderPath: null }, 'open-in-column'); },
+        onOpenFileInNewTab: (path) => { void openBrowserColumnTarget({ ...target, activeFilePath: path, collectionDisplay: undefined, folderPath: null }, 'open-in-column'); },
         onContextChange: (patch) => useBrowserColumnStore.getState().updateFileBrowserContext(tab.id, patch),
         onSelectFolder: (path) => { void selectBrowserColumnFile(tab.id, null, path); },
         onTreeVisibleChange: (visible) => useBrowserColumnStore.getState().setFileBrowserTreeVisible(tab.id, visible),
@@ -482,7 +516,8 @@ export function resolveBrowserColumnSurface(
         ? {
             ...surface,
             activeFilePath: target.activeFilePath,
-            fileIdentity: requireFileDisplayIdentity(target.activeFilePath),
+            collectionUnavailableReason: target.collectionUnavailableReason,
+            fileIdentity: target.collectionDisplay ? { path: target.activeFilePath, displayId: target.collectionDisplay.displayId } : requireFileDisplayIdentity(target.activeFilePath),
           }
         : { ...surface, activeFilePath: null };
     }

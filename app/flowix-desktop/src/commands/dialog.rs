@@ -98,11 +98,22 @@ pub async fn select_files(
         let dialog = match accept.as_deref() {
             Some("image/*") => dialog.add_filter(
                 "图片",
-                &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"],
+                &[
+                    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif",
+                    "tiff", "heic", "heif",
+                ],
             ),
             Some("video/*") => {
                 dialog.add_filter("视频", &["mp4", "webm", "mov", "avi", "mkv", "ogg"])
             }
+            Some("media/*") => dialog.add_filter(
+                "图片和视频",
+                &[
+                    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico", "tif",
+                    "tiff", "heic", "heif", "3gp", "avi", "flv", "m2ts", "m4v", "mkv", "mov",
+                    "mp4", "mpeg", "mpg", "mts", "webm", "wmv",
+                ],
+            ),
             _ => dialog.add_filter(
                 "Attachments",
                 &[

@@ -1,4 +1,4 @@
-import { openPath, openUrl } from "@platform/tauri/opener";
+import { openUrl } from "@platform/tauri/opener";
 import { dialogs } from "@platform/tauri/client/desktop";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { GapCursor } from "@tiptap/pm/gapcursor";
@@ -25,7 +25,6 @@ import { useNoteStore } from "@features/memo/store/note-store";
 import { openNoteByDeepLink } from "@features/memo/use-cases/open-by-target";
 import { agent } from "@platform/tauri/client/agent";
 import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-link";
-import { isEditableTextFilePath } from "@features/editor/code-file";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
 import { getCurrentAppLanguage } from "@features/preferences/public/runtime-api";
 import type { AgentRuntimeSettingKind } from "@features/agent/runtime/agent-runtime-spec";
@@ -1480,24 +1479,15 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const rawHref = a.getAttribute("href");
     const localPath = localFilePathFromAgentHref(rawHref);
     if (localPath) {
-      const scopePath = this.scopePathForLocalFile(localPath);
-      if (scopePath) {
-        void Promise.resolve(openBrowserColumnFileBrowser(scopePath, localPath)).catch((error) => {
-          logger.error("Failed to open workspace file link", { error });
-          toast.error(this.t("agent.link.openLocalFileFailed"));
-        });
-        return;
-      }
-
-      if (isEditableTextFilePath(localPath)) {
+      void (async () => {
+        const scopePath = this.scopePathForLocalFile(localPath);
+        if (scopePath) {
+          await openBrowserColumnFileBrowser(scopePath, localPath);
+          return;
+        }
         const parentPath = localPath.replace(/[\\/][^\\/]*$/, '') || localPath;
-        void Promise.resolve(openBrowserColumnText(localPath, parentPath)).catch((error) => {
-          logger.error("Failed to open standalone text file link", { error });
-          toast.error(this.t("agent.link.openLocalFileFailed"));
-        });
-        return;
-      }
-      void openPath(localPath).catch((error) => {
+        await openBrowserColumnText(localPath, parentPath);
+      })().catch((error) => {
         logger.error("Failed to open local file link", { error });
         toast.error(this.t("agent.link.openLocalFileFailed"));
       });

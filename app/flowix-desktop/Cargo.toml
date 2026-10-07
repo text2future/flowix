@@ -43,13 +43,14 @@ thiserror = { workspace = true }
 reqwest = { version = "0.12", features = ["json", "blocking", "stream"] }
 async-trait = "0.1"
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "ico", "tiff"] }
 nanoid = { workspace = true }
 tempfile = { workspace = true }
 fs2 = { workspace = true }
 dunce = { workspace = true }
 uuid = { workspace = true }
 url = "2"
+mime_guess = "2"
 hostname = "0.4"
 machine-uid = "0.5"
 sha2 = { workspace = true }

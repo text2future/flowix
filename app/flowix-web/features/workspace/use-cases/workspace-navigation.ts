@@ -1,6 +1,9 @@
+import { ensureCollectionDisplay, bindCollectionDisplayPath } from '@/lib/collection-display-registry';
+import { collections, externalDocuments } from '@platform/tauri/client';
+import { parseCollectionEnvelope } from '@features/collection/model';
 import { captureFileBrowserContext } from './file-browser-context';
 import { notes as notesClient, type PluginDescriptor, type MarkdownLocation } from '@platform/tauri/client';
-import { canonicalPath } from '@/lib/path';
+import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
 import { resourceKindFromPath } from '@features/editor/public/code-file';
 import { canonicalUrl } from '@features/workspace/store/workspace-content-identity';
 import {
@@ -15,7 +18,6 @@ import {
 } from '@features/workspace/store/browser-column-store';
 import { documentIdentityFromFile } from '@features/document/public/workspace-api';
 import {
-  ensureFileDisplayIdentity,
   suspendFileDisplayReconciliation,
 } from '@/lib/file-display-registry';
 import {
@@ -157,7 +159,9 @@ function commitNavigation(
         historyEntryFromWorkColumnTarget(target),
       );
     }
-    const desiredTarget: PersistedWorkspaceTarget | null = target.kind === 'document-list'
+    const desiredTarget: PersistedWorkspaceTarget | null = target.kind === 'collection'
+      ? target
+      : target.kind === 'document-list'
       ? target
       : target.kind === 'table'
         ? { kind: 'table', filePath: canonicalPath(target.filePath), notebookPath: target.notebookPath ? canonicalPath(target.notebookPath) : null, notebookId: target.notebookId }
@@ -210,63 +214,82 @@ export function restoreTableWorkspace(
   return openTableTarget(restored.filePath, restored.notebookPath, restored.notebookId, { history: 'skip' });
 }
 
-export async function openTableTarget(
-  filePath: string,
-  notebookPath: string | null,
-  notebookId: string | null,
+export async function openCollectionTarget(
+  reference: { notebookId: string; collectionId: string; viewId?: string | null; displayId?: string; relativePathHint?: string },
   options?: { history?: 'push' | 'skip'; destination?: 'main-third' },
 ): Promise<void> {
-  const normalizedPath = canonicalPath(filePath);
-  const normalizedNotebookPath = notebookPath ? canonicalPath(notebookPath) : null;
-  const workspaceMemo = getWorkspaceMemoState();
-  const resolvedNotebookId = notebookId
-    ?? workspaceMemo.notebooks.find((notebook) => normalizedNotebookPath && canonicalPath(notebook.path) === normalizedNotebookPath)?.id
-    ?? (workspaceMemo.selectedNotebook?.path && normalizedNotebookPath
-      && canonicalPath(workspaceMemo.selectedNotebook.path) === normalizedNotebookPath
-      ? workspaceMemo.selectedNotebook.id
-      : null);
-  ensureFileDisplayIdentity(normalizedPath);
-  const target: WorkColumnTarget = { kind: 'table', filePath: normalizedPath, notebookPath: normalizedNotebookPath, notebookId: resolvedNotebookId };
-  const existing = options?.destination === 'main-third'
-    ? null
-    : activateExistingContentForNavigation({ kind: 'external', path: normalizedPath });
-  if (existing instanceof Promise) {
-    if (await existing) return;
-  } else if (existing) return;
-  const requestId = beginNavigation(target, null, false, false);
+  const { notebookId, collectionId } = reference;
+  const identity: ContentIdentity = { kind: 'collection', notebookId, collectionId, viewId: reference.viewId ?? null };
+  if (options?.destination !== 'main-third') {
+    const existing = await activateExistingWorkspaceContentAsync(identity);
+    if (existing) return;
+  }
+  const notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === notebookId)
+    ?? (getWorkspaceMemoState().selectedNotebook?.id === notebookId ? getWorkspaceMemoState().selectedNotebook : null);
+  if (!notebook) throw new Error('集合所属笔记本不存在');
+  const descriptor = ensureCollectionDisplay({ notebookId, collectionId, viewId: reference.viewId ?? null }, reference.displayId);
+  const placeholder: Extract<WorkColumnTarget, { kind: 'collection' }> = {
+    kind: 'collection', ...descriptor, filePath: '', notebookPath: canonicalDirectoryPath(notebook.path), collectionType: 'table', name: '正在打开集合',
+  };
+  const requestId = beginNavigation(placeholder, null, false, false);
+  try {
+    await flushWorkspaceDocument();
+  } catch (error) {
+    if (isCurrentNavigation(requestId)) useWorkColumnStore.getState().failNavigation(requestId, error);
+    throw error;
+  }
+  if (!isCurrentNavigation(requestId)) return;
+  let item: Awaited<ReturnType<typeof collections.resolve>> | null = null;
+  let unavailableReason: string | undefined;
+  try { item = await collections.resolve(notebookId, collectionId); }
+  catch (error) { unavailableReason = String(error).includes('IDENTITY_CONFLICT') ? '集合身份冲突，请先为副本生成新 ID' : '集合不存在或暂时无法读取'; }
+  const filePath = item ? `${canonicalDirectoryPath(notebook.path)}/${item.relativePath}` : reference.relativePathHint ? `${canonicalDirectoryPath(notebook.path)}/${reference.relativePathHint}` : '';
+  if (item && item.parseState !== 'valid') unavailableReason = item.parseState === 'unsupported' ? '此集合版本暂不支持' : '集合文件格式无效';
+  if (item && !unavailableReason && descriptor.viewId) {
+    try {
+      const envelope = parseCollectionEnvelope(await externalDocuments.read(filePath, notebook.path));
+      const payload = envelope.payload;
+      const views = item.collectionType === 'table' ? (payload.table as { views: Array<{ id: string }> }).views : [payload.view as { id: string }];
+      if (!views.some((view) => view.id === descriptor.viewId)) unavailableReason = '此视图已不存在，请重新选择视图';
+    } catch { unavailableReason = '无法读取集合视图'; }
+  }
+  if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
+  if (filePath && !bindCollectionDisplayPath(descriptor.displayId, filePath, item?.indexSequence)) {
+    return openCollectionTarget(reference, options);
+  }
+  const target: Extract<WorkColumnTarget, { kind: 'collection' }> = {
+    kind: 'collection', ...descriptor, filePath, notebookPath: canonicalDirectoryPath(notebook.path),
+    collectionType: item?.collectionType ?? 'table', name: item?.name ?? '集合不可用',
+    ...(unavailableReason ? { unavailableReason } : {}),
+  };
+  try {
+    await getWorkspaceDocumentState().clearDocument();
+  } catch (error) {
+    if (isCurrentNavigation(requestId)) useWorkColumnStore.getState().failNavigation(requestId, error);
+    throw error;
+  }
+  if (!isCurrentNavigation(requestId)) return;
   commitNavigation(requestId, target, options?.history ?? 'push');
+  useWorkspaceFocusStore.getState().focusHost('main-third');
 }
 
-export async function openMediaLibraryTarget(
-  filePath: string,
-  notebookPath: string | null,
-  notebookId: string | null,
-  options?: { history?: 'push' | 'skip'; destination?: 'main-third' },
-): Promise<void> {
-  const normalizedPath = canonicalPath(filePath);
-  const normalizedNotebookPath = notebookPath ? canonicalPath(notebookPath) : null;
-  const workspaceMemo = getWorkspaceMemoState();
-  const resolvedNotebookId = notebookId
-    ?? workspaceMemo.notebooks.find((notebook) => normalizedNotebookPath && canonicalPath(notebook.path) === normalizedNotebookPath)?.id
-    ?? (workspaceMemo.selectedNotebook?.path && normalizedNotebookPath
-      && canonicalPath(workspaceMemo.selectedNotebook.path) === normalizedNotebookPath
-      ? workspaceMemo.selectedNotebook.id
-      : null);
-  ensureFileDisplayIdentity(normalizedPath);
-  const target: WorkColumnTarget = {
-    kind: 'media-library',
-    filePath: normalizedPath,
-    notebookPath: normalizedNotebookPath,
-    notebookId: resolvedNotebookId,
-  };
-  const existing = options?.destination === 'main-third'
-    ? null
-    : activateExistingContentForNavigation({ kind: 'external', path: normalizedPath });
-  if (existing instanceof Promise) {
-    if (await existing) return;
-  } else if (existing) return;
-  const requestId = beginNavigation(target, null, false, false);
-  commitNavigation(requestId, target, options?.history ?? 'push');
+async function openCollectionFile(filePath: string, notebookPath: string | null, notebookId: string | null, options?: { history?: 'push' | 'skip'; destination?: 'main-third' }): Promise<void> {
+  const root = canonicalPath(notebookPath ?? '');
+  const workspace = getWorkspaceMemoState();
+  const resolvedId = notebookId ?? workspace.notebooks.find((item) => canonicalPath(item.path) === root)?.id
+    ?? (workspace.selectedNotebook && canonicalPath(workspace.selectedNotebook.path) === root ? workspace.selectedNotebook.id : null);
+  if (!resolvedId || !root) throw new Error('无法确定集合所属笔记本');
+  const envelope = parseCollectionEnvelope(await externalDocuments.read(filePath, root));
+  await openCollectionTarget({ notebookId: resolvedId, collectionId: envelope.collection.id }, options);
+}
+export function openTableTarget(filePath: string, notebookPath: string | null, notebookId: string | null, options?: { history?: 'push' | 'skip'; destination?: 'main-third' }): Promise<void> {
+  return openCollectionFile(filePath, notebookPath, notebookId, options);
+}
+export function openMediaLibraryTarget(filePath: string, notebookPath: string | null, notebookId: string | null, options?: { history?: 'push' | 'skip'; destination?: 'main-third' }): Promise<void> {
+  return openCollectionFile(filePath, notebookPath, notebookId, options);
+}
+export function restoreCollectionWorkspace(restored: Extract<PersistedWorkspaceTarget, { kind: 'collection' }>): Promise<void> {
+  return openCollectionTarget(restored, { history: 'skip' });
 }
 
 export async function restoreMediaWorkspace(
@@ -356,6 +379,8 @@ export function historyEntryFromWorkColumnTarget(
   target: WorkColumnTarget,
 ): DocumentHistoryEntry | null {
   switch (target.kind) {
+    case 'collection':
+      return { kind: 'collection', displayId: target.displayId, notebookId: target.notebookId, collectionId: target.collectionId, viewId: target.viewId, relativePathHint: target.filePath.startsWith(`${target.notebookPath}/`) ? target.filePath.slice(target.notebookPath.length + 1) : undefined, openedAt: Date.now() };
     case 'document-list':
       return {
         kind: 'document-list',

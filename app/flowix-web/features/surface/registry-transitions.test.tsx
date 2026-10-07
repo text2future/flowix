@@ -13,6 +13,9 @@ vi.mock('@features/document/components/document-container', () => ({
     openContainingFolder?: boolean;
   }) => <div data-file-path={filePath} data-open-folder={String(Boolean(openContainingFolder))}>unavailable</div>,
 }));
+vi.mock('@features/editor/use-external-file-mime', () => ({
+  useExternalFileMime: () => ({ mimeType: 'application/octet-stream', loading: false }),
+}));
 vi.mock('./media-resource-view', () => ({ MediaResourceView: () => <div>media loading</div> }));
 vi.mock('./html-resource-view', () => ({ HtmlResourceView: () => <div>html reader</div> }));
 vi.mock('@shared/ui/surface-suspense-host', () => ({
@@ -38,7 +41,7 @@ function externalSurface(
     props: { isExternalDocument: true as const, transitionId },
   };
   switch (kind) {
-    case 'unavailable-file': return { ...base, kind };
+    case 'unavailable-file': return { ...base, kind, scopePath: '/notebook' };
     case 'image-file': return { ...base, kind, scopePath: '/notebook' };
     case 'video-file': return { ...base, kind, scopePath: '/notebook' };
   }
@@ -79,7 +82,7 @@ describe('work column external-file transition completion', () => {
         expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
         if (kind === 'unavailable-file') {
           expect(element.querySelector('[data-file-path]')?.getAttribute('data-file-path')).toBe('/notebook/report.pdf');
-          expect(element.querySelector('[data-open-folder]')?.getAttribute('data-open-folder')).toBe('false');
+          expect(element.querySelector('[data-open-folder]')?.getAttribute('data-open-folder')).toBe('true');
         }
       } finally {
         await act(async () => root.unmount());

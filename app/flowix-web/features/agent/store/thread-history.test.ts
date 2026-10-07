@@ -26,6 +26,67 @@ function message(
 }
 
 describe("mergeMessagesForThreadRender", () => {
+  it("uses the new Pi projection order when existing render rows are reordered", () => {
+    const time = "2026-01-01T00:00:00Z";
+    const prefix = message("old", "user", "earlier", time);
+    const a = { ...message("entry:block:0", "assistant", "before", time), messageId: "entry", piBlockIndex: 0 };
+    const b = { ...message("entry:block:2", "assistant", "after", time), messageId: "entry", piBlockIndex: 2 };
+    const tool = { ...message("call", "tool", "result", time), messageId: "call", toolAgentType: "pi" as const, toolDisplay: undefined };
+    const result = mergeLiveMessagesIntoRenderableMessages([prefix, a, b, tool], [a, tool, b], "pi");
+    expect(result).toEqual([prefix, a, tool, b]);
+    expect(mergeLiveMessagesIntoRenderableMessages(result, [a, tool, b], "pi")).toBe(result);
+  });
+
+  it("replaces a Pi draft by render key when its native identity changes", () => {
+    const time = "2026-01-01T00:00:00Z";
+    const prefix = message("old", "user", "earlier", time);
+    const draft = { ...message("draft:run:assistant:1", "assistant", "partial", time), messageId: null, renderKey: "stable" };
+    const committed = { ...draft, id: "entry:block:0", messageId: "entry", piBlockIndex: 0, content: "complete" };
+    const result = mergeLiveMessagesIntoRenderableMessages([prefix, draft], [committed], "pi");
+    expect(result).toEqual([prefix, committed]);
+    expect(result.filter((row) => row.renderKey === "stable")).toHaveLength(1);
+  });
+
+  it("uses Pi branch order instead of timestamps for history and render merges", () => {
+    const history = [
+      message("user", "user", "check", "2026-01-03T00:00:00Z"),
+      message("entry", "assistant", "checking", "2026-01-02T00:00:00Z"),
+      message("call", "tool", "result", "2026-01-01T00:00:00Z"),
+    ];
+    const live = [history[2], history[1], message("draft", "assistant", "next", "2020-01-01T00:00:00Z")];
+    const expected = ["user", "entry", "call", "draft"];
+    expect(mergeHistoricalMessages(live, history, "pi").map((row) => row.id)).toEqual(expected);
+    expect(mergeMessagesForThreadRender({ history, live, agentType: "pi" }).map((row) => row.id)).toEqual(expected);
+    expect(mergeLiveMessagesIntoRenderableMessages(history, live, "pi").map((row) => row.id)).toEqual(["user", "call", "entry", "draft"]);
+  });
+
+  it("retains a loaded Pi prefix and live tail when completion history is paged", () => {
+    const time = "2026-01-01T00:00:00Z";
+    const prefix = message("old", "user", "old", time);
+    const assistant = message("entry", "assistant", "checking", time);
+    const tool = message("call", "tool", "result", time);
+    const tail = message("draft", "assistant", "next", time);
+    const live = [prefix, assistant, tool, tail];
+    expect(replaceCompletedRunWithHistory(live, [assistant, tool], "run", "pi").map((row) => row.id))
+      .toEqual(["old", "entry", "call", "draft"]);
+  });
+
+  it("preserves Pi render keys and identical text with different native ids", () => {
+    const time = "2026-01-01T00:00:00Z";
+    const live = { ...message("entry-1", "assistant", "same", time), messageId: "entry-1", renderKey: "draft:run:assistant:1" };
+    const history = [
+      { ...message("entry-1", "assistant", "same", time), messageId: "entry-1", renderKey: "entry-1" },
+      { ...message("entry-2", "assistant", "same", time), messageId: "entry-2", renderKey: "entry-2" },
+    ];
+    const rendered = mergeMessagesForThreadRender({ history, live: [live], agentType: "pi" });
+    expect(rendered).toHaveLength(2);
+    expect(rendered[0]).toBe(live);
+    const merged = mergeHistoricalMessages([live], history, "pi");
+    expect(merged.map((row) => row.id).sort()).toEqual(["entry-1", "entry-2"]);
+    const completed = replaceCompletedRunWithHistory([live], history, "run", "pi");
+    expect(completed.find((row) => row.id === "entry-1")?.renderKey).toBe(live.renderKey);
+  });
+
   it("does not accept a terminal snapshot that still misses a live Codex row", () => {
     const user = message("user-live", "user", "ask", "2026-01-01T00:00:00Z");
     const assistant = message("assistant-live", "assistant", "done", "2026-01-01T00:00:01Z");
@@ -120,6 +181,32 @@ describe("mergeMessagesForThreadRender", () => {
         messageType: "agent-commentary",
       },
       message("final", "assistant", "done", "2026-01-01T00:00:01.000Z"),
+    ]);
+  });
+
+  it("keeps assistant and reasoning rows that share a Pi entry id", () => {
+    const assistant = message(
+      "pi-entry-1",
+      "assistant",
+      "answer",
+      "2026-01-01T00:00:01.000Z",
+    );
+    const reasoning = message(
+      "pi-entry-1",
+      "reasoning",
+      "plan",
+      "2026-01-01T00:00:01.000Z",
+    );
+
+    const merged = mergeMessagesForThreadRender({
+      history: [assistant],
+      live: [assistant, reasoning],
+      agentType: "pi",
+    });
+
+    expect(merged.map(({ id, role }) => [id, role])).toEqual([
+      ["pi-entry-1", "assistant"],
+      ["pi-entry-1", "reasoning"],
     ]);
   });
 
@@ -227,6 +314,23 @@ describe("mergeLiveMessagesIntoRenderableMessages", () => {
       id: "assistant-live",
       content: "Hello",
     });
+  });
+
+  it("matches Pi render rows by native id and role", () => {
+    const existing = [
+      message("pi-entry-1", "assistant", "answer", "2026-01-01T00:00:01.000Z"),
+    ];
+    const live = [
+      message("pi-entry-1", "assistant", "answer", "2026-01-01T00:00:01.000Z"),
+      message("pi-entry-1", "reasoning", "plan", "2026-01-01T00:00:01.000Z"),
+    ];
+
+    const merged = mergeLiveMessagesIntoRenderableMessages(existing, live, "pi");
+
+    expect(merged.map(({ id, role }) => [id, role])).toEqual([
+      ["pi-entry-1", "assistant"],
+      ["pi-entry-1", "reasoning"],
+    ]);
   });
 });
 

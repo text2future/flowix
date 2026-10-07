@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Trash2 } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeft, ChevronRight, MoreHorizontal, Trash2 } from 'lucide-react';
 import { CaretDownIcon, FolderSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { FolderFileTree } from '@features/memo/components/folder-file-tree';
 import { useFolderTree } from '@features/memo/components/use-folder-tree';
@@ -95,7 +95,7 @@ function BrowserBreadcrumbFolderPopover({
           aria-label={`打开文件夹 ${item.label}`}
           aria-expanded={open}
           title={item.path}
-          className="max-w-[180px] truncate rounded px-1 text-left transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] data-[state=open]:bg-[var(--muted)] data-[state=open]:text-[var(--foreground)]"
+          className="min-w-0 max-w-[180px] truncate rounded px-1 text-left transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] data-[state=open]:bg-[var(--muted)] data-[state=open]:text-[var(--foreground)]"
         >
           {item.label}
         </button>
@@ -120,6 +120,203 @@ function BrowserBreadcrumbFolderPopover({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+function BrowserBreadcrumbCollapsedPopover({
+  items,
+  activeFilePath,
+  onFileSelect,
+  onFileOpenInNewTab,
+}: {
+  items: FileBrowserBreadcrumbItem[];
+  activeFilePath: string | null;
+  onFileSelect: (filePath: string) => void;
+  onFileOpenInNewTab: (filePath: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedFolder, setSelectedFolder] = useState<FileBrowserBreadcrumbItem | null>(null);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setSelectedFolder(null);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="显示折叠的文件夹"
+          aria-expanded={open}
+          title="显示折叠的文件夹"
+          className="flex h-5 w-6 items-center justify-center rounded px-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] data-[state=open]:bg-[var(--muted)] data-[state=open]:text-[var(--foreground)]"
+        >
+          <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        className="w-[min(236px,calc(100vw-2rem))] overflow-hidden rounded-xl p-1 shadow-[0_8px_30px_-5px_rgb(0_0_0_/_0.28)]"
+      >
+        {selectedFolder ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelectedFolder(null)}
+              className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--muted)]"
+            >
+              <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate font-medium">{selectedFolder.label}</span>
+            </button>
+            <BrowserBreadcrumbFolderTree
+              folderPath={selectedFolder.path}
+              folderName={selectedFolder.label}
+              activeFilePath={activeFilePath}
+              onFileOpenInNewTab={onFileOpenInNewTab}
+              onFileSelect={(filePath) => {
+                setOpen(false);
+                onFileSelect(filePath);
+              }}
+            />
+          </>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {items.map((item) => (
+              <button
+                key={item.path}
+                type="button"
+                title={item.path}
+                onClick={() => setSelectedFolder(item)}
+                className="flex h-7 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm transition-colors hover:bg-[var(--muted)]"
+              >
+                <FolderSimpleIcon size={14} className="shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BrowserBreadcrumbs({
+  items,
+  activeFilePath,
+  onFileSelect,
+  onFileOpenInNewTab,
+}: {
+  items: FileBrowserBreadcrumbItem[];
+  activeFilePath: string | null;
+  onFileSelect: (filePath: string) => void;
+  onFileOpenInNewTab: (filePath: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const [hiddenStart, setHiddenStart] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const update = () => {
+      const width = container.clientWidth;
+      const itemWidths = items.map((_, index) => itemRefs.current[index]?.getBoundingClientRect().width ?? 0);
+      const gap = 4;
+      const fullWidth = itemWidths.reduce((sum, itemWidth) => sum + itemWidth, 0) + gap * Math.max(0, items.length - 1);
+      if (fullWidth <= width || items.length <= 2) {
+        setHiddenStart(null);
+        return;
+      }
+
+      // Keep the project root and current file visible. Retain the parent
+      // directory and shallower segments only when they fit.
+      const ellipsisWidth = 44;
+      let keptWidth = itemWidths[0] + itemWidths[items.length - 1] + ellipsisWidth + gap * 2;
+      let start = items.length - 1;
+      if (items.length >= 4 && keptWidth + itemWidths[items.length - 2] + gap <= width) {
+        keptWidth += itemWidths[items.length - 2] + gap;
+        start = items.length - 2;
+      }
+      for (let index = items.length - 3; index > 1; index -= 1) {
+        const nextWidth = keptWidth + itemWidths[index] + gap;
+        if (nextWidth > width) break;
+        keptWidth = nextWidth;
+        start = index;
+      }
+      setHiddenStart(start);
+    };
+
+    update();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(container);
+    itemRefs.current.forEach((item) => { if (item) observer?.observe(item); });
+    return () => observer?.disconnect();
+  }, [items]);
+
+  const visibleItems = hiddenStart === null
+    ? items.map((item, index) => ({ item, index }))
+    : [
+      { item: items[0], index: 0 },
+      ...items.slice(hiddenStart).map((item, offset) => ({ item, index: hiddenStart + offset })),
+    ];
+
+  return (
+    <div className="relative flex min-w-0 flex-1 items-center">
+      <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-sm">
+        {visibleItems.map(({ item, index }, visibleIndex) => (
+          <Fragment key={`${item.path}-${index}`}>
+            <span className={`flex items-center gap-1 ${visibleIndex === 0 || visibleIndex === visibleItems.length - 1
+              ? 'min-w-0 shrink'
+              : 'shrink-0'}`}>
+              {visibleIndex > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />}
+              {item.type === 'folder' ? (
+                <BrowserBreadcrumbFolderPopover
+                  item={item}
+                  activeFilePath={activeFilePath}
+                  onFileOpenInNewTab={onFileOpenInNewTab}
+                  onFileSelect={onFileSelect}
+                />
+              ) : (
+                <span className="min-w-0 max-w-[220px] truncate text-[var(--foreground)]" title={item.label}>
+                  {item.label}
+                </span>
+              )}
+            </span>
+            {hiddenStart !== null && visibleIndex === 0 && (
+              <span className="flex shrink-0 items-center gap-1">
+                <ChevronRight className="h-3 w-3 opacity-60" aria-hidden="true" />
+                <BrowserBreadcrumbCollapsedPopover
+                  items={items.slice(1, hiddenStart)}
+                  activeFilePath={activeFilePath}
+                  onFileSelect={onFileSelect}
+                  onFileOpenInNewTab={onFileOpenInNewTab}
+                />
+              </span>
+            )}
+          </Fragment>
+        ))}
+      </div>
+      <div aria-hidden="true" className="pointer-events-none absolute left-0 top-0 -z-10 flex w-max items-center gap-1 opacity-0">
+        {items.map((item, index) => (
+          <span
+            key={`${item.path}-${index}`}
+            ref={(element) => { itemRefs.current[index] = element; }}
+            className="flex shrink-0 items-center gap-1"
+          >
+            {index > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
+            <span className={`rounded px-1 ${item.type === 'file' ? 'max-w-[220px] truncate' : 'max-w-[180px] truncate'}`}>
+              {item.label}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -238,30 +435,14 @@ export function FileBrowserView({ surface: input }: { surface: FileBrowserViewSu
     <div className="flex h-full min-w-0 flex-col">
       {root && <nav
         aria-label="文件路径"
-        className="flex min-w-0 shrink-0 items-center gap-1 border-b border-[color-mix(in_oklch,var(--border)_68%,transparent)] px-4 pb-2 text-xs text-[var(--muted-foreground)]"
+        className="flex min-w-0 shrink-0 items-center gap-1 border-b border-[color-mix(in_oklch,var(--border)_68%,transparent)] pb-2 pl-4 pr-3 text-xs text-[var(--muted-foreground)]"
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto text-sm">
-          {breadcrumbs.map((item, index) => (
-            <span key={`${item.path}-${index}`} className="flex min-w-0 shrink-0 items-center gap-1">
-              {index > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />}
-              {item.type === 'folder' ? (
-                <BrowserBreadcrumbFolderPopover
-                  item={item}
-                  activeFilePath={surface.activeFilePath}
-                  onFileOpenInNewTab={surface.onOpenFileInNewTab}
-                  onFileSelect={(filePath) => surface.onSelectFile(filePath)}
-                />
-              ) : (
-                <span
-                  className="max-w-[220px] truncate text-[var(--foreground)]"
-                  title={item.label}
-                >
-                  {item.label}
-                </span>
-              )}
-            </span>
-          ))}
-        </div>
+        <BrowserBreadcrumbs
+          items={breadcrumbs}
+          activeFilePath={surface.activeFilePath}
+          onFileOpenInNewTab={surface.onOpenFileInNewTab}
+          onFileSelect={surface.onSelectFile}
+        />
         {surface.onSelectFolder && surface.sourceMenuEnabled !== false && <DropdownMenu className="shrink-0">
           <DropdownMenuTrigger asChild>
             <button
@@ -405,6 +586,7 @@ function BrowserFileBrowserTreePane({
       (payload) => {
         if (disposed || canonicalDirectoryPath(payload.rootPath) !== rootPath) return;
         if (leaseId && payload.leaseId !== leaseId) return;
+        if (tree.ignoreCollectionPathEvents(payload.paths)) return;
         void refreshDirectoriesRef.current(payload.directories);
       },
     );

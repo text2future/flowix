@@ -29,6 +29,7 @@ import { translate, type AppLanguage, type I18nKey } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
 import { AgentIcon } from '@features/agent/components/agent-icon';
 import { Kbd } from '@shared/ui/shortcut-kbd';
+import { MediaLibraryIcon, TableDocumentIcon } from '@features/memo/components/file-type-icon';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 
 export type SlashMenuItemId =
@@ -44,6 +45,7 @@ export type SlashMenuItemId =
   | 'table-kanban-view'
   | 'table-calendar-view'
   | 'table-gallery-view'
+  | 'media-library-reference'
   | 'math-block'
   | 'web-card'
   | 'horizontal-rule'
@@ -299,28 +301,36 @@ export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
     labelKey: 'editor.slash.label.multidimensionalTable',
     description: '插入多维表格引用视图',
     keywords: ['data table', 'multidimensional table', 'table view', 'biaoge', 'duowei', '数据表', '多维表', '引用'],
-    icon: TableIcon,
+    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'table-kanban-view',
     labelKey: 'editor.slash.label.kanbanView',
     keywords: ['kanban', 'board', '看板', '多维表格'],
-    icon: TableIcon,
+    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'table-calendar-view',
     labelKey: 'editor.slash.label.calendarView',
     keywords: ['calendar', '日历', '多维表格'],
-    icon: TableIcon,
+    icon: TableDocumentIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
     id: 'table-gallery-view',
     labelKey: 'editor.slash.label.galleryView',
     keywords: ['gallery', 'gallery list', '画廊', '画廊列表', '多维表格'],
-    icon: TableIcon,
+    icon: TableDocumentIcon,
+    sectionKey: 'editor.slash.section.view',
+  },
+  {
+    id: 'media-library-reference',
+    labelKey: 'editor.slash.label.mediaLibrary',
+    description: '插入媒体库资源视图',
+    keywords: ['media library', 'media view', 'gallery', '媒体库', '资源视图', '图片视频'],
+    icon: MediaLibraryIcon,
     sectionKey: 'editor.slash.section.view',
   },
   {
@@ -499,11 +509,12 @@ export const SlashMenuDropdown = ({
                     {renderIcon}
                     <span className="slash-menu-item-label min-w-0 flex-1">{displayLabel}</span>
                     {item.shortcut && (
+                      // 快捷键提示始终保持 muted-foreground ── hover / 选中态的
+                      // 底色是浅色 --hover-bg, 不再反色为 primary-foreground 的白,
+                      // 否则浅底白字对比度过低看不清。
                       <Kbd
                         chord={item.shortcut}
-                        className={selected
-                          ? 'shrink-0 text-[var(--primary-foreground)]'
-                          : 'shrink-0 text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)]'}
+                        className="shrink-0 text-[var(--muted-foreground)]"
                       />
                     )}
                   </button>

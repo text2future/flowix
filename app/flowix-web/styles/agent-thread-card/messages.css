@@ -102,6 +102,11 @@
   color: var(--foreground);
 }
 
+[data-theme="dark"] .markdown-editor .agent-thread-card__message--assistant,
+[data-theme="dark"] .markdown-editor .agent-thread-card__message--assistant .agent-thread-card__message-content {
+  color: oklch(0.80 0.013 265);
+}
+
 .markdown-editor .agent-thread-card__message--system {
   padding: 2px 0;
   color: var(--muted-foreground);
@@ -449,7 +454,7 @@
   align-items: flex-start;
   gap: 6px;
   padding: 4px 0;
-  background: var(--document-bg);
+  background: transparent;
   color: var(--muted-foreground);
   font-size: calc(var(--app-font-size, 15px) * 0.94);
   line-height: 18px;

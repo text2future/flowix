@@ -1110,6 +1110,15 @@ export function NotebookFileTree({
     });
     return () => { cancelled = true; };
   }, [isActive, notebookId, refreshTrigger]);
+  useEffect(() => {
+    const applied = new Map<string, number>();
+    return subscribe<{ notebookId: string; collectionId: string; relativePath: string; name: string; revision: number; indexSequence: number }>('collection-changed', (event) => {
+      if (event.notebookId !== notebookId || event.indexSequence < (applied.get(event.collectionId) ?? -1)) return;
+      applied.set(event.collectionId, event.indexSequence);
+      setTableDocuments((items) => items.map((item) => item.collectionId === event.collectionId ? { ...item, relativePath: event.relativePath, name: event.name, fileRevision: event.revision } : item));
+      setMediaLibraries((items) => items.map((item) => item.collectionId === event.collectionId ? { ...item, relativePath: event.relativePath, name: event.name } : item));
+    });
+  }, [notebookId]);
   useEffect(() => subscribe<{ notebookId: string }>('file-management-changed', (event) => {
     if (event.notebookId !== notebookId || !notebookId) return;
     void files.listTableDocuments(notebookId).then(setTableDocuments).catch((error) => {
@@ -1126,6 +1135,7 @@ export function NotebookFileTree({
     'file-browser-directories-changed',
     (event) => {
       if (!notebookId || canonicalPath(event.rootPath) !== canonicalPath(notebookPath)) return;
+      if (tree.ignoreCollectionPathEvents(event.paths)) return;
       void files.listTableDocuments(notebookId).then(setTableDocuments).catch((error) => {
         logger.warn('failed to refresh table documents after file change', { error, notebookId });
       });
@@ -1135,6 +1145,7 @@ export function NotebookFileTree({
     'file-browser-directories-changed',
     (event) => {
       if (!notebookId || canonicalPath(event.rootPath) !== canonicalPath(notebookPath)) return;
+      if (tree.ignoreCollectionPathEvents(event.paths)) return;
       void files.listMediaLibraries(notebookId).then(setMediaLibraries).catch((error) => {
         logger.warn('failed to refresh media libraries after file change', { error, notebookId });
       });
@@ -1539,20 +1550,22 @@ export function NotebookFileTree({
             path: item.fullPath,
             name: `${trimmed}${extension}`,
             scopePath: notebookPath,
+            notebookId: notebookId ?? undefined,
+            collectionId: tableDocumentByPath.get(canonicalPath(item.fullPath))?.collectionId ?? mediaLibraryByPath.get(canonicalPath(item.fullPath))?.collectionId,
           });
         }
       }
 
       const normalizedPath = canonicalPath(item.fullPath);
       const parent = normalizedPath.slice(0, normalizedPath.lastIndexOf('/'));
-      await tree.refresh(parent || notebookPath);
+      if (!isTableDocument && !isMediaLibrary) await tree.refresh(parent || notebookPath);
       toast.success(t('memo.fileTree.renamed', { name: trimmed }));
     } catch (error) {
       toast.error(t(String(error).includes('FILE_EXISTS')
         ? 'memo.fileTree.nameConflict'
         : 'memo.fileTree.renameFailed'));
     }
-  }, [notebookPath, t, tree.refresh]);
+  }, [notebookPath, notebookId, tableDocumentByPath, mediaLibraryByPath, t, tree.refresh]);
 
   const handleRenameTableDocument = useCallback(async (item: DocTreeItem, nextName: string) => {
     const trimmed = nextName.trim();
@@ -1636,32 +1649,32 @@ export function NotebookFileTree({
     setNewTableName(t('memo.create.tableDefaultName'));
     setNewTableDialogOpen(true);
   }, [t]);
-  const handleSetTableDocumentInViews = useCallback(async (tableId: string, inViews: boolean) => {
+  const handleSetTableDocumentInViews = useCallback(async (collectionId: string, inViews: boolean) => {
     if (!notebookId) return;
     try {
-      await files.setTableDocumentInViews(notebookId, tableId, inViews);
+      await files.setTableDocumentInViews(notebookId, collectionId, inViews);
       setTableDocuments(await files.listTableDocuments(notebookId));
     } catch (error) {
-      logger.warn('failed to update table view-group visibility', { error, notebookId, tableId });
+      logger.warn('failed to update table view-group visibility', { error, notebookId, collectionId });
       toast.error(t('multidimensionalTable.viewMembership.saveFailed'));
     }
   }, [notebookId, t]);
-  const handleSetMediaLibraryInViews = useCallback(async (libraryId: string, inViews: boolean) => {
+  const handleSetMediaLibraryInViews = useCallback(async (collectionId: string, inViews: boolean) => {
     if (!notebookId) return;
     try {
-      await files.setMediaLibraryInViews(notebookId, libraryId, inViews);
+      await files.setMediaLibraryInViews(notebookId, collectionId, inViews);
       setMediaLibraries(await files.listMediaLibraries(notebookId));
     } catch (error) {
-      logger.warn('failed to update media library view-group visibility', { error, notebookId, libraryId });
+      logger.warn('failed to update media library view-group visibility', { error, notebookId, collectionId });
       toast.error(t('mediaLibrary.viewMembership.saveFailed'));
     }
   }, [notebookId, t]);
   const handleMakeTableIdentityUnique = useCallback(async (relativePath: string) => {
     if (!notebookId) return;
     try {
-      const tableId = await files.makeViewDocumentIdentityUnique(notebookId, relativePath);
+      const collectionId = await files.makeViewDocumentIdentityUnique(notebookId, relativePath);
       setTableDocuments((current) => current.map((table) => table.relativePath === relativePath
-        ? { ...table, tableId, inViews: false, identityConflict: false }
+        ? { ...table, collectionId, inViews: false, identityConflict: false }
         : table));
       try {
         setTableDocuments(await files.listTableDocuments(notebookId));
@@ -1677,9 +1690,9 @@ export function NotebookFileTree({
   const handleMakeMediaLibraryIdentityUnique = useCallback(async (relativePath: string) => {
     if (!notebookId) return;
     try {
-      const libraryId = await files.makeViewDocumentIdentityUnique(notebookId, relativePath);
+      const collectionId = await files.makeViewDocumentIdentityUnique(notebookId, relativePath);
       setMediaLibraries((current) => current.map((library) => library.relativePath === relativePath
-        ? { ...library, libraryId, inViews: false, identityConflict: false }
+        ? { ...library, collectionId, inViews: false, identityConflict: false }
         : library));
       try {
         setMediaLibraries(await files.listMediaLibraries(notebookId));
@@ -1703,7 +1716,7 @@ export function NotebookFileTree({
         : relativeFolderPath(notebookPath, newTableParentFolder);
       const { filePath, table } = await createTableDocumentFile(notebookPath, relativeFolder, newTableName);
       if (newTableInViews) {
-        await files.setTableDocumentInViews(notebookId, table.table.id, true);
+        await files.setTableDocumentInViews(notebookId, table.collection.id, true);
       }
       setNewTableDialogOpen(false);
       setNewTableName('');
@@ -1733,7 +1746,7 @@ export function NotebookFileTree({
         : defaultCreateFolder;
       const { filePath, document } = await createMediaLibraryFile(notebookPath, relativeFolder, newLibraryName);
       if (newLibraryInViews) {
-        await files.setMediaLibraryInViews(notebookId, document.library.id, true);
+        await files.setMediaLibraryInViews(notebookId, document.collection.id, true);
       }
       setNewLibraryDialogOpen(false);
       setNewLibraryName('');
@@ -1945,16 +1958,16 @@ export function NotebookFileTree({
           }}
           onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(false, parentPath)}
           tableViewVisibility={tableDocument ? {
-            tableId: tableDocument.tableId,
+            collectionId: tableDocument.collectionId,
             inViews: tableDocument.inViews,
             identityConflict: tableDocument.identityConflict ?? false,
-            onChange: (inViews) => { void handleSetTableDocumentInViews(tableDocument.tableId, inViews); },
+            onChange: (inViews) => { void handleSetTableDocumentInViews(tableDocument.collectionId, inViews); },
             onMakeIdentityUnique: () => { void handleMakeTableIdentityUnique(tableDocument.relativePath); },
           } : undefined}
           mediaLibraryViewVisibility={mediaLibrary ? {
             inViews: mediaLibrary.inViews,
             identityConflict: mediaLibrary.identityConflict ?? false,
-            onChange: (inViews) => { void handleSetMediaLibraryInViews(mediaLibrary.libraryId, inViews); },
+            onChange: (inViews) => { void handleSetMediaLibraryInViews(mediaLibrary.collectionId, inViews); },
             onMakeIdentityUnique: () => { void handleMakeMediaLibraryIdentityUnique(mediaLibrary.relativePath); },
           } : undefined}
           onCustomizeDisplay={(anchorRect) => {
@@ -2431,7 +2444,8 @@ export function NotebookFileTree({
                 />
               </div>
             </div>
-            {!viewsCollapsed && viewTableDocuments.map((table) => {
+            {!viewsCollapsed && <div className="space-y-0.5">
+            {viewTableDocuments.map((table) => {
               const tablePath = joinNotebookMemoPath(notebookPath, table.relativePath);
               const active = Boolean(!selectedFolderPath && activeFilePath && tablePath && samePath(activeFilePath, tablePath));
               if (!tablePath) return null;
@@ -2455,10 +2469,10 @@ export function NotebookFileTree({
                   openNewTableDialog(true);
                 }}
                 tableViewVisibility={{
-                  tableId: table.tableId,
+                  collectionId: table.collectionId,
                   inViews: table.inViews,
                   identityConflict: table.identityConflict ?? false,
-                  onChange: (inViews) => { void handleSetTableDocumentInViews(table.tableId, inViews); },
+                  onChange: (inViews) => { void handleSetTableDocumentInViews(table.collectionId, inViews); },
                   onMakeIdentityUnique: () => { void handleMakeTableIdentityUnique(table.relativePath); },
                 }}
                 onCustomizeDisplay={openCustomizeDisplay}
@@ -2469,7 +2483,7 @@ export function NotebookFileTree({
                 tabIndex={0}
               />;
             })}
-            {!viewsCollapsed && viewMediaLibraries.map((library) => {
+            {viewMediaLibraries.map((library) => {
               const libraryPath = joinNotebookMemoPath(notebookPath, library.relativePath);
               if (!libraryPath) return null;
               const active = Boolean(!selectedFolderPath && activeFilePath && samePath(activeFilePath, libraryPath));
@@ -2492,7 +2506,7 @@ export function NotebookFileTree({
                 mediaLibraryViewVisibility={{
                   inViews: library.inViews,
                   identityConflict: library.identityConflict ?? false,
-                  onChange: (inViews) => { void handleSetMediaLibraryInViews(library.libraryId, inViews); },
+                  onChange: (inViews) => { void handleSetMediaLibraryInViews(library.collectionId, inViews); },
                   onMakeIdentityUnique: () => { void handleMakeMediaLibraryIdentityUnique(library.relativePath); },
                 }}
                 onCustomizeDisplay={openCustomizeDisplay}
@@ -2503,6 +2517,7 @@ export function NotebookFileTree({
                 tabIndex={0}
               />;
             })}
+            </div>}
           </section>}
           {!hiddenSections.includes('files') && <section
             className="flex min-h-0 flex-col pb-3"

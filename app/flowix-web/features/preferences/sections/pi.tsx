@@ -280,7 +280,7 @@ export function PiSettingsSection() {
   const renderProviderForm = (embedded = false) => {
     if (!draft) return null;
     return (
-      <div className={embedded ? 'space-y-2 rounded-xl bg-white p-2.5' : 'space-y-2 rounded-lg border border-[var(--divider)] bg-white p-2.5'}>
+      <div className={embedded ? 'space-y-2 rounded-xl bg-[var(--card)] p-2.5' : 'space-y-2 rounded-lg border border-[var(--divider)] bg-[var(--card)] p-2.5'}>
         <div className="flex items-center justify-between"><h3 className="text-base font-semibold text-[var(--foreground)]">{t(editingId !== null ? 'preferences.pi.edit' : 'preferences.pi.add')}</h3><Button type="button" variant="ghost" className="h-7 px-2 text-sm" onClick={cancelDraft}>{t('preferences.pi.cancel')}</Button></div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Field title={t('preferences.pi.providerCatalog')} className={PROVIDER_FORM_FIELD_CLASS}>
@@ -340,7 +340,7 @@ export function PiSettingsSection() {
           <Input className={PROVIDER_FORM_SECRET_CLASS} type="password" autoComplete="new-password" value={draft.apiKey ?? ''} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} placeholder={t('preferences.pi.keyPlaceholder')} />
         </Field>
         <div>
-            <Button type="button" variant="ghost" className="h-8 w-fit justify-start gap-1 rounded-none px-0 text-sm font-medium text-[var(--foreground)] hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-[var(--foreground)]" aria-label={`${t(modelListExpanded ? 'preferences.pi.collapseModels' : 'preferences.pi.expandModels')} ${t('preferences.pi.modelIds')}`} aria-expanded={modelListExpanded} onClick={() => setModelListExpanded((expanded) => !expanded)}>
+            <Button type="button" variant="ghost" className="h-8 w-fit justify-start gap-1 rounded-none px-0 text-sm font-medium text-[var(--foreground)] hover:bg-transparent dark:hover:!bg-transparent aria-expanded:bg-transparent aria-expanded:text-[var(--foreground)]" aria-label={`${t(modelListExpanded ? 'preferences.pi.collapseModels' : 'preferences.pi.expandModels')} ${t('preferences.pi.modelIds')}`} aria-expanded={modelListExpanded} onClick={() => setModelListExpanded((expanded) => !expanded)}>
               <span>{t('preferences.pi.modelIds')}</span>
               <ChevronRight className={`size-4 transition-transform ${modelListExpanded ? 'rotate-90' : ''}`} />
             </Button>

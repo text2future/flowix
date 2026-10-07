@@ -43,6 +43,13 @@ struct WatchRegistry {
 struct DirectoryChangeNotice {
     lease_id: String,
     directories: Vec<PathBuf>,
+    paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Default)]
+struct PendingDirectoryChanges {
+    directories: HashSet<PathBuf>,
+    paths: HashSet<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,6 +58,7 @@ struct FileBrowserDirectoriesChangedPayload {
     lease_id: String,
     root_path: String,
     directories: Vec<String>,
+    paths: Vec<String>,
 }
 
 pub struct FileBrowserWatchState {
@@ -189,18 +197,21 @@ fn schedule_directory_changes(
         return;
     };
     for (lease_id, lease) in &registry.leases {
-        let directories = event
-            .paths
-            .iter()
-            .filter(|path| !should_ignore_path(path, lease))
-            .filter_map(|path| affected_directory(path, &lease.root_path))
-            .collect::<HashSet<_>>();
+        let mut directories = HashSet::new();
+        let mut paths = HashSet::new();
+        for path in event.paths.iter().filter(|path| !should_ignore_path(path, lease)) {
+            if let Some(directory) = affected_directory(path, &lease.root_path) {
+                directories.insert(directory);
+                paths.insert((*path).clone());
+            }
+        }
         if directories.is_empty() {
             continue;
         }
         let _ = tx.send(DirectoryChangeNotice {
             lease_id: lease_id.clone(),
             directories: directories.into_iter().collect(),
+            paths: paths.into_iter().collect(),
         });
     }
 }
@@ -284,17 +295,16 @@ fn dispatch_directory_changes(
     registry: Arc<Mutex<WatchRegistry>>,
     rx: Receiver<DirectoryChangeNotice>,
 ) {
-    let mut pending = HashMap::<String, HashSet<PathBuf>>::new();
+    let mut pending = HashMap::<String, PendingDirectoryChanges>::new();
 
     loop {
         let first = match rx.recv() {
             Ok(notice) => notice,
             Err(_) => return,
         };
-        pending
-            .entry(first.lease_id)
-            .or_default()
-            .extend(first.directories);
+        let first_pending = pending.entry(first.lease_id).or_default();
+        first_pending.directories.extend(first.directories);
+        first_pending.paths.extend(first.paths);
 
         let deadline = Instant::now() + DEBOUNCE_DELAY;
         loop {
@@ -304,10 +314,9 @@ fn dispatch_directory_changes(
             }
             match rx.recv_timeout(remaining) {
                 Ok(notice) => {
-                    pending
-                        .entry(notice.lease_id)
-                        .or_default()
-                        .extend(notice.directories);
+                    let current = pending.entry(notice.lease_id).or_default();
+                    current.directories.extend(notice.directories);
+                    current.paths.extend(notice.paths);
                 }
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => return,
@@ -315,8 +324,8 @@ fn dispatch_directory_changes(
         }
 
         let changes = std::mem::take(&mut pending);
-        for (lease_id, directories) in changes {
-            emit_directory_changes(&app, &registry, &lease_id, directories);
+        for (lease_id, changes) in changes {
+            emit_directory_changes(&app, &registry, &lease_id, changes.directories, changes.paths);
         }
     }
 }
@@ -326,6 +335,7 @@ fn emit_directory_changes(
     registry: &Arc<Mutex<WatchRegistry>>,
     lease_id: &str,
     directories: HashSet<PathBuf>,
+    paths: HashSet<PathBuf>,
 ) {
     let Some((window_label, root_path)) = registry.lock().ok().and_then(|registry| {
         registry
@@ -338,10 +348,16 @@ fn emit_directory_changes(
 
     let mut directories = directories.into_iter().collect::<Vec<_>>();
     directories.sort();
+    let mut paths = paths.into_iter().collect::<Vec<_>>();
+    paths.sort();
     let payload = FileBrowserDirectoriesChangedPayload {
         lease_id: lease_id.to_string(),
         root_path: root_path.to_string_lossy().to_string(),
         directories: directories
+            .into_iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect(),
+        paths: paths
             .into_iter()
             .map(|path| path.to_string_lossy().to_string())
             .collect(),

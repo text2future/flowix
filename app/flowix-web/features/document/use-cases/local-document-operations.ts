@@ -1,3 +1,4 @@
+import { renameCollectionAtPath } from '@features/collection/mutations';
 import { canonicalPath } from '@/lib/path';
 import { externalDocuments } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
@@ -20,8 +21,14 @@ export const localDocumentOperations: EditableDocumentOperations = {
       ? { status: 'saved', path: canonicalPath(result.path), content: result.content }
       : result;
   },
-  rename: async ({ path, name, scopePath }) => {
+  rename: async ({ path, name, scopePath, notebookId, collectionId }) => {
     if (!scopePath) throw new Error('A file scope is required to rename this document');
+    if (/\.(?:table|lib)\.ya?ml$/i.test(path)) {
+      const title = name.replace(/\.(?:table|lib)\.ya?ml$/i, '');
+      const result = await renameCollectionAtPath(path, scopePath, title, notebookId, collectionId);
+      if (result.errorCode) throw new Error(`集合已更新，但操作尚未完成：${result.errorCode}`);
+      return { path: result.filePath };
+    }
     const renamedPath = canonicalPath(await files.rename(path, name, scopePath));
     if (/\.(?:md|markdown)$/i.test(path) && renamedPath !== canonicalPath(path)) {
       updateNoteLinksAfterMove(path, renamedPath);

@@ -1,0 +1,38 @@
+.flowix-docx-preview {
+	background: var(--background);
+}
+
+.flowix-docx-scroll {
+	position: relative;
+	overflow: auto;
+	background: var(--background);
+}
+
+.flowix-docx-style-host {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+}
+
+.flowix-docx-wrapper {
+	min-height: 100%;
+	width: 100%;
+	box-sizing: border-box;
+	background: transparent !important;
+	padding: 0 !important;
+}
+
+.flowix-docx-wrapper > section.flowix-docx {
+	max-width: 100%;
+	padding: calc(16pt + 29px) 48pt 16pt !important;
+	margin-bottom: 0 !important;
+	box-shadow: none !important;
+}
+
+.flowix-docx-body {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	padding: 0;
+}

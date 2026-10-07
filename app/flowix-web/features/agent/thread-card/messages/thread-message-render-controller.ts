@@ -1,3 +1,4 @@
+import { messageRenderKey } from "@features/agent/message/render-identity";
 import type { ThreadState } from "@features/agent/store/thread-runtime-state";
 import type { AppLanguage, I18nKey } from "@/lib/i18n";
 import type { AgentTypeKey } from "@/types/agent";
@@ -539,7 +540,7 @@ export class ThreadMessageRenderController {
     const visibleReasoningIds = new Set(
       messages
         .filter((message) => message.role === "reasoning")
-        .map((message) => message.id),
+        .map(messageRenderKey),
     );
 
     for (const id of this.reasoningCollapsedOverrides.keys()) {
@@ -554,7 +555,7 @@ export class ThreadMessageRenderController {
   ): void {
     if (this.displayExpandedOverrides.size === 0) return;
 
-    const visibleIds = new Set(messages.map((message) => message.id));
+    const visibleIds = new Set(messages.map(messageRenderKey));
 
     for (const id of this.displayExpandedOverrides.keys()) {
       if (!visibleIds.has(id)) {
@@ -565,12 +566,12 @@ export class ThreadMessageRenderController {
 
   private getReasoningCollapsed(message: AgentMessage): boolean {
     return (
-      this.reasoningCollapsedOverrides.get(message.id) ?? !!message.isCompleted
+      this.reasoningCollapsedOverrides.get(messageRenderKey(message)) ?? !!message.isCompleted
     );
   }
 
   private getDisplayExpanded(message: AgentMessage): boolean {
-    return this.displayExpandedOverrides.get(message.id) ?? false;
+    return this.displayExpandedOverrides.get(messageRenderKey(message)) ?? false;
   }
 
   private createMessageRenderContext(

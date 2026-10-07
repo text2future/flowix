@@ -312,7 +312,7 @@ describe('NotebookFileTree pointer dragging', () => {
   it('renders view items with the same more and context menu actions as access-space items', async () => {
     vi.spyOn(files, 'listTableDocuments').mockResolvedValue([{
       relativePath: 'views/Project.table.yml',
-      tableId: 'tbl_project',
+      collectionId: 'tbl_project',
       name: 'Project',
       modifiedMs: 1_700_000_000_000,
       fileRevision: 1,

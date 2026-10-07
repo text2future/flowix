@@ -13,7 +13,7 @@ import {
   truncateToolResultForDisplay,
   truncateToolResultOutputPreview,
 } from "@features/agent/message/display-limits";
-import { insertAgentMessageBySourceOrder } from "@features/agent/store/message-order";
+import { insertAgentMessageBySourceOrder, orderPiMessageBlocks } from "@features/agent/store/message-order";
 import type { MessageChunkMetadata } from "@features/agent/store/message-chunks";
 
 function toolMessageTimestamp(sourceTimestamp?: number): string {
@@ -47,12 +47,16 @@ export function applyToolCallChunk(
   const toolInput = normalizeToolInput(input);
   const toolMessage: ChatMessage = {
     id: metadata.id ?? `tool-${id || Date.now()}`,
+    renderKey: metadata.id ?? id,
+    messageId: agentType === "pi" ? metadata.id ?? id : undefined,
     role: "tool",
     content: "",
     timestamp: toolMessageTimestamp(metadata.sourceTimestamp),
     sourceTimestamp: metadata.sourceTimestamp,
     sourceSequence: metadata.sourceSequence,
     sourceSubsequence: metadata.sourceSubsequence,
+    parentMessageId: metadata.parentMessageId,
+    piBlockIndex: agentType === "pi" ? metadata.sourceSubsequence : undefined,
     toolCallId: id,
     toolName: name,
     toolAgentType: agentType,
@@ -72,6 +76,7 @@ export function applyToolCallChunk(
     const messages = [...st.messages];
     messages[existingIndex] = {
       ...existing,
+      id: metadata.id ?? existing.id,
       toolName: name || existing.toolName,
       toolAgentType: agentType ?? existing.toolAgentType,
       toolInput: toolInput ?? existing.toolInput,
@@ -83,17 +88,19 @@ export function applyToolCallChunk(
       sourceSequence: existing.sourceSequence ?? metadata.sourceSequence,
       sourceSubsequence:
         existing.sourceSubsequence ?? metadata.sourceSubsequence,
+      parentMessageId: existing.parentMessageId ?? metadata.parentMessageId,
+      piBlockIndex: existing.piBlockIndex ?? (agentType === "pi" ? metadata.sourceSubsequence : undefined),
       // Replayed/complete events must never reopen an already-finished row.
       isLoading: existing.isLoading === false ? false : true,
     };
     return {
-      messages,
+      messages: agentType === "pi" ? orderPiMessageBlocks(messages) : messages,
       pendingAssistantId: null,
       pendingReasoningId: st.pendingReasoningId,
     };
   }
   return {
-    messages: insertAgentMessageBySourceOrder(st.messages, toolMessage),
+    messages: agentType === "pi" ? orderPiMessageBlocks([...st.messages, toolMessage]) : insertAgentMessageBySourceOrder(st.messages, toolMessage),
     pendingAssistantId: null,
     pendingReasoningId: st.pendingReasoningId,
   };
@@ -148,12 +155,16 @@ export function applyToolResultChunk(
       )
     : insertAgentMessageBySourceOrder(st.messages, {
         id: metadata.id ?? `tool-${id || Date.now()}`,
+        renderKey: metadata.id ?? id,
+        messageId: agentType === "pi" ? metadata.id ?? id : undefined,
         role: "tool" as const,
         content: resultContent,
         timestamp: toolMessageTimestamp(metadata.sourceTimestamp),
         sourceTimestamp: metadata.sourceTimestamp,
         sourceSequence: metadata.sourceSequence,
         sourceSubsequence: metadata.sourceSubsequence,
+        parentMessageId: metadata.parentMessageId,
+    piBlockIndex: agentType === "pi" ? metadata.sourceSubsequence : undefined,
         toolCallId: id,
         toolName: resultToolName || "unknown_tool",
         toolAgentType: agentType,
@@ -164,7 +175,7 @@ export function applyToolResultChunk(
         }),
         toolData: resultContent,
         isLoading: false,
-      });
+      }, agentType === "pi");
   return {
     messages,
     pendingAssistantId: null,

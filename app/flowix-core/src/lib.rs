@@ -20,3 +20,5 @@ pub mod service;
 pub mod text_merge;
 
 pub use service::{FlowixError, MemoPage, MemoService, NotePage, NoteSaveOutcome, NoteService};
+
+pub mod collection;

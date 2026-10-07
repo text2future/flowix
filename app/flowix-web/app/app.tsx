@@ -82,7 +82,33 @@ function MainWindowReadySignal() {
   return null;
 }
 
+function useUnexpectedControlInputGuard() {
+  useEffect(() => {
+    const controlCharacters = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+    const handleBeforeInput = (event: Event) => {
+      const inputEvent = event as InputEvent;
+      if (inputEvent.isComposing) return;
+      if (
+        inputEvent.inputType !== "insertText" &&
+        inputEvent.inputType !== "insertReplacementText"
+      ) return;
+
+      const data = inputEvent.data;
+      if (!data || !controlCharacters.test(data)) return;
+
+      // macOS WebKit can turn ArrowRight into an insertText event containing
+      // U+001D. Block accidental ASCII control text across native fields and
+      // contenteditable surfaces while leaving IME composition untouched.
+      inputEvent.preventDefault();
+    };
+
+    document.addEventListener("beforeinput", handleBeforeInput, true);
+    return () => document.removeEventListener("beforeinput", handleBeforeInput, true);
+  }, []);
+}
+
 function App() {
+  useUnexpectedControlInputGuard();
   const [hash, setHash] = useState(() => window.location.hash);
   const {
     language,

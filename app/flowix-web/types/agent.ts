@@ -238,7 +238,14 @@ export type RuntimeConfigPatch = {
 };
 
 export interface ChatMessage {
+  /** Row lookup id. Pi content rows use native entry id plus block position; drafts use a temporary key. */
   id: string;
+  /** Stable UI identity; preserved when the provider commits a draft. */
+  renderKey?: string;
+  /** Provider-owned identity. Null while a Pi message is still a draft. */
+  messageId?: string | null;
+  /** Pi content-block position; native messageId remains the session entry id. */
+  piBlockIndex?: number;
   role: "user" | "assistant" | "system" | "tool" | "reasoning" | "end";
   /** Provider-owned timeline/control message, distinct from human content. */
   messageType?: AgentMessageType;
@@ -258,6 +265,8 @@ export interface ChatMessage {
   sourceSubsequence?: number;
   isLoading?: boolean;
   toolCallId?: string;
+  /** Pi session entry that owns this tool call, when available. */
+  parentMessageId?: string;
   toolName?: string;
   toolAgentType?: AgentTypeKey;
   toolData?: string;
@@ -393,6 +402,7 @@ export interface AgentChunkToolCall {
   run_id?: string;
   message_id?: string;
   source_message_id?: string;
+  parent_message_id?: string;
   message_phase?: "started" | "updated" | "completed";
   source_timestamp?: number;
   source_sequence?: number;
@@ -410,6 +420,7 @@ export interface AgentChunkToolResult {
   run_id?: string;
   message_id?: string;
   source_message_id?: string;
+  parent_message_id?: string;
   message_phase?: "started" | "updated" | "completed";
   source_timestamp?: number;
   source_sequence?: number;
@@ -621,6 +632,8 @@ interface AgentEventBase {
   sourceTimestamp?: number;
   sourceSequence?: number;
   sourceSubsequence?: number;
+  /** Native parent message entry for provider-owned child rows such as tools. */
+  parentMessageId?: string;
   reasoningBoundary?: boolean;
   codexTurnId?: string;
 }
@@ -734,3 +747,21 @@ export interface LastRunSnapshot {
 
 // Re-export for backwards compatibility
 export type MessageType = ChatMessage;
+
+/** Native Pi RPC snapshot identity. IDs are opaque and must not be ordered lexically. */
+export interface PiHistoryRevision {
+  sessionId: string;
+  appendCursor: string | null;
+  leafId: string | null;
+}
+export interface PiSessionSnapshot {
+  messages: Array<Record<string, unknown>>;
+  revision: PiHistoryRevision;
+}
+
+export interface PiHistoryPage extends PiSessionSnapshot {
+  beforeEntryId: string | null;
+  oldestSequence: number | null;
+  snapshotSequence: number;
+  hasMore: boolean;
+}

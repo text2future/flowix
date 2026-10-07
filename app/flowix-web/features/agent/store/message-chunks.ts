@@ -8,10 +8,13 @@ import type {
   AgentMessageAttachment,
   AgentMessageType,
 } from "@/types/agent";
-import { insertAgentMessageBySourceOrder } from "@features/agent/store/message-order";
+import { insertAgentMessageBySourceOrder, orderPiMessageBlocks } from "@features/agent/store/message-order";
 
 export interface MessageChunkMetadata {
   id?: string;
+  nativeMessageId?: string;
+  draftScope?: string;
+  blockIndex?: number;
   messageType?: AgentMessageType;
   notice?: "deepseek-harness-reconnect-failed";
   phase?: "started" | "updated" | "completed";
@@ -19,6 +22,9 @@ export interface MessageChunkMetadata {
   sourceTimestamp?: number;
   sourceSequence?: number;
   sourceSubsequence?: number;
+  parentMessageId?: string;
+  /** Provider lifecycle guarantees that the completed snapshot owns the pending draft. */
+  adoptPendingId?: boolean;
   errorDetails?: AgentErrorDetails;
   codexTurnId?: string;
   attachments?: AgentMessageAttachment[];
@@ -42,9 +48,11 @@ function isGoalControlMessageType(
   );
 }
 
-function generatedAssistantMessageId(): string {
+function generatedAssistantMessageId(scope?: string, role = "assistant"): string {
   generatedAssistantMessageSequence += 1;
-  return `assistant-${Date.now()}-${generatedAssistantMessageSequence}`;
+  return scope
+    ? `draft:${scope}:${role}:${generatedAssistantMessageSequence}`
+    : `assistant-${Date.now()}-${generatedAssistantMessageSequence}`;
 }
 
 export function applyUserMessageChunk(
@@ -82,13 +90,9 @@ export function applyUserMessageChunk(
     };
   }
 
-  // Codex relays the provider userMessage item id (with the owning turn id)
-  // as soon as the turn starts. Adopt it in place: rewrite the optimistic
-  // run-scoped row's id instead of appending a second user row. Position,
-  // content and neighbouring references stay untouched, so the renderer's
-  // patch-last fast path keeps holding while the row is still the tail.
+  // Providers may relay their native user message id after the optimistic row
+  // is already visible. Adopt it in place instead of appending a second row.
   if (
-    metadata.codexTurnId &&
     metadata.optimisticId &&
     metadata.id !== metadata.optimisticId
   ) {
@@ -96,7 +100,7 @@ export function applyUserMessageChunk(
       (message) =>
         message.role === "user" &&
         message.id === metadata.optimisticId &&
-        !message.codexTurnId,
+        (!metadata.codexTurnId || !message.codexTurnId),
     );
     if (optimisticIndex >= 0) {
       const optimistic = st.messages[optimisticIndex];
@@ -104,10 +108,12 @@ export function applyUserMessageChunk(
       messages[optimisticIndex] = {
         ...optimistic,
         id: metadata.id,
+        renderKey: optimistic.renderKey ?? optimistic.id,
+        messageId: metadata.nativeMessageId ?? metadata.id,
         // The provider item may contain DSH-injected system-reminder/runtime
         // context. The optimistic row is the product-owned source of the
         // user-visible text; keep it when adopting the provider identity.
-        codexTurnId: metadata.codexTurnId,
+        codexTurnId: metadata.codexTurnId ?? optimistic.codexTurnId,
         attachments: optimistic.attachments,
       };
       return {
@@ -159,6 +165,7 @@ export function applyUserMessageChunk(
     const messages = [...st.messages];
     messages[existingIndex] = {
       ...existing,
+      messageId: metadata.nativeMessageId ?? existing.messageId,
       content: text,
       timestamp:
         existing.sourceTimestamp === undefined &&
@@ -189,6 +196,8 @@ export function applyUserMessageChunk(
   return {
     messages: [...st.messages, {
       id: metadata.id,
+      renderKey: metadata.id,
+      messageId: metadata.nativeMessageId,
       role: "user",
       content: text,
       timestamp: messageTimestamp(metadata.sourceTimestamp),
@@ -217,7 +226,12 @@ function messageTimestamp(sourceTimestamp?: number): string {
  * 同时把上一条未完成的 reasoning 行 `isCompleted=true` 收尾 ── assistant
  * 接 reasoning 是常规 Pattern, 不收尾会留着"思考中"视觉残留。
  */
-export function applyTextChunk(
+export function applyTextChunk(st: LiveMessageState, text: string, metadata: MessageChunkMetadata = {}): ApplyResult {
+  const result = applyTextChunkInternal(st, text, metadata);
+  return metadata.adoptPendingId ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
+}
+
+function applyTextChunkInternal(
   st: LiveMessageState,
   text: string,
   metadata: MessageChunkMetadata = {},
@@ -227,7 +241,9 @@ export function applyTextChunk(
         m.id === st.pendingReasoningId ? { ...m, isCompleted: true } : m,
       )
     : st.messages;
-  const targetId = metadata.id ?? st.pendingAssistantId;
+  const pendingAssistant = st.messages.find((row) => row.id === st.pendingAssistantId && row.role === "assistant");
+  const targetId = metadata.id ?? (metadata.adoptPendingId && metadata.blockIndex !== undefined &&
+    pendingAssistant?.piBlockIndex !== metadata.blockIndex ? null : st.pendingAssistantId);
   const existingIndex = targetId
     ? closedMessages.findIndex(
         (message) => message.id === targetId && message.role === "assistant",
@@ -240,7 +256,8 @@ export function applyTextChunk(
     // content, keep every reference intact so duplicate delivery is a store
     // no-op instead of a fresh object graph.
     if (metadata.contentMode === "snapshot" && existing.content === text) {
-      if (existing.messageType === metadata.messageType) {
+      if (existing.messageType === metadata.messageType &&
+          (!metadata.adoptPendingId || (existing.isCompleted ?? false) === (metadata.phase === "completed"))) {
         return {
           messages: closedMessages,
           pendingAssistantId: metadata.phase === "completed" ? null : targetId,
@@ -250,6 +267,7 @@ export function applyTextChunk(
       const messages = [...closedMessages];
       messages[existingIndex] = {
         ...existing,
+        isCompleted: metadata.phase === "completed",
         messageType: metadata.messageType ?? existing.messageType,
       };
       return {
@@ -261,6 +279,7 @@ export function applyTextChunk(
     const messages = [...closedMessages];
     messages[existingIndex] = {
       ...existing,
+      isCompleted: metadata.phase === "completed",
       content:
         metadata.contentMode === "snapshot" ? text : existing.content + text,
       timestamp:
@@ -282,35 +301,42 @@ export function applyTextChunk(
     };
   }
 
-  // Some Codex app-server versions omit `itemId` on the first delta. The
-  // streaming buffer then creates an optimistic assistant row, while the
-  // completed snapshot carries the provider item id. Adopt that id in place
-  // instead of inserting the same answer a second time. Restrict this to a
-  // Codex turn and to the currently pending row: equal answers in separate
-  // turns are valid messages and must remain independent.
+  // Some providers expose their native message id only once the message is
+  // committed. The live delta has already created the pending row, so adopt
+  // the provider id in place when its completed snapshot matches that row.
+  // Pending state is reset at user/tool boundaries, keeping equal answers in
+  // separate turns independent.
   if (
     metadata.contentMode === "snapshot" &&
-    metadata.codexTurnId &&
     metadata.id &&
-    st.pendingAssistantId &&
+    (st.pendingAssistantId || metadata.adoptPendingId) &&
     targetId === metadata.id
   ) {
     const pendingIndex = closedMessages.findIndex(
       (message) =>
-        message.id === st.pendingAssistantId && message.role === "assistant",
+        message.role === "assistant" && (
+          metadata.adoptPendingId && metadata.blockIndex !== undefined
+            ? message.messageId === null && message.piBlockIndex === metadata.blockIndex &&
+              !!metadata.draftScope && message.id.startsWith(`draft:${metadata.draftScope}:assistant:`)
+            : message.id === st.pendingAssistantId
+        ),
     );
     if (pendingIndex >= 0) {
       const existing = closedMessages[pendingIndex];
-      // Without the provider item id this is only a compatibility join. Do
-      // not let a late snapshot for another item rename and overwrite the
+      // Do not let a late snapshot for another item rename and overwrite the
       // currently pending assistant row.
-      if (existing.content !== text) {
+      if (existing.content !== text && !metadata.adoptPendingId) {
         return applyTextSnapshotAsNewMessage(closedMessages, text, metadata);
       }
       const messages = [...closedMessages];
       messages[pendingIndex] = {
         ...existing,
         id: metadata.id,
+        renderKey: existing.renderKey ?? existing.id,
+        messageId: metadata.nativeMessageId ?? metadata.id,
+        piBlockIndex: metadata.blockIndex,
+        parentMessageId: metadata.nativeMessageId,
+        isCompleted: metadata.phase === "completed",
         content: text,
         messageType: metadata.messageType ?? existing.messageType,
         sourceTimestamp: existing.sourceTimestamp ?? metadata.sourceTimestamp,
@@ -328,9 +354,14 @@ export function applyTextChunk(
   }
 
   if (!targetId) {
-    const id = generatedAssistantMessageId();
+    const id = generatedAssistantMessageId(metadata.draftScope);
     const message = {
       id,
+      renderKey: id,
+      messageId: metadata.adoptPendingId ? metadata.nativeMessageId ?? metadata.id ?? null : undefined,
+      piBlockIndex: metadata.blockIndex,
+      parentMessageId: metadata.nativeMessageId,
+      isCompleted: metadata.phase === "completed",
       role: "assistant" as const,
       content: text,
       timestamp: messageTimestamp(metadata.sourceTimestamp),
@@ -341,7 +372,7 @@ export function applyTextChunk(
       messageType: metadata.messageType,
     };
     return {
-      messages: insertAgentMessageBySourceOrder(closedMessages, message),
+      messages: insertAgentMessageBySourceOrder(closedMessages, message, metadata.adoptPendingId),
       pendingAssistantId: id,
       pendingReasoningId: null,
     };
@@ -349,6 +380,11 @@ export function applyTextChunk(
 
   const message = {
     id: targetId,
+    renderKey: targetId,
+    messageId: metadata.adoptPendingId ? metadata.nativeMessageId ?? metadata.id ?? null : undefined,
+      piBlockIndex: metadata.blockIndex,
+      parentMessageId: metadata.nativeMessageId,
+    isCompleted: metadata.phase === "completed",
     role: "assistant" as const,
     content: text,
     timestamp: messageTimestamp(metadata.sourceTimestamp),
@@ -359,7 +395,7 @@ export function applyTextChunk(
     messageType: metadata.messageType,
   };
   return {
-    messages: insertAgentMessageBySourceOrder(closedMessages, message),
+    messages: insertAgentMessageBySourceOrder(closedMessages, message, metadata.adoptPendingId),
     pendingAssistantId: metadata.phase === "completed" ? null : targetId,
     pendingReasoningId: null,
   };
@@ -370,9 +406,14 @@ function applyTextSnapshotAsNewMessage(
   text: string,
   metadata: MessageChunkMetadata,
 ): ApplyResult {
-  const id = metadata.id ?? generatedAssistantMessageId();
+  const id = metadata.id ?? generatedAssistantMessageId(metadata.draftScope);
   const message = {
     id,
+    renderKey: id,
+    messageId: metadata.adoptPendingId ? metadata.nativeMessageId ?? metadata.id ?? null : undefined,
+      piBlockIndex: metadata.blockIndex,
+      parentMessageId: metadata.nativeMessageId,
+    isCompleted: metadata.phase === "completed",
     role: "assistant" as const,
     content: text,
     timestamp: messageTimestamp(metadata.sourceTimestamp),
@@ -383,7 +424,7 @@ function applyTextSnapshotAsNewMessage(
     messageType: metadata.messageType,
   };
   return {
-    messages: insertAgentMessageBySourceOrder(messages, message),
+    messages: insertAgentMessageBySourceOrder(messages, message, metadata.adoptPendingId),
     pendingAssistantId: metadata.phase === "completed" ? null : id,
     pendingReasoningId: null,
   };
@@ -394,12 +435,19 @@ function applyTextSnapshotAsNewMessage(
  * 默认 `isCompleted: false`。 注意 reasoning 行不会因为后续 text chunk
  * 收尾 ── 由 `applyTextChunk` 显式 close, 这里保持原状。
  */
-export function applyReasoningChunk(
+export function applyReasoningChunk(st: LiveMessageState, text: string, metadata: MessageChunkMetadata = {}): ApplyResult {
+  const result = applyReasoningChunkInternal(st, text, metadata);
+  return metadata.adoptPendingId ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
+}
+
+function applyReasoningChunkInternal(
   st: LiveMessageState,
   text: string,
   metadata: MessageChunkMetadata = {},
 ): ApplyResult {
-  const targetId = metadata.id ?? st.pendingReasoningId;
+  const pendingReasoning = st.messages.find((row) => row.id === st.pendingReasoningId && row.role === "reasoning");
+  const targetId = metadata.id ?? (metadata.adoptPendingId && metadata.blockIndex !== undefined &&
+    pendingReasoning?.piBlockIndex !== metadata.blockIndex ? null : st.pendingReasoningId);
   const existingIndex = targetId
     ? st.messages.findIndex(
         (message) => message.id === targetId && message.role === "reasoning",
@@ -445,12 +493,15 @@ export function applyReasoningChunk(
     };
   }
   if (!targetId) {
-    const id = `reasoning-${Date.now()}`;
+    const id = generatedAssistantMessageId(metadata.draftScope, "reasoning");
     return {
       messages: [
         ...st.messages,
         {
           id,
+          renderKey: id,
+          messageId: metadata.adoptPendingId ? null : undefined,
+          piBlockIndex: metadata.blockIndex,
           role: "reasoning",
           content: text,
           timestamp: new Date().toISOString(),
@@ -462,8 +513,50 @@ export function applyReasoningChunk(
     };
   }
 
+  if (metadata.contentMode === "snapshot" && metadata.id) {
+    // Closing the thinking animation must not discard the draft awaiting the
+    // enclosing Pi message commit. Scope excludes drafts from earlier runs.
+    const pendingIndex = st.messages.findIndex(
+      (message) => message.role === "reasoning" && (
+        (message.id === st.pendingReasoningId && (metadata.blockIndex === undefined || message.piBlockIndex === metadata.blockIndex)) ||
+        (metadata.adoptPendingId && metadata.draftScope &&
+          message.messageId === null &&
+          (metadata.blockIndex === undefined || message.piBlockIndex === metadata.blockIndex) &&
+          message.id.startsWith(`draft:${metadata.draftScope}:reasoning:`))
+      ),
+    );
+    if (pendingIndex >= 0) {
+      const existing = st.messages[pendingIndex];
+      if (existing.content === text || metadata.adoptPendingId) {
+        const messages = [...st.messages];
+        messages[pendingIndex] = {
+          ...existing,
+          id: metadata.id,
+          renderKey: existing.renderKey ?? existing.id,
+          messageId: metadata.nativeMessageId ?? metadata.id,
+        piBlockIndex: metadata.blockIndex,
+        parentMessageId: metadata.nativeMessageId,
+          content: text,
+          isCompleted: metadata.phase === "completed",
+          sourceTimestamp: existing.sourceTimestamp ?? metadata.sourceTimestamp,
+          sourceSequence: existing.sourceSequence ?? metadata.sourceSequence,
+          sourceSubsequence: existing.sourceSubsequence ?? metadata.sourceSubsequence,
+        };
+        return {
+          messages,
+          pendingReasoningId: metadata.phase === "completed" ? null : metadata.id,
+          pendingAssistantId: st.pendingAssistantId,
+        };
+      }
+    }
+  }
+
   const message = {
     id: targetId,
+    renderKey: targetId,
+    messageId: metadata.adoptPendingId ? metadata.nativeMessageId ?? metadata.id ?? null : undefined,
+      piBlockIndex: metadata.blockIndex,
+      parentMessageId: metadata.nativeMessageId,
     role: "reasoning" as const,
     content: text,
     timestamp: messageTimestamp(metadata.sourceTimestamp),
@@ -473,7 +566,7 @@ export function applyReasoningChunk(
     isCompleted: metadata.phase === "completed",
   };
   return {
-    messages: insertAgentMessageBySourceOrder(st.messages, message),
+    messages: insertAgentMessageBySourceOrder(st.messages, message, metadata.adoptPendingId),
     pendingReasoningId: metadata.phase === "completed" ? null : targetId,
     pendingAssistantId: st.pendingAssistantId,
   };

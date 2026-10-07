@@ -133,6 +133,7 @@ export function NotebookFolderView({
       (payload) => {
         if (disposed || canonicalDirectoryPath(payload.rootPath) !== rootPath) return;
         if (leaseId && payload.leaseId !== leaseId) return;
+        if (tree.ignoreCollectionPathEvents(payload.paths)) return;
         void refreshDirectoriesRef.current(payload.directories);
       },
     );

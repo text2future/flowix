@@ -38,7 +38,7 @@ export interface FeaturedNoteFilterConfig {
 
 export interface FeaturedNotesTableSelection {
   relativePath: string;
-  tableId: string;
+  collectionId: string;
   /** Kept optional for compatibility with selections saved by older versions. */
   viewId?: string;
 }
@@ -215,8 +215,8 @@ export async function readFeaturedNotesTableSelection(notebookId: string): Promi
   try {
     const stored = await system.getFeaturedNoteFilter(notebookId);
     const selection = stored?.tableSelection;
-    return selection?.relativePath && selection.tableId
-      ? { relativePath: selection.relativePath, tableId: selection.tableId, ...(selection.viewId ? { viewId: selection.viewId } : {}) }
+    return selection?.relativePath && selection.collectionId
+      ? { relativePath: selection.relativePath, collectionId: selection.collectionId, ...(selection.viewId ? { viewId: selection.viewId } : {}) }
       : null;
   } catch {
     return null;

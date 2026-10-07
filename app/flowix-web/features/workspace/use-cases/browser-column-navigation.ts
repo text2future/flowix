@@ -1,6 +1,10 @@
+import { collections, externalDocuments, notebooks } from '@platform/tauri/client';
+import { collectionNotebookId } from '@features/collection/mutations';
+import { parseCollectionEnvelope } from '@features/collection/model';
+import { ensureCollectionDisplay, bindCollectionDisplayPath } from '@/lib/collection-display-registry';
 import { captureFileBrowserContext } from './file-browser-context';
 import type { FileBrowserTarget } from '../store/file-browser-target';
-import { canonicalPath, fileLocatorKey } from '@/lib/path';
+import { canonicalDirectoryPath, canonicalPath, fileLocatorKey } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { canonicalUrl, contentIdentityKey } from '@features/workspace/store/workspace-content-identity';
 import {
@@ -22,6 +26,7 @@ import {
   enqueueBrowserColumnNavigation,
 } from './browser-column-coordinator';
 import {
+  openCollectionTarget,
   openAgentTarget,
   openExternalTarget,
   openMediaTarget,
@@ -80,7 +85,7 @@ export function openBrowserColumnTarget(
   target: BrowserColumnTarget,
   disposition: BrowserColumnOpenDisposition = 'focus-existing',
 ): Promise<BrowserColumnOpenResult | null> {
-  const id = target.kind === 'agent_conversation'
+  let id = target.kind === 'agent_conversation'
       ? `agent:${target.instanceId}`
       : target.kind === 'web'
         ? `web:${canonicalUrl(target.url) ?? target.url}`
@@ -91,6 +96,8 @@ export function openBrowserColumnTarget(
           : 'empty';
 
   return enqueueBrowserColumnNavigation(async () => {
+    target = await prepareCollectionBrowserTarget(target);
+    if (target.kind === 'file-browser' && target.collectionDisplay) id = target.collectionDisplay.displayId;
     let moveWorkColumnTarget = false;
     if (disposition === 'focus-existing') {
       const existing = findExistingWorkspaceContent(browserColumnTargetIdentity(target));
@@ -128,7 +135,7 @@ export function openBrowserColumnTarget(
               scopePath: target.scopePath,
             });
             if (target.activeFilePath) {
-              store.selectFileBrowserFile(existing.tabId, target.activeFilePath);
+              store.selectFileBrowserFile(existing.tabId, target.activeFilePath, target.collectionDisplay);
             }
           }
         }
@@ -158,11 +165,12 @@ export function openBrowserColumnTarget(
     // Independent file opens keep their own stable tabs.
     if (target.kind === 'file-browser' && target.folderPath && disposition !== 'replace-active') {
       const store = useBrowserColumnStore.getState();
+      const folderTarget = target;
       const folderTab = store.tabs.find((tab) => tab.target.kind === 'file-browser'
-        && tab.target.folderPath && canonicalPath(tab.target.folderPath) === canonicalPath(target.folderPath!)
-        && tab.target.notebookId === target.notebookId);
+        && tab.target.folderPath && canonicalPath(tab.target.folderPath) === canonicalPath(folderTarget.folderPath!)
+        && tab.target.notebookId === folderTarget.notebookId);
       if (folderTab) {
-        if (target.activeFilePath) store.selectFileBrowserFile(folderTab.id, target.activeFilePath);
+        if (target.activeFilePath) store.selectFileBrowserFile(folderTab.id, target.activeFilePath, target.collectionDisplay);
         store.commitTab(folderTab.id);
         if (moveWorkColumnTarget) {
           await clearWorkspaceDocument();
@@ -190,7 +198,7 @@ export function createFileBrowserTarget(activeFilePath: string | null, scopePath
 
 /** All file changes in an existing tab share the save-before-switch barrier. */
 export function selectBrowserColumnFile(tabId: string, filePath: string | null, folderPath?: string): Promise<boolean | null> {
-  const select = () => enqueueBrowserColumnNavigation(() => {
+  const select = () => enqueueBrowserColumnNavigation(async () => {
     const state = useBrowserColumnStore.getState();
     const tab = state.tabs.find((candidate) => candidate.id === tabId);
     if (!tab || tab.target.kind !== 'file-browser') return false;
@@ -199,7 +207,10 @@ export function selectBrowserColumnFile(tabId: string, filePath: string | null, 
       && canonicalPath(candidate.target.activeFilePath) === canonicalPath(filePath)) : null;
     if (existing) { state.commitTab(existing.id); return true; }
     if (folderPath !== undefined) state.switchFileBrowserFolder(tabId, folderPath);
-    state.selectFileBrowserFile(tabId, filePath);
+    const prepared = await prepareCollectionBrowserTarget({ ...tab.target, activeFilePath: filePath, collectionDisplay: undefined });
+    const location = findExistingWorkspaceContent(browserColumnTargetIdentity(prepared));
+    if (location && !(location.host === 'browser-column' && location.tabId === tabId)) { activateExistingWorkspaceContent(browserColumnTargetIdentity(prepared)); return true; }
+    state.selectFileBrowserFile(tabId, prepared.kind === 'file-browser' ? prepared.activeFilePath : filePath, prepared.kind === 'file-browser' ? prepared.collectionDisplay : undefined);
     return true;
   });
   if (!filePath) return select();
@@ -278,6 +289,8 @@ export function openWorkColumnTargetInBrowserColumn(
           notebookPath: target.notebookPath ?? '',
           resourceKind: target.resourceKind,
         };
+      case 'collection':
+        return { ...createFileBrowserTarget(target.filePath, target.notebookPath), notebookId: target.notebookId, collectionDisplay: target };
       case 'external':
         return { ...createFileBrowserTarget(target.path, target.scopePath), ...target.fileBrowser };
       case 'agent-conversation':
@@ -312,7 +325,7 @@ export function openWorkColumnTargetInBrowserColumn(
         ? `agent:${browserTarget.instanceId}`
         : browserTarget.kind === 'web'
           ? `web:${canonicalUrl(browserTarget.url) ?? browserTarget.url}`
-          : browserTarget.kind === 'file-browser' ? browserTarget.activeFilePath ? fileLocatorKey(browserTarget.activeFilePath) : `file-browser:${browserTarget.folderPath}` : 'empty';
+          : browserTarget.kind === 'file-browser' ? browserTarget.collectionDisplay ? browserTarget.collectionDisplay.displayId : browserTarget.activeFilePath ? fileLocatorKey(browserTarget.activeFilePath) : `file-browser:${browserTarget.folderPath}` : 'empty';
     const tabId = useBrowserColumnStore.getState().openTab({
       id,
       title: targetTabTitle(browserTarget),
@@ -370,7 +383,9 @@ export function openBrowserColumnTabInWorkColumn(tabId: string): Promise<boolean
     try {
       switch (tab.target.kind) {
         case 'file-browser':
-          if (tab.target.activeFilePath) {
+          if (tab.target.collectionDisplay) {
+            await openCollectionTarget(tab.target.collectionDisplay);
+          } else if (tab.target.activeFilePath) {
             await openExternalTarget(tab.target.activeFilePath, {
               destination: 'main-third',
               scopePath: tab.target.scopePath,
@@ -412,4 +427,21 @@ export function removeBrowserColumnTabsByPath(path: string): string[] {
   });
   for (const tab of matching) useBrowserColumnStore.getState().closeTab(tab.id);
   return matching.map((tab) => tab.id);
+}
+
+/** Resolve identity before a browser surface can mount. */
+async function prepareCollectionBrowserTarget(target: BrowserColumnTarget): Promise<BrowserColumnTarget> {
+  if (target.kind !== 'file-browser' || !target.activeFilePath || !/\.(table|lib)\.ya?ml$/i.test(target.activeFilePath)) return target;
+  const registered = (await notebooks.getAll()).find((notebook) => target.notebookId ? notebook.id === target.notebookId : canonicalPath(target.activeFilePath!).startsWith(`${canonicalDirectoryPath(notebook.path)}/`));
+  const root = registered ? canonicalDirectoryPath(registered.path) : null;
+  if (!root) throw new Error('集合需要笔记本上下文');
+  const notebookId = await collectionNotebookId(root, target.notebookId);
+  const envelope = target.collectionDisplay ? null : parseCollectionEnvelope(await externalDocuments.read(target.activeFilePath, root));
+  const collectionId = target.collectionDisplay?.collectionId ?? envelope!.collection.id;
+  const item = await collections.resolve(notebookId, collectionId);
+  if (item.identityConflict || item.parseState !== 'valid') throw new Error('集合身份冲突或格式暂不可用');
+  const display = ensureCollectionDisplay({ notebookId, collectionId, viewId: target.collectionDisplay?.viewId ?? null }, target.collectionDisplay?.displayId);
+  const path = `${root.replace(/\/$/, '')}/${item.relativePath}`;
+  bindCollectionDisplayPath(display.displayId, path, item.indexSequence);
+  return { ...target, notebookId, scopePath: root, activeFilePath: path, collectionDisplay: display, collectionUnavailableReason: undefined };
 }

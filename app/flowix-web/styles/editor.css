@@ -1112,7 +1112,9 @@ html[data-platform="mac"] .markdown-editor .editor-content {
    * pill. Keep only the content's right outer padding so it does not double
    * the gap after `#`. */
   display: inline;
-  font-family: var(--code-font-family);
+  /* Keep the emoji face out of editable tag text so its metrics do not
+   * change the background geometry relative to the separate # icon. */
+  font-family: var(--code-text-font-family);
   background: var(--document-tag-background);
   padding: var(--document-tag-padding-block) var(--document-tag-padding-inline) var(--document-tag-padding-block) 0;
   border-radius: 0 8px 8px 0;

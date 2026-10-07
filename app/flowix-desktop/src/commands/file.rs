@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -141,6 +142,7 @@ fn resource_kind_for_path(path: &Path) -> Option<DocTreeResourceKind> {
             | "tif"
             | "tiff"
             | "heic"
+            | "heif"
     ) {
         return Some(DocTreeResourceKind::Image);
     }
@@ -953,6 +955,315 @@ pub fn read_file(
     fs::read_to_string(&file_path).ok()
 }
 
+const MAX_DOCX_PREVIEW_BYTES: u64 = 50 * 1024 * 1024;
+
+fn authorized_docx_path(
+    file_path: &str,
+    space_path: Option<&str>,
+    window_label: &str,
+    state: &State<'_, AppState>,
+) -> Result<PathBuf, String> {
+    let requested = Path::new(file_path);
+    if !requested.is_absolute() {
+        return Err("DOCX_PATH_INVALID: DOCX path must be absolute".to_string());
+    }
+    let path = dunce::canonicalize(requested)
+        .map_err(|error| format!("DOCX_UNAVAILABLE: could not open file: {error}"))?;
+    if !path.is_file() {
+        return Err("DOCX_UNAVAILABLE: path is not a file".to_string());
+    }
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))
+    {
+        return Err("DOCX_UNSUPPORTED: only .docx files are supported".to_string());
+    }
+    if !can_access_document_path(&path, window_label, state)
+        && !can_access_scoped_file(&path, space_path, state)
+    {
+        return Err("DOCX_FORBIDDEN: file is outside its authorized space".to_string());
+    }
+    start_security_bookmark_access(state, &path);
+    Ok(path)
+}
+
+/// Read an authorized DOCX for the in-app preview. Binary bytes cross IPC as
+/// base64 so the WebView can decode them without granting general fs access.
+#[tauri::command]
+pub async fn read_docx_file(
+    window: WebviewWindow,
+    file_path: String,
+    space_path: Option<String>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let window_label = window.label().to_owned();
+    crate::document_io::run("read_docx", move || {
+        let state = app.state::<AppState>();
+        let path = authorized_docx_path(
+            &file_path,
+            space_path.as_deref(),
+            &window_label,
+            &state,
+        )?;
+        let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+        if metadata.len() > MAX_DOCX_PREVIEW_BYTES {
+            return Err(format!(
+                "DOCX_TOO_LARGE: file is larger than {} MB",
+                MAX_DOCX_PREVIEW_BYTES / (1024 * 1024)
+            ));
+        }
+        let bytes = fs::read(&path).map_err(|error| format!("DOCX_READ_FAILED: {error}"))?;
+        if bytes.len() as u64 > MAX_DOCX_PREVIEW_BYTES {
+            return Err("DOCX_TOO_LARGE: file grew beyond the preview limit".to_string());
+        }
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    })
+    .await?
+}
+
+/// Create a sibling Markdown file without replacing an existing document.
+/// If the original name is taken, add a numbered suffix atomically.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocxMarkdownImage {
+    marker: String,
+    content_type: String,
+    content_base64: String,
+}
+
+struct PreparedDocxImage {
+    marker: String,
+    extension: &'static str,
+    bytes: Vec<u8>,
+}
+
+const MAX_DOCX_MARKDOWN_IMAGES: usize = 256;
+const MAX_DOCX_MARKDOWN_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+const MAX_DOCX_MARKDOWN_TOTAL_IMAGE_BYTES: usize = 50 * 1024 * 1024;
+
+fn docx_image_extension(content_type: &str) -> Option<&'static str> {
+    match content_type.split(';').next()?.trim().to_ascii_lowercase().as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/gif" => Some("gif"),
+        "image/bmp" => Some("bmp"),
+        "image/webp" => Some("webp"),
+        "image/svg+xml" => Some("svg"),
+        "image/tiff" => Some("tiff"),
+        "image/avif" => Some("avif"),
+        "image/x-icon" | "image/vnd.microsoft.icon" => Some("ico"),
+        "image/x-emf" => Some("emf"),
+        "image/x-wmf" => Some("wmf"),
+        _ => None,
+    }
+}
+
+fn docx_asset_markdown_url(path: &Path) -> String {
+    let mut encoded = String::new();
+    let path = path.to_string_lossy();
+    for byte in path.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'') {
+            encoded.push(*byte as char);
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    format!("asset://localhost/{encoded}")
+}
+
+fn prepare_docx_images(images: Vec<DocxMarkdownImage>) -> Result<Vec<PreparedDocxImage>, String> {
+    if images.len() > MAX_DOCX_MARKDOWN_IMAGES {
+        return Err("DOCX_IMAGE_LIMIT: too many images in the document".to_string());
+    }
+    let mut markers = HashSet::new();
+    let mut total_bytes = 0usize;
+    let mut total_encoded_bytes = 0usize;
+    images
+        .into_iter()
+        .map(|image| {
+            if !image.marker.starts_with("flowix-docx-image-")
+                || !image.marker.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                || !markers.insert(image.marker.clone())
+            {
+                return Err("DOCX_IMAGE_INVALID: invalid or duplicate image reference".to_string());
+            }
+            let extension = docx_image_extension(&image.content_type)
+                .ok_or_else(|| "DOCX_IMAGE_UNSUPPORTED: unsupported image format".to_string())?;
+            if image.content_base64.len() > MAX_DOCX_MARKDOWN_IMAGE_BYTES.saturating_mul(4) / 3 + 8 {
+                return Err("DOCX_IMAGE_TOO_LARGE: an image is larger than 25 MB".to_string());
+            }
+            total_encoded_bytes = total_encoded_bytes.saturating_add(image.content_base64.len());
+            if total_encoded_bytes > MAX_DOCX_MARKDOWN_TOTAL_IMAGE_BYTES.saturating_mul(4) / 3 + 16 {
+                return Err("DOCX_IMAGE_TOO_LARGE: total image data is larger than 50 MB".to_string());
+            }
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(image.content_base64.as_bytes())
+                .map_err(|_| "DOCX_IMAGE_INVALID: image data is invalid".to_string())?;
+            if bytes.len() > MAX_DOCX_MARKDOWN_IMAGE_BYTES {
+                return Err("DOCX_IMAGE_TOO_LARGE: an image is larger than 25 MB".to_string());
+            }
+            total_bytes = total_bytes.saturating_add(bytes.len());
+            if total_bytes > MAX_DOCX_MARKDOWN_TOTAL_IMAGE_BYTES {
+                return Err("DOCX_IMAGE_TOO_LARGE: total image data is larger than 50 MB".to_string());
+            }
+            Ok(PreparedDocxImage { marker: image.marker, extension, bytes })
+        })
+        .collect()
+}
+
+fn create_docx_image_file(
+    directory: &Path,
+    scope_path: &str,
+    state: &State<'_, AppState>,
+    image: &PreparedDocxImage,
+    index: usize,
+) -> Result<PathBuf, String> {
+    for suffix in 0..=9999 {
+        let filename = if suffix == 0 {
+            format!("docx-image-{:03}.{}", index + 1, image.extension)
+        } else {
+            format!("docx-image-{:03}-{suffix}.{}", index + 1, image.extension)
+        };
+        let target = directory.join(filename);
+        if !can_access_scoped_file(&target, Some(scope_path), state) {
+            return Err("DOCX_FORBIDDEN: attachment path is outside this space".to_string());
+        }
+        match flowix_core::memo_file::atomic_create_bytes(&target, &image.bytes) {
+            Ok(()) => return Ok(target),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("DOCX_IMAGE_WRITE_FAILED: {error}")),
+        }
+    }
+    Err("DOCX_NAME_CONFLICT: could not find an unused attachment filename".to_string())
+}
+
+fn create_docx_markdown_with_images(
+    source: &Path,
+    space_path: &str,
+    content: String,
+    images: Vec<DocxMarkdownImage>,
+    state: &State<'_, AppState>,
+) -> Result<PathBuf, String> {
+    let parent = source
+        .parent()
+        .ok_or_else(|| "DOCX_PATH_INVALID: source has no parent directory".to_string())?;
+    let stem = source
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .ok_or_else(|| "DOCX_PATH_INVALID: source filename is invalid".to_string())?;
+    let prepared_images = prepare_docx_images(images)?;
+    let mut markdown = content;
+    for image in &prepared_images {
+        if !markdown.contains(&image.marker) {
+            return Err("DOCX_IMAGE_REFERENCE_MISSING: converted image reference is missing".to_string());
+        }
+    }
+
+    let space_root = dunce::canonicalize(space_path)
+        .map_err(|error| format!("DOCX_UNAVAILABLE: could not open access space: {error}"))?;
+    let mut created_images = Vec::with_capacity(prepared_images.len());
+    if !prepared_images.is_empty() {
+        let attachment_directory = space_root.join("attachments");
+        if !can_access_scoped_file(&attachment_directory, Some(space_path), state) {
+            return Err("DOCX_FORBIDDEN: cannot create attachments in this space".to_string());
+        }
+        fs::create_dir_all(&attachment_directory)
+            .map_err(|error| format!("DOCX_IMAGE_WRITE_FAILED: {error}"))?;
+        let attachment_directory = dunce::canonicalize(&attachment_directory)
+            .map_err(|error| format!("DOCX_IMAGE_WRITE_FAILED: {error}"))?;
+        if !attachment_directory.starts_with(&space_root)
+            || !can_access_scoped_file(&attachment_directory, Some(space_path), state)
+        {
+            return Err("DOCX_FORBIDDEN: attachment directory escapes this space".to_string());
+        }
+        start_security_bookmark_access(state, &attachment_directory);
+
+        for (index, image) in prepared_images.iter().enumerate() {
+            match create_docx_image_file(&attachment_directory, space_path, state, image, index) {
+                Ok(path) => {
+                    markdown = markdown.replace(&image.marker, &docx_asset_markdown_url(&path));
+                    created_images.push(path);
+                }
+                Err(error) => {
+                    for created in &created_images {
+                        let _ = fs::remove_file(created);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    for suffix in 0..=9999 {
+        let file_name = if suffix == 0 {
+            format!("{stem}.md")
+        } else {
+            format!("{stem} ({suffix}).md")
+        };
+        let target = parent.join(file_name);
+        if !can_access_scoped_file(&target, Some(space_path), state) {
+            for created in &created_images {
+                let _ = fs::remove_file(created);
+            }
+            return Err("DOCX_FORBIDDEN: output path is outside this space".to_string());
+        }
+        match flowix_core::memo_file::atomic_create_bytes(&target, markdown.as_bytes()) {
+            Ok(()) => return Ok(target),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                for created in &created_images {
+                    let _ = fs::remove_file(created);
+                }
+                return Err(format!("DOCX_WRITE_FAILED: {error}"));
+            }
+        }
+    }
+    for created in &created_images {
+        let _ = fs::remove_file(created);
+    }
+    Err("DOCX_NAME_CONFLICT: could not find an unused Markdown filename".to_string())
+}
+
+#[tauri::command]
+pub async fn create_docx_markdown(
+    window: WebviewWindow,
+    file_path: String,
+    space_path: String,
+    content: String,
+    images: Vec<DocxMarkdownImage>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let window_label = window.label().to_owned();
+    crate::document_io::run("create_docx_markdown", move || {
+        let state = app.state::<AppState>();
+        let source = authorized_docx_path(
+            &file_path,
+            Some(&space_path),
+            &window_label,
+            &state,
+        )?;
+        // Creating a sibling requires an explicit browsable-space grant. A
+        // one-file open grant is sufficient for preview, but not for writing.
+        if !can_access_scoped_file(&source, Some(&space_path), &state) {
+            return Err("DOCX_FORBIDDEN: cannot create Markdown outside this space".to_string());
+        }
+        let target = create_docx_markdown_with_images(
+            &source,
+            &space_path,
+            content,
+            images,
+            &state,
+        )?;
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        refresh_notebook_note_index(&memo_file, &target);
+        Ok(target.to_string_lossy().into_owned())
+    })
+    .await?
+}
+
 fn image_mime_type(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "png" => Some("image/png"),
@@ -965,6 +1276,7 @@ fn image_mime_type(path: &Path) -> Option<&'static str> {
         "ico" => Some("image/x-icon"),
         "tif" | "tiff" => Some("image/tiff"),
         "heic" => Some("image/heic"),
+        "heif" => Some("image/heif"),
         _ => None,
     }
 }
@@ -991,7 +1303,7 @@ pub fn read_image_file(
     ))
 }
 
-/// Read a downscaled JPEG preview for an in-scope raster image. The full-size
+/// Read a downscaled, transparency-preserving PNG preview for an in-scope raster image. The full-size
 /// image remains unloaded until the user opens the media resource.
 #[tauri::command]
 pub fn read_image_preview(
@@ -1004,19 +1316,17 @@ pub fn read_image_preview(
         return None;
     }
     start_security_bookmark_access(&state, path);
-    let bytes = fs::read(path).ok()?;
-    let preview = image::load_from_memory(&bytes).ok()?.thumbnail(640, 640).to_rgb8();
-    let mut jpeg = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 76)
-        .encode_image(&preview)
-        .ok()?;
+    let preview = decode_image_preview(path, 640).ok()?;
+    let mut png = std::io::Cursor::new(Vec::new());
+    preview.write_to(&mut png, image::ImageFormat::Png).ok()?;
     Some(format!(
-        "data:image/jpeg;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(jpeg)
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png.into_inner())
     ))
 }
 
-const MEDIA_PREVIEW_CONCURRENCY: usize = 2;
+// Decode previews sequentially to keep large-image memory peaks from overlapping.
+const MEDIA_PREVIEW_CONCURRENCY: usize = 1;
 const MEDIA_PREVIEW_CACHE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
 static MEDIA_PREVIEW_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static MEDIA_PREVIEW_CACHE_WRITES: std::sync::atomic::AtomicUsize =
@@ -1081,14 +1391,15 @@ pub async fn get_media_thumbnail(
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    let identity = format!("v1:{}:{}:{}:{}", path.display(), metadata.len(), modified_ns, kind);
+    let identity = format!("v4:{}:{}:{}:{}", path.display(), metadata.len(), modified_ns, kind);
     let digest = format!("{:x}", Sha256::digest(identity.as_bytes()));
     let cache_root = app
         .path()
         .app_cache_dir()
         .map_err(|error| error.to_string())?
         .join("media-thumbnails");
-    let cache_path = cache_root.join(format!("{digest}.jpg"));
+    let cache_extension = if is_image { "png" } else { "jpg" };
+    let cache_path = cache_root.join(format!("{digest}.{cache_extension}"));
     if cache_path.is_file() {
         return Ok(Some(cache_path.to_string_lossy().into_owned()));
     }
@@ -1164,23 +1475,73 @@ fn remove_media_preview_request(request_id: &str, expected: &Arc<MediaPreviewCan
     }
 }
 
+fn image_preview_error(error: image::ImageError) -> String {
+    let category = match &error {
+        image::ImageError::Unsupported(_) => "MEDIA_PREVIEW_UNSUPPORTED",
+        image::ImageError::Limits(_) => "MEDIA_PREVIEW_LIMIT",
+        _ => "MEDIA_PREVIEW_DECODE_FAILED",
+    };
+    format!("{category}: {error}")
+}
+
+/// Decode from a buffered file instead of retaining the entire encoded original.
+/// Apply metadata orientation before computing the photo-wall aspect ratio.
+fn decode_image_preview(source: &Path, size: u32) -> Result<image::DynamicImage, String> {
+    use image::ImageDecoder;
+    let mut reader = image::ImageReader::open(source)
+        .map_err(|error| error.to_string())?
+        .with_guessed_format().map_err(|error| error.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    limits.max_image_width = Some(32768);
+    limits.max_image_height = Some(32768);
+    reader.limits(limits.clone());
+    let mut decoder = reader.into_decoder().map_err(image_preview_error)?;
+    // into_decoder does not reserve the DynamicImage output buffer as decode does.
+    // Reserve a second buffer too: EXIF rotation can temporarily duplicate it.
+    let output_bytes = decoder.total_bytes();
+    limits.reserve(output_bytes).map_err(image_preview_error)?;
+    limits.reserve(output_bytes).map_err(image_preview_error)?;
+    decoder.set_limits(limits).map_err(image_preview_error)?;
+    let orientation = decoder.orientation().map_err(image_preview_error)?;
+    let mut image = image::DynamicImage::from_decoder(decoder).map_err(image_preview_error)?;
+    image.apply_orientation(orientation);
+    Ok(image.thumbnail(size, size))
+}
+
 fn write_image_thumbnail(
     source: &Path,
     output: &Path,
     cancellation: &MediaPreviewCancellation,
 ) -> Result<bool, String> {
-    let bytes = fs::read(source).map_err(|error| error.to_string())?;
     if cancellation.is_cancelled() { return Ok(false); }
-    let image = image::load_from_memory(&bytes).map_err(|error| error.to_string())?;
-    if cancellation.is_cancelled() { return Ok(false); }
-    let preview = image.thumbnail(640, 640).to_rgb8();
-    write_thumbnail_jpeg(output, &preview, 76, cancellation)
+    match decode_image_preview(source, 640) {
+        Ok(preview) => write_thumbnail_png(output, &preview, cancellation),
+        Err(error) => {
+            let extension = source.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+            if error.starts_with("MEDIA_PREVIEW_UNSUPPORTED:")
+                && matches!(extension.as_str(), "heic" | "heif" | "avif") {
+                write_system_thumbnail(source, output, cancellation, true)
+            } else {
+                Err(error)
+            }
+        }
+    }
 }
 
 fn write_video_thumbnail(
     source: &Path,
     output: &Path,
     cancellation: &MediaPreviewCancellation,
+) -> Result<bool, String> {
+    write_system_thumbnail(source, output, cancellation, false)
+}
+
+fn write_system_thumbnail(
+    source: &Path,
+    output: &Path,
+    cancellation: &MediaPreviewCancellation,
+    preserve_alpha: bool,
 ) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
@@ -1217,17 +1578,16 @@ fn write_video_thumbnail(
             .map(|entry| entry.path())
             .find(|candidate| candidate.extension().is_some_and(|extension| extension == "png"));
         let Some(thumbnail) = thumbnail else { return Ok(false); };
-        let bytes = fs::read(thumbnail).map_err(|error| error.to_string())?;
         if cancellation.is_cancelled() { return Ok(false); }
-        let image = image::load_from_memory(&bytes)
-            .map_err(|error| error.to_string())?
-            .thumbnail(480, 480)
-            .to_rgb8();
-        return write_thumbnail_jpeg(output, &image, 72, cancellation);
+        let preview = decode_image_preview(&thumbnail, 640)?;
+        if preserve_alpha {
+            return write_thumbnail_png(output, &preview, cancellation);
+        }
+        return write_thumbnail_jpeg(output, &preview.to_rgb8(), 72, cancellation);
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (source, output, cancellation);
+        let _ = (source, output, cancellation, preserve_alpha);
         Ok(false)
     }
 }
@@ -1243,10 +1603,31 @@ fn write_thumbnail_jpeg(
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality)
         .encode_image(image)
         .map_err(|error| error.to_string())?;
+    write_thumbnail_bytes(output, jpeg, cancellation)
+}
+
+fn write_thumbnail_png(
+    output: &Path,
+    image: &image::DynamicImage,
+    cancellation: &MediaPreviewCancellation,
+) -> Result<bool, String> {
+    if cancellation.is_cancelled() { return Ok(false); }
+    let mut png = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    write_thumbnail_bytes(output, png.into_inner(), cancellation)
+}
+
+fn write_thumbnail_bytes(
+    output: &Path,
+    bytes: Vec<u8>,
+    cancellation: &MediaPreviewCancellation,
+) -> Result<bool, String> {
     if cancellation.is_cancelled() { return Ok(false); }
     let nonce = MEDIA_PREVIEW_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temporary = output.with_extension(format!("{nonce}.tmp"));
-    fs::write(&temporary, jpeg).map_err(|error| error.to_string())?;
+    fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
     match fs::rename(&temporary, output) {
         Ok(()) => Ok(true),
         Err(_error) if output.is_file() => {

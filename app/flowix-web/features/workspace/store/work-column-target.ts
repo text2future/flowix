@@ -52,8 +52,22 @@ export function createDocumentListTarget(
  * The selected notebook remains in NoteLibraryStore; folder-list destinations are
  * explicit targets so they can be restored independently of that selection.
  */
+export interface CollectionWorkspaceTarget {
+  kind: 'collection';
+  displayId: string;
+  notebookId: string;
+  collectionId: string;
+  viewId: string | null;
+  collectionType: 'table' | 'media_library';
+  filePath: string;
+  notebookPath: string;
+  name: string;
+  unavailableReason?: string;
+}
+
 export type WorkColumnTarget =
   | { kind: 'empty' }
+  | CollectionWorkspaceTarget
   | DocumentListTarget
   | {
       kind: 'external';
@@ -83,6 +97,7 @@ export function workColumnTargetFilePath(target: WorkColumnTarget): string | nul
       return target.path;
     case 'media':
       return target.filePath;
+    case 'collection':
     case 'table':
       return target.filePath;
     case 'media-library':

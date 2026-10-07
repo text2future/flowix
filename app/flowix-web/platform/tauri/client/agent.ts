@@ -335,6 +335,10 @@ export const agent = {
   listLocalAgentThreads: (agentType: AgentTypeKey) =>
     invoke<ThreadInfo[]>('local_agent_thread_list', { agentType }),
   listPiThreads: () => invoke<ThreadInfo[]>('pi_thread_list'),
+  getPiSessionPage: (threadId: string, beforeEntryId: string | null, limit: number, revision?: import("@/types/agent").PiHistoryRevision) =>
+    invoke<import("@/types/agent").PiHistoryPage>('pi_thread_get_page', { threadId, beforeEntryId, limit, revision: revision ?? null }),
+  getPiSessionSnapshot: (threadId: string) =>
+    invoke<import("@/types/agent").PiSessionSnapshot>('pi_thread_get_snapshot', { threadId }),
   getPiSessionMessages: (threadId: string) =>
     invoke<Array<Record<string, unknown>>>('pi_thread_get_messages', { threadId }),
   getPiSessionId: (threadId: string) =>

@@ -1,4 +1,5 @@
-import YAML from 'yaml';
+import { createCollectionMetadata, createCollectionId, createUuidV7, parseCollectionEnvelope, serializeCollectionEnvelope, validateCollectionMetadata, reviseCollection, hasOnlyKeys, type CollectionMetadata } from '@features/collection/model';
+export { createUuidV7 } from '@features/collection/model';
 import { isTablePropertyKind, type TablePropertyKind } from '@/lib/property-types';
 
 export const NOTE_CREATED_AT_FIELD_ID = '__note_created_at__';
@@ -71,11 +72,8 @@ export interface TableRecord {
 }
 
 export interface MultidimensionalTableDocument {
-  format: 'flowix.table';
-  version: 1;
-  revision: number;
+  collection: CollectionMetadata;
   table: {
-    id: string;
     primary_field_id: string;
     fields: TableField[];
     views: TableView[];
@@ -86,21 +84,7 @@ export interface MultidimensionalTableDocument {
   };
 }
 
-export function createUuidV7(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  let timestamp = Date.now();
-  for (let index = 5; index >= 0; index -= 1) {
-    bytes[index] = timestamp & 0xff;
-    timestamp = Math.floor(timestamp / 256);
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x70;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-export function createTableId(): string {
-  return `tbl_${createUuidV7()}`;
-}
+export const createTableId = createCollectionId;
 
 export function createTableView(document: MultidimensionalTableDocument, type: TableViewType, fieldId?: string): TableView {
   const fields = document.table.fields;
@@ -129,7 +113,7 @@ export function addTableView(document: MultidimensionalTableDocument, type: Tabl
     view,
     document: {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: { ...document.table, views: [...document.table.views, view] },
     },
   };
@@ -161,15 +145,11 @@ export function addKanbanField(document: MultidimensionalTableDocument): { docum
   };
 }
 
-export function createTableDocument(initialViewType: TableViewType = 'table'): MultidimensionalTableDocument {
-  const id = createTableId();
+export function createTableDocument(initialViewType: TableViewType = 'table', name = '多维表格'): MultidimensionalTableDocument {
   const noteFieldId = `fld_${createUuidV7()}`;
   let document: MultidimensionalTableDocument = {
-    format: 'flowix.table',
-    version: 1,
-    revision: 1,
+    collection: createCollectionMetadata('table', name),
     table: {
-      id,
       primary_field_id: noteFieldId,
     fields: [{ id: noteFieldId, type: 'primary', property_key: 'note' }],
       views: [],
@@ -187,18 +167,21 @@ export function createTableDocument(initialViewType: TableViewType = 'table'): M
 }
 
 export function parseTableDocument(source: string): MultidimensionalTableDocument {
-  return validateTableDocument(YAML.parse(source));
+  const { collection, payload } = parseCollectionEnvelope(source, 'table');
+  const { schema_version: _version, ...data } = payload;
+  return validateTableDocument({ collection, ...data });
 }
 
 export function validateTableDocument(parsed: unknown): MultidimensionalTableDocument {
   if (!parsed || typeof parsed !== 'object') throw new Error('表格文件必须是 YAML 对象');
   const value = parsed as Partial<MultidimensionalTableDocument>;
-  if (value.format !== 'flowix.table' || value.version !== 1 || !Number.isInteger(value.revision) || !value.table || !/^tbl_[0-9a-f]{32}$/.test(value.table.id) || !Array.isArray(value.table.fields)
+  validateCollectionMetadata(value.collection, 'table');
+  if (!value.table || !Array.isArray(value.table.fields)
       || !Array.isArray(value.table.views) || !value.records || Array.isArray(value.records) || !Array.isArray(value.records.data)) {
     throw new Error('不支持的多维表格文件格式');
   }
-  if (!hasOnlyKeys(value, ['format', 'version', 'revision', 'table', 'records'])
-    || !hasOnlyKeys(value.table, ['id', 'primary_field_id', 'fields', 'views'])
+  if (!hasOnlyKeys(value, ['collection', 'table', 'records'])
+    || !hasOnlyKeys(value.table, ['primary_field_id', 'fields', 'views'])
     || !hasOnlyKeys(value.records, ['data', 'auto_collect'])) throw new Error('多维表格文件包含未知字段');
   const fieldIds = new Set<string>();
   const fieldKeys = new Set<string>();
@@ -317,10 +300,7 @@ export function isTableAutoCollectConfig(value: unknown): value is TableAutoColl
   return true;
 }
 
-function hasOnlyKeys(value: object, allowedKeys: string[]): boolean {
-  return Object.keys(value).every((key) => allowedKeys.includes(key));
-}
-
 export function serializeTableDocument(document: MultidimensionalTableDocument): string {
-  return YAML.stringify(document, { lineWidth: 0, indent: 2 });
+  validateTableDocument(document);
+  return serializeCollectionEnvelope(document.collection, { table: document.table, records: document.records });
 }

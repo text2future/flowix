@@ -1,5 +1,5 @@
 import { sanitizeFileName } from '@/lib/export-utils';
-import { joinNotebookMemoPath } from '@/lib/path';
+import { canonicalDirectoryPath, joinNotebookMemoPath } from '@/lib/path';
 import { files } from '@platform/tauri/client';
 import { createTableDocument, serializeTableDocument, type MultidimensionalTableDocument, type TableViewType } from './model';
 
@@ -12,7 +12,7 @@ export async function createTableDocumentFile(
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error('请输入多维表格名称');
 
-  const notebookRoot = notebookPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const notebookRoot = canonicalDirectoryPath(notebookPath);
   const folderPath = relativeFolder
     ? joinNotebookMemoPath(notebookRoot, relativeFolder)
     : notebookRoot;
@@ -34,7 +34,7 @@ export async function createTableDocumentFile(
   const relativePath = [relativeFolder, filename].filter(Boolean).join('/');
   const filePath = joinNotebookMemoPath(notebookRoot, relativePath);
   if (!filePath) throw new Error('多维表格路径无效');
-  const table = createTableDocument(initialViewType);
+  const table = createTableDocument(initialViewType, fileStem);
   const saved = await files.write(filePath, serializeTableDocument(table), false, notebookRoot);
   if (!saved) throw new Error('创建多维表格失败');
   return { filePath, relativePath, name: fileStem, table };

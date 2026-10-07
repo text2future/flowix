@@ -7,6 +7,7 @@ import {
   isEditableTextFilePath,
   isImageFilePath,
   isMarkdownFilePath,
+  isTextMimeType,
   resourceKindFromPath,
 } from '@features/editor/code-file';
 
@@ -19,10 +20,13 @@ describe('code file classification', () => {
     expect(isCodeTextFilePath('/notes/readme.md')).toBe(false);
   });
 
-  it('rejects binary files and keeps extensionless files editable', () => {
+  it('rejects unknown extensions until their MIME type is known to be text', () => {
     expect(isEditableTextFilePath('/assets/logo.png')).toBe(false);
-    expect(isEditableTextFilePath('/src/Makefile')).toBe(true);
-    expect(isEditableTextFilePath('/src/LICENSE')).toBe(true);
+    expect(isEditableTextFilePath('/src/Makefile')).toBe(false);
+    expect(isEditableTextFilePath('/src/LICENSE')).toBe(false);
+    expect(isEditableTextFilePath('/src/data.custom', 'text/plain')).toBe(true);
+    expect(isEditableTextFilePath('/src/archive.custom', 'application/octet-stream')).toBe(false);
+    expect(isTextMimeType('text/csv; charset=utf-8')).toBe(true);
     expect(fileExtension('/src/.env')).toBe('');
   });
 

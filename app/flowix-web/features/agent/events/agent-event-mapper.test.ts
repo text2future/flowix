@@ -397,4 +397,29 @@ describe("agent event mapper", () => {
       runId: "dsh-command-run-1",
     });
   });
+
+  it("preserves the Pi parent entry for a native tool call id", () => {
+    const event = mapAgentChunkToEvent(
+      {
+        kind: "tool_call",
+        thread_id: "pi-thread",
+        id: "call_00_native",
+        name: "bash",
+        input: { command: "pwd" },
+        agent_type: "pi",
+        run_id: "run-1",
+        message_id: "call_00_native",
+        parent_message_id: "67575cb5",
+      },
+      state(),
+      () => 123,
+    );
+
+    expect(event).toMatchObject({
+      kind: "tool_call",
+      messageId: "call_00_native",
+      toolCallId: "call_00_native",
+      parentMessageId: "67575cb5",
+    });
+  });
 });

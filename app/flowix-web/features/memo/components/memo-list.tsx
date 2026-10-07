@@ -120,7 +120,7 @@ interface MemoListProps {
 
 interface OpenCreateTableDialogRequest {
   notebookId: string;
-  onCreated?: (selection: { relativePath: string; tableId: string; viewId: string }) => void | Promise<void>;
+  onCreated?: (selection: { relativePath: string; collectionId: string; viewId: string }) => void | Promise<void>;
 }
 
 export function MemoList({
@@ -941,7 +941,7 @@ export function MemoList({
       const created = await createTableDocumentFile(targetNotebook.path, parentRelativePath, newTableName, newTableViewType);
       const view = created.table.table.views[0];
       if (!view) throw new Error('新建多维表格没有可用视图');
-      await onCreated?.({ relativePath: created.relativePath, tableId: created.table.table.id, viewId: view.id });
+      await onCreated?.({ relativePath: created.relativePath, collectionId: created.table.collection.id, viewId: view.id });
       setNewTableDialogOpen(false);
       setCreateTypeMenuOpen(false);
       setCreateTableDialogNotebookId(null);
@@ -1026,7 +1026,7 @@ export function MemoList({
         ? t('memo.list.sortFilenameDesc')
         : t('memo.list.sortCreated');
   const createTypeMenuContent = (
-    <DropdownMenuContent align="end" className="w-[190px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+    <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
       <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
         {t('memo.create.documents')}
       </DropdownMenuLabel>

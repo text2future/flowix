@@ -80,7 +80,7 @@ export class FeaturedNotesController {
     if (!filePath) return [];
     const source = await externalDocuments.read(filePath, notebook.path);
     const table = await parseTableDocumentAsync(source);
-    if (table.table.id !== selection.tableId) return [];
+    if (table.collection.id !== selection.collectionId) return [];
     const notesByPath = new Map(indexed.map((note) => [note.relativePath, note]));
     return table.records.data.flatMap((record) => {
       const note = notesByPath.get(record.note_path);
@@ -265,7 +265,7 @@ export class FeaturedNotesController {
         const docs = await files.listTableDocuments(notebookId);
         const tables = docs.map((doc) => ({
             name: doc.name,
-            selection: { relativePath: doc.relativePath, tableId: doc.tableId },
+            selection: { relativePath: doc.relativePath, collectionId: doc.collectionId },
           }));
         items.replaceChildren();
         if (!tables.length) {
@@ -278,7 +278,7 @@ export class FeaturedNotesController {
           button.type = "button";
           button.className = "agent-thread-card__featured-notes-view-option";
           button.setAttribute("role", "option");
-          button.setAttribute("aria-selected", String(current?.relativePath === entry.selection.relativePath && current.tableId === entry.selection.tableId));
+          button.setAttribute("aria-selected", String(current?.relativePath === entry.selection.relativePath && current.collectionId === entry.selection.collectionId));
           const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
           icon.setAttribute("class", "agent-thread-card__featured-notes-view-option-icon");
           icon.setAttribute("viewBox", "0 0 24 24");
@@ -304,7 +304,7 @@ export class FeaturedNotesController {
           primary.textContent = entry.name;
           label.append(primary);
           button.append(icon, label);
-          button.setAttribute("aria-pressed", String(current?.relativePath === entry.selection.relativePath && current.tableId === entry.selection.tableId));
+          button.setAttribute("aria-pressed", String(current?.relativePath === entry.selection.relativePath && current.collectionId === entry.selection.collectionId));
           button.addEventListener("mousedown", (event) => event.preventDefault());
           button.addEventListener("click", async () => {
             button.disabled = true;
@@ -337,7 +337,7 @@ export class FeaturedNotesController {
         detail: {
           notebookId,
           onCreated: async (selection: FeaturedNotesTableSelection) => {
-            await files.setTableDocumentInViews(notebookId, selection.tableId, true);
+            await files.setTableDocumentInViews(notebookId, selection.collectionId, true);
             await writeFeaturedNotesTableSelection(notebookId, selection);
             onChange();
           },

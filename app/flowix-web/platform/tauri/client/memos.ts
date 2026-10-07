@@ -213,6 +213,10 @@ export type ExternalDocumentWriteOutcome =
   | { status: 'error'; message: string };
 
 export const externalDocuments = {
+  mimeType: (filePath: string) =>
+    invoke<string>('get_external_document_mime_type', { filePath }),
+  openWithDefaultApp: (filePath: string, scopePath?: string | null) =>
+    invoke<void>('open_file_with_default_app', { filePath, scopePath: scopePath ?? null }),
   read: (filePath: string, scopePath?: string | null) =>
     invoke<string>('read_external_document', { filePath, scopePath: scopePath ?? null }),
   write: (params: {

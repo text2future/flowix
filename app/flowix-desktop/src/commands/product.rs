@@ -1,9 +1,13 @@
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::AppHandle;
+use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::app::state::AppState;
+use crate::commands::helpers::{
+    can_access_document_path, can_access_scoped_file, start_security_bookmark_access,
+};
 use crate::runtime_log;
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +61,43 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
     app.opener()
         .open_path(dir.display().to_string(), None::<String>)
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn open_file_with_default_app(
+    window: WebviewWindow,
+    file_path: String,
+    scope_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let requested = PathBuf::from(file_path);
+    if !requested.is_absolute() {
+        return Err("File path must be absolute".to_string());
+    }
+    let path = dunce::canonicalize(&requested)
+        .map_err(|error| format!("File is unavailable: {}: {error}", requested.display()))?;
+    if !path.is_file() {
+        return Err(format!("Path is not a file: {}", path.display()));
+    }
+    if !can_access_document_path(&path, window.label(), &state)
+        && !can_access_scoped_file(&path, scope_path.as_deref(), &state)
+    {
+        return Err("File is outside its authorized scope".to_string());
+    }
+
+    start_security_bookmark_access(state.inner(), &path);
+    let mut command = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(target_os = "windows") {
+        Command::new("explorer")
+    } else {
+        Command::new("xdg-open")
+    };
+    command
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to open {}: {error}", path.display()))
 }
 
 /// Reveal a file in the platform file manager instead of opening it with its

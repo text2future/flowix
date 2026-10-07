@@ -39,7 +39,7 @@ function createToolGroup(
   tools: ChatMessage[],
   waitingForAssistantContent: boolean,
 ): AgentRenderItem {
-  const id = `tool-group:${tools[0].id}`;
+  const id = `tool-group:${tools[0].renderKey ?? tools[0].id}`;
   const completedTools = tools.filter((tool) => !tool.isLoading);
   const runningTools = tools.filter((tool) => tool.isLoading);
   return {

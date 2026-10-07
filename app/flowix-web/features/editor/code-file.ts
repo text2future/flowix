@@ -1,7 +1,7 @@
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown']);
 
 const IMAGE_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico', 'tif', 'tiff', 'heic',
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico', 'tif', 'tiff', 'heic', 'heif',
 ]);
 
 const VIDEO_EXTENSIONS = new Set([
@@ -9,14 +9,13 @@ const VIDEO_EXTENSIONS = new Set([
 ]);
 
 export type ResourceKind = 'note' | 'image' | 'video' | 'other';
-export type ExternalFileViewKind = 'code' | 'markdown' | 'image' | 'video' | 'html' | 'unavailable';
+export type ExternalFileViewKind = 'code' | 'markdown' | 'image' | 'video' | 'html' | 'docx' | 'unavailable';
 
 // Keep this list aligned with the extension allowlist in
 // `supported_text_document_path` in the desktop external-document command.
 // All entries, including Markdown, are rendered as source text by CodeMirror
-// when opened from the file tree. Unknown extensions are also sent to the text
-// editor; the desktop reader validates their contents as UTF-8 text before
-// opening them.
+// when opened from the file tree. Unlisted extensions are classified by the
+// desktop MIME database before they are sent to the text editor.
 const CODE_TEXT_EXTENSIONS = new Set([
   'txt', 'text', 'log',
   'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'xml',
@@ -44,16 +43,28 @@ export function isMarkdownFilePath(path: string): boolean {
 
 export function isCodeTextFilePath(path: string): boolean {
   const extension = fileExtension(path);
-  if (CODE_TEXT_EXTENSIONS.has(extension)) return true;
-
-  // The desktop reader probes unknown extensions and extensionless files as
-  // UTF-8 text and rejects binary content. Treat them as CodeMirror candidates
-  // so files such as LICENSE, Makefile, and custom template formats can open.
-  return true;
+  return CODE_TEXT_EXTENSIONS.has(extension);
 }
 
-export function isEditableTextFilePath(path: string): boolean {
-  return isMarkdownFilePath(path) || isCodeTextFilePath(path);
+const TEXT_APPLICATION_MIME_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/xml',
+  'application/javascript',
+  'application/x-javascript',
+  'application/x-yaml',
+  'application/toml',
+  'application/sql',
+  'application/graphql',
+]);
+
+export function isTextMimeType(mimeType: string | null | undefined): boolean {
+  const mime = mimeType?.split(';', 1)[0]?.trim().toLowerCase();
+  return !!mime && (mime.startsWith('text/') || TEXT_APPLICATION_MIME_TYPES.has(mime));
+}
+
+export function isEditableTextFilePath(path: string, mimeType?: string | null): boolean {
+  return isMarkdownFilePath(path) || isCodeTextFilePath(path) || isTextMimeType(mimeType);
 }
 
 export function isImageFilePath(path: string): boolean {
@@ -69,12 +80,13 @@ export function isHtmlFilePath(path: string): boolean {
 }
 
 /** Pick the view for a file opened outside the notebook memo model. */
-export function externalFileViewKind(path: string): ExternalFileViewKind {
+export function externalFileViewKind(path: string, mimeType?: string | null): ExternalFileViewKind {
+  if (fileExtension(path) === 'docx') return 'docx';
   if (isImageFilePath(path)) return 'image';
   if (isVideoFilePath(path)) return 'video';
   if (isHtmlFilePath(path)) return 'html';
   if (isMarkdownFilePath(path)) return 'markdown';
-  if (isEditableTextFilePath(path)) return 'code';
+  if (isEditableTextFilePath(path, mimeType)) return 'code';
   return 'unavailable';
 }
 

@@ -11,6 +11,7 @@ export { canonicalUrl } from '@/lib/url';
  * corrupt the `//` in an URL scheme.
  */
 export type ContentIdentity =
+  | { kind: 'collection'; notebookId: string; collectionId: string; viewId: string | null }
   | { kind: 'media'; path: string }
   | { kind: 'external'; path: string }
   | { kind: 'file-browser'; folderPath: string }
@@ -21,6 +22,7 @@ export function contentIdentityKey(
   identity: ContentIdentity,
 ): string | null {
   switch (identity.kind) {
+    case 'collection': return `collection:${JSON.stringify([identity.notebookId, identity.collectionId, identity.viewId])}`;
     case 'media': {
       const path = identity.path;
       return path.trim() ? fileLocatorKey(path) : null;

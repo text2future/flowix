@@ -1,3 +1,4 @@
+import { reviseCollection } from '@features/collection/model';
 import type { MultidimensionalTableDocument, TableField, TableFieldType, TableView } from './model';
 
 export function viewsRequiringField(document: MultidimensionalTableDocument, fieldId: string): TableView[] {
@@ -17,7 +18,7 @@ export function renameField(document: MultidimensionalTableDocument, fieldId: st
   if (!document.table.fields.some((field) => field.id === fieldId && field.type !== 'primary')) throw new Error('无法重命名此列');
   return {
     ...document,
-    revision: document.revision + 1,
+    collection: reviseCollection(document.collection),
     table: { ...document.table, fields: document.table.fields.map((field) => field.id === fieldId ? { ...field, name: trimmed } : field) },
   };
 }
@@ -40,7 +41,7 @@ export function changeFieldType(
   else delete nextField.multiple;
   return {
     ...document,
-    revision: document.revision + 1,
+    collection: reviseCollection(document.collection),
     table: { ...document.table, fields: document.table.fields.map((item) => item.id === fieldId ? nextField : item) },
   };
 }
@@ -64,7 +65,7 @@ export function removeField(document: MultidimensionalTableDocument, fieldId: st
   });
   return {
     ...document,
-    revision: document.revision + 1,
+    collection: reviseCollection(document.collection),
     table: { ...document.table, fields: document.table.fields.filter((item) => item.id !== fieldId), views },
   };
 }

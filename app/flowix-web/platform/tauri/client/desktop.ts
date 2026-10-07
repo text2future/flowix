@@ -89,7 +89,7 @@ export interface DocumentPage {
 
 export interface TableDocumentListItem {
   relativePath: string;
-  tableId: string;
+  collectionId: string;
   name: string;
   modifiedMs: number;
   fileRevision: number;
@@ -99,11 +99,70 @@ export interface TableDocumentListItem {
 
 export interface MediaLibraryListItem {
   relativePath: string;
-  libraryId: string;
+  collectionId: string;
   name: string;
   modifiedMs: number;
   inViews: boolean;
   identityConflict?: boolean;
+}
+
+export interface CollectionIndexItem {
+  indexSequence: number;
+  relativePath: string;
+  collectionId: string | null;
+  collectionType: 'table' | 'media_library';
+  name: string;
+  schemaVersion: number | null;
+  payloadSchemaVersion: number | null;
+  revision: number | null;
+  properties: Record<string, { type: string; name?: string; value: string | number | boolean | string[] }>;
+  createdAt: string | null;
+  updatedAt: string | null;
+  modifiedMs: number;
+  sizeBytes: number;
+  contentHash: string | null;
+  parseState: 'valid' | 'invalid' | 'unsupported';
+  errorCode: string | null;
+  inViews: boolean;
+  identityConflict: boolean;
+}
+export interface CollectionMutationRequest {
+  notebookId: string;
+  collectionId: string;
+  expectedRevision: number;
+  operationId: string;
+  newName?: string;
+  targetRelativePath?: string;
+  properties?: Record<string, CollectionIndexItem['properties'][string] | null>;
+}
+export interface CollectionMutationResult {
+  operationId: string;
+  status: 'completed' | 'partial' | 'conflict';
+  collectionId: string;
+  actualName: string;
+  actualRelativePath: string;
+  actualRevision: number;
+  indexSequence: number;
+  content: string;
+  errorCode: string | null;
+}
+export const collections = {
+  list: (notebookId: string, collectionType?: CollectionIndexItem['collectionType']) =>
+    invoke<CollectionIndexItem[]>('list_collections', { notebookId, collectionType }),
+  resolve: (notebookId: string, collectionId: string) =>
+    invoke<CollectionIndexItem>('resolve_collection', { notebookId, collectionId }),
+  mutate: (request: CollectionMutationRequest) =>
+    invoke<CollectionMutationResult>('mutate_collection', { request }),
+  setInViews: (notebookId: string, collectionId: string, inViews: boolean) =>
+    invoke<void>('set_collection_display_state', { notebookId, collectionId, inViews }),
+  makeIdentityUnique: (notebookId: string, relativePath: string) =>
+    invoke<string>('make_collection_identity_unique', { notebookId, relativePath }),
+};
+
+export interface DocxMarkdownImage {
+  marker: string;
+  contentType: string;
+  contentBase64: string;
 }
 
 export const files = {
@@ -114,16 +173,19 @@ export const files = {
     cursor?: string | null;
     limit?: number;
   }) => invoke<DocumentPage>('list_document_page', { request }),
-  listTableDocuments: (notebookId: string) =>
-    invoke<TableDocumentListItem[]>('list_table_documents', { notebookId }),
-  setTableDocumentInViews: (notebookId: string, tableId: string, inViews: boolean) =>
-    invoke<void>('set_table_document_in_views', { notebookId, tableId, inViews }),
-  listMediaLibraries: (notebookId: string) =>
-    invoke<MediaLibraryListItem[]>('list_media_libraries', { notebookId }),
-  setMediaLibraryInViews: (notebookId: string, libraryId: string, inViews: boolean) =>
-    invoke<void>('set_media_library_in_views', { notebookId, libraryId, inViews }),
-  makeViewDocumentIdentityUnique: (notebookId: string, relativePath: string) =>
-    invoke<string>('make_view_document_identity_unique', { notebookId, relativePath }),
+  listTableDocuments: async (notebookId: string): Promise<TableDocumentListItem[]> =>
+    (await collections.list(notebookId, 'table')).filter((item) => item.collectionId !== null).map((item) => ({
+      relativePath: item.relativePath, collectionId: item.collectionId!, name: item.name,
+      modifiedMs: item.modifiedMs, fileRevision: item.revision ?? 0, inViews: item.inViews, identityConflict: item.identityConflict,
+    })),
+  setTableDocumentInViews: collections.setInViews,
+  listMediaLibraries: async (notebookId: string): Promise<MediaLibraryListItem[]> =>
+    (await collections.list(notebookId, 'media_library')).filter((item) => item.collectionId !== null).map((item) => ({
+      relativePath: item.relativePath, collectionId: item.collectionId!, name: item.name,
+      modifiedMs: item.modifiedMs, inViews: item.inViews, identityConflict: item.identityConflict,
+    })),
+  setMediaLibraryInViews: collections.setInViews,
+  makeViewDocumentIdentityUnique: collections.makeIdentityUnique,
   getTree: (spacePath: string) =>
     invoke<DocTreeItem[] | null>('get_file_tree', { spacePath }),
   getDirChildren: (dirPath: string) =>
@@ -142,6 +204,10 @@ export const files = {
     invoke<string>('watch_file_browser_root', { rootPath }),
   unwatchRoot: (leaseId: string) => invoke<void>('unwatch_file_browser_root', { leaseId }),
   read: (filePath: string, spacePath?: string) => invoke<string | null>('read_file', { filePath, spacePath }),
+  readDocxFile: (filePath: string, spacePath?: string) =>
+    invoke<string>('read_docx_file', { filePath, spacePath }),
+  createDocxMarkdown: (filePath: string, spacePath: string, content: string, images: DocxMarkdownImage[] = []) =>
+    invoke<string>('create_docx_markdown', { filePath, spacePath, content, images }),
   readImage: (filePath: string, spacePath?: string) => invoke<string | null>('read_image_file', { filePath, spacePath }),
   readImagePreview: (filePath: string, spacePath?: string) => invoke<string | null>('read_image_preview', { filePath, spacePath }),
   readVideoPreview: (filePath: string, spacePath?: string) =>
@@ -242,6 +308,7 @@ export interface FileBrowserDirectoriesChangedEvent {
   leaseId: string;
   rootPath: string;
   directories: string[];
+  paths?: string[];
 }
 
 export const windows = {

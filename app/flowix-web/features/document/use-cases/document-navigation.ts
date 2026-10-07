@@ -7,6 +7,7 @@ import { useDocumentStore } from '@features/document/store/document-store';
 import { selectAndOpenAgentConversation } from '@features/workspace/use-cases/agent-conversation-navigation';
 import {
   openExternalTarget,
+  openCollectionTarget,
   openMediaTarget,
   openWebTarget,
   openDocumentListTarget,
@@ -41,6 +42,10 @@ function currentHistoryEntry(): DocumentHistoryEntry | null {
 }
 
 async function openHistoryEntry(entry: DocumentHistoryEntry): Promise<DocumentHistoryEntry> {
+  if (entry.kind === 'collection') {
+    await openCollectionTarget(entry, { history: 'skip', destination: 'main-third' });
+    return entry;
+  }
   if (entry.kind === 'document-list') {
     openDocumentListTarget({
       kind: 'document-list',

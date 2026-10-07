@@ -74,6 +74,70 @@ function createController(
 }
 
 describe("ThreadMessageRenderController empty settings", () => {
+  it.each(["assistant", "tool"] as const)("highlights a retained streaming reply when a later %s is appended", async (nextRole) => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    const { body, controller } = createController("claude");
+    try {
+      const first = {
+        id: "code-reply", role: "assistant" as const,
+        content: "```css\n.foo { color: red; }\n```",
+        timestamp: new Date().toISOString(),
+      };
+      const second = {
+        id: "later-reply", role: nextRole,
+        content: "Finished", timestamp: new Date().toISOString(),
+        ...(nextRole === "tool" ? { toolName: "Bash", toolCallId: "call-1", toolInput: { command: "pwd" }, isLoading: false } : {}),
+      };
+      const render = (messages: import("@/types").ChatMessage[], isLoading: boolean) => {
+        controller.render({
+          messages, isLoading, shouldRenderMessages: true,
+          isThreadCachePresentationHidden: false, isThreadCacheLoading: false,
+        });
+        while (frames.length) frames.shift()?.(0);
+      };
+
+      render([first], true);
+      const row = body.querySelector(".agent-thread-card__message--assistant");
+      expect(row?.querySelector("code span[style*='color']")).toBeNull();
+
+      render([first, second], true);
+      render([first, second], false);
+      expect(body.querySelector(".agent-thread-card__message--assistant")).toBe(row);
+      await vi.waitFor(() => {
+        expect(row?.querySelector("code span[style*='color']")).not.toBeNull();
+      });
+    } finally {
+      controller.dispose();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retains the DOM node and reasoning expansion when a Pi draft obtains its native id", () => {
+    const { body, controller } = createController("pi");
+    const draft: import("@/types").ChatMessage = {
+      id: "draft:run:reasoning:1", renderKey: "draft:run:reasoning:1", messageId: null,
+      role: "reasoning" as const, content: "Visible reasoning", timestamp: new Date().toISOString(), isCompleted: false,
+    };
+    const render = (messages: typeof draft[]) => controller.render({
+      messages, isLoading: false, shouldRenderMessages: true,
+      isThreadCachePresentationHidden: false, isThreadCacheLoading: false,
+    });
+    render([draft]);
+    const item = body.querySelector<HTMLElement>(".agent-thread-card__message--reasoning")!;
+    const header = item.querySelector<HTMLButtonElement>(".agent-thread-card__message-reasoning-header")!;
+    header.click(); // Explicitly collapse, then expand; keep the user's override.
+    header.click();
+    render([{ ...draft, id: "native-entry", messageId: "native-entry", isCompleted: true }]);
+    expect(body.querySelector(".agent-thread-card__message--reasoning")).toBe(item);
+    expect(item.classList.contains("agent-thread-card__message--reasoning-collapsed")).toBe(false);
+    controller.dispose();
+  });
+
   it("builds a large history across animation frames while keeping the skeleton visible", () => {
     const frames: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

@@ -10,6 +10,7 @@ import {
   restoreExternalDocumentWorkspace,
   restoreMediaWorkspace,
   restoreTableWorkspace,
+  restoreCollectionWorkspace,
   setWorkspaceRestoreStatus,
   type PersistedWorkspaceTarget,
 } from '@features/workspace/public/startup-api';
@@ -85,6 +86,10 @@ async function restoreDesiredTarget(target: PersistedWorkspaceTarget | null): Pr
   }
   if (target.kind === 'media') {
     await restoreMediaWorkspace(target);
+    return;
+  }
+  if (target.kind === 'collection') {
+    await restoreCollectionWorkspace(target);
     return;
   }
   if (target.kind === 'table') {

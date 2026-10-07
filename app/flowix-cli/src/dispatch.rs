@@ -2,7 +2,7 @@
 //!
 //! `cli` 模块只负责把 argv 解析成结构化命令；这里负责把命令转给执行层。
 
-use crate::{cli, errors::CliError, mcp, path_store, plugin, store};
+use crate::{cli, errors::CliError, mcp, operation, path_store, plugin, store};
 
 /// 跑 CLI 主入口。
 pub fn run_cli(args: &[String]) -> Result<(), CliError> {
@@ -40,6 +40,12 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             path_store::print(path_store::create(&notebook, &content)?, json)
         }
         cli::Cli::Delete { id, json } => path_store::print(path_store::delete(&id)?, json),
+        cli::Cli::CollectionRead { notebook, collection_id, path, json } => {
+            let data = operation::execute(operation::FlowixOperation::CollectionRead {
+                notebook, collection_id, path,
+            })?;
+            path_store::print(data, json)
+        }
         cli::Cli::Search {
             query,
             notebook,

@@ -6,7 +6,9 @@ import path from 'node:path'
 import { applyTauriSigningKey } from './resolve-tauri-signing-key.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
-if (process.argv.includes('--with-pi')) process.env.FLOWIX_BUNDLE_PI = '1'
+// Pi is part of every production desktop package. Keep --with-pi accepted for
+// backwards compatibility, but do not require it for the normal build command.
+process.env.FLOWIX_BUNDLE_PI = '1'
 applyTauriSigningKey()
 const npmEntrypoint = process.env.npm_execpath
 const tauriEntrypoint = path.resolve(repoRoot, 'node_modules/@tauri-apps/cli/tauri.js')
@@ -21,6 +23,8 @@ const platformArgIndex = process.argv.indexOf('--platform')
 const targetPlatform = platformArgIndex >= 0
   ? process.argv[platformArgIndex + 1]
   : process.platform
+const archArgIndex = process.argv.indexOf('--arch')
+const requestedArch = archArgIndex >= 0 ? process.argv[archArgIndex + 1] : undefined
 
 if (!['win32', 'darwin', 'linux'].includes(targetPlatform)) {
   throw new Error(`Unsupported --platform value: ${targetPlatform ?? '<missing>'}`)
@@ -74,16 +78,33 @@ function npmRun(script) {
   run(process.execPath, [npmEntrypoint, 'run', script])
 }
 
-if (targetPlatform === 'darwin') npmRun('cli:build:prod:macos')
+if (targetPlatform === 'darwin') {
+  if (requestedArch && !['arm64', 'x64'].includes(requestedArch)) {
+    throw new Error(`Unsupported macOS --arch value: ${requestedArch}`)
+  }
+  if (requestedArch) {
+    run(process.execPath, [npmEntrypoint, 'run', 'cli:build:prod', '--', `--target=${requestedArch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`])
+  } else {
+    npmRun('cli:build:prod:macos')
+  }
+} else if (requestedArch) {
+  throw new Error('--arch is currently supported only for macOS production builds')
+}
 else npmRun('cli:build:prod')
 
 if (process.env.FLOWIX_BUNDLE_PI === '1') {
-  run(process.execPath, ['scripts/prepare-pi-bundle.mjs', '--platform', targetPlatform])
+  const piArgs = ['scripts/prepare-pi-bundle.mjs', '--platform', targetPlatform]
+  if (requestedArch) piArgs.push('--arch', requestedArch)
+  run(process.execPath, piArgs)
 } else {
   run(process.execPath, ['scripts/prepare-pi-catalog.mjs'])
 }
 
-const tauriTargets = targetPlatform === 'darwin' ? MACOS_TARGETS : [null]
+const tauriTargets = targetPlatform === 'darwin'
+  ? requestedArch
+    ? [requestedArch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin']
+    : MACOS_TARGETS
+  : [null]
 const buildStartedAt = Date.now()
 for (const target of tauriTargets) {
   if (target) {
@@ -115,7 +136,7 @@ if (targetPlatform === 'win32') {
     requireArtifact(freshArtifacts, file => file === `${installer}.sig`, 'NSIS updater signature')
   }
 } else if (targetPlatform === 'darwin') {
-  for (const target of MACOS_TARGETS) {
+  for (const target of tauriTargets) {
     const targetFiles = freshArtifacts.filter(file => file.includes(`${path.sep}${target}${path.sep}`))
     requireArtifact(targetFiles, file => file.endsWith('.dmg'), `${target} DMG`)
     if (requireUpdaterArtifacts) {

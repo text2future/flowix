@@ -1,5 +1,6 @@
+import { piRowIdentity, reconcilePiTimeline } from "@features/agent/store/pi-message-reconciliation";
 import type { ChatMessage, ThreadListItem } from "@/types";
-import type { AgentTypeKey } from "@/types/agent";
+import type { PiHistoryRevision, AgentTypeKey } from "@/types/agent";
 import { stripSystemBlock } from "@features/agent/message";
 import { createAgentToolDisplay } from "@features/agent/tool-display";
 import { isEmptyAssistantMessage } from "@features/agent/message";
@@ -36,12 +37,16 @@ export async function getHistoryPage(
   beforeSequence: number | null,
   limit: number,
   snapshotSequence?: number | null,
+  piRevision?: PiHistoryRevision,
+  piBeforeEntryId?: string | null,
 ): Promise<ThreadHistoryPage> {
   return getAgentHistoryAdapter(type).getPage(
     threadId,
     beforeSequence,
     limit,
     snapshotSequence,
+    piRevision,
+    piBeforeEntryId,
   );
 }
 
@@ -175,6 +180,8 @@ function toolCallIdentityKey(toolCallId: string): string {
   return markerIndex >= 0 ? toolCallId.slice(markerIndex + marker.length) : toolCallId;
 }
 
+const messageIdentityKey = piRowIdentity;
+
 export function hydrateToolDisplay(
   message: ChatMessage,
   agentType?: AgentTypeKey,
@@ -234,6 +241,7 @@ function mergeHistoricalToolMessage(
     ...historical,
     id: existing.id,
     toolCallId: existing.toolCallId ?? historical.toolCallId,
+    parentMessageId: historical.parentMessageId ?? existing.parentMessageId,
     toolData: historical.toolData || existing.toolData,
     toolInput: historical.toolInput ?? existing.toolInput,
     toolDisplay: historical.toolDisplay ?? existing.toolDisplay,
@@ -253,6 +261,16 @@ function mergeCodexHistoryWithLive(
   return mergeCodexHistoricalMessages(live, history);
 }
 
+/** Pi history supplies branch order; live-only rows use their arrival order.
+ * Never compare historical sequence numbers with run-local event sequences. */
+export function reconcilePiHistory(
+  history: ChatMessage[], live: ChatMessage[], hasMore: boolean,
+  requestProjection?: readonly ChatMessage[],
+): ChatMessage[] {
+  return reuseRenderEquivalentMessageReferences(live,
+    reconcilePiTimeline(live, history, { kind: "snapshot", coverage: hasMore ? "latest-page" : "full-branch", requestProjection }));
+}
+
 export function mergeHistoricalMessages(
   existing: ChatMessage[],
   historical: ChatMessage[],
@@ -260,6 +278,7 @@ export function mergeHistoricalMessages(
 ): ChatMessage[] {
   const hydratedHistorical = hydrateHistoricalMessages(historical, agentType);
   if (existing.length === 0) return hydratedHistorical;
+  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(existing, reconcilePiTimeline(existing, hydratedHistorical, { kind: "snapshot", coverage: "page" }));
 
   // Codex `thread/turns/list(itemsView: "full")` is already an ordered
   // transcript: turn order and the order of every item inside each turn are
@@ -273,7 +292,7 @@ export function mergeHistoricalMessages(
   }
 
   let mergedExisting = existing;
-  const seenIds = new Set(existing.map((message) => message.id));
+  const seenIds = new Set(existing.map(messageIdentityKey));
   const existingToolIndexByCallId = new Map<string, number>();
   const existingUserCounts = new Map<string, number>();
   const existingVisibleUserCounts = new Map<string, number>();
@@ -311,7 +330,7 @@ export function mergeHistoricalMessages(
   // 占 existing 位置, 合并消息(代表历史 tool)放 missing 的历史顺序位置。
   const mergedExistingIndices = new Set<number>();
   for (const message of hydratedHistorical) {
-    if (seenIds.has(message.id)) continue;
+    if (seenIds.has(messageIdentityKey(message))) continue;
 
     if (message.role === "tool" && message.toolCallId) {
       const existingIndex =
@@ -329,6 +348,7 @@ export function mergeHistoricalMessages(
         continue;
       }
     }
+
 
     const key = userMessageStableKey(message);
     if (key) {
@@ -404,7 +424,7 @@ function mergeCodexHistoricalMessages(
   existing: ChatMessage[],
   historical: ChatMessage[],
 ): ChatMessage[] {
-  const historyIds = new Set(historical.map((message) => message.id));
+  const historyIds = new Set(historical.map(messageIdentityKey));
   const historyToolIds = new Set(
     historical
       .filter((message) => message.role === "tool" && message.toolCallId)
@@ -430,7 +450,7 @@ function mergeCodexHistoricalMessages(
   }
 
   const liveOnly = existing.filter((message) => {
-    if (historyIds.has(message.id)) return false;
+    if (historyIds.has(messageIdentityKey(message))) return false;
     if (
       message.role === "tool" &&
       message.toolCallId &&
@@ -497,6 +517,7 @@ function areMessagesRenderEquivalent(
     errorDetails: left.errorDetails,
     isLoading: left.isLoading ?? false,
     toolCallId: left.toolCallId,
+    parentMessageId: left.parentMessageId,
     toolName: left.toolName,
     toolAgentType: left.toolAgentType,
     toolData: left.toolData,
@@ -516,6 +537,7 @@ function areMessagesRenderEquivalent(
     errorDetails: right.errorDetails,
     isLoading: right.isLoading ?? false,
     toolCallId: right.toolCallId,
+    parentMessageId: right.parentMessageId,
     toolName: right.toolName,
     toolAgentType: right.toolAgentType,
     toolData: right.toolData,
@@ -541,13 +563,15 @@ function reuseRenderEquivalentMessageReferences(
   next: ChatMessage[],
 ): ChatMessage[] {
   const existingByIdentity = new Map(
-    existing.map((message) => [`${message.role}\u0000${message.id}`, message]),
+    existing.map((message) => [messageIdentityKey(message), message]),
   );
   const reconciled = next.map((message) => {
-    const current = existingByIdentity.get(`${message.role}\u0000${message.id}`);
+    const current = existingByIdentity.get(messageIdentityKey(message));
     return current && areMessagesRenderEquivalent(current, message)
       ? current
-      : message;
+      : current && current.renderKey
+        ? { ...message, renderKey: current.renderKey }
+        : message;
   });
 
   // Preserve the array too when the complete rendered sequence is unchanged.
@@ -595,6 +619,9 @@ export function areMessagesEquivalent(
     const other = right[index];
     return JSON.stringify({
       id: message.id,
+      messageId: message.messageId,
+      piBlockIndex: message.piBlockIndex,
+      renderKey: message.renderKey,
       role: message.role,
       content: message.content,
       messageType: message.messageType,
@@ -602,6 +629,7 @@ export function areMessagesEquivalent(
       errorDetails: message.errorDetails,
       isLoading: message.isLoading ?? false,
       toolCallId: message.toolCallId,
+      parentMessageId: message.parentMessageId,
       toolName: message.toolName,
       toolAgentType: message.toolAgentType,
       toolData: message.toolData,
@@ -614,6 +642,9 @@ export function areMessagesEquivalent(
       turnDurationMs: message.turnDurationMs,
     }) === JSON.stringify({
       id: other.id,
+      messageId: other.messageId,
+      piBlockIndex: other.piBlockIndex,
+      renderKey: other.renderKey,
       role: other.role,
       content: other.content,
       messageType: other.messageType,
@@ -621,6 +652,7 @@ export function areMessagesEquivalent(
       errorDetails: other.errorDetails,
       isLoading: other.isLoading ?? false,
       toolCallId: other.toolCallId,
+      parentMessageId: other.parentMessageId,
       toolName: other.toolName,
       toolAgentType: other.toolAgentType,
       toolData: other.toolData,
@@ -653,6 +685,7 @@ export function replaceCompletedRunWithHistory(
 ): ChatMessage[] {
   const history = hydrateHistoricalMessages(historical, agentType);
   if (history.length === 0) return existing;
+  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(existing, reconcilePiTimeline(existing, history, { kind: "snapshot", coverage: "page" }));
   const anchorId = completedRunUserMessageId(agentType, runId);
   const lastIndex = (
     messages: ChatMessage[],
@@ -820,12 +853,16 @@ export function replaceCompletedRunWithHistory(
 
   // Other runtimes may not yet expose run-scoped user ids. An exact overlap
   // still gives a safe page boundary; otherwise retain the normal merge path.
-  const historyIndexById = new Map(history.map((message, index) => [message.id, index]));
+  const historyIndexById = new Map(
+    history.map((message, index) => [messageIdentityKey(message), index]),
+  );
   const existingOverlap = existing.findIndex((message) =>
-    historyIndexById.has(message.id),
+    historyIndexById.has(messageIdentityKey(message)),
   );
   if (existingOverlap >= 0) {
-    const historyOverlap = historyIndexById.get(existing[existingOverlap].id) ?? 0;
+    const historyOverlap = historyIndexById.get(
+      messageIdentityKey(existing[existingOverlap]),
+    ) ?? 0;
     return reuseRenderEquivalentMessageReferences(
       existing,
       [...existing.slice(0, existingOverlap), ...history.slice(historyOverlap)],
@@ -866,7 +903,8 @@ export function mergeMessagesForThreadRender({
   if (agentType === "codex") {
     return mergeCodexHistoryWithLive(hydratedHistory, hydratedLive);
   }
-  const seenIds = new Set(hydratedHistory.map((message) => message.id));
+  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(hydratedLive, reconcilePiTimeline(hydratedLive, hydratedHistory, { kind: "snapshot", coverage: "page" }));
+  const seenIds = new Set(hydratedHistory.map(messageIdentityKey));
   const historicalContentCounts = new Map<string, number>();
   const latestHistoricalTimeByContent = new Map<string, number>();
 
@@ -887,7 +925,7 @@ export function mergeMessagesForThreadRender({
   let order = history.length;
 
   for (const message of hydratedLive) {
-    if (seenIds.has(message.id)) continue;
+    if (seenIds.has(messageIdentityKey(message))) continue;
 
     const key = messageContentStableKey(message);
     if (key) {
@@ -900,7 +938,7 @@ export function mergeMessagesForThreadRender({
     }
 
     merged.push({ message, order });
-    seenIds.add(message.id);
+    seenIds.add(messageIdentityKey(message));
     order += 1;
   }
 
@@ -917,11 +955,14 @@ export function mergeLiveMessagesIntoRenderableMessages(
   if (liveMessages.length === 0) return existingMessages;
   const live = hydrateHistoricalMessages(liveMessages, agentType);
   if (existingMessages.length === 0) return live;
+  if (agentType === "pi") return reuseRenderEquivalentMessageReferences(existingMessages, reconcilePiTimeline(existingMessages, live, { kind: "live-projection" }));
 
-  const liveById = new Map(live.map((message) => [message.id, message]));
+  const liveById = new Map(
+    live.map((message) => [messageIdentityKey(message), message]),
+  );
   let changed = false;
   const updatedExisting = existingMessages.map((message) => {
-    const liveMessage = liveById.get(message.id);
+    const liveMessage = liveById.get(messageIdentityKey(message));
     if (!liveMessage || liveMessage === message) return message;
     changed = true;
     return liveMessage;
@@ -998,8 +1039,8 @@ export function prependHistoricalMessages(
   if (older.length === 0) return existing;
   const hydratedOlder = hydrateHistoricalMessages(older, agentType);
   if (existing.length === 0) return hydratedOlder;
-  const seenIds = new Set(existing.map((m) => m.id));
-  const fresh = hydratedOlder.filter((m) => !seenIds.has(m.id));
+  const seenIds = new Set(existing.map(messageIdentityKey));
+  const fresh = hydratedOlder.filter((m) => !seenIds.has(messageIdentityKey(m)));
   if (fresh.length === 0) return existing;
   return [...fresh, ...existing];
 }

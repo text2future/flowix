@@ -80,6 +80,36 @@ pub async fn pi_thread_get_messages(
 }
 
 #[tauri::command]
+pub async fn pi_thread_get_snapshot(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::agent_external::pi::PiSessionSnapshot, String> {
+    state.pi.get_session_snapshot(&app, &thread_id).await
+}
+
+#[tauri::command]
+pub async fn pi_thread_get_page(
+    thread_id: String,
+    before_entry_id: Option<String>,
+    limit: Option<usize>,
+    revision: Option<crate::agent_external::pi::PiHistoryRevision>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::agent_external::pi::PiHistoryPage, String> {
+    state
+        .pi
+        .get_session_page(
+            &app,
+            &thread_id,
+            before_entry_id.as_deref(),
+            limit.unwrap_or(10),
+            revision,
+        )
+        .await
+}
+
+#[tauri::command]
 pub async fn pi_thread_session_id(
     thread_id: String,
     state: State<'_, AppState>,

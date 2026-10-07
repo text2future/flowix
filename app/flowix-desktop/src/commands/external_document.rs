@@ -13,6 +13,14 @@ use crate::commands::helpers::{
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{FileWriteOutcome, MergedFileWriteOutcome};
 
+#[tauri::command]
+pub fn get_external_document_mime_type(file_path: String) -> String {
+    mime_guess::from_path(file_path)
+        .first_or_octet_stream()
+        .essence_str()
+        .to_string()
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ExternalDocumentWriteOutcome {

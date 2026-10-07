@@ -27,6 +27,6 @@ export interface DocumentPathRequest {
 export interface EditableDocumentOperations {
   read: (request: DocumentPathRequest) => Promise<string | null>;
   write: (request: DocumentWriteRequest) => Promise<DocumentWriteOutcome>;
-  rename: (request: DocumentPathRequest & { name: string }) => Promise<{ path: string }>;
+  rename: (request: DocumentPathRequest & { name: string; notebookId?: string; collectionId?: string }) => Promise<{ path: string }>;
   delete: (request: DocumentPathRequest) => Promise<{ path: string }>;
 }

@@ -131,6 +131,7 @@ pub fn media_kind_for_path(path: &Path) -> Option<MediaResourceKind> {
             | "tif"
             | "tiff"
             | "heic"
+            | "heif"
     ) {
         return Some(MediaResourceKind::Image);
     }

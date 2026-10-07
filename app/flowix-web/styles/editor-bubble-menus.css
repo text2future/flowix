@@ -299,6 +299,14 @@
   outline: none;
 }
 
+/* slash 菜单里的图标统一为 currentColor 实色 (100% 不透明) ──
+ * 多维表格统一图标 (TableDocumentIcon) 自带 0.6 opacity 以贴合侧边栏的柔和
+ * 观感, 直接放进菜单会比相邻的 Phosphor 图标偏浅, 这里覆盖回 1。
+ * CSS opacity 优先于 svg 上的 presentation attribute, 故可覆盖。 */
+.slash-menu-item > svg {
+  opacity: 1;
+}
+
 .slash-menu-item-label {
   overflow: hidden;
   color: currentColor;

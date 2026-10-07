@@ -7,6 +7,9 @@ pub struct AgentChunkMetadata {
     /// Provider-native item/message id retained for diagnostics and future
     /// transcript imports. `message_id` is the Flowix canonical identity.
     pub source_message_id: Option<String>,
+    /// Native parent message that owns a tool call, when the provider exposes
+    /// that relationship in its session transcript.
+    pub parent_message_id: Option<String>,
     /// Provider-owned display category for synthetic timeline messages. This
     /// is currently used by DSH goal round/wrap-up notices; it must not be
     /// inferred from the rendered text on the frontend.
@@ -35,6 +38,12 @@ impl AgentChunkMetadata {
             object.insert(
                 "source_message_id".to_string(),
                 Value::String(source_message_id.clone()),
+            );
+        }
+        if let Some(parent_message_id) = self.parent_message_id.as_ref() {
+            object.insert(
+                "parent_message_id".to_string(),
+                Value::String(parent_message_id.clone()),
             );
         }
         if let Some(message_type) = self.message_type {
@@ -341,12 +350,10 @@ pub(crate) fn chunk_payload_value(
 
 /// Product-owned identity shared by external runtimes.
 ///
-/// Codex is intentionally different: its app-server `itemId` is already
-/// unique within a thread and is also the id returned by
-/// `thread/turns/list`. Keep that provider id unchanged so live notifications
-/// and history snapshots address the same rendered row. Other runtimes still
-/// need a run-scoped canonical id because their provider ids are not
-/// necessarily unique across a session.
+/// Codex app-server item ids and Pi session entry ids are already stable
+/// across live notifications and history snapshots. Keep those provider ids
+/// unchanged so both paths address the same rendered row. Other runtimes need
+/// a run-scoped canonical id because their provider ids may repeat per session.
 pub fn canonical_message_id(
     agent_type: &str,
     run_id: &str,
@@ -356,7 +363,7 @@ pub fn canonical_message_id(
     if source_message_id.starts_with("msg:") {
         return source_message_id.to_string();
     }
-    if agent_type == "codex" && role != "error" {
+    if (agent_type == "codex" || agent_type == "pi") && role != "error" {
         return source_message_id.to_string();
     }
     format!("msg:{agent_type}:{run_id}:{role}:{source_message_id}")
@@ -378,16 +385,27 @@ fn canonical_chunk_metadata(
         AgentChunk::Error { .. } => ("error", "error".to_string()),
         _ => return canonical,
     };
+    // Pi does not expose an assistant message id until message_end. Its live
+    // deltas are draft content only; leave identity unset so the browser can
+    // adopt the draft when the native session entry id arrives.
+    if agent_type == "pi"
+        && matches!(
+            chunk,
+            AgentChunk::Text { .. } | AgentChunk::Reasoning { .. }
+        )
+        && metadata.source_message_id.is_none()
+        && metadata.message_id.is_none()
+    {
+        return canonical;
+    }
     let source = metadata
         .source_message_id
         .clone()
         .or_else(|| metadata.message_id.clone())
         .unwrap_or_else(|| {
-            // A real Codex item id is safe to use raw, but a missing item id
-            // must not fall back to the shared "stream" marker. Otherwise
-            // two runs on the same thread would address the same assistant
-            // row. Keep the synthetic path run-scoped and let the existing
-            // `msg:` idempotency guard preserve it end-to-end.
+            // Codex needs a run-scoped fallback because its delta can arrive
+            // before the native item id. Pi deltas return above: their draft
+            // identity must remain unset until the session entry is committed.
             if agent_type == "codex" {
                 format!("msg:codex:{run_id}:{role}:{fallback_source}")
             } else {

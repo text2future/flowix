@@ -65,7 +65,7 @@ interface BrowserColumnState {
   setVisible: (visible: boolean) => void;
   setSplitRatio: (ratio: number) => void;
   updateFileBrowserContext: (tabId: string, patch: Partial<FileBrowserContext>) => void;
-  selectFileBrowserFile: (tabId: string, filePath: string | null) => void;
+  selectFileBrowserFile: (tabId: string, filePath: string | null, collectionDisplay?: FileBrowserTarget['collectionDisplay']) => void;
   switchFileBrowserFolder: (tabId: string, folderPath: string) => void;
   setFileBrowserTreeVisible: (tabId: string, visible: boolean) => void;
   setFileBrowserTreeWidth: (tabId: string, width: number) => void;
@@ -103,7 +103,7 @@ export const BROWSER_COLUMN_FILE_TREE_MAX_WIDTH = 420;
 export function browserColumnTargetIdentity(target: BrowserColumnTarget): ContentIdentity {
   switch (target.kind) {
     case 'media': return { kind: 'media', path: target.filePath };
-    case 'file-browser': return target.activeFilePath
+    case 'file-browser': return target.collectionDisplay ? { kind: 'collection', ...target.collectionDisplay } : target.activeFilePath
       ? { kind: 'external', path: target.activeFilePath }
       : { kind: 'file-browser', folderPath: target.folderPath ?? '' };
     case 'web': return { kind: 'web', url: target.url };
@@ -179,9 +179,10 @@ function updateFileBrowserTabTarget(
   tabs: BrowserColumnTab[],
   tabId: string,
   filePath: string | null,
+  collectionDisplay?: FileBrowserTarget['collectionDisplay'],
 ): BrowserColumnTab[] {
   return tabs.map((tab) => tab.id === tabId && tab.target.kind === 'file-browser'
-    ? { ...tab, title: filePath ? displayTitleFromFilename(filePath.split(/[\\/]/).pop() ?? filePath) : tab.title, target: { ...tab.target, activeFilePath: filePath } }
+    ? { ...tab, title: filePath ? displayTitleFromFilename(filePath.split(/[\\/]/).pop() ?? filePath) : tab.title, target: { ...tab.target, activeFilePath: filePath, collectionDisplay, collectionUnavailableReason: undefined } }
     : tab);
 }
 
@@ -261,6 +262,7 @@ function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
       return nonEmptyString(value.folderPath) || nonEmptyString(value.activeFilePath)
         ? {
             kind: 'file-browser',
+            ...(value.collectionDisplay && typeof value.collectionDisplay === 'object' && 'collectionId' in value.collectionDisplay && 'displayId' in value.collectionDisplay && 'notebookId' in value.collectionDisplay && typeof value.collectionDisplay.collectionId === 'string' && typeof value.collectionDisplay.displayId === 'string' && typeof value.collectionDisplay.notebookId === 'string' ? { collectionDisplay: { collectionId: value.collectionDisplay.collectionId, displayId: value.collectionDisplay.displayId, notebookId: value.collectionDisplay.notebookId, viewId: 'viewId' in value.collectionDisplay && typeof value.collectionDisplay.viewId === 'string' ? value.collectionDisplay.viewId : null } } : {}),
             folderPath: nonEmptyString(value.folderPath) ? value.folderPath : null,
             notebookId: nonEmptyString(value.notebookId) ? value.notebookId : null,
             ...(value.restoreNotebookContext === true || !('notebookId' in value) ? { restoreNotebookContext: true } : {}),
@@ -425,10 +427,10 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
       updateFileBrowserContext: (tabId, patch) => {
         set({ tabs: updateFileBrowserTabTree(get().tabs, tabId, patch) });
       },
-      selectFileBrowserFile: (tabId, filePath) => {
+      selectFileBrowserFile: (tabId, filePath, collectionDisplay) => {
         const tab = get().tabs.find((candidate) => candidate.id === tabId);
         if (!tab || tab.target.kind !== 'file-browser') return;
-        set({ tabs: updateFileBrowserTabTarget(get().tabs, tabId, filePath) });
+        set({ tabs: updateFileBrowserTabTarget(get().tabs, tabId, filePath, collectionDisplay) });
       },
       switchFileBrowserFolder: (tabId, folderPath) => {
         if (!folderPath.trim()) return;

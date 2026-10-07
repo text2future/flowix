@@ -1,3 +1,4 @@
+import { messageRenderKey } from "@features/agent/message/render-identity";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Check, Copy, GitBranch, Image as ImageIcon } from "lucide-react";
@@ -513,7 +514,7 @@ export function renderAgentThreadCardBudgetedMarkdown(options: {
   toggle.textContent = getDisplayToggleLabel(context.language, expanded);
   toggle.onclick = (event) => {
     event.stopPropagation();
-    context.setDisplayExpanded(message.id, !expanded);
+    context.setDisplayExpanded(messageRenderKey(message), !expanded);
     renderAgentThreadCardBudgetedMarkdown(options);
   };
   toggle.onmousedown = (event) => {
@@ -697,7 +698,7 @@ export function createAgentThreadCardMessageElement(options: {
         const next = !item.classList.contains(
           "agent-thread-card__message--reasoning-collapsed",
         );
-        setReasoningCollapsed(message.id, next);
+        setReasoningCollapsed(messageRenderKey(message), next);
         apply(next);
         if (!next && content.childNodes.length === 0) {
           renderReasoningContent();

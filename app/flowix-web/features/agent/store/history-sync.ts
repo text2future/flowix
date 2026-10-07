@@ -1,7 +1,8 @@
 import type { ChatMessage } from "@/types";
-import type { AgentTypeKey } from "@/types/agent";
+import type { PiHistoryRevision, AgentTypeKey } from "@/types/agent";
 import {
   areMessagesEquivalent,
+  reconcilePiHistory,
   mergeHistoricalMessages,
   replaceCompletedRunWithHistory,
 } from "@features/agent/store/thread-history";
@@ -13,6 +14,8 @@ export interface HistorySnapshot {
   revision: string | null;
   oldestCursor: number | null;
   hasMore: boolean;
+  piRevision?: PiHistoryRevision;
+  piBeforeEntryId?: string | null;
 }
 
 export type HistorySyncReason = "open" | "run_completed" | "recovery";
@@ -25,6 +28,8 @@ export interface ReconcileHistoryInput {
   runId?: string | null;
   /** Codex turn owning the run; anchors the user row when ids already match. */
   turnId?: string | null;
+  /** In-memory immutable projection version before the history request. */
+  requestProjection?: readonly ChatMessage[];
 }
 
 export interface ReconcileHistoryResult {
@@ -44,8 +49,9 @@ export function reconcileHistorySnapshot(
   input: ReconcileHistoryInput,
 ): ReconcileHistoryResult {
   const { agentType, current, snapshot, reason, runId, turnId } = input;
-  const messages =
-    reason === "run_completed" && runId
+  const messages = agentType === "pi"
+    ? reconcilePiHistory(snapshot.messages, current, snapshot.hasMore, input.requestProjection)
+    : reason === "run_completed" && runId
       ? replaceCompletedRunWithHistory(
           current,
           snapshot.messages,

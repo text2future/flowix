@@ -94,6 +94,7 @@ export interface HtmlFileSurface extends FileSurfaceBase {
 
 export interface UnavailableFileSurface extends FileSurfaceBase {
   kind: 'unavailable-file';
+  scopePath: string | null;
   props: ExternalDocumentProps;
 }
 

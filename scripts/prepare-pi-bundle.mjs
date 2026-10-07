@@ -9,6 +9,7 @@ import { copyFile } from 'node:fs/promises'
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
 const stageRoot = path.join(repoRoot, '.build', 'pi-runtime')
+const downloadCache = path.join(repoRoot, '.build', 'pi-downloads')
 const platformArg = process.argv.indexOf('--platform')
 const platform = platformArg >= 0 ? process.argv[platformArg + 1] : process.platform
 const archValue = process.arch
@@ -32,6 +33,7 @@ const checksums = {
 
 await rm(stageRoot, { recursive: true, force: true })
 await mkdir(stageRoot, { recursive: true })
+await mkdir(downloadCache, { recursive: true })
 const catalogBuild = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'prepare-pi-catalog.mjs')], {
   stdio: 'inherit',
   cwd: repoRoot,
@@ -47,32 +49,44 @@ for (const arch of arches) {
   const digest = checksums[target]
   if (!digest) throw new Error(`Pi v1.0.3 does not provide a ${target} package`)
   const archivePath = path.join(stageRoot, archive)
+  const cachedArchivePath = path.join(downloadCache, archive)
   const url = `https://github.com/earendil-works/pi/releases/download/v1.0.3/${archive}`
-  let downloaded = false
-  let lastError
-  const mirror = `https://gh-proxy.com/${url}`
-  const downloadUrls = process.env.FLOWIX_PI_DOWNLOAD_MIRROR_FIRST === '1'
-    ? [mirror, url]
-    : [url, mirror]
-  for (const candidate of downloadUrls) {
-    try {
-      const response = await fetch(candidate)
-      if (!response.ok || !response.body) {
-        throw new Error(`HTTP ${response.status} from ${candidate}`)
-      }
-      await pipeline(Readable.fromWeb(response.body), createWriteStream(archivePath))
-      downloaded = true
-      break
-    } catch (error) {
-      lastError = error
-      await rm(archivePath, { force: true })
-    }
+  const hashFile = async filePath => {
+    const hash = createHash('sha256')
+    for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+    return hash.digest('hex')
   }
-  if (!downloaded) throw new Error(`Pi download failed: ${lastError}`)
-  const hash = createHash('sha256')
-  for await (const chunk of createReadStream(archivePath)) hash.update(chunk)
-  const actualDigest = hash.digest('hex')
-  if (actualDigest !== digest) throw new Error(`Pi archive SHA-256 mismatch for ${archive}`)
+  let cached = (await stat(cachedArchivePath).catch(() => null))?.isFile() ?? false
+  if (cached && await hashFile(cachedArchivePath) !== digest) {
+    await rm(cachedArchivePath, { force: true })
+    cached = false
+  }
+  if (!cached) {
+    let downloaded = false
+    let lastError
+    const mirror = `https://gh-proxy.com/${url}`
+    const downloadUrls = process.env.FLOWIX_PI_DOWNLOAD_MIRROR_FIRST === '1'
+      ? [mirror, url]
+      : [url, mirror]
+    for (const candidate of downloadUrls) {
+      try {
+        const response = await fetch(candidate)
+        if (!response.ok || !response.body) {
+          throw new Error(`HTTP ${response.status} from ${candidate}`)
+        }
+        await pipeline(Readable.fromWeb(response.body), createWriteStream(cachedArchivePath))
+        downloaded = true
+        break
+      } catch (error) {
+        lastError = error
+        await rm(cachedArchivePath, { force: true })
+      }
+    }
+    if (!downloaded) throw new Error(`Pi download failed: ${lastError}`)
+    const actualDigest = await hashFile(cachedArchivePath)
+    if (actualDigest !== digest) throw new Error(`Pi archive SHA-256 mismatch for ${archive}`)
+  }
+  await copyFile(cachedArchivePath, archivePath)
 
   const extracted = path.join(stageRoot, `${target}-extract`)
   await mkdir(extracted, { recursive: true })

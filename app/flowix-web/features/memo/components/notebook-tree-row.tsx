@@ -151,7 +151,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onKeepAliveChange?: (path: string, active: boolean) => void;
   favoritePath?: string;
   onFavoriteChanged?: (itemId: string, favorited: boolean) => void;
-  tableViewVisibility?: { tableId: string; inViews: boolean; identityConflict?: boolean; onChange: (inViews: boolean) => void; onMakeIdentityUnique?: () => void };
+  tableViewVisibility?: { collectionId: string; inViews: boolean; identityConflict?: boolean; onChange: (inViews: boolean) => void; onMakeIdentityUnique?: () => void };
   mediaLibraryViewVisibility?: { inViews: boolean; identityConflict?: boolean; onChange: (inViews: boolean) => void; onMakeIdentityUnique?: () => void };
   tabIndex?: number;
   moveStatus?: 'moving' | 'success';

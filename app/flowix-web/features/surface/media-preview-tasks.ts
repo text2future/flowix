@@ -43,8 +43,24 @@ async function loadPreview(job: PreviewJob): Promise<string | null> {
       job.requestId,
     );
   }
-  const cachedFile = await mediaResources.thumbnail(job.filePath, job.notebookPath, 'image', job.requestId);
-  return cachedFile ? files.toAssetUrl(cachedFile) : null;
+  const extension = job.filePath.split('.').pop()?.toLowerCase();
+  // SVG is rendered by the browser; the raster thumbnail encoder cannot decode it.
+  if (extension !== 'svg') {
+    try {
+      const cachedFile = await mediaResources.thumbnail(job.filePath, job.notebookPath, 'image', job.requestId);
+      if (cachedFile) return files.toAssetUrl(cachedFile);
+      // A null result means cancellation or no preview, not an unsupported codec.
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith('MEDIA_PREVIEW_UNSUPPORTED:')) return null;
+    }
+  }
+  if (!extension || !['svg', 'webp', 'gif', 'bmp', 'ico', 'avif', 'png', 'jpg', 'jpeg'].includes(extension)) return null;
+  // Validate notebook scope and bound transfer size before browser-only format fallback.
+  const { resource } = await mediaResources.get(job.filePath, job.notebookPath);
+  if (resource.sizeBytes > 8 * 1024 * 1024) return null;
+  return files.toAssetUrl(job.filePath);
 }
 
 function pump(): void {

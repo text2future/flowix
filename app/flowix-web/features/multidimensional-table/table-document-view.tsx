@@ -1,17 +1,20 @@
 'use client';
 
+import { mutateCollectionFile } from '@features/collection/mutations';
+import { reviseCollection } from '@features/collection/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, FileText, Plus, Table2, X } from 'lucide-react';
 import { ArrowsLeftRightIcon, MinusCircleIcon } from '@phosphor-icons/react';
-import { attachments, dialogs, files, notes as notesClient, windows, type NoteEntry } from '@platform/tauri/client';
-import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
+import { attachments, dialogs, files, collections, notes as notesClient, windows, type NoteEntry } from '@platform/tauri/client';
+import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { canonicalizePropertyKey } from '@features/document/properties/property-key';
 import { removeDocumentProperty, setDocumentProperties } from '@features/document/public/path-properties';
 import { PROPERTY_URL_RE } from '@features/document/properties/property-type';
 import { getAllPresets, resolvePropertyDisplayName, type PropertyPreset } from '@features/document/properties/presets';
 import { usePropertyFieldPreferences } from '@features/preferences/public/runtime-api';
-import { openExternalTarget, replaceExternalDocumentPath } from '@features/workspace/use-cases/workspace-navigation';
+import { createFileBrowserTarget, openBrowserColumnTarget } from '@features/workspace/use-cases/browser-column-navigation';
+import { replaceExternalDocumentPath } from '@features/workspace/use-cases/workspace-navigation';
 import { NotebookTreeResourceIcon } from '@features/memo/components/file-type-icon';
 import { renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
 import { ensureFileDisplayIdentity, findFileDisplayIdentity, type FileDisplayIdentity } from '@/lib/file-display-registry';
@@ -55,7 +58,7 @@ export interface TableDocumentViewProps {
   fileIdentity?: FileDisplayIdentity;
   notebookPath: string | null;
   notebookId: string | null;
-  expectedTableId?: string | null;
+  expectedCollectionId?: string | null;
   initialViewId?: string | null;
   onActiveViewChange?: (viewId: string) => void;
   editable?: boolean;
@@ -219,11 +222,12 @@ const EMPTY_CELL_STATUSES: ReadonlyMap<string, TableCellSaveStatus> = new Map();
 
 export function TableDocumentView(props: TableDocumentViewProps) {
   const fileSessionId = props.fileIdentity?.displayId ?? props.filePath;
-  const sessionKey = JSON.stringify([fileSessionId, props.notebookPath, props.notebookId]);
+  // Display identity owns the session; resolved path/scope are mutable locators.
+  const sessionKey = props.fileIdentity?.displayId ?? JSON.stringify([fileSessionId, props.notebookPath ? canonicalDirectoryPath(props.notebookPath) : null, props.notebookId]);
   return <TableDocumentViewSession key={sessionKey} {...props} />;
 }
 
-function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebookId, expectedTableId, initialViewId, onActiveViewChange, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange }: TableDocumentViewProps) {
+function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, initialViewId, onActiveViewChange, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange }: TableDocumentViewProps) {
   const { t } = useI18n();
   const { fields: propertyFields } = usePropertyFieldPreferences();
   const tablePresets = useMemo(() => {
@@ -235,26 +239,25 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
   }, [propertyFields, t]);
   const {
     document, loadError, saving, setSaving, notes, setNotes, resolvedNotebookId,
-    notesLoadError, load, save: saveSession, loadSequenceRef, loadGeneration, isCurrentSession, pendingNotePropertiesRef,
+    notesLoadError, load, acceptContent, save: saveSession, loadSequenceRef, loadGeneration, isCurrentSession, pendingNotePropertiesRef,
   } = useTableSession({ filePath, fileIdentity, notebookPath, notebookId });
   useEffect(() => {
-    if (!embeddedInEditor || !expectedTableId || !notebookId || !notebookPath || !onFilePathChange) return;
+    if (!embeddedInEditor || !expectedCollectionId || !notebookId || !notebookPath || !onFilePathChange) return;
     const pathIsUnusable = Boolean(loadError)
-      || Boolean(document && document.table.id !== expectedTableId);
+      || Boolean(document && document.collection.id !== expectedCollectionId);
     if (!pathIsUnusable) return;
 
     let active = true;
-    void files.listTableDocuments(notebookId).then((tables) => {
+    void collections.resolve(notebookId, expectedCollectionId).then((indexedTable) => {
       if (!active) return;
-      const indexedTable = tables.find((table) => table.tableId === expectedTableId);
-      if (!indexedTable) return;
+      if (indexedTable.identityConflict || indexedTable.parseState !== 'valid') return;
       const indexedPath = joinNotebookMemoPath(notebookPath, indexedTable.relativePath);
       if (!indexedPath || canonicalPath(indexedPath) === canonicalPath(filePath)) return;
       onFilePathChange(indexedPath);
     }).catch(() => undefined);
 
     return () => { active = false; };
-  }, [document, embeddedInEditor, expectedTableId, filePath, loadError, notebookId, notebookPath, onFilePathChange]);
+  }, [document, embeddedInEditor, expectedCollectionId, filePath, loadError, notebookId, notebookPath, onFilePathChange]);
   const save = useCallback(async (...args: Parameters<typeof saveSession>) => {
     if (!editable) return false;
     return saveSession(...args);
@@ -271,7 +274,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
   const renameTableFile = useCallback(async (rawTitle: string) => {
     setEditingTableName(false);
     const title = rawTitle.trim();
-    const currentTitle = displayTitleFromFilename(filePath);
+    const currentTitle = document?.collection.name ?? displayTitleFromFilename(filePath);
     if (!editable || saving || renamingTableFile || !notebookPath || !title || title === currentTitle) return;
     if (/[\\/]/.test(title)) {
       toast.error('文件名不能包含路径分隔符');
@@ -287,15 +290,18 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const previousPath = canonicalPath(filePath);
     const identity = fileIdentity ?? findFileDisplayIdentity(previousPath) ?? ensureFileDisplayIdentity(previousPath);
     try {
-      const nextPath = canonicalPath(await files.rename(previousPath, `${title}${extension}`, notebookPath));
-      replaceExternalDocumentPath(identity.displayId, previousPath, nextPath);
-      onFilePathChange?.(nextPath);
+      if (!document || !resolvedNotebookId) throw new Error('集合尚未加载完成');
+      const result = await mutateCollectionFile({ notebookId: resolvedNotebookId, notebookPath, collectionId: document.collection.id, expectedRevision: document.collection.revision, newName: title });
+      replaceExternalDocumentPath(identity.displayId, previousPath, result.filePath);
+      acceptContent(result.content);
+      onFilePathChange?.(result.filePath);
+      if (result.errorCode) toast.error(`集合已更新，后续操作待恢复：${result.errorCode}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '重命名多维表格失败');
     } finally {
       setRenamingTableFile(false);
     }
-  }, [editable, fileIdentity, filePath, notebookPath, onFilePathChange, renamingTableFile, saving]);
+  }, [acceptContent, document, editable, fileIdentity, filePath, notebookPath, onFilePathChange, renamingTableFile, resolvedNotebookId, saving]);
   const editingViewInputRef = useRef<HTMLInputElement | null>(null);
   const editingViewMeasureRef = useRef<HTMLSpanElement | null>(null);
   const [viewAddOpen, setViewAddOpen] = useState(false);
@@ -589,7 +595,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       : null;
     const next = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       records: { ...document.records, auto_collect: nextAutoCollect },
     };
     return save(next);
@@ -666,7 +672,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const now = new Date().toISOString();
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       records: { ...document.records, data: [...document.records.data, {
         id,
         updated_at: now,
@@ -727,7 +733,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const nextVisible = visible.includes(fieldId) ? visible.filter((id) => id !== fieldId) : [...visible, fieldId];
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: {
         ...document.table,
         views: document.table.views.map((item) => item.id === view.id
@@ -758,7 +764,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     }
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: { ...document.table, views: document.table.views.map((item) => item.id === view.id ? { ...item, name: trimmedName } : item) },
     };
     await save(next, false, loadSequenceRef.current);
@@ -771,7 +777,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const views = document.table.views.filter((item) => item.id !== view.id);
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: { ...document.table, views },
     };
     if (await save(next, false, sequence) && isCurrentSession(sequence) && activeViewId === view.id) {
@@ -801,7 +807,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
         ? { ...targetRecord, updated_at: now, note_path: selectedNoteKey }
         : { id: `rec_${createUuidV7()}`, updated_at: now, note_path: selectedNoteKey };
       const records = upsertTableRecord(document.records.data, linkedRecord);
-      const next: MultidimensionalTableDocument = { ...document, revision: document.revision + 1, records: { ...document.records, data: records } };
+      const next: MultidimensionalTableDocument = { ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } };
       setNotePickerOpen(false);
       setNotePickerRecordId(null);
       setNotePickerCalendarDate(null);
@@ -820,7 +826,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const targetRecord = visibleRecords.find((record) => record.id === recordId);
     if (!targetRecord) return;
     const records = upsertTableRecord(document.records.data, { ...targetRecord, updated_at: now, note_path: noteKey });
-    void save({ ...document, revision: document.revision + 1, records: { ...document.records, data: records } });
+    void save({ ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } });
   }, [document, noteField, save, saving, visibleRecords]);
 
   const createAndLinkRecordNote = useCallback(async (recordId: string, title: string): Promise<boolean> => {
@@ -838,7 +844,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       if (!targetRecord) return false;
       const records = upsertTableRecord(document.records.data, { ...targetRecord, updated_at: now, note_path: noteKey });
       setNotes((current) => [...current.filter((item) => item.relativePath.replace(/\\/g, '/') !== noteKey), note]);
-      return await save({ ...document, revision: document.revision + 1, records: { ...document.records, data: records } }, true, sequence)
+      return await save({ ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } }, true, sequence)
         && isCurrentSession(sequence);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '新建并关联笔记失败');
@@ -871,7 +877,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       setNotePickerRecordId(null);
       setNotePickerCalendarDate(null);
       setNewNoteTitle('');
-      const saved = await save({ ...document, revision: document.revision + 1, records: { ...document.records, data: records } }, false, sequence);
+      const saved = await save({ ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } }, false, sequence);
       if (saved && isCurrentSession(sequence) && !notePickerRecordId) {
         setTablePage(Math.floor((records.length - 1) / TABLE_PAGE_SIZE));
       }
@@ -891,7 +897,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const record: TableRecord = { id: `rec_${createUuidV7()}`, updated_at: now, note_path: noteKey };
     const records = upsertTableRecord(document.records.data, record);
     setNotes((current) => [...current.filter((item) => item.relativePath.replace(/\\/g, '/') !== noteKey), datedNote]);
-    const saved = await save({ ...document, revision: document.revision + 1, records: { ...document.records, data: records } }, true, sequence);
+    const saved = await save({ ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } }, true, sequence);
     if (saved && isCurrentSession(sequence)) {
       closeCalendarAddPopover();
     }
@@ -953,7 +959,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     };
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: {
         ...document.table,
         fields: [...document.table.fields, field],
@@ -990,7 +996,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     }
     const nextDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: { ...document.table, fields: document.table.fields.map((item) => item.id === field.id ? nextField : item) },
     };
     if (!await save(nextDocument)) return false;
@@ -1112,7 +1118,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     }
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: { ...document.table, fields: document.table.fields.map((item) => item.id === field.id ? nextField : item) },
     };
     return save(next);
@@ -1147,12 +1153,12 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       nextDocument = {
         ...document,
         records: { ...document.records, auto_collect: { ...autoCollect, excluded_note_paths: [...new Set([...autoCollect.excluded_note_paths, notePath])] } },
-        revision: document.revision,
+        collection: document.collection,
       };
     }
     const next = {
       ...nextDocument,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       records: { ...nextDocument.records, data: document.records.data.filter((item) => item.id !== recordId) },
     };
     void save(next);
@@ -1175,14 +1181,14 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       const selectedPaths = await dialogs.selectFiles({ accept: 'image/*', multiple: false });
       const sourcePath = selectedPaths?.[0];
       if (!sourcePath) return;
-      if (!/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(sourcePath)) {
+      if (!/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|tif|tiff|heic|heif)$/i.test(sourcePath)) {
         toast.error(t('document.properties.imageOnly'));
         return;
       }
 
       const savedPath = await attachments.saveFromPath(sourcePath, notebookId);
       if (!savedPath) throw new Error('Attachment save returned no path');
-      const root = canonicalPath(notebookPath).replace(/\/+$/, '');
+      const root = canonicalDirectoryPath(notebookPath);
       const saved = canonicalPath(savedPath);
       const rootPrefix = `${root}/`;
       if (!saved.startsWith(rootPrefix)) throw new Error('Saved image is outside the notebook');
@@ -1238,7 +1244,10 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
   const openLinkedNote = useCallback((note: NoteEntry) => {
     if (!notebookPath) return;
     const path = joinNotebookMemoPath(notebookPath, note.relativePath);
-    if (path) void openExternalTarget(path, { scopePath: notebookPath, notebookId: resolvedNotebookId });
+    if (path) void openBrowserColumnTarget({
+      ...createFileBrowserTarget(path, notebookPath),
+      notebookId: resolvedNotebookId,
+    }, 'open-in-column');
   }, [notebookPath, notebookId, resolvedNotebookId]);
 
   const activeView = document?.table.views.find((view) => view.id === activeViewId) ?? document?.table.views[0];
@@ -1262,7 +1271,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     const updatedField = { ...groupField, options };
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: { ...document.table, fields: document.table.fields.map((field) => field.id === groupField.id ? updatedField : field) },
     };
     await save(next);
@@ -1315,7 +1324,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     if (!orderChanged && sourceGroupId === targetGroupId) return;
 
     if (sourceGroupId === targetGroupId) {
-      await save({ ...document, revision: document.revision + 1, records: { ...document.records, data: records } });
+      await save({ ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } });
       return;
     }
 
@@ -1336,7 +1345,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       setNotes((current) => current.map((item) => item.relativePath.replace(/\\/g, '/') === noteKey
         ? { ...item, properties: { ...item.properties, [propertyKey]: targetOption.label } }
         : item));
-      if (orderChanged) await save({ ...document, revision: document.revision + 1, records: { ...document.records, data: records } }, true, sequence);
+      if (orderChanged) await save({ ...document, collection: reviseCollection(document.collection), records: { ...document.records, data: records } }, true, sequence);
       else toast.success('保存完成');
     } catch (error) {
       if (isCurrentSession(sequence)) toast.error(error instanceof Error ? error.message : '移动笔记失败');
@@ -1358,7 +1367,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       || (activeView.config.week_start === 1 ? 1 : 0) === weekStart) return;
     const next: MultidimensionalTableDocument = {
       ...document,
-      revision: document.revision + 1,
+      collection: reviseCollection(document.collection),
       table: {
         ...document.table,
         views: document.table.views.map((view) => {
@@ -1387,7 +1396,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     </div>;
   }
   if (!document) return <TableLoadingSkeleton />;
-  if (expectedTableId && document.table.id !== expectedTableId) {
+  if (expectedCollectionId && document.collection.id !== expectedCollectionId) {
     return <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-6 text-center">
       <Table2 className="h-7 w-7 text-[var(--muted-foreground)]" aria-hidden="true" />
       <div className="text-sm font-medium">引用的表格身份已变化</div>
@@ -1420,7 +1429,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
   const pageCount = Math.max(1, Math.ceil(visibleRecords.length / TABLE_PAGE_SIZE));
   const currentPage = Math.min(tablePage, pageCount - 1);
   const visibleTableRecords = visibleRecords.slice(currentPage * TABLE_PAGE_SIZE, (currentPage + 1) * TABLE_PAGE_SIZE);
-  const tableDisplayName = displayTitleFromFilename(filePath) || '多维表格';
+  const tableDisplayName = document.collection.name;
   const datasetAction = <div className="shrink-0">
     <TableFieldHeader
       field={document.table.fields[0]}
@@ -1532,7 +1541,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
                   setTableNameDraft(tableDisplayName);
                 }
               }}
-              className="h-7 w-auto min-w-[4ch] max-w-[170px] border-0 bg-transparent px-0 text-sm font-medium text-[var(--foreground)] outline-none"
+              className="h-7 w-auto min-w-[4ch] max-w-[170px] flex-none [field-sizing:content] border-0 bg-transparent px-0 text-sm font-medium text-[var(--foreground)] outline-none"
             /> : <button
               type="button"
               aria-label={`重命名多维表格：${tableDisplayName}`}

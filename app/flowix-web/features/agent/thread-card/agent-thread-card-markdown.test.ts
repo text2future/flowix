@@ -146,6 +146,28 @@ describe("agent thread card Markdown math", () => {
     expect(container.querySelector("code span[style*='color']")).not.toBeNull();
   });
 
+  it("applies token colors when CSP blocks setting inline style attributes", async () => {
+    // Packaged Tauri adds a style-src nonce, which blocks setAttribute('style')
+    // even when the original policy contains 'unsafe-inline'. CSSOM remains
+    // available. jsdom does not enforce CSP, so emulate its attribute boundary.
+    const setAttribute = Element.prototype.setAttribute;
+    vi.spyOn(Element.prototype, "setAttribute").mockImplementation(function (
+      this: Element, name: string, value: string,
+    ) {
+      if (name.toLowerCase() !== "style") setAttribute.call(this, name, value);
+    });
+    const container = document.createElement("div");
+    container.innerHTML = renderAgentThreadCardMarkdownToHtml(
+      '```json\n{"type": "table", "revision": 12}\n```',
+    );
+
+    await highlightAgentThreadCardCodeBlocks(container);
+
+    const colors = Array.from(container.querySelectorAll<HTMLElement>("code span"))
+      .map((span) => span.style.color).filter(Boolean);
+    expect(new Set(colors).size).toBeGreaterThan(1);
+  });
+
   it("uses Text for fenced blocks without a language", () => {
     const container = document.createElement("div");
     fillWithAgentThreadCardMarkdownHtml(

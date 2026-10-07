@@ -53,7 +53,7 @@ function bashExecutionText(message: JsonRecord): string {
 
 /** Convert Pi's native AgentMessage union into Flowix's display message rows. */
 export function parsePiHistoryMessages(
-  threadId: string,
+  _threadId: string,
   values: unknown,
 ): ChatMessage[] {
   if (!Array.isArray(values)) return [];
@@ -66,71 +66,113 @@ export function parsePiHistoryMessages(
   }
 
   const messages: ChatMessage[] = [];
-  const append = (
-    nativeIndex: number,
-    blockIndex: number,
-    message: Omit<ChatMessage, "sourceSequence">,
-  ) => {
+  let nativeSequence: number | undefined;
+  const append = (message: Omit<ChatMessage, "sourceSequence">) => {
+    if (!message.id) return;
     messages.push({
       ...message,
-      sourceSequence: messages.length,
+      messageId: message.messageId ?? message.id,
+      renderKey: message.renderKey ?? message.id,
+      sourceSequence: nativeSequence ?? messages.length,
       sourceTimestamp: Date.parse(message.timestamp),
-      id: message.id || `pi:${threadId}:${nativeIndex}:${blockIndex}`,
     });
   };
 
-  native.forEach((message, nativeIndex) => {
+  native.forEach((message) => {
+    nativeSequence = typeof message._pi_history_sequence === "number" ? message._pi_history_sequence : undefined;
+    const messageId = typeof message._pi_session_message_id === "string"
+      ? message._pi_session_message_id
+      : "";
+    const parentMessageId = typeof message._pi_session_parent_id === "string"
+      ? message._pi_session_parent_id
+      : undefined;
     const role = message.role;
     const time = timestamp(message.timestamp);
     if (role === "system" || role === "toolResult") return;
 
     if (role === "user") {
       const content = contentText(message.content) || "[Image attachment]";
-      append(nativeIndex, 0, { id: "", role: "user", content, timestamp: time });
+      append({ id: messageId, role: "user", content, timestamp: time });
       return;
     }
 
     if (role === "assistant") {
       const blocks = Array.isArray(message.content) ? message.content : [];
+      const rows: Array<{
+        order: number;
+        type: "text" | "thinking" | "tool";
+        content?: string;
+        block?: JsonRecord;
+      }> = [];
+      let textRow: (typeof rows)[number] | undefined;
       if (typeof message.content === "string" && message.content) {
-        append(nativeIndex, 0, {
-          id: "", role: "assistant", content: message.content, timestamp: time,
-          isCompleted: message.stopReason !== "pending",
-        });
+        textRow = { order: 0, type: "text", content: message.content };
+        rows.push(textRow);
       }
-      blocks.forEach((part, blockIndex) => {
+      blocks.forEach((part, arrayIndex) => {
         const block = record(part);
         if (!block) return;
+        const blockIndex = typeof block._pi_content_index === "number" ? block._pi_content_index : arrayIndex;
         if (block.type === "text" && typeof block.text === "string" && block.text) {
-          append(nativeIndex, blockIndex, {
-            id: "", role: "assistant", content: block.text, timestamp: time,
-            isCompleted: message.stopReason !== "pending",
-          });
+          textRow = { order: blockIndex, type: "text", content: block.text };
+          rows.push(textRow);
         } else if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
-          append(nativeIndex, blockIndex, {
-            id: "", role: "reasoning", content: block.thinking, timestamp: time,
-            isCompleted: true,
-          });
+          rows.push({ order: blockIndex, type: "thinking", content: block.thinking });
         } else if (block.type === "toolCall" && typeof block.id === "string") {
-          const result = resultsByCallId.get(block.id);
-          const output = result ? toolResultText(result) : "";
-          append(nativeIndex, blockIndex, {
-            id: "", role: "tool", content: output, timestamp: time,
-            toolCallId: block.id,
-            toolName: typeof block.name === "string" ? block.name : "tool",
-            toolAgentType: "pi",
-            toolInput: record(block.arguments) ?? {},
-            toolData: output,
-            isLoading: false,
-            isCompleted: true,
-          });
+          rows.push({ order: blockIndex, type: "tool", block });
         }
       });
-      if (message.stopReason === "error" && typeof message.errorMessage === "string") {
-        append(nativeIndex, blocks.length, {
-          id: "", role: "assistant", content: message.errorMessage, timestamp: time,
-          isCompleted: true,
-        });
+      if (typeof message.errorMessage === "string" && message.errorMessage) {
+        if (textRow && rows[rows.length - 1] === textRow) textRow.content = `${textRow.content ?? ""}\n\n${message.errorMessage}`;
+        else {
+          textRow = { order: blocks.length, type: "text", content: message.errorMessage };
+          rows.push(textRow);
+        }
+      }
+      rows.sort((left, right) => left.order - right.order);
+      for (const row of rows) {
+        if (row.type === "text") {
+          append({
+            id: `${messageId}:block:${row.order}`,
+            messageId,
+            piBlockIndex: row.order,
+            parentMessageId: messageId,
+            role: "assistant",
+            content: row.content ?? "",
+            timestamp: time,
+            isCompleted: message.stopReason !== "pending",
+          });
+        } else if (row.type === "thinking") {
+          append({
+            id: `${messageId}:block:${row.order}`,
+            messageId,
+            piBlockIndex: row.order,
+            parentMessageId: messageId,
+            role: "reasoning",
+            content: row.content ?? "",
+            timestamp: time,
+            isCompleted: true,
+          });
+        } else if (row.block && typeof row.block.id === "string") {
+          const callId = row.block.id;
+          const result = resultsByCallId.get(callId);
+          const output = result ? toolResultText(result) : "";
+          append({
+            id: callId,
+            piBlockIndex: row.order,
+            role: "tool",
+            content: output,
+            timestamp: time,
+            toolCallId: callId,
+            parentMessageId: messageId,
+            toolName: typeof row.block.name === "string" ? row.block.name : "tool",
+            toolAgentType: "pi",
+            toolInput: record(row.block.arguments) ?? {},
+            toolData: output,
+            isLoading: result === undefined,
+            isCompleted: result !== undefined,
+          });
+        }
       }
       return;
     }
@@ -138,9 +180,10 @@ export function parsePiHistoryMessages(
     if (role === "bashExecution") {
       const command = typeof message.command === "string" ? message.command : "";
       const output = bashExecutionText(message);
-      append(nativeIndex, 0, {
-        id: "", role: "tool", content: output, timestamp: time,
-        toolCallId: `pi-bash:${nativeIndex}`,
+      append({
+        id: messageId, role: "tool", content: output, timestamp: time,
+        toolCallId: messageId,
+        parentMessageId,
         toolName: "bash",
         toolAgentType: "pi",
         toolInput: { command },
@@ -152,8 +195,8 @@ export function parsePiHistoryMessages(
     }
 
     if (role === "custom" && message.display === true) {
-      append(nativeIndex, 0, {
-        id: "", role: "assistant", messageType: "agent-commentary",
+      append({
+        id: messageId, role: "assistant", messageType: "agent-commentary",
         content: contentText(message.content), timestamp: time,
       });
       return;
@@ -162,8 +205,8 @@ export function parsePiHistoryMessages(
     if (role === "branchSummary" || role === "compactionSummary") {
       const summary = typeof message.summary === "string" ? message.summary : "";
       if (summary) {
-        append(nativeIndex, 0, {
-          id: "", role: "assistant", messageType: "context-compaction",
+        append({
+          id: messageId, role: "assistant", messageType: "context-compaction",
           content: summary, timestamp: time,
         });
       }
@@ -171,40 +214,4 @@ export function parsePiHistoryMessages(
   });
 
   return messages;
-}
-
-/** Pi RPC returns the whole transcript; Flowix pages it in complete turns. */
-export function pagePiHistory(
-  messages: ChatMessage[],
-  beforeSequence: number | null,
-  limit: number,
-  snapshotSequence: number | null = null,
-) {
-  const snapshot = snapshotSequence ?? messages.length;
-  const stable = messages.filter((message) =>
-    (message.sourceSequence ?? -1) < snapshot,
-  );
-  let upper = stable.length;
-  if (beforeSequence !== null) {
-    const cursorIndex = stable.findIndex(
-      (message) => message.sourceSequence === beforeSequence,
-    );
-    upper = cursorIndex >= 0 ? cursorIndex : stable.findIndex(
-      (message) => (message.sourceSequence ?? -1) >= beforeSequence,
-    );
-    if (upper < 0) upper = stable.length;
-  }
-  const starts = [0];
-  for (let index = 1; index < upper; index += 1) {
-    if (stable[index].role === "user") starts.push(index);
-  }
-  const firstTurn = Math.max(0, starts.length - Math.max(1, limit));
-  const start = starts[firstTurn] ?? 0;
-  const page = stable.slice(start, upper);
-  return {
-    messages: page,
-    oldestSequence: page[0]?.sourceSequence ?? null,
-    hasMore: start > 0,
-    snapshotSequence: snapshot,
-  };
 }

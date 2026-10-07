@@ -1,3 +1,7 @@
+import { reconcileCollectionDisplays, type CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
+import { getWorkspaceDocumentHistory, subscribeWorkspaceDocumentHistory } from '@features/document/public/workspace-api';
+import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
+import { ensureCollectionDisplayTrackingStarted } from './collection-display-tracking';
 import { reconcileFileDisplays } from '@/lib/file-display-registry';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
@@ -30,10 +34,21 @@ function startFileDisplayTracking(): () => void {
     }
     for (const path of getWorkspaceDocumentPaths()) addFile(path);
     reconcileFileDisplays(files.values());
+    const retained: CollectionDisplayDescriptor[] = [];
+    for (const target of [...workTargets, navigation.previousTarget, useWorkspaceRestoreStore.getState().desiredTarget,
+      ...getWorkspaceDocumentHistory()]) {
+      if (target?.kind === 'collection') retained.push(target);
+    }
+    for (const tab of useBrowserColumnStore.getState().tabs) {
+      if (tab.target.kind === 'file-browser' && tab.target.collectionDisplay) retained.push(tab.target.collectionDisplay);
+    }
+    reconcileCollectionDisplays(retained);
   };
 
   const unsubscribeWorkColumn = useWorkColumnStore.subscribe(synchronize);
   const unsubscribeBrowserColumn = useBrowserColumnStore.subscribe(synchronize);
+  const unsubscribeHistory = subscribeWorkspaceDocumentHistory(synchronize);
+  const unsubscribeRestore = useWorkspaceRestoreStore.subscribe(synchronize);
   const unsubscribeDocument = subscribeWorkspaceDocumentPaths(synchronize);
   synchronize();
 
@@ -41,6 +56,8 @@ function startFileDisplayTracking(): () => void {
     unsubscribeWorkColumn();
     unsubscribeBrowserColumn();
     unsubscribeDocument();
+    unsubscribeHistory();
+    unsubscribeRestore();
   };
 }
 
@@ -48,5 +65,6 @@ let stopGlobalTracking: (() => void) | null = null;
 
 /** Initialize before the first surface render; persisted browser tabs are already hydrated then. */
 export function ensureFileDisplayTrackingStarted(): void {
+  ensureCollectionDisplayTrackingStarted();
   if (!stopGlobalTracking) stopGlobalTracking = startFileDisplayTracking();
 }

@@ -1,3 +1,5 @@
+import { persist } from 'zustand/middleware';
+import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { create } from 'zustand';
 import { canonicalPath, fileLocatorKey } from '@/lib/path';
 import { canonicalUrl } from '@/lib/url';
@@ -39,7 +41,10 @@ export type MediaHistoryEntry = {
   openedAt: number;
 };
 
+export type CollectionHistoryEntry = CollectionDisplayDescriptor & { kind: 'collection'; relativePathHint?: string; openedAt: number };
+
 export type DocumentHistoryEntry =
+  | CollectionHistoryEntry
   | DocumentListHistoryEntry
   | ExternalHistoryEntry
   | AgentConversationHistoryEntry
@@ -65,7 +70,7 @@ const MAX_HISTORY_ENTRIES = 30;
 
 export function documentHistoryEntryKey(entry: DocumentHistoryEntry | null): string | null {
   if (!entry) return null;
-  if (entry.kind === 'document-list') return entry.displayId;
+  if (entry.kind === 'collection' || entry.kind === 'document-list') return entry.displayId;
   if (entry.kind === 'agent-conversation') return `agent-conversation:${entry.instanceId}`;
   if (entry.kind === 'web') {
     const url = canonicalUrl(entry.url);
@@ -86,7 +91,7 @@ function pushCapped(
   return [...stack, entry].slice(-MAX_HISTORY_ENTRIES);
 }
 
-export const useDocumentHistoryStore = create<DocumentHistoryStore>()((set, get) => ({
+export const useDocumentHistoryStore = create<DocumentHistoryStore>()(persist((set, get) => ({
   backStack: [],
   forwardStack: [],
   pushBack: (entry) => set((state) => ({
@@ -147,4 +152,7 @@ export const useDocumentHistoryStore = create<DocumentHistoryStore>()((set, get)
   }),
   clearForward: () => set({ forwardStack: [] }),
   clear: () => set({ backStack: [], forwardStack: [] }),
+}), {
+  name: 'flowix.document-history.v1',
+  partialize: (state) => ({ backStack: state.backStack, forwardStack: state.forwardStack }),
 }));

@@ -5,11 +5,12 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorView, NodeView as ProseMirrorNodeView } from '@tiptap/pm/view';
 import { X } from 'lucide-react';
 import { ArrowUpRightIcon, ArrowsLeftRightIcon } from '@phosphor-icons/react';
-import { openExternalTarget } from '@features/workspace/use-cases/workspace-navigation';
+import { openCollectionTarget } from '@features/workspace/use-cases/workspace-navigation';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useAppLanguage } from '@features/preferences/public/runtime-api';
 import { I18nProvider } from '@/lib/i18n/provider';
-import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
+import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
+import { useCollectionReference } from '@features/collection/use-collection-reference';
 import { toast } from '@/lib/toast';
 import { Button } from '@shared/ui/button';
 import { TableDocumentView } from './table-document-view';
@@ -22,7 +23,7 @@ const EDITOR_EDITABILITY_CHANGE_EVENT = 'flowix:editor-editability-change';
 export interface TableReferenceAttrs {
   notebookId: string | null;
   relativePath: string | null;
-  tableId: string | null;
+  collectionId: string | null;
   viewId: string | null;
 }
 
@@ -35,7 +36,7 @@ function normalizeAttrs(value: unknown): TableReferenceAttrs {
   return {
     notebookId: normalizeText(attrs.notebookId),
     relativePath: normalizeText(attrs.relativePath)?.replace(/\\/g, '/').replace(/^\/+/, '') ?? null,
-    tableId: normalizeText(attrs.tableId),
+    collectionId: normalizeText(attrs.collectionId),
     viewId: normalizeText(attrs.viewId),
   };
 }
@@ -150,48 +151,46 @@ function TableReferenceSurface({ attrs, editable, onViewChange, onRelativePathCh
 }) {
   const language = useAppLanguage();
   const notebook = useNoteStore((state) => state.notebooks.find((item) => item.id === attrs.notebookId));
-  const filePath = notebook && attrs.relativePath
-    ? joinNotebookMemoPath(notebook.path, attrs.relativePath)
-    : null;
-  const displayName = attrs.relativePath?.split('/').pop()?.replace(/\.table\.ya?ml$/i, '') ?? '多维表格';
+  const reference = useCollectionReference(notebook, attrs.collectionId, 'table', attrs.viewId);
+  const fileIdentity = reference.fileIdentity;
+  const filePath = fileIdentity?.path ?? null;
+  const displayName = reference.item?.name ?? '多维表格';
 
   const handleFilePathChange = useCallback((nextFilePath: string) => {
-    if (!attrs.relativePath) return;
-    const rootPath = notebook ? canonicalPath(notebook.path).replace(/\/+$/, '') : '';
+    const rootPath = notebook ? canonicalDirectoryPath(notebook.path) : '';
     const normalizedNextPath = canonicalPath(nextFilePath);
     if (rootPath && normalizedNextPath.startsWith(`${rootPath}/`)) {
       onRelativePathChange(normalizedNextPath.slice(rootPath.length + 1));
       return;
     }
-    const nextFilename = normalizedNextPath.split('/').pop();
-    if (!nextFilename) return;
-    const segments = attrs.relativePath.replace(/\\/g, '/').split('/');
-    segments[segments.length - 1] = nextFilename;
-    onRelativePathChange(segments.join('/'));
-  }, [attrs.relativePath, notebook, onRelativePathChange]);
+  }, [notebook, onRelativePathChange]);
 
-  const openOriginal = useCallback(() => {
-    if (!filePath || !notebook) return;
-    void openExternalTarget(filePath, { scopePath: notebook.path, notebookId: notebook.id }).catch((error) => {
+  const openOriginal = useCallback(async () => {
+    if (!notebook || !attrs.collectionId) return;
+    try {
+      await openCollectionTarget({ notebookId: notebook.id, collectionId: attrs.collectionId, viewId: attrs.viewId });
+    } catch (error) {
       toast.error(error instanceof Error ? error.message : '无法打开多维表格');
-    });
-  }, [filePath, notebook]);
+    }
+  }, [attrs.collectionId, attrs.viewId, notebook]);
 
   return <I18nProvider language={language}>
     <section className="table-reference-node__surface" contentEditable={false} aria-label={`多维表格：${displayName}`}>
-      {!attrs.notebookId || !attrs.relativePath || !attrs.tableId
+      {!attrs.notebookId || !attrs.collectionId
         ? <div className="table-reference-node__message">此多维表格引用信息不完整。</div>
         : !notebook
           ? <div className="table-reference-node__message">找不到引用所在的笔记本。</div>
           : !filePath
-            ? <div className="table-reference-node__message">无法解析多维表格路径。</div>
+            ? <div className="table-reference-node__message">{reference.error ?? '正在定位多维表格…'}</div>
             : <div className="table-reference-node__content">
               <TableDocumentView
+                key={attrs.collectionId}
                 filePath={filePath}
+                fileIdentity={fileIdentity}
                 notebookPath={notebook.path}
                 notebookId={notebook.id}
                 embeddedInEditor
-                expectedTableId={attrs.tableId}
+                expectedCollectionId={attrs.collectionId}
                 initialViewId={attrs.viewId}
                 editable={editable}
                 onRemoveReference={onRemove}
@@ -240,10 +239,10 @@ export const TableReference = TiptapNode.create({
         parseHTML: (element) => element.getAttribute('data-relative-path'),
         renderHTML: (attrs) => ({ 'data-relative-path': attrs.relativePath ?? '' }),
       },
-      tableId: {
+      collectionId: {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-table-id'),
-        renderHTML: (attrs) => ({ 'data-table-id': attrs.tableId ?? '' }),
+        parseHTML: (element) => element.getAttribute('data-collection-id'),
+        renderHTML: (attrs) => ({ 'data-collection-id': attrs.collectionId ?? '' }),
       },
       viewId: {
         default: null,
@@ -263,7 +262,7 @@ export const TableReference = TiptapNode.create({
       'data-flowix-table-reference': 'true',
       'data-notebook-id': attrs.notebookId ?? '',
       'data-relative-path': attrs.relativePath ?? '',
-      'data-table-id': attrs.tableId ?? '',
+      'data-collection-id': attrs.collectionId ?? '',
       'data-view-id': attrs.viewId ?? '',
       contenteditable: 'false',
       class: 'table-reference-node',

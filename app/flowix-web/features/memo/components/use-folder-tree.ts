@@ -1,5 +1,6 @@
 'use client';
 
+import { subscribe } from '@platform/tauri/event-bus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { files, type DocTreeItem } from '@platform/tauri/client';
@@ -128,7 +129,62 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   const rootRefreshSequenceRef = useRef(0);
   const rootChildrenRef = useRef(rootChildren);
   rootChildrenRef.current = rootChildren;
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
 
+  const mutationPathsRef = useRef(new Set<string>());
+  const ignoreCollectionPathEvents = useCallback((paths: readonly string[] | undefined) => {
+    if (!paths?.length) return false;
+    const known = mutationPathsRef.current;
+    if (!paths.every((path) => known.has(canonicalPath(path)) || /__collection_rename_/.test(path))) return false;
+    return true;
+  }, []);
+  useEffect(() => {
+    const root = canonicalPath(folderPath).replace(/\/$/, '');
+    const applied = new Map<string, number>();
+    mutationPathsRef.current.clear();
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const stop = subscribe<{ notebookPath: string; collectionId: string; previousRelativePath: string; relativePath: string; indexSequence: number }>('collection-changed', (event) => {
+      if (!event.notebookPath || !event.previousRelativePath || !event.relativePath) return;
+      if (event.indexSequence < (applied.get(event.collectionId) ?? -1)) return;
+      applied.set(event.collectionId, event.indexSequence);
+      const previous = canonicalPath(`${event.notebookPath}/${event.previousRelativePath}`);
+      const nextPath = canonicalPath(`${event.notebookPath}/${event.relativePath}`);
+      if (!previous.startsWith(`${root}/`) || !nextPath.startsWith(`${root}/`)) return;
+      const known = mutationPathsRef.current;
+      known.add(previous); known.add(nextPath);
+      // Bound suppression to the immediately following filesystem notifications.
+      const timer = setTimeout(() => { known.delete(previous); known.delete(nextPath); timers.delete(timer); }, 2000);
+      timers.add(timer);
+      if (previous === nextPath) return;
+      const oldParent = previous.slice(0, previous.lastIndexOf('/'));
+      const newParent = nextPath.slice(0, nextPath.lastIndexOf('/'));
+      const source = nodesRef.current.get(previous);
+      const name = nextPath.split('/').pop()!;
+      const rename = (item: DocTreeItem): DocTreeItem => canonicalPath(item.fullPath) === previous ? { ...item, fullPath: nextPath, name, parentId: nodesRef.current.get(newParent)?.id ?? null } : item;
+      setNodes((current) => {
+        const cached = current.get(previous);
+        if (!cached) return current;
+        const result = new Map(current);
+        result.delete(previous);
+        result.set(nextPath, rename(cached));
+        for (const [path, item] of current) {
+          if (!item.children) continue;
+          if (oldParent === newParent && path === oldParent) result.set(path, { ...item, children: item.children.map(rename) });
+          else if (path === oldParent) result.set(path, { ...item, children: item.children.filter((child) => canonicalPath(child.fullPath) !== previous) });
+          else if (path === newParent) result.set(path, { ...item, children: [...item.children.filter((child) => canonicalPath(child.fullPath) !== nextPath), rename(cached)] });
+        }
+        return result;
+      });
+      setRootChildren((items) => {
+        if (oldParent === root && newParent === root) return items.some((item) => canonicalPath(item.fullPath) === previous) ? items.map(rename) : items;
+        if (oldParent === root) return items.filter((item) => canonicalPath(item.fullPath) !== previous);
+        if (newParent === root && source) return [...items.filter((item) => canonicalPath(item.fullPath) !== nextPath), rename(source)];
+        return items;
+      });
+    });
+    return () => { stop(); for (const timer of timers) clearTimeout(timer); };
+  }, [folderPath]);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -429,7 +485,8 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     refreshDirectories,
     reload: loadRoot,
     retryDirectory,
-  }), [state, toggle, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory]);
+    ignoreCollectionPathEvents,
+  }), [ignoreCollectionPathEvents, state, toggle, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory]);
 }
 
 export type FolderTreeController = ReturnType<typeof useFolderTree>;

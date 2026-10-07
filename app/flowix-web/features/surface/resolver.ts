@@ -60,8 +60,10 @@ function resolveExternalDocumentSurface(
       return { kind: 'video-file', instanceKey, fileIdentity, scopePath, props: document.documentProps };
     case 'code':
       return { kind: 'code', instanceKey, fileIdentity, props: document.documentProps };
+    case 'docx':
+      return { kind: 'unavailable-file', instanceKey, fileIdentity, scopePath, props: document.documentProps };
     case 'unavailable':
-      return { kind: 'unavailable-file', instanceKey, fileIdentity, props: document.documentProps };
+      return { kind: 'unavailable-file', instanceKey, fileIdentity, scopePath, props: document.documentProps };
   }
 }
 
@@ -142,6 +144,16 @@ function resolveWorkColumnTarget(
     }
     case 'media':
       return resolveMediaTargetContent(target);
+    case 'collection': {
+      if (target.unavailableReason) return emptyContent(target.unavailableReason, 'invalid-target');
+      const fileIdentity = { path: target.filePath, displayId: target.displayId };
+      if (target.collectionType === 'media_library') {
+        return surfaceContent({ kind: 'media-library-file', instanceKey: target.displayId, fileIdentity, notebookId: target.notebookId, notebookPath: target.notebookPath });
+      }
+      return surfaceContent({ kind: 'table-file', instanceKey: target.displayId, fileIdentity,
+        props: { filePath: target.filePath, fileIdentity, notebookId: target.notebookId, notebookPath: target.notebookPath,
+          expectedCollectionId: target.collectionId, initialViewId: target.viewId ?? undefined } });
+    }
     case 'table': {
       const filePath = target.filePath.trim();
       if (!filePath) return emptyContent('多维表格路径无效', 'invalid-target');

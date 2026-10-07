@@ -355,6 +355,8 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           }
           const runId = options?.runId ?? createRunId(threadId);
           userMessage.id = completedRunUserMessageId(type.key, runId);
+          userMessage.renderKey = userMessage.id;
+          if (type.key === "pi") userMessage.messageId = null;
           const startedAt = Date.now();
           state.dispatch({
             kind: "stream_start",

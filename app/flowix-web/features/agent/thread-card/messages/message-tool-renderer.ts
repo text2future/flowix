@@ -1,3 +1,4 @@
+import { messageRenderKey } from "@features/agent/message/render-identity";
 import { translate, type AppLanguage } from "@/lib/i18n";
 import {
   agentMessageValueToText,
@@ -169,7 +170,7 @@ function createExpandableToolContent(options: {
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
     const nextExpanded = !isExpanded;
-    setDisplayExpanded(message.id, nextExpanded);
+    setDisplayExpanded(messageRenderKey(message), nextExpanded);
     applyExpandedState(nextExpanded);
   });
   toggle.addEventListener("mousedown", (event) => event.stopPropagation());

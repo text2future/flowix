@@ -32,6 +32,7 @@ import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/code
 import { MathBlock } from '@features/editor/extensions/math-block';
 import { WebCard } from '@features/editor/extensions/web-card';
 import { TableReference } from '@features/multidimensional-table/table-reference-node';
+import { MediaLibraryReference } from '@features/media-library/media-library-reference-node';
 import { SearchAndReplace } from '@features/editor/extensions/search-replace';
 import { SearchReplacePanel } from '@features/editor/components/search-replace-panel';
 import Frontmatter, { selectEditableDocumentContent } from '@features/editor/extensions/frontmatter';
@@ -988,6 +989,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         MathBlock,
         WebCard,
         TableReference,
+        MediaLibraryReference,
         FlowixHighlight.configure({ multicolor: true }),
         TablePlugin,
         TaskList,

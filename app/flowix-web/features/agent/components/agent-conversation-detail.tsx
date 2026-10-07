@@ -40,9 +40,8 @@ import { CodexApprovalQueue } from '@features/agent/components/codex-approval-qu
 import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
 import { defaultThreadTitle } from '@features/agent/store/thread-titles';
 import { selectAndOpenAgentConversation } from '@features/workspace/use-cases/agent-conversation-navigation';
-import { openPath, openUrl } from '@platform/tauri/opener';
+import { openUrl } from '@platform/tauri/opener';
 import { dialogs } from '@platform/tauri/client/desktop';
-import { isEditableTextFilePath } from '@features/editor/code-file';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { openNoteByDeepLink } from '@features/memo/use-cases/open-by-target';
 import {
@@ -584,12 +583,8 @@ function AgentConversationDetailContent({
           return;
         }
 
-        if (isEditableTextFilePath(localPath)) {
-          const parentPath = localPath.replace(/[\\/][^\\/]*$/, '') || localPath;
-          await openBrowserColumnText(localPath, parentPath);
-          return;
-        }
-        await openPath(localPath);
+        const parentPath = localPath.replace(/[\\/][^\\/]*$/, '') || localPath;
+        await openBrowserColumnText(localPath, parentPath);
       })().catch((error) => {
         logger.error('Failed to open conversation link', { error });
         toast.error(error instanceof Error ? error.message : String(error));

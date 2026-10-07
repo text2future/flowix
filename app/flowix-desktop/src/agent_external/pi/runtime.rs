@@ -1,23 +1,22 @@
-use std::collections::HashMap;
-use std::io::BufRead;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use base64::Engine;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tauri::Manager;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
 
 use super::super::lifecycle::ExternalLifecycleEmitter;
 use super::super::{
-    persist_and_emit_external_chunk, read_capped_line, resolve_and_freeze_runtime_cwd,
-    resolve_run_id, AgentChunkMetadata, MAX_STDOUT_LINE_BYTES, USER_STOPPED_REASON,
+    persist_and_emit_external_chunk, resolve_and_freeze_runtime_cwd, resolve_run_id,
+    AgentChunkMetadata, USER_STOPPED_REASON,
 };
 use super::AGENT_TYPE;
 use crate::agent_session::ThreadManager;
@@ -60,11 +59,154 @@ struct PiSessionConfig {
     thinking: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiHistoryRevision {
+    session_id: String,
+    append_cursor: Option<String>,
+    leaf_id: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct PiSessionSnapshot {
+    messages: Vec<Value>,
+    revision: PiHistoryRevision,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiHistoryPage {
+    messages: Vec<Value>,
+    revision: PiHistoryRevision,
+    before_entry_id: Option<String>,
+    oldest_sequence: Option<usize>,
+    snapshot_sequence: usize,
+    has_more: bool,
+}
+
+fn page_pi_snapshot(
+    snapshot: &PiSessionSnapshot,
+    before: Option<&str>,
+    limit: usize,
+) -> Result<PiHistoryPage, String> {
+    let messages = &snapshot.messages;
+    let upper = match before {
+        Some(id) => messages
+            .iter()
+            .position(|message| {
+                message
+                    .get("_pi_session_message_id")
+                    .and_then(Value::as_str)
+                    == Some(id)
+            })
+            .ok_or("Pi history cursor is not in the pinned snapshot")?,
+        None => messages.len(),
+    };
+    if upper > 0
+        && upper < messages.len()
+        && messages[upper].get("role").and_then(Value::as_str) != Some("user")
+    {
+        return Err("Pi history cursor must point to a complete turn boundary".into());
+    }
+    let mut turns = vec![0];
+    for index in 1..upper {
+        if messages[index].get("role").and_then(Value::as_str) == Some("user") {
+            turns.push(index);
+        }
+    }
+    let start = turns[turns.len().saturating_sub(limit.clamp(1, 100))];
+    let page = messages[start..upper].to_vec();
+    let before_entry_id = page
+        .first()
+        .and_then(|message| message.get("_pi_session_message_id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Ok(PiHistoryPage {
+        oldest_sequence: (!page.is_empty()).then_some(start),
+        messages: page,
+        before_entry_id,
+        revision: snapshot.revision.clone(),
+        snapshot_sequence: messages.len(),
+        has_more: start > 0,
+    })
+}
+
+// Pi frames contain whole session snapshots. This reader deliberately has no
+// line-size truncation and never applies display limits to the RPC transport.
+async fn read_pi_rpc_record<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<Value>, String> {
+    loop {
+        let mut bytes = Vec::new();
+        if reader
+            .read_until(b'\n', &mut bytes)
+            .await
+            .map_err(|error| error.to_string())?
+            == 0
+        {
+            return Ok(None);
+        }
+        if bytes.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        return serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| format!("invalid Pi RPC record: {error}"));
+    }
+}
+
+#[derive(Default)]
+struct PiEntriesCache {
+    entries: Arc<Vec<Value>>,
+    by_id: HashMap<String, usize>,
+}
+
+impl PiEntriesCache {
+    fn update(&mut self, entries: &[Value], replace: bool) {
+        if replace {
+            *self = Self::default();
+        }
+        let cached = Arc::make_mut(&mut self.entries);
+        for entry in entries {
+            if let Some(id) = entry.get("id").and_then(Value::as_str) {
+                self.by_id.insert(id.to_owned(), cached.len());
+            }
+            cached.push(entry.clone());
+        }
+    }
+
+    fn message_id(&self, leaf: Option<&str>, message: &Value) -> Result<String, String> {
+        let mut current = leaf;
+        let mut visited = std::collections::HashSet::new();
+        while let Some(id) = current {
+            if !visited.insert(id) {
+                return Err("Pi session branch contains a cycle".into());
+            }
+            let entry = self
+                .by_id
+                .get(id)
+                .and_then(|index| self.entries.get(*index))
+                .ok_or("Pi active session branch references a missing entry")?;
+            if entry.get("type").and_then(Value::as_str) == Some("message")
+                && entry
+                    .get("message")
+                    .is_some_and(|saved| pi_message_matches(saved, message))
+            {
+                return Ok(id.to_owned());
+            }
+            current = entry.get("parentId").and_then(Value::as_str);
+        }
+        Err("Pi completed a message without a matching native entry on the active RPC session branch".into())
+    }
+}
+
 struct PiSession {
     session_id: Mutex<String>,
     config: PiSessionConfig,
     stdin: Arc<Mutex<ChildStdin>>,
     records: Mutex<mpsc::UnboundedReceiver<Result<Value, String>>>,
+    deferred_records: Mutex<VecDeque<Value>>,
+    entries_cache: Mutex<PiEntriesCache>,
     child: Mutex<tokio::process::Child>,
     stdout_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stderr: Arc<Mutex<String>>,
@@ -95,12 +237,71 @@ impl PiSession {
     }
 
     async fn next_record(&self) -> Result<Value, String> {
+        if let Some(record) = self.deferred_records.lock().await.pop_front() {
+            return Ok(record);
+        }
         self.records
             .lock()
             .await
             .recv()
             .await
             .ok_or_else(|| "Pi RPC event reader closed".to_string())?
+    }
+
+    /// Called only by the owner of `operation`. Read responses from the same
+    /// receiver and preserve interleaved agent events for the main event loop.
+    async fn session_entries(&self) -> Result<(Arc<Vec<Value>>, Option<String>), String> {
+        static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let mut cache = self.entries_cache.lock().await;
+        // The cursor follows append order, not the active leaf: branch switches
+        // can move the leaf backwards without changing the append-only log.
+        let mut since = cache
+            .entries
+            .last()
+            .and_then(|entry| entry.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        loop {
+            let request_id = format!(
+                "flowix-entries-{}",
+                REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            );
+            let mut request = serde_json::json!({"id": request_id, "type": "get_entries"});
+            if let Some(cursor) = &since {
+                request["since"] = Value::String(cursor.clone());
+            }
+            self.write(&request).await?;
+            let mut records = self.records.lock().await;
+            let mut deferred = self.deferred_records.lock().await;
+            let response = tokio::time::timeout(
+                PI_RPC_REQUEST_TIMEOUT,
+                receive_rpc_response(&mut records, &mut deferred, &request_id),
+            )
+            .await
+            .map_err(|_| "Pi session entries RPC timed out".to_string())??;
+            if response.get("success").and_then(Value::as_bool) != Some(true) {
+                if since.take().is_some() {
+                    // A stale cursor or an older runtime can be recovered with
+                    // one authoritative full RPC snapshot.
+                    continue;
+                }
+                return Err(response
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Pi could not read session entries")
+                    .to_string());
+            }
+            let entries = response
+                .pointer("/data/entries")
+                .and_then(Value::as_array)
+                .ok_or("Pi session entries RPC did not include entries")?;
+            cache.update(entries, since.is_none());
+            let leaf_id = response
+                .pointer("/data/leafId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            return Ok((Arc::clone(&cache.entries), leaf_id));
+        }
     }
 
     async fn is_alive(&self) -> bool {
@@ -157,6 +358,7 @@ pub struct PiRpcManager {
     session_start_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     active_runs: Mutex<HashMap<String, Arc<ActivePiRun>>>,
     shutting_down: AtomicBool,
+    history_snapshots: Mutex<VecDeque<(String, Arc<PiSessionSnapshot>)>>,
 }
 
 #[async_trait::async_trait]
@@ -203,10 +405,15 @@ impl PiRpcManager {
             session_start_locks: Mutex::new(HashMap::new()),
             active_runs: Mutex::new(HashMap::new()),
             shutting_down: AtomicBool::new(false),
+            history_snapshots: Mutex::new(VecDeque::new()),
         }
     }
 
     pub async fn delete_session(&self, thread_id: &str) -> Result<bool, String> {
+        self.history_snapshots
+            .lock()
+            .await
+            .retain(|(id, _)| id != thread_id);
         let session = self.sessions.lock().await.remove(thread_id);
         if let Some(session) = session {
             session.shutdown(thread_id).await;
@@ -323,16 +530,13 @@ impl PiRpcManager {
         let stdout_task = tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
             loop {
-                let record = match read_capped_line(&mut reader, MAX_STDOUT_LINE_BYTES).await {
-                    Ok(Some((line, false))) if line.is_empty() => continue,
-                    Ok(Some((line, false))) => serde_json::from_str(&line)
-                        .map_err(|error| format!("invalid Pi RPC record: {error}")),
-                    Ok(Some((_, true))) => Err("Pi RPC record exceeded the size limit".into()),
+                let record = match read_pi_rpc_record(&mut reader).await {
+                    Ok(Some(record)) => Ok(record),
                     Ok(None) => {
                         let _ = record_tx.send(Err("Pi RPC process exited".into()));
                         break;
                     }
-                    Err(error) => Err(format!("Pi RPC read failed: {error}")),
+                    Err(error) => Err(error),
                 };
                 let fatal = record.is_err();
                 if record_tx.send(record).is_err() || fatal {
@@ -354,6 +558,8 @@ impl PiRpcManager {
             config: config.clone(),
             stdin,
             records: Mutex::new(record_rx),
+            deferred_records: Mutex::new(VecDeque::new()),
+            entries_cache: Mutex::new(PiEntriesCache::default()),
             child: Mutex::new(child),
             stdout_task: Mutex::new(Some(stdout_task)),
             stderr,
@@ -543,34 +749,95 @@ impl PiRpcManager {
         Ok(operation)
     }
 
-    /// Read the current Pi session through its RPC protocol. This keeps Pi's
-    /// native session file as the source of truth for historical messages.
+    /// Read history and native identities through Pi RPC. Flowix never opens
+    /// or parses Pi's session JSONL files.
+    pub async fn get_session_page(
+        &self,
+        app: &tauri::AppHandle,
+        thread_id: &str,
+        before: Option<&str>,
+        limit: usize,
+        revision: Option<PiHistoryRevision>,
+    ) -> Result<PiHistoryPage, String> {
+        if before.is_some() && revision.is_none() {
+            return Err("Pi history pagination requires a native snapshot revision".into());
+        }
+        let mut cached = None;
+        if let Some(expected) = &revision {
+            let mut snapshots = self.history_snapshots.lock().await;
+            if let Some(index) = snapshots
+                .iter()
+                .position(|(id, snapshot)| id == thread_id && &snapshot.revision == expected)
+            {
+                let entry = snapshots.remove(index).unwrap();
+                cached = Some(Arc::clone(&entry.1));
+                snapshots.push_back(entry);
+            }
+        }
+        let snapshot = match cached {
+            Some(snapshot) => snapshot,
+            None => {
+                let snapshot = Arc::new(self.get_session_snapshot(app, thread_id).await?);
+                if revision
+                    .as_ref()
+                    .is_some_and(|expected| expected != &snapshot.revision)
+                {
+                    return Err(
+                        "Pi history branch changed; refresh history before loading older pages"
+                            .into(),
+                    );
+                }
+                let mut snapshots = self.history_snapshots.lock().await;
+                snapshots.retain(|(id, previous)| {
+                    id != thread_id || previous.revision != snapshot.revision
+                });
+                snapshots.push_back((thread_id.to_owned(), Arc::clone(&snapshot)));
+                while snapshots.len() > 16 {
+                    snapshots.pop_front();
+                }
+                snapshot
+            }
+        };
+        page_pi_snapshot(&snapshot, before, limit)
+    }
+
     pub async fn get_session_messages(
         &self,
         app: &tauri::AppHandle,
         thread_id: &str,
     ) -> Result<Vec<Value>, String> {
-        let session_dir = resolve_pi_session_dir(thread_id, false)?;
-        let expected_id = self
+        Ok(self.get_session_snapshot(app, thread_id).await?.messages)
+    }
+
+    pub async fn get_session_snapshot(
+        &self,
+        app: &tauri::AppHandle,
+        thread_id: &str,
+    ) -> Result<PiSessionSnapshot, String> {
+        let mapped_session = self
             .thread_manager
             .get_external_session(thread_id, AGENT_TYPE)
             .await
             .map_err(|error| error.to_string())?;
-        let has_session = std::fs::read_dir(&session_dir).ok().is_some_and(|entries| {
-            entries.filter_map(Result::ok).any(|entry| {
-                entry.path().extension().and_then(|value| value.to_str()) == Some("jsonl")
-            })
-        });
+        let has_session =
+            mapped_session.is_some() || self.sessions.lock().await.contains_key(thread_id);
         if !has_session {
-            return Ok(Vec::new());
+            return Ok(PiSessionSnapshot {
+                messages: Vec::new(),
+                revision: PiHistoryRevision {
+                    session_id: String::new(),
+                    append_cursor: None,
+                    leaf_id: None,
+                },
+            });
         }
-        let session_id = expected_id.unwrap_or_default();
-        let cwd = if session_id.is_empty() {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        } else {
-            pi_session_cwd(&session_dir, &session_id)
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        };
+        let cwd = self
+            .thread_manager
+            .read_frozen_cwd(thread_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .filter(|cwd| cwd.is_dir())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let config = PiSessionConfig {
             cwd: cwd.clone(),
             tools: "read".into(),
@@ -634,6 +901,29 @@ impl PiRpcManager {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
+        let (entries, leaf_id) = match session.session_entries().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                drop(_operation);
+                self.shutdown_and_remove_session_if_same(thread_id, &session)
+                    .await;
+                return Err(error);
+            }
+        };
+        attach_pi_session_message_ids(&mut messages, &entries, leaf_id.as_deref())?;
+        // Keep original Pi block positions even when thinking is hidden.
+        for (sequence, message) in messages.iter_mut().enumerate() {
+            if let Some(object) = message.as_object_mut() {
+                object.insert("_pi_history_sequence".into(), serde_json::json!(sequence));
+            }
+            if let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) {
+                for (index, block) in blocks.iter_mut().enumerate() {
+                    if let Some(object) = block.as_object_mut() {
+                        object.insert("_pi_content_index".into(), serde_json::json!(index));
+                    }
+                }
+            }
+        }
         if !pi_forward_thinking_enabled() {
             for message in &mut messages {
                 if message.get("role").and_then(Value::as_str) != Some("assistant") {
@@ -646,7 +936,19 @@ impl PiRpcManager {
                 }
             }
         }
-        Ok(messages)
+        let native_session_id = session.session_id.lock().await.clone();
+        Ok(PiSessionSnapshot {
+            messages,
+            revision: PiHistoryRevision {
+                session_id: native_session_id,
+                append_cursor: entries
+                    .last()
+                    .and_then(|entry| entry.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                leaf_id,
+            },
+        })
     }
 
     pub async fn supported_models(&self, app: &tauri::AppHandle) -> Result<Vec<String>, String> {
@@ -677,17 +979,10 @@ impl PiRpcManager {
         let mut models = Vec::new();
         let response = tokio::time::timeout(PI_RPC_REQUEST_TIMEOUT, async {
             loop {
-                let line = read_capped_line(&mut reader, MAX_STDOUT_LINE_BYTES)
+                let value = read_pi_rpc_record(&mut reader)
                     .await
-                    .map_err(|error| format!("Pi model catalog read failed: {error}"))?;
-                let Some((line, truncated)) = line else {
-                    return Err("Pi closed before returning its model catalog".to_string());
-                };
-                if truncated {
-                    return Err("Pi model catalog record exceeded the size limit".to_string());
-                }
-                let value: Value =
-                    serde_json::from_str(&line).map_err(|error| error.to_string())?;
+                    .map_err(|error| format!("Pi model catalog read failed: {error}"))?
+                    .ok_or("Pi closed before returning its model catalog")?;
                 if value.get("id").and_then(Value::as_str) != Some("flowix-models") {
                     continue;
                 }
@@ -756,9 +1051,6 @@ impl PiRpcManager {
         let manager = self.clone();
         let app = app_handle.clone();
         tokio::spawn(async move {
-            manager
-                .emit_user_message(&app, &thread_id, &message, &run_id)
-                .await;
             manager
                 .emit_stream_start(&app, &thread_id, &message, &run_id)
                 .await;
@@ -855,7 +1147,7 @@ impl PiRpcManager {
         let session = self.ensure_session(app, thread_id, config, false).await?;
         *active.session.lock().await = Some(session.clone());
         let session_id = session.session_id.lock().await.clone();
-        *active.session_id.lock().await = Some(session_id);
+        *active.session_id.lock().await = Some(session_id.clone());
         active
             .last_event_at
             .store(chrono::Utc::now().timestamp_millis(), Ordering::Relaxed);
@@ -1032,14 +1324,17 @@ impl PiRpcManager {
                     latest_usage = Some(usage);
                 }
             } else if value.get("type").and_then(Value::as_str) == Some("tool_execution_start") {
+                let Some(tool_call_id) = value
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                else {
+                    continue;
+                };
                 sequence += 1;
                 let chunk = AgentChunk::ToolCall {
                     thread_id: thread_id.to_string(),
-                    id: value
-                        .get("toolCallId")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
+                    id: tool_call_id.to_string(),
                     name: value
                         .get("toolName")
                         .and_then(Value::as_str)
@@ -1050,14 +1345,17 @@ impl PiRpcManager {
                 self.emit_event(app, &chunk, run_id, sequence, None, None, None)
                     .await;
             } else if value.get("type").and_then(Value::as_str) == Some("tool_execution_end") {
+                let Some(tool_call_id) = value
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                else {
+                    continue;
+                };
                 sequence += 1;
                 let chunk = AgentChunk::ToolResult {
                     thread_id: thread_id.to_string(),
-                    id: value
-                        .get("toolCallId")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
+                    id: tool_call_id.to_string(),
                     name: value
                         .get("toolName")
                         .and_then(Value::as_str)
@@ -1069,10 +1367,47 @@ impl PiRpcManager {
                     .await;
             }
             if value.get("type").and_then(Value::as_str) == Some("message_end") {
-                if let Some(message) = value.get("message") {
+                if let Some(completed_message) = value.get("message") {
+                    if !matches!(
+                        completed_message.get("role").and_then(Value::as_str),
+                        Some("user" | "assistant")
+                    ) {
+                        continue;
+                    }
                     sequence += 1;
-                    self.project_completed_message(app, thread_id, run_id, sequence, message)
-                        .await;
+                    let (_entries, leaf_id) = match session.session_entries().await {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => {
+                            drop(operation.take());
+                            self.shutdown_and_remove_session_if_same(thread_id, &session)
+                                .await;
+                            return Err(error);
+                        }
+                    };
+                    let message_id = match session
+                        .entries_cache
+                        .lock()
+                        .await
+                        .message_id(leaf_id.as_deref(), completed_message)
+                    {
+                        Ok(id) => id,
+                        Err(error) => {
+                            drop(operation.take());
+                            self.shutdown_and_remove_session_if_same(thread_id, &session)
+                                .await;
+                            return Err(error);
+                        }
+                    };
+                    self.project_completed_message(
+                        app,
+                        thread_id,
+                        &message_id,
+                        run_id,
+                        sequence,
+                        completed_message,
+                        &message,
+                    )
+                    .await?;
                 }
             }
         }
@@ -1123,17 +1458,12 @@ impl PiRpcManager {
             .and_then(Value::as_str)
             .or_else(|| event.get("content").and_then(Value::as_str))
             .unwrap_or_default();
-        let block_id = event
-            .get("contentIndex")
-            .and_then(Value::as_u64)
-            .unwrap_or_default();
-        let (chunk, role, phase, mode) = match kind {
+        let (chunk, phase, mode) = match kind {
             "text_delta" if !delta.is_empty() => (
                 Some(AgentChunk::Text {
                     thread_id: thread_id.to_string(),
                     text: delta.to_string(),
                 }),
-                "assistant",
                 None,
                 Some("delta"),
             ),
@@ -1142,8 +1472,7 @@ impl PiRpcManager {
                     thread_id: thread_id.to_string(),
                     text: delta.to_string(),
                 }),
-                "assistant",
-                Some("completed"),
+                Some("updated"),
                 Some("snapshot"),
             ),
             "thinking_delta" if !delta.is_empty() => (
@@ -1151,7 +1480,6 @@ impl PiRpcManager {
                     thread_id: thread_id.to_string(),
                     text: delta.to_string(),
                 }),
-                "reasoning",
                 None,
                 Some("delta"),
             ),
@@ -1160,51 +1488,31 @@ impl PiRpcManager {
                     thread_id: thread_id.to_string(),
                     text: delta.to_string(),
                 }),
-                "reasoning",
-                Some("completed"),
+                Some("updated"),
                 Some("snapshot"),
             ),
-            "toolcall_end" => (
-                Some(AgentChunk::ToolCall {
-                    thread_id: thread_id.to_string(),
-                    id: event
-                        .get("toolCall")
-                        .and_then(|call| call.get("id"))
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    name: event
-                        .get("toolCall")
-                        .and_then(|call| call.get("name"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("tool")
-                        .to_string(),
-                    input: event
-                        .get("toolCall")
-                        .and_then(|call| call.get("arguments"))
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                }),
-                "tool",
-                None,
-                None,
-            ),
-            _ => (None, "", None, None),
+            // Tool calls are emitted with the completed assistant message
+            // below. That preserves the native parent entry id and lets the
+            // final text snapshot adopt its streaming draft before a tool row
+            // creates the next stream boundary. tool_execution_start then
+            // enriches that same row by its native toolCallId.
+            _ => (None, None, None),
         };
         if let Some(chunk) = chunk {
-            let message_id = matches!(
-                chunk,
-                AgentChunk::Text { .. } | AgentChunk::Reasoning { .. }
-            )
-            .then(|| format!("pi-{run_id}-{role}-{block_id}"));
-            self.emit_event(
+            self.emit_event_with_metadata(
                 app,
                 &chunk,
                 run_id,
-                sequence,
-                phase,
-                mode,
-                message_id.as_deref(),
+                AgentChunkMetadata {
+                    source_sequence: Some(sequence),
+                    source_subsequence: event
+                        .get("contentIndex")
+                        .and_then(Value::as_u64)
+                        .and_then(|index| u32::try_from(index).ok()),
+                    message_phase: phase,
+                    content_mode: mode,
+                    ..AgentChunkMetadata::default()
+                },
             )
             .await;
         }
@@ -1214,35 +1522,124 @@ impl PiRpcManager {
         &self,
         app: &tauri::AppHandle,
         thread_id: &str,
+        message_id: &str,
         run_id: &str,
         sequence: u64,
         message: &Value,
-    ) {
-        if message.get("role").and_then(Value::as_str) != Some("assistant") {
-            return;
+        user_message: &AgentUserMessage,
+    ) -> Result<(), String> {
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !matches!(role, "user" | "assistant") {
+            return Ok(());
+        }
+        let source_timestamp = message
+            .get("timestamp")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        if role == "user" {
+            let user_chunk = AgentChunk::UserMessage {
+                thread_id: thread_id.to_string(),
+                id: message_id.to_string(),
+                text: user_message
+                    .llm_content
+                    .clone()
+                    .unwrap_or_else(|| user_message.content.clone()),
+                timestamp: source_timestamp,
+                attachments: user_message.message_attachments(),
+            };
+            self.emit_event_with_metadata(
+                app,
+                &user_chunk,
+                run_id,
+                AgentChunkMetadata {
+                    source_sequence: Some(sequence),
+                    source_subsequence: Some(0),
+                    source_timestamp: Some(source_timestamp),
+                    message_phase: Some("completed"),
+                    content_mode: Some("snapshot"),
+                    ..AgentChunkMetadata::default()
+                },
+            )
+            .await;
+            return Ok(());
+        }
+
+        enum SnapshotBlock {
+            Text(String),
+            Reasoning(String),
+            ToolCall {
+                id: String,
+                name: String,
+                input: Value,
+            },
         }
         let Some(blocks) = message.get("content").and_then(Value::as_array) else {
-            if let Some(text) = message.get("content").and_then(Value::as_str) {
+            let text = message
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let error_message = message
+                .get("errorMessage")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let text = match (text.is_empty(), error_message.is_empty()) {
+                (true, true) => None,
+                (false, true) => Some(text.to_string()),
+                (true, false) => Some(error_message.to_string()),
+                (false, false) => Some(format!("{text}\n\n{error_message}")),
+            };
+            if let Some(text) = text {
                 let chunk = AgentChunk::Text {
                     thread_id: thread_id.to_string(),
-                    text: text.to_string(),
+                    text,
                 };
-                self.emit_event(
+                self.emit_native_message_event(
                     app,
                     &chunk,
                     run_id,
                     sequence,
                     Some("completed"),
                     Some("snapshot"),
-                    Some(&format!("pi-{run_id}-assistant-0")),
+                    Some(&message_id),
+                    source_timestamp,
+                    Some(0),
+                    None,
                 )
                 .await;
             }
-            return;
+            return Ok(());
         };
+
+        let mut projected = Vec::<(usize, SnapshotBlock)>::new();
+        let mut text_index: Option<usize> = None;
         for (block_index, block) in blocks.iter().enumerate() {
             let block_type = block.get("type").and_then(Value::as_str);
             if !pi_forward_thinking_enabled() && block_type == Some("thinking") {
+                continue;
+            }
+            if block_type == Some("toolCall") {
+                let Some(id) = block
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                else {
+                    continue;
+                };
+                projected.push((
+                    block_index,
+                    SnapshotBlock::ToolCall {
+                        id: id.to_string(),
+                        name: block
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tool")
+                            .to_string(),
+                        input: block.get("arguments").cloned().unwrap_or(Value::Null),
+                    },
+                ));
                 continue;
             }
             let text = match block_type {
@@ -1251,34 +1648,94 @@ impl PiRpcManager {
                 _ => None,
             };
             let Some(text) = text else { continue };
-            let (chunk, role) = if block_type == Some("thinking") {
-                (
-                    AgentChunk::Reasoning {
-                        thread_id: thread_id.to_string(),
-                        text: text.to_string(),
-                    },
-                    "reasoning",
-                )
+            if block_type == Some("thinking") {
+                projected.push((block_index, SnapshotBlock::Reasoning(text.to_string())));
             } else {
-                (
-                    AgentChunk::Text {
-                        thread_id: thread_id.to_string(),
-                        text: text.to_string(),
-                    },
-                    "assistant",
-                )
-            };
-            self.emit_event(
-                app,
-                &chunk,
-                run_id,
-                sequence.saturating_add(block_index as u64),
-                Some("completed"),
-                Some("snapshot"),
-                Some(&format!("pi-{run_id}-{role}-{block_index}")),
-            )
-            .await;
+                text_index = Some(projected.len());
+                projected.push((block_index, SnapshotBlock::Text(text.to_string())));
+            }
         }
+        if let Some(error_message) = message
+            .get("errorMessage")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            if let Some(index) = text_index.filter(|index| *index + 1 == projected.len()) {
+                if let SnapshotBlock::Text(text) = &mut projected[index].1 {
+                    if !text.is_empty() {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(error_message);
+                }
+            } else {
+                projected.push((blocks.len(), SnapshotBlock::Text(error_message.to_string())));
+            }
+        }
+        for (block_index, block) in projected {
+            let source_subsequence = Some(u32::try_from(block_index).unwrap_or(u32::MAX));
+            match block {
+                SnapshotBlock::Text(text) => {
+                    let chunk = AgentChunk::Text {
+                        thread_id: thread_id.to_string(),
+                        text,
+                    };
+                    self.emit_native_message_event(
+                        app,
+                        &chunk,
+                        run_id,
+                        sequence,
+                        Some("completed"),
+                        Some("snapshot"),
+                        Some(&message_id),
+                        source_timestamp,
+                        source_subsequence,
+                        None,
+                    )
+                    .await;
+                }
+                SnapshotBlock::Reasoning(text) => {
+                    let chunk = AgentChunk::Reasoning {
+                        thread_id: thread_id.to_string(),
+                        text,
+                    };
+                    self.emit_native_message_event(
+                        app,
+                        &chunk,
+                        run_id,
+                        sequence,
+                        Some("completed"),
+                        Some("snapshot"),
+                        Some(&message_id),
+                        source_timestamp,
+                        source_subsequence,
+                        None,
+                    )
+                    .await;
+                }
+                SnapshotBlock::ToolCall { id, name, input } => {
+                    let chunk = AgentChunk::ToolCall {
+                        thread_id: thread_id.to_string(),
+                        id,
+                        name,
+                        input,
+                    };
+                    self.emit_native_message_event(
+                        app,
+                        &chunk,
+                        run_id,
+                        sequence,
+                        Some("completed"),
+                        Some("snapshot"),
+                        None,
+                        source_timestamp,
+                        source_subsequence,
+                        Some(&message_id),
+                    )
+                    .await;
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn emit_event(
@@ -1299,6 +1756,44 @@ impl PiRpcManager {
             message_id: message_id.map(str::to_string),
             ..AgentChunkMetadata::default()
         };
+        self.emit_event_with_metadata(app, chunk, run_id, metadata)
+            .await;
+    }
+
+    async fn emit_native_message_event(
+        &self,
+        app: &tauri::AppHandle,
+        chunk: &AgentChunk,
+        run_id: &str,
+        sequence: u64,
+        phase: Option<&'static str>,
+        content_mode: Option<&'static str>,
+        message_id: Option<&str>,
+        source_timestamp: i64,
+        source_subsequence: Option<u32>,
+        parent_message_id: Option<&str>,
+    ) {
+        let metadata = AgentChunkMetadata {
+            source_sequence: Some(sequence),
+            source_timestamp: Some(source_timestamp),
+            message_phase: phase,
+            content_mode,
+            message_id: message_id.map(str::to_string),
+            parent_message_id: parent_message_id.map(str::to_string),
+            source_subsequence,
+            ..AgentChunkMetadata::default()
+        };
+        self.emit_event_with_metadata(app, chunk, run_id, metadata)
+            .await;
+    }
+
+    async fn emit_event_with_metadata(
+        &self,
+        app: &tauri::AppHandle,
+        chunk: &AgentChunk,
+        run_id: &str,
+        metadata: AgentChunkMetadata,
+    ) {
         crate::agent_external::shared::persist_and_emit_external_chunk_with_metadata(
             app,
             &self.thread_manager,
@@ -1566,33 +2061,129 @@ fn resolve_pi_session_dir(thread_id: &str, create: bool) -> Result<PathBuf, Stri
     Ok(stable)
 }
 
-/// Pi indexes project sessions by the process working directory. Reopen a
-/// mapped transcript from the cwd recorded in its own header, so a desktop
-/// launch from a different directory does not make the exact session appear
-/// unavailable.
-fn pi_session_cwd(session_dir: &std::path::Path, session_id: &str) -> Option<PathBuf> {
-    let suffix = format!("_{session_id}.jsonl");
-    let entries = std::fs::read_dir(session_dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(&suffix))
+/// The sole receiver owner preserves every agent event while waiting for RPC.
+async fn receive_rpc_response(
+    records: &mut mpsc::UnboundedReceiver<Result<Value, String>>,
+    deferred: &mut VecDeque<Value>,
+    request_id: &str,
+) -> Result<Value, String> {
+    loop {
+        let record = records.recv().await.ok_or("Pi RPC event reader closed")??;
+        if record.get("type").and_then(Value::as_str) == Some("response")
+            && record.get("id").and_then(Value::as_str) == Some(request_id)
         {
-            continue;
+            return Ok(record);
         }
-        let file = std::fs::File::open(path).ok()?;
-        let mut first_line = String::new();
-        std::io::BufReader::new(file)
-            .read_line(&mut first_line)
-            .ok()?;
-        let value: Value = serde_json::from_str(&first_line).ok()?;
-        let cwd = value.get("cwd").and_then(Value::as_str)?;
-        let cwd = PathBuf::from(cwd);
-        return cwd.is_dir().then_some(cwd);
+        deferred.push_back(record);
     }
-    None
+}
+
+fn pi_message_matches(left: &Value, right: &Value) -> bool {
+    left == right
+}
+
+#[cfg(test)]
+fn pi_rpc_message_id(
+    entries: &[Value],
+    leaf_id: Option<&str>,
+    message: &Value,
+) -> Result<String, String> {
+    pi_active_branch_entries(entries, leaf_id)?.into_iter().rev()
+        .find(|entry| entry.get("type").and_then(Value::as_str) == Some("message")
+            && entry.get("message").is_some_and(|saved| pi_message_matches(saved, message)))
+        .and_then(|entry| entry.get("id").and_then(Value::as_str).map(str::to_owned))
+        .ok_or_else(|| "Pi completed a message without a matching native entry on the active RPC session branch".into())
+}
+
+fn pi_active_branch_entries<'a>(
+    entries: &'a [Value],
+    leaf_id: Option<&str>,
+) -> Result<Vec<&'a Value>, String> {
+    let Some(mut current_id) = leaf_id.map(str::to_owned) else {
+        return if entries.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err("Pi returned session entries without a current leaf id".into())
+        };
+    };
+    let by_id = entries
+        .iter()
+        .filter_map(|entry| Some((entry.get("id")?.as_str()?, entry)))
+        .collect::<HashMap<_, _>>();
+    let mut branch = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    loop {
+        if !visited.insert(current_id.clone()) {
+            return Err("Pi returned a cycle in the active session branch".into());
+        }
+        let entry = by_id
+            .get(current_id.as_str())
+            .copied()
+            .ok_or_else(|| "Pi active session leaf references a missing entry".to_string())?;
+        let parent_id = entry
+            .get("parentId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        branch.push(entry);
+        let Some(parent_id) = parent_id else { break };
+        current_id = parent_id;
+    }
+    branch.reverse();
+    Ok(branch)
+}
+
+fn attach_pi_session_message_ids(
+    messages: &mut [Value],
+    entries: &[Value],
+    leaf_id: Option<&str>,
+) -> Result<(), String> {
+    let branch = pi_active_branch_entries(entries, leaf_id)?;
+    let mut entry_index = 0;
+    let mut unmatched_renderable_messages = 0;
+    for message in messages {
+        let matched_index = branch[entry_index..].iter().position(|entry| {
+            entry.get("type").and_then(Value::as_str) == Some("message")
+                && entry
+                    .get("message")
+                    .is_some_and(|saved| pi_message_matches(saved, message))
+        });
+        let Some(relative_index) = matched_index else {
+            if matches!(
+                message.get("role").and_then(Value::as_str),
+                Some(
+                    "user"
+                        | "assistant"
+                        | "bashExecution"
+                        | "custom"
+                        | "branchSummary"
+                        | "compactionSummary"
+                )
+            ) {
+                unmatched_renderable_messages += 1;
+            }
+            continue;
+        };
+        entry_index += relative_index;
+        let entry = branch[entry_index];
+        entry_index += 1;
+        if let Some(object) = message.as_object_mut() {
+            if let Some(id) = entry.get("id").and_then(Value::as_str) {
+                object.insert("_pi_session_message_id".into(), Value::String(id.into()));
+            }
+            if let Some(parent_id) = entry.get("parentId").and_then(Value::as_str) {
+                object.insert(
+                    "_pi_session_parent_id".into(),
+                    Value::String(parent_id.into()),
+                );
+            }
+        }
+    }
+    if unmatched_renderable_messages > 0 {
+        return Err(format!(
+            "Pi returned {unmatched_renderable_messages} history messages that could not be reconciled with native ids on the active session branch"
+        ));
+    }
+    Ok(())
 }
 
 fn resolve_pi_binary(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1653,29 +2244,201 @@ fn resolve_pi_binary(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::pi_session_cwd;
+    use super::{
+        attach_pi_session_message_ids, pi_active_branch_entries, pi_rpc_message_id,
+        receive_rpc_response,
+    };
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn pi_rpc_accepts_frames_larger_than_the_shared_512_kib_limit() {
+        let expected =
+            json!({"type":"response","data":{"messages":[{"content":"文本".repeat(150_000)}]}});
+        let mut bytes = serde_json::to_vec(&expected).unwrap();
+        assert!(bytes.len() > 512 * 1024);
+        bytes.extend_from_slice(b"\n{\"type\":\"next\"}\n");
+        let mut reader = tokio::io::BufReader::new(bytes.as_slice());
+        assert_eq!(
+            super::read_pi_rpc_record(&mut reader).await.unwrap(),
+            Some(expected)
+        );
+        assert_eq!(
+            super::read_pi_rpc_record(&mut reader).await.unwrap(),
+            Some(json!({"type":"next"}))
+        );
+        assert!(super::read_pi_rpc_record(&mut reader)
+            .await
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
-    fn pi_session_cwd_reads_the_mapped_transcript_header() {
-        let session_dir = tempfile::tempdir().expect("temporary session directory");
-        let cwd = tempfile::tempdir().expect("temporary project directory");
-        let session_id = "01a11051-afda-7440-ad26-6ffe84aae2fa";
-        std::fs::write(
-            session_dir
-                .path()
-                .join(format!("2026-10-06T08-25-51-322Z_{session_id}.jsonl")),
-            format!(
-                "{{\"type\":\"session\",\"id\":\"{session_id}\",\"cwd\":{}}}\n",
-                serde_json::to_string(&cwd.path().to_string_lossy()).unwrap()
-            ),
-        )
-        .expect("write transcript header");
+    fn pi_backend_pages_complete_turns_using_native_entry_cursors() {
+        let snapshot = super::PiSessionSnapshot {
+            messages: vec![
+                json!({"role":"user","_pi_session_message_id":"u1"}),
+                json!({"role":"assistant","_pi_session_message_id":"a1","content":[{"type":"text","text":"before"},{"type":"toolCall","id":"call"},{"type":"text","text":"after"}]}),
+                json!({"role":"toolResult","_pi_session_message_id":"r1","toolCallId":"call"}),
+                json!({"role":"user","_pi_session_message_id":"u2"}),
+                json!({"role":"assistant","_pi_session_message_id":"a2"}),
+            ],
+            revision: super::PiHistoryRevision {
+                session_id: "session".into(),
+                append_cursor: Some("a2".into()),
+                leaf_id: Some("a2".into()),
+            },
+        };
+        let latest = super::page_pi_snapshot(&snapshot, None, 1).unwrap();
+        assert_eq!(latest.messages.len(), 2);
+        assert_eq!(latest.before_entry_id.as_deref(), Some("u2"));
+        assert_eq!(latest.oldest_sequence, Some(3));
+        assert!(latest.has_more);
+        let older =
+            super::page_pi_snapshot(&snapshot, latest.before_entry_id.as_deref(), 1).unwrap();
+        assert_eq!(older.messages.len(), 3);
+        assert_eq!(older.messages[1]["content"].as_array().unwrap().len(), 3);
+        assert_eq!(older.messages[2]["toolCallId"], "call");
+        assert_eq!(older.before_entry_id.as_deref(), Some("u1"));
+        assert!(!older.has_more);
+        assert_eq!(older.revision, latest.revision);
+        assert_eq!(older.snapshot_sequence, latest.snapshot_sequence);
+        assert!(super::page_pi_snapshot(&snapshot, Some("unknown"), 1).is_err());
+        let empty = super::page_pi_snapshot(&snapshot, Some("u1"), 1).unwrap();
+        assert!(empty.messages.is_empty());
+        assert_eq!(empty.before_entry_id, None);
+    }
 
+    #[test]
+    fn pi_snapshot_exposes_native_revision_without_generating_message_ids() {
+        let snapshot = super::PiSessionSnapshot {
+            messages: vec![json!({"_pi_session_message_id":"native-entry"})],
+            revision: super::PiHistoryRevision {
+                session_id: "native-session".into(),
+                append_cursor: Some("append-entry".into()),
+                leaf_id: Some("branch-leaf".into()),
+            },
+        };
+        let value = serde_json::to_value(snapshot).unwrap();
         assert_eq!(
-            pi_session_cwd(session_dir.path(), session_id),
-            Some(cwd.path().to_path_buf())
+            value["messages"][0]["_pi_session_message_id"],
+            "native-entry"
         );
-        assert_eq!(pi_session_cwd(session_dir.path(), "another-session"), None);
+        assert_eq!(
+            value["revision"],
+            json!({"sessionId":"native-session","appendCursor":"append-entry","leafId":"branch-leaf"})
+        );
+    }
+
+    #[test]
+    fn pi_incremental_cache_tracks_append_cursor_and_active_branch() {
+        let mut cache = super::PiEntriesCache::default();
+        let message = json!({"role":"assistant","content":"same"});
+        cache.update(
+            &[json!({"id":"a","type":"message","parentId":null,"message":message})],
+            true,
+        );
+        cache.update(
+            &[json!({"id":"b","type":"message","parentId":null,"message":message})],
+            false,
+        );
+        assert_eq!(cache.entries.last().unwrap()["id"], "b");
+        assert_eq!(cache.message_id(Some("a"), &message).unwrap(), "a");
+        assert_eq!(cache.message_id(Some("b"), &message).unwrap(), "b");
+        cache.update(&[], false);
+        assert_eq!(cache.entries.len(), 2);
+        cache.update(
+            &[json!({"id":"c","type":"message","parentId":null,"message":message})],
+            true,
+        );
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.message_id(Some("a"), &message).is_err());
+    }
+
+    #[tokio::test]
+    async fn pi_entries_response_preserves_interleaved_events_in_order() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let events = vec![
+            json!({"type":"message_end","message":{"role":"assistant"}}),
+            json!({"type":"tool_execution_start","toolCallId":"call-1"}),
+            json!({"type":"response","id":"other","success":true}),
+            json!({"type":"agent_settled"}),
+        ];
+        for event in &events {
+            tx.send(Ok(event.clone())).unwrap();
+        }
+        tx.send(Ok(json!({"type":"response","id":"entries","success":true})))
+            .unwrap();
+        let mut deferred = std::collections::VecDeque::new();
+        let response = receive_rpc_response(&mut rx, &mut deferred, "entries")
+            .await
+            .unwrap();
+        assert_eq!(response["id"], "entries");
+        assert_eq!(deferred.into_iter().collect::<Vec<_>>(), events);
+    }
+
+    #[test]
+    fn pi_live_identity_uses_active_rpc_branch_even_for_identical_messages() {
+        let message =
+            json!({"role":"assistant","content":[{"type":"text","text":"same"}],"timestamp":42});
+        let entries = vec![
+            json!({"type":"message","id":"active","parentId":null,"message":message}),
+            json!({"type":"message","id":"abandoned","parentId":null,"message":message}),
+        ];
+        assert_eq!(
+            pi_rpc_message_id(&entries, Some("active"), &message).unwrap(),
+            "active"
+        );
+        assert!(pi_rpc_message_id(&[], None, &message).is_err());
+    }
+
+    #[test]
+    fn pi_history_message_ids_follow_the_current_branch_and_exact_messages() {
+        let user = json!({
+            "role": "user",
+            "content": [{"type": "text", "text": "second prompt"}],
+            "timestamp": 1791301625351_i64
+        });
+        let assistant = json!({
+            "role": "assistant",
+            "content": [{"type": "text", "text": "answer"}],
+            "timestamp": 1791301626000_i64,
+            "stopReason": "stop"
+        });
+        let entries = vec![
+            json!({"type":"message","id":"u1","parentId":null,"message":user}),
+            json!({"type":"message","id":"old-answer","parentId":"u1","message":{"role":"assistant","content":[{"type":"text","text":"abandoned"}],"timestamp":1791301626000_i64}}),
+            json!({"type":"message","id":"a1","parentId":"u1","message":assistant}),
+        ];
+        let mut messages = vec![user, assistant];
+
+        attach_pi_session_message_ids(&mut messages, &entries, Some("a1"))
+            .expect("reconcile current branch history");
+
+        assert_eq!(messages[0]["_pi_session_message_id"], "u1");
+        assert_eq!(messages[1]["_pi_session_message_id"], "a1");
+        assert_eq!(messages[1]["_pi_session_parent_id"], "u1");
+        let branch = pi_active_branch_entries(&entries, Some("a1")).expect("resolve active branch");
+        assert_eq!(
+            branch
+                .iter()
+                .map(|entry| entry["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["u1", "a1"]
+        );
+    }
+
+    #[test]
+    fn pi_history_does_not_silently_accept_unmatched_renderable_messages() {
+        let mut messages = vec![json!({
+            "role": "assistant",
+            "content": [{"type": "text", "text": "answer"}],
+            "timestamp": 10_i64
+        })];
+
+        let error = attach_pi_session_message_ids(&mut messages, &[], None)
+            .expect_err("history identity mismatch must be surfaced");
+
+        assert!(error.contains("could not be reconciled with native ids"));
     }
 }
 

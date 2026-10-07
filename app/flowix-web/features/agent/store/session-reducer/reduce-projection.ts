@@ -98,6 +98,7 @@ function applyUserMessageToProjection(
   const live = projectionToLive(p);
   const next = applyUserMessageChunk(live, event.text, {
     id: event.id,
+    nativeMessageId: event.agentType === "pi" ? event.id : undefined,
     messageType: event.messageType,
     phase: "completed",
     contentMode: "snapshot",
@@ -106,9 +107,9 @@ function applyUserMessageToProjection(
     sourceSubsequence: event.sourceSubsequence,
     codexTurnId: event.codexTurnId,
     attachments: event.attachments,
-    // Only provider-backed user items (Codex) carry the turn id; those are
-    // exactly the events allowed to adopt the optimistic row in place.
-    optimisticId: event.codexTurnId
+    // Codex turn ids and Pi session message ids let provider-backed user rows
+    // adopt their optimistic row in place.
+    optimisticId: event.codexTurnId || event.agentType === "pi"
       ? completedRunUserMessageId(event.agentType, event.runId)
       : undefined,
   });
@@ -146,12 +147,17 @@ function applyTextDeltaToProjection(
 ): ThreadProjection {
   const live = projectionToLive(p);
   const next = applyTextChunk(live, event.text, {
-    id: event.messageId,
+    id: event.agentType === "pi" && event.messageId && event.sourceSubsequence !== undefined
+      ? `${event.messageId}:block:${event.sourceSubsequence}` : event.messageId,
+    nativeMessageId: event.agentType === "pi" ? event.messageId : undefined,
+    blockIndex: event.agentType === "pi" ? event.sourceSubsequence : undefined,
     phase: event.messagePhase,
     contentMode: event.contentMode,
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
+    adoptPendingId: event.agentType === "pi",
+    draftScope: event.agentType === "pi" ? event.runId : undefined,
     codexTurnId: event.codexTurnId,
     messageType: event.messageType,
   });
@@ -175,12 +181,17 @@ function applyReasoningDeltaToProjection(
 ): ThreadProjection {
   const live = projectionToLive(p);
   const next = applyReasoningChunk(live, event.text, {
-    id: event.messageId,
+    id: event.agentType === "pi" && event.messageId && event.sourceSubsequence !== undefined
+      ? `${event.messageId}:block:${event.sourceSubsequence}` : event.messageId,
+    nativeMessageId: event.agentType === "pi" ? event.messageId : undefined,
+    blockIndex: event.agentType === "pi" ? event.sourceSubsequence : undefined,
     phase: event.messagePhase,
     contentMode: event.contentMode,
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
+    adoptPendingId: event.agentType === "pi",
+    draftScope: event.agentType === "pi" ? event.runId : undefined,
     codexTurnId: event.codexTurnId,
     messageType: event.messageType,
   });
@@ -207,6 +218,8 @@ function applyContextCompactionToProjection(
     sourceTimestamp: event.sourceTimestamp,
     sourceSequence: event.sourceSequence,
     sourceSubsequence: event.sourceSubsequence,
+    adoptPendingId: event.agentType === "pi",
+    draftScope: event.agentType === "pi" ? event.runId : undefined,
     codexTurnId: event.codexTurnId,
   };
   if (p.messages.some((item) => item.id === message.id)) return p;
@@ -261,6 +274,7 @@ function applyToolCallToProjection(
       sourceTimestamp: event.sourceTimestamp,
       sourceSequence: event.sourceSequence,
       sourceSubsequence: event.sourceSubsequence,
+      parentMessageId: event.parentMessageId,
     },
   );
   // tool_call 是流中断点 ── 清 pendingAssistantId, 记录当前 tool 名到 run.
@@ -300,6 +314,7 @@ function applyToolResultToProjection(
       sourceTimestamp: event.sourceTimestamp,
       sourceSequence: event.sourceSequence,
       sourceSubsequence: event.sourceSubsequence,
+      parentMessageId: event.parentMessageId,
     },
   );
   // tool_result 关闭 tool_call: currentTool 清空 (result 抵达后流回归 assistant 文本).

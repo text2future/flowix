@@ -77,6 +77,64 @@ fn chunk_payload_scopes_codex_fallback_identity_per_run() {
 }
 
 #[test]
+fn pi_deltas_stay_draft_until_the_native_session_entry_id_arrives() {
+    let text = AgentChunk::Text {
+        thread_id: "thread-1".to_string(),
+        text: "partial".to_string(),
+    };
+    let reasoning = AgentChunk::Reasoning {
+        thread_id: "thread-1".to_string(),
+        text: "thinking".to_string(),
+    };
+
+    for chunk in [&text, &reasoning] {
+        let payload = chunk_payload_value(chunk, "pi", "run-1", &AgentChunkMetadata::default())
+            .expect("serialize draft chunk");
+        assert!(payload.get("message_id").is_none());
+        assert!(payload.get("source_message_id").is_none());
+    }
+
+    let final_payload = chunk_payload_value(
+        &text,
+        "pi",
+        "run-1",
+        &AgentChunkMetadata {
+            message_id: Some("67575cb5".into()),
+            content_mode: Some("snapshot"),
+            message_phase: Some("completed"),
+            ..AgentChunkMetadata::default()
+        },
+    )
+    .expect("serialize native-id snapshot");
+    assert_eq!(final_payload["message_id"], "67575cb5");
+    assert_eq!(final_payload["source_message_id"], "67575cb5");
+}
+
+#[test]
+fn pi_tool_rows_keep_tool_call_identity_and_parent_entry_identity_separate() {
+    let chunk = AgentChunk::ToolCall {
+        thread_id: "thread-1".to_string(),
+        id: "call_00_native".to_string(),
+        name: "bash".to_string(),
+        input: Value::Null,
+    };
+    let payload = chunk_payload_value(
+        &chunk,
+        "pi",
+        "run-1",
+        &AgentChunkMetadata {
+            parent_message_id: Some("67575cb5".into()),
+            ..AgentChunkMetadata::default()
+        },
+    )
+    .expect("serialize native tool call");
+
+    assert_eq!(payload["message_id"], "call_00_native");
+    assert_eq!(payload["source_message_id"], "call_00_native");
+    assert_eq!(payload["parent_message_id"], "67575cb5");
+}
+
+#[test]
 fn streaming_emit_buffer_batches_text_and_reasoning_in_order() {
     let mut buf = StreamingEmitBuffer::new("t1".to_string());
     assert!(buf.is_empty());

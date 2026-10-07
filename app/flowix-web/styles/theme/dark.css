@@ -21,10 +21,10 @@
 
 	--background: oklch(0.173 0.009 var(--neutral-hue));
 	--frame-bg: var(--background);
-	--foreground: oklch(0.82 0.005 var(--neutral-hue));
-	--card: oklch(0.213 0.013 var(--neutral-hue));
-	/* Memo 列表比编辑区再压深一档, 让中间列表与右侧正文形成层次。 */
-	--list-bg: color-mix(in oklch, var(--card) 70%, var(--background));
+	--foreground: oklch(0.80 0.013 265);
+	--card: oklch(0.240 0.013 var(--neutral-hue));
+	/* Memo 列表独立于 card, 保持比编辑区更深一档的层次。 */
+	--list-bg: oklch(0.200 0.013 265);
 
 	/* 浮层底: 沿用 neutral-hue 的冷蓝灰轴, 避免纯中灰浮层与其余暗色
 	 * surface 产生色温断层; 比 card / secondary 亮一档, 再由 muted / border
@@ -36,7 +36,7 @@
 	--secondary: oklch(0.244 0.014 var(--neutral-hue));
 	--secondary-foreground: oklch(0.865 0.008 var(--neutral-hue));
 	--muted: oklch(0.292 0.016 var(--neutral-hue));
-	--hover-bg: var(--muted);
+	--hover-bg: oklch(0.380 0.016 var(--neutral-hue));
 	--muted-foreground: oklch(0.716 0.015 var(--neutral-hue));
 	--accent: oklch(0.310 0.022 var(--neutral-hue));
 
@@ -53,14 +53,14 @@
 	--ring: var(--primary);
 
 	/* 代理面板: 沿用 titlebar 同值, 解耦后改这里 */
-	--agent-bg: oklch(0.173 0.009 var(--neutral-hue));
+	--agent-bg: oklch(0.200 0.013 265);
 	--agent-status-surface: oklch(0.245 0.014 var(--neutral-hue));
 	--agent-foreground: color-mix(in oklch, var(--foreground) 66%, transparent);
 
 	--bg-titlebar: oklch(0.173 0.009 var(--neutral-hue));
 	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
-	--document-bg: oklch(0.200 0.013 var(--neutral-hue));
-	--document-foreground: oklch(0.72 0.013 var(--neutral-hue));
+	--document-bg: oklch(0.160 0.013 265);
+	--document-foreground: oklch(0.80 0.013 265);
 	/* 链接: 高亮+提 chroma 路线, 与普通文字拉开"可点击"权重; hover 由 color-mix 派生 */
 	--document-link: oklch(0.80 0.18 var(--brand-hue));
 	--document-highlight-bg: oklch(0.800 0.182 152);
@@ -97,7 +97,7 @@
 	--memo-color-blue:   oklch(64% 0.185 260);
 	--memo-color-gray:   oklch(64% 0.015 264);
 
-	--editor-block-bg: oklch(0.176 0.014 var(--neutral-hue));
+	--editor-block-bg: oklch(0.220 0.014 var(--neutral-hue));
 	/* Agent conversation surfaces currently follow editor blocks; keep the
 	 * semantic token separate so they can evolve independently later. */
 

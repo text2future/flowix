@@ -8,29 +8,11 @@
 
 ## 文件格式
 
-`name.lib.yaml` 使用独立格式标记、版本和稳定 ID。文件名用于展示；内部 `library.id` 不随改名改变。初始视图配置如下：
+媒体库采用统一 `flowix.collection` 格式，详见 [集合索引](COLLECTION-INDEX.md)。集合身份为 `collection.id: col_<uuidv7>`，类型为 `media_library`。名称、revision、创建及更新时间和集合自有属性位于 `collection`；业务配置位于 `payload.view`，显式媒体记录位于 `payload.records.data`。改名不改变集合 ID。
 
-复制文件造成 `library.id` 重复时，文件树会标记冲突并暂停分组状态修改；可在副本行菜单为所选文件生成新 `library.id`，同时递增 `library.revision`。视图 ID 和配置保留，新 ID 使用独立的默认分组状态。
+视图默认采用 `waterfall` 布局、空 `condition` 和 `created_at` 倒序排序。集合属性与媒体文件的资源属性各自保存。集合文件目录统一投影到 `collection_documents`，媒体资源仍使用 `media_resources`。
 
-```yaml
-format: flowix.media-library
-version: 1
-library:
-  id: lib_<uuidv7>
-  name: 媒体库
-  revision: 0
-view:
-  id: view_<uuidv7>
-  layout: waterfall
-  kinds: [image, video]
-  sort:
-    field: created_at
-    direction: desc
-```
-
-当前 v1 接受 `format`、`version`、`library` 和 `view`。`library` 只接受 `id`、`name`、`revision`；`view` 只接受 `id`、`layout`、`kinds` 和可选的 `sort`。当前排序固定为 `created_at` 倒序。未知字段、无效 ID、重复或无效媒体类型、非法 revision 和不支持的排序配置均拒绝加载，避免保存时静默丢弃配置。名称、时间、资源属性和路径筛选尚未进入当前 v1 文件格式。
-
-配置保存使用原子写入和 revision compare-and-swap。检测到外部编辑时，应用会读取最新文件，将当前操作合并后重试一次；再次冲突则载入最新配置并提示用户重试。
+配置保存使用原子写入和 revision compare-and-swap。外部编辑冲突时读取最新文件并提示重试。复制导致集合 ID 重复时，索引保留全部冲突文件，按 ID 打开和修改暂停；为选定副本生成新集合 ID 后恢复正常。
 
 ## 媒体目录与索引
 
@@ -47,7 +29,7 @@ view:
 - 媒体网格使用响应式列宽与 CSS columns 或等效虚拟瀑布组件。实现需保持键盘焦点顺序稳定，卡片尺寸由缩略图宽高比决定并设最大高度。
 - 图片缩略图用 `loading=lazy`、解码异步和占位图；视频缩略图用原生预览缓存。不可读文件仍展示文件名和路径。
 - 文件路径只显示相对路径，悬停提供完整路径；点击打开对应图片/视频资源。
-- 当前视图 YAML 只保存媒体类型和固定排序。没有媒体 ID 数组、缩略图数据或资源属性副本。
+- 视图 YAML 保存筛选配置和显式记录；缩略图和媒体字节保存在资源文件及缓存中。
 
 ## 与现有实现的关系
 

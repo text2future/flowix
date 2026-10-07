@@ -3,7 +3,7 @@
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "artifact.list", "artifact.describe", "artifact.create"],
+      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "collection.read", "artifact.list", "artifact.describe", "artifact.create"],
       "description": "Structured operation. Prefer this over the legacy command field."
     },
     "notebook": { "type": "string", "description": "Notebook name or id; defaults to the current notebook where supported." },
@@ -18,9 +18,18 @@
     "pluginId": { "type": "string" },
     "sourceNote": { "type": "string" },
     "producer": { "type": "string", "default": "agent-mcp" },
+    "collectionId": { "type": "string", "description": "Stable collection identity. Provide this or path for collection.read." },
+    "path": { "type": "string", "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read." },
     "command": { "type": "string", "deprecated": true, "description": "Legacy restricted CLI command without the flowix prefix." },
     "stdin": { "type": "string", "deprecated": true, "description": "Legacy content paired with command." }
   },
   "anyOf": [{ "required": ["action"] }, { "required": ["command"] }],
+  "allOf": [{
+    "if": { "properties": { "action": { "const": "collection.read" } }, "required": ["action"] },
+    "then": {
+      "required": ["notebook"],
+      "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
+    }
+  }],
   "additionalProperties": false
 }

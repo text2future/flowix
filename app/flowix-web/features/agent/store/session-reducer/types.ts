@@ -60,6 +60,8 @@ export interface ThreadProjection {
     oldestSequence: number | null;
     /** Provider/journal revision that owns oldestSequence and all loaded pages. */
     snapshotSequence?: number | null;
+    piRevision?: import("@/types/agent").PiHistoryRevision;
+    piBeforeEntryId?: string | null;
     hasMoreHistory: boolean;
     loadingInitial: boolean;
     loadingMore: boolean;
@@ -242,6 +244,8 @@ export function mergeThreadProjections(
         to?.pending.reasoningId ?? from?.pending.reasoningId ?? null,
     },
     pagination: {
+      piRevision: to?.pagination.piRevision ?? from?.pagination.piRevision,
+      piBeforeEntryId: to?.pagination.piBeforeEntryId ?? from?.pagination.piBeforeEntryId,
       initialStatus: mergeInitialHistoryStatus(
         to?.pagination.initialStatus,
         from?.pagination.initialStatus,

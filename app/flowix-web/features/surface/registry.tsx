@@ -1,3 +1,4 @@
+import { openCollectionTarget } from '@features/workspace/use-cases/workspace-navigation';
 'use client';
 
 import { CodeSurfaceFileBrowser } from './work-file-browser-view';
@@ -14,6 +15,7 @@ import { PluginArtifactRenderer } from '@features/plugin/plugin-artifact-rendere
 import { normalizePluginArtifactRenderer, type PluginArtifactRendererId } from '@features/plugin/plugin-note';
 import { extractFrontmatter } from '@features/document/properties/frontmatter-model';
 import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
+import { DocxPreview } from '@features/document/components/docx-preview';
 import { useDocumentStore } from '@features/document/store/document-store';
 import { documentIdentityFromFile } from '@features/document/store/document-identity';
 import { saveDocumentPath } from '@features/document/store/document-session-service';
@@ -46,6 +48,9 @@ import type {
 } from './types';
 import { TableDocumentView } from '@features/multidimensional-table/public/surface-api';
 import { MediaLibraryView } from '@features/media-library/media-library-view';
+import { externalFileViewKind } from '@features/editor/code-file';
+import { useExternalFileMime } from '@features/editor/use-external-file-mime';
+import { useI18n } from '@/lib/i18n';
 import type { MediaLibraryFileSurface, TableFileSurface } from './types';
 
 type SurfaceOfKind<K extends WorkColumnSurfaceKind> = Extract<WorkColumnSurface, { kind: K }>;
@@ -157,7 +162,10 @@ function VideoFileSurfaceView({ surface }: { surface: VideoFileSurface }) {
 }
 
 function TableFileSurfaceView({ surface }: { surface: TableFileSurface }) {
-  return <TableDocumentView {...surface.props} fileIdentity={surface.fileIdentity} />;
+  return <TableDocumentView {...surface.props} fileIdentity={surface.fileIdentity}
+    onActiveViewChange={surface.props.expectedCollectionId && surface.props.notebookId ? (viewId) => {
+      void openCollectionTarget({ notebookId: surface.props.notebookId!, collectionId: surface.props.expectedCollectionId!, viewId });
+    } : surface.props.onActiveViewChange} />;
 }
 
 function MediaLibraryFileSurfaceView({ surface }: { surface: MediaLibraryFileSurface }) {
@@ -173,7 +181,35 @@ function HtmlFileSurfaceView({ surface }: { surface: HtmlFileSurface }) {
 }
 
 function UnavailableFileSurfaceView({ surface }: { surface: UnavailableFileSurface }) {
-  return <UnavailableFileView filePath={surface.fileIdentity.path} />;
+  const { t } = useI18n();
+  const filePath = surface.fileIdentity.path;
+  const baseFileKind = externalFileViewKind(filePath);
+  const { mimeType, loading: mimeLoading } = useExternalFileMime(
+    filePath,
+    baseFileKind === 'unavailable',
+  );
+  if (baseFileKind === 'docx') {
+    return <DocxPreview filePath={filePath} scopePath={surface.scopePath} />;
+  }
+  if (mimeLoading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-sm text-[var(--muted-foreground)]">
+        {t('document.file.loading')}
+      </div>
+    );
+  }
+  if (externalFileViewKind(filePath, mimeType) === 'code') {
+    return <DocumentContainer
+      {...surface.props}
+      fileIdentity={surface.fileIdentity}
+      externalScopePath={surface.scopePath}
+    />;
+  }
+  return <UnavailableFileView
+    filePath={filePath}
+    openContainingFolder
+    scopePath={surface.scopePath}
+  />;
 }
 
 function MediaResourceSurfaceView({ surface }: { surface: MediaResourceSurface }) {

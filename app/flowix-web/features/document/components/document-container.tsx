@@ -21,9 +21,9 @@ import {
 import { fileNameFromPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { product } from '@platform/tauri/client/desktop';
+import { externalDocuments } from '@platform/tauri/client/memos';
 import { notes } from '@platform/tauri/client/notes';
 import { markdownFilenameForTitle, renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
-import { openPath } from '@platform/tauri/opener';
 import {
   initialDocumentContainerState,
   type DocumentContainerProps,
@@ -490,31 +490,45 @@ export function DocumentContainer({
 export function UnavailableFileView({
   filePath,
   openContainingFolder = false,
+  scopePath,
 }: {
   filePath: string;
   openContainingFolder?: boolean;
+  scopePath?: string | null;
 }) {
   const { t } = useI18n();
   const filename = filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
-  const parentPath = filePath.replace(/[\\/][^\\/]*$/, '') || (filePath.startsWith('/') ? '/' : filePath);
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-sm text-[var(--muted-foreground)]">
       <span className="max-w-full truncate text-[var(--foreground)]" title={filename}>{filename}</span>
       <span>{t('document.file.unavailable')}</span>
-      <button
-        type="button"
-        onClick={() => {
-          const action = openContainingFolder
-            ? openPath(parentPath)
-            : product.revealInFileManager(filePath);
-          void action.catch(() => {
-            toast.error(t('memo.fileTree.openFailed'));
-          });
-        }}
-        className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
-      >
-        {t(openContainingFolder ? 'document.file.openContainingFolder' : 'document.file.reveal')}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const action = product.revealInFileManager(filePath);
+            void action.catch(() => {
+              toast.error(t('memo.fileTree.openFailed'));
+            });
+          }}
+          className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
+        >
+          {t(openContainingFolder ? 'document.file.openContainingFolder' : 'document.file.reveal')}
+        </button>
+        {openContainingFolder && (
+          <button
+            type="button"
+            onClick={() => {
+              void externalDocuments.openWithDefaultApp(filePath, scopePath).catch(() => {
+                toast.error(t('memo.fileTree.openFailed'));
+              });
+            }}
+            className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
+          >
+            {t('document.file.openWithDefaultApp')}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

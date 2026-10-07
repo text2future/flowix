@@ -24,6 +24,7 @@ import type { AgentTypeKey } from '@/types/agent';
 import { isAgentTypeComingSoon } from '@/lib/agent-types';
 import { applyListType } from './list-transforms';
 import { openTableReferencePicker } from '@features/multidimensional-table/table-reference-picker';
+import { openMediaLibraryReferencePicker } from '@features/media-library/media-library-reference-picker';
 
 export const slashMenuPluginKey = new PluginKey('slashMenu');
 
@@ -532,6 +533,25 @@ function handleSelect(item: SlashMenuItem): void {
       cols: 3,
       withHeaderRow: true,
     }).run();
+    return;
+  }
+
+  if (item.id === 'media-library-reference') {
+    const slashMenuRect = menuContainer?.getBoundingClientRect();
+    const cursorCoords = editor.view.coordsAtPos(editor.state.selection.from);
+    const pickerAnchor = {
+      kind: 'slash' as const,
+      rect: slashMenuRect ?? {
+        left: cursorCoords.left,
+        top: cursorCoords.bottom + 6,
+        bottom: cursorCoords.bottom + 6,
+      },
+    };
+    const replaceRange = isBlockStartTrigger(editor)
+      ? slashBlockRange ?? undefined
+      : prepareSlashBlockTarget(editor);
+    closeMenu();
+    if (replaceRange) openMediaLibraryReferencePicker(editor, replaceRange, pickerAnchor);
     return;
   }
 

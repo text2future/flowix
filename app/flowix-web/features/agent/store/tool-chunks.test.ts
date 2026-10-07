@@ -1,3 +1,4 @@
+import { mergeLiveMessagesIntoRenderableMessages } from "@features/agent/store/thread-history";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,6 +21,68 @@ function emptyState(): LiveMessageState {
 }
 
 describe("tool chunk idempotency", () => {
+  it("synchronizes Pi block commits to the displayed timeline without stale drafts or order", () => {
+    const scope = { adoptPendingId: true, draftScope: "run" };
+    let projection = emptyState();
+    let displayed = projection.messages;
+    const sync = (next: LiveMessageState) => {
+      projection = next;
+      displayed = mergeLiveMessagesIntoRenderableMessages(displayed, projection.messages, "pi");
+    };
+    sync(applyTextChunk(projection, "before", { ...scope, blockIndex: 0 }));
+    sync(applyTextChunk(projection, "after", { ...scope, blockIndex: 2 }));
+    const keys = displayed.map((row) => row.renderKey);
+    sync(applyTextChunk(projection, "before", {
+      ...scope, blockIndex: 0, id: "entry:block:0", nativeMessageId: "entry", contentMode: "snapshot", phase: "completed",
+    }));
+    sync(applyToolCallChunk(projection, "call", "read", {}, "pi", {
+      id: "call", parentMessageId: "entry", sourceSubsequence: 1,
+    }));
+    sync(applyTextChunk(projection, "after", {
+      ...scope, blockIndex: 2, id: "entry:block:2", nativeMessageId: "entry", contentMode: "snapshot", phase: "completed",
+    }));
+    expect(displayed.map((row) => row.id)).toEqual(["entry:block:0", "call", "entry:block:2"]);
+    expect(displayed[0].renderKey).toBe(keys[0]);
+    expect(displayed[2].renderKey).toBe(keys[1]);
+    expect(displayed.some((row) => row.messageId === null)).toBe(false);
+  });
+
+  it("keeps separate Pi text blocks around a tool throughout commit and replay", () => {
+    const scope = { adoptPendingId: true, draftScope: "run" };
+    const a = applyTextChunk(emptyState(), "before", { ...scope, blockIndex: 0 });
+    const aKey = a.messages[0].renderKey;
+    const b = applyTextChunk(a, "after", { ...scope, blockIndex: 2 });
+    const bKey = b.messages[1].renderKey;
+    const commitA = applyTextChunk(b, "before", {
+      ...scope, blockIndex: 0, id: "entry:block:0", nativeMessageId: "entry", phase: "completed", contentMode: "snapshot",
+    });
+    const call = applyToolCallChunk(commitA, "call", "read", {}, "pi", {
+      id: "call", parentMessageId: "entry", sourceSubsequence: 1,
+    });
+    const commitB = applyTextChunk(call, "after", {
+      ...scope, blockIndex: 2, id: "entry:block:2", nativeMessageId: "entry", phase: "completed", contentMode: "snapshot",
+    });
+    expect(commitB.messages.map((row) => row.id)).toEqual(["entry:block:0", "call", "entry:block:2"]);
+    expect(commitB.messages[0]).toMatchObject({ messageId: "entry", renderKey: aKey });
+    expect(commitB.messages[2]).toMatchObject({ messageId: "entry", renderKey: bKey });
+    const replay = applyTextChunk(commitB, "after", {
+      ...scope, blockIndex: 2, id: "entry:block:2", nativeMessageId: "entry", phase: "completed", contentMode: "snapshot",
+    });
+    expect(replay.messages).toBe(commitB.messages);
+  });
+
+  it("keeps Pi tool calls after streamed assistant text despite earlier native timestamps", () => {
+    const draft = applyTextChunk(emptyState(), "Let me check", { adoptPendingId: true, draftScope: "run" });
+    const committed = applyTextChunk(draft, "Let me check", {
+      id: "entry", adoptPendingId: true, draftScope: "run", contentMode: "snapshot", phase: "completed",
+      sourceTimestamp: 1, sourceSequence: 10, sourceSubsequence: 0,
+    });
+    const tool = applyToolCallChunk(committed, "call", "read", {}, "pi", {
+      id: "call", parentMessageId: "entry", sourceTimestamp: 1, sourceSequence: 10, sourceSubsequence: 1,
+    });
+    expect(tool.messages.map((row) => row.role)).toEqual(["assistant", "tool"]);
+  });
+
   it("reconciles a persisted user message with the optimistic row by id", () => {
     const optimistic: LiveMessageState = {
       ...emptyState(),
@@ -108,6 +171,34 @@ describe("tool chunk idempotency", () => {
       toolInput: { query: "complete" },
       isLoading: false,
     });
+  });
+
+  it("keeps sibling Pi tool calls distinct under their parent entry", () => {
+    const first = applyToolCallChunk(
+      emptyState(),
+      "call-1",
+      "read",
+      { path: "a" },
+      "pi",
+      { id: "call-1", parentMessageId: "assistant-entry" },
+    );
+    const second = applyToolCallChunk(
+      first,
+      "call-2",
+      "bash",
+      { command: "pwd" },
+      "pi",
+      { id: "call-2", parentMessageId: "assistant-entry" },
+    );
+
+    expect(second.messages.map(({ id, toolCallId, parentMessageId }) => ({
+      id,
+      toolCallId,
+      parentMessageId,
+    }))).toEqual([
+      { id: "call-1", toolCallId: "call-1", parentMessageId: "assistant-entry" },
+      { id: "call-2", toolCallId: "call-2", parentMessageId: "assistant-entry" },
+    ]);
   });
 
   it("does not reopen an already completed tool row", () => {

@@ -1,10 +1,12 @@
+import { canonicalDirectoryPath } from '@/lib/path';
+import { reuseCollectionValue } from '@features/collection/content-equality';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { externalDocuments, notes as notesClient, type NoteEntry } from '@platform/tauri/client';
 import { subscribe } from '@platform/tauri/event-bus';
 import { toast } from '@/lib/toast';
 import { findFileDisplayPath, type FileDisplayIdentity } from '@/lib/file-display-registry';
 import { parseTableDocumentAsync } from './parse-table-document';
-import { serializeTableDocument, validateTableDocument, type MultidimensionalTableDocument } from './model';
+import { serializeTableDocument, parseTableDocument, validateTableDocument, type MultidimensionalTableDocument } from './model';
 
 interface TableSessionOptions {
   filePath: string;
@@ -21,10 +23,26 @@ interface NoteChangeEvent {
   deleted?: boolean;
 }
 
-export function useTableSession({ filePath, fileIdentity, notebookPath, notebookId }: TableSessionOptions) {
+/** Apply the same path/default normalization to loads, rename replies and events. */
+function normalizeTableSessionDocument(document: MultidimensionalTableDocument): MultidimensionalTableDocument {
+  return {
+    ...document,
+    records: {
+      ...document.records,
+      data: document.records.data.map((record) => ({ ...record, note_path: record.note_path.replace(/\\/g, '/') })),
+      auto_collect: document.records.auto_collect ? {
+        ...document.records.auto_collect,
+        excluded_note_paths: document.records.auto_collect.excluded_note_paths.map((path) => path.replace(/\\/g, '/')),
+      } : null,
+    },
+  };
+}
+
+export function useTableSession({ filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId }: TableSessionOptions) {
+  const notebookPath = rawNotebookPath ? canonicalDirectoryPath(rawNotebookPath) : null;
   const displayId = fileIdentity?.displayId;
   const fileSessionId = displayId ?? filePath;
-  const sessionKey = JSON.stringify([fileSessionId, notebookPath, notebookId]);
+  const sessionKey = displayId ?? JSON.stringify([fileSessionId, notebookPath, notebookId]);
   const currentSessionKeyRef = useRef(sessionKey);
   currentSessionKeyRef.current = sessionKey;
   const getCurrentFilePath = useCallback(() => (
@@ -108,21 +126,7 @@ export function useTableSession({ filePath, fileIdentity, notebookPath, notebook
       // broken reference. A successful note-list read is not permission to
       // erase the path: the file may have moved or the index may be catching up.
       const sourceContent = source;
-      const normalizePaths = (table: MultidimensionalTableDocument) => ({
-        ...table,
-        records: {
-          ...table.records,
-          data: table.records.data.map((record) => ({
-            ...record,
-            note_path: record.note_path.replace(/\\/g, '/'),
-          })),
-          auto_collect: table.records.auto_collect ? {
-            ...table.records.auto_collect,
-            excluded_note_paths: table.records.auto_collect.excluded_note_paths.map((path) => path.replace(/\\/g, '/')),
-          } : null,
-        },
-      });
-      next = normalizePaths(next);
+      next = normalizeTableSessionDocument(next);
 
       sourceContentRef.current = { sessionKey: key, content: sourceContent };
       loadedSessionKeyRef.current = key;
@@ -217,7 +221,7 @@ export function useTableSession({ filePath, fileIdentity, notebookPath, notebook
       }
       const diskContent = await externalDocuments.read(getCurrentFilePath(), notebookPath);
       if (!isCurrent()) return;
-      const next = await parseTableDocumentAsync(diskContent);
+      const next = normalizeTableSessionDocument(await parseTableDocumentAsync(diskContent));
       if (!isCurrent()) return;
       const baseline = diskContent;
       if (savingRef.current) {
@@ -233,7 +237,10 @@ export function useTableSession({ filePath, fileIdentity, notebookPath, notebook
       sourceContentRef.current = { sessionKey: key, content: baseline };
       setNotes((current) => mergeEntries(current));
       setNotesLoadError(null);
-      if (sourceChanged) setDocument(next);
+      if (sourceChanged) setDocument((current) => current ? { ...next,
+        table: reuseCollectionValue(current.table, next.table),
+        records: reuseCollectionValue(current.records, next.records),
+      } : next);
       pendingTableSyncRef.current = false;
     } catch (error) {
       if (isCurrent()) setNotesLoadError(error instanceof Error ? error.message : String(error));
@@ -243,6 +250,7 @@ export function useTableSession({ filePath, fileIdentity, notebookPath, notebook
   useEffect(() => subscribe<NoteChangeEvent>(
     'flowix:path-note-changed',
     (event) => {
+      if (event.relativePath && /\.(table|lib)\.ya?ml$/i.test(event.relativePath)) return;
       if (event.notebookId === resolvedNotebookId) void syncNotes(event);
     },
   ), [resolvedNotebookId, syncNotes]);
@@ -309,6 +317,32 @@ export function useTableSession({ filePath, fileIdentity, notebookPath, notebook
     }
   }, [getCurrentFilePath, isCurrentSession, load, notebookPath, resolvedNotebookId, sessionKey, syncNotes]);
 
+  const acceptContent = useCallback((content: string) => {
+    const next = normalizeTableSessionDocument(parseTableDocument(content));
+    sourceContentRef.current = { sessionKey, content };
+    setDocument((current) => current ? { ...next,
+      table: reuseCollectionValue(current.table, next.table),
+      records: reuseCollectionValue(current.records, next.records),
+    } : next);
+  }, [sessionKey]);
+
+  const collectionId = document?.collection.id;
+  useEffect(() => subscribe<{ notebookId: string; collectionId: string; relativePath: string }>('collection-changed', (event) => {
+    if (event.notebookId !== resolvedNotebookId || event.collectionId !== collectionId || !notebookPath) return;
+    const key = sessionKey;
+    const sequence = loadSequenceRef.current;
+    void externalDocuments.read(`${canonicalDirectoryPath(notebookPath)}/${event.relativePath}`, notebookPath).then((content) => {
+      if (!isCurrentSession(sequence, key) || savingRef.current) return;
+      const next = normalizeTableSessionDocument(parseTableDocument(content));
+      if (next.collection.id !== collectionId) return;
+      sourceContentRef.current = { sessionKey: key, content };
+      setDocument((current) => current ? { ...next,
+        table: reuseCollectionValue(current.table, next.table),
+        records: reuseCollectionValue(current.records, next.records),
+      } : next);
+    }).catch(() => undefined);
+  }), [collectionId, isCurrentSession, notebookPath, resolvedNotebookId, sessionKey]);
+
   const stateIsCurrent = stateSessionKey === sessionKey;
   return {
     document: stateIsCurrent ? document : null,
@@ -321,6 +355,7 @@ export function useTableSession({ filePath, fileIdentity, notebookPath, notebook
     notesLoadError: stateIsCurrent ? notesLoadError : null,
     load,
     save,
+    acceptContent,
     isCurrentSession: isCurrentSessionForKey,
     loadSequenceRef,
     loadGeneration,

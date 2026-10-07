@@ -6,6 +6,7 @@ export {
   restoreExternalDocumentWorkspace,
   restoreMediaWorkspace,
   restoreTableWorkspace,
+  restoreCollectionWorkspace,
 } from '@features/workspace/use-cases/workspace-navigation';
 export type { PersistedWorkspaceTarget } from '@features/workspace/store/workspace-restore-store';
 

@@ -1,3 +1,4 @@
+import { messageRenderKey } from "@features/agent/message/render-identity";
 import type { ThreadState } from "@features/agent/store/thread-runtime-state";
 import type {
   AgentMessage,
@@ -305,7 +306,7 @@ export function patchLastRenderedAgentMessage(
   if (
     !options.force &&
     (previousLastMessage === nextLastMessage ||
-      previousLastMessage.id !== nextLastMessage.id ||
+      messageRenderKey(previousLastMessage) !== messageRenderKey(nextLastMessage) ||
       previousLastMessage.role !== nextLastMessage.role)
   ) {
     return null;
@@ -395,6 +396,33 @@ export function appendRenderedAgentMessagesToTail(
     context,
   );
   if (updatedToolGroups === null) return null;
+
+  // The previous tail is no longer streaming once another row is appended.
+  // Its message reference can remain unchanged, so reusing the row alone
+  // would skip Markdown finalization and Shiki highlighting permanently.
+  const previousTail = newRendered[oldRefs.length - 1];
+  if (previousTail.kind === "message") {
+    const message = previousTail.message;
+    if (
+      (message.role === "assistant" || message.role === "user" ||
+        (message.role === "reasoning" && !context.getReasoningCollapsed(message))) &&
+      !context.isStreaming(message)
+    ) {
+      const item = list.children[oldRefs.length - 1];
+      const content = item.querySelector<HTMLElement>(".agent-thread-card__message-content");
+      if (content?.parentElement) {
+        renderAgentThreadCardBudgetedMarkdown({
+          message,
+          role: message.role,
+          visibleContent: createAgentMessageViewModel(message, context.language).visibleContent,
+          content,
+          toggleParent: content.parentElement,
+          context,
+          isStreaming: false,
+        });
+      }
+    }
+  }
 
   const appended = newRendered.slice(oldRefs.length);
   let appendedCount = 0;

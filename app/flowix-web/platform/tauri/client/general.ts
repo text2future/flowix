@@ -338,7 +338,7 @@ export interface NotebookFeaturedNoteFilter {
   conditions: NotebookFeaturedNoteCondition[];
   tableSelection?: {
     relativePath: string;
-    tableId: string;
+    collectionId: string;
     viewId?: string;
   } | null;
 }

@@ -16,6 +16,75 @@ function message(id: string, role: ChatMessage["role"], content: string): ChatMe
 }
 
 describe("reconcileHistorySnapshot", () => {
+  it("keeps a native Pi message completed after the history read began", () => {
+    const user = { ...message("user", "user", "prompt"), messageId: "user" };
+    const committed = { ...message("entry:block:0", "assistant", "new answer"), messageId: "entry", renderKey: "draft-key", piBlockIndex: 0 };
+    const result = reconcileHistorySnapshot({ agentType: "pi", current: [user, committed], requestProjection: [user], reason: "recovery", snapshot: {
+      messages: [user], revision: null, oldestCursor: null, hasMore: false,
+    } });
+    expect(result.messages.map((row) => row.id)).toEqual(["user", "entry:block:0"]);
+    expect(result.messages[1]).toBe(committed);
+  });
+
+  it("does not roll back a Pi tool result that advanced during the RPC read", () => {
+    const pending = { ...message("call", "tool", ""), messageId: "call", renderKey: "call", isLoading: true };
+    const finished = { ...pending, content: "result", isLoading: false };
+    const result = reconcileHistorySnapshot({ agentType: "pi", current: [finished], requestProjection: [pending], reason: "recovery", snapshot: {
+      messages: [pending], revision: null, oldestCursor: null, hasMore: false,
+    } });
+    expect(result.messages[0]).toBe(finished);
+  });
+
+  it("protects a draft that adopted its native Pi ID during the request", () => {
+    const draft = { ...message("draft:run:assistant:1", "assistant", "partial"), messageId: null, renderKey: "stable" };
+    const committed = { ...draft, id: "native:block:0", messageId: "native", content: "complete", piBlockIndex: 0 };
+    const result = reconcileHistorySnapshot({ agentType: "pi", current: [committed], requestProjection: [draft], reason: "recovery", snapshot: {
+      messages: [], revision: null, oldestCursor: null, hasMore: false,
+    } });
+    expect(result.messages[0]).toBe(committed);
+  });
+
+  it("removes the old branch tail from a latest Pi page while keeping the loaded prefix", () => {
+    const prefix = { ...message("older", "user", "earlier page"), messageId: "older" };
+    const anchor = { ...message("user", "user", "prompt"), messageId: "user" };
+    const old = { ...message("old", "assistant", "old branch"), messageId: "old" };
+    const next = { ...message("new", "assistant", "new branch"), messageId: "new" };
+    const draft = { ...message("draft", "assistant", "pending"), messageId: null };
+    const result = reconcileHistorySnapshot({ agentType: "pi", current: [prefix, anchor, old, draft], reason: "recovery", snapshot: {
+      messages: [anchor, next], revision: null, oldestCursor: 100, hasMore: true,
+    } });
+    expect(result.messages.map((row) => row.id)).toEqual(["older", "user", "new", "draft"]);
+  });
+
+  it("recovers a finished Pi tool while preserving its render key", () => {
+    const current = [{ ...message("call", "tool", ""), messageId: "call", renderKey: "stable", isLoading: true }];
+    const result = reconcileHistorySnapshot({ agentType: "pi", current, reason: "recovery", snapshot: {
+      messages: [{ ...message("call", "tool", "finished"), messageId: "call", isLoading: false, isCompleted: true }],
+      revision: null, oldestCursor: null, hasMore: false,
+    } });
+    expect(result.messages[0]).toMatchObject({ content: "finished", isLoading: false, isCompleted: true, renderKey: "stable" });
+  });
+
+  it("replaces an abandoned Pi branch but keeps an uncommitted draft", () => {
+    const user = { ...message("user", "user", "prompt"), messageId: "user" };
+    const old = { ...message("old", "assistant", "old branch"), messageId: "old" };
+    const draft = { ...message("draft:run:assistant:1", "assistant", "pending"), messageId: null };
+    const result = reconcileHistorySnapshot({ agentType: "pi", current: [user, old, draft], reason: "recovery", snapshot: {
+      messages: [user, { ...message("new", "assistant", "new branch"), messageId: "new" }],
+      revision: null, oldestCursor: null, hasMore: false,
+    } });
+    expect(result.messages.map((row) => row.id)).toEqual(["user", "new", draft.id]);
+  });
+
+  it("preserves a loaded prefix for a paged Pi snapshot", () => {
+    const prefix = { ...message("prefix", "user", "older"), messageId: "prefix" };
+    const tail = { ...message("tail", "assistant", "answer"), messageId: "tail" };
+    const result = reconcileHistorySnapshot({ agentType: "pi", current: [prefix, tail], reason: "open", snapshot: {
+      messages: [tail], revision: null, oldestCursor: 1, hasMore: true,
+    } });
+    expect(result.messages).toEqual([prefix, tail]);
+  });
+
   it("rejects only an older comparable sequence revision", () => {
     expect(isOlderHistorySnapshot(12, 11)).toBe(true);
     expect(isOlderHistorySnapshot(12, 12)).toBe(false);

@@ -1,4 +1,5 @@
 import { Marked } from "marked";
+import { createLogger } from "@/lib/logger";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
 import { sanitizeLinkHref } from "@/lib/safe-link";
 import type { AgentThreadCardInputImage } from "@features/agent/thread-card/composer/composer-image-controller";
@@ -59,6 +60,7 @@ export function parseFlowixAgentThreadCardComment(source: string): {
 
 const AGENT_SHIKI_THEME_DATASET = "agentShikiTheme";
 const AGENT_THEME_CHANGE_EVENT = "app-theme-changed";
+const logger = createLogger("agent-code-highlight");
 
 function getAgentCodeBlockLanguage(code: Element): {
   language: string;
@@ -119,7 +121,9 @@ function appendAgentShikiTokens(
         return;
       }
       const span = document.createElement("span");
-      span.setAttribute("style", style);
+      // Tauri adds a style-src nonce in production, blocking style attributes.
+      // Apply generated token styles through CSSOM so the colors remain visible.
+      span.style.cssText = style;
       span.textContent = token.content;
       fragment.append(span);
     });
@@ -142,12 +146,16 @@ export async function highlightAgentThreadCardCodeBlocks(
 
   try {
     await loadHighlighter();
-  } catch {
+  } catch (error) {
+    logger.warn("Shiki initialization failed", { error });
     return;
   }
 
   const highlighter = getShiki();
-  if (!highlighter) return;
+  if (!highlighter) {
+    logger.warn("Shiki initialization completed without a highlighter");
+    return;
+  }
 
   const requestedTheme = readAgentShikiTheme();
   const theme = highlighter.getLoadedThemes().includes(requestedTheme)
@@ -167,7 +175,8 @@ export async function highlightAgentThreadCardCodeBlocks(
     if (language !== "plaintext") {
       try {
         await loadLanguage(language);
-      } catch {
+      } catch (error) {
+        logger.warn("Shiki language load failed", { language, error });
         return;
       }
     }
@@ -187,7 +196,8 @@ export async function highlightAgentThreadCardCodeBlocks(
       const lines = highlighter.codeToTokensBase(source, { lang: language, theme });
       appendAgentShikiTokens(code, lines);
       pre.dataset[AGENT_SHIKI_THEME_DATASET] = theme;
-    } catch {
+    } catch (error) {
+      logger.warn("Shiki tokenization failed", { language, theme, error });
       // Unsupported or malformed languages remain as the original plain code.
     }
   }));

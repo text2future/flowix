@@ -1,6 +1,6 @@
 //! Transport-neutral Flowix operations shared by CLI and MCP adapters.
 
-use crate::{errors::CliError, fmt, output, path_store, plugin, store};
+use crate::{collection_store, errors::CliError, fmt, output, path_store, plugin, store};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,11 @@ pub(crate) enum FlowixOperation {
     },
     Delete {
         address: String,
+    },
+    CollectionRead {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
     },
     ArtifactList,
     ArtifactDescribe {
@@ -117,6 +122,9 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
         }
         FlowixOperation::Delete { address } => {
             path_store::delete(&address)
+        }
+        FlowixOperation::CollectionRead { notebook, collection_id, path } => {
+            collection_store::read(&notebook, collection_id.as_deref(), path.as_deref())
         }
         FlowixOperation::ArtifactList => output::to_json_value(&plugin::list_data()),
         FlowixOperation::ArtifactDescribe { plugin_id } => {

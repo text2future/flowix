@@ -34,7 +34,9 @@ export function compareAgentMessageOrder(
 export function insertAgentMessageBySourceOrder(
   messages: ChatMessage[],
   message: ChatMessage,
+  preserveArrivalOrder = false,
 ): ChatMessage[] {
+  if (preserveArrivalOrder) return [...messages, message];
   if (
     message.sourceTimestamp === undefined &&
     message.sourceSequence === undefined
@@ -47,4 +49,27 @@ export function insertAgentMessageBySourceOrder(
   );
   if (insertAt < 0) return [...messages, message];
   return [...messages.slice(0, insertAt), message, ...messages.slice(insertAt)];
+}
+
+/** Sort only blocks belonging to one native Pi message. Other messages keep
+ * their arrival/branch positions; no timestamps or run-local sequences mix. */
+export function orderPiMessageBlocks(messages: ChatMessage[]): ChatMessage[] {
+  const groups = new Map<string, number[]>();
+  messages.forEach((row, index) => {
+    if (!row.parentMessageId || row.piBlockIndex === undefined) return;
+    const indices = groups.get(row.parentMessageId) ?? [];
+    indices.push(index);
+    groups.set(row.parentMessageId, indices);
+  });
+  let result = messages;
+  for (const indices of groups.values()) {
+    const ordered = indices.map((index) => messages[index])
+      .sort((left, right) => left.piBlockIndex! - right.piBlockIndex!);
+    indices.forEach((index, offset) => {
+      if (messages[index] === ordered[offset]) return;
+      if (result === messages) result = [...messages];
+      result[index] = ordered[offset];
+    });
+  }
+  return result;
 }

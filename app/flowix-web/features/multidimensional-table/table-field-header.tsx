@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
-import { TrashSimpleIcon } from '@phosphor-icons/react';
+import { FunnelIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { files, type NotebookFolderOption } from '@platform/tauri/client';
 import { ResourceFolderIcon } from '@features/surface/resource-file-icon';
 import type { PropertyPreset } from '@features/document/properties/presets';
@@ -280,10 +280,11 @@ export function TableFieldHeader({
       <button type="button" disabled={saving} title={conditionOnly ? '管理数据集' : field.property_key ?? '笔记文档'} aria-label={conditionOnly ? '管理数据集' : `编辑属性 ${label}`} className={compact
         ? 'flex h-8 min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden rounded-lg px-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] disabled:opacity-50'
         : conditionOnly
-          ? 'shrink-0 rounded-md px-2.5 py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+          ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg p-0 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
         : 'multidimensional-table__cell-content multidimensional-table__header-trigger group flex min-h-9 min-w-0 items-center gap-x-1.5 text-left text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] data-[state=open]:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60'}>
+        {conditionOnly && <FunnelIcon size={14} weight="bold" aria-hidden="true" />}
         {!conditionOnly && <FieldTypeIcon kind={typeIconKind(field.type)} title={typeLabel(field.type)} compact={compact} />}
-        <span className={compact ? 'block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap' : 'min-w-0 break-words'}>{conditionOnly ? '数据集' : label}</span>
+        {!conditionOnly && <span className={compact ? 'block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap' : 'min-w-0 break-words'}>{label}</span>}
       </button>
     </PopoverTrigger>
     <PopoverContent align={conditionOnly ? 'end' : 'start'} side="bottom" sideOffset={0} fitViewport style={{ zIndex: conditionOnly ? 150 : 160 }} ignorePopoverOutside={typeMenuOpen || presetMenuOpen || autoCollectMenuOpen || ignoreConditionPanelOutside} ignoreSelectOutside={field.type === 'primary'} className={`max-h-[min(70vh,420px)] ${conditionOnly ? 'w-[220px] px-1 py-1 overflow-x-hidden' : 'w-[213px] px-0.5 py-2'} max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>

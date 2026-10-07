@@ -17,7 +17,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     LATEST_PROTOCOL_VERSION,
 ];
 
-pub const TOOL_DESCRIPTION: &str = "Search, read, create, edit, and delete Flowix Markdown notes by notebook ID and relative path. Also supports declared artifacts. Delete is destructive.";
+pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix Markdown notes, read table and media library collection datasets by collection ID or notebook-relative path, and use declared artifacts. Delete is destructive.";
 
 /// Run the MCP line-delimited JSON-RPC loop until stdin reaches EOF.
 pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W) -> Result<(), CliError> {
@@ -76,7 +76,7 @@ fn initialize_result(params: &Value) -> Value {
             "title": "Flowix Memo",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Use the memo tool to search, read, create, and edit Flowix Markdown memos, and to create declared plugin artifacts such as mind maps."
+        "instructions": "Use the memo tool to search and manage Flowix Markdown memos, read collection datasets with collection.read by collectionId or notebook-relative path, and create declared plugin artifacts such as mind maps."
     })
 }
 
@@ -168,6 +168,8 @@ fn validate_argument_keys(arguments: &Map<String, Value>) -> Result<(), CliError
         "pluginId",
         "sourceNote",
         "producer",
+        "collectionId",
+        "path",
         "tag",
         "command",
         "stdin",
@@ -193,6 +195,14 @@ fn parse_structured_operation(
     let dry_run = boolean(arguments, "dryRun", false)?;
     match action.as_str() {
         "notebooks" => Ok(FlowixOperation::Notebooks),
+        "collection.read" => {
+            let notebook = required_string(arguments, "notebook")?;
+            Ok(FlowixOperation::CollectionRead {
+                notebook,
+                collection_id: optional_string(arguments, "collectionId")?,
+                path: optional_string(arguments, "path")?,
+            })
+        }
         "list" => Ok(FlowixOperation::List {
             notebook,
             limit,
@@ -349,6 +359,12 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
         cli::Cli::Delete { id, .. } => {
             reject_stdin(stdin)?;
             path_store::delete(&id)
+        }
+        cli::Cli::CollectionRead { notebook, collection_id, path, .. } => {
+            reject_stdin(stdin)?;
+            operation::execute(operation::FlowixOperation::CollectionRead {
+                notebook, collection_id, path,
+            })
         }
         cli::Cli::Search {
             query,

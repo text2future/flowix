@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { STORAGE_KEYS } from '@/lib/constants';
-import type { DocumentListTarget } from './work-column-target';
+import type { CollectionWorkspaceTarget, DocumentListTarget } from './work-column-target';
 
 interface AgentConversationRestoreState {
   selectedInstanceId: string | null;
@@ -10,6 +10,7 @@ interface AgentConversationRestoreState {
 }
 
 export type PersistedWorkspaceTarget =
+  | CollectionWorkspaceTarget
   | DocumentListTarget
   | { kind: 'external'; path: string; scopePath: string | null }
   | { kind: 'table'; filePath: string; notebookPath: string | null; notebookId: string | null }
@@ -96,7 +97,8 @@ export const useWorkspaceRestoreStore = create<WorkspaceRestoreStore>()(
           ...state,
           version: 6 as const,
           agentConversation: state?.agentConversation ?? EMPTY_AGENT_CONVERSATION_RESTORE,
-          desiredTarget: desiredTarget?.kind === 'external'
+          desiredTarget: desiredTarget?.kind === 'collection'
+            || desiredTarget?.kind === 'external'
             || desiredTarget?.kind === 'table'
             || desiredTarget?.kind === 'media'
             || desiredTarget?.kind === 'agent-conversation'

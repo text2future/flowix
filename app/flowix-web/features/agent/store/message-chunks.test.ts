@@ -5,6 +5,7 @@ import {
   applyTextChunk,
   applyUserMessageChunk,
 } from "@features/agent/store/message-chunks";
+import { applyToolCallChunk } from "@features/agent/store/tool-chunks";
 import type { LiveMessageState } from "@features/agent/store/chunk-result";
 
 function emptyState(): LiveMessageState {
@@ -16,6 +17,31 @@ function emptyState(): LiveMessageState {
 }
 
 describe("assistant message chunks", () => {
+  it("keeps a run-scoped render key while adopting native Pi message identity", () => {
+    const draft = applyTextChunk(emptyState(), "answer", {
+      draftScope: "run-pi-1", adoptPendingId: true, contentMode: "delta",
+    });
+    const key = draft.messages[0].renderKey;
+    expect(key).toMatch(/^draft:run-pi-1:assistant:/);
+    expect(draft.messages[0].messageId).toBeNull();
+    const completed = applyTextChunk(draft, "answer", {
+      id: "native-entry-1", adoptPendingId: true, phase: "completed", contentMode: "snapshot",
+    });
+    expect(completed.messages[0]).toMatchObject({
+      id: "native-entry-1", messageId: "native-entry-1", renderKey: key, isCompleted: true,
+    });
+    const duplicate = applyTextChunk(completed, "answer", {
+      id: "native-entry-1", adoptPendingId: true, phase: "completed", contentMode: "snapshot",
+    });
+    expect(duplicate.messages).toBe(completed.messages);
+    const nextDraft = applyTextChunk(completed, "answer", {
+      draftScope: "run-pi-1", adoptPendingId: true, contentMode: "delta",
+    });
+    expect(nextDraft.messages).toHaveLength(2);
+    expect(nextDraft.messages[1].renderKey).not.toBe(key);
+    expect(nextDraft.messages[1].messageId).toBeNull();
+  });
+
   it("preserves the Codex turn id when the first chunk has a message id", () => {
     const result = applyTextChunk(emptyState(), "answer", {
       id: "assistant-item-1",
@@ -86,6 +112,103 @@ describe("assistant message chunks", () => {
     expect(completed.pendingAssistantId).toBeNull();
   });
 
+  it("adopts the Pi session entry id when the streamed delta had no id", () => {
+    const streamed = applyTextChunk(emptyState(), "answer", {
+      phase: "updated",
+      contentMode: "delta",
+    });
+    const completed = applyTextChunk(streamed, "answer", {
+      id: "67575cb5",
+      phase: "completed",
+      contentMode: "snapshot",
+    });
+
+    expect(completed.messages).toHaveLength(1);
+    expect(completed.messages[0]).toMatchObject({
+      id: "67575cb5",
+      content: "answer",
+    });
+    expect(completed.pendingAssistantId).toBeNull();
+  });
+
+  it("keeps Pi block-end snapshots pending until the message-end entry id arrives", () => {
+    const blockEnded = applyTextChunk(emptyState(), "answer", {
+      phase: "updated",
+      contentMode: "snapshot",
+    });
+    expect(blockEnded.pendingAssistantId).not.toBeNull();
+
+    const messageEnded = applyTextChunk(blockEnded, "answer", {
+      id: "pi-entry-1",
+      phase: "completed",
+      contentMode: "snapshot",
+    });
+
+    expect(messageEnded.messages).toHaveLength(1);
+    expect(messageEnded.messages[0]).toMatchObject({
+      id: "pi-entry-1",
+      content: "answer",
+    });
+    expect(messageEnded.pendingAssistantId).toBeNull();
+  });
+
+  it("lets the Pi message lifecycle reconcile an authoritative changed snapshot", () => {
+    const draft = applyTextChunk(emptyState(), "partial answer", {
+      phase: "updated",
+      contentMode: "snapshot",
+    });
+    const committed = applyTextChunk(draft, "final answer", {
+      id: "pi-entry-final",
+      phase: "completed",
+      contentMode: "snapshot",
+      adoptPendingId: true,
+    });
+
+    expect(committed.messages).toHaveLength(1);
+    expect(committed.messages[0]).toMatchObject({
+      id: "pi-entry-final",
+      content: "final answer",
+    });
+  });
+
+  it("keeps pre-tool Pi text under the native assistant entry id", () => {
+    const draft = applyTextChunk(emptyState(), "I will inspect the file.", {
+      contentMode: "delta",
+    });
+    const completed = applyTextChunk(draft, "I will inspect the file.", {
+      id: "pi-assistant-entry",
+      phase: "completed",
+      contentMode: "snapshot",
+      adoptPendingId: true,
+    });
+    const withTool = applyToolCallChunk(
+      completed,
+      "pi-tool-call",
+      "read",
+      { path: "README.md" },
+      "pi",
+      {
+        id: "pi-tool-call",
+        parentMessageId: "pi-assistant-entry",
+        sourceSequence: 3,
+        sourceSubsequence: 1,
+      },
+    );
+
+    expect(withTool.messages).toHaveLength(2);
+    expect(withTool.messages[0]).toMatchObject({
+      id: "pi-assistant-entry",
+      role: "assistant",
+      content: "I will inspect the file.",
+    });
+    expect(withTool.messages[1]).toMatchObject({
+      id: "pi-tool-call",
+      role: "tool",
+      toolCallId: "pi-tool-call",
+      parentMessageId: "pi-assistant-entry",
+    });
+  });
+
   it("does not collapse distinct Codex item ids with identical text", () => {
     const first = applyTextChunk(emptyState(), "answer", {
       id: "assistant-item-1",
@@ -143,9 +266,90 @@ describe("assistant message chunks", () => {
     expect(duplicate.messages).toBe(streamed.messages);
     expect(duplicate.pendingReasoningId).toBeNull();
   });
+
+  it("adopts closed Pi thinking after text starts without duplicating the draft", () => {
+    const metadata = { adoptPendingId: true, draftScope: "run" };
+    const thinking = applyReasoningChunk(emptyState(), "plan", metadata);
+    const key = thinking.messages[0].renderKey;
+    const text = applyTextChunk(thinking, "answer", metadata);
+    expect(text.pendingReasoningId).toBeNull();
+    const committed = applyReasoningChunk(text, "final plan", {
+      ...metadata, id: "entry", contentMode: "snapshot", phase: "completed",
+    });
+    expect(committed.messages).toHaveLength(2);
+    expect(committed.messages[0]).toMatchObject({ messageId: "entry", renderKey: key, content: "final plan" });
+    const duplicate = applyReasoningChunk(committed, "final plan", {
+      ...metadata, id: "entry", contentMode: "snapshot", phase: "completed",
+    });
+    expect(duplicate.messages).toBe(committed.messages);
+  });
+
+  it("adopts a Pi reasoning draft after thinking_end completes only its block", () => {
+    const blockEnded = applyReasoningChunk(emptyState(), "plan", {
+      phase: "updated",
+      contentMode: "snapshot",
+    });
+    expect(blockEnded.pendingReasoningId).not.toBeNull();
+    expect(blockEnded.messages[0].isCompleted).toBe(false);
+
+    const messageEnded = applyReasoningChunk(blockEnded, "plan", {
+      id: "pi-entry-2",
+      phase: "completed",
+      contentMode: "snapshot",
+    });
+
+    expect(messageEnded.messages).toHaveLength(1);
+    expect(messageEnded.messages[0]).toMatchObject({
+      id: "pi-entry-2",
+      role: "reasoning",
+      isCompleted: true,
+    });
+    expect(messageEnded.pendingReasoningId).toBeNull();
+  });
+
+  it("reconciles a changed Pi reasoning snapshot using message lifecycle", () => {
+    const draft = applyReasoningChunk(emptyState(), "partial plan", {
+      phase: "updated",
+      contentMode: "snapshot",
+    });
+    const committed = applyReasoningChunk(draft, "final plan", {
+      id: "pi-entry-thinking",
+      phase: "completed",
+      contentMode: "snapshot",
+      adoptPendingId: true,
+    });
+
+    expect(committed.messages).toHaveLength(1);
+    expect(committed.messages[0]).toMatchObject({
+      id: "pi-entry-thinking",
+      role: "reasoning",
+      content: "final plan",
+      isCompleted: true,
+    });
+  });
 });
 
 describe("user message chunks", () => {
+  it("adopts the Pi session entry id on the optimistic user row", () => {
+    const optimisticId = "user-run-1";
+    const optimistic = applyUserMessageChunk(emptyState(), "second prompt", {
+      id: optimisticId,
+      phase: "completed",
+    });
+    const providerBacked = applyUserMessageChunk(optimistic, "second prompt", {
+      id: "a58b853d",
+      phase: "completed",
+      optimisticId,
+    });
+
+    expect(providerBacked.messages).toHaveLength(1);
+    expect(providerBacked.messages[0]).toMatchObject({
+      id: "a58b853d",
+      role: "user",
+      content: "second prompt",
+    });
+  });
+
   const optimisticRow = {
     id: "user-run-1",
     role: "user" as const,

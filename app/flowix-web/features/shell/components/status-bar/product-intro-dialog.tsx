@@ -62,7 +62,9 @@ export function ProductIntroDialog({ open, onOpenChange }: ProductIntroDialogPro
           </div>
 
           <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2 sm:gap-4 sm:p-7 lg:p-9">
-            {featureItems.map(({ key, icon: Icon, caseStudy }, index) => {
+            {featureItems.map((item, index) => {
+              const { key, icon: Icon } = item;
+              const caseStudy = 'caseStudy' in item && item.caseStudy;
               return (
                 <section
                   key={key}

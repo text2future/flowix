@@ -1,4 +1,5 @@
-import type { Icon } from '@phosphor-icons/react';
+import { forwardRef } from 'react';
+import type { Icon, IconProps } from '@phosphor-icons/react';
 import { GalleryHorizontalEnd } from 'lucide-react';
 import {
   FileCodeIcon,
@@ -107,27 +108,36 @@ function isTableDocumentPath(path: string): boolean {
   return /\.table\.ya?ml$/i.test(path);
 }
 
-function TableDocumentIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
-      <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
-      </g>
-    </svg>
-  );
-}
+/**
+ * 多维表格 (`.table.yaml`) 的统一图标 ── 侧边栏文件树、文档视图、slash 菜单
+ * 「视图」分区共用。导出为 Phosphor 兼容组件 (forwardRef + IconProps),
+ * 以便直接作为 SlashMenuItem.icon 使用 (多余的 weight 等 props 会被忽略)。
+ */
+export const TableDocumentIcon = forwardRef<SVGSVGElement, IconProps>(
+  function TableDocumentIcon({ className }, ref) {
+    return (
+      <svg ref={ref} xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
+        <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
+        </g>
+      </svg>
+    );
+  },
+);
 
-function MediaLibraryIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
-      <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2 7v10" />
-        <path d="M6 5v14" />
-        <rect width="12" height="18" x="10" y="3" rx="2" />
-      </g>
-    </svg>
-  );
-}
+export const MediaLibraryIcon = forwardRef<SVGSVGElement, IconProps>(
+  function MediaLibraryIcon({ className }, ref) {
+    return (
+      <svg ref={ref} xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
+        <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 7v10" />
+          <path d="M6 5v14" />
+          <rect width="12" height="18" x="10" y="3" rx="2" />
+        </g>
+      </svg>
+    );
+  },
+);
 
 function CustomFileIcon({ kind, className }: { kind: FileIconKind; className?: string }) {
   if (kind === 'image') return <ImageFileIcon className={className} />;

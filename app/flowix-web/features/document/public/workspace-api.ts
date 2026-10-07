@@ -142,3 +142,11 @@ export type {
   MediaHistoryEntry,
   ExternalDocumentSession,
 };
+
+export function getWorkspaceDocumentHistory(): DocumentHistoryEntry[] {
+  const state = useDocumentHistoryStore.getState();
+  return [...state.backStack, ...state.forwardStack];
+}
+export function subscribeWorkspaceDocumentHistory(listener: () => void): () => void {
+  return useDocumentHistoryStore.subscribe(listener);
+}

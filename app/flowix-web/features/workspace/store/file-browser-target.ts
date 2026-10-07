@@ -1,3 +1,4 @@
+import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { canonicalPath } from '@/lib/path';
 
 export interface FileBrowserContext {
@@ -13,6 +14,8 @@ export interface FileBrowserContext {
 export interface FileBrowserTarget extends FileBrowserContext {
   kind: 'file-browser';
   activeFilePath: string | null;
+  collectionDisplay?: CollectionDisplayDescriptor;
+  collectionUnavailableReason?: string;
 }
 
 /** Longest directory-boundary match; preserve filesystem case semantics. */

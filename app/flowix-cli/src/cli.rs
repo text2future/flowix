@@ -37,6 +37,12 @@ pub enum Cli {
         id: String,
         json: bool,
     },
+    CollectionRead {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        json: bool,
+    },
     Search {
         query: String,
         notebook: Option<String>,
@@ -146,6 +152,16 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Cli>, CliError> {
             id: required_string(sub, "id")?,
             json,
         })),
+        Some(("collection", sub)) => match sub.subcommand() {
+            Some(("read", command)) => Ok(Some(Cli::CollectionRead {
+                notebook: required_string(command, "notebook")?,
+                collection_id: command.get_one::<String>("collection-id").cloned(),
+                path: command.get_one::<String>("path").cloned(),
+                json,
+            })),
+            Some((other, _)) => Err(CliError::Usage(format!("unknown collection command: `{other}`"))),
+            None => Err(CliError::Usage(format!("usage: {DISPLAY_BIN} collection read"))),
+        },
         Some(("edit", sub)) => Ok(Some(Cli::Edit {
             id: required_string(sub, "id")?,
             old: joined_values(sub, "old"),
@@ -217,7 +233,7 @@ pub(crate) fn cli_command() -> Command {
     Command::new(DISPLAY_BIN)
         .version(env!("CARGO_PKG_VERSION"))
         .about("Manage local Flowix notebooks, Markdown notes, and artifacts")
-        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix mcp")
+        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix collection read --notebook <notebook-id> --path 'Assets/Images.lib.yaml' --json\n  flowix mcp")
         .arg(
             Arg::new("json")
                 .long("json")
@@ -247,6 +263,24 @@ pub(crate) fn cli_command() -> Command {
                 .group(clap::ArgGroup::new("input").args(["file", "stdin"]).multiple(false)),
         )
         .subcommand(Command::new("delete").about("Delete a note").arg(required_arg("id")))
+        .subcommand(
+            Command::new("collection")
+                .about("Read collection datasets")
+                .subcommand_required(true)
+                .subcommand(
+                    Command::new("read")
+                        .about("Read one table or media library collection")
+                        .arg(Arg::new("notebook").long("notebook").required(true).num_args(1))
+                        .arg(Arg::new("collection-id").long("id").num_args(1))
+                        .arg(Arg::new("path").long("path").num_args(1))
+                        .group(
+                            clap::ArgGroup::new("selector")
+                                .args(["collection-id", "path"])
+                                .required(true)
+                                .multiple(false),
+                        ),
+                ),
+        )
         .subcommand(
             Command::new("edit")
                 .about("Replace one exact occurrence in a note")

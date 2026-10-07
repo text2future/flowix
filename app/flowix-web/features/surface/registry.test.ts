@@ -47,6 +47,7 @@ function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
     case 'unavailable-file':
       return {
         kind, instanceKey: 'unavailable:1', fileIdentity: fileIdentity('/workspace/archive.bin'),
+        scopePath: '/workspace',
         props: { isExternalDocument: true },
       };
     case 'media':

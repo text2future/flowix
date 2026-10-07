@@ -1,7 +1,8 @@
 import type { ChatMessage, ThreadListItem } from "@/types";
-import type { AgentTypeKey } from "@/types/agent";
+import type { PiHistoryRevision, AgentTypeKey } from "@/types/agent";
 import { agentClient } from "@features/agent/store/agent-client";
-import { pagePiHistory, parsePiHistoryMessages } from "@features/agent/runtime/pi-history";
+import { parsePiHistoryMessages } from "@features/agent/runtime/pi-history";
+import { PiHistorySnapshotChangedError } from "@features/agent/store/pi-message-reconciliation";
 
 export interface ThreadHistoryPage {
   messages: ChatMessage[];
@@ -9,6 +10,8 @@ export interface ThreadHistoryPage {
   hasMore: boolean;
   /** Pins subsequent pages to the same provider/journal snapshot when supported. */
   snapshotSequence?: number | null;
+  piRevision?: PiHistoryRevision;
+  piBeforeEntryId?: string | null;
 }
 
 export interface AgentHistoryAdapter {
@@ -22,6 +25,8 @@ export interface AgentHistoryAdapter {
     beforeSequence: number | null,
     limit: number,
     snapshotSequence?: number | null,
+    piRevision?: PiHistoryRevision,
+    piBeforeEntryId?: string | null,
   ): Promise<ThreadHistoryPage>;
 }
 
@@ -120,23 +125,42 @@ function createOpenCodeHistoryAdapter(): AgentHistoryAdapter {
 }
 
 function createPiHistoryAdapter(): AgentHistoryAdapter {
-  const readMessages = async (threadId: string) =>
-    parsePiHistoryMessages(threadId, await agentClient.getPiSessionMessages(threadId));
+  const readPage = async (threadId: string, before: string | null, limit: number, revision?: PiHistoryRevision): Promise<ThreadHistoryPage> => {
+    let page;
+    try {
+      page = await agentClient.getPiSessionPage(threadId, before, limit, revision);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Pi history branch changed")) {
+        throw new PiHistorySnapshotChangedError();
+      }
+      throw error;
+    }
+    return {
+      messages: parsePiHistoryMessages(threadId, page.messages), oldestSequence: page.oldestSequence,
+      snapshotSequence: page.snapshotSequence, hasMore: page.hasMore,
+      piRevision: page.revision, piBeforeEntryId: page.beforeEntryId,
+    };
+  };
   return {
     typeKey: "pi",
     externalSessionBacked: true,
     listThreads: () => agentClient.listPiThreads(),
-    getFullHistory: readMessages,
-    async getInitialHistory(threadId, limit) {
-      return pagePiHistory(await readMessages(threadId), null, limit);
+    async getFullHistory(threadId) {
+      let page = await readPage(threadId, null, 100);
+      let messages = page.messages;
+      while (page.hasMore) {
+        if (!page.piBeforeEntryId) throw new Error("Pi history page did not provide a native cursor");
+        page = await readPage(threadId, page.piBeforeEntryId, 100, page.piRevision);
+        messages = [...page.messages, ...messages];
+      }
+      return messages;
     },
-    async getPage(threadId, beforeSequence, limit, snapshotSequence) {
-      return pagePiHistory(
-        await readMessages(threadId),
-        beforeSequence,
-        limit,
-        snapshotSequence,
-      );
+    getInitialHistory: (threadId, limit) => readPage(threadId, null, limit),
+    getPage(threadId, beforeSequence, limit, _snapshotSequence, revision, beforeEntryId) {
+      if (beforeSequence !== null && (!beforeEntryId || !revision)) {
+        return Promise.reject(new Error("Pi history pagination requires its native cursor and revision"));
+      }
+      return readPage(threadId, beforeEntryId ?? null, limit, revision);
     },
   };
 }

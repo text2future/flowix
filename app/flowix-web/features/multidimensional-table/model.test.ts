@@ -4,7 +4,7 @@ import { addTableView, createTableDocument, parseTableDocument, serializeTableDo
 describe('table format v1', () => {
   it('round trips a new table', () => {
     const table = createTableDocument();
-    expect(table.version).toBe(1);
+    expect(table.collection.type).toBe('table');
     expect(parseTableDocument(serializeTableDocument(table))).toEqual(table);
   });
 
@@ -27,7 +27,7 @@ describe('table format v1', () => {
 
   it('rejects unsupported versions', () => {
     const table = createTableDocument();
-    expect(() => parseTableDocument(serializeTableDocument({ ...table, version: 2 } as never))).toThrow('不支持');
+    expect(() => parseTableDocument(serializeTableDocument(table).replace('schema_version: 1', 'schema_version: 2'))).toThrow('不支持');
   });
 
   it('rejects duplicate linked notes', () => {

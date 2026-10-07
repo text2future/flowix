@@ -38,6 +38,10 @@ export async function loadHighlighter() {
       engine: createOnigurumaEngine(import('shiki/wasm')),
     }).then((h) => {
       highlighter = h
+    }).catch((error) => {
+      // A transient chunk/WASM load failure must not poison every later attempt.
+      highlighterPromise = undefined
+      throw error
     })
   }
 

@@ -21,6 +21,8 @@ export function workColumnTargetIdentity(target: WorkColumnTarget): ContentIdent
       return { kind: 'media', path: target.filePath };
     case 'external':
       return { kind: 'external', path: target.path };
+    case 'collection':
+      return { kind: 'collection', notebookId: target.notebookId, collectionId: target.collectionId, viewId: target.viewId };
     case 'table':
       return { kind: 'external', path: target.filePath };
     case 'media-library':

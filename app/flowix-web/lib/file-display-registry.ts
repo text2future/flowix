@@ -1,3 +1,4 @@
+import { findCollectionDisplayPath, pinCollectionDisplay } from './collection-display-registry';
 import { canonicalPath, fileLocatorKey } from '@/lib/path';
 
 export interface FileDisplayIdentity {
@@ -60,7 +61,7 @@ export function findFileDisplayId(path: string): string | null {
 
 /** Resolve the latest path at the instant a queued write executes. */
 export function findFileDisplayPath(displayId: string): string | null {
-  return pathsByDisplay.get(displayId) ?? null;
+  return findCollectionDisplayPath(displayId) ?? pathsByDisplay.get(displayId) ?? null;
 }
 
 /** True while an open surface or an in-flight file operation still owns this ID. */
@@ -71,6 +72,8 @@ export function isFileDisplayIdLive(displayId: string): boolean {
 
 /** Keep a runtime identity alive during an operation that temporarily removes its file reference. */
 export function pinFileDisplayId(displayId: string): () => void {
+  const collectionPin = pinCollectionDisplay(displayId);
+  if (collectionPin) return collectionPin;
   pinnedDisplayIds.set(displayId, (pinnedDisplayIds.get(displayId) ?? 0) + 1);
   let released = false;
   return () => {
