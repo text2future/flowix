@@ -334,7 +334,7 @@ export class FeaturedNotesController {
   private appendCreateTableAction(container: HTMLElement, notebookId: string, onChange: () => void, onCreateTable: () => void): void {
     const create = document.createElement("button");
     create.type = "button";
-    create.className = "flex h-8 w-full items-center justify-center rounded-lg border border-[var(--border)] bg-white text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-50";
+    create.className = "flex h-8 w-full items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50";
     create.textContent = this.t("editor.threadCard.featuredNotes.createTable");
     create.addEventListener("click", async () => {
       onCreateTable();
