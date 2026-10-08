@@ -195,9 +195,9 @@ const piUpdaterEndpointEnv = {
   linux: "FLOWIX_UPDATER_ENDPOINT_PI_LINUX",
 }[targetPlatform];
 const updaterEndpoint = process.env[piUpdaterEndpointEnv]?.trim()
-  || (process.env.FLOWIX_BUNDLE_PI === "1"
-    ? `https://download.flowix.cc/updater/pi/${targetPlatform === "darwin" ? "macos" : targetPlatform === "win32" ? "windows" : "linux"}/latest.json`
-    : process.env[updaterEndpointEnv]?.trim() || updaterEndpointDefault);
+  || process.env[updaterEndpointEnv]?.trim() || updaterEndpointDefault;
+// Pi is included in standard production builds; bundling it must not silently
+// switch the desktop app to a different updater publication path.
 production.plugins ??= {};
 production.plugins.updater ??= {};
 production.plugins.updater.endpoints = [updaterEndpoint];

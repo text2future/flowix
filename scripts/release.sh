@@ -328,21 +328,24 @@ if [[ "$IS_FULL_RELEASE" -eq 1 && ! -d "$FLOWIX_HOME_DIR" ]]; then
   exit 1
 fi
 
-# Per-group updater manifest 上传到稳定路径 (新 binary 直连这里 ── 不带版本号,
-# 每次发布会 OVERWRITE)。这条路径不受 partial release 影响, 总是跑。
-for group in "${ACTIVE_GROUPS[@]}"; do
-  group_manifest="$RELEASE_OUT/updater/$group/latest.json"
-  echo "==> uploading $group updater manifest to R2"
-  "$WRANGLER" r2 object put "$FLOWIX_R2_BUCKET/$FLOWIX_R2_UPDATER_PREFIX/$group/latest.json" \
-    --file "$group_manifest" --remote
-done
-
 # Versioned artifacts 上传到版本前缀路径 (immutable)。同时发布签名 updater
 # archive 和官网下载用的 DMG；Windows NSIS 包两者共用同一文件。
 for name in "${UPLOAD_FILES[@]}"; do
   echo "==> uploading $name to R2"
   "$WRANGLER" r2 object put "$FLOWIX_R2_BUCKET/$FLOWIX_R2_PREFIX/$name" \
     --file "$RELEASE_OUT/$name" --remote
+done
+
+# Publish manifests only after every referenced artifact has uploaded.
+# Production 1.5.0/1.5.1 bundled Pi and embedded updater/pi/<group>/latest.json.
+# Keep that address working for installed clients alongside the canonical path.
+for group in "${ACTIVE_GROUPS[@]}"; do
+  group_manifest="$RELEASE_OUT/updater/$group/latest.json"
+  for manifest_key in "$FLOWIX_R2_UPDATER_PREFIX/$group/latest.json" "$FLOWIX_R2_UPDATER_PREFIX/pi/$group/latest.json"; do
+    echo "==> uploading $group updater manifest to R2: $manifest_key"
+    "$WRANGLER" r2 object put "$FLOWIX_R2_BUCKET/$manifest_key" \
+      --file "$group_manifest" --content-type application/json --remote
+  done
 done
 
 if [[ "$IS_FULL_RELEASE" -eq 1 ]]; then
