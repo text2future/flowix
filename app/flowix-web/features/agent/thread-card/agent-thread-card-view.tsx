@@ -547,6 +547,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       },
       getLanguage: () => this.language,
       getTypeKey: () => this.typeKey,
+      getImageSpacePath: (filePath) => this.scopePathForLocalFile(filePath),
       getMessageCount: () => this.currentMessages().length,
       shouldLoadThreadMessages: () => this.shouldLoadThreadMessages(),
       renderThreadState: () => this.renderThreadState(),

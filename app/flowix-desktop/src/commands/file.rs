@@ -1303,26 +1303,84 @@ pub fn read_image_file(
     ))
 }
 
-/// Read a downscaled, transparency-preserving PNG preview for an in-scope raster image. The full-size
-/// image remains unloaded until the user opens the media resource.
+/// Read a downscaled, transparency-preserving PNG preview for an in-scope raster image.
+/// Callers choose a bounded maximum dimension appropriate for its display size.
 #[tauri::command]
-pub fn read_image_preview(
+pub async fn read_image_preview(
     file_path: String,
     space_path: Option<String>,
-    state: State<AppState>,
-) -> Option<String> {
+    max_dimension: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
     let path = Path::new(&file_path);
     if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
-        return None;
+        return Ok(None);
     }
     start_security_bookmark_access(&state, path);
-    let preview = decode_image_preview(path, 640).ok()?;
-    let mut png = std::io::Cursor::new(Vec::new());
-    preview.write_to(&mut png, image::ImageFormat::Png).ok()?;
-    Some(format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(png.into_inner())
-    ))
+    let path = path.to_path_buf();
+    let max_dimension = preview_max_dimension(max_dimension);
+    let slots = MEDIA_PREVIEW_SLOTS
+        .get_or_init(|| Arc::new(Semaphore::new(MEDIA_PREVIEW_CONCURRENCY)))
+        .clone();
+    let permit = slots.acquire_owned().await.map_err(|error| error.to_string())?;
+    let preview = tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        let preview = decode_image_preview(&path, max_dimension).ok()?;
+        let mut png = std::io::Cursor::new(Vec::new());
+        preview.write_to(&mut png, image::ImageFormat::Png).ok()?;
+        Some(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+        ))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(preview)
+}
+
+fn preview_max_dimension(requested: Option<u32>) -> u32 {
+    requested.unwrap_or(640).clamp(128, 4096)
+}
+
+/// Resolve an image only from Codex's generated image directory.
+/// Codex imageGeneration results sit outside the agent workspace roots.
+fn codex_generated_image_path(file_path: String) -> Option<PathBuf> {
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))?;
+    let generated_root = fs::canonicalize(codex_home.join("generated_images")).ok()?;
+    let path = fs::canonicalize(file_path).ok()?;
+    if !path.starts_with(&generated_root) || !path.is_file() {
+        return None;
+    }
+    image_mime_type(&path)?;
+    Some(path)
+}
+
+/// Read a downscaled preview from Codex's generated image directory.
+#[tauri::command]
+pub async fn read_codex_generated_image_preview(
+    file_path: String,
+    max_dimension: Option<u32>,
+) -> Option<String> {
+    let path = codex_generated_image_path(file_path)?;
+    let max_dimension = preview_max_dimension(max_dimension);
+    let slots = MEDIA_PREVIEW_SLOTS
+        .get_or_init(|| Arc::new(Semaphore::new(MEDIA_PREVIEW_CONCURRENCY)))
+        .clone();
+    let permit = slots.acquire_owned().await.ok()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        let preview = decode_image_preview(&path, max_dimension).ok()?;
+        let mut png = std::io::Cursor::new(Vec::new());
+        preview.write_to(&mut png, image::ImageFormat::Png).ok()?;
+        Some(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+        ))
+    })
+    .await
+    .ok()?
 }
 
 // Decode previews sequentially to keep large-image memory peaks from overlapping.

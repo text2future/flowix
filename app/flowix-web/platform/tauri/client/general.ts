@@ -143,6 +143,8 @@ export interface PiProviderConfig {
   models: PiModelEntryConfig[];
 }
 
+export interface PiFeatures { codeMode: boolean; toolSearch: boolean }
+
 export interface PiModelCatalogProvider {
   id: string;
   displayName: string;
@@ -160,6 +162,8 @@ export interface PiModelCatalog {
 }
 
 export const piModels = {
+  getFeatures: () => invoke<PiFeatures>('get_pi_features'),
+  saveFeatures: (features: PiFeatures) => invoke<void>('save_pi_features', { features }),
   list: () => invoke<PiProviderConfig[]>('get_pi_model_configs'),
   catalog: () => invoke<PiModelCatalog>('get_pi_model_catalog'),
   save: (config: PiProviderConfig) => invoke<void>('save_pi_model_config', { config }),

@@ -60,6 +60,8 @@ function resolveExternalDocumentSurface(
       return { kind: 'video-file', instanceKey, fileIdentity, scopePath, props: document.documentProps };
     case 'code':
       return { kind: 'code', instanceKey, fileIdentity, props: document.documentProps };
+    case 'csv':
+      return { kind: 'csv-file', instanceKey, fileIdentity, scopePath, transitionId: document.documentProps.transitionId };
     case 'docx':
       return { kind: 'unavailable-file', instanceKey, fileIdentity, scopePath, props: document.documentProps };
     case 'unavailable':

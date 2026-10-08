@@ -22,6 +22,7 @@ import {
   createAgentThreadCardMessageElement,
   disposeAgentThreadCardMessageTree,
 } from "@features/agent/thread-card/messages/message-item-renderer";
+import { createGeneratedImageStrip } from "@features/agent/thread-card/messages/generated-image-strip";
 import { recordMessageRenderPlan } from "@features/agent/thread-card/messages/message-render-plan";
 import { MIN_TRANSIENT_DISPLAY_DURATION_MS } from "@features/agent/thread-card/messages/transient-display";
 import {
@@ -41,6 +42,7 @@ export interface ThreadMessageRenderControllerOptions {
   messageViewport: MessageViewportController;
   getLanguage: () => AppLanguage;
   getTypeKey: () => AgentTypeKey;
+  getImageSpacePath?: (filePath: string) => string | null;
   t: (key: I18nKey) => string;
   createThreadCacheSkeleton: () => HTMLDivElement;
   createExternalAgentEmptySettings: () => HTMLElement;
@@ -62,6 +64,7 @@ export class ThreadMessageRenderController {
   private readonly messageViewport: MessageViewportController;
   private readonly getLanguage: () => AppLanguage;
   private readonly getTypeKey: () => AgentTypeKey;
+  private readonly getImageSpacePath?: (filePath: string) => string | null;
   private readonly t: (key: I18nKey) => string;
   private readonly createThreadCacheSkeleton: () => HTMLDivElement;
   private readonly createExternalAgentEmptySettings: () => HTMLElement;
@@ -88,6 +91,7 @@ export class ThreadMessageRenderController {
     this.messageViewport = options.messageViewport;
     this.getLanguage = options.getLanguage;
     this.getTypeKey = options.getTypeKey;
+    this.getImageSpacePath = options.getImageSpacePath;
     this.t = options.t;
     this.createThreadCacheSkeleton = options.createThreadCacheSkeleton;
     this.createExternalAgentEmptySettings =
@@ -325,6 +329,16 @@ export class ThreadMessageRenderController {
         // A long historical list is normally static; groups are rendered by
         // the regular path so their nested DOM is created as one unit.
         if (renderItem.kind === "tool-group") continue;
+        if (renderItem.kind === "generated-images") {
+          const strip = createGeneratedImageStrip({
+            id: renderItem.id,
+            images: renderItem.images,
+            language: context.language,
+            getImageSpacePath: context.getImageSpacePath,
+          });
+          if (strip) list.append(strip);
+          continue;
+        }
         const message = renderItem.message;
         const rendered = createAgentThreadCardMessageElement({
           message,
@@ -596,6 +610,7 @@ export class ThreadMessageRenderController {
       },
       getToolGroupExpanded: (groupId) =>
         this.toolGroupExpandedOverrides.get(groupId) ?? false,
+      getImageSpacePath: this.getImageSpacePath,
       setToolGroupExpanded: (groupId, expanded) => {
         if (expanded) this.toolGroupExpandedOverrides.set(groupId, true);
         else this.toolGroupExpandedOverrides.delete(groupId);

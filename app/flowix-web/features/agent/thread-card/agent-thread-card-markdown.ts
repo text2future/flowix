@@ -367,6 +367,18 @@ function renderSafeAgentAnchor(rawTag: string): string | null {
   return null;
 }
 
+function safeAgentImageHref(rawHref: string): string | null {
+  const href = rawHref.trim();
+  if (!href || /[\u0000-\u001f\u007f]/u.test(href)) return null;
+  if (/^data:image\/(?:png|jpeg|gif|webp|avif);base64,/i.test(href)) return href;
+  // Remote images need an explicit web protocol. Keep relative and root paths
+  // for existing local Markdown references, while rejecting executable and
+  // otherwise unexpected URI schemes.
+  if (/^https?:\/\//i.test(href) || href.startsWith("//")) return href;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return sanitizeLinkHref(href);
+  return href;
+}
+
 function ensureAgentThreadCardKatex(): Promise<KatexModule> {
   if (katexLoaded) return Promise.resolve(katexLoaded);
   if (!katexPromise) {
@@ -418,6 +430,14 @@ const cardMarked = new Marked({
       const safeAnchor = renderSafeAgentAnchor(text);
       if (safeAnchor) return safeAnchor;
       return escapeAgentThreadCardHtml(text);
+    },
+    image({ href, title, text }) {
+      const safeHref = safeAgentImageHref(href);
+      if (!safeHref) return escapeAgentThreadCardHtml(text || href);
+      const titleAttribute = title
+        ? ` title="${escapeAgentThreadCardHtmlAttr(title)}"`
+        : "";
+      return `<img src="${escapeAgentThreadCardHtmlAttr(safeHref)}" alt="${escapeAgentThreadCardHtmlAttr(text)}"${titleAttribute} data-agent-image-preview tabindex="0" role="button" aria-haspopup="dialog" aria-label="Preview image: ${escapeAgentThreadCardHtmlAttr(text || title || "image")}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
     },
   },
 });

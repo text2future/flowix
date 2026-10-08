@@ -112,15 +112,40 @@ export function useCreateNotebookFlow({
       setCreationState({ status: 'creating' });
 
       try {
-        const registration = cloudNotebookId
-          ? {
+        let registration: Awaited<ReturnType<typeof createNotebookRegistration>>;
+        if (cloudNotebookId) {
+          registration = {
             notebook: await notebookRepository.createFromCloud(cloudNotebookId, notebookName, notebookPath ?? '', icon),
             created: true,
             needsImport: false,
             hasTemplateSetup: false,
             setupJob: null,
+          };
+        } else {
+          try {
+            registration = await createNotebookRegistration({
+              name: notebookName,
+              path: notebookPath,
+              icon,
+              templateId,
+            });
+          } catch (error) {
+            if (!templateId || !String(error).includes('NOTEBOOK_PRESET_OVERWRITE_CONFIRM_REQUIRED')) {
+              throw error;
+            }
+            if (!await notebookRepository.confirmPresetOverwrite(t('notebook.template.overwriteConfirm'))) {
+              setCreationState({ status: 'idle' });
+              return null;
+            }
+            registration = await createNotebookRegistration({
+              name: notebookName,
+              path: notebookPath,
+              icon,
+              templateId,
+              overwriteExisting: true,
+            });
           }
-          : await createNotebookRegistration({ name: notebookName, path: notebookPath, icon, templateId });
+        }
         const created = registration.notebook as Notebook | null;
 
         if (!created) {

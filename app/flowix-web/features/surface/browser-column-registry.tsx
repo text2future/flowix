@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
 import { LazyAgentConversationDetail } from '@features/agent/components/lazy-agent-conversation-detail';
 import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
 import { DocxPreview } from '@features/document/components/docx-preview';
+import { CsvPreview } from '@features/document/components/csv-preview';
 import { MediaResourceView } from './media-resource-view';
 import { SurfaceSuspenseHost } from '@shared/ui/surface-suspense-host';
 import { externalFileViewKind } from '@features/editor/public/code-file';
@@ -382,6 +383,8 @@ function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowse
     }} filePath={surface.activeFilePath} fileIdentity={surface.fileIdentity} expectedCollectionId={collectionDisplayDescriptor(surface.fileIdentity.displayId)?.collectionId} notebookPath={surface.scopePath} notebookId={surface.notebookId ?? null} />;
   }
   switch (fileKind) {
+    case 'csv':
+      return <CsvPreview filePath={surface.activeFilePath} scopePath={surface.scopePath} />;
     case 'docx':
       return <FileBrowserView surface={{
         ...surface,

@@ -294,6 +294,10 @@ pub struct NotebookTemplate {
     pub description: String,
     pub source_directory: String,
     pub icon: String,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub cover_url: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -304,7 +308,7 @@ struct NotebookTemplateIndex {
 
 struct NotebookTemplateFileInput {
     path: String,
-    content: String,
+    content: Vec<u8>,
 }
 
 const MAX_NOTEBOOK_TEMPLATE_FILES: usize = 2_000;
@@ -377,30 +381,67 @@ pub(crate) fn validate_notebook_template_id(template_id: &str) -> Result<(), Str
 pub fn ensure_notebook_template_setup(
     notebook_id: String,
     template_id: String,
+    overwrite_existing: Option<bool>,
     state: State<AppState>,
 ) -> Result<NotebookSetupJob, String> {
     validate_notebook_template_id(&template_id)?;
+    let running = state
+        .notebook_template_initializations
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let notebook = memo_file
         .get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
-    if let Some(existing) = memo_file
+    let existing = memo_file
         .get_notebook_setup_job(&notebook_id)
-        .map_err(|error| format!("read notebook setup status failed: {error}"))?
-    {
+        .map_err(|error| format!("read notebook setup status failed: {error}"))?;
+    if let Some(existing) = &existing {
         if existing.template_id.as_deref() != Some(template_id.as_str()) {
             return Err("NOTEBOOK_TEMPLATE_SELECTION_CONFLICT".to_string());
         }
-        return Ok(existing);
     }
 
-    let notebook_root = PathBuf::from(notebook.path);
+    let notebook_root = PathBuf::from(&notebook.path);
     if !notebook_root.is_dir() {
         return Err("PATH_MISSING".to_string());
+    }
+    let overwrite_existing = overwrite_existing.unwrap_or(false);
+    if existing.is_none()
+        && !overwrite_existing
+        && super::super::notebook::notebook_folder_has_content(&notebook_root)?
+    {
+        return Err("NOTEBOOK_PRESET_OVERWRITE_CONFIRM_REQUIRED".to_string());
+    }
+    if overwrite_existing
+        && existing.as_ref().is_some_and(|job| !job.overwrite_existing)
+        && running.contains(&notebook_id)
+    {
+        return Err("NOTEBOOK_TEMPLATE_SETUP_IN_PROGRESS".to_string());
+    }
+    MemoFile::ensure_notebook_scene_id(&notebook, &template_id)
+        .map_err(|error| format!("NOTEBOOK_SCENE_ID_WRITE_FAILED: {error}"))?;
+
+    if let Some(mut existing) = existing {
+        if overwrite_existing && !existing.overwrite_existing {
+            existing.overwrite_existing = true;
+            existing.status = NotebookSetupJobStatus::Pending;
+            existing.stage = "template".to_string();
+            existing.completed_files = 0;
+            existing.total_files = 0;
+            existing.message = None;
+            existing.report = None;
+            existing.updated_at = chrono::Utc::now().timestamp_millis();
+            memo_file
+                .write_notebook_setup_job(&existing)
+                .map_err(|error| format!("persist notebook setup status failed: {error}"))?;
+        }
+        return Ok(existing);
     }
     let job = NotebookSetupJob {
         notebook_id,
         template_id: Some(template_id),
+        overwrite_existing,
         status: NotebookSetupJobStatus::Pending,
         stage: "template".to_string(),
         completed_files: 0,
@@ -503,7 +544,7 @@ fn load_notebook_template_files_with_failures(
         if scanned_files > MAX_NOTEBOOK_TEMPLATE_FILES {
             return Err("NOTEBOOK_TEMPLATE_TOO_LARGE".to_string());
         }
-        match fs::read_to_string(entry.path()) {
+        match fs::read(entry.path()) {
             Ok(content) => {
                 total_bytes = total_bytes
                     .checked_add(path.len())
@@ -563,20 +604,19 @@ fn validate_notebook_template_path(path: &str) -> Result<PathBuf, String> {
             return Err("INVALID_TEMPLATE_PATH".to_string());
         };
         let name = name.to_string_lossy();
-        if name.starts_with('.') && name != ".agents" && name != ".gitignore" {
+        if name.starts_with('.')
+            && name != ".agents"
+            && name != ".gitignore"
+            && name != ".gitkeep"
+        {
             return Err("UNSUPPORTED_TEMPLATE_PATH".to_string());
         }
         if (name == ".agents" && index != 0) || (name == ".gitignore" && index != 0) {
             return Err("UNSUPPORTED_TEMPLATE_PATH".to_string());
         }
-    }
-
-    let filename = relative
-        .file_name()
-        .and_then(|filename| filename.to_str())
-        .ok_or_else(|| "INVALID_TEMPLATE_PATH".to_string())?;
-    if !filename.ends_with(".md") && filename != ".gitignore" && filename != "CODEOWNERS" {
-        return Err("UNSUPPORTED_TEMPLATE_FILE".to_string());
+        if name == ".gitkeep" && index != components.len() - 1 {
+            return Err("UNSUPPORTED_TEMPLATE_PATH".to_string());
+        }
     }
 
     Ok(relative.to_path_buf())
@@ -691,7 +731,7 @@ mod notebook_template_content_tests {
     use std::path::Path;
 
     #[test]
-    fn novel_template_creates_all_indexed_notes_and_replaces_source_keys() {
+    fn scenario_template_creates_all_indexed_notes_and_replaces_source_keys() {
         let directory = tempfile::tempdir().expect("temporary template test directory");
         let config_dir = directory.path().join("config");
         crate::template_store::initialize_notebook_templates(&config_dir)
@@ -704,8 +744,8 @@ mod notebook_template_content_tests {
         let template = index
             .templates
             .into_iter()
-            .find(|template| template.id == "novel-writing")
-            .expect("find novel-writing template");
+            .find(|template| template.name == "自媒体运营")
+            .expect("find scenario template");
         let files = load_notebook_template_files_from_root(&template_root, &template)
             .expect("load novel template files");
 
@@ -758,6 +798,8 @@ mod notebook_template_content_tests {
                     .file_stem()
                     .and_then(|title| title.to_str())
                     .expect("template note title");
+                let content = std::str::from_utf8(&file.content)
+                    .unwrap_or_else(|error| panic!("decode {}: {error}", file.path));
                 let parent_relative =
                     parent_relative.map(|parent| parent.to_string_lossy().replace('\\', "/"));
                 let created = MemoService::new(&memo_file)
@@ -765,13 +807,13 @@ mod notebook_template_content_tests {
                         Some("nb_template_test"),
                         parent_relative.as_deref(),
                         title,
-                        &file.content,
+                        content,
                         None,
                     )
                     .unwrap_or_else(|error| panic!("create {}: {error}", file.path));
                 created_notes.push((created.memo.id, created.path));
             } else {
-                atomic_write_bytes(&parent.join(filename), file.content.as_bytes())
+                atomic_write_bytes(&parent.join(filename), &file.content)
                     .unwrap_or_else(|error| panic!("copy {}: {error}", file.path));
             }
         }
@@ -885,6 +927,7 @@ pub async fn initialize_notebook_template(
             &notebook_id,
             &template_id,
             _is_new_notebook,
+            false,
             state.inner(),
             &app,
             |_| Ok(()),
@@ -916,6 +959,7 @@ pub(crate) fn initialize_notebook_template_for_notebook(
     notebook_id: &str,
     template_id: &str,
     _is_new_notebook: bool,
+    overwrite_existing: bool,
     state: &AppState,
     app: &AppHandle,
     after_template_files_written: impl FnOnce(&NotebookSetupReport) -> Result<(), String>,
@@ -930,6 +974,7 @@ pub(crate) fn initialize_notebook_template_for_notebook(
     let result = initialize_notebook_template_inner(
         notebook_id.to_string(),
         template_id.to_string(),
+        overwrite_existing,
         _is_new_notebook,
         state,
         app,
@@ -952,6 +997,7 @@ pub(crate) fn initialize_notebook_template_for_notebook(
 fn initialize_notebook_template_inner(
     notebook_id: String,
     template_id: String,
+    overwrite_existing: bool,
     _is_new_notebook: bool,
     state: &AppState,
     app: &AppHandle,
@@ -961,10 +1007,22 @@ fn initialize_notebook_template_inner(
         return Err("INVALID_NOTEBOOK_TEMPLATE".to_string());
     }
 
-    let template = read_notebook_template_index()?
-        .into_iter()
+    let templates = read_notebook_template_index()?;
+    let template = templates
+        .iter()
         .find(|template| template.id == template_id)
+        .or_else(|| {
+            // Resume setup jobs written by earlier versions before the scene
+            // IDs were renamed to preset IDs.
+            template_id
+                .strip_prefix("scene-")
+                .and_then(|number| number.parse::<usize>().ok())
+                .filter(|number| (1..=templates.len()).contains(number))
+                .and_then(|number| templates.get(number - 1))
+        })
+        .cloned()
         .ok_or_else(|| "UNKNOWN_NOTEBOOK_TEMPLATE".to_string())?;
+    let template_id = template.id.clone();
     let (files, source_failures) = load_notebook_template_files(&template)?;
 
     let notebook_root = read_lock(&state.memo_file, "memo_file")
@@ -1020,10 +1078,11 @@ fn initialize_notebook_template_inner(
         };
         let target = parent.join(filename);
         match fs::symlink_metadata(&target) {
-            Ok(metadata) if metadata.file_type().is_file() => {
+            Ok(metadata) if metadata.file_type().is_file() && !overwrite_existing => {
                 report.skipped_existing_files += 1;
                 continue;
             }
+            Ok(metadata) if metadata.file_type().is_file() => {}
             Ok(_) => {
                 record_notebook_template_failure(
                     &mut report,
@@ -1044,7 +1103,18 @@ fn initialize_notebook_template_inner(
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
         if is_markdown && !file_management_policy.is_ignored_at(&notebook_root, &relative) {
-            if let Err(error) = extract_document_metadata(&file.content) {
+            let content = match std::str::from_utf8(&file.content) {
+                Ok(content) => content,
+                Err(error) => {
+                    record_notebook_template_failure(
+                        &mut report,
+                        &file.path,
+                        format!("invalid markdown template encoding: {error}"),
+                    );
+                    continue;
+                }
+            };
+            if let Err(error) = extract_document_metadata(content) {
                 record_notebook_template_failure(&mut report, &file.path, error);
                 continue;
             }
@@ -1053,7 +1123,12 @@ fn initialize_notebook_template_inner(
         // Use an exclusive atomic create for every template file. In
         // particular, a user-created file racing this background task must
         // never be replaced by atomic_write_bytes.
-        match atomic_create_bytes(&target, file.content.as_bytes()) {
+        let write_result = if overwrite_existing {
+            atomic_write_bytes(&target, &file.content)
+        } else {
+            atomic_create_bytes(&target, &file.content)
+        };
+        match write_result {
             Ok(()) => {
                 report.written_files += 1;
                 mark_self_write_for(app, &target);

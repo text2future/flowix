@@ -52,7 +52,7 @@ fn supported_text_extension(path: &Path) -> bool {
         .is_some_and(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "md" | "markdown"
+                "md" | "markdown" | "csv"
                     | "txt"
                     | "text"
                     | "log"
@@ -198,14 +198,34 @@ pub async fn read_external_document(
     window: tauri::WebviewWindow,
     file_path: String,
     #[allow(non_snake_case)] scopePath: Option<String>,
+    #[allow(non_snake_case)] maxBytes: Option<u64>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     crate::document_io::run("read_external", move || {
         let state = app.state::<AppState>();
         let path =
             exact_existing_external_path(&file_path, scopePath.as_deref(), window.label(), &state)?;
-        fs::read_to_string(&path)
-            .map_err(|error| format!("failed to read {}: {error}", path.display()))
+        if let Some(max_bytes) = maxBytes {
+            let file = fs::File::open(&path)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+            let size = file.metadata()
+                .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?
+                .len();
+            if size > max_bytes {
+                return Err(format!("DOCUMENT_TOO_LARGE: file is {size} bytes; limit is {max_bytes} bytes"));
+            }
+            let mut bytes = Vec::with_capacity(size as usize);
+            file.take(max_bytes.saturating_add(1)).read_to_end(&mut bytes)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+            if bytes.len() as u64 > max_bytes {
+                return Err(format!("DOCUMENT_TOO_LARGE: file exceeds {max_bytes} bytes"));
+            }
+            String::from_utf8(bytes)
+                .map_err(|_| format!("external document is not valid UTF-8: {}", path.display()))
+        } else {
+            fs::read_to_string(&path)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()))
+        }
     })
     .await?
 }

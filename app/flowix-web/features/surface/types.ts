@@ -63,6 +63,12 @@ export interface CodeSurface extends FileSurfaceBase {
   props: ExternalDocumentProps;
 }
 
+export interface CsvFileSurface extends FileSurfaceBase {
+  kind: 'csv-file';
+  scopePath: string | null;
+  transitionId?: number | null;
+}
+
 export interface ImageFileSurface extends FileSurfaceBase {
   kind: 'image-file';
   scopePath: string | null;
@@ -161,6 +167,7 @@ export interface DocumentListSurface extends SurfaceBase {
 export type WorkColumnSurface =
   | MDSurface
   | CodeSurface
+  | CsvFileSurface
   | ImageFileSurface
   | VideoFileSurface
   | TableFileSurface

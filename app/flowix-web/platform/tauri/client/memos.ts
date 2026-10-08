@@ -56,6 +56,8 @@ export interface NotebookTemplateRecord {
   description: string;
   sourceDirectory: string;
   icon: string;
+  category?: string;
+  coverUrl?: string;
 }
 
 export interface MentionNoteSearchItem {
@@ -217,8 +219,8 @@ export const externalDocuments = {
     invoke<string>('get_external_document_mime_type', { filePath }),
   openWithDefaultApp: (filePath: string, scopePath?: string | null) =>
     invoke<void>('open_file_with_default_app', { filePath, scopePath: scopePath ?? null }),
-  read: (filePath: string, scopePath?: string | null) =>
-    invoke<string>('read_external_document', { filePath, scopePath: scopePath ?? null }),
+  read: (filePath: string, scopePath?: string | null, maxBytes?: number) =>
+    invoke<string>('read_external_document', { filePath, scopePath: scopePath ?? null, maxBytes: maxBytes ?? null }),
   write: (params: {
     filePath: string;
     content: string;
@@ -303,6 +305,7 @@ export interface NotebookSetupReport {
 export interface NotebookSetupJob {
   notebookId: string;
   templateId: string | null;
+  overwriteExisting: boolean;
   status: NotebookSetupJobStatus;
   stage: string;
   completedFiles: number;
@@ -317,6 +320,8 @@ export const notebooks = {
   listTemplates: () => invoke<NotebookTemplateRecord[]>('list_notebook_templates'),
   getDefaultPath: (name: string) =>
     invoke<string>('get_default_notebook_path', { name }),
+  confirmPresetOverwrite: (message: string) =>
+    invoke<boolean>('confirm_notebook_preset_overwrite', { message }),
   ensureDefaultPath: (name: string) =>
     invoke<string>('ensure_default_notebook_path', { name }),
   initializeTemplate: (
@@ -328,10 +333,18 @@ export const notebooks = {
     templateId,
     isNewNotebook,
   }),
-  create: (name: string, path?: string, icon?: string | null, activate = true, templateId?: string | null) =>
-    invoke<NotebookRecord>('create_notebook', { name, path, icon, activate, templateId }),
-  ensureTemplateSetup: (notebookId: string, templateId: string) =>
-    invoke<NotebookSetupJob>('ensure_notebook_template_setup', { notebookId, templateId }),
+  create: (
+    name: string,
+    path?: string,
+    icon?: string | null,
+    activate = true,
+    templateId?: string | null,
+    overwriteExisting = false,
+  ) => invoke<NotebookRecord>('create_notebook', {
+    name, path, icon, activate, templateId, overwriteExisting,
+  }),
+  ensureTemplateSetup: (notebookId: string, templateId: string, overwriteExisting = false) =>
+    invoke<NotebookSetupJob>('ensure_notebook_template_setup', { notebookId, templateId, overwriteExisting }),
   getTemplateSetupStatus: (notebookId: string) =>
     invoke<NotebookSetupJob | null>('get_notebook_template_setup_status', { notebookId }),
   startTemplateSetup: (notebookId: string, retry = false) =>

@@ -50,11 +50,18 @@ export const noteRepository = {
 export const notebookRepository = {
   list: (): Promise<Notebook[]> => notebooks.getAll(),
   getDefaultPath: (name: string) => notebooks.getDefaultPath(name),
+  confirmPresetOverwrite: (message: string) => notebooks.confirmPresetOverwrite(message),
   ensureDefaultPath: (name: string) => notebooks.ensureDefaultPath(name),
-  create: (name: string, path?: string, icon?: string | null, activate = true, templateId?: string | null) =>
-    notebooks.create(name, path, icon, activate, templateId),
-  ensureTemplateSetup: (notebookId: string, templateId: string) =>
-    notebooks.ensureTemplateSetup(notebookId, templateId),
+  create: (
+    name: string,
+    path?: string,
+    icon?: string | null,
+    activate = true,
+    templateId?: string | null,
+    overwriteExisting = false,
+  ) => notebooks.create(name, path, icon, activate, templateId, overwriteExisting),
+  ensureTemplateSetup: (notebookId: string, templateId: string, overwriteExisting = false) =>
+    notebooks.ensureTemplateSetup(notebookId, templateId, overwriteExisting),
   getTemplateSetupStatus: (notebookId: string) =>
     notebooks.getTemplateSetupStatus(notebookId),
   startTemplateSetup: (notebookId: string, retry = false) =>

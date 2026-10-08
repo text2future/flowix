@@ -3,7 +3,7 @@ import { notebooks, type NotebookTemplateRecord } from '@platform/tauri/client';
 
 export type NotebookTemplate = NotebookTemplateRecord;
 
-type NotebookTemplateLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+export type NotebookTemplateLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export function useNotebookTemplates(enabled = true) {
   const [templates, setTemplates] = useState<NotebookTemplate[]>([]);

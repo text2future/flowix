@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronRight,
   CircleAlert,
   CircleCheck,
-  ChevronLeft,
-  ChevronRight,
   FolderOpen,
   LoaderCircle,
   Plus,
@@ -44,7 +43,7 @@ import {
   type AgentSectionModelFormActions,
 } from '@features/preferences/sections/agent';
 import { useNotebookTemplates } from './notebook-templates';
-import { NotebookTemplateIcon } from './notebook-template-icon';
+import { NotebookTemplateCardPreview, NotebookTemplateEmptyCard, NotebookTemplatePicker } from './notebook-template-picker';
 import { OnboardingTitlebarMac } from './onboarding-titlebar-mac';
 
 const DEFAULT_BOOK_FOLDER = 'My Notebook';
@@ -110,7 +109,7 @@ function StepRail({
 
   return (
     <nav
-      className="flowix-onboarding__rail"
+      className="mx-auto grid w-[min(100%,640px)] border-b border-[var(--onboarding-line)] pb-[14px]"
       aria-label="新用户引导步骤"
       style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
     >
@@ -121,13 +120,17 @@ function StepRail({
           <button
             key={item.title}
             type="button"
-            className={cn('flowix-onboarding__rail-item', active && 'is-active', completed && 'is-complete')}
+            className={cn(
+              'flex w-full min-w-0 items-center justify-center gap-[9px] bg-transparent py-2 text-center text-[var(--onboarding-subtle)] opacity-[0.58] transition-[color,opacity] duration-[160ms] enabled:cursor-pointer enabled:hover:text-[var(--onboarding-ink)] enabled:hover:opacity-[0.82] max-[760px]:items-start max-[760px]:gap-[7px]',
+              active && 'text-[var(--onboarding-ink)] opacity-[0.82]',
+              completed && 'text-[var(--onboarding-subtle)] opacity-[0.68]',
+            )}
             onClick={() => item.targetStep <= step && onStepChange(item.targetStep)}
             aria-current={active ? 'step' : undefined}
             disabled={item.targetStep > step}
           >
-            <span className="flowix-onboarding__rail-copy">
-              <strong>{item.title}</strong>
+            <span className="grid">
+              <strong className="text-xs font-medium tracking-[-0.01em] max-[760px]:text-[11px]">{item.title}</strong>
             </span>
           </button>
         );
@@ -186,11 +189,11 @@ function AgentRows({
   };
 
   return (
-      <div className="flowix-onboarding__agent-area">
-      <div className="flowix-onboarding__agent-section-title">
+      <div className="mt-[42px] w-full">
+      <div className="col-span-full text-sm font-semibold text-[var(--onboarding-ink)]">
         {hasAvailableAgent ? '已找到以下本地 AI 可用' : '未找到本地 AI，推荐安装以下任一'}
       </div>
-      <div className="flowix-onboarding__agent-list">
+      <div className="mt-[10px] grid w-[min(100%,720px)] grid-cols-4 gap-[10px] max-[760px]:grid-cols-2">
         {visibleAgentKeys.map((typeKey) => {
         const type = getAgentType(typeKey);
         const status = statusByType[typeKey];
@@ -200,23 +203,23 @@ function AgentRows({
           ? dshInstalled
           : !codexVersionTooLow && Boolean(status?.installed ?? status?.available);
         return (
-          <div className={cn('flowix-onboarding__agent-row', installed && 'is-installed')} key={typeKey}>
-            <span className="flowix-onboarding__agent-icon">
+          <div className="flex min-h-[213px] min-w-0 flex-col items-center justify-start gap-[10px] rounded-[13px] border border-[var(--onboarding-line)] bg-[color-mix(in_oklch,var(--card)_48%,transparent)] px-[10px] pb-[15px] pt-[18px] text-center max-[760px]:min-h-[198px] max-[760px]:px-2 max-[760px]:pb-[13px] max-[760px]:pt-[15px]">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--onboarding-line)] bg-[color-mix(in_oklch,var(--card)_72%,transparent)]">
               <AgentIcon typeKey={typeKey} alt={type.name} className="h-7 w-7 object-contain" />
             </span>
-            <span className="flowix-onboarding__agent-copy">
-              <strong>{type.name}</strong>
+            <span className="grid max-w-full min-w-0 gap-1">
+              <strong className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold tracking-[-0.02em] text-[var(--onboarding-ink)]">{type.name}</strong>
             </span>
-            <div className="flowix-onboarding__agent-footer">
+            <div className="flex min-h-[52px] w-full flex-1 flex-col items-center justify-end gap-2">
               {typeKey === 'deepseek-harness' && dshInstaller.busy && dshInstaller.progress && (
                 <UpdateProgress
-                  className="flowix-onboarding__agent-progress"
+                  className="w-[min(100%,148px)] text-left"
                   value={dshInstaller.progress}
                   label={dshInstaller.progress.phase === 'installing' ? '正在安装' : '正在下载'}
                 />
               )}
               {typeKey === 'deepseek-harness' && !dshInstalled && !dshInstaller.busy && (
-                <button type="button" className="flowix-onboarding__mini-action" onClick={() => void handleInstallDsh()}>
+                <button type="button" className="inline-flex min-h-[27px] items-center gap-1.5 rounded-[7px] bg-[var(--brand)] px-2.5 text-[11px] font-semibold text-[var(--primary-foreground)] hover:bg-[color-mix(in_oklch,var(--brand)_82%,white)]" onClick={() => void handleInstallDsh()}>
                   安装（80+MB）
                 </button>
               )}
@@ -226,24 +229,24 @@ function AgentRows({
               {typeKey === 'codex' && (!status?.installed || codexVersionTooLow) && (
                 <button
                   type="button"
-                  className="flowix-onboarding__mini-action flowix-onboarding__mini-action--secondary"
+                  className="inline-flex min-h-[27px] items-center gap-1.5 rounded-[7px] border border-[var(--onboarding-line)] bg-[color-mix(in_oklch,var(--card)_72%,transparent)] px-2.5 text-[11px] font-semibold text-[var(--onboarding-ink)] hover:bg-[color-mix(in_oklch,var(--card)_90%,transparent)]"
                   onClick={() => void openUrl(CODEX_DOCS_URL)}
                 >
                   安装引导
                 </button>
               )}
-              <span className={cn('flowix-onboarding__agent-status', installed && 'is-ready')}>
-                {installed ? <CircleCheck size={15} aria-hidden="true" /> : <span className="flowix-onboarding__status-dot" />}
+              <span className={cn('inline-flex max-w-full items-center justify-center gap-1.5 text-center text-[11px] leading-[1.35] text-[var(--onboarding-subtle)]', installed && 'text-[var(--success)]')}>
+                {installed ? <CircleCheck size={15} aria-hidden="true" /> : <span className="h-1.5 w-1.5 rounded-full bg-[var(--onboarding-subtle)]" />}
                 {agentStatusLabel(typeKey, status, isChecking, dshInstaller)}
               </span>
             </div>
           </div>
         );
       })}
-      <div className="flowix-onboarding__agent-footnote">
+      <div className="col-span-full flex items-center justify-start gap-3 pt-[15px] text-[11px] text-[var(--onboarding-subtle)]">
         <button
           type="button"
-          className="flowix-onboarding__text-action"
+          className="inline-flex items-center gap-1.5 bg-transparent p-0 text-[var(--onboarding-subtle)] transition-colors hover:text-[var(--onboarding-ink)] disabled:cursor-wait disabled:opacity-[0.68]"
           onClick={() => void handleRedetect()}
           disabled={isRedetecting}
         >
@@ -254,7 +257,7 @@ function AgentRows({
         </button>
       </div>
       {dshInstaller.error && (
-        <div className="flowix-onboarding__inline-error" role="alert">
+        <div className="col-span-full flex items-start gap-[7px] text-xs leading-[1.5] text-[var(--destructive)]" role="alert">
           <CircleAlert size={15} aria-hidden="true" /> {dshInstaller.error}
         </div>
       )}
@@ -271,13 +274,12 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
     retry: retryNotebookTemplates,
   } = useNotebookTemplates();
   const [step, setStep] = useState<OnboardingStep>(0);
+  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
   const [defaultPath, setDefaultPath] = useState<string | null>(null);
   const [notebookName, setNotebookName] = useState(DEFAULT_NOTEBOOK_NAME);
   const [notebookPath, setNotebookPath] = useState<string | null>(null);
   const [notebookIcon, setNotebookIcon] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [templatesPerPage, setTemplatesPerPage] = useState(3);
-  const [templatePage, setTemplatePage] = useState(0);
   const [createdNotebook, setCreatedNotebook] = useState<NotebookRecord | null>(null);
   const [shouldStartImport, setShouldStartImport] = useState(false);
   const [dshModelListState, setDshModelListState] = useState<'unknown' | 'empty' | 'configured' | 'error'>('unknown');
@@ -338,15 +340,6 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
   }, [loadAgentAccess, refreshAgentRuntime]);
 
   useEffect(() => {
-    const updateTemplatesPerPage = () => {
-      setTemplatesPerPage(window.innerWidth < 760 ? 1 : 3);
-    };
-    updateTemplatesPerPage();
-    window.addEventListener('resize', updateTemplatesPerPage);
-    return () => window.removeEventListener('resize', updateTemplatesPerPage);
-  }, []);
-
-  useEffect(() => {
     if (step !== 0 || notebookPath) {
       return;
     }
@@ -394,15 +387,6 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
   useEffect(() => {
     if (step === 2 && !showDshModelStep) setStep(3);
   }, [showDshModelStep, step]);
-  const templatePages = useMemo(() => {
-    const pages: Array<Array<(typeof notebookTemplates)[number]>> = [];
-    for (let index = 0; index < notebookTemplates.length; index += templatesPerPage) {
-      pages.push([...notebookTemplates.slice(index, index + templatesPerPage)]);
-    }
-    return pages;
-  }, [notebookTemplates, templatesPerPage]);
-  const activeTemplatePage = Math.max(0, Math.min(templatePage, templatePages.length - 1));
-
   const selectedRepositories = useMemo(() => {
     if (!createdNotebook) return [];
     const local = notebookConfigs[createdNotebook.id];
@@ -427,13 +411,32 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
     setIsCreatingNotebook(true);
     setError(null);
     try {
-      const registration = await createNotebookRegistration({
-        name,
-        path: notebookPath ?? undefined,
-        icon: notebookIcon,
-        templateId: selectedTemplateId,
-        reuseExisting: true,
-      });
+      let registration: Awaited<ReturnType<typeof createNotebookRegistration>>;
+      try {
+        registration = await createNotebookRegistration({
+          name,
+          path: notebookPath ?? undefined,
+          icon: notebookIcon,
+          templateId: selectedTemplateId,
+          reuseExisting: true,
+        });
+      } catch (value) {
+        if (
+          !selectedTemplateId
+          || !String(value).includes('NOTEBOOK_PRESET_OVERWRITE_CONFIRM_REQUIRED')
+        ) {
+          throw value;
+        }
+        if (!await notebookRepository.confirmPresetOverwrite(t('notebook.template.overwriteConfirm'))) return;
+        registration = await createNotebookRegistration({
+          name,
+          path: notebookPath ?? undefined,
+          icon: notebookIcon,
+          templateId: selectedTemplateId,
+          overwriteExisting: true,
+          reuseExisting: true,
+        });
+      }
       const notebook = registration.notebook;
       if (registration.setupJob?.templateId) {
         setSelectedTemplateId(registration.setupJob.templateId);
@@ -450,7 +453,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
     } finally {
       setIsCreatingNotebook(false);
     }
-  }, [loadAgentAccess, notebookIcon, notebookName, notebookPath, selectedTemplateId]);
+  }, [loadAgentAccess, notebookIcon, notebookName, notebookPath, selectedTemplateId, t]);
 
   const addRepository = useCallback(async () => {
     if (!createdNotebook) return;
@@ -500,7 +503,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
 
   return (
     <div
-      className="flowix-onboarding"
+      className="fixed inset-0 z-[220] flex flex-col overflow-hidden bg-[var(--frame-bg)] text-[var(--foreground)] [--onboarding-form-gap:22px] [--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)] animate-[flowix-onboarding-in_520ms_cubic-bezier(0.16,1,0.3,1)_both] motion-reduce:animate-none max-[760px]:overflow-y-auto [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--ring)] [&_button:focus-visible]:outline-offset-[3px]"
       role="dialog"
       aria-modal="true"
       aria-labelledby={step === 0
@@ -513,161 +516,95 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
     >
       {isMac() && <OnboardingTitlebarMac />}
       <WindowsTitlebarControls reserveSpace />
-      <main className="flowix-onboarding__main">
+      <main className="relative z-[1] flex min-h-0 w-full flex-1 flex-col px-[clamp(28px,6vw,96px)] pb-[clamp(22px,3vw,44px)] max-[760px]:px-5 max-[760px]:pb-[26px]">
         <StepRail
           step={step}
           onStepChange={setStep}
         />
 
-        <div className="flowix-onboarding__content">
+        <div className="mx-auto flex min-h-0 w-[min(100%,780px)] flex-1 flex-col items-start justify-start overflow-y-auto overscroll-contain">
           {step === 0 && (
-            <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-notebook-title">
-              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
-                <h1 id="flowix-onboarding-notebook-title">创建你的第一个笔记本</h1>
-                <p>你可以通过使用标签、属性等方式，轻松组织你的内容。每个笔记本也是独立的 Agent 工作空间，可安装技能、MCP、AI 插件和子 Agent。相关配置仅对当前笔记本生效。</p>
+            <section className="w-full animate-[flowix-onboarding-section-in_500ms_ease-out_both] motion-reduce:animate-none py-[clamp(11px,1.33vw,16px)] pb-4" aria-labelledby="flowix-onboarding-notebook-title">
+              <div className="max-w-full">
+                <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]" id="flowix-onboarding-notebook-title">创建你的第一个笔记本</h1>
+                <p className="mt-6 max-w-full text-sm leading-[1.72] text-[var(--onboarding-subtle)]">填写笔记本名称和存储位置，也可以选择一个场景模板开始使用。</p>
               </div>
               <form
                 id="flowix-onboarding-notebook-form"
-                className="flowix-onboarding__notebook-form"
+                className="mt-[22px] grid w-[min(100%,780px)] grid-cols-[minmax(0,1fr)_320px] items-start gap-x-[22px] gap-y-4 p-0 max-[760px]:grid-cols-1"
                 onSubmit={(event) => {
                   event.preventDefault();
                   void createNotebook();
                 }}
               >
-                <div className="flowix-onboarding__form-field flowix-onboarding__name-field">
-                  <label htmlFor="flowix-onboarding-notebook-name">笔记本名称</label>
-                  <div className="flowix-onboarding__name-row">
-                    <Input
-                      id="flowix-onboarding-notebook-name"
-                      value={notebookName}
-                      onChange={(event) => setNotebookName(event.target.value)}
-                      autoFocus
-                      className="h-10"
-                    />
-                    <NotebookIconPopover
-                      value={notebookIcon}
-                      notebookName={notebookName}
-                      onChange={setNotebookIcon}
-                    />
+                <div className="grid min-w-0 content-start gap-4 pr-[38px] max-[760px]:pr-0">
+                  <div className="grid min-w-0 gap-1">
+                    <label className="text-sm font-semibold text-[var(--foreground)]" htmlFor="flowix-onboarding-notebook-name">笔记本名称</label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <Input
+                        id="flowix-onboarding-notebook-name"
+                        value={notebookName}
+                        onChange={(event) => setNotebookName(event.target.value)}
+                        autoFocus
+                        className="h-10 bg-[var(--card)]"
+                      />
+                      <NotebookIconPopover
+                        value={notebookIcon}
+                        notebookName={notebookName}
+                        onChange={setNotebookIcon}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="flowix-onboarding__form-field">
-                  <label htmlFor="flowix-onboarding-notebook-path">存储位置</label>
-                  <div className="flowix-onboarding__path-field">
-                    <Input
-                      id="flowix-onboarding-notebook-path"
-                      value={notebookPath ?? defaultPath ?? ''}
-                      placeholder="文档 / flowix / My Notebook"
-                      disabled
-                      readOnly
-                      className="h-10 min-w-0"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10 shrink-0"
-                      onClick={() => void selectNotebookDirectory()}
-                    >
-                      选择目录
-                    </Button>
-                  </div>
-                </div>
-                <div className="flowix-onboarding__form-field flowix-onboarding__template-field">
-                  <div className="flowix-onboarding__template-label-row">
-                    <span id="flowix-onboarding-template-label">从以下场景新建</span>
-                    {templatePages.length > 1 && (
-                      <div className="flowix-onboarding__template-pagination" aria-label="模板分页">
-                        <button
-                          type="button"
-                          className="flowix-onboarding__template-page-button"
-                          aria-label="上一页模板"
-                          disabled={activeTemplatePage === 0}
-                          onClick={() => setTemplatePage((page) => Math.max(0, page - 1))}
-                        >
-                          <ChevronLeft size={15} aria-hidden="true" />
-                        </button>
-                        <span aria-live="polite">{activeTemplatePage + 1} / {templatePages.length}</span>
-                        <button
-                          type="button"
-                          className="flowix-onboarding__template-page-button"
-                          aria-label="下一页模板"
-                          disabled={activeTemplatePage === templatePages.length - 1}
-                          onClick={() => setTemplatePage((page) => Math.min(templatePages.length - 1, page + 1))}
-                        >
-                          <ChevronRight size={15} aria-hidden="true" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {notebookTemplateStatus === 'loading' && (
-                    <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
-                      {t('notebook.template.loading')}
-                    </p>
-                  )}
-                  {notebookTemplateStatus === 'error' && (
-                    <div className="flowix-onboarding__inline-error" role="alert">
-                      <CircleAlert size={15} aria-hidden="true" />
-                      <span>{t('notebook.template.loadFailed')}</span>
-                      <Button type="button" variant="outline" size="sm" className="h-7" onClick={retryNotebookTemplates}>
-                        {t('error.retry')}
+                  <div className="grid min-w-0 gap-1">
+                    <label className="text-sm font-semibold text-[var(--foreground)]" htmlFor="flowix-onboarding-notebook-path">存储位置</label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <Input
+                        id="flowix-onboarding-notebook-path"
+                        value={notebookPath ?? defaultPath ?? ''}
+                        placeholder="文档 / flowix / My Notebook"
+                        disabled
+                        readOnly
+                        className="h-10 min-w-0 bg-[var(--card)]"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 shrink-0 bg-[var(--card)]"
+                        onClick={() => void selectNotebookDirectory()}
+                      >
+                        选择目录
                       </Button>
                     </div>
-                  )}
-                  {notebookTemplateStatus === 'ready' && notebookTemplates.length === 0 && (
-                    <p className="mt-2 text-xs text-muted-foreground">{t('notebook.template.empty')}</p>
-                  )}
-                  <div
-                    className="flowix-onboarding__template-grid"
-                    role="group"
-                    aria-labelledby="flowix-onboarding-template-label"
-                  >
-                    <div
-                      className="flowix-onboarding__template-track"
-                      style={{ transform: `translateX(-${activeTemplatePage * 100}%)` }}
-                    >
-                      {templatePages.map((templates, pageIndex) => (
-                        <div className="flowix-onboarding__template-page" key={`template-page-${pageIndex}`}>
-                          {templates.map((template) => {
-                            const templateIndex = notebookTemplates.findIndex((item) => item.id === template.id);
-                            const selected = template.id === selectedTemplateId;
-                            return (
-                              <button
-                                key={template.id}
-                                type="button"
-                                aria-pressed={selected}
-                                className={cn(
-                                  'flowix-onboarding__template-option',
-                                  selected && 'is-selected',
-                                )}
-                                onClick={() => {
-                                  setSelectedTemplateId((current) => current === template.id ? null : template.id);
-                                  setTemplatePage(Math.floor(templateIndex / templatesPerPage));
-                                }}
-                              >
-                                <span className="flowix-onboarding__template-option-icon">
-                                  <NotebookTemplateIcon icon={template.icon} />
-                                </span>
-                                <span className="flowix-onboarding__template-option-copy">
-                                  <strong>{template.name}</strong>
-                                  <small>{template.description}</small>
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
                   </div>
+                </div>
+                <div className="grid min-w-0 content-start gap-1">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-start gap-0.5 p-0 text-left text-sm font-semibold text-[var(--foreground)] hover:text-[var(--brand)]"
+                    aria-haspopup="dialog"
+                    onClick={() => setIsTemplatePickerOpen(true)}
+                  >
+                    <span>选择场景模板（可选）</span>
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </button>
+                  {notebookTemplates.find((template) => template.id === selectedTemplateId) && (
+                    <NotebookTemplateCardPreview
+                      template={notebookTemplates.find((template) => template.id === selectedTemplateId)!}
+                    />
+                  )}
+                  {!selectedTemplateId && (
+                    <NotebookTemplateEmptyCard onClick={() => setIsTemplatePickerOpen(true)} />
+                  )}
                 </div>
               </form>
             </section>
           )}
 
           {step === 1 && (
-            <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-title">
-              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
-                <h1 id="flowix-onboarding-title">请配置 AI 环境</h1>
-                <p>Flowix 以文档为核心，让 AI 更自然地融入您的创作与工作流程。您可以直接连接本机已安装的 Agent，也可以一键安装 DeepSeek Harness，快速开始使用。</p>
+            <section className="w-full animate-[flowix-onboarding-section-in_500ms_ease-out_both] motion-reduce:animate-none py-[clamp(11px,1.33vw,16px)] pb-4" aria-labelledby="flowix-onboarding-title">
+              <div className="max-w-full">
+                <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]" id="flowix-onboarding-title">请配置 AI 环境</h1>
+                <p className="mt-6 max-w-full text-sm leading-[1.72] text-[var(--onboarding-subtle)]">Flowix 以文档为核心，让 AI 更自然地融入您的创作与工作流程。您可以直接连接本机已安装的 Agent，也可以一键安装 DeepSeek Harness，快速开始使用。</p>
               </div>
               <AgentRows
                 dshInstaller={dshInstaller}
@@ -676,10 +613,10 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
           )}
 
           {step === 2 && showDshModelStep && (
-            <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-dsh-model-title">
-              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
-                <h1 id="flowix-onboarding-dsh-model-title">配置 DeepSeek Harness 模型</h1>
-                <p>配置模型将本地保存，不会上传云端，提供给 DeepSeek Harness 使用，配置后可在 偏好设置 中修改。</p>
+            <section className="w-full animate-[flowix-onboarding-section-in_500ms_ease-out_both] motion-reduce:animate-none py-[clamp(11px,1.33vw,16px)] pb-4" aria-labelledby="flowix-onboarding-dsh-model-title">
+              <div className="max-w-full">
+                <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]" id="flowix-onboarding-dsh-model-title">配置 DeepSeek Harness 模型</h1>
+                <p className="mt-6 max-w-full text-sm leading-[1.72] text-[var(--onboarding-subtle)]">配置模型将本地保存，不会上传云端，提供给 DeepSeek Harness 使用，配置后可在 偏好设置 中修改。</p>
               </div>
               <AgentSection
                 configStore={deepseekHarness}
@@ -694,27 +631,27 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
           )}
 
           {step === 3 && createdNotebook && (
-            <section className="flowix-onboarding__section" aria-labelledby="flowix-onboarding-access-title">
-              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
-                <h1 id="flowix-onboarding-access-title">继续为 AI 添加可访问的位置</h1>
-                <p>你可以在这里添加更多仓库，供 AI 在工作时查阅参考资料或参与项目代码。已配置的笔记本会自动作为 AI 的工作空间（cwd），无需重复添加。</p>
+            <section className="w-full animate-[flowix-onboarding-section-in_500ms_ease-out_both] motion-reduce:animate-none py-[clamp(11px,1.33vw,16px)] pb-4" aria-labelledby="flowix-onboarding-access-title">
+              <div className="max-w-full">
+                <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]" id="flowix-onboarding-access-title">继续为 AI 添加可访问的位置</h1>
+                <p className="mt-6 max-w-full text-sm leading-[1.72] text-[var(--onboarding-subtle)]">你可以在这里添加更多仓库，供 AI 在工作时查阅参考资料或参与项目代码。已配置的笔记本会自动作为 AI 的工作空间（cwd），无需重复添加。</p>
               </div>
-              <div className="flowix-onboarding__repo-area">
-                <div className="flowix-onboarding__repo-header">
-                  <div><strong>可访问文件夹位置</strong><span>允许 Agent 在对话中查看、读取和修改以下文件夹中的内容。</span></div>
+              <div className="mt-5 border-t border-[var(--onboarding-line)]">
+                <div className="flex items-center justify-between gap-[15px] pb-3 pt-[17px]">
+                  <div className="grid gap-[5px]"><strong className="text-sm font-semibold text-[var(--onboarding-ink)]">可访问文件夹位置</strong><span className="text-xs text-[var(--onboarding-subtle)]">允许 Agent 在对话中查看、读取和修改以下文件夹中的内容。</span></div>
                 </div>
-                <div className="flowix-onboarding__repo-picker">
+                <div className="mb-3 flex justify-start">
                   <Button type="button" variant="outline" className="h-10" onClick={() => void addRepository()} disabled={isAddingRepository}>
                     {isAddingRepository ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />} 添加 本地资料 或 代码仓库
                   </Button>
                 </div>
                 {selectedRepositories.length > 0 && (
-                  <div className="flowix-onboarding__repo-list">
+                  <div className="grid gap-[7px]">
                     {selectedRepositories.map((repo) => (
-                      <div className="flowix-onboarding__repo-row" key={repo.path}>
-                        <span className="flowix-onboarding__repo-folder"><FolderOpen size={17} aria-hidden="true" /></span>
-                        <span><strong>{repo.name}</strong><small>{repo.path}</small></span>
-                        <button type="button" className="flowix-onboarding__remove-repo" aria-label={`移除 ${repo.name}`} onClick={() => void removeRepository(repo.path)}><X size={15} aria-hidden="true" /></button>
+                      <div className="flex items-center gap-[11px] rounded-[10px] border border-[var(--onboarding-line)] bg-[color-mix(in_oklch,var(--card)_72%,transparent)] p-[10px]" key={repo.path}>
+                        <span className="inline-flex h-[29px] w-[29px] shrink-0 items-center justify-center rounded-[7px] bg-[color-mix(in_oklch,var(--brand)_10%,transparent)] text-[var(--brand)]"><FolderOpen size={17} aria-hidden="true" /></span>
+                        <span className="grid min-w-0 flex-1 gap-1"><strong className="overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[var(--onboarding-ink)]">{repo.name}</strong><small className="text-xs text-[var(--onboarding-subtle)]">{repo.path}</small></span>
+                        <button type="button" className="inline-flex h-[25px] w-[25px] items-center justify-center rounded-md text-[var(--onboarding-subtle)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] hover:text-[var(--destructive)]" aria-label={`移除 ${repo.name}`} onClick={() => void removeRepository(repo.path)}><X size={15} aria-hidden="true" /></button>
                       </div>
                     ))}
                   </div>
@@ -724,35 +661,35 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
           )}
 
           {error && (
-            <div className="flowix-onboarding__error" role="alert"><CircleAlert size={15} aria-hidden="true" /> {error}</div>
+            <div className="mt-5 flex items-start gap-[7px] text-xs leading-[1.5] text-[var(--destructive)]" role="alert"><CircleAlert size={15} aria-hidden="true" /> {error}</div>
           )}
         </div>
 
-        <div className="flowix-onboarding__actions">
+        <div className="sticky bottom-0 z-[2] mx-auto flex min-h-[62px] w-[min(100%,780px)] flex-[0_0_auto] items-center justify-end gap-[18px] border-t border-[var(--onboarding-line)] bg-[var(--frame-bg)] pt-[18px] max-[760px]:min-h-[58px] max-[760px]:pt-[14px]">
           {step === 0 && (
-            <>
-              <button
-                type="submit"
-                form="flowix-onboarding-notebook-form"
-                className="flowix-onboarding__primary-action"
-                disabled={isCreatingNotebook || !notebookName.trim() || (!notebookPath && !defaultPath)}
-              >
-                {isCreatingNotebook ? <><LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> 正在创建</> : <>创建我的笔记本 <ArrowRight size={17} aria-hidden="true" /></>}
-              </button>
-            </>
+            <button
+              type="submit"
+              form="flowix-onboarding-notebook-form"
+              className="inline-flex min-h-[38px] items-center justify-center gap-1 rounded-[9px] border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-[0.46] max-[760px]:flex-1"
+              disabled={isCreatingNotebook || !notebookName.trim() || (!notebookPath && !defaultPath)}
+            >
+              {isCreatingNotebook
+                ? <><LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> 正在创建</>
+                : <>新建笔记本 <ArrowRight size={17} aria-hidden="true" /></>}
+            </button>
           )}
 
           {step === 1 && (
             <>
-              <button type="button" className="flowix-onboarding__back-action" onClick={() => setStep(0)}>
+              <button type="button" className="mr-auto inline-flex min-h-[38px] items-center justify-center gap-2 border border-transparent bg-transparent pl-0 text-xs font-semibold text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)]" onClick={() => setStep(0)}>
                 <ArrowLeft size={16} aria-hidden="true" /> 返回
               </button>
-              <button type="button" className="flowix-onboarding__skip-action" onClick={() => void finish()} disabled={isFinishing}>
+              <button type="button" className="inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[9px] border border-[var(--onboarding-line)] bg-transparent px-[15px] text-xs font-medium text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:cursor-not-allowed disabled:opacity-[0.46]" onClick={() => void finish()} disabled={isFinishing}>
                 跳过 AI 配置
               </button>
               <button
                 type="button"
-                className="flowix-onboarding__primary-action"
+                className="inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[9px] border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-[0.46] max-[760px]:flex-1"
                 disabled={
                   !canContinueWithAgent
                   || dshInstaller.busy
@@ -769,7 +706,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
             <>
               <button
                 type="button"
-                className="flowix-onboarding__back-action"
+                className="mr-auto inline-flex min-h-[38px] items-center justify-center gap-2 border border-transparent bg-transparent pl-0 text-xs font-semibold text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:cursor-not-allowed disabled:opacity-[0.46]"
                 onClick={() => setStep(1)}
                 disabled={dshModelAction !== null}
               >
@@ -777,7 +714,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
               </button>
               <button
                 type="button"
-                className="flowix-onboarding__skip-action"
+                className="inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[9px] border border-[var(--onboarding-line)] bg-transparent px-[15px] text-xs font-medium text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:cursor-not-allowed disabled:opacity-[0.46]"
                 onClick={() => setStep(3)}
                 disabled={dshModelAction !== null}
               >
@@ -785,7 +722,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
               </button>
               <button
                 type="button"
-                className="flowix-onboarding__primary-action"
+                className="inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[9px] border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-[0.46] max-[760px]:flex-1"
                 onClick={() => void continueFromDshModel()}
                 disabled={!dshModelActionsReady || dshModelAction !== null}
               >
@@ -799,19 +736,31 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
             <>
               <button
                 type="button"
-                className="flowix-onboarding__back-action"
+                className="mr-auto inline-flex min-h-[38px] items-center justify-center gap-2 border border-transparent bg-transparent pl-0 text-xs font-semibold text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:cursor-not-allowed disabled:opacity-[0.46]"
                 onClick={() => setStep(showDshModelStep ? 2 : 1)}
                 disabled={isFinishing}
               >
                 <ArrowLeft size={16} aria-hidden="true" /> 返回
               </button>
-              <button type="button" className="flowix-onboarding__primary-action" onClick={() => void finish()} disabled={isFinishing}>
+              <button type="button" className="inline-flex min-h-[38px] items-center justify-center gap-2 rounded-[9px] border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-[0.46] max-[760px]:flex-1" onClick={() => void finish()} disabled={isFinishing}>
                 {isFinishing ? <><LoaderCircle size={17} className="animate-spin" /> 正在进入</> : <>开始使用</>}
               </button>
             </>
           )}
         </div>
-
+        {isTemplatePickerOpen && (
+          <NotebookTemplatePicker
+            templates={notebookTemplates}
+            status={notebookTemplateStatus}
+            retry={retryNotebookTemplates}
+            initialTemplateId={selectedTemplateId}
+            onCancel={() => setIsTemplatePickerOpen(false)}
+            onComplete={(templateId) => {
+              setSelectedTemplateId(templateId);
+              setIsTemplatePickerOpen(false);
+            }}
+          />
+        )}
       </main>
     </div>
   );

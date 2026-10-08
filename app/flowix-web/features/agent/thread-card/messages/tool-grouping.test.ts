@@ -20,6 +20,42 @@ function message(
 }
 
 describe("groupAgentMessages", () => {
+  it("places Codex imageGeneration savedPath previews after the tool group", () => {
+    const codexImageGenerationItem = {
+      id: "item-generation",
+      type: "imageGeneration",
+      status: "completed",
+      result: "Image generated successfully.",
+      revisedPrompt: "A watercolor fox",
+      savedPath: "/workspace/generated_images/image-1.png",
+      failure: null,
+      transparentBackground: false,
+    };
+    const items = groupAgentMessages([
+      message("generate-1", "tool", {
+        toolAgentType: "codex",
+        toolName: "image_generation",
+        toolInput: codexImageGenerationItem,
+        toolData: JSON.stringify(codexImageGenerationItem),
+      }),
+      message("assistant-after-image", "assistant", { content: "Done." }),
+    ]);
+
+    expect(items.map((item) => item.kind)).toEqual([
+      "tool-group",
+      "generated-images",
+      "message",
+    ]);
+    const generatedImages = items[1];
+    expect(generatedImages.kind).toBe("generated-images");
+    if (generatedImages.kind === "generated-images") {
+      expect(generatedImages.images).toEqual([{
+        kind: "file",
+        value: "/workspace/generated_images/image-1.png",
+      }]);
+    }
+  });
+
   it("groups only adjacent tools and keeps non-tool rows as boundaries", () => {
     const items = groupAgentMessages([
       message("a1", "assistant"),

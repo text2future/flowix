@@ -151,6 +151,8 @@ pub struct NotebookConfig {
 pub struct NotebookSetupJob {
     pub notebook_id: String,
     pub template_id: Option<String>,
+    #[serde(default)]
+    pub overwrite_existing: bool,
     #[serde(rename = "status")]
     pub status: NotebookSetupJobStatus,
     pub stage: String,
@@ -162,7 +164,7 @@ pub struct NotebookSetupJob {
 }
 
 /// Aggregate result of a best-effort template application. Existing files are
-/// preserved and counted separately from files that could not be written.
+/// preserved by default, or replaced when the user confirms an overwrite.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookSetupReport {
@@ -184,14 +186,16 @@ pub enum NotebookSetupJobStatus {
     Failed,
 }
 
-/// Portable notebook identity stored in `<notebook>/.flowix/notebook.json`.
-/// It contains no derived memo data; Markdown remains the note source of truth.
+/// Notebook identity and optional scene selection stored in
+/// `<notebook>/.flowix/notebook.json`. Markdown remains the note source of truth.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookManifest {
     pub format_version: u32,
     pub notebook_id: String,
     pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

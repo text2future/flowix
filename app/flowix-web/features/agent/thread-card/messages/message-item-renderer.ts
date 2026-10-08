@@ -24,6 +24,7 @@ import {
 } from "@features/agent/message/display-limits";
 import { createChevronIcon } from "@features/agent/thread-card/agent-thread-card-icons";
 import { registerMessageDisposer } from "@features/agent/thread-card/messages/message-lifecycle";
+import { attachAgentMessageImagePreview } from "@features/agent/thread-card/messages/image-preview";
 import { createAgentThreadCardToolMessageParts } from "@features/agent/thread-card/messages/message-tool-renderer";
 
 type AgentMessage = ThreadState["messages"][number];
@@ -487,6 +488,9 @@ export function renderAgentThreadCardBudgetedMarkdown(options: {
     options;
   const expanded = context.getDisplayExpanded(message);
   const display = applyMessageDisplayBudget(role, visibleContent, expanded);
+
+  const disposeImagePreview = attachAgentMessageImagePreview(content, context.language);
+  if (disposeImagePreview) registerMessageDisposer(content, disposeImagePreview);
 
   const forceFinalize = !options.isStreaming || !!message.isCompleted;
   renderIncrementalMarkdownDom(

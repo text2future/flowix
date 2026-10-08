@@ -14,6 +14,9 @@ const NOTEBOOK_TEMPLATE_FILES = import.meta.glob<string>(
   [
     '../../../../.flowix/templates/notebook-templates/*/**/*.md',
     '../../../../.flowix/templates/notebook-templates/*/.agents/**/*',
+    '../../../../.flowix/templates/notebook-templates/*/**/*.csv',
+    '../../../../.flowix/templates/notebook-templates/*/**/*.json',
+    '../../../../.flowix/templates/notebook-templates/*/**/*.txt',
     '../../../../.flowix/templates/notebook-templates/*/.gitignore',
     '../../../../.flowix/templates/notebook-templates/*/CODEOWNERS',
   ],

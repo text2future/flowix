@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCurrentWebview, getCurrentWindow } from '@platform/tauri/window';
+import { onceUnlisten } from '@platform/tauri/event-bus';
 import { isNotebookResourcePath } from '@features/editor/code-file';
 
 const MARKDOWN_EXTENSION_PATTERN = /\.(md|markdown)$/i;
@@ -192,8 +193,9 @@ export function useMarkdownFileDrop({
         onDropErrorRef.current?.(error);
       });
     }).then((next) => {
-      if (disposed) next();
-      else unlisten = next;
+      const stop = onceUnlisten(next);
+      if (disposed) stop();
+      else unlisten = stop;
     }).catch((error) => {
       if (!disposed) onDropErrorRef.current?.(error);
     });

@@ -662,6 +662,10 @@ function AgentConversationDetailContent({
         },
         getLanguage: () => languageRef.current,
         getTypeKey: () => typeKeyRef.current,
+        getImageSpacePath: (filePath) => agentFileScopePathForRuntime(
+          filePath,
+          instanceRef.current?.runtimeConfig,
+        ),
         getMessageCount: () => messagesRef.current.length,
         shouldLoadThreadMessages: () => false,
         renderThreadState: () => {

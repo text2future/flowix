@@ -18,6 +18,8 @@ function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
       return { kind, instanceKey: 'md:1', fileIdentity: fileIdentity('/workspace/readme.md'), props: { isExternalDocument: true } };
     case 'code':
       return { kind, instanceKey: 'code:1', fileIdentity: fileIdentity('/workspace/main.ts'), props: { isExternalDocument: true } };
+    case 'csv-file':
+      return { kind, instanceKey: 'csv:1', fileIdentity: fileIdentity('/workspace/data.csv'), scopePath: '/workspace' };
     case 'image-file':
       return {
         kind, instanceKey: 'image:1', fileIdentity: fileIdentity('/workspace/logo.png'), scopePath: '/workspace',

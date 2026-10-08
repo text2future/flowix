@@ -13,6 +13,7 @@ export interface AgentThreadCardMessageRenderContext {
   setDisplayExpanded: (messageId: string, expanded: boolean) => void;
   getToolGroupExpanded?: (groupId: string) => boolean;
   setToolGroupExpanded?: (groupId: string, expanded: boolean) => void;
+  getImageSpacePath?: (filePath: string) => string | null;
   /**
    * Whether a message is still growing in the current stream. Streaming
    * messages use incremental Markdown rendering; completed messages use the

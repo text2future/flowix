@@ -88,6 +88,30 @@ export function PiSettingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [providerCatalog, setProviderCatalog] = useState<PiModelCatalog | null>(null);
   const [providerCatalogError, setProviderCatalogError] = useState<string | null>(null);
+  const [features, setFeatures] = useState({ codeMode: false, toolSearch: false });
+  const [featuresLoading, setFeaturesLoading] = useState(true);
+  const [featuresSaving, setFeaturesSaving] = useState(false);
+  const [featuresError, setFeaturesError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void piModels.getFeatures()
+      .then((value) => { if (!cancelled) setFeatures(value); })
+      .catch((error) => {
+        if (!cancelled) setFeaturesError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => { if (!cancelled) setFeaturesLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+  const setFeature = async (key: 'codeMode' | 'toolSearch', value: boolean) => {
+    const next = { ...features, [key]: value };
+    setFeatures(next);
+    setFeaturesSaving(true);
+    try { await piModels.saveFeatures(next); }
+    catch (error) {
+      setFeatures(features);
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally { setFeaturesSaving(false); }
+  };
 
   const reload = useCallback(async () => {
     setError(null);
@@ -378,6 +402,28 @@ export function PiSettingsSection() {
   return (
     <div className="space-y-5">
       <SectionHeader title={t('preferences.pi.title')} description={t('preferences.pi.description')} />
+      <div className="space-y-2 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-3">
+        {featuresError && <p role="alert" className="text-xs text-[var(--destructive)]">{featuresError}</p>}
+        {([
+          ['codeMode', t('preferences.pi.codeModeUnavailable')],
+          ['toolSearch', t('preferences.pi.toolSearch')],
+        ] as const).map(([key, label]) => (
+          <div key={key} className="flex items-center justify-between gap-3 text-sm">
+            <span>{label}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-label={label}
+              aria-checked={features[key]}
+              disabled={key === 'codeMode' || featuresLoading || featuresSaving || Boolean(featuresError)}
+              onClick={() => void setFeature(key, !features[key])}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${features[key] ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]'}`}
+            >
+              <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${features[key] ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        ))}
+      </div>
       <div className="space-y-3">
         {loading && <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin" /></div>}
         {error && <p className="text-sm text-[var(--destructive)]">{error}</p>}

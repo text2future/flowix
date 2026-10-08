@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Input } from '@shared/ui/input';
 import { Button } from '@shared/ui/button';
 import {
@@ -23,7 +23,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  ChevronLeft,
   ChevronRight,
   CloudDownload,
   Loader2,
@@ -34,7 +33,7 @@ import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { isMac } from '@features/shortcuts';
 import { OnboardingTitlebarMac } from '@features/onboarding/onboarding-titlebar-mac';
 import { useNotebookTemplates } from '@features/onboarding/notebook-templates';
-import { NotebookTemplateIcon } from '@features/onboarding/notebook-template-icon';
+import { NotebookTemplateCardPreview, NotebookTemplateEmptyCard, NotebookTemplatePicker } from '@features/onboarding/notebook-template-picker';
 
 interface NotebookDialogsProps {
   createOpen: boolean;
@@ -190,24 +189,11 @@ export function NotebookDialogs({
     status: notebookTemplateStatus,
     retry: retryNotebookTemplates,
   } = useNotebookTemplates(createOpen && createMode === 'create');
-  const [templatesPerPage, setTemplatesPerPage] = useState(6);
-  const [templatePage, setTemplatePage] = useState(0);
+  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
 
   useEffect(() => {
-    const updateTemplatesPerPage = () => setTemplatesPerPage(window.innerWidth < 760 ? 2 : 6);
-    updateTemplatesPerPage();
-    window.addEventListener('resize', updateTemplatesPerPage);
-    return () => window.removeEventListener('resize', updateTemplatesPerPage);
-  }, []);
-
-  const templatePages = useMemo(() => {
-    const pages: Array<Array<(typeof notebookTemplates)[number]>> = [];
-    for (let index = 0; index < notebookTemplates.length; index += templatesPerPage) {
-      pages.push([...notebookTemplates.slice(index, index + templatesPerPage)]);
-    }
-    return pages;
-  }, [notebookTemplates, templatesPerPage]);
-  const activeTemplatePage = Math.max(0, Math.min(templatePage, templatePages.length - 1));
+    if (createOpen && createMode === 'create') setIsTemplatePickerOpen(false);
+  }, [createMode, createOpen]);
 
   return (
     <>
@@ -215,37 +201,34 @@ export function NotebookDialogs({
         <DialogContent
           showCloseButton={false}
           aria-busy={isCreatingNotebook}
-          className="flowix-notebook-create !fixed !inset-0 !h-dvh !max-h-none !w-full !max-w-none !rounded-none !bg-[var(--frame-bg)] !p-0 !shadow-none"
+          className="!fixed !inset-0 !z-[130] !flex !h-dvh !max-h-none !w-full !max-w-none !flex-col !overflow-hidden !rounded-none !bg-[var(--frame-bg)] !p-0 !text-[var(--foreground)] !shadow-none [--onboarding-form-gap:22px] [--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)] [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--ring)] [&_button:focus-visible]:outline-offset-[3px]"
         >
           {isMac() && <OnboardingTitlebarMac />}
           <WindowsTitlebarControls reserveSpace />
-          <main className="flowix-onboarding__main flowix-notebook-create__main">
-            <div className="flowix-onboarding__content">
-              <section className="flowix-onboarding__section">
-                <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup">
+          <main className="relative z-[1] flex min-h-0 w-full flex-1 flex-col overflow-hidden p-0">
+            <div className="mx-auto flex min-h-0 w-full max-w-[780px] flex-1 flex-col overflow-y-auto overscroll-contain pb-[104px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <section className={`w-full py-[clamp(11px,1.33vw,16px)] pb-4 ${createMode === 'create' ? 'flex min-h-full flex-col justify-center' : ''}`}>
+                <div className="max-w-full">
                   {createMode === 'cloud' ? (
                     <>
                       <button
                         type="button"
                         onClick={onBackToCreate}
-                        className="flowix-notebook-create__back"
+                        className="mb-[15px] inline-flex items-center gap-[7px] p-0 text-xs text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)]"
                         aria-label={t('notebook.cloudImport.back')}
                         title={t('notebook.cloudImport.back')}
                       >
                         <ArrowLeft className="h-4 w-4" />
                         {t('notebook.cloudImport.back')}
                       </button>
-                      <h1>{t('notebook.cloudImport.title')}</h1>
+                      <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]">{t('notebook.cloudImport.title')}</h1>
                     </>
                   ) : (
-                    <h1>{t("notebook.create.title")}</h1>
-                  )}
-                  {createMode === 'create' && (
-                    <p>你可以通过使用标签、属性等方式，轻松组织你的内容。每个笔记本也是独立的 Agent 工作空间，可安装技能、MCP、AI 插件和子 Agent。相关配置仅对当前笔记本生效。</p>
+                    <h1 className="text-[clamp(23px,3.33vw,44px)] font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]">{t("notebook.create.title")}</h1>
                   )}
                 </div>
           {createMode === 'cloud' ? (
-            <div className="flowix-notebook-create__cloud">
+            <div className="mt-[22px] w-full max-w-[780px]">
               {remoteNotebooksLoading ? (
                 <div className="flex min-h-[180px] items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -299,148 +282,80 @@ export function NotebookDialogs({
           ) : (
             <form
               id="flowix-create-notebook-form"
-              className="flowix-onboarding__notebook-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                onConfirmCreate();
-              }}
+              className="mt-[60px] grid w-full max-w-[780px] grid-cols-[minmax(0,1fr)_320px] items-start gap-x-[22px] gap-y-4 p-0 max-[760px]:grid-cols-1"
+              onSubmit={(event) => { event.preventDefault(); onConfirmCreate(); }}
             >
-              <div className="flowix-onboarding__form-field">
-                <label htmlFor="create-notebook-name">{t('notebook.create.namePlaceholder')}</label>
-                <div className="flowix-onboarding__name-row">
-                  <Input
-                    id="create-notebook-name"
-                    placeholder={t("notebook.create.namePlaceholder")}
-                    value={newNotebookName}
-                    onChange={(event) => onNewNotebookNameChange(event.target.value)}
-                    autoFocus
-                    className="h-10"
-                  />
-                  <NotebookIconPopover
-                    value={newNotebookIcon}
-                    notebookName={newNotebookName}
-                    onChange={onNewNotebookIconChange}
-                  />
+              <div className="grid min-w-0 content-start gap-4 pr-[38px] max-[760px]:pr-0">
+                <div className="grid min-w-0 gap-1">
+                  <label className="text-sm font-semibold text-[var(--foreground)]" htmlFor="create-notebook-name">{t('notebook.create.namePlaceholder')}</label>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <Input
+                      id="create-notebook-name"
+                      placeholder={t("notebook.create.namePlaceholder")}
+                      value={newNotebookName}
+                      onChange={(event) => onNewNotebookNameChange(event.target.value)}
+                      autoFocus
+                      className="h-10 bg-[var(--card)]"
+                    />
+                    <NotebookIconPopover
+                      value={newNotebookIcon}
+                      notebookName={newNotebookName}
+                      onChange={onNewNotebookIconChange}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="flowix-onboarding__form-field">
-                <label htmlFor="create-notebook-path">{t("notebook.create.pathLabel")}</label>
-                <div className="flowix-onboarding__path-field">
-                  <Input
-                    id="create-notebook-path"
-                    placeholder={t("notebook.create.pathPlaceholder")}
-                    value={newNotebookPath || newNotebookDefaultPath}
-                    disabled
-                    className="h-10 min-w-0"
-                    readOnly
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 shrink-0"
-                    onClick={() => void onSelectDirectory()}
-                  >
-                    {t("notebook.create.selectDirectory")}
-                  </Button>
-                </div>
-              </div>
-              <div className="flowix-onboarding__form-field flowix-onboarding__template-field">
-                <div className="flowix-onboarding__template-label-row">
-                  <span id="create-notebook-template-label">从以下场景新建（可选）</span>
-                  {templatePages.length > 1 && (
-                    <div className="flowix-onboarding__template-pagination" aria-label="模板分页">
-                      <button
-                        type="button"
-                        className="flowix-onboarding__template-page-button"
-                        aria-label="上一页模板"
-                        disabled={activeTemplatePage === 0}
-                        onClick={() => setTemplatePage((page) => Math.max(0, page - 1))}
-                      >
-                        <ChevronLeft size={15} aria-hidden="true" />
-                      </button>
-                      <span aria-live="polite">{activeTemplatePage + 1} / {templatePages.length}</span>
-                      <button
-                        type="button"
-                        className="flowix-onboarding__template-page-button"
-                        aria-label="下一页模板"
-                        disabled={activeTemplatePage === templatePages.length - 1}
-                        onClick={() => setTemplatePage((page) => Math.min(templatePages.length - 1, page + 1))}
-                      >
-                        <ChevronRight size={15} aria-hidden="true" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {notebookTemplateStatus === 'loading' && (
-                  <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
-                    {t('notebook.template.loading')}
-                  </p>
-                )}
-                {notebookTemplateStatus === 'error' && (
-                  <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
-                    <span>{t('notebook.template.loadFailed')}</span>
-                    <Button type="button" variant="outline" size="sm" className="h-7 shrink-0" onClick={retryNotebookTemplates}>
-                      {t('error.retry')}
+                <div className="grid min-w-0 gap-1">
+                  <label className="text-sm font-semibold text-[var(--foreground)]" htmlFor="create-notebook-path">{t("notebook.create.pathLabel")}</label>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <Input
+                      id="create-notebook-path"
+                      placeholder={t("notebook.create.pathPlaceholder")}
+                      value={newNotebookPath || newNotebookDefaultPath}
+                      disabled
+                      className="h-10 min-w-0 bg-[var(--card)]"
+                      readOnly
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 shrink-0 bg-[var(--card)]"
+                      onClick={() => void onSelectDirectory()}
+                    >
+                      {t("notebook.create.selectDirectory")}
                     </Button>
                   </div>
-                )}
-                {notebookTemplateStatus === 'ready' && notebookTemplates.length === 0 && (
-                  <p className="mt-2 text-xs text-muted-foreground">{t('notebook.template.empty')}</p>
-                )}
-                <div
-                  className="flowix-onboarding__template-grid"
-                  role="group"
-                  aria-labelledby="create-notebook-template-label"
-                >
-                  <div
-                    className="flowix-onboarding__template-track"
-                    style={{ transform: `translateX(-${activeTemplatePage * 100}%)` }}
-                  >
-                    {templatePages.map((templates, pageIndex) => (
-                      <div className="flowix-onboarding__template-page" key={`template-page-${pageIndex}`}>
-                        {templates.map((template) => {
-                          const templateIndex = notebookTemplates.findIndex((item) => item.id === template.id);
-                          const selected = template.id === newNotebookTemplateId;
-                          return (
-                            <button
-                              key={template.id}
-                              type="button"
-                              aria-pressed={selected}
-                              className={cn(
-                                'flowix-onboarding__template-option',
-                                selected && 'is-selected',
-                              )}
-                              onClick={() => {
-                                onNewNotebookTemplateIdChange((selected ? null : template.id));
-                                setTemplatePage(Math.floor(templateIndex / templatesPerPage));
-                              }}
-                            >
-                              <span className="flowix-onboarding__template-option-icon">
-                                <NotebookTemplateIcon icon={template.icon} />
-                              </span>
-                              <span className="flowix-onboarding__template-option-copy">
-                                <strong>{template.name}</strong>
-                                <small>{template.description}</small>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
                 </div>
+              </div>
+              <div className="grid min-w-0 content-start gap-1">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-start gap-0.5 p-0 text-left text-sm font-semibold text-[var(--foreground)] hover:text-[var(--brand)]"
+                  aria-haspopup="dialog"
+                  onClick={() => setIsTemplatePickerOpen(true)}
+                >
+                  <span>选择场景模板（可选）</span>
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+                {notebookTemplates.find((template) => template.id === newNotebookTemplateId) && (
+                  <NotebookTemplateCardPreview
+                    template={notebookTemplates.find((template) => template.id === newNotebookTemplateId)!}
+                  />
+                )}
+                {!newNotebookTemplateId && (
+                  <NotebookTemplateEmptyCard onClick={() => setIsTemplatePickerOpen(true)} />
+                )}
               </div>
             </form>
           )}
               </section>
             </div>
-            <div className="flowix-onboarding__actions">
-              <div className="flowix-notebook-create__actions-end">
+            <div className="absolute bottom-0 left-0 z-[4] m-0 flex min-h-20 w-full items-center justify-end border-t border-[var(--onboarding-line)] bg-[var(--frame-bg)] px-[clamp(28px,6vw,96px)] pb-[calc(16px+env(safe-area-inset-bottom))] pt-4 max-[600px]:flex-wrap max-[600px]:gap-2 max-[600px]:px-5 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:pt-3">
+              <div className="mx-auto flex w-full max-w-[780px] items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={onCancelCreate}
                   disabled={isCreatingNotebook}
-                  className="flowix-onboarding__skip-action"
+                  className="inline-flex h-8 min-h-8 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-transparent px-[15px] text-xs font-medium text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:opacity-50"
                 >
                   {t("notebook.create.cancel")}
                 </button>
@@ -448,29 +363,35 @@ export function NotebookDialogs({
                   <button
                     type="submit"
                     form="flowix-create-notebook-form"
-                    className="flowix-onboarding__primary-action"
+                    className="inline-flex h-8 min-h-8 items-center justify-center gap-1 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 max-[600px]:flex-1"
                     disabled={isCreatingNotebook || !newNotebookName.trim()}
                     aria-busy={isCreatingNotebook}
                   >
                     {isCreatingNotebook ? (
-                      <>
-                        <Loader2 size={17} className="animate-spin" aria-hidden="true" />
-                        {t("notebook.create.creating")}
-                      </>
+                      <><Loader2 size={17} className="animate-spin" aria-hidden="true" />{t("notebook.create.creating")}</>
                     ) : (
-                      <>
-                        {t("notebook.create.confirm")}
-                        <ArrowRight size={17} aria-hidden="true" />
-                      </>
+                      <>新建笔记本 <ArrowRight size={17} aria-hidden="true" /></>
                     )}
                   </button>
                 )}
               </div>
             </div>
+            {createMode === 'create' && isTemplatePickerOpen && (
+              <NotebookTemplatePicker
+                templates={notebookTemplates}
+                status={notebookTemplateStatus}
+                retry={retryNotebookTemplates}
+                initialTemplateId={newNotebookTemplateId}
+                onCancel={() => setIsTemplatePickerOpen(false)}
+                onComplete={(templateId) => {
+                  onNewNotebookTemplateIdChange(templateId);
+                  setIsTemplatePickerOpen(false);
+                }}
+              />
+            )}
           </main>
         </DialogContent>
       </Dialog>
-
       <Dialog open={editOpen} onOpenChange={onEditOpenChange}>
         <DialogContent className="w-[760px] !max-w-[calc(100vw-2rem)]" aria-busy={editSaving}>
           <DialogHeader>

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@/types";
+import { files } from "@platform/tauri/client";
 import {
   createRenderedAgentMessageList,
   isCurrentTurnMessage,
@@ -324,6 +325,49 @@ describe("continuous tool group rendering", () => {
       ...overrides,
     };
   }
+
+  it("renders Codex generated image previews between the tool group and assistant", async () => {
+    const readPreview = vi.spyOn(files, "readCodexGeneratedImagePreview")
+      .mockResolvedValue("data:image/png;base64,cHJldmlldw==");
+    const imageGenerationItem = {
+      id: "image-generation",
+      type: "imageGeneration",
+      status: "completed",
+      result: "Image generated successfully.",
+      savedPath: "/home/test/.codex/generated_images/thread/image.png",
+    };
+    const messages = [
+      tool("generate", {
+        toolAgentType: "codex",
+        toolName: "image_generation",
+        toolData: JSON.stringify(imageGenerationItem),
+        toolInput: imageGenerationItem,
+      }),
+      message("assistant-after-image", "assistant", "turn-1"),
+    ];
+    const { list } = createRenderedAgentMessageList(messages, {
+      ...context(),
+      getImageSpacePath: () => null,
+    });
+
+    expect(Array.from(list.children).map((child) =>
+      child.classList.contains("agent-thread-card__tool-group")
+        ? "tool-group"
+        : child.classList.contains("agent-thread-card__generated-image-strip")
+          ? "generated-images"
+          : "message",
+    )).toEqual(["tool-group", "generated-images", "message"]);
+    expect(readPreview).toHaveBeenCalledWith(
+      "/home/test/.codex/generated_images/thread/image.png",
+      120,
+    );
+    await Promise.resolve();
+    expect(list.querySelector(".agent-thread-card__generated-image")?.getAttribute("src"))
+      .toBe("data:image/png;base64,cHJldmlldw==");
+    expect((list.querySelector(".agent-thread-card__generated-image") as HTMLImageElement | null)?.loading)
+      .toBe("lazy");
+    readPreview.mockRestore();
+  });
 
   it("renders adjacent tools as one top-level group with independently expandable inputs", () => {
     const { list } = createRenderedAgentMessageList(

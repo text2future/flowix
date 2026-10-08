@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import {
   NotebookIcon,
   NOTEBOOK_ICON_OPTIONS,
@@ -40,9 +41,10 @@ export function NotebookIconPicker({
         {t("notebook.iconLabel")}
       </div>
       <div className="relative">
-        <div
-          ref={scrollAreaRef}
-          className="max-h-[146px] overflow-y-auto pr-1 [scrollbar-gutter:stable]"
+        <OverlayScrollbar
+          className="max-h-[146px]"
+          scrollerClassName="max-h-[146px] overflow-y-auto overflow-x-hidden pr-1"
+          scrollerRef={scrollAreaRef}
           onScroll={(event) => {
             const scrollArea = event.currentTarget;
             setShowBottomScrollHint(
@@ -99,7 +101,7 @@ export function NotebookIconPicker({
               </button>
             ))}
           </div>
-        </div>
+        </OverlayScrollbar>
         <div
           aria-hidden="true"
           className={cn(

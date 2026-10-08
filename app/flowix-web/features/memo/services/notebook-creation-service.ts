@@ -19,6 +19,7 @@ interface CreateNotebookRegistrationInput {
   path?: string;
   icon?: string | null;
   templateId?: string | null;
+  overwriteExisting?: boolean;
   reuseExisting?: boolean;
 }
 
@@ -95,6 +96,7 @@ export async function createNotebookRegistration({
   path,
   icon,
   templateId,
+  overwriteExisting = false,
   reuseExisting = false,
 }: CreateNotebookRegistrationInput): Promise<NotebookRegistrationResult> {
   const trimmedName = name.trim();
@@ -107,7 +109,9 @@ export async function createNotebookRegistration({
 
   try {
     const notebook = templateId
-      ? await notebookRepository.create(trimmedName, pathForCreate, icon, false, templateId)
+      ? await notebookRepository.create(
+        trimmedName, pathForCreate, icon, false, templateId, overwriteExisting,
+      )
       : await notebookRepository.create(trimmedName, pathForCreate, icon, false);
     return {
       notebook,
@@ -123,7 +127,7 @@ export async function createNotebookRegistration({
       const registered = await findNotebookByPath(existingPath);
       if (registered) {
         const setupJob = templateId
-          ? await notebookRepository.ensureTemplateSetup(registered.id, templateId)
+          ? await notebookRepository.ensureTemplateSetup(registered.id, templateId, overwriteExisting)
           : await notebookRepository.getTemplateSetupStatus?.(registered.id) ?? null;
         const registration = {
           notebook: registered,

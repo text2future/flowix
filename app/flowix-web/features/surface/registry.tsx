@@ -16,6 +16,7 @@ import { normalizePluginArtifactRenderer, type PluginArtifactRendererId } from '
 import { extractFrontmatter } from '@features/document/properties/frontmatter-model';
 import { DocumentContainer, UnavailableFileView } from '@features/document/components/document-container';
 import { DocxPreview } from '@features/document/components/docx-preview';
+import { CsvPreview } from '@features/document/components/csv-preview';
 import { useDocumentStore } from '@features/document/store/document-store';
 import { documentIdentityFromFile } from '@features/document/store/document-identity';
 import { saveDocumentPath } from '@features/document/store/document-session-service';
@@ -161,6 +162,10 @@ function VideoFileSurfaceView({ surface }: { surface: VideoFileSurface }) {
   />;
 }
 
+function CsvFileSurfaceView({ surface }: { surface: Extract<WorkColumnSurface, { kind: 'csv-file' }> }) {
+  return <CsvPreview filePath={surface.fileIdentity.path} scopePath={surface.scopePath} />;
+}
+
 function TableFileSurfaceView({ surface }: { surface: TableFileSurface }) {
   return <TableDocumentView {...surface.props} fileIdentity={surface.fileIdentity}
     onActiveViewChange={surface.props.expectedCollectionId && surface.props.notebookId ? (viewId) => {
@@ -190,6 +195,9 @@ function UnavailableFileSurfaceView({ surface }: { surface: UnavailableFileSurfa
   );
   if (baseFileKind === 'docx') {
     return <DocxPreview filePath={filePath} scopePath={surface.scopePath} />;
+  }
+  if (baseFileKind === 'csv') {
+    return <CsvPreview filePath={filePath} scopePath={surface.scopePath} />;
   }
   if (mimeLoading) {
     return (
@@ -252,6 +260,11 @@ export const workColumnSurfaceRegistry = Object.freeze({
     chrome: 'document',
     capabilities: ['edit', 'search', 'copy-content'],
     component: CodeSurfaceView,
+  }),
+  'csv-file': defineSurface('csv-file', {
+    chrome: 'document',
+    capabilities: [],
+    component: CsvFileSurfaceView,
   }),
   'image-file': defineSurface('image-file', {
     chrome: 'document',
@@ -344,6 +357,8 @@ export function surfaceSupports(
 
 function transitionFinishedOnMount(surface: WorkColumnSurface): number | null {
   switch (surface.kind) {
+    case 'csv-file':
+      return surface.transitionId ?? null;
     case 'image-file':
     case 'video-file':
     case 'unavailable-file':

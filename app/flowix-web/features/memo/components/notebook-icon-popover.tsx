@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
+import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { cn } from '@/lib/utils';
 import {
   getNotebookIconOption,
@@ -29,7 +30,7 @@ export function NotebookIconPopover({
         <button
           type="button"
           className={cn(
-            'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-input bg-background transition-colors',
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-input bg-[var(--card)] transition-colors',
             'hover:bg-[var(--muted)]/40 focus-visible:border-[var(--primary)] focus-visible:outline-none',
             'data-[state=open]:border-[var(--primary)]',
           )}
@@ -49,7 +50,10 @@ export function NotebookIconPopover({
         sideOffset={6}
         className="z-[230] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-2 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
       >
-        <div className="max-h-[240px] overflow-y-auto [scrollbar-gutter:stable]">
+        <OverlayScrollbar
+          className="max-h-[240px]"
+          scrollerClassName="max-h-[240px] overflow-y-auto overflow-x-hidden pr-1"
+        >
           <div className="grid grid-cols-6 gap-1">
             <button
               type="button"
@@ -99,7 +103,7 @@ export function NotebookIconPopover({
               );
             })}
           </div>
-        </div>
+        </OverlayScrollbar>
       </PopoverContent>
     </Popover>
   );

@@ -9,7 +9,7 @@ const VIDEO_EXTENSIONS = new Set([
 ]);
 
 export type ResourceKind = 'note' | 'image' | 'video' | 'other';
-export type ExternalFileViewKind = 'code' | 'markdown' | 'image' | 'video' | 'html' | 'docx' | 'unavailable';
+export type ExternalFileViewKind = 'code' | 'csv' | 'markdown' | 'image' | 'video' | 'html' | 'docx' | 'unavailable';
 
 // Keep this list aligned with the extension allowlist in
 // `supported_text_document_path` in the desktop external-document command.
@@ -82,6 +82,7 @@ export function isHtmlFilePath(path: string): boolean {
 /** Pick the view for a file opened outside the notebook memo model. */
 export function externalFileViewKind(path: string, mimeType?: string | null): ExternalFileViewKind {
   if (fileExtension(path) === 'docx') return 'docx';
+  if (fileExtension(path) === 'csv') return 'csv';
   if (isImageFilePath(path)) return 'image';
   if (isVideoFilePath(path)) return 'video';
   if (isHtmlFilePath(path)) return 'html';

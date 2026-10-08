@@ -25,6 +25,7 @@ export interface AgentThreadCardMessagesControllerOptions {
   loadMoreMessages: (threadId: string) => void;
   getLanguage: () => AppLanguage;
   getTypeKey: () => AgentTypeKey;
+  getImageSpacePath?: (filePath: string) => string | null;
   getMessageCount: () => number;
   shouldLoadThreadMessages: () => boolean;
   renderThreadState: () => void;
@@ -71,6 +72,7 @@ export class AgentThreadCardMessagesController {
       messageViewport: this.viewport,
       getLanguage: options.getLanguage,
       getTypeKey: options.getTypeKey,
+      getImageSpacePath: options.getImageSpacePath,
       t: options.t,
       createThreadCacheSkeleton: options.createThreadCacheSkeleton,
       createExternalAgentEmptySettings: options.createExternalAgentEmptySettings,

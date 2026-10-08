@@ -1,4 +1,8 @@
 import type { ChatMessage } from "@/types";
+import {
+  extractGeneratedImageSources,
+  type GeneratedImageSource,
+} from "@features/agent/thread-card/messages/generated-image-results";
 
 export type AgentToolGroupStatus = "completed" | "running" | "failed";
 
@@ -16,6 +20,11 @@ export type AgentRenderItem =
       runningTools: ChatMessage[];
       totalCount: number;
       status: AgentToolGroupStatus;
+    }
+  | {
+      kind: "generated-images";
+      id: string;
+      images: GeneratedImageSource[];
     };
 
 export function isFailedToolMessage(message: ChatMessage): boolean {
@@ -38,7 +47,7 @@ function getToolGroupStatus(
 function createToolGroup(
   tools: ChatMessage[],
   waitingForAssistantContent: boolean,
-): AgentRenderItem {
+): Extract<AgentRenderItem, { kind: "tool-group" }> {
   const id = `tool-group:${tools[0].renderKey ?? tools[0].id}`;
   const completedTools = tools.filter((tool) => !tool.isLoading);
   const runningTools = tools.filter((tool) => tool.isLoading);
@@ -94,12 +103,26 @@ export function groupAgentMessages(
 
   const flushTools = () => {
     if (toolRun.length > 0) {
-      items.push(
-        createToolGroup(
-          toolRun,
-          isLoading && !hasAssistantContentAfter[lastToolIndex],
-        ),
+      const group = createToolGroup(
+        toolRun,
+        isLoading && !hasAssistantContentAfter[lastToolIndex],
       );
+      items.push(group);
+      const images = toolRun.flatMap((tool) =>
+        tool.toolAgentType === "codex" &&
+          ["image_generation", "image_generation_call"].includes(
+            tool.toolName?.toLowerCase() ?? "",
+          )
+          ? extractGeneratedImageSources(tool)
+          : [],
+      );
+      if (images.length > 0) {
+        items.push({
+          kind: "generated-images",
+          id: `${group.id}:generated-images`,
+          images,
+        });
+      }
     }
     toolRun = [];
     lastToolIndex = -1;
@@ -126,6 +149,14 @@ export function areAgentRenderItemsEqual(
   if (left.kind !== right.kind) return false;
   if (left.kind === "message" && right.kind === "message") {
     return left.message === right.message;
+  }
+  if (left.kind === "generated-images" && right.kind === "generated-images") {
+    return left.id === right.id &&
+      left.images.length === right.images.length &&
+      left.images.every((image, index) =>
+        image.kind === right.images[index]?.kind &&
+        image.value === right.images[index]?.value,
+      );
   }
   if (left.kind !== "tool-group" || right.kind !== "tool-group") return false;
   if (

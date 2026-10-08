@@ -91,6 +91,7 @@ impl NotebookRegistry {
                 total_files INTEGER NOT NULL DEFAULT 0,
                 message TEXT,
                 report_json TEXT,
+                overwrite_existing INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL
             );
             "#,
@@ -106,6 +107,19 @@ impl NotebookRegistry {
         if !has_setup_report {
             conn.execute_batch("ALTER TABLE notebook_setup_jobs ADD COLUMN report_json TEXT;")
                 .map_err(sqlite_to_io)?;
+        }
+        let has_setup_overwrite = conn
+            .prepare("PRAGMA table_info(notebook_setup_jobs)")
+            .map_err(sqlite_to_io)?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(sqlite_to_io)?
+            .filter_map(Result::ok)
+            .any(|name| name == "overwrite_existing");
+        if !has_setup_overwrite {
+            conn.execute_batch(
+                "ALTER TABLE notebook_setup_jobs ADD COLUMN overwrite_existing INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(sqlite_to_io)?;
         }
         if !has_sort_column {
             let tx = conn.transaction().map_err(sqlite_to_io)?;

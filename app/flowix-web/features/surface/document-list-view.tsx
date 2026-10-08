@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Folder, Grid2X2, Inbox, Play } from 'lucide-react';
+import { ChevronDown, Folder, Inbox, Play } from 'lucide-react';
 import { FunnelIcon, PlusIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { files, mediaResources, type DocumentPage, type DocumentPageItem, type FileBrowserDirectoriesChangedEvent, type MediaResourcePage, type NotebookFolderOption } from '@platform/tauri/client';
 import { externalFileViewKind, fileExtension, isCodeTextFilePath, resourceKindFromPath } from '@features/editor/public/code-file';
@@ -17,6 +17,7 @@ import { NotebookTreeFileIcon } from '@features/memo/components/notebook-tree-fi
 import { NotebookTreeResourceIcon } from '@features/memo/components/file-type-icon';
 import { ResourceFolderIcon } from './resource-file-icon';
 import type { DocumentListSurface } from './types';
+import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { requestMediaPreview } from './media-preview-tasks';
 import documentCardPlaceholder from '@/assets/placeholder-document-card.jpg';
 import imageCardPlaceholder from '@/assets/placeholder-image-card.jpg';
@@ -582,6 +583,7 @@ export function DocumentListView({ surface, mediaLibrary = false, libraryName = 
   const firstRow = Math.min(Math.max(0, rowCount - 1), Math.max(0, Math.floor(viewport.top / rowHeight) - 2));
   const lastRow = Math.min(rowCount, Math.ceil((viewport.top + viewport.height) / rowHeight) + 2);
   const visibleCards = visibleItems.slice(firstRow * columnCount, lastRow * columnCount);
+  const folderTitle = surface.folderPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || surface.folderPath;
   const createNote = useCallback(async () => {
     const title = newTitle.trim();
     if (!title || creating || !surface.notebookId) return;
@@ -629,7 +631,11 @@ export function DocumentListView({ surface, mediaLibrary = false, libraryName = 
     }
   }, [surface.notebookId, surface.notebookPath]);
   return <section className="flex h-full min-h-0 flex-col bg-transparent text-[var(--foreground)]">
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-5 pb-4">
+    <OverlayScrollbar
+      className="flex h-full min-h-0 min-w-0 flex-1"
+      scrollerClassName="h-full min-h-0 min-w-0 w-full flex-1 overflow-auto px-5 pb-4"
+      scrollerRef={scrollRef}
+    >
     <div ref={headerRef} className={mediaLibrary ? 'multidimensional-table__view-nav -mx-5 flex min-w-0 shrink-0 items-center justify-between gap-1' : '-mx-5 flex flex-wrap items-center justify-between gap-2 px-5 pt-3'}>
       {mediaLibrary ? <>
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-5 py-1">
@@ -798,7 +804,7 @@ export function DocumentListView({ surface, mediaLibrary = false, libraryName = 
           type="button"
           aria-pressed="true"
           className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg px-0 text-sm font-medium text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
-        ><Grid2X2 className="h-3.5 w-3.5" aria-hidden="true" />{t('memo.documentList.gallery')}</button>
+        ><Folder className="h-3.5 w-3.5" aria-hidden="true" /><span className="max-w-[500px] truncate">{folderTitle}</span></button>
       </div>
       <div className="flex items-center gap-2">
         <Button type="button" className="px-3" onClick={() => setCreateOpen(true)} disabled={!surface.notebookId}>{t('memo.documentList.new')}</Button>
@@ -825,7 +831,7 @@ export function DocumentListView({ surface, mediaLibrary = false, libraryName = 
             : <div style={{ paddingTop: firstRow * rowHeight, paddingBottom: Math.max(0, rowCount - lastRow) * rowHeight }}><div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch gap-3.5 pt-3">{visibleCards.map((item) => <DocumentCard key={item.fullPath} item={item} notebookPath={surface.notebookPath} openItem={openItem} />)}</div></div>}
       {moreError && <button type="button" className="mt-4 rounded-lg px-2 py-1 text-sm text-[var(--brand)] hover:bg-[var(--muted)]" onClick={loadMore}>加载失败，点击重试</button>}
       {hasMore && !moreError && <div ref={endRef} className="h-1" aria-hidden="true" />}
-    </div>
+    </OverlayScrollbar>
     {mediaLibrary && <Dialog open={!!manualMediaToDelete} onOpenChange={(open) => { if (!open && !deletingManualMedia) setManualMediaToDelete(null); }}>
       <DialogContent className="max-w-sm" showCloseButton={false}>
         <DialogHeader>

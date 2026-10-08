@@ -1,62 +1,654 @@
 {
   "version": 1,
-  "defaultTemplateId": "work-management",
+  "defaultTemplateId": "preset-tsk97f",
   "templates": [
     {
-      "id": "work-management",
-      "name": "工作管理",
-      "description": "管理任务、项目、会议和复盘，让每周工作有迹可循。",
-      "sourceDirectory": "工作管理",
-      "icon": "briefcase"
+      "id": "preset-tsk97f",
+      "name": "自媒体运营",
+      "description": "用于从零运营账号，通过定位文档、选题表和素材图库，借助 AI 持续策划、发布和复盘内容。",
+      "sourceDirectory": "自媒体运营",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-001.webp"
     },
     {
-      "id": "product-development",
-      "name": "产品研发",
-      "description": "沉淀变更、技术决策、测试验证、发布与运行记录。",
-      "sourceDirectory": "产品研发",
-      "icon": "code"
+      "id": "preset-3xz6em",
+      "name": "短视频制作",
+      "description": "用于制作系列短视频，通过脚本、拍摄清单和素材图库，串联选题、拍摄、剪辑与发布。",
+      "sourceDirectory": "短视频制作",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-002.webp"
     },
     {
-      "id": "wechat-writing",
-      "name": "公众号写作",
-      "description": "管理灵感、选题、文章写作、发布和数据复盘。",
-      "sourceDirectory": "公众号写作",
-      "icon": "pen-line"
+      "id": "preset-1e77kj",
+      "name": "公众号运营",
+      "description": "用于持续运营公众号，通过栏目规划、稿件流程和发布记录，借助 AI 提升编辑与复盘效率。",
+      "sourceDirectory": "公众号运营",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-003.webp"
     },
     {
-      "id": "novel-writing",
-      "name": "小说创作",
-      "description": "组织故事设定、人物、大纲、正文和修订记录。",
-      "sourceDirectory": "小说创作",
-      "icon": "book"
+      "id": "preset-dle11m",
+      "name": "个人品牌",
+      "description": "用于建立并维护个人专业形象，通过定位文档、内容计划和视觉图库，统一对外表达。",
+      "sourceDirectory": "个人品牌",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-004.webp"
     },
     {
-      "id": "social-media-management",
-      "name": "自媒体管理",
-      "description": "统一管理账号策略、多平台内容、发布互动和商业合作。",
-      "sourceDirectory": "自媒体管理",
-      "icon": "radio"
+      "id": "preset-el68qs",
+      "name": "品牌营销",
+      "description": "用于开展阶段性推广，通过营销方案、渠道排期和创意图库，协同制作、投放与效果复盘。",
+      "sourceDirectory": "品牌营销",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-005.webp"
     },
     {
-      "id": "stock-fund-investing",
-      "name": "股票基金投资",
-      "description": "按研究、决策、交易、持仓和复盘流程管理投资记录。",
-      "sourceDirectory": "股票基金投资",
-      "icon": "chart"
+      "id": "preset-3pwhqo",
+      "name": "视频课程",
+      "description": "用于开发和上线系列课程，通过课程大纲、教案和录制计划，管理制作、审核与发布。",
+      "sourceDirectory": "视频课程",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-006.webp"
     },
     {
-      "id": "postgraduate-planning",
-      "name": "考研规划",
-      "description": "集中管理院校信息、科目学习、计划、错题和复盘。",
-      "sourceDirectory": "考研规划",
-      "icon": "graduation"
+      "id": "preset-47hsf3",
+      "name": "播客制作",
+      "description": "用于持续制作播客节目，通过选题库、访谈提纲和制作清单，推进邀约、录制与上线。",
+      "sourceDirectory": "播客制作",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-007.webp"
     },
     {
-      "id": "course-design",
-      "name": "课程设计",
-      "description": "组织课程规则、学期计划、单元课时设计和教学复盘。",
-      "sourceDirectory": "课程设计",
-      "icon": "presentation"
+      "id": "preset-bah4sj",
+      "name": "摄影作品集",
+      "description": "用于制作和更新摄影作品集，通过拍摄方案、作品图库和筛选记录，完成选片、编辑与展示。",
+      "sourceDirectory": "摄影作品集",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-008.webp"
+    },
+    {
+      "id": "preset-z6fgvy",
+      "name": "图文专栏",
+      "description": "用于持续发布主题图文，通过专栏规划、写作框架和配图库，管理每期内容的制作与发布。",
+      "sourceDirectory": "图文专栏",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-009.webp"
+    },
+    {
+      "id": "preset-um68kq",
+      "name": "企业案例库",
+      "description": "用于沉淀客户项目成果，通过采访提纲、案例框架和图片资料，建立可检索、可复用的案例库。",
+      "sourceDirectory": "企业案例库",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-010.webp"
+    },
+    {
+      "id": "preset-m16qvr",
+      "name": "年度内容规划",
+      "description": "用于统筹全年内容工作，通过目标文档、主题日历和素材库，安排季度重点与持续复盘。",
+      "sourceDirectory": "年度内容规划",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-011.webp"
+    },
+    {
+      "id": "preset-j0ndy0",
+      "name": "内容社区",
+      "description": "用于建设和运营内容社区，通过社区规则、话题计划和反馈表，管理投稿、互动与内容质量。",
+      "sourceDirectory": "内容社区",
+      "icon": "radio",
+      "category": "内容创作",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-012.webp"
+    },
+    {
+      "id": "preset-32mc1z",
+      "name": "网店开业",
+      "description": "用于筹备一家线上商店，通过开店计划、商品表和图片库，推进选品、上架与首月运营。",
+      "sourceDirectory": "网店开业",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-013.webp"
+    },
+    {
+      "id": "preset-rui12z",
+      "name": "新品上市",
+      "description": "用于组织新品从准备到销售的全过程，通过上市方案、任务表和素材库，协调上架与推广。",
+      "sourceDirectory": "新品上市",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-014.webp"
+    },
+    {
+      "id": "preset-xuel3h",
+      "name": "直播电商",
+      "description": "用于连续开展带货直播，通过选品表、直播脚本和商品图库，管理排期、执行与场次复盘。",
+      "sourceDirectory": "直播电商",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-015.webp"
+    },
+    {
+      "id": "preset-3gxbb3",
+      "name": "服饰品牌",
+      "description": "用于筹建服饰品牌，通过品牌定位、款式清单和产品图库，推进设计、打样、上新与销售。",
+      "sourceDirectory": "服饰品牌",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-016.webp"
+    },
+    {
+      "id": "preset-f3eitb",
+      "name": "家居商店",
+      "description": "用于经营家居用品店，通过选品标准、商品表和场景图库，管理采购、陈列与持续上新。",
+      "sourceDirectory": "家居商店",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-017.webp"
+    },
+    {
+      "id": "preset-cjl8dk",
+      "name": "宠物用品店",
+      "description": "用于筹备宠物用品零售业务，通过品类规划、供应商表和商品图库，推进上架与客户运营。",
+      "sourceDirectory": "宠物用品店",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-018.webp"
+    },
+    {
+      "id": "preset-l77rlk",
+      "name": "社区团购",
+      "description": "用于运营社区团购项目，通过选品文档、订单表和商品图库，协调预售、配送与售后。",
+      "sourceDirectory": "社区团购",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-019.webp"
+    },
+    {
+      "id": "preset-lnm7fy",
+      "name": "手作品牌",
+      "description": "用于推出手作产品系列，通过产品方案、成本表和作品图库，管理制作、定价与销售。",
+      "sourceDirectory": "手作品牌",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-020.webp"
+    },
+    {
+      "id": "preset-r8fsz2",
+      "name": "跨境电商",
+      "description": "用于开展跨境店铺业务，通过市场调研、商品表和素材库，管理选品、本地化与订单履约。",
+      "sourceDirectory": "跨境电商",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-021.webp"
+    },
+    {
+      "id": "preset-eyrwl9",
+      "name": "快闪店",
+      "description": "用于筹备短期线下零售，通过活动方案、备货表和陈列图库，统筹场地、宣传与现场销售。",
+      "sourceDirectory": "快闪店",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-022.webp"
+    },
+    {
+      "id": "preset-9p63jq",
+      "name": "会员运营",
+      "description": "用于建立零售会员体系，通过权益方案、会员表和活动记录，管理招募、触达与复购。",
+      "sourceDirectory": "会员运营",
+      "icon": "chart",
+      "category": "电商零售",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-023.webp"
+    },
+    {
+      "id": "preset-j2tzbf",
+      "name": "家庭装修",
+      "description": "用于管理完整装修项目，通过需求文档、预算采购表和效果图库，跟进施工、变更与验收。",
+      "sourceDirectory": "家庭装修",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-024.webp"
+    },
+    {
+      "id": "preset-rw7nb2",
+      "name": "个人理财",
+      "description": "用于建立长期理财秩序，通过财务目标、收支表和月度复盘，管理预算、储蓄与资产配置。",
+      "sourceDirectory": "个人理财",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-025.webp"
+    },
+    {
+      "id": "preset-nb538n",
+      "name": "转行求职",
+      "description": "用于规划职业转换，通过目标岗位文档、投递表和作品资料，推进能力准备、面试与复盘。",
+      "sourceDirectory": "转行求职",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-026.webp"
+    },
+    {
+      "id": "preset-hun83u",
+      "name": "婚礼筹备",
+      "description": "用于统筹婚礼准备，通过筹备方案、预算宾客表和视觉图库，协调供应商、流程与现场。",
+      "sourceDirectory": "婚礼筹备",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-027.webp"
+    },
+    {
+      "id": "preset-mdsh0v",
+      "name": "家庭搬迁",
+      "description": "用于管理从找房到入住的搬迁过程，通过计划文档、物品表和新居图库，减少遗漏与返工。",
+      "sourceDirectory": "家庭搬迁",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-028.webp"
+    },
+    {
+      "id": "preset-eke48b",
+      "name": "健康管理",
+      "description": "用于执行阶段性健康改善计划，通过目标文档、习惯记录和检查资料，跟踪行动与变化。",
+      "sourceDirectory": "健康管理",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-029.webp"
+    },
+    {
+      "id": "preset-su8on9",
+      "name": "家庭旅行",
+      "description": "用于筹备多人家庭旅行，通过行程文档、预订费用表和目的地图库，协调安排与临时变更。",
+      "sourceDirectory": "家庭旅行",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-030.webp"
+    },
+    {
+      "id": "preset-799err",
+      "name": "个人作品集",
+      "description": "用于整理和发布个人成果，通过展示框架、项目资料表和作品图库，完成筛选、编辑与更新。",
+      "sourceDirectory": "个人作品集",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-031.webp"
+    },
+    {
+      "id": "preset-xw25dw",
+      "name": "全屋收纳",
+      "description": "用于分阶段改善居家收纳，通过空间规划、物品清单和改造图库，管理整理、采购与维护。",
+      "sourceDirectory": "全屋收纳",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-032.webp"
+    },
+    {
+      "id": "preset-5pjip2",
+      "name": "个人知识库",
+      "description": "用于建立可持续维护的知识系统，通过分类规则、资料目录和整理流程，沉淀可复用的信息。",
+      "sourceDirectory": "个人知识库",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-033.webp"
+    },
+    {
+      "id": "preset-2jkdof",
+      "name": "家庭预算",
+      "description": "用于制定和执行家庭年度预算，通过预算方案、收支表和月度复盘，协调共同支出与目标。",
+      "sourceDirectory": "家庭预算",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-034.webp"
+    },
+    {
+      "id": "preset-x3e2tp",
+      "name": "宠物照护",
+      "description": "用于管理宠物的日常与阶段性照护，通过健康档案、用品清单和记录表，安排护理与复查。",
+      "sourceDirectory": "宠物照护",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-035.webp"
+    },
+    {
+      "id": "preset-k736zo",
+      "name": "家庭影像",
+      "description": "用于系统整理家庭照片和视频，通过分类规则、影像图库和制作计划，完成归档与作品制作。",
+      "sourceDirectory": "家庭影像",
+      "icon": "book",
+      "category": "个人管理",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-036.webp"
+    },
+    {
+      "id": "preset-97h5yi",
+      "name": "独立产品",
+      "description": "用于推动独立产品从想法走向上线，通过需求文档、任务表和设计图库，管理开发与验证。",
+      "sourceDirectory": "独立产品",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-037.webp"
+    },
+    {
+      "id": "preset-aohue8",
+      "name": "官网改版",
+      "description": "用于组织网站整体改版，通过页面规划、内容清单和设计图库，推进制作、迁移与发布。",
+      "sourceDirectory": "官网改版",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-038.webp"
+    },
+    {
+      "id": "preset-s3xgj5",
+      "name": "移动应用",
+      "description": "用于开发移动端应用，通过产品需求、版本计划和界面图库，协调设计、开发、测试与上线。",
+      "sourceDirectory": "移动应用",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-039.webp"
+    },
+    {
+      "id": "preset-t2x5zk",
+      "name": "小程序",
+      "description": "用于建设和发布业务小程序，通过流程文档、功能清单和界面图库，管理开发与上线准备。",
+      "sourceDirectory": "小程序",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-040.webp"
+    },
+    {
+      "id": "preset-nhqnu7",
+      "name": "AI 助手",
+      "description": "用于开发特定场景的 AI 助手，通过能力定义、知识文档和测试表，迭代回答与使用流程。",
+      "sourceDirectory": "AI 助手",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-041.webp"
+    },
+    {
+      "id": "preset-1x35w1",
+      "name": "体验优化",
+      "description": "用于持续改进现有产品，通过问题清单、改版方案和界面图库，跟踪设计、验证与效果。",
+      "sourceDirectory": "体验优化",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-042.webp"
+    },
+    {
+      "id": "preset-45782b",
+      "name": "内部工具",
+      "description": "用于建设团队内部工具，通过业务流程、需求清单和任务表，推进开发、试用与团队推广。",
+      "sourceDirectory": "内部工具",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-043.webp"
+    },
+    {
+      "id": "preset-m7fhwl",
+      "name": "数据看板",
+      "description": "用于搭建业务数据看板，通过指标口径文档、数据表和页面设计，管理接入、核对与发布。",
+      "sourceDirectory": "数据看板",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-044.webp"
+    },
+    {
+      "id": "preset-ieap2s",
+      "name": "会员系统",
+      "description": "用于建设或升级会员体系，通过权益规则、流程文档和数据表，协调开发、迁移与验证。",
+      "sourceDirectory": "会员系统",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-045.webp"
+    },
+    {
+      "id": "preset-iy2zu3",
+      "name": "系统迁移",
+      "description": "用于组织旧系统向新系统迁移，通过迁移方案、数据清单和验收表，管理切换与问题处理。",
+      "sourceDirectory": "系统迁移",
+      "icon": "code",
+      "category": "产品研发",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-046.webp"
+    },
+    {
+      "id": "preset-8ch4cn",
+      "name": "线上课程",
+      "description": "用于开发并交付线上课程，通过课程大纲、教案和素材库，管理录制、审核、上线与反馈。",
+      "sourceDirectory": "线上课程",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-047.webp"
+    },
+    {
+      "id": "preset-fsb69r",
+      "name": "资格备考",
+      "description": "用于规划长期考试准备，通过学习计划、知识清单和练习记录，跟踪进度、错题与模拟成绩。",
+      "sourceDirectory": "资格备考",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-048.webp"
+    },
+    {
+      "id": "preset-z2ld59",
+      "name": "新人培训",
+      "description": "用于建立岗位新人培训流程，通过学习路径、培训文档和考核表，管理入职学习与能力验收。",
+      "sourceDirectory": "新人培训",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-049.webp"
+    },
+    {
+      "id": "preset-7nbm51",
+      "name": "英语学习",
+      "description": "用于执行阶段性英语提升计划，通过目标文档、学习记录和素材库，安排练习、测评与调整。",
+      "sourceDirectory": "英语学习",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-050.webp"
+    },
+    {
+      "id": "preset-548q3k",
+      "name": "编程训练营",
+      "description": "用于组织连续学习与项目实践，通过课程计划、作业表和代码资料，跟踪学习与作品交付。",
+      "sourceDirectory": "编程训练营",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-051.webp"
+    },
+    {
+      "id": "preset-1cuenn",
+      "name": "技能提升",
+      "description": "用于系统提升一项职业技能，通过能力目标、练习计划和成果记录，管理学习、实践与复盘。",
+      "sourceDirectory": "技能提升",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-052.webp"
+    },
+    {
+      "id": "preset-48mxud",
+      "name": "家庭阅读",
+      "description": "用于开展长期家庭共读，通过阅读计划、书单表和活动记录，安排选书、讨论与阶段回顾。",
+      "sourceDirectory": "家庭阅读",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-053.webp"
+    },
+    {
+      "id": "preset-ai2v3w",
+      "name": "教学资源库",
+      "description": "用于集中管理教学资料，通过分类规范、资源目录和图片素材，支持备课、检索与持续更新。",
+      "sourceDirectory": "教学资源库",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-054.webp"
+    },
+    {
+      "id": "preset-fy5x3i",
+      "name": "线下工作坊",
+      "description": "用于筹备系列实践课程，通过教学方案、报名表和现场素材，管理物料、授课与学员反馈。",
+      "sourceDirectory": "线下工作坊",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-055.webp"
+    },
+    {
+      "id": "preset-b9q38u",
+      "name": "毕业作品集",
+      "description": "用于规划和完成毕业展示，通过选题文档、进度表和作品图库，管理制作、修改与最终呈现。",
+      "sourceDirectory": "毕业作品集",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-056.webp"
+    },
+    {
+      "id": "preset-l2n3hh",
+      "name": "管理者培养",
+      "description": "用于开展阶段性管理培训，通过能力框架、课程资料和实践记录，跟踪学习与工作应用。",
+      "sourceDirectory": "管理者培养",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-057.webp"
+    },
+    {
+      "id": "preset-2lv6mi",
+      "name": "科学课程",
+      "description": "用于开发系列科学教学活动，通过课程教案、材料表和实验图库，管理备课、实施与改进。",
+      "sourceDirectory": "科学课程",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-058.webp"
+    },
+    {
+      "id": "preset-nrw0ym",
+      "name": "技能认证",
+      "description": "用于组织团队技能认证，通过能力标准、学习资料和测评表，管理培训、考核与认证记录。",
+      "sourceDirectory": "技能认证",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-059.webp"
+    },
+    {
+      "id": "preset-gm4jqr",
+      "name": "社团培养",
+      "description": "用于建设和培养学生社团，通过年度计划、成员表和活动资料，管理招新、培训与交接。",
+      "sourceDirectory": "社团培养",
+      "icon": "graduation",
+      "category": "教育学习",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-060.webp"
+    },
+    {
+      "id": "preset-2snntq",
+      "name": "公司团建",
+      "description": "用于筹备团队活动，通过活动方案、人员预算表和场地图库，协调报名、执行与活动反馈。",
+      "sourceDirectory": "公司团建",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-061.webp"
+    },
+    {
+      "id": "preset-s27ms5",
+      "name": "社区市集",
+      "description": "用于组织社区市集，通过招商方案、摊主表和场地图，管理招募、宣传、布场与现场运营。",
+      "sourceDirectory": "社区市集",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-062.webp"
+    },
+    {
+      "id": "preset-0j7tyc",
+      "name": "品牌发布会",
+      "description": "用于筹备品牌发布活动，通过发布方案、嘉宾流程表和视觉图库，协调制作、彩排与现场。",
+      "sourceDirectory": "品牌发布会",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-063.webp"
+    },
+    {
+      "id": "preset-or63jy",
+      "name": "行业交流会",
+      "description": "用于组织行业交流活动，通过议题方案、嘉宾报名表和宣传素材，管理邀约、议程与会后跟进。",
+      "sourceDirectory": "行业交流会",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-064.webp"
+    },
+    {
+      "id": "preset-ue90hn",
+      "name": "亲子活动",
+      "description": "用于策划系列亲子活动，通过活动方案、家庭报名表和现场图库，管理物料、安全与反馈。",
+      "sourceDirectory": "亲子活动",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-065.webp"
+    },
+    {
+      "id": "preset-00ylx7",
+      "name": "公益活动",
+      "description": "用于持续开展公益项目，通过行动方案、志愿者表和影像资料，协调资源、执行与成果记录。",
+      "sourceDirectory": "公益活动",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-066.webp"
+    },
+    {
+      "id": "preset-00c0ak",
+      "name": "艺术展览",
+      "description": "用于筹办主题展览，通过策展方案、展品清单和作品图库，管理征集、布展与开放活动。",
+      "sourceDirectory": "艺术展览",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-067.webp"
+    },
+    {
+      "id": "preset-zt90au",
+      "name": "社区赛事",
+      "description": "用于组织社区体育或兴趣赛事，通过赛制文档、报名赛程表和现场图库，管理执行与成绩。",
+      "sourceDirectory": "社区赛事",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-068.webp"
+    },
+    {
+      "id": "preset-0e05ua",
+      "name": "校园文化节",
+      "description": "用于统筹校园系列活动，通过总体方案、节目任务表和宣传图库，协调筹备、演出与收尾。",
+      "sourceDirectory": "校园文化节",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-069.webp"
+    },
+    {
+      "id": "preset-kl250f",
+      "name": "城市徒步",
+      "description": "用于组织系列城市徒步活动，通过路线文档、报名表和地点图库，管理踩线、带队与反馈。",
+      "sourceDirectory": "城市徒步",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-070.webp"
+    },
+    {
+      "id": "preset-0w3pjn",
+      "name": "读书会",
+      "description": "用于持续运营线下读书会，通过选书计划、成员表和讨论提纲，安排场次、交流与回顾。",
+      "sourceDirectory": "读书会",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-071.webp"
+    },
+    {
+      "id": "preset-k1m24g",
+      "name": "手作体验",
+      "description": "用于开展系列手作活动，通过课程方案、材料表和作品图库，管理报名、备料、教学与展示。",
+      "sourceDirectory": "手作体验",
+      "icon": "presentation",
+      "category": "线下活动",
+      "coverUrl": "https://download.flowix.cc/notebook-template-covers/v2/scene-072.webp"
     }
   ]
 }

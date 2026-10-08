@@ -212,6 +212,16 @@ pub fn get_pi_model_configs() -> Result<Vec<PiProviderConfig>, String> {
 }
 
 #[tauri::command]
+pub fn get_pi_features() -> Result<crate::agent_external::pi::config::PiFeatures, String> {
+    pi_model_config::features()
+}
+
+#[tauri::command]
+pub fn save_pi_features(features: crate::agent_external::pi::config::PiFeatures) -> Result<(), String> {
+    pi_model_config::save_features(features)
+}
+
+#[tauri::command]
 pub fn get_pi_model_catalog(
     app: AppHandle,
 ) -> Result<crate::agent_external::pi::config::PiModelCatalog, String> {

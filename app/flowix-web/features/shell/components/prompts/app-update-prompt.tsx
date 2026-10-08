@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ArrowUp, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@shared/ui/button';
-import { DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
+import { DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { UpdateProgress } from '@shared/ui/update-progress';
 import { FloatingPrompt } from '@features/shell/components/floating-prompt';
 import type { AppUpdaterState } from '@features/shell/public/system-api';
@@ -56,14 +58,23 @@ export function AppUpdatePrompt({ updater }: { updater: AppUpdaterState }) {
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[color-mix(in_oklch,var(--primary)_12%,transparent)] text-[var(--primary)]">
             <ArrowUp className="h-7 w-7" aria-hidden="true" />
           </div>
-          <DialogTitle className="mt-3 text-base">{t('appUpdates.available')}</DialogTitle>
-          <DialogDescription className="mt-1 whitespace-pre-line text-xs leading-5">
-            {update.body || t('appUpdates.description', { version: update.version })}
-          </DialogDescription>
+          <DialogTitle className="mt-3 text-base">
+            {t('appUpdates.available')} v{update.version.replace(/^v/i, '')}
+          </DialogTitle>
         </DialogHeader>
-        <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-          {t('productUpdates.version', { version: update.version })}
-        </p>
+        <div className="mt-1 max-h-48 overflow-y-auto text-xs leading-5 text-[var(--muted-foreground)]">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+              ul: ({ children }) => <ul className="my-1 list-disc space-y-0.5 pl-5">{children}</ul>,
+              ol: ({ children }) => <ol className="my-1 list-decimal space-y-0.5 pl-5">{children}</ol>,
+              li: ({ children }) => <li className="pl-0.5">{children}</li>,
+            }}
+          >
+            {update.body || t('appUpdates.description')}
+          </ReactMarkdown>
+        </div>
         {isUpdating && updater.progress && (
           <UpdateProgress
             className="mt-5"

@@ -385,20 +385,20 @@ export function NotebookSelectorPopup({
         sideOffset={sideOffset}
         onExitComplete={handleExitComplete}
         className={cn(
-          'flowix-notebook-selector-popup flowix-notebook-list-screen !fixed !inset-0 !left-0 !top-0 !h-dvh !max-h-none !w-full !max-w-none !translate-x-0 !translate-y-0 flex-col overflow-hidden rounded-none border-0 bg-[var(--frame-bg)] p-0 shadow-none',
+          'flowix-notebook-selector-popup flowix-notebook-list-screen !fixed !inset-0 !left-0 !top-0 !z-[130] !h-dvh !max-h-none !w-full !max-w-none !translate-x-0 !translate-y-0 !flex !flex-col !overflow-hidden !rounded-none !border-0 !bg-[var(--frame-bg)] !p-0 !text-[var(--foreground)] !shadow-none [--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)]',
         )}
       >
         {isMac() && <OnboardingTitlebarMac />}
         <WindowsTitlebarControls reserveSpace />
-        <main ref={listViewportRef} className="flowix-onboarding__main flowix-notebook-list-screen__main">
-          <div className="flowix-onboarding__content">
-            <section className="flowix-onboarding__section">
-              <div className="flowix-onboarding__section-heading flowix-onboarding__section-heading--setup flowix-notebook-list-screen__heading">
-                <h1>{t('status.notebookList')}</h1>
+        <main ref={listViewportRef} className="relative z-[1] flex min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-[clamp(28px,6vw,96px)] pb-[clamp(22px,3vw,44px)]">
+          <div className="mx-auto flex min-h-full w-[min(100%,914px)] flex-[1_0_auto] flex-col items-stretch overflow-visible">
+            <section className="flex min-h-full w-full flex-[1_0_auto] flex-col py-[clamp(11px,1.33vw,16px)] pb-4">
+              <div className="relative mb-4 max-w-full pr-[58px]">
+                <h1 className="text-4xl font-light leading-[0.98] tracking-[-0.065em] text-[var(--onboarding-ink)]">{t('status.notebookList')}</h1>
                 <button
                   type="button"
                   onClick={() => onOpenChange(false)}
-                  className="flowix-notebook-list-screen__close inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0 text-[var(--muted-foreground)] shadow-sm transition-colors duration-150 hover:border-[color-mix(in_oklch,var(--border)_65%,var(--muted-foreground))] hover:text-[color-mix(in_oklch,var(--muted-foreground)_75%,var(--foreground))]"
+                  className="fixed right-[clamp(20px,3vw,48px)] top-[58px] z-20 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0 text-[var(--muted-foreground)] shadow-sm transition-colors duration-150 hover:border-[color-mix(in_oklch,var(--border)_65%,var(--muted-foreground))] hover:text-[color-mix(in_oklch,var(--muted-foreground)_75%,var(--foreground))]"
                   aria-label={t('common.close')}
                   title={t('common.close')}
                 >
@@ -410,7 +410,7 @@ export function NotebookSelectorPopup({
                   {t('status.noNotebooks')}
                 </div>
               )}
-              <div className="flowix-notebook-list-screen__grid">
+              <div className="grid w-full grid-cols-[repeat(auto-fit,144px)] justify-center gap-[10px]">
                 <button
                   type="button"
                   onClick={() => closeThen(onCreateNotebook)}

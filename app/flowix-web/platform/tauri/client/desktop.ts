@@ -209,7 +209,10 @@ export const files = {
   createDocxMarkdown: (filePath: string, spacePath: string, content: string, images: DocxMarkdownImage[] = []) =>
     invoke<string>('create_docx_markdown', { filePath, spacePath, content, images }),
   readImage: (filePath: string, spacePath?: string) => invoke<string | null>('read_image_file', { filePath, spacePath }),
-  readImagePreview: (filePath: string, spacePath?: string) => invoke<string | null>('read_image_preview', { filePath, spacePath }),
+  readImagePreview: (filePath: string, spacePath?: string, maxDimension = 640) =>
+    invoke<string | null>('read_image_preview', { filePath, spacePath, maxDimension }),
+  readCodexGeneratedImagePreview: (filePath: string, maxDimension = 640) =>
+    invoke<string | null>('read_codex_generated_image_preview', { filePath, maxDimension }),
   readVideoPreview: (filePath: string, spacePath?: string) =>
     invoke<string | null>('read_video_preview', { filePath, spacePath }),
   // Video stays a native media URL so playback does not load the whole file

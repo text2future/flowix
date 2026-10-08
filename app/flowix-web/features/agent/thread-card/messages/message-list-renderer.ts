@@ -22,6 +22,7 @@ import {
   createToolGroupElement,
   updateToolGroupElement,
 } from "@features/agent/thread-card/messages/tool-group-renderer";
+import { createGeneratedImageStrip } from "@features/agent/thread-card/messages/generated-image-strip";
 import {
   areAgentRenderItemsEqual,
   groupAgentMessages,
@@ -44,7 +45,9 @@ export function getRenderedAgentItems(
   isLoading = false,
 ): AgentRenderItem[] {
   return groupAgentMessages(messages, isLoading).filter(
-    (item) => item.kind === "tool-group" || shouldRenderAgentMessage(item.message),
+    (item) =>
+      item.kind === "tool-group" || item.kind === "generated-images" ||
+      shouldRenderAgentMessage(item.message),
   );
 }
 
@@ -429,6 +432,16 @@ export function appendRenderedAgentMessagesToTail(
   for (const renderItem of appended) {
     const rendered = renderItem.kind === "tool-group"
       ? { element: createToolGroupElement({ group: renderItem, context }), shouldRemember: false }
+      : renderItem.kind === "generated-images"
+        ? {
+            element: createGeneratedImageStrip({
+              id: renderItem.id,
+              images: renderItem.images,
+              language: context.language,
+              getImageSpacePath: context.getImageSpacePath,
+            }),
+            shouldRemember: false,
+          }
       : createAgentThreadCardMessageElement({
           message: renderItem.message,
           language: context.language,
@@ -448,7 +461,7 @@ export function appendRenderedAgentMessagesToTail(
           ),
           onForkMessage: context.onForkMessage,
         });
-    if (!rendered) continue;
+    if (!rendered?.element) continue;
     list.append(rendered.element);
     appendedCount += 1;
   }
@@ -475,6 +488,16 @@ export function createRenderedAgentMessageList(
     const renderItem = renderItems[index];
     const rendered = renderItem.kind === "tool-group"
       ? { element: createToolGroupElement({ group: renderItem, context }), shouldRemember: false }
+      : renderItem.kind === "generated-images"
+        ? {
+            element: createGeneratedImageStrip({
+              id: renderItem.id,
+              images: renderItem.images,
+              language: context.language,
+              getImageSpacePath: context.getImageSpacePath,
+            }),
+            shouldRemember: false,
+          }
       : createAgentThreadCardMessageElement({
           message: renderItem.message,
           language: context.language,
@@ -494,7 +517,7 @@ export function createRenderedAgentMessageList(
           ),
           onForkMessage: context.onForkMessage,
         });
-    if (!rendered) continue;
+    if (!rendered?.element) continue;
     if (rendered.shouldRemember && renderItem.kind === "message") {
       rememberedMessages.push(renderItem.message);
     }

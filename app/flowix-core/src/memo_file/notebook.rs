@@ -53,6 +53,7 @@ fn map_notebook_setup_job(row: &Row<'_>) -> rusqlite::Result<NotebookSetupJob> {
         message: row.get(6)?,
         report: report_json.and_then(|json| serde_json::from_str::<NotebookSetupReport>(&json).ok()),
         updated_at: row.get(7)?,
+        overwrite_existing: row.get::<_, i64>(9)? != 0,
     })
 }
 
@@ -123,11 +124,52 @@ impl MemoFile {
             format_version: Self::NOTEBOOK_MANIFEST_VERSION,
             notebook_id: config.id.clone(),
             created_at: config.created_at,
+            scene_id: None,
         };
         let body = serde_json::to_vec_pretty(&manifest)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
         atomic_write_bytes(&root.join(".flowix/notebook.json"), &body)?;
         Ok(manifest)
+    }
+
+    pub fn set_notebook_scene_id(
+        path: &std::path::Path,
+        notebook_id: &str,
+        scene_id: &str,
+    ) -> std::io::Result<NotebookManifest> {
+        let mut manifest = Self::read_notebook_manifest(path)?.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "notebook manifest does not exist",
+            )
+        })?;
+        if manifest.notebook_id != notebook_id {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "notebook manifest identity does not match registry",
+            ));
+        }
+        if manifest.scene_id.as_deref() == Some(scene_id) {
+            return Ok(manifest);
+        }
+        manifest.scene_id = Some(scene_id.to_string());
+        let body = serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        atomic_write_bytes(&path.join(".flowix/notebook.json"), &body)?;
+        Ok(manifest)
+    }
+
+    pub fn ensure_notebook_scene_id(
+        config: &NotebookConfig,
+        scene_id: &str,
+    ) -> std::io::Result<()> {
+        Self::ensure_notebook_manifest(config)?;
+        Self::set_notebook_scene_id(
+            std::path::Path::new(&config.path),
+            &config.id,
+            scene_id,
+        )?;
+        Ok(())
     }
 
     /// Path-keyed note projection, media catalog and notebook-owned metadata.
@@ -323,7 +365,14 @@ impl MemoFile {
         // to a different notebook identity.
         for notebook in notebooks {
             if std::path::Path::new(&notebook.path).is_dir() {
-                Self::ensure_notebook_manifest(notebook)?;
+                if let Some(scene_id) = setup_job
+                    .filter(|job| job.notebook_id == notebook.id)
+                    .and_then(|job| job.template_id.as_deref())
+                {
+                    Self::ensure_notebook_scene_id(notebook, scene_id)?;
+                } else {
+                    Self::ensure_notebook_manifest(notebook)?;
+                }
             }
         }
         let mut conn = self.open_registry_db()?;
@@ -390,8 +439,8 @@ impl MemoFile {
             tx.execute(
                 r#"
                 INSERT INTO notebook_setup_jobs
-                    (notebook_id, template_id, status, stage, completed_files, total_files, message, report_json, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    (notebook_id, template_id, status, stage, completed_files, total_files, message, report_json, updated_at, overwrite_existing)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                 ON CONFLICT(notebook_id) DO UPDATE SET
                     template_id = excluded.template_id,
                     status = excluded.status,
@@ -400,7 +449,8 @@ impl MemoFile {
                     total_files = excluded.total_files,
                     message = excluded.message,
                     report_json = excluded.report_json,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    overwrite_existing = excluded.overwrite_existing
                 "#,
                 params![
                     job.notebook_id,
@@ -412,6 +462,7 @@ impl MemoFile {
                     job.message,
                     report_json,
                     job.updated_at,
+                    if job.overwrite_existing { 1 } else { 0 },
                 ],
             )
             .map_err(sqlite_to_io)?;
@@ -431,7 +482,7 @@ impl MemoFile {
         let conn = self.open_registry_db()?;
         conn.query_row(
             r#"SELECT notebook_id, template_id, status, stage, completed_files,
-                      total_files, message, updated_at, report_json
+                      total_files, message, updated_at, report_json, overwrite_existing
                FROM notebook_setup_jobs WHERE notebook_id = ?1"#,
             [notebook_id],
             map_notebook_setup_job,
@@ -445,7 +496,7 @@ impl MemoFile {
         let mut statement = conn
             .prepare(
                 r#"SELECT notebook_id, template_id, status, stage, completed_files,
-                          total_files, message, updated_at, report_json
+                          total_files, message, updated_at, report_json, overwrite_existing
                    FROM notebook_setup_jobs"#,
             )
             .map_err(sqlite_to_io)?;
@@ -466,8 +517,8 @@ impl MemoFile {
         conn.execute(
             r#"
             INSERT INTO notebook_setup_jobs
-                (notebook_id, template_id, status, stage, completed_files, total_files, message, report_json, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                (notebook_id, template_id, status, stage, completed_files, total_files, message, report_json, updated_at, overwrite_existing)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             ON CONFLICT(notebook_id) DO UPDATE SET
                 template_id = excluded.template_id,
                 status = excluded.status,
@@ -476,7 +527,8 @@ impl MemoFile {
                 total_files = excluded.total_files,
                 message = excluded.message,
                 report_json = excluded.report_json,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                overwrite_existing = excluded.overwrite_existing
             "#,
             params![
                 job.notebook_id,
@@ -488,6 +540,7 @@ impl MemoFile {
                 job.message,
                 report_json,
                 job.updated_at,
+                if job.overwrite_existing { 1 } else { 0 },
             ],
         )
         .map_err(sqlite_to_io)?;

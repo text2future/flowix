@@ -1,7 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { useI18n, type I18nParams } from '@/lib/i18n';
 import { useShallow } from 'zustand/react/shallow';
@@ -344,6 +344,7 @@ export function MemoListServicesHost({
   const [cloudSyncAvailable, setCloudSyncAvailable] = useState(false);
   const [notebookSetupJob, setNotebookSetupJob] = useState<NotebookSetupJob | null>(null);
   const [notebookSetupNotice, setNotebookSetupNotice] = useState<NotebookSetupReport | null>(null);
+  const [dismissedNotebookSetupKey, setDismissedNotebookSetupKey] = useState<string | null>(null);
   const [retryingNotebookSetup, setRetryingNotebookSetup] = useState(false);
   const notebookSetupJobRef = useRef<NotebookSetupJob | null>(null);
   const emptyNotebookPromptedRef = useRef(false);
@@ -359,6 +360,15 @@ export function MemoListServicesHost({
     notebookSetupJobRef.current = null;
     setNotebookSetupJob(null);
     setNotebookSetupNotice(null);
+    let dismissedSetupKey: string | null = null;
+    if (notebookId) {
+      try {
+        dismissedSetupKey = window.localStorage.getItem(`flowix:notebook-setup-dismissed:${notebookId}`);
+      } catch {
+        // Dismissal still works for the current session without persistent storage.
+      }
+    }
+    setDismissedNotebookSetupKey(dismissedSetupKey);
     if (!notebookId) return;
 
     let active = true;
@@ -403,6 +413,24 @@ export function MemoListServicesHost({
       setRetryingNotebookSetup(false);
     }
   }, [retryingNotebookSetup, selectedNotebook?.id, t]);
+
+  const setupJobNoticeKey = notebookSetupJob
+    ? `${notebookSetupJob.notebookId}:${notebookSetupJob.updatedAt}:${notebookSetupJob.status}`
+    : null;
+  const notebookSetupNoticeDismissed = setupJobNoticeKey !== null
+    && dismissedNotebookSetupKey === setupJobNoticeKey;
+  const dismissNotebookSetupNotice = () => {
+    if (!setupJobNoticeKey || !notebookSetupJob) return;
+    setDismissedNotebookSetupKey(setupJobNoticeKey);
+    try {
+      window.localStorage.setItem(
+        `flowix:notebook-setup-dismissed:${notebookSetupJob.notebookId}`,
+        setupJobNoticeKey,
+      );
+    } catch {
+      // Keep the notice dismissible for this session when persistent storage is unavailable.
+    }
+  };
 
   const resetCreateState = useCallback(() => {
     setCreateOpen(false);
@@ -820,7 +848,7 @@ export function MemoListServicesHost({
           })}
         </div>
       )}
-      {(notebookSetupJob?.status === 'partial' || notebookSetupJob?.status === 'failed') && (
+      {(notebookSetupJob?.status === 'partial' || notebookSetupJob?.status === 'failed') && !notebookSetupNoticeDismissed && (
         <div
           className="fixed bottom-16 right-4 z-[180] flex max-w-md items-center gap-3 rounded-xl border border-destructive/30 bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)] shadow-xl"
           role="alert"
@@ -855,6 +883,15 @@ export function MemoListServicesHost({
             disabled={retryingNotebookSetup}
           >
             {retryingNotebookSetup ? t('notebook.setup.retrying') : t('notebook.setup.retry')}
+          </button>
+          <button
+            type="button"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+            aria-label={t('common.close')}
+            title={t('common.close')}
+            onClick={dismissNotebookSetupNotice}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       )}

@@ -39,6 +39,16 @@ import { createLogger } from '@/lib/logger';
 // 重导出 UnlistenFn 类型, 让消费者不必直接 import @tauri-apps/api/event
 export type { UnlistenFn } from '@tauri-apps/api/event';
 
+/** Make the Tauri unlisten handle safe across racing component cleanup paths. */
+export function onceUnlisten(unlisten: UnlistenFn): UnlistenFn {
+  let called = false;
+  return () => {
+    if (called) return;
+    called = true;
+    unlisten();
+  };
+}
+
 /** 模块级 listener 索引 — key 是事件名 (Tauri 字符串), value 是该事件的所有 handler。 */
 const handlers = new Map<string, Set<(payload: unknown) => void>>();
 const listenerReadyHandlers = new Map<string, Set<() => void>>();
@@ -116,20 +126,21 @@ function ensureTauriListener(event: string): void {
         logHandlerError(event, err);
       }
     }
-  })
+    })
     .then((unlisten) => {
+      const stop = onceUnlisten(unlisten);
       if (listenerGenerations.get(event) !== generation) {
-        unlisten();
+        stop();
         return;
       }
       resetRetryState(event);
       // All handlers may have unsubscribed while listen() was pending.
       if (!handlers.has(event)) {
-        unlisten();
+        stop();
         tauriUnlistens.delete(event);
         return;
       }
-      tauriUnlistens.set(event, unlisten);
+      tauriUnlistens.set(event, stop);
       notifyListenerReady(event);
     })
     .catch((err: unknown) => {

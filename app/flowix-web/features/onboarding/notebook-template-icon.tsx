@@ -23,3 +23,25 @@ export function NotebookTemplateIcon({ icon }: { icon: string }) {
     </span>
   );
 }
+
+export function NotebookTemplateCover({
+  template,
+}: {
+  template: { id: string; icon: string; coverUrl?: string };
+}) {
+  const coverUrl = template.coverUrl;
+
+  if (!coverUrl) {
+    return (
+      <span className="inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] bg-[color-mix(in_oklch,var(--brand)_10%,transparent)] text-[var(--brand)]">
+        <NotebookTemplateIcon icon={template.icon} />
+      </span>
+    );
+  }
+
+  return (
+    <span className="block aspect-video w-full overflow-hidden rounded-lg bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]">
+      <img className="block h-full w-full object-cover" src={coverUrl} alt="" width={512} height={288} loading="lazy" decoding="async" />
+    </span>
+  );
+}

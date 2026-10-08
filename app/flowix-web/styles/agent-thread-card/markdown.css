@@ -192,8 +192,53 @@
 .markdown-editor .agent-thread-card__message-content img {
   box-sizing: border-box;
   display: block;
-  max-width: 100%;
+  max-width: min(120px, 100%);
+  width: auto;
   height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+
+.markdown-editor .agent-thread-card__message-content img[data-agent-image-preview]:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.markdown-editor .agent-thread-card__generated-image-strip {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 0 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.markdown-editor .agent-thread-card__generated-image-frame {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  max-width: 120px;
+}
+
+.markdown-editor .agent-thread-card__generated-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 120px;
+  object-fit: contain;
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+
+.markdown-editor .agent-thread-card__generated-image:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 /* 独立对话中的工具命令收起态是 nowrap 单行摘要；完整参数只在展开态
@@ -323,6 +368,125 @@
 .markdown-editor.agent-conversation-detail .agent-thread-card__message-content video,
 .markdown-editor.agent-conversation-detail .agent-thread-card__message-content iframe {
   height: auto;
+}
+
+/* Keep the conversation-detail media guard from overriding the compact
+ * dimensions of Markdown images in Agent replies. */
+.markdown-editor.agent-conversation-detail .agent-thread-card__message-content img {
+  max-width: min(120px, 100%);
+  width: auto;
+  height: auto;
+  border-radius: 4px;
+}
+
+.agent-thread-card__image-preview {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  max-width: none;
+  max-height: none;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 48px 24px 24px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.agent-thread-card__image-preview::backdrop {
+  background: rgb(0 0 0 / 78%);
+  backdrop-filter: blur(2px);
+}
+
+.agent-thread-card__image-preview-image {
+  display: block;
+  max-width: min(94vw, 1600px);
+  max-height: calc(100vh - 72px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgb(0 0 0 / 35%);
+}
+
+.agent-thread-card__image-preview-image[hidden] {
+  display: none;
+}
+
+.agent-thread-card__image-preview-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 64%);
+  color: white;
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.agent-thread-card__image-preview-loading[hidden] {
+  display: none;
+}
+
+.agent-thread-card__image-preview-spinner {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid rgb(255 255 255 / 35%);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: agent-thread-card-image-preview-spin 0.8s linear infinite;
+}
+
+@keyframes agent-thread-card-image-preview-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-thread-card__image-preview-spinner {
+    animation: none;
+  }
+}
+
+.agent-thread-card__image-preview-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 28%);
+  color: white;
+  font: inherit;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-thread-card__image-preview-close:hover {
+  background: rgb(0 0 0 / 52%);
+}
+
+.agent-thread-card__image-preview-close:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
 }
 
 .markdown-editor.agent-conversation-detail .agent-thread-card__message-content table {

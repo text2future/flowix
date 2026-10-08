@@ -1441,7 +1441,9 @@ export function AgentSection({
   // Add/Edit and stays closed while the saved model cards are being browsed.
   // Legacy single-route settings keep their original always-visible form.
   const showGenericModelConfiguration = !modelDirectory || showModelForm || modelFormOnly;
-  const modelFieldClass = modelFormOnly ? 'flowix-onboarding__dsh-model-field' : undefined;
+  const modelFieldClass = modelFormOnly
+    ? '[&_label]:text-sm [&_label]:font-semibold [&_label]:text-[var(--foreground)]'
+    : undefined;
   const modelSelectContentClass = cn(
     'flowix-preferences-select-content',
     modelFormOnly && 'z-[230]',
@@ -1632,7 +1634,7 @@ export function AgentSection({
         </>
       )}
 
-      <div className={cn('space-y-4', modelFormOnly && 'flowix-onboarding__dsh-model-form')}>
+      <div className="space-y-4">
         {modelDirectory && modelFormOnly && (
           renderModelConfiguration()
         )}

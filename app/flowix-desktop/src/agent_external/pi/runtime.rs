@@ -54,6 +54,8 @@ fn pi_tools_for_permission_mode(mode: Option<&str>) -> &'static str {
 struct PiSessionConfig {
     cwd: PathBuf,
     tools: String,
+    code_mode: bool,
+    tool_search: bool,
     provider: Option<String>,
     model: Option<String>,
     thinking: Option<String>,
@@ -490,11 +492,17 @@ impl PiRpcManager {
             .map_err(|error| format!("cannot create Pi config directory: {error}"))?;
 
         let mut command = Command::new(resolve_pi_binary(app)?);
+        let mut tools = config.tools.split(',').map(str::to_owned).collect::<Vec<_>>();
+        if config.code_mode { tools.push("codemode".into()); }
+        if config.tool_search { tools.push("tool_search".into()); }
+        let tools = tools.join(",");
         command
             .args(["--mode", "rpc", "--session-dir"])
             .arg(&session_dir)
             .arg("--tools")
-            .arg(&config.tools)
+            .arg(&tools)
+            .args(if config.code_mode { vec!["--extension", "builtin:codemode"] } else { Vec::new() })
+            .args(if config.tool_search { vec!["--extension", "builtin:tool-search"] } else { Vec::new() })
             .current_dir(&config.cwd)
             .env("PI_CODING_AGENT_DIR", &config_dir)
             .stdin(Stdio::piped())
@@ -841,6 +849,8 @@ impl PiRpcManager {
         let config = PiSessionConfig {
             cwd: cwd.clone(),
             tools: "read".into(),
+            code_mode: false,
+            tool_search: false,
             provider: None,
             model: None,
             thinking: None,
@@ -1141,6 +1151,8 @@ impl PiRpcManager {
         let config = PiSessionConfig {
             cwd: cwd.clone(),
             tools: pi_tools_for_permission_mode(permission_mode).into(),
+            code_mode: super::config::features()?.code_mode,
+            tool_search: super::config::features()?.tool_search,
             provider: provider.clone().filter(|value| !value.trim().is_empty()),
             model: runtime_model.clone(),
             thinking,

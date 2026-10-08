@@ -10,6 +10,7 @@ import { toast } from '@/lib/toast';
 import { canonicalPath } from '@/lib/path';
 import { consumeExpectedExternalDocumentEvent } from '@features/document/store/external-document-operation';
 import { createLogger } from '@/lib/logger';
+import { onceUnlisten } from '@platform/tauri/event-bus';
 import {
   windows,
   type ExternalDocumentChangedEvent,
@@ -44,7 +45,7 @@ export function useExternalDocumentChangeWatch({
       logger.debug('registering', {
         windowLabel: getCurrentWindow().label,
       });
-      unlisten = await getCurrentWindow().listen<ExternalDocumentChangedEvent>(
+      unlisten = onceUnlisten(await getCurrentWindow().listen<ExternalDocumentChangedEvent>(
         'external-document-changed',
         async ({ payload }) => {
           logger.debug('change received', {
@@ -76,7 +77,7 @@ export function useExternalDocumentChangeWatch({
           clearSaveTimer();
           await reloadDocument(filePath, { preservePending: false, showLoading: false });
         },
-      );
+      ));
       if (disposed) {
         unlisten();
         unlisten = null;

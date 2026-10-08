@@ -132,7 +132,7 @@ fn create_notebook_registry(
     icon: Option<String>,
     memo_file: &MemoFile,
 ) -> Result<NotebookConfig, String> {
-    create_notebook_registry_with_id_and_template(name, path, icon, None, None, memo_file)
+    create_notebook_registry_with_id_and_template(name, path, icon, None, None, false, memo_file)
 }
 
 fn default_notebook_path_without_create(name: &str) -> Result<PathBuf, String> {
@@ -163,12 +163,42 @@ fn default_notebook_path(name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+pub(crate) fn notebook_folder_has_content(path: &Path) -> Result<bool, String> {
+    let entries = std::fs::read_dir(path)
+        .map_err(|error| format!("NOTEBOOK_CONTENT_CHECK_FAILED: {error}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("NOTEBOOK_CONTENT_CHECK_FAILED: {error}"))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if matches!(name.as_ref(), ".flowix" | ".DS_Store" | "Thumbs.db") {
+            continue;
+        }
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 #[tauri::command]
 pub fn get_default_notebook_path(name: String) -> Result<String, String> {
     default_notebook_path_without_create(name.trim())?
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
+}
+
+#[tauri::command]
+pub async fn confirm_notebook_preset_overwrite(app: AppHandle, message: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .message(message)
+            .title("Flowix")
+            .buttons(MessageDialogButtons::OkCancel)
+            .blocking_show()
+    })
+    .await
+    .map_err(|error| format!("CONFIRM_DIALOG_FAILED: {error}"))
 }
 
 /// Resolve and create a product-owned default notebook directory. This is a
@@ -199,6 +229,7 @@ fn create_notebook_registry_with_id(
         icon,
         requested_id,
         None,
+        false,
         memo_file,
     )
 }
@@ -209,6 +240,7 @@ fn create_notebook_registry_with_id_and_template(
     icon: Option<String>,
     requested_id: Option<&str>,
     template_id: Option<&str>,
+    overwrite_existing: bool,
     memo_file: &MemoFile,
 ) -> Result<NotebookConfig, String> {
     let now = chrono::Utc::now().timestamp_millis();
@@ -256,6 +288,7 @@ fn create_notebook_registry_with_id_and_template(
             let setup_job = template_id.map(|template_id| NotebookSetupJob {
                 notebook_id: relocated.id.clone(),
                 template_id: Some(template_id.to_string()),
+                overwrite_existing,
                 status: NotebookSetupJobStatus::Pending,
                 stage: "template".to_string(),
                 completed_files: 0,
@@ -295,6 +328,7 @@ fn create_notebook_registry_with_id_and_template(
     let setup_job = template_id.map(|template_id| NotebookSetupJob {
         notebook_id: config.id.clone(),
         template_id: Some(template_id.to_string()),
+        overwrite_existing,
         status: NotebookSetupJobStatus::Pending,
         stage: "template".to_string(),
         completed_files: 0,
@@ -509,6 +543,7 @@ fn finish_notebook_template_setup(app: AppHandle, mut job: NotebookSetupJob) {
                 &notebook_id,
                 &template_id,
                 true,
+                job.overwrite_existing,
                 state.inner(),
                 &app,
                 |report| {
@@ -594,6 +629,10 @@ pub fn start_notebook_template_setup(
     app: AppHandle,
 ) -> Result<Option<NotebookSetupJob>, String> {
     let state = app.state::<AppState>();
+    let mut running = state
+        .notebook_template_initializations
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let Some(mut job) = memo_file
         .get_notebook_setup_job(&notebook_id)
@@ -625,14 +664,8 @@ pub fn start_notebook_template_setup(
         }
     }
 
-    {
-        let mut running = state
-            .notebook_template_initializations
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !running.insert(notebook_id.clone()) {
-            return Ok(Some(job));
-        }
+    if !running.insert(notebook_id.clone()) {
+        return Ok(Some(job));
     }
 
     job.status = NotebookSetupJobStatus::Running;
@@ -641,12 +674,11 @@ pub fn start_notebook_template_setup(
     let job = match persist_notebook_setup_job(state.inner(), &app, job) {
         Ok(job) => job,
         Err(error) => {
-            if let Ok(mut running) = state.notebook_template_initializations.lock() {
-                running.remove(&notebook_id);
-            }
+            running.remove(&notebook_id);
             return Err(error);
         }
     };
+    drop(running);
 
     std::thread::spawn({
         let app = app.clone();
@@ -688,6 +720,7 @@ pub async fn create_notebook(
     icon: Option<String>,
     activate: Option<bool>,
     template_id: Option<String>,
+    overwrite_existing: Option<bool>,
     app: AppHandle,
 ) -> Result<Notebook, String> {
     let started = std::time::Instant::now();
@@ -720,6 +753,25 @@ pub async fn create_notebook(
         if !Path::new(trimmed_path).is_dir() {
             return Err("PATH_MISSING".to_string());
         }
+        let notebook_path = Path::new(trimmed_path);
+        let comparable_path = comparable_notebook_path(&normalize_notebook_path(trimmed_path));
+        if read_lock(&state.memo_file, "memo_file")
+            .read_notebook_configs()
+            .unwrap_or_default()
+            .iter()
+            .any(|notebook| {
+                comparable_notebook_path(&notebook.path) == comparable_path
+            })
+        {
+            return Err("PATH_ALREADY_REGISTERED".to_string());
+        }
+        let overwrite_existing = overwrite_existing.unwrap_or(false);
+        if template_id.is_some()
+            && !overwrite_existing
+            && notebook_folder_has_content(notebook_path)?
+        {
+            return Err("NOTEBOOK_PRESET_OVERWRITE_CONFIRM_REQUIRED".to_string());
+        }
         if !has_bookmark_access {
             state
                 .security_bookmarks
@@ -735,6 +787,7 @@ pub async fn create_notebook(
                 icon,
                 None,
                 template_id.as_deref(),
+                overwrite_existing,
                 &memo_file,
             )?
         };
@@ -1125,6 +1178,21 @@ mod tests {
         let config_dir = root.join("config");
         fs::create_dir_all(&config_dir).expect("create config dir");
         MemoFile::new(config_dir)
+    }
+
+    #[test]
+    fn preset_content_check_ignores_metadata_but_detects_existing_folders() {
+        let root = temp_root();
+        fs::create_dir_all(root.join(".flowix")).expect("create notebook metadata directory");
+        fs::write(root.join(".flowix/notebook.json"), "{}").expect("write notebook metadata");
+        fs::create_dir_all(root.join("empty-folder")).expect("create empty folder");
+        assert!(notebook_folder_has_content(&root).expect("inspect existing folder"));
+
+        fs::create_dir_all(root.join("projects/nested")).expect("create nested folders");
+        fs::write(root.join("projects/nested/Note.md"), "existing note")
+            .expect("write existing note");
+        assert!(notebook_folder_has_content(&root).expect("inspect populated notebook"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
