@@ -21,7 +21,6 @@ import { useI18n } from '@/lib/i18n';
 import type { CloudNotebook } from '@platform/tauri/client';
 import {
   ArrowLeft,
-  ArrowRight,
   Check,
   ChevronRight,
   CloudDownload,
@@ -339,6 +338,7 @@ export function NotebookDialogs({
                 {notebookTemplates.find((template) => template.id === newNotebookTemplateId) && (
                   <NotebookTemplateCardPreview
                     template={notebookTemplates.find((template) => template.id === newNotebookTemplateId)!}
+                    onSwitch={() => setIsTemplatePickerOpen(true)}
                   />
                 )}
                 {!newNotebookTemplateId && (
@@ -363,14 +363,14 @@ export function NotebookDialogs({
                   <button
                     type="submit"
                     form="flowix-create-notebook-form"
-                    className="inline-flex h-8 min-h-8 items-center justify-center gap-1 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 max-[600px]:flex-1"
+                    className="inline-flex h-8 min-h-8 items-center justify-center gap-0.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-2.5 text-xs font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 max-[600px]:flex-1"
                     disabled={isCreatingNotebook || !newNotebookName.trim()}
                     aria-busy={isCreatingNotebook}
                   >
                     {isCreatingNotebook ? (
                       <><Loader2 size={17} className="animate-spin" aria-hidden="true" />{t("notebook.create.creating")}</>
                     ) : (
-                      <>新建笔记本 <ArrowRight size={17} aria-hidden="true" /></>
+                      <>新建笔记本 <ChevronRight size={14} aria-hidden="true" /></>
                     )}
                   </button>
                 )}

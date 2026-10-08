@@ -402,28 +402,6 @@ export function PiSettingsSection() {
   return (
     <div className="space-y-5">
       <SectionHeader title={t('preferences.pi.title')} description={t('preferences.pi.description')} />
-      <div className="space-y-2 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-3">
-        {featuresError && <p role="alert" className="text-xs text-[var(--destructive)]">{featuresError}</p>}
-        {([
-          ['codeMode', t('preferences.pi.codeModeUnavailable')],
-          ['toolSearch', t('preferences.pi.toolSearch')],
-        ] as const).map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between gap-3 text-sm">
-            <span>{label}</span>
-            <button
-              type="button"
-              role="switch"
-              aria-label={label}
-              aria-checked={features[key]}
-              disabled={key === 'codeMode' || featuresLoading || featuresSaving || Boolean(featuresError)}
-              onClick={() => void setFeature(key, !features[key])}
-              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${features[key] ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]'}`}
-            >
-              <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${features[key] ? 'translate-x-4' : 'translate-x-0'}`} />
-            </button>
-          </div>
-        ))}
-      </div>
       <div className="space-y-3">
         {loading && <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin" /></div>}
         {error && <p className="text-sm text-[var(--destructive)]">{error}</p>}
@@ -463,6 +441,31 @@ export function PiSettingsSection() {
 
       {draft && editingId === null && renderProviderForm()}
       <Button type="button" variant="outline" className="h-8 gap-0.5" style={{ marginTop: '10px' }} onClick={() => beginEdit()} disabled={busy || Boolean(draft)}><Plus className="size-3.5" />{t('preferences.pi.add')}</Button>
+      <div className="space-y-5" style={{ marginTop: '36px' }}>
+        <SectionHeader title={t('preferences.pi.featuresTitle')} />
+        <div className="space-y-2">
+          {featuresError && <p role="alert" className="text-xs text-[var(--destructive)]">{featuresError}</p>}
+          {([
+            ['codeMode', t('preferences.pi.codeModeUnavailable')],
+            ['toolSearch', t('preferences.pi.toolSearch')],
+          ] as const).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--divider)] bg-[var(--card)] p-3 text-sm">
+              <span>{label}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-label={label}
+                aria-checked={features[key]}
+                disabled={key === 'codeMode' || featuresLoading || featuresSaving || Boolean(featuresError)}
+                onClick={() => void setFeature(key, !features[key])}
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${features[key] ? 'bg-[var(--primary)]' : 'bg-[var(--muted)]'}`}
+              >
+                <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${features[key] ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

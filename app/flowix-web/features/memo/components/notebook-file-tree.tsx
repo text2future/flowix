@@ -18,7 +18,6 @@ import {
 } from 'react';
 import {
   ChevronRight,
-  ListPlus,
   MoreHorizontal,
   GripVertical,
   Plus,
@@ -29,10 +28,10 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CopyIcon,
   FileIcon,
   FolderOpenIcon,
   FolderSimplePlusIcon,
-  LinkIcon,
   MinusCircleIcon,
   PencilSimpleIcon,
   RulerIcon,
@@ -68,6 +67,8 @@ import {
   DropdownMenuTrigger,
 } from '@shared/ui/dropdown-menu';
 import { NotebookTreeFileIcon } from '@features/memo/components/notebook-tree-file-icon';
+import { NotebookCreateContextMenuItems } from '@features/memo/components/notebook-create-context-menu';
+import { NotebookCopyContextMenu } from '@features/memo/components/notebook-copy-context-menu';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
 import { noteRepository } from '@features/memo/services/note-repository';
@@ -274,14 +275,12 @@ function AgentRepositoryItem({
   onRemoveRepository,
   onExpandRepository,
   onOpenInNewTab,
-  onCustomizeDisplay,
 }: {
   repository: WorkspaceAgentRepository;
   onOpenFile: (path: string, scopePath: string) => void;
   onRemoveRepository: (repository: WorkspaceAgentRepository) => void;
   onExpandRepository: (element: HTMLElement) => void;
   onOpenInNewTab?: (path: string) => void;
-  onCustomizeDisplay?: (anchorRect: DOMRect) => void;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -439,10 +438,10 @@ function AgentRepositoryItem({
       <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <ContextMenuItem onClick={() => setRenaming({ item, value: item.type === 'document' && (isTableDocumentFilename(item.name) || isMediaLibraryFilename(item.name)) ? displayTitleFromFilename(item.name) : item.name })} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><PencilSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.rename')}</ContextMenuItem>
         {!isFolder && onOpenInNewTab && <ContextMenuItem onClick={() => onOpenInNewTab(item.fullPath)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.openInRight')}</ContextMenuItem>}
-        <ContextMenuItem onClick={async () => { try { await navigator.clipboard.writeText(item.fullPath); toast.success(t('memo.fileTree.pathCopied')); } catch { toast.error(t('memo.fileTree.copyFailed')); } }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><LinkIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.copyLink')}</ContextMenuItem>
+        {!isFolder && <NotebookCopyContextMenu path={item.fullPath} isNote={(item.resourceKind ?? resourceKindFromPath(item.name)) === 'note'} />}
+        {isFolder && <ContextMenuItem onClick={async () => { try { await navigator.clipboard.writeText(item.fullPath); toast.success(t('memo.fileTree.pathCopied')); } catch { toast.error(t('memo.fileTree.copyFailed')); } }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><CopyIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.copyPath')}</ContextMenuItem>}
         <ContextMenuItem onClick={() => { void product.revealInFileManager(item.fullPath).catch(() => toast.error(t('memo.fileTree.openFailed'))); }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><FolderOpenIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.reveal')}</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={(event) => onCustomizeDisplay?.(getPopupOriginRect(event.currentTarget))} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquaresFourIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.customizeDisplay')}</ContextMenuItem>
         <ContextMenuItem onClick={() => setDeleting(item)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-transparent hover:text-[var(--destructive)]"><TrashSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.delete')}</ContextMenuItem>
       </ContextMenuContent>
       </ContextMenu>
@@ -485,13 +484,6 @@ function AgentRepositoryItem({
           >
             <MinusCircleIcon className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('agent.workspace.removeRepository')}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={(event) => onCustomizeDisplay?.(getPopupOriginRect(event.currentTarget))}
-            className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-          >
-            <SquaresFourIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t('memo.fileTree.customizeDisplay')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -638,7 +630,6 @@ function AgentRepositoriesSection({
               onRemoveRepository={onRemoveRepository}
               onExpandRepository={onExpandRepository}
               onOpenInNewTab={onOpenInNewTab}
-              onCustomizeDisplay={onCustomizeDisplay}
             />
           )) : (
             <div
@@ -1970,12 +1961,6 @@ export function NotebookFileTree({
             onChange: (inViews) => { void handleSetMediaLibraryInViews(mediaLibrary.collectionId, inViews); },
             onMakeIdentityUnique: () => { void handleMakeMediaLibraryIdentityUnique(mediaLibrary.relativePath); },
           } : undefined}
-          onCustomizeDisplay={(anchorRect) => {
-            setCustomizeAnchorRect(anchorRect);
-            setCustomizeOrder([...sectionOrder]);
-            setCustomizeHidden([...hiddenSections]);
-            setCustomizeOpen(true);
-          }}
           onRename={handleRename}
           tabIndex={treeFocusPath && samePath(treeFocusPath, item.fullPath) ? 0 : -1}
           onFocus={handleFocusPath}
@@ -2375,12 +2360,7 @@ export function NotebookFileTree({
                   onCreateView={(parentPath) => {
                     openNewTableDialog(false, parentPath);
                   }}
-                  onCustomizeDisplay={(anchorRect) => {
-                    setCustomizeAnchorRect(anchorRect);
-                    setCustomizeOrder([...sectionOrder]);
-                    setCustomizeHidden([...hiddenSections]);
-                    setCustomizeOpen(true);
-                  }}
+                  onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(false, parentPath)}
                   onRename={handleRename}
                   onDeleteFile={onDeleteFile}
                   onPointerDown={() => {}}
@@ -2425,7 +2405,7 @@ export function NotebookFileTree({
                   title={t('memo.create.table')}
                   onClick={() => openNewTableDialog(true)}
                 >
-                  <ListPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2465,9 +2445,10 @@ export function NotebookFileTree({
                 onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
                 onCreateNote={handleCreateNoteAtPath}
                 onCreateFolder={handleCreateFolderAtPath}
-                onCreateView={() => {
-                  openNewTableDialog(true);
+                onCreateView={(parentPath) => {
+                  openNewTableDialog(true, parentPath);
                 }}
+                onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(true, parentPath)}
                 tableViewVisibility={{
                   collectionId: table.collectionId,
                   inViews: table.inViews,
@@ -2475,7 +2456,6 @@ export function NotebookFileTree({
                   onChange: (inViews) => { void handleSetTableDocumentInViews(table.collectionId, inViews); },
                   onMakeIdentityUnique: () => { void handleMakeTableIdentityUnique(table.relativePath); },
                 }}
-                onCustomizeDisplay={openCustomizeDisplay}
                 onRename={handleRenameTableDocument}
                 onDeleteFile={handleDeleteTableDocument}
                 onPointerDown={() => {}}
@@ -2503,13 +2483,14 @@ export function NotebookFileTree({
                 onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
                 onCreateNote={handleCreateNoteAtPath}
                 onCreateFolder={handleCreateFolderAtPath}
+                onCreateView={(parentPath) => openNewTableDialog(true, parentPath)}
+                onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(true, parentPath)}
                 mediaLibraryViewVisibility={{
                   inViews: library.inViews,
                   identityConflict: library.identityConflict ?? false,
                   onChange: (inViews) => { void handleSetMediaLibraryInViews(library.collectionId, inViews); },
                   onMakeIdentityUnique: () => { void handleMakeMediaLibraryIdentityUnique(library.relativePath); },
                 }}
-                onCustomizeDisplay={openCustomizeDisplay}
                 onRename={handleRename}
                 onDeleteFile={handleDeleteMediaLibrary}
                 onPointerDown={() => {}}
@@ -2557,7 +2538,7 @@ export function NotebookFileTree({
                 title={t('memo.create.table')}
                 className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-[color,opacity] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] group-hover:opacity-100"
               >
-                <ListPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -2716,35 +2697,12 @@ export function NotebookFileTree({
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-              <ContextMenuItem
-                onClick={() => handleCreateNoteAtPath(notebookPath)}
-                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                <FileIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-                {t('memo.fileTree.newNote')}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onClick={() => handleCreateFolderAtPath(notebookPath)}
-                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                <FolderSimplePlusIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-                {t('memo.fileTree.newFolder')}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onClick={() => openNewTableDialog(false, notebookPath)}
-                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                <Table2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                {t('memo.create.table')}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onClick={() => openNewMediaLibraryDialog(false, notebookPath)}
-                className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                <GalleryHorizontalEnd className="mr-2 h-4 w-4" aria-hidden="true" />
-                {t('memo.create.mediaLibraryTitle')}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
+              <NotebookCreateContextMenuItems
+                onCreateNote={() => handleCreateNoteAtPath(notebookPath)}
+                onCreateFolder={() => handleCreateFolderAtPath(notebookPath)}
+                onCreateTable={() => openNewTableDialog(false, notebookPath)}
+                onCreateMediaLibrary={() => openNewMediaLibraryDialog(false, notebookPath)}
+              />
               <ContextMenuItem
                 onClick={(event) => {
                   setCustomizeAnchorRect(getPopupOriginRect(event.currentTarget));

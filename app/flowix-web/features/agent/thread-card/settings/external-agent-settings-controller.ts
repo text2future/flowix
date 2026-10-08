@@ -47,7 +47,7 @@ import {
   selectDesiredWorkspace,
 } from "@features/agent/runtime/conversation-workspace";
 import { ensureConversationWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
-import { agent, dshIntegration, piModels } from "@platform/tauri/client";
+import { agent, dshIntegration, piModels, windows } from "@platform/tauri/client";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
@@ -195,6 +195,7 @@ export class ExternalAgentSettingsController {
   ) => void;
 
   private modelButton: HTMLButtonElement | null = null;
+  private piModelNotice: HTMLButtonElement | null = null;
   private composerModelButton: HTMLButtonElement | null = null;
   private composerModeButton: HTMLButtonElement | null = null;
   private composerPermissionButton: HTMLButtonElement | null = null;
@@ -644,6 +645,7 @@ export class ExternalAgentSettingsController {
     const showControls = options.showControls ?? true;
     this.workspaceDisplay = null;
     this.modelButton = null;
+    this.piModelNotice = null;
     this.reasoningButton = null;
     this.modeButton = null;
     this.permissionButton = null;
@@ -655,6 +657,24 @@ export class ExternalAgentSettingsController {
     // 非全屏 thread card 通过 CSS 让这层保持原有的单行 flex 表现。
     empty.append(createExternalAgentEmptyIcon(this.getTypeKey()));
     if (this.getTypeKey() === "pi") {
+      const modelNotice = document.createElement("button");
+      modelNotice.type = "button";
+      modelNotice.className =
+        "agent-thread-card__dsh-update-notice agent-thread-card__pi-model-notice";
+      modelNotice.setAttribute("aria-label", this.t("agent.model.configure"));
+      modelNotice.hidden = true;
+      const modelNoticeLabel = document.createElement("span");
+      modelNoticeLabel.className = "agent-thread-card__dsh-update-label";
+      const modelNoticeChevron = createChevronIcon("right");
+      modelNoticeChevron.setAttribute("aria-hidden", "true");
+      modelNotice.append(modelNoticeLabel, modelNoticeChevron);
+      modelNotice.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void windows.openPreferences("pi");
+      });
+      empty.append(modelNotice);
+      this.piModelNotice = modelNotice;
+
       const unavailableNotice = document.createElement("div");
       unavailableNotice.className =
         "agent-thread-card__dsh-update-notice agent-thread-card__pi-unavailable-notice";
@@ -1004,6 +1024,20 @@ export class ExternalAgentSettingsController {
   }
 
   refreshEmptySettings(): void {
+    if (this.piModelNotice) {
+      const showNotice = this.shouldShowPiModelEmptyState();
+      this.piModelNotice.hidden = !showNotice;
+      if (this.modelButton) this.modelButton.hidden = showNotice;
+      const messageKey = this.piModelsLoadFailed
+        ? "agent.model.loadFailed"
+        : "agent.model.configure";
+      const label = this.t(messageKey);
+      const labelElement = this.piModelNotice.querySelector<HTMLElement>(
+        ".agent-thread-card__dsh-update-label",
+      );
+      if (labelElement) labelElement.textContent = label;
+      this.piModelNotice.setAttribute("aria-label", label);
+    }
     this.refreshComposerModelButton();
     this.refreshComposerModeButton();
     this.refreshComposerPermissionButton();

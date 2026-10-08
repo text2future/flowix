@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Check, CircleAlert, Plus, X } from 'lucide-react';
+import { ArrowsLeftRightIcon } from '@phosphor-icons/react';
 import { Button } from '@shared/ui/button';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
@@ -8,10 +9,31 @@ import type { NotebookTemplateLoadStatus } from './notebook-templates';
 import { NotebookTemplateCategories } from './notebook-template-categories';
 import { NotebookTemplateCover } from './notebook-template-icon';
 
-function NotebookTemplateCardContent({ template }: { template: NotebookTemplate }) {
+function NotebookTemplateCardContent({
+  template,
+  onSwitch,
+}: {
+  template: NotebookTemplate;
+  onSwitch?: () => void;
+}) {
   return (
     <>
-      <NotebookTemplateCover template={template} />
+      <span className="group/cover relative block min-w-0">
+        <NotebookTemplateCover template={template} />
+        {template.coverUrl && onSwitch && (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-[color-mix(in_oklch,var(--background)_68%,transparent)] opacity-0 transition-opacity group-hover/cover:pointer-events-auto group-hover/cover:opacity-100 group-focus-within/cover:pointer-events-auto group-focus-within/cover:opacity-100">
+            <button
+              type="button"
+              aria-label="切换场景模板"
+              title="切换场景模板"
+              className="inline-flex h-7 w-7 items-center justify-center text-[var(--brand)]"
+              onClick={onSwitch}
+            >
+              <ArrowsLeftRightIcon size={28} weight="bold" aria-hidden="true" />
+            </button>
+          </span>
+        )}
+      </span>
       <span className="grid min-w-0 content-start gap-1">
         <strong className="overflow-hidden text-ellipsis whitespace-nowrap text-base font-medium tracking-[-0.015em] text-[var(--onboarding-ink)]">{template.name}</strong>
         <small className="line-clamp-2 overflow-hidden text-sm leading-[1.5] text-[var(--onboarding-subtle)]">{template.description}</small>
@@ -20,10 +42,16 @@ function NotebookTemplateCardContent({ template }: { template: NotebookTemplate 
   );
 }
 
-export function NotebookTemplateCardPreview({ template }: { template: NotebookTemplate }) {
+export function NotebookTemplateCardPreview({
+  template,
+  onSwitch,
+}: {
+  template: NotebookTemplate;
+  onSwitch: () => void;
+}) {
   return (
     <div className="grid min-h-0 w-[min(280px,100%)] grid-rows-[auto_auto] gap-2 rounded-[11px] border border-[var(--onboarding-line)] bg-[var(--card)] p-[10px] text-left text-[var(--onboarding-subtle)]">
-      <NotebookTemplateCardContent template={template} />
+      <NotebookTemplateCardContent template={template} onSwitch={onSwitch} />
     </div>
   );
 }

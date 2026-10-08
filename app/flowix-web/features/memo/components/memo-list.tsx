@@ -1128,7 +1128,7 @@ export function MemoList({
                 onClick={() => handleCreateAgentConversation(type.key)}
                 className="agent-conversation-new-agent-item group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
               >
-                <AgentIcon typeKey={type.key} alt="" className="h-4 w-4 shrink-0 object-contain" />
+                <AgentIcon typeKey={type.key} alt="" color={type.key === 'pi' ? 'var(--muted-foreground)' : undefined} className="h-4 w-4 shrink-0 object-contain" />
                 <span className="min-w-0 flex-1 truncate">{name}</span>
                 {showNotInstalled && (
                   <span className="shrink-0 text-xs text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)]">

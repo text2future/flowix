@@ -905,6 +905,21 @@
   cursor: default;
 }
 
+.markdown-editor .agent-thread-card__pi-model-notice:not([hidden]) {
+  display: inline-flex;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.markdown-editor .agent-thread-card__pi-model-notice:hover {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.markdown-editor .agent-thread-card__pi-model-notice:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .markdown-editor.agent-conversation-detail
   .agent-thread-card__empty--codex-settings,
 .markdown-editor

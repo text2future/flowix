@@ -30,9 +30,9 @@ type CollapsibleAgentKey =
 /// "使用自定义模型" 文档链接, codex/claude 的"查看"按钮跳转此处。
 const CUSTOM_MODEL_DOCS_URL = 'https://flowix-memo.com/docs/ai-access/';
 
-/// 偏好设置里要隐藏的 agent ── 这些 agent (coming-soon) 在 slash 菜单
-/// 等其它入口仍可独立打开, 但偏好列表里不再展示。
+/// 偏好设置 AI Agents 列表里要隐藏的 agent; 其它入口仍可独立使用。
 const HIDDEN_PREFERENCE_AGENT_KEYS: ReadonlySet<AgentTypeKey> = new Set([
+  'pi',
   'openclaw',
   'gemini',
   'deepseek-harness',

@@ -1,6 +1,6 @@
 import { forwardRef } from 'react';
 import type { Icon, IconProps } from '@phosphor-icons/react';
-import { GalleryHorizontalEnd } from 'lucide-react';
+import { GalleryHorizontalEnd, Table2 } from 'lucide-react';
 import {
   FileCodeIcon,
   FileDocIcon,
@@ -110,18 +110,12 @@ function isTableDocumentPath(path: string): boolean {
 
 /**
  * 多维表格 (`.table.yaml`) 的统一图标 ── 侧边栏文件树、文档视图、slash 菜单
- * 「视图」分区共用。导出为 Phosphor 兼容组件 (forwardRef + IconProps),
- * 以便直接作为 SlashMenuItem.icon 使用 (多余的 weight 等 props 会被忽略)。
+ * 「视图」分区共用右键创建菜单里的 Table2 图形。保留 Phosphor 兼容组件
+ * (forwardRef + IconProps), 以便直接作为 SlashMenuItem.icon 使用。
  */
 export const TableDocumentIcon = forwardRef<SVGSVGElement, IconProps>(
   function TableDocumentIcon({ className }, ref) {
-    return (
-      <svg ref={ref} xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 18 18" fill="none" opacity={0.6} aria-hidden="true" className={className}>
-        <g transform="translate(1.5 1.5) scale(0.625)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
-        </g>
-      </svg>
-    );
+    return <Table2 ref={ref} className={className} opacity={0.6} aria-hidden="true" />;
   },
 );
 

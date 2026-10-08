@@ -7,7 +7,6 @@ import {
   LinkSimpleIcon,
   PushPin,
   SquareSplitHorizontalIcon,
-  StackSimpleIcon,
   TrashSimpleIcon,
 } from '@phosphor-icons/react';
 import { useContext } from 'react';
@@ -52,6 +51,10 @@ interface MemoCardActionsProps<T extends NoteListItem> {
   memo: T;
   /** Use the tree item's authoritative path when this menu is rendered there. */
   filePath?: string;
+  /** The notebook tree renders its copy actions in a submenu. */
+  hideCopyActions?: boolean;
+  /** Tree-specific copy submenu, placed directly before reveal. */
+  copyMenuBeforeReveal?: React.ReactNode;
   onFavoriteToggle: (memo: T) => void;
   onDelete: (memo: T) => void;
   onColorsChange?: (memo: T, colors: NoteColor[]) => void;
@@ -60,8 +63,6 @@ interface MemoCardActionsProps<T extends NoteListItem> {
    * rendered where a split target makes no sense; the item hides when absent.
    */
   onOpenInSplit?: (memo: T) => void;
-  /** Optional tree-specific action rendered immediately before delete. */
-  beforeDelete?: React.ReactNode;
   Item: MenuItemComponent;
 }
 
@@ -211,7 +212,8 @@ export function MemoCardActions<T extends NoteListItem>({
   onDelete,
   onColorsChange,
   onOpenInSplit,
-  beforeDelete,
+  hideCopyActions = false,
+  copyMenuBeforeReveal,
   Item,
 }: MemoCardActionsProps<T>) {
   const { t } = useI18n();
@@ -263,18 +265,6 @@ export function MemoCardActions<T extends NoteListItem>({
     });
   };
 
-  // Properties are owned by the application-level host. Requesting them must
-  // not navigate the work column or change the currently-open memo.
-  const handleOpenProperties = () => {
-    const path = resolvePath();
-    const notebook = useNoteStore.getState().selectedNotebook;
-    window.dispatchEvent(
-      new CustomEvent('flowix:open-note-properties', {
-        detail: { path, scopePath: notebook?.path ?? null },
-      }),
-    );
-  };
-
   return (
     <>
       {onOpenInSplit && (
@@ -295,15 +285,17 @@ export function MemoCardActions<T extends NoteListItem>({
           </>
         )}
       </Item>
-      <Item onClick={handleOpenProperties} className={ITEM_BASE}>
-        <StackSimpleIcon className="w-4 h-4 mr-2" /> {t('document.action.properties')}
-      </Item>
-      <Item onClick={handleCopyLink} className={ITEM_BASE}>
-        <LinkSimpleIcon className="w-4 h-4 mr-2" /> {t('document.action.copyLink')}
-      </Item>
-      <Item onClick={handleCopyFullText} className={ITEM_BASE}>
-        <CopyIcon className="w-4 h-4 mr-2" /> {t('document.action.copyFullText')}
-      </Item>
+      {!hideCopyActions && (
+        <>
+          <Item onClick={handleCopyLink} className={ITEM_BASE}>
+            <LinkSimpleIcon className="w-4 h-4 mr-2" /> {t('document.action.copyLink')}
+          </Item>
+          <Item onClick={handleCopyFullText} className={ITEM_BASE}>
+            <CopyIcon className="w-4 h-4 mr-2" /> {t('document.action.copyFullText')}
+          </Item>
+        </>
+      )}
+      {copyMenuBeforeReveal}
       <Item onClick={handleRevealInFileManager} className={ITEM_BASE}>
         <FolderOpenIcon className="w-4 h-4 mr-2" /> {t('memo.fileTree.reveal')}
       </Item>
@@ -315,7 +307,6 @@ export function MemoCardActions<T extends NoteListItem>({
         />
       )}
       <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-      {beforeDelete}
       <Item
         onClick={() => onDelete(memo)}
         className={cn(ITEM_BASE, 'hover:bg-transparent hover:text-[var(--destructive)]')}

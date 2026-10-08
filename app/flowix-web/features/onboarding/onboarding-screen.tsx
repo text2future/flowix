@@ -590,6 +590,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
                   {notebookTemplates.find((template) => template.id === selectedTemplateId) && (
                     <NotebookTemplateCardPreview
                       template={notebookTemplates.find((template) => template.id === selectedTemplateId)!}
+                      onSwitch={() => setIsTemplatePickerOpen(true)}
                     />
                   )}
                   {!selectedTemplateId && (
@@ -675,7 +676,7 @@ export function OnboardingScreen({ dshInstaller, onFinish }: OnboardingScreenPro
             >
               {isCreatingNotebook
                 ? <><LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> 正在创建</>
-                : <>新建笔记本 <ArrowRight size={17} aria-hidden="true" /></>}
+                : <>新建笔记本 <ChevronRight size={14} className="-ml-1" aria-hidden="true" /></>}
             </button>
           )}
 

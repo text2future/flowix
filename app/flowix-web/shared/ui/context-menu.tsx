@@ -1,5 +1,6 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
 
@@ -171,6 +172,7 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 		const handlePointerDown = (e: PointerEvent) => {
 			const target = e.target as Node;
 			if (contentRef.current?.contains(target)) return;
+			if (target instanceof Element && target.closest("[data-context-menu-submenu]")) return;
 			setOpen(false);
 		};
 
@@ -281,6 +283,121 @@ function ContextMenuItem({
 	);
 }
 
+function ContextMenuSubmenu({
+	label,
+	icon,
+	children,
+}: {
+	label: React.ReactNode;
+	icon?: React.ReactNode;
+	children: React.ReactNode;
+}) {
+	const [open, setOpen] = React.useState(false);
+	const [position, setPosition] = React.useState<{ left: number; top: number } | null>(null);
+	const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+	const submenuRef = React.useRef<HTMLDivElement | null>(null);
+	const skipFocusOpenRef = React.useRef(false);
+	const closeTimerRef = React.useRef<number | null>(null);
+
+	const cancelClose = () => {
+		if (closeTimerRef.current === null) return;
+		window.clearTimeout(closeTimerRef.current);
+		closeTimerRef.current = null;
+	};
+	const scheduleClose = () => {
+		cancelClose();
+		closeTimerRef.current = window.setTimeout(() => {
+			setOpen(false);
+			closeTimerRef.current = null;
+		}, 160);
+	};
+	React.useEffect(() => () => cancelClose(), []);
+
+	const alignToTrigger = React.useCallback((trigger: HTMLButtonElement) => {
+		const rect = trigger.getBoundingClientRect();
+		const width = 176;
+		const left = window.innerWidth - rect.right < width + 4
+			? Math.max(4, rect.left - width)
+			: rect.right;
+		const top = Math.max(4, Math.min(rect.top, window.innerHeight - 68));
+		setPosition((current) => current?.left === left && current.top === top ? current : { left, top });
+	}, []);
+	const show = (trigger: HTMLButtonElement) => {
+		cancelClose();
+		triggerRef.current = trigger;
+		alignToTrigger(trigger);
+		setOpen(true);
+	};
+
+	// The parent context menu scales in when opened. Keep the submenu anchored
+	// to the item until that animation finishes, including viewport clamping.
+	React.useLayoutEffect(() => {
+		if (!open) return;
+		let frame = 0;
+		const started = performance.now();
+		const align = (now: number) => {
+			if (triggerRef.current) alignToTrigger(triggerRef.current);
+			if (now - started < 250) frame = window.requestAnimationFrame(align);
+		};
+		frame = window.requestAnimationFrame(align);
+		return () => window.cancelAnimationFrame(frame);
+	}, [alignToTrigger, open]);
+
+	return (
+		<div className="relative" onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
+			<button
+				type="button"
+				role="menuitem"
+				aria-haspopup="menu"
+				aria-expanded={open}
+				onMouseEnter={(event) => show(event.currentTarget)}
+				onFocus={(event) => {
+					if (skipFocusOpenRef.current) {
+						skipFocusOpenRef.current = false;
+						return;
+					}
+					show(event.currentTarget);
+				}}
+				onClick={(event) => show(event.currentTarget)}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowRight") {
+						event.preventDefault();
+						show(event.currentTarget);
+						window.requestAnimationFrame(() => submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
+					}
+					if (event.key === "Escape") setOpen(false);
+				}}
+				onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+				className="flex h-7 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] outline-none hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] focus-visible:bg-[var(--brand)] focus-visible:text-[var(--primary-foreground)]"
+			>
+				<span className="flex min-w-0 items-center gap-2">{icon}{label}</span>
+				<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+			</button>
+			{open && position && createPortal(
+				<div
+					ref={submenuRef}
+					data-context-menu-submenu="true"
+					role="menu"
+					onKeyDown={(event) => {
+						if (event.key !== "ArrowLeft") return;
+						event.preventDefault();
+						setOpen(false);
+						skipFocusOpenRef.current = true;
+						triggerRef.current?.focus();
+					}}
+					onMouseEnter={cancelClose}
+					onMouseLeave={scheduleClose}
+					className="fixed z-[151] w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+					style={position}
+				>
+					{children}
+				</div>,
+				document.body,
+			)}
+		</div>
+	);
+}
+
 function ContextMenuLabel({
 	children,
 	className,
@@ -312,6 +429,7 @@ export {
 	ContextMenuTrigger,
 	ContextMenuContent,
 	ContextMenuItem,
+	ContextMenuSubmenu,
 	ContextMenuLabel,
 	ContextMenuSeparator,
 	ContextMenuShortcut,
