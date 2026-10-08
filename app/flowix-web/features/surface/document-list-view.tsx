@@ -30,6 +30,8 @@ import folderCardPlaceholder from '@/assets/placeholder-folder-card.png';
 
 const logger = createLogger('document-list-view');
 const MEDIA_LIBRARY_PAGE_SIZE = 30;
+// Keep the loading effect stable when ordinary folders omit media records.
+const EMPTY_MEDIA_LIBRARY_RECORDS: MediaLibraryRecord[] = [];
 
 function cardPlaceholder(item: DocumentPageItem): string {
   if (item.resourceKind === 'folder') return folderCardPlaceholder;
@@ -222,7 +224,7 @@ const DocumentCard = memo(function DocumentCard({ item, notebookPath, openItem, 
   </button>;
 });
 
-export function DocumentListView({ surface, mediaLibrary = false, libraryName = '媒体库', libraryFilePath, mediaLibraryFilter = {}, mediaLibraryRecords = [], onMediaLibraryFilterChange, onRenameLibrary, onAddMedia, onDeleteLibrary, onDeleteManualMedia, libraryActionsDisabled = false }: {
+export function DocumentListView({ surface, mediaLibrary = false, libraryName = '媒体库', libraryFilePath, mediaLibraryFilter = {}, mediaLibraryRecords = EMPTY_MEDIA_LIBRARY_RECORDS, onMediaLibraryFilterChange, onRenameLibrary, onAddMedia, onDeleteLibrary, onDeleteManualMedia, libraryActionsDisabled = false }: {
   surface: DocumentListSurface;
   mediaLibrary?: boolean;
   libraryName?: string;
