@@ -116,6 +116,7 @@ export function useMainPanelController({
     handleListDividerMouseDown,
     handleToggleMemoList,
     handleToggleNoteNavigation,
+    openNoteNavigation,
     closeNoteNavigation,
     completeNoteNavigationClose,
     isDraggingListDivider,

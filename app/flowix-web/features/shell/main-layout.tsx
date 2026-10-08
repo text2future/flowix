@@ -290,6 +290,7 @@ export function MainLayout({
     handleListDividerMouseDown,
     handleToggleMemoList,
     handleToggleNoteNavigation,
+    openNoteNavigation,
     closeNoteNavigation,
     completeNoteNavigationClose,
     isDraggingListDivider,
@@ -305,6 +306,11 @@ export function MainLayout({
     setMemoListVisible,
     setNoteNavigationVisible,
   });
+  const handleOpenTagPanel = useCallback(() => {
+    void setMemoListViewPreference('detailed');
+    setMiddleColumnView('notes');
+    openNoteNavigation();
+  }, [openNoteNavigation, setMiddleColumnView]);
   const {
     agentConversationListReady,
     shouldRenderAgentConversationList,
@@ -414,13 +420,23 @@ export function MainLayout({
   const handleOpenTodos = useCallback(async () => {
     const nextFilter = activeFilter === 'todos' ? 'all' : 'todos';
     setMemoListVisible(true);
+    void setMemoListViewPreference('detailed');
+    setMiddleColumnView('notes');
     setActiveFilter(nextFilter);
     await loadNotes({
       notebookId: selectedNotebook?.id,
       filter: nextFilter,
       sort: activeSort,
     });
-  }, [activeFilter, activeSort, loadNotes, selectedNotebook?.id, setActiveFilter, setMemoListVisible]);
+  }, [
+    activeFilter,
+    activeSort,
+    loadNotes,
+    selectedNotebook?.id,
+    setActiveFilter,
+    setMemoListVisible,
+    setMiddleColumnView,
+  ]);
 
   const handleNavigateBack = useCallback(() => {
     void navigateDocumentHistory('back');
@@ -821,7 +837,7 @@ export function MainLayout({
             onDeleteNotebook={handleDeleteNotebook}
             onCreateNotebook={handleCreateNotebook}
             onOpenTodos={handleOpenTodos}
-            onToggleNoteNavigation={handleToggleNoteNavigation}
+            onOpenTagPanel={handleOpenTagPanel}
             productIntroOpen={productIntroOpen}
             onProductIntroOpenChange={setProductIntroOpen}
             dshDownload={dshDownload}

@@ -1783,7 +1783,7 @@ const zhCN = {
     "shell.commandPalette.action.openPreferences": "打开偏好设置",
     "shell.commandPalette.templatePrefix": "从模板创建：",
     "shell.statusBar.noteNav": "笔记导航",
-    "shell.statusBar.noteNavTooltip": "笔记导航",
+    "shell.statusBar.noteNavTooltip": "标签面板",
     "shell.statusBar.syncing": "同步中",
     "shell.productIntro.button": "产品介绍",
     "shell.productIntro.caseTag": "案例",

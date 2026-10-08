@@ -36,7 +36,7 @@ interface StatusBarProps {
   onDeleteNotebook: (notebook: Notebook) => void;
   onCreateNotebook: () => void;
   onOpenTodos: () => void;
-  onToggleNoteNavigation: () => void;
+  onOpenTagPanel: () => void;
   productIntroOpen: boolean;
   onProductIntroOpenChange: (open: boolean) => void;
   onOpenMcpPreferences: () => void;
@@ -136,7 +136,7 @@ export function StatusBar({
   onDeleteNotebook,
   onCreateNotebook,
   onOpenTodos,
-  onToggleNoteNavigation,
+  onOpenTagPanel,
   productIntroOpen,
   onProductIntroOpenChange,
   onOpenMcpPreferences,
@@ -266,7 +266,7 @@ export function StatusBar({
         <Tooltip content={t('shell.statusBar.noteNavTooltip')} shortcut="panel.noteNavigation.toggle">
           <button
             type="button"
-            onClick={onToggleNoteNavigation}
+            onClick={onOpenTagPanel}
             className="h-full flex items-center gap-0.5 px-1.5 py-0 hover:bg-[var(--muted)]"
             aria-label={t('shell.statusBar.noteNav')}
           >
