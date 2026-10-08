@@ -29,11 +29,25 @@ pub struct AppUpdateInfo {
     pub body: Option<String>,
 }
 
+fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    let endpoint = match std::env::consts::OS {
+        "macos" => "https://download.flowix.cc/updater/macos/latest.json",
+        "windows" => "https://download.flowix.cc/updater/windows/latest.json",
+        "linux" => "https://download.flowix.cc/updater/linux/latest.json",
+        platform => return Err(format!("unsupported updater platform: {platform}")),
+    };
+    let endpoint = url::Url::parse(endpoint)
+        .map_err(|error| format!("failed to parse updater endpoint: {error}"))?;
+    app.updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|error| format!("failed to configure updater endpoint: {error}"))?
+        .build()
+        .map_err(|error| format!("failed to initialize updater: {error}"))
+}
+
 #[tauri::command]
 pub async fn check_app_update(app: AppHandle) -> Result<Option<AppUpdateInfo>, String> {
-    let update = app
-        .updater()
-        .map_err(|error| format!("failed to initialize updater: {error}"))?
+    let update = updater(&app)?
         .check()
         .await
         .map_err(|error| format!("failed to check for update: {error}"))?;
@@ -67,9 +81,7 @@ pub async fn install_app_update(
         }
     }
 
-    let update = app
-        .updater()
-        .map_err(|error| format!("failed to initialize updater: {error}"))?
+    let update = updater(&app)?
         .check()
         .await
         .map_err(|error| format!("failed to check for update: {error}"))?
