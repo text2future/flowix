@@ -14,6 +14,7 @@ export type StoredAsset = {
 };
 
 export type AttachmentUploadOptions = {
+    getNotebookId?: () => string | undefined;
     memoId?: string;
     storage: { mode: 'attachment' };
     picker: { accept: string | undefined; multiple: boolean };

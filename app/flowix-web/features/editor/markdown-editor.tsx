@@ -51,6 +51,7 @@ import { markDocumentOpenTrace } from '@/lib/document-open-perf';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 
 interface MarkdownEditorProps {
+  getAttachmentNotebookId?: () => string | undefined;
   memoId?: string;
   propertyTargetId?: string;
   onViewSourceMode?: () => void;
@@ -543,6 +544,7 @@ function focusEmptyParagraphAfterMedia(
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   memoId,
+  getAttachmentNotebookId,
   propertyTargetId,
   onViewSourceMode,
   transitionId = null,
@@ -982,7 +984,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         MarkdownEscape,
         HTMLStrongFallback,
         LegacyAdjacentStrongMarkdown,
-        AttachmentLink.configure({ memoId }),
+        AttachmentLink.configure({ memoId, getNotebookId: getAttachmentNotebookId }),
         MarkdownLink,
         LinkSelectionHighlight,
         CodeBlockShiki.configure({ traceId: transitionId }),

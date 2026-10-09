@@ -35,12 +35,13 @@ function pickBrowserFiles(params: OpenFileDialogParams | undefined, signal: Abor
     });
 }
 
-export function createAttachmentCommands(memoId?: string): Partial<RawCommands> {
+export function createAttachmentCommands(memoId?: string, getNotebookId?: () => string | undefined): Partial<RawCommands> {
     return {
         openFileDialog:
             (params?: OpenFileDialogParams) =>
             ({ editor }: { editor: Editor }) => {
                 if (editor.isDestroyed || !editor.isEditable) return false;
+                const notebookId = getNotebookId?.();
                 void runTrackedUpload(editor.view, async (signal) => {
                     if (isTauriApp()) {
                         const paths = await invoke<string[] | null>('select_files', {
@@ -48,7 +49,7 @@ export function createAttachmentCommands(memoId?: string): Partial<RawCommands> 
                             multiple: params?.multiple ?? true,
                         });
                         if (!paths?.length || signal.aborted) return [];
-                        return (await createAttachmentUploadFromPaths(paths, memoId, signal)).assets;
+                        return (await createAttachmentUploadFromPaths(paths, memoId, signal, notebookId)).assets;
                     }
                     const files = await pickBrowserFiles(params, signal);
                     if (signal.aborted) return [];
