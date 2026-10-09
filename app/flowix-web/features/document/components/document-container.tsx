@@ -18,7 +18,8 @@ import {
   documentIdentityFromFile,
   documentPropertyTargetId,
 } from '@features/document/store/document-identity';
-import { fileNameFromPath } from '@/lib/path';
+import { canonicalDirectoryPath, canonicalPath, fileNameFromPath } from '@/lib/path';
+import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
 import { toast } from '@/lib/toast';
 import { product } from '@platform/tauri/client/desktop';
 import { externalDocuments } from '@platform/tauri/client/memos';
@@ -108,6 +109,14 @@ export function DocumentContainer({
   const memoFilename = fileNameFromPath(filePath);
   const renameInProgressRef = useRef(false);
   const getCurrentFilePath = useCallback(() => documentIdentity.path, [documentIdentity]);
+  const getAttachmentNotebookId = useCallback(() => {
+    const path = canonicalPath(documentIdentity.path);
+    // Resolve the document, not the selected sidebar notebook; nested roots win.
+    return getWorkspaceMemoState().notebooks
+      .map((notebook) => ({ id: notebook.id, root: canonicalDirectoryPath(notebook.path) }))
+      .filter(({ root }) => path.startsWith(root === '/' ? root : `${root}/`))
+      .sort((left, right) => right.root.length - left.root.length)[0]?.id;
+  }, [documentIdentity]);
   const {
     state,
     setState,
@@ -451,6 +460,7 @@ export function DocumentContainer({
         )}
         {!state.isLoading && state.isLoaded && !usesCodeEditor && (
           <LazyDocumentEditor
+            getAttachmentNotebookId={getAttachmentNotebookId}
             propertyTargetId={propertyTargetId}
             onViewSourceMode={handleToggleEditorMode}
             transitionId={transitionId}

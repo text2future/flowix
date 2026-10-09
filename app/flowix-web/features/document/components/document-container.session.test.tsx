@@ -1,4 +1,5 @@
 import { act } from 'react';
+import { invoke } from '@platform/tauri/core';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Editor } from '@tiptap/core';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
@@ -17,6 +18,7 @@ import { notifyDocumentBufferChanged } from '../store/buffer-registry';
 import { waitForDocumentCommits } from '../store/document-commit-queue';
 
 const mocks = vi.hoisted(() => ({ recoveryRead: vi.fn().mockResolvedValue(null), read: vi.fn(), write: vi.fn(), rename: vi.fn(), publish: vi.fn() }));
+vi.mock('@platform/tauri/core', () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}` }));
 vi.mock('./lazy-document-editor', async () => ({
   LazyDocumentEditor: (await import('@features/editor/markdown-editor')).MarkdownEditor,
   preloadDocumentEditor: () => {},
@@ -98,6 +100,8 @@ describe('real document container session lifecycle', () => {
   });
   beforeEach(() => {
     vi.useFakeTimers(); environment.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.mocked(invoke).mockReset();
+    useNoteStore.setState({ notebooks: [], selectedNotebook: null });
     mocks.read.mockReset().mockResolvedValue('Body');
     mocks.recoveryRead.mockReset().mockResolvedValue(null);
     mocks.write.mockReset().mockImplementation(async request => ({ status: 'saved', path: request.path, content: request.content }));
@@ -115,6 +119,53 @@ describe('real document container session lifecycle', () => {
     await act(async () => { root.unmount(); await vi.advanceTimersByTimeAsync(300); });
     container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
     environment.IS_REACT_ACT_ENVIRONMENT = false;
+  });
+  it('inserts a picked image into a path-based note even when another notebook is selected', async () => {
+    const doc = setup(false);
+    const notebook = { id: 'owner', name: 'Notebook', path: doc.identity.path.replace('/A.md', ''), createdAt: 1, updatedAt: 1, isDefault: false };
+    const other = { ...notebook, id: 'other', path: '/another-notebook' };
+    useNoteStore.setState({ notebooks: [other, notebook], selectedNotebook: other });
+    vi.stubGlobal('__TAURI__', {});
+    const saved = `${notebook.path}/attachments/fig.png`;
+    vi.mocked(invoke).mockImplementation(async (command) => command === 'select_files' ? ['/selected/fig.png'] : saved);
+    await act(async () => { doc.render(); });
+    await act(async () => { doc.editors.left!.commands.openFileDialog({ accept: 'image/*' }); });
+    expect(invoke).toHaveBeenCalledWith('save_attachment', {
+      sourcePath: '/selected/fig.png', memoId: undefined, notebookId: 'owner',
+    });
+    const images: string[] = [];
+    doc.editors.left!.state.doc.descendants(node => { if (node.type.name === 'image') images.push(node.attrs.src); });
+    expect(images).toHaveLength(1);
+    expect(decodeURIComponent(images[0])).toContain(saved);
+    expect(doc.editors.left!.getMarkdown()).toContain('fig.png');
+  });
+  it('resolves the nearest notebook at upload time, excluding similar path prefixes', async () => {
+    const doc = setup(false);
+    await act(async () => { doc.render(); });
+    const base = { name: 'Notebook', createdAt: 1, updatedAt: 1, isDefault: false };
+    const path = doc.identity.path.replace('/A.md', '');
+    useNoteStore.setState({ notebooks: [
+      { ...base, id: 'parent', path: '/' },
+      { ...base, id: 'similar', path: path.slice(0, -1) },
+      { ...base, id: 'owner', path },
+    ] });
+    vi.stubGlobal('__TAURI__', {});
+    vi.mocked(invoke).mockImplementation(async (command) => command === 'select_files' ? ['/selected/fig.png'] : `${path}/attachments/fig.png`);
+    await act(async () => { doc.editors.left!.commands.openFileDialog(); });
+    expect(invoke).toHaveBeenCalledWith('save_attachment', {
+      sourcePath: '/selected/fig.png', memoId: undefined, notebookId: 'owner',
+    });
+  });
+  it('does not save an image to the selected notebook when the document is outside it', async () => {
+    const doc = setup(false);
+    const other = { id: 'other', name: 'Other', path: '/another-notebook', createdAt: 1, updatedAt: 1, isDefault: false };
+    useNoteStore.setState({ notebooks: [other], selectedNotebook: other });
+    vi.stubGlobal('__TAURI__', {});
+    vi.mocked(invoke).mockResolvedValue(['/selected/fig.png']);
+    await act(async () => { doc.render(); });
+    await act(async () => { doc.editors.left!.commands.openFileDialog(); });
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['select_files']);
+    expect(doc.editors.left!.getMarkdown()).toBe('Body');
   });
   it('opening a second view preserves scheduled autosave', async () => {
     mocks.recoveryRead.mockResolvedValue(null);

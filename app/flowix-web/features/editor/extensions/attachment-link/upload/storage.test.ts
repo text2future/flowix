@@ -26,6 +26,15 @@ describe('attachment storage failures', () => {
 
     afterEach(() => vi.restoreAllMocks());
 
+    it('saves selected files for a path-based note using its notebook instead of a legacy memo ID', async () => {
+        vi.mocked(invoke).mockResolvedValue('/notebook/attachments/fig.png');
+        const result = await createAttachmentUploadFromPaths(['/selected/fig.png'], undefined, undefined, 'notebook-owner');
+        expect(invoke).toHaveBeenCalledWith('save_attachment', {
+            sourcePath: '/selected/fig.png', memoId: undefined, notebookId: 'notebook-owner',
+        });
+        expect(result.assets[0].storageKey).toBe('/notebook/attachments/fig.png');
+    });
+
     it('does not create an attachment for an unauthorized source', async () => {
         vi.mocked(invoke).mockRejectedValue(new Error('not authorized'));
         expect(await createAttachmentUploadFromPaths(['/private/file.txt'], 'memo-a')).toEqual({ assets: [] });
