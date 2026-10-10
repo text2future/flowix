@@ -36,10 +36,10 @@ import {
   FolderSimplePlusIcon,
   MinusCircleIcon,
   PencilSimpleIcon,
-  RulerIcon,
   SquaresFourIcon,
   SquareSplitHorizontalIcon,
   TrashSimpleIcon,
+  UploadSimpleIcon,
 } from '@phosphor-icons/react';
 
 import {
@@ -102,7 +102,6 @@ import {
   dialogs,
   product,
   system,
-  windows,
   type DocTreeItem,
   type DocTreeResourceKind,
   type FileBrowserDirectoriesChangedEvent,
@@ -209,6 +208,9 @@ function TreeSectionMoreMenu({
   onMoveDown,
   onCreateFolder,
   onCreateNote,
+  onCreateTable,
+  onCreateMediaLibrary,
+  onImportFiles,
   sort,
   onSort,
   onCustomizeDisplay,
@@ -219,13 +221,20 @@ function TreeSectionMoreMenu({
   onMoveDown: () => void;
   onCreateFolder?: () => void;
   onCreateNote?: () => void;
+  onCreateTable?: () => void;
+  onCreateMediaLibrary?: () => void;
+  onImportFiles?: () => void;
   sort?: FolderTreeSort;
   onSort?: (sort: FolderTreeSort) => void;
   onCustomizeDisplay?: (anchorRect: DOMRect) => void;
 }) {
   const { t } = useI18n();
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
+  const [createSubmenuOpen, setCreateSubmenuOpen] = useState(false);
   const itemClassName = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-40';
+  const hasActionsAfterMovement = Boolean(
+    onCreateNote || onCreateFolder || onCreateTable || onCreateMediaLibrary || onImportFiles || (sort && onSort),
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -247,6 +256,7 @@ function TreeSectionMoreMenu({
           <ArrowDownIcon className="h-3.5 w-3.5" aria-hidden="true" />
           {t('memo.fileTree.moveSectionDown')}
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {onCreateNote && (
           <DropdownMenuItem onClick={onCreateNote} className={itemClassName}>
             <FileIcon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -259,6 +269,48 @@ function TreeSectionMoreMenu({
             {t('memo.fileTree.newFolder')}
           </DropdownMenuItem>
         )}
+        {(onCreateTable || onCreateMediaLibrary || onImportFiles) && (
+          <div
+            className="relative"
+            onMouseEnter={() => setCreateSubmenuOpen(true)}
+            onMouseLeave={() => setCreateSubmenuOpen(false)}
+          >
+            <button
+              type="button"
+              className={cn(itemClassName, 'flex w-full items-center justify-between text-sm')}
+              onClick={() => setCreateSubmenuOpen((open) => !open)}
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              <span className="flex items-center gap-2">
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('memo.create.more')}
+              </span>
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            {createSubmenuOpen && (
+              <div className="absolute left-full top-0 w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                {onCreateTable && (
+                  <DropdownMenuItem onClick={onCreateTable} className={itemClassName}>
+                    <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('memo.create.table')}
+                  </DropdownMenuItem>
+                )}
+                {onCreateMediaLibrary && (
+                  <DropdownMenuItem onClick={onCreateMediaLibrary} className={itemClassName}>
+                    <GalleryHorizontalEnd className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('memo.create.mediaLibraryTitle')}
+                  </DropdownMenuItem>
+                )}
+                {onImportFiles && (
+                  <DropdownMenuItem onClick={onImportFiles} className={itemClassName}>
+                    <UploadSimpleIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('memo.fileTree.import')}
+                  </DropdownMenuItem>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {sort && onSort && (
           <div
             className="relative"
@@ -267,7 +319,7 @@ function TreeSectionMoreMenu({
           >
             <button
               type="button"
-              className={cn(itemClassName, 'flex w-full items-center justify-between')}
+              className={cn(itemClassName, 'memo-navigation-submenu-trigger flex w-full items-center justify-between text-sm')}
               onClick={() => setSortSubmenuOpen(true)}
               onMouseDown={(event) => event.preventDefault()}
             >
@@ -304,11 +356,7 @@ function TreeSectionMoreMenu({
             )}
           </div>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => { void windows.openPreferences('noteSettings'); }} className={itemClassName}>
-          <RulerIcon className="h-3.5 w-3.5" aria-hidden="true" />
-          {t('memo.fileTree.noteSettings')}
-        </DropdownMenuItem>
+        {hasActionsAfterMovement && <DropdownMenuSeparator />}
         {onCustomizeDisplay && (
           <DropdownMenuItem onClick={(event) => {
             const rect = getPopupOriginRect(event.currentTarget);
@@ -2665,6 +2713,9 @@ export function NotebookFileTree({
                 onMoveDown={() => moveTreeSection('files', 1)}
                 onCreateFolder={onCreateFolder}
                 onCreateNote={() => handleCreateNoteAtPath(notebookPath)}
+                onCreateTable={() => openNewTableDialog()}
+                onCreateMediaLibrary={() => openNewMediaLibraryDialog()}
+                onImportFiles={() => { void handleImportFiles(notebookPath); }}
                 sort={fileTreeSort}
                 onSort={setFileTreeSort}
                 onCustomizeDisplay={openCustomizeDisplay}

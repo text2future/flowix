@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 
@@ -11,6 +11,20 @@ const args = process.argv.slice(2)
 const withPi = args.includes('--with-pi')
 const config = args.find(arg => arg !== '--with-pi') ?? 'app/flowix-desktop/tauri.conf.dev.json'
 const childEnv = { ...process.env }
+
+// The dev config is an overlay on tauri.conf.json. Keep versions in the
+// overlay-free canonical files aligned so a stale app version fails early.
+const packageVersion = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).version
+const cargoManifest = readFileSync(resolve(repoRoot, 'app/Cargo.toml'), 'utf8')
+const cargoVersion = /^version\s*=\s*"([^"]+)"/mu.exec(cargoManifest)?.[1]
+const tauriVersion = JSON.parse(readFileSync(
+  resolve(repoRoot, 'app/flowix-desktop/tauri.conf.json'), 'utf8')).version
+if (!packageVersion || packageVersion !== cargoVersion || packageVersion !== tauriVersion) {
+  throw new Error(
+    `Flowix version mismatch: package=${packageVersion ?? '<missing>'}, ` +
+    `Cargo=${cargoVersion ?? '<missing>'}, Tauri=${tauriVersion ?? '<missing>'}`,
+  )
+}
 
 function findInstalledFlowixPi() {
   if (childEnv.PI_CLI_PATH) return childEnv.PI_CLI_PATH
