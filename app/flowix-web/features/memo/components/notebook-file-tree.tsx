@@ -267,7 +267,7 @@ function TreeSectionMoreMenu({
             <button
               type="button"
               className={cn(itemClassName, 'flex w-full items-center justify-between')}
-              onClick={() => setSortSubmenuOpen((open) => !open)}
+              onClick={() => setSortSubmenuOpen(true)}
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="flex items-center gap-2">
