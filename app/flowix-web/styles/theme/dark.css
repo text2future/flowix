@@ -43,12 +43,8 @@
 	--border: oklch(0.300 0.014 var(--neutral-hue));
 	--border-popup: oklch(0.260 0.014 var(--neutral-hue));
 	--input: var(--border);
-	/* 分割线: 越过 --border 一档 (但比亮主题更克制) ── 直接 oklch
-	 * 直定义, L=0.330 (比 --border 0.300 再亮 0.030), ΔL vs bg
-	 * ≈ 0.157 (比 baseline 0.121 提升约 30%, 落后亮主题一档).
-	 * 暗底上 --border 已是较亮档, --divider 抬亮以拉大与 bg 对比,
-	 * 但避免亮度过高形成"霓虹感".  */
-	--divider: oklch(0.330 0.014 var(--neutral-hue));
+	/* 分割线使用独立 token，便于与普通边框分别调节。 */
+	--divider: oklch(0.250 0.014 var(--neutral-hue));
 	/* Keyboard focus ring follows the theme primary color. */
 	--ring: var(--primary);
 
