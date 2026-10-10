@@ -39,7 +39,7 @@ import {
   SquaresFourIcon,
   SquareSplitHorizontalIcon,
   TrashSimpleIcon,
-  UploadSimpleIcon,
+  DownloadSimpleIcon,
 } from '@phosphor-icons/react';
 
 import {
@@ -256,7 +256,7 @@ function TreeSectionMoreMenu({
           <ArrowDownIcon className="h-3.5 w-3.5" aria-hidden="true" />
           {t('memo.fileTree.moveSectionDown')}
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
+        {(hasActionsAfterMovement || onCustomizeDisplay) && <DropdownMenuSeparator />}
         {onCreateNote && (
           <DropdownMenuItem onClick={onCreateNote} className={itemClassName}>
             <FileIcon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -303,7 +303,7 @@ function TreeSectionMoreMenu({
                 )}
                 {onImportFiles && (
                   <DropdownMenuItem onClick={onImportFiles} className={itemClassName}>
-                    <UploadSimpleIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                    <DownloadSimpleIcon className="h-3.5 w-3.5" aria-hidden="true" />
                     {t('memo.fileTree.import')}
                   </DropdownMenuItem>
                 )}

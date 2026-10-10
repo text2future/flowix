@@ -1,4 +1,4 @@
-import { FileIcon, FolderSimplePlusIcon, PlusIcon, UploadSimpleIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, FileIcon, FolderSimplePlusIcon, PlusIcon } from '@phosphor-icons/react';
 import { GalleryHorizontalEnd, Table2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuSubmenu } from '@shared/ui/context-menu';
@@ -41,7 +41,7 @@ export function NotebookCreateContextMenuItems({
           {t('memo.create.mediaLibraryTitle')}
         </ContextMenuItem>
         {onImport && <ContextMenuItem onClick={onImport} className={MENU_ITEM_CLASS}>
-          <UploadSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+          <DownloadSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />
           {t('memo.fileTree.import')}
         </ContextMenuItem>}
       </ContextMenuSubmenu>
