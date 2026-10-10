@@ -628,6 +628,32 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     setNotePickerOpen(true);
   }, []);
 
+  const addDraftRecordAndOpenNoteSelector = useCallback(async () => {
+    if (!editable || !document || !noteField || saving) return;
+    const sequence = loadSequenceRef.current;
+    const record: TableRecord = {
+      id: `rec_${createUuidV7()}`,
+      updated_at: new Date().toISOString(),
+      note_path: '',
+    };
+    const records = [...document.records.data, record];
+    setSaving(true);
+    try {
+      const saved = await save({
+        ...document,
+        collection: reviseCollection(document.collection),
+        records: { ...document.records, data: records },
+      }, true, sequence);
+      if (!saved || !isCurrentSession(sequence)) return;
+      setTablePage(Math.floor(visibleRecords.length / TABLE_PAGE_SIZE));
+      setAutoOpenPrimaryRecordId(record.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '新增空行失败');
+    } finally {
+      if (isCurrentSession(sequence)) setSaving(false);
+    }
+  }, [document, editable, isCurrentSession, loadSequenceRef, noteField, save, saving, setSaving, visibleRecords.length]);
+
   const applyCalendarDateToNote = useCallback(async (note: NoteEntry, calendarDate: { fieldId: string; date: string } | null): Promise<NoteEntry> => {
     if (!calendarDate) return note;
     if (!editable) throw new Error('当前引用为只读，无法修改笔记属性');
@@ -1736,7 +1762,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
           {visibleRecords.length === 0 && <tr><td colSpan={tableColumnCount} className="border-b border-[var(--border)] px-4 py-3 text-center text-sm text-[var(--muted-foreground)]">未添加内容</td></tr>}
           {(canCreateRecords || showAssociateNoteAction) && <tr>
             <td colSpan={tableColumnCount} className="px-0 py-1.5">
-              <button type="button" disabled={!editable || saving || !noteField} onClick={(event) => openNotePicker(event.currentTarget.getBoundingClientRect(), null)} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
+              <button type="button" disabled={!editable || saving || !noteField} onClick={() => void addDraftRecordAndOpenNoteSelector()} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />关联笔记
               </button>
             </td>
