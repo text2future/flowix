@@ -204,7 +204,7 @@ export function AgentRuntimeStatusList({
                     >
                       <span
                         className={cn(
-                          'absolute left-0.5 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-[var(--primary-foreground)] shadow-sm transition-transform',
+                          'absolute left-0.5 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-[var(--card)] shadow-sm transition-transform',
                           slashEnabled ? 'translate-x-4' : 'translate-x-0'
                         )}
                       />

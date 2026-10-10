@@ -103,13 +103,23 @@ export function McpSection() {
           <span>{t('preferences.mcp.supportedAgents')}</span>
           <div className="flex items-center gap-2" aria-label={t('preferences.mcp.supportedAgents')}>
             {SUPPORTED_AGENTS.map((agent) => (
-              <img
+              <span
                 key={agent.name}
-                src={agent.icon}
-                alt={agent.name}
+                role="img"
+                aria-label={agent.name}
                 title={agent.name}
-                className="size-6 rounded-md object-contain"
-              />
+                data-agent-icon={agent.name === 'ChatGPT' || agent.name === 'Hermes' ? agent.name.toLowerCase() : undefined}
+                className="mcp-supported-agent-icon"
+              >
+                <img src={agent.icon} alt="" className="mcp-supported-agent-icon__image" />
+                {(agent.name === 'ChatGPT' || agent.name === 'Hermes') && (
+                  <span
+                    aria-hidden="true"
+                    className="mcp-supported-agent-icon__mask"
+                    style={{ maskImage: `url("${agent.icon}")`, WebkitMaskImage: `url("${agent.icon}")` }}
+                  />
+                )}
+              </span>
             ))}
           </div>
         </div>

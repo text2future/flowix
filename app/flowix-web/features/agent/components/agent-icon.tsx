@@ -47,7 +47,7 @@ export function AgentIcon({
       <img
         src={type.icon}
         alt={alt}
-        className={className}
+        className={cn(typeKey === 'pi' && 'agent-icon--pi', className)}
         style={style}
         draggable={draggable}
       />
@@ -64,7 +64,7 @@ export function AgentIcon({
 
   return (
     <span
-      className={cn('agent-icon agent-icon--masked', className)}
+      className={cn('agent-icon agent-icon--masked', typeKey === 'pi' && 'agent-icon--pi', className)}
       style={maskStyle}
       role={alt ? 'img' : undefined}
       aria-label={alt || undefined}

@@ -49,8 +49,8 @@
 	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
 	--document-bg: oklch(0.160 0.013 265);
 	--document-foreground: oklch(0.68 0.013 265);
-	/* 链接: 高亮+提 chroma 路线, 与普通文字拉开"可点击"权重; hover 由 color-mix 派生 */
-	--document-link: oklch(0.80 0.18 var(--brand-hue));
+	/* 链接直接跟随品牌色; hover 由 color-mix 派生提亮。 */
+	--document-link: var(--brand);
 	--document-highlight-bg: oklch(0.800 0.182 152);
 	/* 标签: 沿用 light 的"近底色 + 高对比字 + 微妙染色"套路, 适配暗底 ──
 	 * 但 dark 的 chip 走"暗色"路线 (与 main bg 0.173 拉开), 文本必须反向

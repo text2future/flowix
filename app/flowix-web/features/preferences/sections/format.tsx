@@ -63,7 +63,7 @@ interface FormatSectionProps {
  * Native range slider styled to match the rest of the Preferences UI.
  *
  * Track is a single linear-gradient: filled (--primary) up to the
- * current value, then a darker neutral (#cbd5e1) for the unfilled
+ * current value, then the theme's muted surface for the unfilled
  * remainder. Bound to a numeric setting; updates fire on every change
  * for live preview. Used inside a FieldRow; container is fixed-width
  * so the slider doesn't stretch across the full preferences content area.
@@ -95,9 +95,9 @@ function SliderRow({
         step={step}
         value={sliderValue}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--primary)]"
+        className="preferences-range-slider flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--primary)]"
         style={{
-          background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${percent}%, #cbd5e1 ${percent}%, #cbd5e1 100%)`,
+          background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${percent}%, var(--muted) ${percent}%, var(--muted) 100%)`,
         }}
       />
       <span className="w-12 text-right text-sm tabular-nums text-[var(--muted-foreground)]">

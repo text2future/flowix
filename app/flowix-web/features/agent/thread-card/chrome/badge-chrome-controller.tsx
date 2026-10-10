@@ -71,6 +71,7 @@ export class AgentThreadCardBadgeChromeController {
       "agent-type-badge__icon--image",
       !isThemeAdaptiveAgentIcon(type.key),
     );
+    this.badgeIcon.classList.toggle("agent-icon--pi", type.key === "pi");
     this.badgeName.textContent = type.name;
     this.syncRuntimeState();
     // Conversation instances may hydrate after the NodeView is mounted. Repaint

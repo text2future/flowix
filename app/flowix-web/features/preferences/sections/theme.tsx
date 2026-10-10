@@ -1,6 +1,7 @@
 'use client';
 
-import { Check, MonitorSmartphone } from 'lucide-react';
+import type { CSSProperties } from 'react';
+import { Check, Monitor } from 'lucide-react';
 import { Button } from '@shared/ui/button';
 import { DEFAULT_THEME_ID, THEME_OPTIONS, sanitizeTheme, type ThemeId } from '@features/theme';
 import { cn } from '@/lib/utils';
@@ -32,14 +33,23 @@ function ThemeCard({
 }) {
   const { t } = useI18n();
   const { preview, id, labelKey, descriptionKey } = option;
+  const previewStyle: CSSProperties & {
+    '--theme-preview-surface': string;
+    '--theme-preview-accent': string;
+    '--theme-preview-primary': string;
+  } = {
+    '--theme-preview-surface': preview.surface,
+    '--theme-preview-accent': preview.accent,
+    '--theme-preview-primary': preview.primary,
+  };
 
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        'group relative w-full rounded-[var(--radius)] border border-transparent bg-transparent text-left transition-all',
-        'hover:shadow-sm',
+        'group relative w-full rounded-[var(--radius)] border border-transparent bg-[var(--background)] p-1.5 text-left transition-colors',
+        'hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]',
         active
           ? 'border-[var(--primary)]'
           : ''
@@ -47,57 +57,37 @@ function ThemeCard({
     >
       {/* Selected check */}
       {active && (
-        <span className="absolute top-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] ring ring-white">
+        <span className="absolute top-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] ring ring-[var(--background)]">
           <Check className="h-3 w-3" />
         </span>
       )}
 
       {/* Preview mock window */}
       <div
-        className="relative h-24 w-full overflow-hidden rounded-[var(--radius)] border"
-        style={{
-          background: preview.background,
-          borderColor: id === 'system' ? '#e8eaed' : preview.accent,
-        }}
+        className="relative h-24 w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)]"
+        style={previewStyle}
       >
         {id === 'system' ? (
           // 「跟随系统」用左浅右深的对角分割图直观示意
           <>
             <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  'linear-gradient(135deg, #ffffff 0%, #ffffff 50%, #0e1014 50%, #0e1014 100%)',
-              }}
+              className="theme-card__preview-system-split absolute inset-0"
             />
-            <MonitorSmartphone
-              className="absolute top-1/2 left-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2"
-              style={{ color: preview.primary }}
+            <Monitor
+              className="theme-card__preview-system-icon absolute top-1/2 left-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2"
             />
           </>
         ) : (
           <>
             {/* 标题栏 */}
-            <div
-              className="h-4 w-full border-b"
-              style={{ background: preview.surface, borderColor: preview.accent }}
-            />
+            <div className="theme-card__preview-surface h-4 w-full border-b" />
             {/* 文本行 */}
             <div className="space-y-1.5 px-2 pt-2">
-              <div
-                className="h-1.5 w-3/4 rounded-full"
-                style={{ background: preview.accent }}
-              />
-              <div
-                className="h-1.5 w-1/2 rounded-full"
-                style={{ background: preview.accent }}
-              />
+              <div className="theme-card__preview-accent h-1.5 w-3/4 rounded-full" />
+              <div className="theme-card__preview-accent h-1.5 w-1/2 rounded-full" />
             </div>
             {/* 主色按钮 */}
-            <div
-              className="absolute bottom-2 left-2 h-3 w-8 rounded-md"
-              style={{ background: preview.primary }}
-            />
+            <div className="theme-card__preview-primary absolute bottom-2 left-2 h-3 w-8 rounded-md" />
           </>
         )}
       </div>

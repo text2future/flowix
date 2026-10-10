@@ -18,7 +18,7 @@ export function createExternalAgentEmptyIcon(
 
   if (!isThemeAdaptiveAgentIcon(typeKey)) {
     const img = document.createElement("img");
-    img.className = "agent-thread-card__empty-agent-icon";
+    img.className = `agent-thread-card__empty-agent-icon${typeKey === "pi" ? " agent-icon--pi" : ""}`;
     img.src = type.icon;
     img.alt = "";
     img.draggable = false;
