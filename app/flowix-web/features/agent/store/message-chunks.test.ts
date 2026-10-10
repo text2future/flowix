@@ -6,13 +6,12 @@ import {
   applyUserMessageChunk,
 } from "@features/agent/store/message-chunks";
 import { applyToolCallChunk } from "@features/agent/store/tool-chunks";
-import type { LiveMessageState } from "@features/agent/store/chunk-result";
+import type { MessageProjection } from "@features/agent/store/session-reducer/types";
 
-function emptyState(): LiveMessageState {
+function emptyState(): MessageProjection {
   return {
     messages: [],
-    pendingAssistantId: null,
-    pendingReasoningId: null,
+    pending: { assistantId: null, reasoningId: null },
   };
 }
 
@@ -70,7 +69,7 @@ describe("assistant message chunks", () => {
     });
 
     expect(duplicate.messages).toBe(streamed.messages);
-    expect(duplicate.pendingAssistantId).toBeNull();
+    expect(duplicate.pending.assistantId).toBeNull();
   });
 
   it("applies commentary classification when the completed snapshot arrives", () => {
@@ -87,7 +86,7 @@ describe("assistant message chunks", () => {
     });
 
     expect(completed.messages[0].messageType).toBe("agent-commentary");
-    expect(completed.pendingAssistantId).toBeNull();
+    expect(completed.pending.assistantId).toBeNull();
   });
 
   it("adopts the Codex provider id when the streamed delta had no item id", () => {
@@ -109,7 +108,7 @@ describe("assistant message chunks", () => {
       content: "answer",
       codexTurnId: "turn-1",
     });
-    expect(completed.pendingAssistantId).toBeNull();
+    expect(completed.pending.assistantId).toBeNull();
   });
 
   it("adopts the Pi session entry id when the streamed delta had no id", () => {
@@ -128,7 +127,7 @@ describe("assistant message chunks", () => {
       id: "67575cb5",
       content: "answer",
     });
-    expect(completed.pendingAssistantId).toBeNull();
+    expect(completed.pending.assistantId).toBeNull();
   });
 
   it("keeps Pi block-end snapshots pending until the message-end entry id arrives", () => {
@@ -136,7 +135,7 @@ describe("assistant message chunks", () => {
       phase: "updated",
       contentMode: "snapshot",
     });
-    expect(blockEnded.pendingAssistantId).not.toBeNull();
+    expect(blockEnded.pending.assistantId).not.toBeNull();
 
     const messageEnded = applyTextChunk(blockEnded, "answer", {
       id: "pi-entry-1",
@@ -149,7 +148,7 @@ describe("assistant message chunks", () => {
       id: "pi-entry-1",
       content: "answer",
     });
-    expect(messageEnded.pendingAssistantId).toBeNull();
+    expect(messageEnded.pending.assistantId).toBeNull();
   });
 
   it("lets the Pi message lifecycle reconcile an authoritative changed snapshot", () => {
@@ -264,7 +263,7 @@ describe("assistant message chunks", () => {
     });
 
     expect(duplicate.messages).toBe(streamed.messages);
-    expect(duplicate.pendingReasoningId).toBeNull();
+    expect(duplicate.pending.reasoningId).toBeNull();
   });
 
   it("adopts closed Pi thinking after text starts without duplicating the draft", () => {
@@ -272,7 +271,7 @@ describe("assistant message chunks", () => {
     const thinking = applyReasoningChunk(emptyState(), "plan", metadata);
     const key = thinking.messages[0].renderKey;
     const text = applyTextChunk(thinking, "answer", metadata);
-    expect(text.pendingReasoningId).toBeNull();
+    expect(text.pending.reasoningId).toBeNull();
     const committed = applyReasoningChunk(text, "final plan", {
       ...metadata, id: "entry", contentMode: "snapshot", phase: "completed",
     });
@@ -289,7 +288,7 @@ describe("assistant message chunks", () => {
       phase: "updated",
       contentMode: "snapshot",
     });
-    expect(blockEnded.pendingReasoningId).not.toBeNull();
+    expect(blockEnded.pending.reasoningId).not.toBeNull();
     expect(blockEnded.messages[0].isCompleted).toBe(false);
 
     const messageEnded = applyReasoningChunk(blockEnded, "plan", {
@@ -304,7 +303,7 @@ describe("assistant message chunks", () => {
       role: "reasoning",
       isCompleted: true,
     });
-    expect(messageEnded.pendingReasoningId).toBeNull();
+    expect(messageEnded.pending.reasoningId).toBeNull();
   });
 
   it("reconciles a changed Pi reasoning snapshot using message lifecycle", () => {
@@ -358,10 +357,9 @@ describe("user message chunks", () => {
   };
 
   it("adopts the provider item id in place instead of appending a second row", () => {
-    const state: LiveMessageState = {
+    const state: MessageProjection = {
       messages: [optimisticRow],
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
     const result = applyUserMessageChunk(state, "ask", {
       id: "item-u1",
@@ -394,13 +392,12 @@ describe("user message chunks", () => {
   });
 
   it("adopts by the newest matching optimistic row when run ids race", () => {
-    const state: LiveMessageState = {
+    const state: MessageProjection = {
       messages: [
         { ...optimisticRow, id: "user-run-older", content: "same" },
         { ...optimisticRow, id: "user-run-current", content: "ask" },
       ],
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
     const result = applyUserMessageChunk(state, "ask", {
       id: "item-u-current",
@@ -426,8 +423,7 @@ describe("user message chunks", () => {
     const result = applyUserMessageChunk(
       {
         messages: [{ ...optimisticRow, content: "ask" }],
-        pendingAssistantId: null,
-        pendingReasoningId: null,
+        pending: { assistantId: null, reasoningId: null },
       },
       "ask",
       {
@@ -441,10 +437,9 @@ describe("user message chunks", () => {
   });
 
   it("never adopts without the provider turn id", () => {
-    const state: LiveMessageState = {
+    const state: MessageProjection = {
       messages: [optimisticRow],
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
     const result = applyUserMessageChunk(state, "ask again", {
       id: "user-run-1",
@@ -460,10 +455,9 @@ describe("user message chunks", () => {
   });
 
   it("keeps DSH goal notices out of the human user bubble", () => {
-    const state: LiveMessageState = {
+    const state: MessageProjection = {
       messages: [optimisticRow],
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
     const result = applyUserMessageChunk(state, "目标执行中：在吗（第 1/256 轮）", {
       id: "goal-round-1",

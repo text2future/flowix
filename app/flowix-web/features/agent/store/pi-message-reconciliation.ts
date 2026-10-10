@@ -1,13 +1,6 @@
 import type { ChatMessage } from "@/types";
 import { messageRenderKey } from "@features/agent/message/render-identity";
 
-export class PiHistorySnapshotChangedError extends Error {
-  constructor() {
-    super("Pi history branch changed; refresh history before loading older pages");
-    this.name = "PiHistorySnapshotChangedError";
-  }
-}
-
 /** Coverage is supplied by the history adapter, never inferred from timestamps. */
 export type PiTimelineSource =
   | { kind: "live-projection" }

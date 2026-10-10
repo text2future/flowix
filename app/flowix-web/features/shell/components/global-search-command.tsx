@@ -29,12 +29,11 @@ import {
 } from '@shared/ui/command';
 import {
   NotebookIcon,
+  openNotebookNote,
   useGlobalSearchMemoViewModel,
   type Notebook,
 } from '@features/memo/public/global-search-api';
-import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
 import { joinNotebookMemoPath } from '@/lib/path';
-import { useNoteStore } from '@features/memo/store/note-store';
 import {
   selectAndOpenAgentConversation,
   selectNotebook,
@@ -506,6 +505,7 @@ function StaticGroups({ onClose }: StaticGroupsProps) {
     activeFilter,
     setActiveFilter,
     createNote,
+    loadNotes,
     setSelectedTagId,
   } = useGlobalSearchMemoViewModel();
 
@@ -582,7 +582,7 @@ function StaticGroups({ onClose }: StaticGroupsProps) {
     if (!selectedNotebook) return;
     try {
       const created = await notes.createFromTemplate(template.id, selectedNotebook.id);
-      await useNoteStore.getState().loadNotes({ notebookId: selectedNotebook.id });
+      await loadNotes({ notebookId: selectedNotebook.id });
       void openNotebookNote(created.path, selectedNotebook);
     } catch (err) {
       logger.error('create from template failed', { error: err });

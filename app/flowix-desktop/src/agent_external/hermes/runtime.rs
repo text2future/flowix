@@ -28,6 +28,7 @@ const MODEL_CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 struct AcpControl {
+    run_id: String,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: Arc<Mutex<Option<String>>>,
 }
@@ -306,7 +307,7 @@ impl HermesAcpManager {
         let thread_id = thread_id.to_string();
         let start = self
             .runs
-            .prepare_start(&thread_id, message.run_id.as_deref())
+            .reserve_start(&thread_id, message.run_id.as_deref())
             .await?;
         let manager = self.clone();
         let app_handle = app_handle.clone();
@@ -320,7 +321,7 @@ impl HermesAcpManager {
             manager
                 .emit_stream_start(&app_handle, &thread_id, &message, &run_id)
                 .await;
-            let reason = match manager
+            let result = manager
                 .run_acp(
                     &thread_id,
                     &run_id,
@@ -328,8 +329,12 @@ impl HermesAcpManager {
                     &app_handle,
                     stream_end_emitted.clone(),
                 )
-                .await
-            {
+                .await;
+            let cancelled = manager.runs.start_cancelled(&thread_id, &run_id).await;
+            manager.runs.release_start(&thread_id, &run_id).await;
+            let reason = if cancelled {
+                Some(USER_STOPPED_REASON.to_string())
+            } else { match result {
                 Ok(()) => None,
                 Err(error) => {
                     manager
@@ -337,8 +342,12 @@ impl HermesAcpManager {
                         .await;
                     Some(error)
                 }
-            };
-            manager.controls.lock().await.remove(&thread_id);
+            }};
+            let mut controls = manager.controls.lock().await;
+            if controls.get(&thread_id).is_some_and(|control| control.run_id == run_id) {
+                controls.remove(&thread_id);
+            }
+            drop(controls);
             manager
                 .emit_stream_end(
                     &app_handle,
@@ -373,32 +382,55 @@ impl HermesAcpManager {
                     .and_then(|mapped| controls.get(mapped).cloned())
             })
         };
-        if let Some(control) = control {
+        if let Some(control) = control.filter(|control| run_id.is_none() || run_id == Some(control.run_id.as_str())) {
             if let Some(session_id) = control.session_id.lock().await.clone() {
                 let _ = write_message(&control.stdin, &protocol::cancel_notification(&session_id))
                     .await;
             }
         }
 
-        let mut stopped = self
+        let mut stopped = match self
             .runs
             .stop_run(thread_id, thread_id, run_id, "Hermes ACP")
-            .await;
+            .await {
+                Ok(stopped) => stopped,
+                Err(unconfirmed) => {
+                    tracing::warn!("[Hermes ACP] stop still unconfirmed for run {}", unconfirmed.run_id);
+                    return false;
+                }
+            };
         if stopped.is_none() {
             if let Some(mapped) = mapped_thread_id.as_deref() {
-                stopped = self
+                stopped = match self
                     .runs
                     .stop_run(mapped, thread_id, run_id, "Hermes ACP")
-                    .await;
+                    .await {
+                        Ok(stopped) => stopped,
+                        Err(unconfirmed) => {
+                            tracing::warn!("[Hermes ACP] stop still unconfirmed for run {}", unconfirmed.run_id);
+                            return false;
+                        }
+                    };
             }
         }
-        let Some(stopped) = stopped else {
-            return false;
+        let stopped = if let Some(stopped) = stopped {
+            stopped
+        } else {
+            let lookup = mapped_thread_id.as_deref().unwrap_or(thread_id);
+            if self.runs.cancel_start(lookup, run_id).await { return true; }
+            match self.runs.stop_run(lookup, thread_id, run_id, "Hermes ACP").await {
+                Ok(Some(stopped)) => stopped,
+                _ => return false,
+            }
         };
         let mut controls = self.controls.lock().await;
-        controls.remove(thread_id);
+        if controls.get(thread_id).is_some_and(|control| control.run_id == stopped.run_id) {
+            controls.remove(thread_id);
+        }
         if let Some(mapped) = mapped_thread_id {
-            controls.remove(&mapped);
+            if controls.get(&mapped).is_some_and(|control| control.run_id == stopped.run_id) {
+                controls.remove(&mapped);
+            }
         }
         drop(controls);
         self.emit_stream_end(
@@ -518,10 +550,10 @@ impl HermesAcpManager {
 
         if let Err(mut duplicate) = self
             .runs
-            .try_insert(
+            .insert_reserved(
                 thread_id.to_string(),
                 child,
-                Some(run_id.to_string()),
+                run_id,
                 stream_end_emitted,
             )
             .await
@@ -532,6 +564,7 @@ impl HermesAcpManager {
         self.controls.lock().await.insert(
             thread_id.to_string(),
             AcpControl {
+                run_id: run_id.to_string(),
                 stdin: stdin.clone(),
                 session_id: session_slot.clone(),
             },
@@ -675,15 +708,14 @@ impl HermesAcpManager {
         // do not replay it here or the UI would receive every event twice.
         let _ = turn_events.finish();
 
-        self.controls.lock().await.remove(thread_id);
-        if let Some(mut running) = self.runs.remove_if_run_id(thread_id, Some(run_id)).await {
-            crate::agent_external::shared::kill_child_tree(
-                &mut running.child,
-                "Hermes ACP",
-                thread_id,
-            )
-            .await;
-            let _ = running.child.wait().await;
+        let mut controls = self.controls.lock().await;
+        if controls.get(thread_id).is_some_and(|control| control.run_id == run_id) {
+            controls.remove(thread_id);
+        }
+        drop(controls);
+        if let Err(unconfirmed) = self.runs.stop_run(thread_id, thread_id, Some(run_id), "Hermes ACP").await {
+            tracing::warn!("[Hermes ACP] normal cleanup unconfirmed for run {}", unconfirmed.run_id);
+            return Err("StopUnconfirmed: Hermes ACP process exit was not confirmed".to_string());
         }
         let stderr_text = stderr_task
             .await

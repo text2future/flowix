@@ -372,11 +372,10 @@ fn claude_session_cwd_reads_cwd_field() {
     let path = project_dir.join(format!("{sid}.jsonl"));
     std::fs::write(
             &path,
-            format!(
-                "{{\"type\":\"user\",\"cwd\":\"{tmp}\",\"message\":{{\"role\":\"user\",\"content\":\"hi\"}},\"sessionId\":\"{sid}\",\"uuid\":\"u1\"}}\n",
-                tmp = tmp_root.display(),
-                sid = sid,
-            ),
+            format!("{}\n", serde_json::json!({
+                "type": "user", "cwd": tmp_root, "message": {"role": "user", "content": "hi"},
+                "sessionId": sid, "uuid": "u1"
+            })),
         )
         .expect("write session jsonl");
 
@@ -428,16 +427,7 @@ fn tempdir_via_env() -> PathBuf {
 /// 把所有非 ASCII 替换�?`-`, 但单元测�?fixture 用纯 ASCII �?��,
 /// 实际反推不�?�?── 不需要完整�?�? �?�� path segment 拼成 dash-joined.
 fn encode_claude_project_dir(path: &Path) -> String {
-    let binding = path.to_string_lossy();
-    let stripped = binding.trim_start_matches('/');
-    let mut s = String::from("-");
-    for (i, seg) in stripped.split('/').enumerate() {
-        if i > 0 {
-            s.push('-');
-        }
-        s.push_str(seg);
-    }
-    s
+    format!("-{}", path.to_string_lossy().trim_start_matches('/').replace(['/', '\\', ':'], "-"))
 }
 
 fn with_claude_config_dir<T>(root: PathBuf, f: impl FnOnce() -> T) -> T {

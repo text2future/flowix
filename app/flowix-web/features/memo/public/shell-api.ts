@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
 import { useNoteStore } from '@features/memo/store/note-store';
+import { noteRepository } from '@features/memo/services/note-repository';
 
 export { MemoList } from '@features/memo/components/memo-list';
 export { NotebookTreeFileIcon } from '@features/memo/components/notebook-tree-file-icon';
@@ -20,6 +21,16 @@ export {
   type Notebook,
 } from '@features/memo/store';
 export { startNotebookImportWithMonitoring } from '@features/memo/services/notebook-creation-service';
+
+export function useShellSelectedNotebook() {
+  return useNoteStore((state) => state.selectedNotebook);
+}
+
+export async function createShellNote(notebookId: string) {
+  const created = await noteRepository.create(undefined, notebookId);
+  useNoteStore.getState().upsertCreatedNote(created);
+  return created;
+}
 
 export function useShellMemoViewModel() {
   return useNoteStore(useShallow((state) => ({

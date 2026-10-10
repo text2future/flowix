@@ -24,9 +24,7 @@ export async function refreshDshConversationHistory(
 ): Promise<ChatMessage[]> {
   return useAgentSessionStore
     .getState()
-    .reloadMessagesFromHistory(DSH_AGENT_TYPE, threadId, {
-      preserveExistingMessages: true,
-    });
+    .reloadMessagesFromHistory(DSH_AGENT_TYPE, threadId);
 }
 
 /**
@@ -41,19 +39,7 @@ export function appendTransientDshCommandResult(
 ): void {
   const content = text.trim();
   if (!content) return;
-  const now = Date.now();
-  useAgentSessionStore.getState().setThreadProjection(threadId, (projection) => ({
-    ...projection,
-    messages: [
-      ...projection.messages,
-      {
-        id: `dsh-command-result-${now}-${Math.random().toString(36).slice(2, 8)}`,
-        role: "system",
-        content,
-        timestamp: new Date(now).toISOString(),
-      },
-    ],
-  }));
+  useAgentSessionStore.getState().appendTransientCommandResult(threadId, content);
 }
 
 /** Commands are independent DSH operations, but the composer must not start a

@@ -30,7 +30,7 @@ export function FullscreenDragOverlay({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_70%,transparent)] backdrop-blur-sm"
+      className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[color-mix(in_oklch,var(--card)_70%,transparent)] backdrop-blur-sm"
     >
       <div className="flex flex-col items-center gap-1.5">
         <span className="text-base font-medium text-[var(--foreground)] drop-shadow-sm">

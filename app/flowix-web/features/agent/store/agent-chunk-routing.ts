@@ -1,40 +1,30 @@
 import type { AgentChunk, AgentTypeKey } from "@/types/agent";
-import type { AgentEventMapperState } from "@features/agent/events/agent-event-mapper";
-import { resolveExternalChunkThreadId } from "@features/agent/store/external-session";
+import { isKnownProductThreadId, resolveStoreThreadId } from "@features/agent/store/external-session";
+import type { AgentConversationRegistry, AgentSessionMeta } from "@features/agent/store/session-state";
 
 interface ChunkRoutingState {
-  sessionMeta: {
-    threadTypes: Record<string, AgentTypeKey>;
-    externalSessionResolutions: Record<string, string>;
-  };
-  threadProjections: Record<string, {
-    runs: {
-      activeRunId: string | null;
-      lastRun?: { runId: string } | null;
-    };
-  }>;
+  sessionMeta: Pick<AgentSessionMeta,
+    "activeThreadIds" | "threadLists" | "threadTypes" | "externalSessionResolutions">;
+  conversationRegistry?: AgentConversationRegistry;
+  threadProjections: Record<string, unknown>;
 }
 
-/** Build the minimal mapper snapshot for one routed chunk. */
-export function eventMapperStateForChunk(
+/** Resolve native aliases once, before a chunk enters the message pipeline. */
+export function resolveIncomingChunkThreadId(
   chunk: AgentChunk,
   state: ChunkRoutingState,
-): AgentEventMapperState {
-  const threadId = resolveExternalChunkThreadId(
-    chunk,
-    state.sessionMeta.externalSessionResolutions,
+): string | null {
+  const meta = state.sessionMeta;
+  if (!chunk.agent_type &&
+    Object.values(meta.externalSessionResolutions).includes(chunk.thread_id) &&
+    !isKnownProductThreadId(chunk.thread_id, state)) return null;
+  const runtime: AgentTypeKey | undefined = chunk.agent_type ?? meta.threadTypes[chunk.thread_id];
+  if (!runtime) return null;
+  return resolveStoreThreadId(
+    chunk.thread_id,
+    meta.externalSessionResolutions,
+    runtime,
+    meta.threadTypes,
+    (id) => isKnownProductThreadId(id, state),
   );
-  const projection = state.threadProjections[threadId];
-  return {
-    threadTypes: state.sessionMeta.threadTypes,
-    externalSessionResolutions: state.sessionMeta.externalSessionResolutions,
-    threadStates: projection
-      ? {
-          [threadId]: {
-            activeRunId: projection.runs.activeRunId,
-            lastRunId: projection.runs.lastRun?.runId,
-          },
-        }
-      : {},
-  };
 }

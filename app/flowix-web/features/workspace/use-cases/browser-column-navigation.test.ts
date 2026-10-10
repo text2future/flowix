@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   openBrowserColumnAgentConversation,
+  openBrowserColumnDroppedFile,
   openBrowserColumnFileBrowser,
   openBrowserColumnMarkdown,
   openBrowserColumnNotebookNote,
@@ -223,6 +224,19 @@ describe('browser column navigation', () => {
     });
     expect(result).toEqual({ host: 'main-third', alreadyOpen: true });
     expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('main-third');
+  });
+
+  it('opens a dropped file in the browser column even when it is open in the work column', async () => {
+    const workColumn = useWorkColumnStore.getState();
+    const target = { kind: 'external' as const, path: '/notes/plan.md', scopePath: '/notes', transitionId: 1 };
+    const requestId = workColumn.beginNavigation(target, null);
+    workColumn.commitNavigation(requestId, target);
+
+    const result = await openBrowserColumnDroppedFile('/notes/plan.md');
+
+    expect(result).toMatchObject({ host: 'browser-column', alreadyOpen: false });
+    expect(useBrowserColumnStore.getState().tabs[0].target).toMatchObject({ activeFilePath: '/notes/plan.md' });
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ path: '/notes/plan.md' });
   });
 
   it('opens the active work-column target in the right column while keeping the left target', async () => {

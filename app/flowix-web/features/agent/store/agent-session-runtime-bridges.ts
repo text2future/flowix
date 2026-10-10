@@ -2,7 +2,7 @@ import type { AgentChunk } from '@/types/agent';
 import type { AgentSessionStore } from '@features/agent/store/agent-session-store';
 import { createAgentChunkBridge } from '@features/agent/store/agent-chunk-bridge';
 import { installGlobalAgentSettingsSync } from '@features/agent/store/global-agent-settings-sync';
-import { resolveExternalChunkThreadId } from '@features/agent/store/external-session';
+import { resolveIncomingChunkThreadId } from '@features/agent/store/agent-chunk-routing';
 import { hasThreadInterest } from '@features/agent/store/thread-interest';
 
 interface AgentSessionStoreAccess {
@@ -14,6 +14,9 @@ export function installAgentSessionRuntimeBridges(store: AgentSessionStoreAccess
 
   return createAgentChunkBridge((chunk) => {
     const stateBeforeDispatch = store.getState();
+    const canonicalThreadId = resolveIncomingChunkThreadId(chunk, stateBeforeDispatch);
+    const runId = chunk.run_id?.trim();
+    if (!canonicalThreadId || !runId) return;
     store.getState().dispatchAgentChunk(chunk);
     if (chunk.kind === 'user_message') {
       const enrichedChunk = chunk as AgentChunk & {
@@ -21,21 +24,15 @@ export function installAgentSessionRuntimeBridges(store: AgentSessionStoreAccess
         message_id?: string;
       };
       const clientId = enrichedChunk.client_user_message_id ?? enrichedChunk.message_id;
-      if (clientId) stateBeforeDispatch.removeSteeringMessageByClientId(chunk.thread_id, clientId);
+      if (clientId) stateBeforeDispatch.removeSteeringMessageByClientId(canonicalThreadId, clientId);
     }
     if (chunk.kind !== 'stream_end') return;
 
     const state = store.getState();
-    const canonicalThreadId = resolveExternalChunkThreadId(
-      chunk,
-      state.sessionMeta.externalSessionResolutions,
-    );
     const projection = state.threadProjections[canonicalThreadId];
-    const runId = chunk.run_id ?? projection?.runs.lastRun?.runId;
     const hasResidentRun = !!projection && (
-      !chunk.run_id
-      || projection.runs.activeRunId === chunk.run_id
-      || projection.runs.lastRun?.runId === chunk.run_id
+      projection.runs.activeRunId === runId
+      || projection.runs.lastRun?.runId === runId
     );
     const ownsThread = hasThreadInterest(canonicalThreadId)
       || hasResidentRun
@@ -50,15 +47,11 @@ export function installAgentSessionRuntimeBridges(store: AgentSessionStoreAccess
     const agentType = state.sessionMeta.threadTypes[canonicalThreadId]
       ?? state.sessionMeta.threadTypes[chunk.thread_id]
       ?? state.sessionMeta.activeAgentTypeKey;
-    if (runId) {
-      if (agentType === 'opencode') return;
-      globalThis.setTimeout(() => {
-        const latest = store.getState();
-        if (latest.threadTombstones[canonicalThreadId]) return;
-        void latest.reconcileCompletedRun(agentType, canonicalThreadId, runId);
-      }, 300);
-    } else {
-      void state.loadMessages(agentType, canonicalThreadId);
-    }
+    if (agentType === 'opencode') return;
+    globalThis.setTimeout(() => {
+      const latest = store.getState();
+      if (latest.threadTombstones[canonicalThreadId]) return;
+      void latest.reconcileCompletedRun(agentType, canonicalThreadId, runId);
+    }, 300);
   });
 }

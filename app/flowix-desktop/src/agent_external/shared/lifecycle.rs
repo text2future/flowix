@@ -94,10 +94,10 @@ impl AgentChunkMetadata {
     }
 }
 
-/// Build a run id when the caller did not provide one. Format keeps it
-/// grep-friendly in `runtime_log::agent.log`: `{thread_id}-{unix_millis}`.
+/// Build a run id when the caller did not provide one. The UUID prevents
+/// two accepts in the same millisecond from sharing an id.
 pub fn create_run_id(thread_id: &str) -> String {
-    format!("{}-{}", thread_id, chrono::Utc::now().timestamp_millis())
+    format!("{}-{}", thread_id, uuid::Uuid::new_v4())
 }
 
 /// Resolve the run id for a chat invocation. Frontend may attach an id (used
@@ -179,6 +179,17 @@ pub fn emit_chunk_with_run_id_and_metadata(
             run_id = run_id,
             agent_type = agent_type,
             "emit agent-chunk failed"
+        );
+    }
+    if let AgentChunk::StreamEnd { thread_id, .. } = chunk {
+        let _ = dispatcher::emit_to(
+            app_handle,
+            "agent-run-terminal",
+            serde_json::json!({
+                "thread_id": thread_id,
+                "run_id": run_id,
+                "agent_type": agent_type,
+            }),
         );
     }
 }

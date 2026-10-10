@@ -1,9 +1,8 @@
 import type { AgentTypeKey } from "@/types/agent";
 import { getAgentType } from "@/lib/agent-types";
 import { agentClient } from "@features/agent/store/agent-client";
-import type { AgentChunk } from "@/types/agent";
 import type { ConversationSlice } from "@features/agent/store/conversation-slice";
-import type { ProjectionSlice } from "@features/agent/store/projection-slice";
+import { removeProjectionPatch, type ProjectionSlice } from "@features/agent/store/projection-slice";
 import type { SessionMetaSlice } from "@features/agent/store/session-meta-slice";
 import type { ThreadHistorySlice } from "@features/agent/store/thread-history-slice";
 import {
@@ -14,32 +13,23 @@ import {
   defaultThreadTitle,
   normalizeThreadTitle,
 } from "@features/agent/store/thread-titles";
-import { resolveProductThreadId } from "@features/agent/store/external-session";
-import { replayExternalEventsForThread } from "@features/agent/store/external-event-replay";
+import { isKnownProductThreadId, resolveProductThreadId } from "@features/agent/store/external-session";
 import { useDocumentStore } from "@features/document/store/document-store";
 import { useWorkspaceRestoreStore } from "@features/workspace/store/workspace-restore-store";
 import { closeAgentTarget } from "@features/workspace/use-cases/workspace-navigation";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("agent-thread-lifecycle");
 
 type SessionSet = (
   updater: (state: LifecycleContext) => Partial<LifecycleContext> | LifecycleContext,
 ) => void;
-type LifecycleContext = ThreadLifecycleSlice &
-  ProjectionSlice &
-  SessionMetaSlice &
-  ConversationSlice &
-  ThreadHistorySlice & {
-    dispatchAgentChunk(chunk: AgentChunk): void;
-    flushAgentEventBuffer(): void;
-  };
+type LifecycleContext = ThreadLifecycleSlice & ProjectionSlice & SessionMetaSlice &
+  ConversationSlice & ThreadHistorySlice;
 type SessionGet = () => LifecycleContext;
 
 export interface ThreadLifecycleSlice {
   lifecycleVersion: number;
-  migrateThreadState(
-    fromThreadId: string,
-    toThreadId: string,
-    typeKey: AgentTypeKey,
-  ): void;
   loadThreadList(): Promise<void>;
   loadThread(threadId: string): Promise<void>;
   loadCodexThreadList(): Promise<void>;
@@ -80,7 +70,7 @@ async function loadThreadList(
       threadLists: { ...meta.threadLists, [type.key]: threads },
     }));
   } catch (error) {
-    console.error(`Failed to load ${errorLabel} thread list:`, error);
+    logger.error(`Failed to load ${errorLabel} thread list`, { error: String(error) });
   }
 }
 
@@ -93,7 +83,6 @@ async function loadThread(
   try {
     get().invalidateThread(threadId);
     get().activateThread(threadId);
-    const requestEpoch = get().threadEpochs[threadId] ?? 0;
     const meta = get().sessionMeta;
     const threadInfo = await findHistoryThreadInfo(
       type.key,
@@ -113,37 +102,10 @@ async function loadThread(
         [threadId]: threadInfo?.title ?? defaultThreadTitle(type.key),
       },
     }));
-    get().setThreadProjection(threadId, (projection) => ({
-      ...projection,
-      pending: { assistantId: null, reasoningId: null },
-    }));
-    if (
-      type.key !== "deepseek-harness" &&
-      type.key !== "codex" &&
-      type.key !== "opencode" &&
-      type.key !== "claude" &&
-      type.key !== "pi"
-    ) {
-      const replay = await replayExternalEventsForThread(type.key, threadId, {
-        canCommit: () =>
-          !get().threadTombstones[threadId] &&
-          (get().threadEpochs[threadId] ?? 0) === requestEpoch,
-        resetThreads: (threadIds, agentType) => {
-          get().resetThreadProjections(threadIds);
-          get().setSessionMeta((current) => {
-            const threadTypes = { ...current.threadTypes };
-            for (const id of threadIds) threadTypes[id] ??= agentType;
-            return { ...current, threadTypes };
-          });
-        },
-        dispatchChunk: (chunk) => get().dispatchAgentChunk(chunk),
-        flush: () => get().flushAgentEventBuffer(),
-      });
-      if (replay.status === "replayed" || replay.status === "stale") return;
-    }
+    get().clearThreadPending(threadId);
     await get().loadMessages(type.key, threadId);
   } catch (error) {
-    console.error(`Failed to load ${type.name} thread:`, error);
+    logger.error(`Failed to load ${type.name} thread`, { error: String(error) });
   }
 }
 
@@ -168,8 +130,6 @@ function tearDownLocalThreadState(set: SessionSet, threadId: string): void {
     const removedType = state.sessionMeta.threadTypes[threadId];
     const currentThreadTitles = { ...state.sessionMeta.currentThreadTitles };
     delete currentThreadTitles[threadId];
-    const { [threadId]: _removedProjection, ...threadProjections } =
-      state.threadProjections;
     const { [threadId]: _removedType, ...threadTypes } =
       state.sessionMeta.threadTypes;
     const externalSessionResolutions = Object.fromEntries(
@@ -178,7 +138,7 @@ function tearDownLocalThreadState(set: SessionSet, threadId: string): void {
       ),
     );
     return {
-      threadProjections,
+      ...removeProjectionPatch(state, threadId),
       sessionMeta: {
         ...state.sessionMeta,
         threadTypes,
@@ -242,11 +202,14 @@ export function createThreadLifecycleSlice(
     action: "archive" | "delete",
     onProviderSuccess?: () => void,
   ): Promise<void> => {
+    if (get().threadMutationGuards[threadId]) return;
     const typeKey = getAgentType(
       get().sessionMeta.threadTypes[threadId] ??
         get().sessionMeta.activeAgentTypeKey,
     );
+    get().setThreadMutationGuard(threadId, true);
     get().invalidateThread(threadId);
+    try {
     // Provider action must succeed before touching local state. Keeping the
     // cleanup out of `finally` prevents the work-column conversation from
     // disappearing while archive/delete is still pending or has failed.
@@ -269,21 +232,13 @@ export function createThreadLifecycleSlice(
     // 侧栏与后端状态对齐; 失败不阻塞流程。
     await reloadThreadListForType(get, typeKey.key).catch(() => undefined);
     set((state) => ({ lifecycleVersion: state.lifecycleVersion + 1 }));
+    } finally {
+      get().setThreadMutationGuard(threadId, false);
+    }
   };
 
   return {
     lifecycleVersion: 0,
-    migrateThreadState: (fromThreadId, toThreadId, typeKey) => {
-      if (!fromThreadId || !toThreadId || fromThreadId === toThreadId) return;
-      get().applySessionResolved({
-        kind: "session_resolved",
-        agentType: getAgentType(typeKey).key,
-        threadId: fromThreadId,
-        sessionId: toThreadId,
-        runId: `${fromThreadId}-session-resolved`,
-        timestamp: Date.now(),
-      });
-    },
     loadThreadList: () =>
       loadThreadList(get, "deepseek-harness", "DeepSeek Harness"),
     loadThread: (threadId) => loadThread(get, "deepseek-harness", threadId),
@@ -303,7 +258,7 @@ export function createThreadLifecycleSlice(
       try {
         await get().loadMessages("deepseek-harness", threadId);
       } catch (error) {
-        console.error("[AgentSession] Failed to load thread cache:", error);
+        logger.error("Failed to load thread cache", { error: String(error) });
       }
     },
     loadMoreHistory: async (typeKey, threadId) => {
@@ -326,6 +281,9 @@ export function createThreadLifecycleSlice(
       const initialProductThreadId = resolveProductThreadId(
         threadId,
         before.externalSessionResolutions,
+        type.key,
+        before.threadTypes,
+        (id) => isKnownProductThreadId(id, get()),
       );
       const initialIds = new Set([threadId, initialProductThreadId]);
       const previousList = before.threadLists[type.key] ?? [];
@@ -387,7 +345,7 @@ export function createThreadLifecycleSlice(
         // optimistically above. Provider history reloads can wake an external
         // runtime and take several seconds, so they must not block saving.
         void reloadThreadListForType(get, type.key).catch((error) => {
-          console.error("Failed to refresh thread list after rename:", error);
+          logger.error("Failed to refresh thread list after rename", { error: String(error) });
         });
       } catch (error) {
         get().setSessionMeta((meta) => ({
@@ -400,7 +358,7 @@ export function createThreadLifecycleSlice(
             [type.key]: previousList,
           },
         }));
-        console.error("Failed to update thread title:", error);
+        logger.error("Failed to update thread title", { error: String(error) });
         throw error;
       }
     },
@@ -416,6 +374,9 @@ export function createThreadLifecycleSlice(
         ? resolveProductThreadId(
             targetThreadId,
             session.sessionMeta.externalSessionResolutions,
+            instance?.agentType ?? session.sessionMeta.threadTypes[targetThreadId],
+            session.sessionMeta.threadTypes,
+            (id) => isKnownProductThreadId(id, session),
           )
         : null;
       const renamed = Object.values(session.conversationRegistry.instances)

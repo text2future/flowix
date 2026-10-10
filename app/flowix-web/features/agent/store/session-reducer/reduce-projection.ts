@@ -11,8 +11,8 @@ import {
   applyToolResultChunk,
 } from "@features/agent/store/tool-chunks";
 import {
-  applyRunEnded,
-  applyRunFailed,
+  applyRunEndedCore,
+  applyRunFailedCore,
   applyRunStarted,
   applyRunToolState,
   applyRunUsage,
@@ -21,9 +21,6 @@ import { closeLoadingToolRows } from "@features/agent/store/thread-runtime-state
 import { insertAgentMessageBySourceOrder } from "@features/agent/store/message-order";
 import {
   emptyProjection,
-  projectionToLive,
-  projectionToRuns,
-  runsToProjectionRuns,
   type ThreadProjection,
 } from "@features/agent/store/session-reducer/types";
 
@@ -34,11 +31,8 @@ import {
  * 时调一次, 一次 setState 落到 AgentSessionStore, 不再调 conv-store 与
  * chat-store 各一次.
  *
- * 实现策略:
- * - 复用现有 chunk-reducer / run-lifecycle reducer (已经是纯函数).
- * - 投影 → LiveMessageState 与 ProjectionRuns 仅作为 adapter, 让旧 reducer
- *   无需重写.
- * - 各 case 处理 event.kind → 调用合适 reducer → 合并回 ThreadProjection.
+ * 消息 chunk 继续复用纯函数；运行开始、工具状态和用量直接更新 runs。
+ * 终结路径直接更新 runs 与 pending 分区。
  */
 export function reduceProjection(
   projection: ThreadProjection,
@@ -72,8 +66,7 @@ export function reduceProjection(
     case "usage":
       return applyUsageToProjection(projection, event);
     case "session_resolved":
-      // session_resolved 不属于本投影的语义 ── 由外部协调 (applyExternalSessionResolved)
-      // 跨 thread 合并两 projection. reducer 这层不做, 直接返回.
+      // Provider binding changes metadata, not messages or runs.
       return projection;
     default:
       return projection;
@@ -95,8 +88,7 @@ function applyUserMessageToProjection(
   // well so the live view matches history before the turn finishes.
   if (isLiveDshPlanPrompt(p, event.text)) return p;
 
-  const live = projectionToLive(p);
-  const next = applyUserMessageChunk(live, event.text, {
+  const next = applyUserMessageChunk(p, event.text, {
     id: event.id,
     nativeMessageId: event.agentType === "pi" ? event.id : undefined,
     messageType: event.messageType,
@@ -116,10 +108,7 @@ function applyUserMessageToProjection(
   return {
     ...p,
     messages: next.messages,
-    pending: {
-      assistantId: next.pendingAssistantId,
-      reasoningId: next.pendingReasoningId,
-    },
+    pending: next.pending,
   };
 }
 
@@ -145,8 +134,19 @@ function applyTextDeltaToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "text_delta" },
 ): ThreadProjection {
-  const live = projectionToLive(p);
-  const next = applyTextChunk(live, event.text, {
+  // Codex can deliver a late/replayed delta after the completed snapshot for
+  // the same provider item. A completed item is immutable; appending that
+  // delta would render the answer a second time until history is reloaded.
+  // Scope this to the native item id so a later distinct assistant item in
+  // the same turn remains valid.
+  if (event.agentType === "codex" && event.contentMode !== "snapshot" &&
+      event.messageId && p.messages.some((message) =>
+        message.id === event.messageId && message.role === "assistant" &&
+        message.isCompleted === true &&
+        (!event.codexTurnId || message.codexTurnId === event.codexTurnId))) {
+    return p;
+  }
+  const next = applyTextChunk(p, event.text, {
     id: event.agentType === "pi" && event.messageId && event.sourceSubsequence !== undefined
       ? `${event.messageId}:block:${event.sourceSubsequence}` : event.messageId,
     nativeMessageId: event.agentType === "pi" ? event.messageId : undefined,
@@ -163,15 +163,12 @@ function applyTextDeltaToProjection(
   });
   // text 落地后 reasoning 行 closed (applyTextChunk 已把 reasoning isCompleted=true).
   // run-level state: 当前 tool 名清空 (新文本流开始).
-  const runsNext = applyRunToolState(projectionToRuns(p), event, null);
+  const runsNext = applyRunToolState(p.runs, event, null);
   return {
     ...p,
     messages: next.messages,
-    pending: {
-      assistantId: next.pendingAssistantId,
-      reasoningId: next.pendingReasoningId,
-    },
-    runs: runsToProjectionRuns(runsNext),
+    pending: next.pending,
+    runs: runsNext,
   };
 }
 
@@ -179,8 +176,7 @@ function applyReasoningDeltaToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "reasoning_delta" },
 ): ThreadProjection {
-  const live = projectionToLive(p);
-  const next = applyReasoningChunk(live, event.text, {
+  const next = applyReasoningChunk(p, event.text, {
     id: event.agentType === "pi" && event.messageId && event.sourceSubsequence !== undefined
       ? `${event.messageId}:block:${event.sourceSubsequence}` : event.messageId,
     nativeMessageId: event.agentType === "pi" ? event.messageId : undefined,
@@ -198,10 +194,7 @@ function applyReasoningDeltaToProjection(
   return {
     ...p,
     messages: next.messages,
-    pending: {
-      assistantId: next.pendingAssistantId,
-      reasoningId: next.pendingReasoningId,
-    },
+    pending: next.pending,
   };
 }
 
@@ -234,8 +227,7 @@ function applyFinalMessageToProjection(
   event: AgentEvent & { kind: "final_message" },
 ): ThreadProjection {
   // final_message 形态与 text_delta 一致, 仅 contentMode="snapshot" 且 phase="completed".
-  const live = projectionToLive(p);
-  const next = applyTextChunk(live, event.text, {
+  const next = applyTextChunk(p, event.text, {
     id: event.messageId,
     phase: event.messagePhase,
     contentMode: event.contentMode,
@@ -245,15 +237,12 @@ function applyFinalMessageToProjection(
     codexTurnId: event.codexTurnId,
     messageType: event.messageType,
   });
-  const runsNext = applyRunToolState(projectionToRuns(p), event, null);
+  const runsNext = applyRunToolState(p.runs, event, null);
   return {
     ...p,
     messages: next.messages,
-    pending: {
-      assistantId: next.pendingAssistantId,
-      reasoningId: next.pendingReasoningId,
-    },
-    runs: runsToProjectionRuns(runsNext),
+    pending: next.pending,
+    runs: runsNext,
   };
 }
 
@@ -261,9 +250,8 @@ function applyToolCallToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "tool_call" },
 ): ThreadProjection {
-  const live = projectionToLive(p);
   const next = applyToolCallChunk(
-    live,
+    p,
     event.toolCallId,
     event.name,
     event.input,
@@ -278,7 +266,7 @@ function applyToolCallToProjection(
     },
   );
   // tool_call 是流中断点 ── 清 pendingAssistantId, 记录当前 tool 名到 run.
-  const runsNext = applyRunToolState(projectionToRuns(p), event, event.name);
+  const runsNext = applyRunToolState(p.runs, event, event.name);
   const messages = event.reasoningBoundary && p.pending.reasoningId
     ? next.messages.map((message) =>
         message.id === p.pending.reasoningId
@@ -290,10 +278,10 @@ function applyToolCallToProjection(
     ...p,
     messages,
     pending: {
-      assistantId: next.pendingAssistantId,
+      assistantId: next.pending.assistantId,
       reasoningId: event.reasoningBoundary ? null : p.pending.reasoningId,
     },
-    runs: runsToProjectionRuns(runsNext),
+    runs: runsNext,
   };
 }
 
@@ -301,9 +289,8 @@ function applyToolResultToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "tool_result" },
 ): ThreadProjection {
-  const live = projectionToLive(p);
   const next = applyToolResultChunk(
-    live,
+    p,
     event.toolCallId,
     event.name,
     event.result,
@@ -318,11 +305,11 @@ function applyToolResultToProjection(
     },
   );
   // tool_result 关闭 tool_call: currentTool 清空 (result 抵达后流回归 assistant 文本).
-  const runsNext = applyRunToolState(projectionToRuns(p), event, null);
+  const runsNext = applyRunToolState(p.runs, event, null);
   return {
     ...p,
     messages: next.messages,
-    runs: runsToProjectionRuns(runsNext),
+    runs: runsNext,
   };
 }
 
@@ -431,7 +418,7 @@ function applyStreamStartToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "stream_start" },
 ): ThreadProjection {
-  const runsNext = applyRunStarted(projectionToRuns(p), event, {
+  const runsNext = applyRunStarted(p.runs, event, {
     model: event.model,
     modelId: event.model,
     lastRunAt: event.timestamp,
@@ -439,7 +426,7 @@ function applyStreamStartToProjection(
   });
   return {
     ...p,
-    runs: runsToProjectionRuns(runsNext),
+    runs: runsNext,
   };
 }
 
@@ -447,7 +434,8 @@ function applyStreamEndToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "stream_end" },
 ): ThreadProjection {
-  const runsNext = applyRunEnded(projectionToRuns(p), event);
+  const runsNext = applyRunEndedCore(p.runs, event);
+  if (runsNext === p.runs) return p;
   // run 结束时把仍 loading 的 tool 行收尾为 isLoading=false (避免中断 tool 永久转圈);
   // 若还有 pending reasoning, 同步把它收尾为 isCompleted=true. 这两条收尾独立但都
   // 仅在 run 真正结束 (!runsNext.isLoading) 时触发, 避免误关并发 run 的消息.
@@ -494,7 +482,7 @@ function applyStreamEndToProjection(
       assistantId: runsNext.isLoading ? p.pending.assistantId : null,
       reasoningId: runsNext.isLoading ? p.pending.reasoningId : null,
     },
-    runs: runsToProjectionRuns(runsNext),
+    runs: runsNext,
   };
 }
 
@@ -502,24 +490,25 @@ function applyErrorToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "error" },
 ): ThreadProjection {
-  const live = projectionToLive(p);
-  const next = applyErrorChunk(live, event.message, {
+  if (p.runs.lastRun?.runId === event.runId &&
+    ["completed", "failed", "cancelled"].includes(p.runs.lastRun.status)) return p;
+  if (p.runs.activeRunId && p.runs.activeRunId !== event.runId && !p.runs.runs[event.runId]) return p;
+  const next = applyErrorChunk(p, event.message, {
     id: event.messageId,
     notice: shouldUseDeepSeekHarnessReconnectNotice(event)
       ? "deepseek-harness-reconnect-failed"
       : undefined,
     errorDetails: event.errorDetails,
   });
-  const runsNext = applyRunFailed(projectionToRuns(p), event, event.message);
-  // pending ids 跟随 run 失败 (applyRunFailed 已清, 但保险起见再次覆盖).
+  const runsNext = applyRunFailedCore(p.runs, event, event.message);
   return {
     ...p,
     messages: next.messages,
     pending: {
-      assistantId: runsNext.pendingAssistantId,
-      reasoningId: runsNext.pendingReasoningId,
+      assistantId: runsNext.isLoading ? p.pending.assistantId : null,
+      reasoningId: runsNext.isLoading ? p.pending.reasoningId : null,
     },
-    runs: runsToProjectionRuns(runsNext),
+    runs: runsNext,
   };
 }
 
@@ -550,10 +539,10 @@ function applyUsageToProjection(
   p: ThreadProjection,
   event: AgentEvent & { kind: "usage" },
 ): ThreadProjection {
-  const runsNext = applyRunUsage(projectionToRuns(p), event);
+  const runsNext = applyRunUsage(p.runs, event);
   return {
     ...p,
-    runs: runsToProjectionRuns(runsNext),
+    runs: runsNext,
   };
 }
 

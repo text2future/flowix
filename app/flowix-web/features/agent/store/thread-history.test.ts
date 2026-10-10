@@ -5,6 +5,7 @@ import {
   areMessagesEquivalent,
   filterRenderableHistoryMessages,
   historyCoversLiveTurn,
+  historyConfirmsLiveMessages,
   mergeHistoricalMessages,
   mergeLiveMessagesIntoRenderableMessages,
   mergeMessagesForThreadRender,
@@ -25,7 +26,21 @@ function message(
   };
 }
 
+it("does not release a live reply for a partial persisted row or matching text with another id", () => {
+  const live = [message("live-1", "assistant", "Done.", "2026-01-01T00:00:00Z")];
+  expect(historyConfirmsLiveMessages([{ ...live[0], isCompleted: false }], live)).toBe(false);
+  expect(historyConfirmsLiveMessages([{ ...live[0], id: "other", isCompleted: true }], live)).toBe(false);
+  expect(historyConfirmsLiveMessages([{ ...live[0], isCompleted: true }], live)).toBe(true);
+});
+
 describe("mergeMessagesForThreadRender", () => {
+  it("keeps the same assistant text from two distinct turns in a live overlay", () => {
+    const time = "2026-01-01T00:00:00Z";
+    const history = [message("user-old", "user", "first", time), message("answer-old", "assistant", "Done.", time)];
+    const live = [message("user-new", "user", "second", time), message("answer-new", "assistant", "Done.", time)];
+    expect(mergeMessagesForThreadRender({ history, live, agentType: "claude" }).map((row) => row.id))
+      .toEqual(["user-old", "answer-old", "user-new", "answer-new"]);
+  });
   it("uses the new Pi projection order when existing render rows are reordered", () => {
     const time = "2026-01-01T00:00:00Z";
     const prefix = message("old", "user", "earlier", time);
@@ -250,7 +265,7 @@ describe("mergeMessagesForThreadRender", () => {
         toolName: "command_execution",
       },
       message("history-final", "assistant", "Done.", "2026-08-29T10:00:00.000Z"),
-    ];
+    ].map((item) => ({ ...item, codexTurnId: "turn-1" }));
     const live = [
       message("live-user", "user", "run tool", "2026-08-29T10:00:01.000Z"),
       {
@@ -258,7 +273,7 @@ describe("mergeMessagesForThreadRender", () => {
         toolCallId: "msg:codex:run-1:tool-call:exec-1",
         toolName: "command_execution",
       },
-    ];
+    ].map((item) => ({ ...item, codexTurnId: "turn-1" }));
 
     expect(
       mergeMessagesForThreadRender({ history, live, agentType: "codex" }).map(
@@ -335,6 +350,20 @@ describe("mergeLiveMessagesIntoRenderableMessages", () => {
 });
 
 describe("mergeHistoricalMessages", () => {
+  it("keeps identical assistant replies from different user turns", () => {
+    const time = "2026-01-01T00:00:00Z";
+    const existing = [message("user-new", "user", "second question", time), message("reply-new", "assistant", "Done.", time)];
+    const historical = [message("user-old", "user", "first question", time), message("reply-old", "assistant", "Done.", time)];
+    expect(mergeHistoricalMessages(existing, historical, "claude").map((item) => item.id))
+      .toEqual(["user-old", "reply-old", "user-new", "reply-new"]);
+  });
+  it("keeps identical Codex replies from different native turns", () => {
+    const live = [{ ...message("live-2", "assistant", "Done.", "2026-08-29T10:00:02.000Z"), codexTurnId: "turn-2" }];
+    const historical = [{ ...message("history-1", "assistant", "Done.", "2026-08-29T10:00:00.000Z"), codexTurnId: "turn-1" }];
+    expect(mergeHistoricalMessages(live, historical, "codex").map((item) => item.id))
+      .toEqual(["history-1", "live-2"]);
+  });
+
   it("keeps Codex turn item order when optimistic rows have later timestamps", () => {
     const historical = [
       message("codex-user", "user", "run tool", "2026-08-29T10:00:00.000Z"),
@@ -345,7 +374,7 @@ describe("mergeHistoricalMessages", () => {
         toolName: "pwd",
       },
       message("codex-final", "assistant", "Done.", "2026-08-29T10:00:00.000Z"),
-    ];
+    ].map((item) => ({ ...item, codexTurnId: "turn-1" }));
     const existing = [
       message("local-user", "user", "run tool", "2026-08-29T10:00:01.000Z"),
       {
@@ -353,7 +382,7 @@ describe("mergeHistoricalMessages", () => {
         toolCallId: "msg:codex:run-1:tool-call:exec-1",
         toolName: "pwd",
       },
-    ];
+    ].map((item) => ({ ...item, codexTurnId: "turn-1" }));
 
     expect(
       mergeHistoricalMessages(existing, historical, "codex").map((item) => item.id),
@@ -371,6 +400,7 @@ describe("mergeHistoricalMessages", () => {
         ),
         messageType: "codex-command" as const,
         isCompleted: true,
+        codexTurnId: "turn-1",
       },
     ];
     const historical = [
@@ -383,6 +413,7 @@ describe("mergeHistoricalMessages", () => {
         ),
         messageType: "codex-command" as const,
         isCompleted: true,
+        codexTurnId: "turn-1",
       },
       {
         ...message(
@@ -670,55 +701,65 @@ describe("message dedup keys (content fingerprint)", () => {
   // These guard the JSON.stringify → contentFingerprint replacement.
 
   it("suppresses a history assistant reply duplicated by a live one with identical content", () => {
+    const user = message("user-1", "user", "question", "2026-01-01T00:00:00.000Z");
     const history = [
+      user,
       message("h-1", "assistant", "answer", "2026-01-01T00:00:00.000Z"),
     ];
     const live = [
+      user,
       message("l-1", "assistant", "answer", "2026-01-01T00:00:00.000Z"),
     ];
     expect(mergeMessagesForThreadRender({ history, live }).map((m) => m.id)).toEqual([
-      "h-1",
+      "user-1", "h-1",
     ]);
   });
 
   it("keeps both messages when content differs by one trailing char", () => {
+    const user = message("user-1", "user", "question", "2026-01-01T00:00:00.000Z");
     const history = [
+      user,
       message("h-1", "assistant", "answer", "2026-01-01T00:00:00.000Z"),
     ];
     const live = [
+      user,
       message("l-1", "assistant", "answer!", "2026-01-01T00:00:00.000Z"),
     ];
     expect(mergeMessagesForThreadRender({ history, live }).map((m) => m.id)).toEqual([
-      "h-1",
-      "l-1",
+      "user-1", "h-1", "l-1",
     ]);
   });
 
   it("keeps both messages when role differs but content matches", () => {
+    const user = message("user-1", "user", "question", "2026-01-01T00:00:00.000Z");
     const history = [
+      user,
       message("h-1", "assistant", "x", "2026-01-01T00:00:00.000Z"),
     ];
     const live = [
+      user,
       message("l-1", "reasoning", "x", "2026-01-01T00:00:00.000Z"),
     ];
     expect(mergeMessagesForThreadRender({ history, live }).map((m) => m.id)).toEqual([
-      "h-1",
-      "l-1",
+      "user-1", "h-1", "l-1",
     ]);
   });
 
   it("dedupes multi-MB content without timing out (smoke test for fingerprint)", () => {
     const big = "x".repeat(2_000_000);
+    const user = message("user-1", "user", "question", "2026-01-01T00:00:00.000Z");
     const history = [
+      user,
       message("h-1", "assistant", big, "2026-01-01T00:00:00.000Z"),
     ];
     const live = [
+      user,
       message("l-1", "assistant", big, "2026-01-01T00:00:00.000Z"),
     ];
     const t0 = Date.now();
     const merged = mergeMessagesForThreadRender({ history, live });
     const elapsed = Date.now() - t0;
-    expect(merged.map((m) => m.id)).toEqual(["h-1"]);
+    expect(merged.map((m) => m.id)).toEqual(["user-1", "h-1"]);
     // JSON.stringify over 2MB repeated content would dominate this budget.
     // Fingerprint should stay comfortably under 200ms even on slow CI.
     expect(elapsed).toBeLessThan(2000);

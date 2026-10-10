@@ -10,38 +10,14 @@ import {
   normalizeAgentTypeKey,
   supportsTextStreaming,
 } from "@/lib/agent-types";
-import {
-  resolveExternalChunkAgentType,
-  resolveExternalChunkThreadId,
-} from "@features/agent/store/external-session";
 import { canonicalAgentMessageId } from "@features/agent/events/message-identity";
-
-interface AgentEventMapperThreadState {
-  activeRunId: string | null;
-  lastRunId?: string;
-}
 
 export interface AgentEventMapperState {
   threadTypes: Record<string, AgentTypeKey>;
-  threadStates: Record<string, AgentEventMapperThreadState | undefined>;
-  externalSessionResolutions: Record<string, string>;
 }
 
 export function createRunId(threadId: string): string {
   return `run-${threadId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function resolveChunkRunId(
-  chunk: AgentChunk,
-  threadId: string,
-  st: AgentEventMapperThreadState | undefined,
-): string {
-  return (
-    chunk.run_id ??
-    st?.activeRunId ??
-    (chunk.kind === "usage" ? st?.lastRunId : undefined) ??
-    createRunId(threadId)
-  );
 }
 
 const CLAUDE_ENVELOPE_TEXT_MESSAGE_ID =
@@ -83,23 +59,13 @@ export function mapAgentChunkToEvent(
     codex_turn_id?: string;
     parent_message_id?: string;
   };
-  const sourceThreadId = chunk.thread_id;
-  const threadId = resolveExternalChunkThreadId(
-    chunk,
-    state.externalSessionResolutions,
-  );
-  const st = state.threadStates[threadId];
+  const threadId = chunk.thread_id;
+  const runId = chunk.run_id?.trim();
+  if (!runId) throw new Error("Agent chunk is missing run_id");
   const base = {
-    agentType: normalizeAgentTypeKey(
-      resolveExternalChunkAgentType(
-        chunk,
-        sourceThreadId,
-        threadId,
-        state.threadTypes,
-      ),
-    ),
+    agentType: normalizeAgentTypeKey(chunk.agent_type ?? state.threadTypes[threadId]),
     threadId,
-    runId: resolveChunkRunId(chunk, threadId, st),
+    runId,
     timestamp: now(),
     messageId: messageMetadata.message_id,
     messageType: messageMetadata.message_type,

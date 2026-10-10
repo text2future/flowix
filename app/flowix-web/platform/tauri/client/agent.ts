@@ -162,15 +162,6 @@ export interface ThreadInfo {
   updatedAt: number;
 }
 
-export interface AgentExternalEvent {
-  id: number;
-  runtime: AgentTypeKey;
-  threadId: string;
-  normalizedJson: string;
-  rawJson?: string | null;
-  createdAt: number;
-}
-
 export interface CodexApprovalRequest {
   requestId: string;
   method: string;
@@ -328,8 +319,6 @@ export const agent = {
     invoke<unknown>('agent_background_terminals', { threadId }),
   backgroundJobs: (threadId: string) =>
     invoke<unknown>('agent_background_jobs', { threadId }),
-  externalEvents: (threadId: string, afterId?: number | null, limit?: number) =>
-    invoke<AgentExternalEvent[]>('agent_external_events', { threadId, afterId, limit }),
   listThreads: () =>
     invoke<ThreadInfo[]>('thread_list'),
   listLocalAgentThreads: (agentType: AgentTypeKey) =>
@@ -401,6 +390,7 @@ export const agent = {
       oldestSequence: number | null;
       hasMore: boolean;
       snapshotSequence?: number | null;
+      completeTurnIds?: string[];
     }>('codex_thread_get_page', {
       threadId,
       beforeSequence,

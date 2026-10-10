@@ -51,7 +51,7 @@ function AppToaster() {
     <>
     <Toaster
       className="flowix-toaster"
-      position="bottom-right"
+      position="top-center"
       richColors={false}
       closeButton={false}
     />

@@ -232,6 +232,27 @@ describe("reduceProjection / text streaming lifecycle", () => {
     });
   });
 
+  it("ignores a replayed Codex delta after its item completed", () => {
+    let p = emptyProjection();
+    p = reduceProjection(p, event("stream_start", {
+      agentType: "codex", threadId: "t1", runId: "run-1", timestamp: 0,
+    }));
+    p = reduceProjection(p, event("text_delta", {
+      agentType: "codex", threadId: "t1", runId: "run-1", timestamp: 1,
+      text: "Hello", messageId: "item-1", codexTurnId: "turn-1",
+      contentMode: "snapshot", messagePhase: "completed",
+    }));
+    const completed = p;
+    p = reduceProjection(p, event("text_delta", {
+      agentType: "codex", threadId: "t1", runId: "run-1", timestamp: 2,
+      text: "Hel", messageId: "item-1", codexTurnId: "turn-1",
+      contentMode: "delta", messagePhase: "updated",
+    }));
+    expect(p).toBe(completed);
+    expect(p.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(p.messages.find((message) => message.id === "item-1")?.content).toBe("Hello");
+  });
+
   it("stream_start → text_delta → text_delta appends content", () => {
     let p = emptyProjection();
     p = reduceProjection(p, streamStart("r1"));
@@ -690,7 +711,7 @@ describe("reduceProjection / DSH command operations", () => {
 });
 
 describe("reduceProjection / session_resolved is a no-op", () => {
-  it("does not change projection state (handled by applyExternalSessionResolved cross-thread)", () => {
+  it("does not change projection state for a session binding event", () => {
     let p = emptyProjection();
     p = reduceProjection(p, streamStart("r1"));
     p = reduceProjection(p, textDelta("hello"));

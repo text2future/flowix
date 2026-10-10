@@ -3,9 +3,13 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { closeHistory } from "@tiptap/pm/history";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessage } from "@/types/agent";
+import type { AgentChunk, ChatMessage } from "@/types/agent";
 import { createAgentClientMock } from "@features/agent/store/agent-client.test-support";
 import type { AgentConversationInstanceUpsert } from "@platform/tauri/client";
+
+function dispatchChunk(store: { dispatchAgentChunk(chunk: AgentChunk): void }, chunk: AgentChunk): void {
+  store.dispatchAgentChunk({ run_id: `test-run:${chunk.thread_id}`, ...chunk });
+}
 
 const memoStateMock = vi.hoisted(() => ({
   memos: [] as Array<unknown>,
@@ -271,7 +275,7 @@ async function seedRenderableMessages(
   const { useAgentSessionStore } = await import(
     "@features/agent/store/agent-session-store"
   );
-  useAgentSessionStore.getState().setThreadProjection(threadId, (p) => ({
+  useAgentSessionStore.getState().updateThreadHistory(threadId, (p) => ({
     ...p,
     messages,
   }));
@@ -552,13 +556,13 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "deepseek-harness");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, { kind: "stream_start", thread_id: threadId });
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       text: "Hel",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       text: "lo from card",
@@ -575,7 +579,7 @@ describe("AgentThreadCard NodeView streaming", () => {
         ?.textContent,
     ).toContain("Hello from card");
 
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_end",
       thread_id: threadId,
       reason: null,
@@ -624,12 +628,12 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_start",
       thread_id: threadId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       agent_type: "codex",
@@ -689,12 +693,12 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_start",
       thread_id: threadId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       agent_type: "codex",
@@ -738,8 +742,8 @@ describe("AgentThreadCard NodeView streaming", () => {
       } }] },
     });
     useChatStore.getState().bindThreadType(threadId, 'codex');
-    useChatStore.getState().dispatchAgentChunk({ kind: 'stream_start', thread_id: threadId, agent_type: 'codex' });
-    useChatStore.getState().dispatchAgentChunk({
+    dispatchChunk(useChatStore.getState(), { kind: 'stream_start', thread_id: threadId, agent_type: 'codex' });
+    dispatchChunk(useChatStore.getState(), {
       kind: 'text', thread_id: threadId, agent_type: 'codex',
       text: '<a href="http://tauri.localhost/D:/Notes/%E6%8E%A8%E5%B9%BF%E8%AE%BE%E8%AE%A1/Flowix%20Agent.md:144">方案</a>',
     });
@@ -808,12 +812,12 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_start",
       thread_id: threadId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       agent_type: "codex",
@@ -867,12 +871,12 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_start",
       thread_id: threadId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "tool_call",
       thread_id: threadId,
       id: "tool-file-link",
@@ -911,7 +915,7 @@ describe("AgentThreadCard NodeView streaming", () => {
       threadId,
       source: { kind: "thread-card" },
     });
-    useChatStore.getState().dispatchAgentChunk({
+    dispatchChunk(useChatStore.getState(), {
       kind: "stream_start",
       thread_id: threadId,
       run_id: "run-conversation-source",
@@ -1144,13 +1148,13 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "deepseek-harness");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, { kind: "stream_start", thread_id: threadId });
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       text: "clickable response",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_end",
       thread_id: threadId,
       reason: null,
@@ -1323,8 +1327,8 @@ describe("AgentThreadCard NodeView streaming", () => {
     ).toContain("write a short answer");
 
     const store = useChatStore.getState();
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, { kind: "stream_start", thread_id: threadId });
+    dispatchChunk(store, {
       kind: "text",
       thread_id: threadId,
       text: "Streamed answer",
@@ -1649,12 +1653,12 @@ describe("AgentThreadCard NodeView streaming", () => {
     const card = host.querySelector<HTMLElement>(".agent-thread-card");
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_start",
       thread_id: threadId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "tool_call",
       thread_id: threadId,
       id: "codex-command",
@@ -1706,7 +1710,7 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     const store = useChatStore.getState();
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "tool_call",
       thread_id: threadId,
       id: "mcp-display",
@@ -1807,7 +1811,13 @@ describe("AgentThreadCard NodeView streaming", () => {
       null,
       expect.any(Number),
     );
-    expect(card?.textContent).toContain("restored codex history");
+    expect(agent.getCodexThreadPage).toHaveBeenCalledTimes(1);
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    await vi.waitFor(() => {
+      expect(useAgentSessionStore.getState().threadProjections[localThreadId]?.messages.map((message) => message.content))
+        .toContain("restored codex history");
+      expect(card?.textContent).toContain("restored codex history");
+    });
   });
 
   it("defers loading Thread Card history while the card starts collapsed until expanded", async () => {
@@ -3102,20 +3112,20 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(card?.textContent).toContain("first codex request");
 
     const store = useChatStore.getState();
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_start",
       thread_id: localThreadId,
       run_id: runId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "session_resolved",
       thread_id: localThreadId,
       session_id: sessionId,
       run_id: runId,
       agent_type: "codex",
     });
-    store.dispatchAgentChunk({
+    dispatchChunk(store, {
       kind: "stream_end",
       thread_id: localThreadId,
       run_id: runId,
@@ -3896,7 +3906,7 @@ describe("AgentThreadCard input latency optimizations", () => {
     const { useAgentSessionStore } = await import(
       "@features/agent/store/agent-session-store"
     );
-    useAgentSessionStore.getState().setThreadProjection(threadId, (p) => ({
+    useAgentSessionStore.getState().updateThreadHistory(threadId, (p) => ({
       ...p,
       messages,
     }));
@@ -4022,9 +4032,7 @@ describe("AgentThreadCard composer during agent run", () => {
 
     // 模拟 agent 在跑 ── 真源是 useAgentSessionStore.threadProjections.
     // Phase 4 重构后 view 只读真源, 写 chat-store.threadStates 不会被读到.
-    useAgentSessionStore.getState().setThreadProjection(threadId, (p) => ({
-      ...p,
-      runs: {
+    useAgentSessionStore.getState().updateThreadRuns(threadId, () => ({
         isLoading: true,
         activeRunId: "run-1",
         runs: {
@@ -4036,7 +4044,6 @@ describe("AgentThreadCard composer during agent run", () => {
             status: "running",
           },
         },
-      },
     }));
     await flushAnimationFrame();
 

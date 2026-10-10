@@ -228,6 +228,11 @@ export function openBrowserColumnMarkdown(filePath: string): Promise<BrowserColu
   return openBrowserColumnTarget(createFileBrowserTarget(filePath));
 }
 
+/** An external drop explicitly targets the browser column, even if the file is open elsewhere. */
+export function openBrowserColumnDroppedFile(filePath: string): Promise<BrowserColumnOpenResult | null> {
+  return openBrowserColumnTarget(createFileBrowserTarget(filePath), 'open-in-column');
+}
+
 export function openBrowserColumnNotebookNote(
   filePath: string,
   notebookId: string,

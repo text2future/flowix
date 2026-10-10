@@ -1,5 +1,7 @@
 import type { ChatMessage } from "@/types";
-import type { PiHistoryRevision, AgentTypeKey } from "@/types/agent";
+import type { AgentTypeKey } from "@/types/agent";
+import type { HistoryCoverage } from "@features/agent/store/agent-history-adapters";
+import { completedRunUserMessageId } from "@features/agent/events/message-identity";
 import {
   areMessagesEquivalent,
   reconcilePiHistory,
@@ -10,12 +12,11 @@ import {
 /** Provider-neutral history contract consumed by every conversation surface. */
 export interface HistorySnapshot {
   messages: ChatMessage[];
+  coverage?: HistoryCoverage;
   /** Stable provider/journal revision for the current pagination traversal. */
   revision: string | null;
   oldestCursor: number | null;
   hasMore: boolean;
-  piRevision?: PiHistoryRevision;
-  piBeforeEntryId?: string | null;
 }
 
 export type HistorySyncReason = "open" | "run_completed" | "recovery";
@@ -38,6 +39,27 @@ export interface ReconcileHistoryResult {
   renderChanged: boolean;
 }
 
+function lastUserMessage(messages: readonly ChatMessage[]): ChatMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") return messages[index];
+  }
+  return undefined;
+}
+
+function isLatestUnchangedTurn(input: ReconcileHistoryInput): boolean {
+  const { current, snapshot, requestProjection, runId, turnId, agentType } = input;
+  if (!runId || !turnId) return false;
+  if (requestProjection &&
+    (current.length !== requestProjection.length ||
+      current.some((message, index) => message !== requestProjection[index]))) return false;
+  const isTargetUser = (message: ChatMessage) => message.role === "user" &&
+    (message.codexTurnId === turnId || message.id === completedRunUserMessageId(agentType, runId));
+  const latestCurrentUser = lastUserMessage(current);
+  const latestHistoryUser = lastUserMessage(snapshot.messages);
+  return !!latestCurrentUser && !!latestHistoryUser &&
+    isTargetUser(latestCurrentUser) && isTargetUser(latestHistoryUser);
+}
+
 /**
  * One reconciliation engine for open/completion/recovery.
  *
@@ -51,7 +73,10 @@ export function reconcileHistorySnapshot(
   const { agentType, current, snapshot, reason, runId, turnId } = input;
   const messages = agentType === "pi"
     ? reconcilePiHistory(snapshot.messages, current, snapshot.hasMore, input.requestProjection)
-    : reason === "run_completed" && runId
+    : reason === "run_completed" && runId &&
+      snapshot.coverage?.kind === "complete-turns" &&
+       !!turnId && snapshot.coverage.turnIds.includes(turnId) &&
+       isLatestUnchangedTurn(input)
       ? replaceCompletedRunWithHistory(
           current,
           snapshot.messages,

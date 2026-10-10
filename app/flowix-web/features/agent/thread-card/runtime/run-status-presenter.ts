@@ -93,7 +93,9 @@ export function renderAgentThreadCardMetaState(options: {
     typeKey,
   });
   const label = statusView.shouldShowStatus
-    ? statusView.status === "running"
+    ? statusView.status === "stopping"
+      ? t("editor.threadCard.stopping")
+      : statusView.status === "running"
       ? t("editor.threadCard.running")
       : statusView.status === "failed"
         ? t("editor.threadCard.failed")
@@ -104,7 +106,7 @@ export function renderAgentThreadCardMetaState(options: {
 
   dom.classList.toggle(
     "agent-thread-card--running",
-    statusView.status === "running",
+    statusView.status === "running" || statusView.status === "stopping",
   );
   runStatusEl.textContent = label;
   runStatusEl.hidden = !statusView.shouldShowStatus;

@@ -1,7 +1,4 @@
-import type {
-  ApplyResult,
-  LiveMessageState,
-} from "@features/agent/store/chunk-result";
+import type { MessageProjection } from "@features/agent/store/session-reducer/types";
 import type { ChatMessage } from "@/types";
 import type {
   AgentErrorDetails,
@@ -56,10 +53,10 @@ function generatedAssistantMessageId(scope?: string, role = "assistant"): string
 }
 
 export function applyUserMessageChunk(
-  st: LiveMessageState,
+  st: MessageProjection,
   text: string,
   metadata: MessageChunkMetadata & { id: string },
-): ApplyResult {
+): MessageProjection {
   // DSH goal rounds and terminal wrap-up prompts are provider-owned control
   // messages. Keep them in the timeline as compact system rows, never as a
   // human turn and never allow them to adopt/replace the optimistic user row.
@@ -85,8 +82,7 @@ export function applyUserMessageChunk(
     else messages.push(message);
     return {
       messages,
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
   }
 
@@ -118,8 +114,7 @@ export function applyUserMessageChunk(
       };
       return {
         messages,
-        pendingAssistantId: null,
-        pendingReasoningId: null,
+        pending: { assistantId: null, reasoningId: null },
       };
     }
   }
@@ -151,8 +146,7 @@ export function applyUserMessageChunk(
       };
       return {
         messages,
-        pendingAssistantId: null,
-        pendingReasoningId: null,
+        pending: { assistantId: null, reasoningId: null },
       };
     }
   }
@@ -183,8 +177,7 @@ export function applyUserMessageChunk(
       messages,
       // A user row starts a new turn. Never let a late/missed stream_end make
       // the next assistant delta append to the previous turn's message.
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
   }
 
@@ -207,8 +200,7 @@ export function applyUserMessageChunk(
       codexTurnId: metadata.codexTurnId,
       attachments: metadata.attachments,
     }],
-    pendingAssistantId: null,
-    pendingReasoningId: null,
+    pending: { assistantId: null, reasoningId: null },
   };
 }
 
@@ -226,24 +218,24 @@ function messageTimestamp(sourceTimestamp?: number): string {
  * 同时把上一条未完成的 reasoning 行 `isCompleted=true` 收尾 ── assistant
  * 接 reasoning 是常规 Pattern, 不收尾会留着"思考中"视觉残留。
  */
-export function applyTextChunk(st: LiveMessageState, text: string, metadata: MessageChunkMetadata = {}): ApplyResult {
+export function applyTextChunk(st: MessageProjection, text: string, metadata: MessageChunkMetadata = {}): MessageProjection {
   const result = applyTextChunkInternal(st, text, metadata);
   return metadata.adoptPendingId ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
 }
 
 function applyTextChunkInternal(
-  st: LiveMessageState,
+  st: MessageProjection,
   text: string,
   metadata: MessageChunkMetadata = {},
-): ApplyResult {
-  const closedMessages = st.pendingReasoningId
+): MessageProjection {
+  const closedMessages = st.pending.reasoningId
     ? st.messages.map((m) =>
-        m.id === st.pendingReasoningId ? { ...m, isCompleted: true } : m,
+        m.id === st.pending.reasoningId ? { ...m, isCompleted: true } : m,
       )
     : st.messages;
-  const pendingAssistant = st.messages.find((row) => row.id === st.pendingAssistantId && row.role === "assistant");
+  const pendingAssistant = st.messages.find((row) => row.id === st.pending.assistantId && row.role === "assistant");
   const targetId = metadata.id ?? (metadata.adoptPendingId && metadata.blockIndex !== undefined &&
-    pendingAssistant?.piBlockIndex !== metadata.blockIndex ? null : st.pendingAssistantId);
+    pendingAssistant?.piBlockIndex !== metadata.blockIndex ? null : st.pending.assistantId);
   const existingIndex = targetId
     ? closedMessages.findIndex(
         (message) => message.id === targetId && message.role === "assistant",
@@ -260,8 +252,7 @@ function applyTextChunkInternal(
           (!metadata.adoptPendingId || (existing.isCompleted ?? false) === (metadata.phase === "completed"))) {
         return {
           messages: closedMessages,
-          pendingAssistantId: metadata.phase === "completed" ? null : targetId,
-          pendingReasoningId: null,
+          pending: { assistantId: metadata.phase === "completed" ? null : targetId, reasoningId: null },
         };
       }
       const messages = [...closedMessages];
@@ -272,8 +263,7 @@ function applyTextChunkInternal(
       };
       return {
         messages,
-        pendingAssistantId: metadata.phase === "completed" ? null : targetId,
-        pendingReasoningId: null,
+        pending: { assistantId: metadata.phase === "completed" ? null : targetId, reasoningId: null },
       };
     }
     const messages = [...closedMessages];
@@ -296,8 +286,7 @@ function applyTextChunkInternal(
     };
     return {
       messages,
-      pendingAssistantId: metadata.phase === "completed" ? null : targetId,
-      pendingReasoningId: null,
+      pending: { assistantId: metadata.phase === "completed" ? null : targetId, reasoningId: null },
     };
   }
 
@@ -309,7 +298,7 @@ function applyTextChunkInternal(
   if (
     metadata.contentMode === "snapshot" &&
     metadata.id &&
-    (st.pendingAssistantId || metadata.adoptPendingId) &&
+    (st.pending.assistantId || metadata.adoptPendingId) &&
     targetId === metadata.id
   ) {
     const pendingIndex = closedMessages.findIndex(
@@ -318,7 +307,7 @@ function applyTextChunkInternal(
           metadata.adoptPendingId && metadata.blockIndex !== undefined
             ? message.messageId === null && message.piBlockIndex === metadata.blockIndex &&
               !!metadata.draftScope && message.id.startsWith(`draft:${metadata.draftScope}:assistant:`)
-            : message.id === st.pendingAssistantId
+            : message.id === st.pending.assistantId
         ),
     );
     if (pendingIndex >= 0) {
@@ -347,8 +336,7 @@ function applyTextChunkInternal(
       };
       return {
         messages,
-        pendingAssistantId: metadata.phase === "completed" ? null : metadata.id,
-        pendingReasoningId: null,
+        pending: { assistantId: metadata.phase === "completed" ? null : metadata.id, reasoningId: null },
       };
     }
   }
@@ -373,8 +361,7 @@ function applyTextChunkInternal(
     };
     return {
       messages: insertAgentMessageBySourceOrder(closedMessages, message, metadata.adoptPendingId),
-      pendingAssistantId: id,
-      pendingReasoningId: null,
+      pending: { assistantId: id, reasoningId: null },
     };
   }
 
@@ -396,8 +383,7 @@ function applyTextChunkInternal(
   };
   return {
     messages: insertAgentMessageBySourceOrder(closedMessages, message, metadata.adoptPendingId),
-    pendingAssistantId: metadata.phase === "completed" ? null : targetId,
-    pendingReasoningId: null,
+    pending: { assistantId: metadata.phase === "completed" ? null : targetId, reasoningId: null },
   };
 }
 
@@ -405,7 +391,7 @@ function applyTextSnapshotAsNewMessage(
   messages: ChatMessage[],
   text: string,
   metadata: MessageChunkMetadata,
-): ApplyResult {
+): MessageProjection {
   const id = metadata.id ?? generatedAssistantMessageId(metadata.draftScope);
   const message = {
     id,
@@ -425,8 +411,7 @@ function applyTextSnapshotAsNewMessage(
   };
   return {
     messages: insertAgentMessageBySourceOrder(messages, message, metadata.adoptPendingId),
-    pendingAssistantId: metadata.phase === "completed" ? null : id,
-    pendingReasoningId: null,
+    pending: { assistantId: metadata.phase === "completed" ? null : id, reasoningId: null },
   };
 }
 
@@ -435,19 +420,19 @@ function applyTextSnapshotAsNewMessage(
  * 默认 `isCompleted: false`。 注意 reasoning 行不会因为后续 text chunk
  * 收尾 ── 由 `applyTextChunk` 显式 close, 这里保持原状。
  */
-export function applyReasoningChunk(st: LiveMessageState, text: string, metadata: MessageChunkMetadata = {}): ApplyResult {
+export function applyReasoningChunk(st: MessageProjection, text: string, metadata: MessageChunkMetadata = {}): MessageProjection {
   const result = applyReasoningChunkInternal(st, text, metadata);
   return metadata.adoptPendingId ? { ...result, messages: orderPiMessageBlocks(result.messages) } : result;
 }
 
 function applyReasoningChunkInternal(
-  st: LiveMessageState,
+  st: MessageProjection,
   text: string,
   metadata: MessageChunkMetadata = {},
-): ApplyResult {
-  const pendingReasoning = st.messages.find((row) => row.id === st.pendingReasoningId && row.role === "reasoning");
+): MessageProjection {
+  const pendingReasoning = st.messages.find((row) => row.id === st.pending.reasoningId && row.role === "reasoning");
   const targetId = metadata.id ?? (metadata.adoptPendingId && metadata.blockIndex !== undefined &&
-    pendingReasoning?.piBlockIndex !== metadata.blockIndex ? null : st.pendingReasoningId);
+    pendingReasoning?.piBlockIndex !== metadata.blockIndex ? null : st.pending.reasoningId);
   const existingIndex = targetId
     ? st.messages.findIndex(
         (message) => message.id === targetId && message.role === "reasoning",
@@ -464,8 +449,7 @@ function applyReasoningChunkInternal(
     ) {
       return {
         messages: st.messages,
-        pendingReasoningId: metadata.phase === "completed" ? null : targetId,
-        pendingAssistantId: st.pendingAssistantId,
+        pending: { assistantId: st.pending.assistantId, reasoningId: metadata.phase === "completed" ? null : targetId },
       };
     }
     const messages = [...st.messages];
@@ -488,8 +472,7 @@ function applyReasoningChunkInternal(
     };
     return {
       messages,
-      pendingReasoningId: metadata.phase === "completed" ? null : targetId,
-      pendingAssistantId: st.pendingAssistantId,
+      pending: { assistantId: st.pending.assistantId, reasoningId: metadata.phase === "completed" ? null : targetId },
     };
   }
   if (!targetId) {
@@ -508,8 +491,7 @@ function applyReasoningChunkInternal(
           isCompleted: false,
         },
       ],
-      pendingReasoningId: id,
-      pendingAssistantId: st.pendingAssistantId,
+      pending: { assistantId: st.pending.assistantId, reasoningId: id },
     };
   }
 
@@ -518,7 +500,7 @@ function applyReasoningChunkInternal(
     // enclosing Pi message commit. Scope excludes drafts from earlier runs.
     const pendingIndex = st.messages.findIndex(
       (message) => message.role === "reasoning" && (
-        (message.id === st.pendingReasoningId && (metadata.blockIndex === undefined || message.piBlockIndex === metadata.blockIndex)) ||
+        (message.id === st.pending.reasoningId && (metadata.blockIndex === undefined || message.piBlockIndex === metadata.blockIndex)) ||
         (metadata.adoptPendingId && metadata.draftScope &&
           message.messageId === null &&
           (metadata.blockIndex === undefined || message.piBlockIndex === metadata.blockIndex) &&
@@ -544,8 +526,7 @@ function applyReasoningChunkInternal(
         };
         return {
           messages,
-          pendingReasoningId: metadata.phase === "completed" ? null : metadata.id,
-          pendingAssistantId: st.pendingAssistantId,
+          pending: { assistantId: st.pending.assistantId, reasoningId: metadata.phase === "completed" ? null : metadata.id },
         };
       }
     }
@@ -567,8 +548,7 @@ function applyReasoningChunkInternal(
   };
   return {
     messages: insertAgentMessageBySourceOrder(st.messages, message, metadata.adoptPendingId),
-    pendingReasoningId: metadata.phase === "completed" ? null : targetId,
-    pendingAssistantId: st.pendingAssistantId,
+    pending: { assistantId: st.pending.assistantId, reasoningId: metadata.phase === "completed" ? null : targetId },
   };
 }
 
@@ -583,13 +563,13 @@ function applyReasoningChunkInternal(
  * 关闭靠"pendingAssistantId 切 null" + 下次 text chunk 走 create-new 路径。
  */
 export function applyErrorChunk(
-  st: LiveMessageState,
+  st: MessageProjection,
   message: string,
   metadata: Pick<MessageChunkMetadata, "id" | "notice" | "errorDetails"> = {},
-): ApplyResult {
-  const closedMessages = st.pendingReasoningId
+): MessageProjection {
+  const closedMessages = st.pending.reasoningId
     ? st.messages.map((m) =>
-        m.id === st.pendingReasoningId ? { ...m, isCompleted: true } : m,
+        m.id === st.pending.reasoningId ? { ...m, isCompleted: true } : m,
       )
     : st.messages;
   const id = metadata.id ?? `error-${Date.now()}`;
@@ -608,8 +588,7 @@ export function applyErrorChunk(
     };
     return {
       messages,
-      pendingAssistantId: null,
-      pendingReasoningId: null,
+      pending: { assistantId: null, reasoningId: null },
     };
   }
 
@@ -627,7 +606,6 @@ export function applyErrorChunk(
           : {}),
       },
     ],
-    pendingAssistantId: null,
-    pendingReasoningId: null,
+    pending: { assistantId: null, reasoningId: null },
   };
 }

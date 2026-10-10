@@ -109,8 +109,8 @@ pub async fn chat_with_agent_stream(
     // 不再 await 整个 stream 跑完。真正的助手回答通过 `agent-chunk` 事件
     // (`Text` / `Reasoning` 变体) 推到前端, 按 `thread_id` 派发到
     // `threadStates[tid]`。
-    let result = runtime_handle(&state, runtime)
-        .chat_stream(&threadId, message, &app_handle)
+    let result = state.external_runtimes
+        .dispatch_chat(&threadId, runtime, message, &app_handle)
         .await;
     tracing::info!(
         "[Command] {} chat_with_agent_stream result: {:?}",
@@ -162,6 +162,7 @@ pub async fn execute_deepseek_harness_command(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
+    state.external_runtimes.ensure_thread_writable(&threadId).await?;
     if !matches!(
         message.agent_type.as_deref(),
         Some("deepseek-harness") | Some("deepseek_harness") | Some("dsh") | None

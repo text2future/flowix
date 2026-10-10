@@ -1,89 +1,68 @@
 import type { AgentChunk } from '@/types/agent';
 import type { AgentTypeKey } from '@/types/agent';
-import {
-  emptyThreadState,
-  type ThreadState,
-} from '@features/agent/store/thread-runtime-state';
+import type { AgentConversationRegistry, AgentSessionMeta } from '@features/agent/store/session-state';
 
-export type ExternalSessionThreadStates = Record<string, ThreadState>;
+type ProductThreadState = {
+  sessionMeta: Pick<AgentSessionMeta, 'activeThreadIds' | 'threadLists' | 'externalSessionResolutions'>;
+  conversationRegistry?: AgentConversationRegistry;
+  threadProjections?: Record<string, unknown>;
+};
 
-export interface ExternalSessionStateInput {
-  threadStates: ExternalSessionThreadStates;
-  threadTypes: Record<string, AgentTypeKey>;
-  externalSessionResolutions: Record<string, string>;
-}
-
-export interface ExternalSessionResolvedState {
-  threadStates: ExternalSessionThreadStates;
-  threadTypes: Record<string, AgentTypeKey>;
-  externalSessionResolutions: Record<string, string>;
+export function isKnownProductThreadId(
+  threadId: string,
+  state: ProductThreadState,
+): boolean {
+  const meta = state.sessionMeta;
+  return Object.prototype.hasOwnProperty.call(meta.externalSessionResolutions, threadId)
+    || Object.prototype.hasOwnProperty.call(state.threadProjections ?? {}, threadId)
+    || Object.values(meta.activeThreadIds ?? {}).includes(threadId)
+    || Object.values(meta.threadLists ?? {}).some((list) => list?.some((item) => item.threadId === threadId) ?? false)
+    || Object.values(state.conversationRegistry?.instances ?? {}).some((instance) => instance.threadId === threadId);
 }
 
 /** Resolve either a product thread id or provider session id to the product id. */
 export function resolveProductThreadId(
   threadId: string,
   resolutions: Record<string, string>,
+  runtime?: AgentTypeKey,
+  threadTypes?: Record<string, AgentTypeKey>,
+  isKnownProductThread?: (threadId: string) => boolean,
 ): string {
-  if (resolutions[threadId]) return threadId;
-  return Object.entries(resolutions).find(
-    ([, externalSessionId]) => externalSessionId === threadId,
-  )?.[0] ?? threadId;
+  if (isKnownProductThread?.(threadId) || Object.prototype.hasOwnProperty.call(resolutions, threadId) || !runtime || !threadTypes) return threadId;
+  const matches = Object.entries(resolutions).filter(
+    ([productThreadId, externalSessionId]) =>
+      externalSessionId === threadId && threadTypes[productThreadId] === runtime,
+  );
+  return matches.length === 1 ? matches[0][0] : threadId;
+}
+
+/** Resolve a known native alias at a store boundary; reject ambiguous aliases. */
+export function resolveStoreThreadId(
+  threadId: string,
+  resolutions: Record<string, string>,
+  runtime: AgentTypeKey,
+  threadTypes: Record<string, AgentTypeKey>,
+  isKnownProductThread?: (threadId: string) => boolean,
+): string | null {
+  if (isKnownProductThread?.(threadId)) return threadId;
+  const productThreadId = resolveProductThreadId(threadId, resolutions, runtime, threadTypes, isKnownProductThread);
+  if (productThreadId !== threadId || Object.prototype.hasOwnProperty.call(resolutions, threadId)) {
+    return productThreadId;
+  }
+  return Object.values(resolutions).includes(threadId) ? null : threadId;
 }
 
 export function resolveExternalChunkThreadId(
   chunk: AgentChunk,
-  resolutions: Record<string, string>
+  resolutions: Record<string, string>,
+  threadTypes?: Record<string, AgentTypeKey>,
+  isKnownProductThread?: (threadId: string) => boolean,
 ): string {
-  return resolveProductThreadId(chunk.thread_id, resolutions);
-}
-
-export function resolveExternalChunkAgentType(
-  chunk: AgentChunk,
-  sourceThreadId: string,
-  targetThreadId: string,
-  threadTypes: Record<string, AgentTypeKey>
-): AgentTypeKey | undefined {
-  return chunk.agent_type ?? threadTypes[sourceThreadId] ?? threadTypes[targetThreadId];
-}
-
-/**
- * Register the provider session without changing the product-owned thread id.
- * Legacy state may already contain a projection under the provider id; fold it
- * back into the product thread so every UI surface keeps one stable identity.
- */
-export function applyExternalSessionResolved(
-  state: ExternalSessionStateInput,
-  localThreadId: string,
-  sessionId: string,
-  agentType: AgentTypeKey,
-): ExternalSessionResolvedState {
-  const productState = state.threadStates[localThreadId] ?? emptyThreadState();
-  const legacySessionState = state.threadStates[sessionId] ?? emptyThreadState();
-  const { [sessionId]: _legacySessionState, ...threadStates } = state.threadStates;
-
-  return {
-    threadTypes: {
-      ...state.threadTypes,
-      [localThreadId]: agentType,
-      [sessionId]: agentType,
-    },
-    externalSessionResolutions: {
-      ...state.externalSessionResolutions,
-      [localThreadId]: sessionId,
-    },
-    threadStates: {
-      ...threadStates,
-      [localThreadId]: {
-        ...productState,
-        isLoading: productState.isLoading || legacySessionState.isLoading,
-        activeRunId: productState.activeRunId ?? legacySessionState.activeRunId,
-        runs: { ...legacySessionState.runs, ...productState.runs },
-        oldestSequence:
-          productState.oldestSequence ?? legacySessionState.oldestSequence,
-        hasMoreHistory:
-          productState.hasMoreHistory || legacySessionState.hasMoreHistory,
-        loadingMore: productState.loadingMore || legacySessionState.loadingMore,
-      },
-    },
-  };
+  return resolveProductThreadId(
+    chunk.thread_id,
+    resolutions,
+    chunk.agent_type,
+    threadTypes,
+    isKnownProductThread,
+  );
 }

@@ -11,8 +11,7 @@ import {
   useDocumentEditorMode,
   useFullscreenAgentThreadCardInfo,
 } from '@features/document/public/shell-api';
-import { AgentIcon } from '@features/agent/public/shell-api';
-import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
+import { AgentIcon, isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus, useBrowserColumnAgentHeaderModel } from '@features/agent/public/shell-api';
 import type { BrowserColumnSurfaceChrome } from '@features/surface/public/shell-api';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
@@ -36,8 +35,6 @@ import {
 import { documentIdentityFromFile } from '@features/document/public/shell-api';
 import { requireFileDisplayIdentity } from '@/lib/file-display-registry';
 import { AGENT_TYPES, isAgentTypeSelectable, isAlwaysVisibleNewConversationAgent } from '@/lib/agent-types';
-import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
-import { isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus } from '@features/agent/runtime/agent-runtime-status';
 import type { AgentTypeKey } from '@/types/agent';
 
 function isWindowsPlatform(): boolean {
@@ -143,10 +140,12 @@ export function BrowserColumnHeader({
 }: BrowserColumnHeaderProps) {
   const { t } = useI18n();
   const [agentTypeMenuAnchor, setAgentTypeMenuAnchor] = useState<{ left: number; top: number } | null>(null);
-  const agentRuntimeStatusByType = useAgentRuntimeStore((state) => state.statusByType);
-  const agentRuntimeIsChecking = useAgentRuntimeStore((state) => state.isChecking);
-  const conversationInstances = useAgentSessionStore((state) => state.conversationRegistry.instances);
-  const refreshAgentRuntimeIfStale = useAgentRuntimeStore((state) => state.refreshIfStale);
+  const {
+    statusByType: agentRuntimeStatusByType,
+    isChecking: agentRuntimeIsChecking,
+    conversationInstances,
+    refreshIfStale: refreshAgentRuntimeIfStale,
+  } = useBrowserColumnAgentHeaderModel();
   const newConversationAgentTypes = useMemo(() => AGENT_TYPES.filter((type) => {
     if (!isAgentTypeSelectable(type.key)) return false;
     if (isAlwaysVisibleNewConversationAgent(type.key)) return true;

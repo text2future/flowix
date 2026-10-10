@@ -8,15 +8,31 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 #[cfg(target_os = "windows")]
-use std::fs::OpenOptions;
-#[cfg(target_os = "windows")]
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
-use std::time::Duration;
+
+#[path = "app_update_state.rs"]
+mod update_state;
+use update_state::UpdatePhase;
 
 #[derive(Default)]
 pub struct AppUpdateState {
-    active_download: Mutex<Option<AbortHandle>>,
+    active: Arc<Mutex<ActiveUpdate>>,
+}
+
+#[derive(Default)]
+struct ActiveUpdate {
+    phase: UpdatePhase,
+    abort: Option<AbortHandle>,
+}
+
+// Once installing, this guard belongs to the blocking worker. Dropping the
+// awaiting command cannot allow another update while that worker is active.
+struct ActiveUpdateGuard(Arc<Mutex<ActiveUpdate>>);
+
+impl Drop for ActiveUpdateGuard {
+    fn drop(&mut self) {
+        *self.0.lock().unwrap_or_else(|error| error.into_inner()) = ActiveUpdate::default();
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -88,16 +104,16 @@ pub fn consume_app_update_result(app: AppHandle) -> Option<AppUpdateInstallResul
 
 #[cfg(target_os = "windows")]
 fn app_update_result_path() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .map(|path| path.join("Flowix").join("app-update-result.txt"))
+    crate::runtime_state::windows_state_dir()
+        .ok()
+        .map(|path| path.join("app-update-result.txt"))
 }
 
 #[cfg(target_os = "windows")]
 fn app_update_target_path() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .map(|path| path.join("Flowix").join("app-update-target.txt"))
+    crate::runtime_state::windows_state_dir()
+        .ok()
+        .map(|path| path.join("app-update-target.txt"))
 }
 
 #[cfg(target_os = "windows")]
@@ -178,39 +194,28 @@ pub async fn install_app_update(
     app: AppHandle,
     state: State<'_, AppUpdateState>,
 ) -> Result<(), String> {
-    {
-        let active = state
-            .active_download
-            .lock()
-            .map_err(|_| "application update state is unavailable".to_string())?;
-        if active.is_some() {
-            return Err("an application update is already downloading".to_string());
-        }
-    }
-
-    let update = updater(&app)?
-        .check()
-        .await
-        .map_err(|error| format!("failed to check for update: {error}"))?
-        .ok_or_else(|| "no application update is available".to_string())?;
-    let target_version = update.version.clone();
-
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     {
         let mut active = state
-            .active_download
+            .active
             .lock()
             .map_err(|_| "application update state is unavailable".to_string())?;
-        if active.is_some() {
-            return Err("an application update is already downloading".to_string());
+        if !active.phase.start() {
+            return Err("an application update is already in progress".to_string());
         }
-        *active = Some(abort_handle);
+        active.abort = Some(abort_handle);
     }
+    let active_guard = ActiveUpdateGuard(state.active.clone());
 
     let download_app = app.clone();
     let downloaded_bytes = Arc::new(AtomicU64::new(0));
     let started = Arc::new(AtomicBool::new(false));
     let task = async move {
+        let update = updater(&download_app)?
+            .check()
+            .await
+            .map_err(|error| format!("failed to check for update: {error}"))?
+            .ok_or_else(|| "no application update is available".to_string())?;
         let progress_bytes = downloaded_bytes.clone();
         let progress_started = started.clone();
         let bytes = update
@@ -250,15 +255,41 @@ pub async fn install_app_update(
             .await
             .map_err(|error| format!("failed to download update: {error}"))?;
 
-        let _ = download_app.emit(
-            "app-update-progress",
-            json!({
-                "phase": "installing",
-                "downloadedBytes": progress_bytes.load(Ordering::Relaxed),
-            }),
-        );
-        let _cli_update_guard = prepare_cli_for_update(&target_version)?;
-        write_pending_app_update_result(&target_version)?;
+        #[cfg(windows)]
+        let document_guard =
+            crate::commands::document_shutdown::prepare_for_update(&download_app).await?;
+        #[cfg(not(windows))]
+        let document_guard = ();
+        Ok::<_, String>((update, bytes, document_guard))
+    };
+
+    let (update, bytes, document_guard) = Abortable::new(task, abort_registration)
+        .await
+        .map_err(|_| "application update cancelled".to_string())??;
+    {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| "application update state is unavailable".to_string())?;
+        // The cancel command uses this same mutex. A cancellation that won
+        // just after the handshake must still prevent runtime teardown.
+        if !active.phase.begin_install() {
+            return Err("application update cancelled".to_string());
+        }
+        active.abort = None;
+    }
+    let _ = app.emit(
+        "app-update-progress",
+        json!({ "phase": "installing", "downloadedBytes": bytes.len() }),
+    );
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let _active_guard = active_guard;
+        let _document_guard = document_guard;
+        // Persist before teardown so a filesystem error leaves runtimes usable.
+        write_pending_app_update_result(&update.version)?;
+        #[cfg(windows)]
+        let _runtime_guard = crate::app::bootstrap::prepare_for_update(&app);
         match update.install(bytes) {
             Ok(()) => Ok(()),
             Err(error) => {
@@ -267,108 +298,21 @@ pub async fn install_app_update(
                 Err(message)
             }
         }
-    };
-
-    let result = Abortable::new(task, abort_registration).await;
-    if let Ok(mut active) = state.active_download.lock() {
-        *active = None;
-    }
-
-    match result {
-        Ok(result) => result,
-        Err(_) => Err("application update cancelled".to_string()),
-    }
-}
-
-/// Prevent the bundled product CLI from keeping the NSIS update payload locked.
-///
-/// Windows does not allow the installer to replace an executable while another
-/// process has it open. `flowix-cli` is intentionally a product-owned process,
-/// so the updater closes only instances whose full executable path matches the
-/// CLI next to the current Flowix executable. It never kills by image name.
-struct CliUpdateGuard {
-    #[cfg(target_os = "windows")]
-    _update_lock: UpdateLock,
-}
-
-fn prepare_cli_for_update(target_version: &str) -> Result<CliUpdateGuard, String> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = target_version;
-        return Ok(CliUpdateGuard {});
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let update_lock = acquire_update_lock()?;
-        let cli_path = current_cli_path()?;
-        let log_dir = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?
-            .join("Flowix");
-        std::fs::create_dir_all(&log_dir)
-            .map_err(|error| format!("failed to create update log directory: {error}"))?;
-        flowix_installer_helper::log(
-            &log_dir.join("app-update.log"),
-            &format!(
-                "installer-check-start version={target_version} source=app-updater target={}",
-                cli_path.display()
-            ),
-        );
-        flowix_installer_helper::close_target_cli(
-            &cli_path,
-            Duration::from_secs(10),
-            Duration::from_millis(200),
-            &log_dir.join("app-update.log"),
-        )
-        .map_err(|error| format!("failed to prepare Flowix CLI for update: {error:?}"))?;
-        Ok(CliUpdateGuard {
-            _update_lock: update_lock,
-        })
-    }
-}
-
-#[cfg(target_os = "windows")]
-struct UpdateLock {
-    _file: std::fs::File,
-}
-
-#[cfg(target_os = "windows")]
-fn acquire_update_lock() -> Result<UpdateLock, String> {
-    let dir = dirs::data_local_dir()
-        .ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?
-        .join("Flowix");
-    std::fs::create_dir_all(&dir)
-        .map_err(|error| format!("failed to create update lock directory: {error}"))?;
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .open(dir.join("update.lock"))
-        .map_err(|error| format!("failed to open update lock: {error}"))?;
-    fs2::FileExt::try_lock_exclusive(&file)
-        .map_err(|_| "another Flowix update is already in progress".to_string())?;
-    Ok(UpdateLock { _file: file })
-}
-
-#[cfg(target_os = "windows")]
-fn current_cli_path() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe()
-        .map_err(|error| format!("failed to resolve Flowix executable: {error}"))?;
-    let parent = exe
-        .parent()
-        .ok_or_else(|| "Flowix executable has no parent directory".to_string())?;
-    Ok(parent.join("flowix-cli.exe"))
+    })
+    .await
+    .map_err(|error| format!("failed to prepare or install Flowix update: {error}"))?
 }
 
 #[tauri::command]
 pub fn cancel_app_update(state: State<'_, AppUpdateState>) -> Result<bool, String> {
-    let active = state
-        .active_download
+    let mut active = state
+        .active
         .lock()
         .map_err(|_| "application update state is unavailable".to_string())?;
-    if let Some(handle) = active.as_ref() {
-        handle.abort();
+    if active.phase.cancel() {
+        if let Some(handle) = active.abort.as_ref() {
+            handle.abort();
+        }
         return Ok(true);
     }
     Ok(false)

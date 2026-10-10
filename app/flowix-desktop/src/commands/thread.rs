@@ -652,12 +652,17 @@ pub async fn thread_delete(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<bool, String> {
+    let _protection = state.external_runtimes.protect_thread(&thread_id).await?;
     let stopped = state
         .external_runtimes
         .stop_chat_all(&thread_id, &app_handle)
         .await;
     if stopped {
         tracing::info!("[Thread] stopped running agent before deleting thread {thread_id}");
+    }
+    state.external_runtimes.cancel_pending_work_for_lifecycle(&thread_id).await?;
+    if state.external_runtimes.thread_has_active_run(&thread_id).await {
+        return Err("StopUnconfirmed: thread still has an active run".to_string());
     }
 
     let manager = &state.thread_manager;
@@ -731,6 +736,7 @@ async fn apply_thread_lifecycle(
     thread_id: &str,
     action: crate::agent_lifecycle::LifecycleAction,
 ) -> Result<bool, String> {
+    let _protection = state.external_runtimes.protect_thread(thread_id).await?;
     let stopped = state
         .external_runtimes
         .stop_chat_all(thread_id, app_handle)
@@ -740,6 +746,10 @@ async fn apply_thread_lifecycle(
             "[Thread] stopped running agent before {:?} of thread {thread_id}",
             action
         );
+    }
+    state.external_runtimes.cancel_pending_work_for_lifecycle(thread_id).await?;
+    if state.external_runtimes.thread_has_active_run(thread_id).await {
+        return Err("StopUnconfirmed: thread still has an active run".to_string());
     }
 
     let provider = state

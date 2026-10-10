@@ -388,7 +388,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       getFirstUserMessageText: () => this.firstUserMessageText(),
       getDefaultTitle: () => defaultThreadTitle(this.typeKey),
       getThreadId: () => this.threadId,
-      getSessionId: () => this.instance?.sessionId ?? null,
+      getSessionId: () => this.instance?.providerSessionId ?? null,
       getInstanceId: () => this.instanceId,
       getTypeKey: () => this.typeKey,
       getCwd: () => this.cwd,
@@ -560,7 +560,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       getCurrentInputDraft: () => this.inputDraft,
       getUserHistoryMessages: () => this.getUserHistoryMessages(),
       getSendLabel: (wantStop, isRunning) =>
-        isRunning
+        this.currentRuntimeView().status === "stopping"
+          ? this.t("editor.threadCard.stopping")
+          : isRunning
           ? this.t("editor.threadCard.running")
           : wantStop
             ? this.t("editor.threadCard.stop")
@@ -571,13 +573,13 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         // of the draft check so typing a follow-up prompt cannot turn the
         // termination control back into Send.
         if (runtime.isCodexCommandStoppable) return true;
-        return runtime.isModelRunning &&
+        return runtime.isModelRunning && runtime.status !== "stopping" &&
           !((this.typeKey === "codex" || this.typeKey === "deepseek-harness") &&
             !!this.composerController?.getPrompt().trim());
       },
       getSendButtonRunning: () => {
         const runtime = this.currentRuntimeView();
-        return runtime.isDshCommandRunning ||
+        return runtime.status === "stopping" || runtime.isDshCommandRunning ||
           (runtime.isCodexCommandRunning && !runtime.isCodexCommandStoppable);
       },
       getHasAttachments: () => this.composerImages.hasImages,
@@ -1443,10 +1445,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private currentMessages(): ThreadState["messages"] {
-    return selectRenderableThreadMessages({
-      typeKey: this.typeKey,
-      threadId: this.renderThreadId,
-    });
+    return selectRenderableThreadMessages(this.renderThreadId);
   }
 
   private isThreadCachePresentationHidden(): boolean {

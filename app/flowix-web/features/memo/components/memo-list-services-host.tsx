@@ -43,13 +43,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/sel
 import { LazyGlobalSearchCommand } from '@features/memo/components/lazy-global-search-command';
 import { subscribe } from '@platform/tauri/event-bus';
 import { externalDocuments } from '@platform/tauri/client';
-import {
-  openBrowserColumnMarkdown,
-} from '@features/workspace/use-cases/browser-column-navigation';
 import { openExternalTarget } from '@features/workspace/use-cases/workspace-navigation';
 import { documentIdentityFromFile, flushWorkspaceDocumentPath } from '@features/document/public/workspace-api';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
-import { setCurrentWorkspaceNotebook } from '@features/memo/public/workspace-api';
 import {
   FLOWIX_EXTERNAL_MARKDOWN_OPEN_EVENT,
   type ExternalMarkdownOpenRequest,
@@ -172,7 +168,7 @@ function ExternalMarkdownOpenDialog() {
       unlisten();
       window.removeEventListener(FLOWIX_EXTERNAL_MARKDOWN_OPEN_EVENT, onWindowRequest);
     };
-  }, [notebooks, selectedNotebook?.id]);
+  }, [notebooks, selectedNotebook?.id, selectedNotebook?.path, t]);
 
   useEffect(() => {
     if (!request) return;
@@ -199,13 +195,8 @@ function ExternalMarkdownOpenDialog() {
       }
       await useNoteStore.getState().loadNotes({ notebookId });
       setRequest(null);
-      if (request.destination === 'browser-column') {
-        await setCurrentWorkspaceNotebook(notebookId);
-        for (const path of imported) await openBrowserColumnMarkdown(path);
-      } else {
-        const notebook = useNoteStore.getState().notebooks.find((item) => item.id === notebookId);
-        if (notebook) await openNotebookNote(imported[imported.length - 1], notebook);
-      }
+      const notebook = useNoteStore.getState().notebooks.find((item) => item.id === notebookId);
+      if (notebook) await openNotebookNote(imported[imported.length - 1], notebook);
     } catch (error) {
       toast.error(`${t('memo.externalOpen.failed')}: ${String(error)}`);
     } finally {
@@ -217,17 +208,11 @@ function ExternalMarkdownOpenDialog() {
     if (!request) return;
     setOpening(true);
     try {
-      if (request.destination === 'browser-column') {
-        for (const filePath of request.filePaths) {
-          await openBrowserColumnMarkdown(filePath);
-        }
-      } else {
-        for (const filePath of request.filePaths) {
-          await openExternalTarget(filePath, {
-            destination: 'main-third',
-            scopePath: selectedNotebook?.path ?? null,
-          });
-        }
+      for (const filePath of request.filePaths) {
+        await openExternalTarget(filePath, {
+          destination: 'main-third',
+          scopePath: selectedNotebook?.path ?? null,
+        });
       }
       setRequest(null);
     } catch (error) {

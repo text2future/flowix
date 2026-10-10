@@ -246,6 +246,8 @@ pub struct AgentChatResponse {
 #[serde(rename_all = "camelCase")]
 pub struct RunInfo {
     pub started_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     pub current_tool: Option<String>,
     pub agent_type: Option<String>,
     pub run_id: Option<String>,
@@ -268,6 +270,7 @@ impl RunInfo {
     ) -> Self {
         Self {
             started_at,
+            phase: None,
             current_tool: current_tool.map(str::to_string),
             agent_type: agent_type.map(str::to_string),
             run_id,

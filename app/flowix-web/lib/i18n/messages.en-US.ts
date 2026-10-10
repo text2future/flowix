@@ -1147,6 +1147,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "memo.create.note": "Note",
     "memo.create.table": "Multidimensional table",
     "memo.create.more": "Create…",
+    "memo.fileTree.import": "Import",
     "memo.create.tableDialogTitle": "New multidimensional table",
     "memo.create.tableDefaultName": "New table",
     "memo.create.tableDescription": "Enter a filename to start creating.",
@@ -1720,6 +1721,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "editor.tagMention.create": "New",
     "editor.tagMention.loadMore": "Load more",
     "editor.threadCard.running": "Running",
+    "editor.threadCard.stopping": "Stopping",
     "editor.threadCard.failed": "Failed",
     "editor.threadCard.cancelled": "Cancelled",
     "editor.threadCard.thinking": "Thinking",
@@ -1857,8 +1859,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "shell.navigation.failed": "Couldn’t complete navigation",
     "shell.emptyDocument": "Select a note",
     "shell.dropOverlay.title": "Drop a file to open it",
-    "shell.dropOverlay.subtitle": "Only .md files are supported",
-    "shell.dropOverlay.manyOpened": "Opened {count} Markdown files",
+    "shell.dropOverlay.subtitle": "Supported local files open here",
 
     // preferences extras
     "preferences.format.fontDownloaded": "Font downloaded locally",

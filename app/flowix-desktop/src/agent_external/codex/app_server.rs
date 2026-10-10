@@ -72,6 +72,7 @@ struct ActiveTurn {
     /// turn. Keep the registry entry until that turn id arrives so the
     /// notification path can interrupt the real provider work.
     cancel_requested: bool,
+    stopping: bool,
     /// Present only for a Codex-native slash command. `/compact` and goal
     /// mutations keep this active until the provider's follow-up turn ends.
     command_id: Option<String>,
@@ -753,6 +754,7 @@ impl CodexAppServerManager {
                 pending_notifications: Vec::new(),
                 turn_ready: Arc::new(tokio::sync::Notify::new()),
                 cancel_requested: false,
+                stopping: false,
                 command_id: None,
                 command: None,
                 app_handle: app_handle.clone(),
@@ -945,20 +947,20 @@ impl CodexAppServerManager {
         let active = {
             let mut active_turns = self.inner.active_turns.lock().await;
             match active_turns.get_mut(thread_id) {
-                Some(active) if active.codex_turn_id.is_empty() && !active.cancel_requested => {
+                Some(active) if active.stopping => return false,
+                Some(active) if active.codex_turn_id.is_empty() => {
                     // The command/turn RPC may still be in flight. Do not
                     // remove the entry yet: a later turn/started notification
                     // is the only reliable place to learn the turn id that
                     // must receive turn/interrupt.
                     active.cancel_requested = true;
+                    active.stopping = true;
                     Some(active.clone())
                 }
-                Some(active) if active.codex_turn_id.is_empty() => {
-                    // A repeated click while waiting for turn/started has
-                    // already won the cancellation race.
-                    None
+                Some(active) => {
+                    active.stopping = true;
+                    Some(active.clone())
                 }
-                Some(_) => active_turns.remove(thread_id),
                 None => None,
             }
         };
@@ -978,37 +980,27 @@ impl CodexAppServerManager {
             return false;
         };
         if !active.codex_turn_id.is_empty() {
-            let _ = self
+            if let Err(error) = self
                 .request(
                     "turn/interrupt",
                     json!({ "threadId": active.codex_thread_id, "turnId": active.codex_turn_id }),
                 )
-                .await;
+                .await {
+                tracing::warn!("[Codex] StopUnconfirmed for run {}: {error}", active.run_id);
+                return false;
+            }
         }
-        if let (Some(command_id), Some(command)) =
-            (active.command_id.as_deref(), active.command.as_deref())
-        {
-            self.emit_codex_command(
-                app_handle,
-                &active.flowix_thread_id,
-                &active.run_id,
-                command_id,
-                command,
-                active.started_at,
-                "cancelled",
-                Some("Command interrupted".to_string()),
-            )
-            .await;
-        }
-        self.emit_stream_end(
-            app_handle,
-            &active.flowix_thread_id,
-            &active.run_id,
-            Some(USER_STOPPED_REASON.to_string()),
-            &active.stream_end_emitted,
-        )
-        .await;
-        true
+        let confirmed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let still_active = self.inner.active_turns.lock().await.get(thread_id)
+                    .is_some_and(|current| current.run_id == active.run_id);
+                if !still_active { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }).await.is_ok();
+        if !confirmed { tracing::warn!("[Codex] StopUnconfirmed for run {}", active.run_id); }
+        let _ = app_handle;
+        confirmed
     }
 
     pub async fn running_threads(&self) -> HashMap<String, RunInfo> {
@@ -1018,17 +1010,16 @@ impl CodexAppServerManager {
             .await
             .iter()
             .map(|(id, active)| {
-                (
-                    id.clone(),
-                    RunInfo::active(
+                let mut info = RunInfo::active(
                         active.started_at,
                         None,
                         Some(AGENT_TYPE),
                         Some(active.run_id.clone()),
                         Some(active.flowix_thread_id.clone()),
                         Some(active.codex_thread_id.clone()),
-                    ),
-                )
+                    );
+                if active.stopping { info.phase = Some("stopping".to_string()); }
+                (id.clone(), info)
             })
             .collect()
     }
@@ -1055,9 +1046,16 @@ impl CodexAppServerManager {
     }
 
     pub async fn stop_all(&self) -> usize {
-        let active = std::mem::take(&mut *self.inner.active_turns.lock().await);
+        let active = {
+            let mut turns = self.inner.active_turns.lock().await;
+            for turn in turns.values_mut() {
+                turn.stopping = true;
+                turn.cancel_requested = true;
+            }
+            turns.values().cloned().collect::<Vec<_>>()
+        };
         let count = active.len();
-        for (_, turn) in active {
+        for turn in active {
             if !turn.codex_turn_id.is_empty() {
                 let _ = self
                     .request(
@@ -1066,29 +1064,6 @@ impl CodexAppServerManager {
                     )
                     .await;
             }
-            if let (Some(command_id), Some(command)) =
-                (turn.command_id.as_deref(), turn.command.as_deref())
-            {
-                self.emit_codex_command(
-                    &turn.app_handle,
-                    &turn.flowix_thread_id,
-                    &turn.run_id,
-                    command_id,
-                    command,
-                    turn.started_at,
-                    "cancelled",
-                    Some("Command interrupted".to_string()),
-                )
-                .await;
-            }
-            self.emit_stream_end(
-                &turn.app_handle,
-                &turn.flowix_thread_id,
-                &turn.run_id,
-                Some(USER_STOPPED_REASON.to_string()),
-                &turn.stream_end_emitted,
-            )
-            .await;
         }
 
         // The app-server is shared by all Codex threads and is not owned by
@@ -1592,6 +1567,7 @@ impl CodexAppServerManager {
                 pending_notifications: Vec::new(),
                 turn_ready: Arc::new(tokio::sync::Notify::new()),
                 cancel_requested: false,
+                stopping: false,
                 command_id: Some(command_id.clone()),
                 command: Some(command.to_string()),
                 app_handle: app_handle.clone(),
@@ -2074,26 +2050,32 @@ async fn read_loop(
 }
 
 async fn close_connection(inner: &Arc<Inner>, generation: u64) {
-    let (connection, pending, active) = {
-        let mut current = inner.connection.lock().await;
-        if current
-            .as_ref()
-            .is_some_and(|connection| connection.generation == generation)
-        {
-            let connection = current.take();
-            let pending = std::mem::take(&mut *inner.pending.lock().await);
-            inner.pending_approvals.lock().await.clear();
-            let active = std::mem::take(&mut *inner.active_turns.lock().await);
-            (connection, pending, active)
-        } else {
-            (None, HashMap::new(), HashMap::new())
-        }
-    };
-    let Some(mut connection) = connection else {
+    // Keep the connection visible while termination is unconfirmed. Removing it
+    // first would allow another app-server to start while the old one still owns
+    // native turns, and would release every active run prematurely.
+    let mut current = inner.connection.lock().await;
+    let Some(connection) = current.as_mut().filter(|connection| connection.generation == generation) else {
         return;
     };
-    let _ = connection._child.kill().await;
-    let _ = connection._child.wait().await;
+    if let Err(error) = connection._child.kill().await {
+        tracing::warn!("[CodexAppServer] app-server kill request failed: {error}");
+    }
+    match tokio::time::timeout(std::time::Duration::from_secs(5), connection._child.wait()).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => {
+            tracing::warn!("[CodexAppServer] app-server exit unconfirmed: {error}");
+            return;
+        }
+        Err(_) => {
+            tracing::warn!("[CodexAppServer] timed out waiting for app-server exit");
+            return;
+        }
+    }
+    current.take();
+    let pending = std::mem::take(&mut *inner.pending.lock().await);
+    inner.pending_approvals.lock().await.clear();
+    let active = std::mem::take(&mut *inner.active_turns.lock().await);
+    drop(current);
     let manager = CodexAppServerManager {
         inner: inner.clone(),
     };
@@ -3237,6 +3219,39 @@ mod tests {
             Some(CONTEXT_COMPACTION_MESSAGE_TYPE)
         );
         assert_eq!(message.codex_turn_id.as_deref(), Some("turn-1"));
+    }
+
+    #[test]
+    fn codex_history_only_confirms_assistant_rows_with_native_terminal_evidence() {
+        let active = app_server_turn_messages(&[json!({
+            "id": "turn-active", "status": "inProgress",
+            "items": [
+                { "id": "reply-active", "type": "agentMessage", "text": "partial" },
+                { "id": "reasoning-active", "type": "reasoning", "summary": "thinking" }
+            ]
+        })]);
+        assert!(active.iter().all(|message| message.is_completed == Some(false)));
+
+        let completed_item = app_server_turn_messages(&[json!({
+            "id": "turn-active", "status": "inProgress",
+            "items": [{ "id": "reply-complete", "type": "agentMessage", "status": "completed", "text": "stable" }]
+        })]);
+        assert_eq!(completed_item[0].is_completed, Some(true));
+
+        let page = paginate_app_server_turns(&[
+            json!({ "id": "turn-done", "status": "completed", "items": [] }),
+            json!({ "id": "turn-active", "status": "inProgress", "items": [] }),
+        ], None, None, 10);
+        assert_eq!(page.complete_turn_ids, Some(vec!["turn-done".to_string()]));
+
+        let finished = app_server_turn_messages(&[json!({
+            "id": "turn-finished", "status": "completed",
+            "items": [
+                { "id": "reply-finished", "type": "agentMessage", "text": "done" },
+                { "id": "reasoning-finished", "type": "reasoning", "summary": "thought" }
+            ]
+        })]);
+        assert!(finished.iter().all(|message| message.is_completed == Some(true)));
     }
 
     #[test]

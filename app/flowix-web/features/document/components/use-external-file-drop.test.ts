@@ -21,28 +21,26 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 import {
   EXTERNAL_FILE_DROP_EVENT,
-  elementFromExternalDropPosition,
-  firstMarkdownPath,
-  isMarkdownPath,
-  useMarkdownFileDrop,
-} from './use-markdown-file-drop';
+  useExternalFileDrop,
+} from './use-external-file-drop';
 
 interface HarnessProps {
-  onDropPaths: (paths: string[]) => void | Promise<void>;
+  onDropPaths: (paths: string[], destination?: 'main-third' | 'browser-column') => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
 function Harness({ onDropPaths, onError }: HarnessProps) {
-  const { isDraggingMarkdown } = useMarkdownFileDrop({
+  const { isDraggingFile } = useExternalFileDrop({
     onDropPaths,
     onDropError: onError,
   });
-  return createElement('span', null, isDraggingMarkdown ? 'dragging' : 'idle');
+  return createElement('span', null, isDraggingFile ? 'dragging' : 'idle');
 }
 
-describe('useMarkdownFileDrop', () => {
+describe('useExternalFileDrop', () => {
   let container: HTMLDivElement;
   let root: Root;
+  let previousElementFromPoint: typeof document.elementFromPoint;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -58,23 +56,28 @@ describe('useMarkdownFileDrop', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
+    previousElementFromPoint = document.elementFromPoint;
+    const host = document.createElement('div');
+    host.dataset.workspaceHost = 'main-third';
+    document.body.appendChild(host);
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: () => host,
+    });
   });
 
   afterEach(async () => {
     await act(async () => root.unmount());
     document.body.replaceChildren();
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: previousElementFromPoint,
+    });
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     vi.useRealTimers();
   });
 
-  it('recognizes Markdown paths case-insensitively and keeps drop order', () => {
-    expect(isMarkdownPath('/notes/a.MD')).toBe(true);
-    expect(isMarkdownPath('/notes/a.Markdown')).toBe(true);
-    expect(isMarkdownPath('/notes/a.txt')).toBe(false);
-    expect(firstMarkdownPath(['/notes/a.txt', '/notes/b.md', '/notes/c.md'])).toBe('/notes/b.md');
-  });
-
-  it('shows only for external Markdown drags and forwards every Markdown path on drop', async () => {
+  it('shows over a work column and forwards every file type on drop', async () => {
     const onDropPaths = vi.fn(async () => undefined);
     await act(async () => root.render(createElement(Harness, { onDropPaths })));
 
@@ -87,12 +90,12 @@ describe('useMarkdownFileDrop', () => {
     expect(container.textContent).toBe('idle');
 
     await act(async () => {
-      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.txt'] } });
+      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.txt'], position: { x: 10, y: 10 } } });
     });
-    expect(container.textContent).toBe('idle');
+    expect(container.textContent).toBe('dragging');
 
     await act(async () => {
-      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md'] } });
+      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md'], position: { x: 10, y: 10 } } });
     });
     expect(container.textContent).toBe('dragging');
 
@@ -102,7 +105,7 @@ describe('useMarkdownFileDrop', () => {
     expect(container.textContent).toBe('idle');
 
     await act(async () => {
-      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md', '/notes/b.markdown'] } });
+      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md', '/notes/b.markdown'], position: { x: 10, y: 10 } } });
     });
     expect(container.textContent).toBe('dragging');
 
@@ -111,12 +114,13 @@ describe('useMarkdownFileDrop', () => {
         payload: {
           type: 'drop',
           paths: ['/notes/a.txt', '/notes/b.markdown', '/notes/c.md'],
+          position: { x: 10, y: 10 },
         },
       });
     });
     expect(container.textContent).toBe('idle');
     expect(onDropPaths).toHaveBeenCalledOnce();
-    expect(onDropPaths).toHaveBeenCalledWith(['/notes/b.markdown', '/notes/c.md']);
+    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.txt', '/notes/b.markdown', '/notes/c.md'], 'main-third');
   });
 
   it('treats empty or undefined paths as a no-op drop', async () => {
@@ -139,7 +143,7 @@ describe('useMarkdownFileDrop', () => {
     expect(onDropPaths).not.toHaveBeenCalled();
   });
 
-  it('routes supported external files to the notebook drop target', async () => {
+  it('routes every external file type to the notebook drop target', async () => {
     const onDropPaths = vi.fn();
     const target = document.createElement('div');
     target.dataset.notebookExternalDropTarget = 'true';
@@ -175,7 +179,8 @@ describe('useMarkdownFileDrop', () => {
     });
 
     expect(routedEvents.map((event) => event.detail.type)).toEqual(['enter', 'drop']);
-    expect(routedEvents[0].detail.paths).toEqual(['/external/a.md', '/external/image.png']);
+    expect(routedEvents[0].detail.paths).toEqual(['/external/a.md', '/external/image.png', '/external/archive.zip']);
+    expect(routedEvents[0].target).toBe(target);
     expect(onDropPaths).not.toHaveBeenCalled();
     window.removeEventListener(EXTERNAL_FILE_DROP_EVENT, onRoutedEvent);
     Object.defineProperty(document, 'elementFromPoint', {
@@ -184,33 +189,23 @@ describe('useMarkdownFileDrop', () => {
     });
   });
 
-  it('resolves a logical-pixel drop position on a scaled WebView', () => {
-    const target = document.createElement('div');
-    target.dataset.notebookExternalDropTarget = 'true';
-    document.body.appendChild(target);
-    const previousElementFromPoint = document.elementFromPoint;
-    const previousDevicePixelRatio = window.devicePixelRatio;
-    const elementFromPoint = vi.fn((x: number) => (x === 10 ? target : document.body));
+  it('resolves each native event position once', async () => {
+    const elementFromPoint = vi.fn(() => document.querySelector('[data-workspace-host]'));
     Object.defineProperty(document, 'elementFromPoint', {
       configurable: true,
       value: elementFromPoint,
     });
-    Object.defineProperty(window, 'devicePixelRatio', {
-      configurable: true,
-      value: 2,
+    const onDropPaths = vi.fn();
+    await act(async () => root.render(createElement(Harness, { onDropPaths })));
+
+    await act(async () => {
+      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md'], position: { x: 10, y: 10 } } });
+      mocks.listener?.({ payload: { type: 'over', position: { x: 11, y: 11 } } });
+      mocks.listener?.({ payload: { type: 'drop', paths: ['/notes/a.md'], position: { x: 12, y: 12 } } });
     });
 
-    expect(elementFromExternalDropPosition({ x: 20, y: 20 }, 2)).toBe(target);
-    expect(elementFromPoint).toHaveBeenCalledWith(10, 10);
-
-    Object.defineProperty(document, 'elementFromPoint', {
-      configurable: true,
-      value: previousElementFromPoint,
-    });
-    Object.defineProperty(window, 'devicePixelRatio', {
-      configurable: true,
-      value: previousDevicePixelRatio,
-    });
+    expect(elementFromPoint).toHaveBeenCalledTimes(3);
+    expect(onDropPaths).toHaveBeenCalledOnce();
   });
 
   it('does not let an unrelated HTML drag suppress native file events', async () => {
@@ -219,12 +214,12 @@ describe('useMarkdownFileDrop', () => {
 
     await act(async () => {
       document.dispatchEvent(new Event('dragstart', { bubbles: true }));
-      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md'] } });
-      mocks.listener?.({ payload: { type: 'drop', paths: ['/notes/a.md'] } });
+      mocks.listener?.({ payload: { type: 'enter', paths: ['/notes/a.md'], position: { x: 10, y: 10 } } });
+      mocks.listener?.({ payload: { type: 'drop', paths: ['/notes/a.md'], position: { x: 10, y: 10 } } });
     });
 
     expect(onDropPaths).toHaveBeenCalledOnce();
-    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.md']);
+    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.md'], 'main-third');
   });
 
   it('ignores late native events after the host unmounts', async () => {
@@ -257,7 +252,7 @@ describe('useMarkdownFileDrop', () => {
     })));
 
     await act(async () => {
-      mocks.listener?.({ payload: { type: 'drop', paths: ['/notes/a.md'] } });
+      mocks.listener?.({ payload: { type: 'drop', paths: ['/notes/a.md'], position: { x: 10, y: 10 } } });
       await Promise.resolve();
     });
     expect(onError).toHaveBeenCalledWith(failure);

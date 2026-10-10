@@ -62,10 +62,7 @@ export function createAgentSessionStateStorage(
         globalMeta.settings ?? DEFAULT_AGENT_SESSION_META.settings,
       );
 
-      // Existing releases stored all fields in the global key. Use those
-      // window fields only as a one-time fallback for the main Webview.
-      const legacyWindowMeta = windowLabel === "main" ? globalMeta : {};
-      const local = windowMeta ?? legacyWindowMeta;
+      const local = windowMeta ?? {};
       if (!globalEnvelope && !windowEnvelope) return null;
       return envelope(
         {

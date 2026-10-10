@@ -1,5 +1,5 @@
 import type { AgentTypeKey, RuntimeConfig } from "@/types/agent";
-import type { LiveMessageState } from "@features/agent/store/chunk-result";
+import type { ChatMessage } from "@/types";
 
 export type AgentConversationSource = {
   /**
@@ -17,8 +17,8 @@ export interface AgentConversationInstance {
   agentType: AgentTypeKey;
   title: string;
   threadId: string | null;
-  /** Provider session id loaded with the conversation instance. */
-  sessionId?: string | null;
+  /** Derived native session identity; never persisted with the UI instance. */
+  providerSessionId?: string | null;
   runtimeConfig?: RuntimeConfig | null;
   /** Observability only. The backend is the sole writer and runtime authority. */
   readonly frozenCwd?: string | null;
@@ -27,7 +27,10 @@ export interface AgentConversationInstance {
   updatedAt: number;
 }
 
-export interface AgentConversationMessageState extends LiveMessageState {
+export interface AgentConversationMessageState {
+  messages: ChatMessage[];
+  pendingAssistantId: string | null;
+  pendingReasoningId: string | null;
   oldestSequence: number | null;
   snapshotSequence?: number | null;
   hasMoreHistory: boolean;

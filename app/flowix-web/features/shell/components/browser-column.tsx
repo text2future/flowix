@@ -5,6 +5,8 @@ import {
   closeBrowserColumnTabsToRight,
   closeOtherBrowserColumnTabs,
   hideBrowserColumn,
+  openBrowserColumnAgentConversation,
+  openBrowserColumnNotebookNote,
   openBrowserColumnTabInMainWorkColumn,
   registerBrowserColumnFlush,
   reorderBrowserColumnTab,
@@ -15,11 +17,8 @@ import {
 import { BrowserColumnHeader } from './browser-column-header';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
-import { useNoteStore } from '@features/memo/store/note-store';
-import { noteRepository } from '@features/memo/services';
-import { openBrowserColumnAgentConversation, openBrowserColumnNotebookNote } from '@features/workspace/use-cases/browser-column-navigation';
-import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
-import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
+import { createShellNote, useShellSelectedNotebook } from '@features/memo/public/shell-api';
+import { createBrowserColumnAgentConversation } from '@features/agent/public/shell-api';
 import type { AgentTypeKey } from '@/types/agent';
 import {
   captureLatestDocumentContent,
@@ -86,12 +85,11 @@ export function BrowserColumn({
     activePathHasDuplicateTab,
   } = useBrowserColumnViewModel();
   const { isFocused, focusBrowserColumn } = useBrowserColumnFocusViewModel();
-  const selectedNotebook = useNoteStore((state) => state.selectedNotebook);
+  const selectedNotebook = useShellSelectedNotebook();
   const handleCreateNote = useCallback(async () => {
     if (!selectedNotebook) return;
     try {
-      const created = await noteRepository.create(undefined, selectedNotebook.id);
-      useNoteStore.getState().upsertCreatedNote(created);
+      const created = await createShellNote(selectedNotebook.id);
       await openBrowserColumnNotebookNote(created.path, selectedNotebook.id, selectedNotebook.path);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('tabWindow.createNote.failed'));
@@ -99,15 +97,9 @@ export function BrowserColumn({
   }, [selectedNotebook, t]);
   const handleCreateAgentConversation = useCallback(async (typeKey: AgentTypeKey) => {
     if (!selectedNotebook) return;
-    const instance = useAgentSessionStore.getState().createInstance({
-      agentType: typeKey,
-      title: '',
-      threadId: null,
-      source: { kind: 'dedicated', notebookId: selectedNotebook.id, documentPath: null },
-      runtimeConfig: buildInitialInstanceRuntimeConfig(typeKey),
-    });
+    const instanceId = createBrowserColumnAgentConversation(typeKey, selectedNotebook.id);
     try {
-      await openBrowserColumnAgentConversation(instance.instanceId);
+      await openBrowserColumnAgentConversation(instanceId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('tabWindow.createConversation.failed'));
     }

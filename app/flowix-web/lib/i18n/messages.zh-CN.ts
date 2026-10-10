@@ -1124,6 +1124,7 @@ const zhCN = {
     "memo.create.note": "笔记",
     "memo.create.table": "多维表格",
     "memo.create.more": "新建…",
+    "memo.fileTree.import": "导入",
     "memo.create.tableDialogTitle": "新建多维表格",
     "memo.create.tableDefaultName": "新建多维表格",
     "memo.create.tableDescription": "输入文件名称开始创建",
@@ -1692,6 +1693,7 @@ const zhCN = {
     "editor.tagMention.create": "新建",
     "editor.tagMention.loadMore": "加载更多",
     "editor.threadCard.running": "运行中",
+    "editor.threadCard.stopping": "正在停止",
     "editor.threadCard.failed": "失败",
     "editor.threadCard.cancelled": "已取消",
     "editor.threadCard.thinking": "思考中",
@@ -1828,8 +1830,7 @@ const zhCN = {
     "shell.navigation.failed": "无法完成导航",
     "shell.emptyDocument": "请选择一个文档",
     "shell.dropOverlay.title": "拖入松开，打开文件",
-    "shell.dropOverlay.subtitle": "仅支持 Markdown 格式文件",
-    "shell.dropOverlay.manyOpened": "已打开 {count} 个 Markdown 文档",
+    "shell.dropOverlay.subtitle": "在此处打开本地文件",
 
     // preferences extras
     "preferences.format.fontDownloaded": "字体已下载到本地",

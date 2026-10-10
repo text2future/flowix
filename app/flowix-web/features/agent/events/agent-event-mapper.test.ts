@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { AgentEventMapperState } from "./agent-event-mapper";
 import { mapAgentChunkToEvent } from "./agent-event-mapper";
 
@@ -7,8 +7,6 @@ function state(
 ): AgentEventMapperState {
   return {
     threadTypes: {},
-    threadStates: {},
-    externalSessionResolutions: {},
     ...partial,
   };
 }
@@ -189,11 +187,7 @@ describe("agent event mapper", () => {
         agent_type: "codex",
         run_id: "run-1",
       },
-      state({
-        externalSessionResolutions: {
-          "codex-local-inst-1": "codex-real-session",
-        },
-      }),
+      state(),
       () => 123,
     );
 
@@ -214,11 +208,7 @@ describe("agent event mapper", () => {
         agent_type: "codex",
         run_id: "run-1",
       },
-      state({
-        externalSessionResolutions: {
-          "codex-local-inst-1": "codex-real-session",
-        },
-      }),
+      state(),
       () => 123,
     );
 
@@ -230,47 +220,30 @@ describe("agent event mapper", () => {
     });
   });
 
-  it("reuses the active run id when chunks omit run_id", () => {
-    vi.spyOn(Math, "random").mockReturnValue(0.1);
-    const event = mapAgentChunkToEvent(
+  it("rejects a chunk without run_id", () => {
+    expect(() => mapAgentChunkToEvent(
       {
         kind: "reasoning",
         thread_id: "thread-1",
         text: "thinking",
         agent_type: "deepseek-harness",
       },
-      state({
-        threadStates: {
-          "thread-1": { activeRunId: "active-run" },
-        },
-      }),
+      state(),
       () => 123,
-    );
-
-    expect(event.runId).toBe("active-run");
-    vi.restoreAllMocks();
+    )).toThrow("missing run_id");
   });
 
-  it("routes a late usage chunk to the resident last run", () => {
-    const event = mapAgentChunkToEvent(
+  it("rejects a late usage chunk without its own run_id", () => {
+    expect(() => mapAgentChunkToEvent(
       {
         kind: "usage",
         thread_id: "thread-1",
         agent_type: "deepseek-harness",
         usage: { input_tokens: 10, output_tokens: 4 },
       },
-      state({
-        threadStates: {
-          "thread-1": {
-            activeRunId: null,
-            lastRunId: "run-finished",
-          },
-        },
-      }),
+      state(),
       () => 123,
-    );
-
-    expect(event.runId).toBe("run-finished");
+    )).toThrow("missing run_id");
   });
 
   it("folds Claude reasoning from multiple provider messages into one run id", () => {

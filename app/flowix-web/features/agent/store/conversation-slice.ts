@@ -91,7 +91,7 @@ function normalizeTitle(title: string | null | undefined): string {
 }
 
 export function persistConversationInstance(instance: AgentConversationInstance): void {
-  const { title, sessionId: _sessionId, ...persisted } = instance;
+  const { title, providerSessionId: _providerSessionId, ...persisted } = instance;
   enqueueInstancePersistence(
     instance.instanceId,
     () => agentClient.upsertConversationInstance({
@@ -109,7 +109,7 @@ export function persistConversationInstance(instance: AgentConversationInstance)
 async function persistConversationInstanceAndWait(
   instance: AgentConversationInstance,
 ): Promise<AgentConversationInstance> {
-  const { title, sessionId: _sessionId, ...persisted } = instance;
+  const { title, providerSessionId: _providerSessionId, ...persisted } = instance;
   const backend = await queueInstancePersistence(instance.instanceId, () =>
     agentClient.upsertConversationInstance({
       ...persisted,
@@ -146,6 +146,11 @@ function deletePersistedInstancesForThread(threadId: string): Promise<void> {
 export function normalizeBackendInstance(
   instance: AgentConversationInstance | BackendAgentConversationInstance,
 ): AgentConversationInstance {
+  const providerSessionId = "sessionId" in instance
+    ? instance.sessionId ?? null
+    : "providerSessionId" in instance ? instance.providerSessionId ?? null : null;
+  const { sessionId: _nativeSessionId, ...normalizedInstance } = instance as
+    AgentConversationInstance & { sessionId?: string | null };
   const threadTitle = "threadTitle" in instance ? instance.threadTitle : null;
   let runtimeConfig: RuntimeConfig | null = null;
   if (instance.runtimeConfig) {
@@ -178,7 +183,8 @@ export function normalizeBackendInstance(
     };
   }
   return {
-    ...instance,
+    ...normalizedInstance,
+    providerSessionId,
     title: threadTitle ?? "",
     runtimeConfig,
   };
@@ -216,9 +222,9 @@ export interface ConversationSlice {
   removeInstance(instanceId: string): void;
   removeInstancesForThread(threadId: string): void;
   removeInstancesForThreadAndWait(threadId: string): Promise<void>;
-  resolveSessionByThreadId(
-    localThreadId: string,
-    sessionId: string,
+  bindProviderSessionId(
+    threadId: string,
+    providerSessionId: string,
     agentType: AgentTypeKey,
   ): string | null;
   findByThreadId(threadId: string): AgentConversationInstance | null;
@@ -316,7 +322,8 @@ export function createConversationSlice(
             ? normalizeTitle(patch.title)
             : existing?.title ?? "",
         threadId: patch.threadId ?? existing?.threadId ?? null,
-        sessionId: existing?.sessionId ?? null,
+        providerSessionId: patch.threadId && patch.threadId !== existing?.threadId
+          ? null : existing?.providerSessionId ?? null,
         runtimeConfig:
           patch.runtimeConfig !== undefined
             ? patch.runtimeConfig
@@ -364,6 +371,8 @@ export function createConversationSlice(
         agentType: patch.agentType ?? existing.agentType,
         threadId:
           patch.threadId !== undefined ? patch.threadId : existing.threadId,
+        providerSessionId: patch.threadId !== undefined && patch.threadId !== existing.threadId
+          ? null : existing.providerSessionId ?? null,
         updatedAt: nextUpdatedAt(existing),
       };
       get().setConversationRegistry((registry) => ({
@@ -380,7 +389,7 @@ export function createConversationSlice(
         agentType: patch.agentType,
         title: existing?.title || normalizeTitle(patch.title),
         threadId: existing?.threadId ?? patch.threadId,
-        sessionId: existing?.sessionId ?? null,
+        providerSessionId: existing?.providerSessionId ?? null,
         runtimeConfig: existing?.runtimeConfig ?? patch.runtimeConfig ?? null,
         source: patch.source,
         createdAt: existing?.createdAt ?? now,
@@ -488,29 +497,16 @@ export function createConversationSlice(
       }
       await deletePersistedInstancesForThread(threadId);
     },
-    resolveSessionByThreadId: (localThreadId, sessionId, agentType) => {
-      const instance = get().findByThreadId(localThreadId);
+    bindProviderSessionId: (threadId, providerSessionId, agentType) => {
+      const instance = get().findByThreadId(threadId);
       get().applySessionResolved({
         kind: "session_resolved",
         agentType,
-        threadId: localThreadId,
-        sessionId,
-        runId: `${localThreadId}-session-resolved`,
+        threadId,
+        sessionId: providerSessionId,
+        runId: `${threadId}-session-resolved`,
         timestamp: Date.now(),
       });
-      // sessionId is a shared provider identity used by every badge surface.
-      // Keep it in the in-memory conversation instance as soon as the runtime
-      // resolves it; the backend remains the source of truth and persistence
-      // still deliberately omits this derived field.
-      if (instance && instance.sessionId !== sessionId) {
-        get().setConversationRegistry((registry) => ({
-          ...registry,
-          instances: {
-            ...registry.instances,
-            [instance.instanceId]: { ...instance, sessionId },
-          },
-        }));
-      }
       return instance?.instanceId ?? null;
     },
     findByThreadId: (threadId) =>

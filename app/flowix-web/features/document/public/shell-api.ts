@@ -3,9 +3,10 @@ export { DocumentTitlebarMac } from '@features/document/components/document-titl
 export { NotePropertiesHost } from '@features/document/components/note-properties-host';
 export { useDocumentCommands } from '@features/document/components/use-document-commands';
 export {
-  markdownPaths,
-  useMarkdownFileDrop,
-} from '@features/document/components/use-markdown-file-drop';
+  EXTERNAL_FILE_DROP_EVENT,
+  type ExternalFileDropDetail,
+  useExternalFileDrop,
+} from '@features/document/components/use-external-file-drop';
 export {
   AgentThreadCardFullscreenExitButton,
   useFullscreenAgentThreadCardInfo,

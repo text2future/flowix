@@ -43,8 +43,8 @@ pub(crate) async fn start_plugin_chat(
         let workspace_paths = message.workspace_paths_for_runtime(runtime.key());
         sync_native_agent_instructions(std::path::Path::new(cwd), runtime.key(), &workspace_paths)?;
     }
-    runtime_handle(state, runtime)
-        .chat_stream(thread_id, message, app_handle)
+    state.external_runtimes
+        .dispatch_chat(thread_id, runtime, message, app_handle)
         .await
         .map(|_| ())
 }

@@ -28,6 +28,8 @@ mod memo_events;
 mod plugin;
 mod process_window;
 mod runtime_log;
+#[cfg(windows)]
+mod runtime_state;
 mod system_data;
 mod template_store;
 mod update_security;

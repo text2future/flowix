@@ -59,8 +59,8 @@ export function applyResolvedExternalSession(
   sessionId: string,
   typeKey: AgentTypeKey
 ): boolean {
-  if (!sessionId || sessionId === runtimeThreadId) return false;
-  useAgentSessionStore.getState().migrateThreadState(runtimeThreadId, sessionId, typeKey);
+  if (!sessionId) return false;
+  useAgentSessionStore.getState().bindProviderSessionId(runtimeThreadId, sessionId, typeKey);
   if (localThreadIdsByHandle.get(handleId) === runtimeThreadId) {
     localThreadIdsByHandle.delete(handleId);
   }

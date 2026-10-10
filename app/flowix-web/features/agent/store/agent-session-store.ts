@@ -1,15 +1,3 @@
-/**
- * `useAgentSessionStore` ── agent session 的单一真源.
- *
- * 三 sub-projection: sessionMeta (localStorage) / conversationRegistry
- * (backend SQLite) / threadProjections (in-memory, 派生自 events).
- *
- * 本文件只负责 Zustand 组合、持久化边界和 runtime 编排。各状态域由 slice
- * 实现，但只在这里执行一次 create/persist，因此消息所有权仍保持单一。
- *
- * 完整方案: `/Users/rop/Desktop/Notes/开发任务管理/Agent 消息双写重构方案.md`
- */
-
 import { create } from "zustand";
 import {
   createJSONStorage,
@@ -20,6 +8,7 @@ import type {
   AgentMessageAttachment,
   AgentChunk,
   AgentEvent,
+  AgentRunState,
   AgentTypeKey,
   RunInfo,
   RuntimeConfig,
@@ -39,8 +28,8 @@ import {
   mapAgentChunkToEvent,
 } from "@features/agent/events/agent-event-mapper";
 import { completedRunUserMessageId } from "@features/agent/events/message-identity";
-import { resolveProductThreadId } from "@features/agent/store/external-session";
-import { eventMapperStateForChunk } from "@features/agent/store/agent-chunk-routing";
+import { isKnownProductThreadId, resolveProductThreadId, resolveStoreThreadId } from "@features/agent/store/external-session";
+import { resolveIncomingChunkThreadId } from "@features/agent/store/agent-chunk-routing";
 import {
   recordAgentChunkMapped,
   recordAgentStopRequested,
@@ -59,9 +48,9 @@ import {
 import { dispatchChatStream } from "@features/agent/store/chat-stream";
 import { translate } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
-import { applyRunStopped } from "@features/agent/store/run-lifecycle";
 import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import { createAgentSessionStateStorage } from "@features/agent/store/window-session-storage";
+import { withRunPhase } from "@features/agent/store/thread-run-phase";
 import { installAgentSessionRuntimeBridges } from "@features/agent/store/agent-session-runtime-bridges";
 import { DEFAULT_AGENT_SESSION_META } from "@features/agent/store/session-state";
 import { rehydrateSessionMeta } from "@features/agent/store/session-persistence";
@@ -91,19 +80,10 @@ export {
   type AgentConversationRegistry,
   type AgentSessionMeta,
 } from "@features/agent/store/session-state";
-import {
-  projectionToRuns,
-  runsToProjectionRuns,
-} from "@features/agent/store/session-reducer";
 
 const RUNNING_RUN_OPTIMISTIC_GRACE_MS = 3000;
 const RUN_MISSING_FROM_SNAPSHOT_REASON = "missing_from_snapshot";
 const logger = createLogger("agent-session-store");
-
-// --------------------------------------------------------------------
-// Types
-// --------------------------------------------------------------------
-
 export interface AgentSessionStore
   extends SessionMetaSlice,
     ProjectionSlice,
@@ -135,7 +115,10 @@ export interface AgentSessionStore
   dispatchAgentEvent: (event: AgentEvent) => void;
   flushAgentEventBuffer: () => void;
   dispatchAgentChunk: (chunk: AgentChunk) => void;
-  reconcileRunningRunsFromSnapshot: (running: Record<string, RunInfo>) => void;
+  reconcileRunningRunsFromSnapshot: (
+    running: Record<string, RunInfo>,
+    requestProjections?: Readonly<Record<string, ThreadProjection>>,
+  ) => void;
   reconcileRunningRuns: () => Promise<Record<string, RunInfo>>;
 }
 
@@ -150,6 +133,11 @@ export interface PendingSteeringMessage {
 }
 
 type SessionGet = () => AgentSessionStore;
+
+function resolveCommandThreadId(state: AgentSessionStore, threadId: string, runtime: AgentTypeKey): string | null {
+  return resolveStoreThreadId(threadId, state.sessionMeta.externalSessionResolutions, runtime,
+    state.sessionMeta.threadTypes, (id) => isKnownProductThreadId(id, state));
+}
 
 function ensureConversationInstanceForSession(
   get: SessionGet,
@@ -179,9 +167,6 @@ function ensureConversationInstanceForSession(
   });
 }
 
-// --------------------------------------------------------------------
-// Store
-// --------------------------------------------------------------------
 
 export const useAgentSessionStore = create<AgentSessionStore>()(
   subscribeWithSelector(
@@ -189,14 +174,6 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
     (set, get) => {
       const streamDispatcher = createStreamEventDispatcher({
         getProjection: (threadId) => get().threadProjections[threadId],
-        getThreadAgentType: (threadId) =>
-          get().sessionMeta.threadTypes[threadId] ??
-          get().sessionMeta.activeAgentTypeKey,
-        resolveThreadId: (threadId) =>
-          resolveProductThreadId(
-            threadId,
-            get().sessionMeta.externalSessionResolutions,
-          ),
         canDispatch: (threadId) => !get().threadTombstones[threadId],
         dispatch: (event) => get().dispatch(event),
         applySessionResolved: (event) => get().applySessionResolved(event),
@@ -207,6 +184,9 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
         const canonicalThreadId = resolveProductThreadId(
           event.threadId,
           state.sessionMeta.externalSessionResolutions,
+          event.agentType,
+          state.sessionMeta.threadTypes,
+          (id) => isKnownProductThreadId(id, state),
         );
         const projection = state.threadProjections[canonicalThreadId];
         const activeRunId = projection?.runs.activeRunId;
@@ -222,7 +202,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
         ...createSessionMetaSlice(set, get),
         ...createConversationSlice(set, get),
         ...createProjectionSlice(set),
-        ...createThreadHistorySlice(set, get),
+        ...createThreadHistorySlice(get),
         ...createThreadLifecycleSlice(set, get),
         pendingSteeringMessages: {},
         enqueueSteeringMessage: (message) => {
@@ -265,34 +245,23 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           const trimmed = content.trim();
           if (!threadId || (!trimmed && !options?.imagePaths?.length)) return;
           const state = get();
-          const type = getAgentType(
-            typeKey ??
-              state.sessionMeta.threadTypes[threadId] ??
-              state.sessionMeta.activeAgentTypeKey,
-          );
+          const type = getAgentType(typeKey ?? state.sessionMeta.threadTypes[threadId] ?? state.sessionMeta.activeAgentTypeKey);
+          const productThreadId = resolveCommandThreadId(state, threadId, type.key);
+          if (!productThreadId) return;
+          if (productThreadId !== threadId) return get().sendMessageToThread(productThreadId, content, type.key, options);
+          if (state.threadTombstones[threadId] || state.threadMutationGuards[threadId]) return;
           state.bindThreadType(threadId, type.key);
-          const isFirstMessage =
-            options?.isFirstMessage ??
-            (state.threadProjections[threadId]?.messages.length ?? 0) === 0;
+          const isFirstMessage = options?.isFirstMessage ?? (state.threadProjections[threadId]?.messages.length ?? 0) === 0;
           const conversationTitle = normalizeThreadTitle(options?.conversationTitle);
           if (isFirstMessage && conversationTitle) {
-            const titleThreadId = resolveProductThreadId(
-              threadId,
-              state.sessionMeta.externalSessionResolutions,
-            );
             state.setSessionMeta((meta) => ({
               ...meta,
-              // Thread cards and the conversation detail have their own
-              // instance-backed titles. An instance-backed send must never
-              // overwrite the runtime fallback title for another thread
-              // (otherwise card B can make card A display B's title during
-              // fallback/recovery). The main conversation has no instanceId
-              // and keeps the existing current-title behavior.
+              // Instance-backed sends must not replace another thread's fallback title.
               ...(!options?.instanceId
                 ? {
                     currentThreadTitles: {
                       ...meta.currentThreadTitles,
-                      [titleThreadId]: conversationTitle,
+                      [threadId]: conversationTitle,
                     },
                   }
                 : {}),
@@ -420,44 +389,69 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
         },
         stopThreadRun: async (threadId, runId) => {
           if (!threadId) return;
+          const meta = get().sessionMeta;
+          const runtime = meta.threadTypes[threadId] ?? meta.activeAgentTypeKey;
+          const productThreadId = resolveCommandThreadId(get(), threadId, runtime);
+          if (!productThreadId) return;
+          if (productThreadId !== threadId) return get().stopThreadRun(productThreadId, runId);
           streamDispatcher.flushBuffer();
-          // Steering messages belong to the active turn. Once that turn is
-          // explicitly stopped, none of its queued messages can be delivered
-          // safely, so remove them immediately instead of waiting for a
-          // provider user_message acknowledgement that will never arrive.
           const projectionBeforeStop = get().threadProjections[threadId];
           const activeRunIdBeforeStop = projectionBeforeStop?.runs.activeRunId;
+          if (activeRunIdBeforeStop &&
+            projectionBeforeStop?.runs.runs[activeRunIdBeforeStop]?.phase === "stopping") return;
           const pendingCodexCommandRunId =
             projectionBeforeStop?.runs.codexCommand?.status === "pending"
               ? projectionBeforeStop.runs.codexCommand.runId
               : undefined;
-          if (!runId || !activeRunIdBeforeStop || runId === activeRunIdBeforeStop) {
-            get().clearPendingSteeringMessages(threadId);
-          }
+          if (runId && runId !== activeRunIdBeforeStop && runId !== pendingCodexCommandRunId) return;
           let targetRunId: string | undefined;
-          get().setThreadProjection(threadId, (projection) => {
+          let previousPhase: AgentRunState["phase"];
+          get().updateThreadRuns(threadId, (projection) => {
             const candidate = runId ?? projection.runs.activeRunId ?? undefined;
-            if (!candidate || !projection.runs.runs[candidate]) return projection;
+            if (!candidate || !projection.runs.runs[candidate]) return projection.runs;
             targetRunId = candidate;
             const run = projection.runs.runs[candidate];
+            previousPhase = run.phase;
             recordAgentStopRequested(threadId, candidate, run.agentType);
-            const runs = applyRunStopped(projectionToRuns(projection), candidate, Date.now());
-            return {
-              ...projection,
-              runs: runsToProjectionRuns(runs),
-              pending: { assistantId: null, reasoningId: null },
-            };
+            return withRunPhase(projection, candidate, "stopping").runs;
           });
+          let accepted = false;
           try {
             const meta = get().sessionMeta;
             const type = getAgentType(
               meta.threadTypes[threadId] ?? meta.activeAgentTypeKey,
             );
-            const stopRunId = targetRunId ??
+            let stopRunId = targetRunId ??
               (type.key === "codex" ? pendingCodexCommandRunId : undefined);
-            await agentClient.stopChatStream(threadId, type.key, stopRunId);
+            if (!stopRunId) {
+              const running = await agentClient.runningThreads();
+              const candidate = Object.entries(running).find(([reportedThreadId, info]) =>
+                (reportedThreadId === threadId || info.pendingThreadId === threadId) &&
+                (!info.agentType || info.agentType === type.key));
+              stopRunId = candidate?.[1].runId;
+              if (!stopRunId) return;
+            }
+            accepted = await agentClient.stopChatStream(threadId, type.key, stopRunId);
+            if (accepted && (!runId || !activeRunIdBeforeStop || runId === activeRunIdBeforeStop)) {
+              get().clearPendingSteeringMessages(threadId);
+            }
           } catch (err) {
             logger.error("Failed to stop stream", { error: String(err) });
+          } finally {
+            if (!accepted && targetRunId) {
+              try {
+                const running = await agentClient.runningThreads();
+                const reported = Object.entries(running).find(([reportedThreadId, info]) =>
+                  info.runId === targetRunId &&
+                  (reportedThreadId === threadId || info.pendingThreadId === threadId));
+                if (reported && reported[1].phase !== "stopping") {
+                  get().updateThreadRuns(threadId, (projection) =>
+                    withRunPhase(projection, targetRunId!, reported[1].phase ?? previousPhase, "stopping").runs);
+                }
+              } catch (error) {
+                logger.warn("Could not confirm run state after stop request", { error: String(error) });
+              }
+            }
           }
         },
         dispatchAgentEvent: (event) => {
@@ -467,33 +461,47 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
         flushAgentEventBuffer: () => streamDispatcher.flushBuffer(),
         dispatchAgentChunk: (chunk) => {
           const state = get();
+          if (!chunk.run_id?.trim()) {
+            logger.warn("Ignoring agent chunk without run ID", { threadId: chunk.thread_id, kind: chunk.kind });
+            return;
+          }
+          const threadId = resolveIncomingChunkThreadId(chunk, state);
+          if (!threadId) {
+            logger.warn("Ignoring agent chunk without a unique product thread", { threadId: chunk.thread_id, kind: chunk.kind });
+            return;
+          }
+          const productChunk = threadId === chunk.thread_id ? chunk : { ...chunk, thread_id: threadId };
           const event = mapAgentChunkToEvent(
-            chunk,
-            eventMapperStateForChunk(chunk, state),
+            productChunk,
+            { threadTypes: state.sessionMeta.threadTypes },
           );
           recordAgentChunkMapped(chunk, event);
           clearPendingSteeringForLifecycleEvent(event);
           streamDispatcher.dispatch(event);
         },
-        reconcileRunningRunsFromSnapshot: (running) => {
+        reconcileRunningRunsFromSnapshot: (running, requestProjections) => {
           const now = Date.now();
           const snapshotThreadIds = new Set<string>();
           for (const [reportedThreadId, info] of Object.entries(running)) {
-            const localThreadId = info.pendingThreadId || reportedThreadId;
+            const sourceThreadId = info.pendingThreadId || reportedThreadId;
             const productThreadId = resolveProductThreadId(
-              localThreadId,
+              sourceThreadId,
               get().sessionMeta.externalSessionResolutions,
+              info.agentType ? normalizeAgentTypeKey(info.agentType) : undefined,
+              get().sessionMeta.threadTypes,
+              (id) => isKnownProductThreadId(id, get()),
             );
             snapshotThreadIds.add(productThreadId);
+            if (requestProjections && requestProjections[productThreadId] !== get().threadProjections[productThreadId]) continue;
             const current = get();
             const agentType = normalizeAgentTypeKey(
               info.agentType ??
                 current.sessionMeta.threadTypes[productThreadId] ??
-                current.sessionMeta.threadTypes[localThreadId] ??
+                current.sessionMeta.threadTypes[sourceThreadId] ??
                 current.sessionMeta.activeAgentTypeKey,
             );
             if (info.sessionId && info.sessionId !== productThreadId) {
-              current.resolveSessionByThreadId(
+              current.bindProviderSessionId(
                 productThreadId,
                 info.sessionId,
                 agentType,
@@ -504,7 +512,6 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
               threadTypes: {
                 ...meta.threadTypes,
                 [productThreadId]: agentType,
-                ...(info.sessionId ? { [info.sessionId]: agentType } : {}),
               },
               externalSessionResolutions:
                 info.sessionId && info.sessionId !== productThreadId
@@ -529,15 +536,13 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
               { defaultTitle: defaultExternalThreadTitle(agentType) },
             );
             const startedAt = info.startedAt || now;
-            get().setThreadProjection(productThreadId, (projection) => {
+            get().updateThreadRuns(productThreadId, (projection) => {
               const runId =
                 info.runId ??
                 projection.runs.activeRunId ??
                 `${productThreadId}-${now}`;
               const existing = projection.runs.runs[runId];
               return {
-                ...projection,
-                runs: {
                   isLoading: true,
                   activeRunId: runId,
                   runs: {
@@ -549,13 +554,15 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
                       threadId: productThreadId,
                       startedAt: existing?.startedAt ?? startedAt,
                       status: "running",
+                      phase: info.phase ?? existing?.phase ?? "running",
                       currentTool: info.currentTool ?? existing?.currentTool ?? null,
                       model: existing?.model,
                       modelId: existing?.modelId,
                     },
                   },
                   lastRun: projection.runs.lastRun,
-                },
+                  dshCommand: projection.runs.dshCommand,
+                  codexCommand: projection.runs.codexCommand,
               };
             });
           }
@@ -563,6 +570,7 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             get().threadProjections,
           )) {
             if (snapshotThreadIds.has(threadId) || !projection.runs.isLoading) continue;
+            if (requestProjections && requestProjections[threadId] !== projection) continue;
             const activeRunId = projection.runs.activeRunId;
             const activeRun = activeRunId
               ? projection.runs.runs[activeRunId]
@@ -588,8 +596,9 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           }));
         },
         reconcileRunningRuns: async () => {
+          const requestProjections = get().threadProjections;
           const running = await agentClient.runningThreads();
-          get().reconcileRunningRunsFromSnapshot(running);
+          get().reconcileRunningRunsFromSnapshot(running, requestProjections);
           return running;
         },
       });
@@ -600,7 +609,6 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
       partialize: (state) => ({
         sessionMeta: {
           ...state.sessionMeta,
-          // runtime-fetched / runtime-only fields are not persisted.
           threadLists: DEFAULT_AGENT_SESSION_META.threadLists,
           lastRunningRunsReconciledAt:
             DEFAULT_AGENT_SESSION_META.lastRunningRunsReconciledAt,

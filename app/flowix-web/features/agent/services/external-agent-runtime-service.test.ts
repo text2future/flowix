@@ -27,7 +27,7 @@ const sessionStoreMock = vi.hoisted(() => ({
     threadProjections: {} as Record<string, { runs: { activeRunId: string | null } }>,
     setSessionMeta: vi.fn(),
     dispatch: vi.fn(),
-    migrateThreadState: vi.fn(),
+    bindProviderSessionId: vi.fn(),
     stopThreadRun: vi.fn(async () => undefined),
   },
 }));
@@ -78,7 +78,7 @@ describe('external agent runtime service', () => {
     expect(sessionStoreMock.state.setSessionMeta).toHaveBeenCalled();
   });
 
-  it('migrates local thread state when the external session is resolved', async () => {
+  it('binds the provider session to the product thread', async () => {
     const {
       applyResolvedExternalSession,
       beginExternalAgentThreadCardRun,
@@ -96,7 +96,7 @@ describe('external agent runtime service', () => {
     );
 
     expect(didApply).toBe(true);
-    expect(sessionStoreMock.state.migrateThreadState).toHaveBeenCalledWith(
+    expect(sessionStoreMock.state.bindProviderSessionId).toHaveBeenCalledWith(
       localThreadId,
       'codex-real-session',
       'codex'

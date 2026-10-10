@@ -82,7 +82,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
     : null;
   const agent = getAgentType(instance?.agentType ?? DEFAULT_AGENT_TYPE_KEY);
   const productThreadId = instance?.threadId ?? '';
-  const providerSessionId = instance?.sessionId ?? (
+  const providerSessionId = instance?.providerSessionId ?? (
     productThreadId ? getResolvedExternalSessionId(productThreadId) : null
   );
 
@@ -225,7 +225,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
             () => useAgentSessionStore.getState().getInstance(instanceId)?.threadId,
             () => {
               const current = useAgentSessionStore.getState().getInstance(instanceId);
-              return current?.sessionId ?? (
+              return current?.providerSessionId ?? (
                 current?.threadId
                   ? getResolvedExternalSessionId(current.threadId)
                   : null

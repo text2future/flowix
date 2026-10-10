@@ -400,6 +400,20 @@ impl ExternalLifecycleEmitter for PiRpcManager {
 
 impl PiRpcManager {
     pub fn new(thread_manager: Arc<ThreadManager>) -> Self {
+        #[cfg(windows)]
+        {
+            static INITIALIZE_SESSIONS: std::sync::Once = std::sync::Once::new();
+            INITIALIZE_SESSIONS.call_once(|| {
+                if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                    if let Err(error) =
+                        crate::runtime_state::migrate_pi_sessions(std::path::Path::new(&local))
+                    {
+                        // Legacy conversations remain accessible in place.
+                        tracing::warn!("Pi session migration deferred: {error}");
+                    }
+                }
+            });
+        }
         Self {
             thread_manager,
             sessions: Mutex::new(HashMap::new()),
@@ -420,9 +434,8 @@ impl PiRpcManager {
         if let Some(session) = session {
             session.shutdown(thread_id).await;
         }
-        let path = resolve_pi_session_dir(thread_id, false)?;
         let mut deleted = false;
-        for candidate in [path, legacy_pi_session_dir(thread_id)?] {
+        for candidate in pi_session_candidates(thread_id)? {
             match std::fs::remove_dir_all(candidate) {
                 Ok(()) => deleted = true,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -492,17 +505,33 @@ impl PiRpcManager {
             .map_err(|error| format!("cannot create Pi config directory: {error}"))?;
 
         let mut command = Command::new(resolve_pi_binary(app)?);
-        let mut tools = config.tools.split(',').map(str::to_owned).collect::<Vec<_>>();
-        if config.code_mode { tools.push("codemode".into()); }
-        if config.tool_search { tools.push("tool_search".into()); }
+        let mut tools = config
+            .tools
+            .split(',')
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if config.code_mode {
+            tools.push("codemode".into());
+        }
+        if config.tool_search {
+            tools.push("tool_search".into());
+        }
         let tools = tools.join(",");
         command
             .args(["--mode", "rpc", "--session-dir"])
             .arg(&session_dir)
             .arg("--tools")
             .arg(&tools)
-            .args(if config.code_mode { vec!["--extension", "builtin:codemode"] } else { Vec::new() })
-            .args(if config.tool_search { vec!["--extension", "builtin:tool-search"] } else { Vec::new() })
+            .args(if config.code_mode {
+                vec!["--extension", "builtin:codemode"]
+            } else {
+                Vec::new()
+            })
+            .args(if config.tool_search {
+                vec!["--extension", "builtin:tool-search"]
+            } else {
+                Vec::new()
+            })
             .current_dir(&config.cwd)
             .env("PI_CODING_AGENT_DIR", &config_dir)
             .stdin(Stdio::piped())
@@ -790,10 +819,7 @@ impl PiRpcManager {
                     .as_ref()
                     .is_some_and(|expected| expected != &snapshot.revision)
                 {
-                    return Err(
-                        "Pi history branch changed; refresh history before loading older pages"
-                            .into(),
-                    );
+                    return Err("HistoryChanged:pi_branch".into());
                 }
                 let mut snapshots = self.history_snapshots.lock().await;
                 snapshots.retain(|(id, previous)| {
@@ -1823,7 +1849,7 @@ impl PiRpcManager {
         &self,
         thread_id: &str,
         run_id: Option<&str>,
-        app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> bool {
         let active = self.active_runs.lock().await.get(thread_id).cloned();
         let Some(active) = active else {
@@ -1873,10 +1899,16 @@ impl PiRpcManager {
             *active.stop_reason.lock().await = Some(USER_STOPPED_REASON.to_string());
             active.stop_notify.notify_one();
         }
-        let active_run_id = active.run_id.clone();
-        self.finish_run(app, thread_id, &active_run_id, active, Ok(()))
-            .await;
-        true
+        let confirmed = tokio::time::timeout(PI_ABORT_SETTLE_TIMEOUT + Duration::from_secs(1), async {
+            loop {
+                let still_active = self.active_runs.lock().await.get(thread_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &active));
+                if !still_active { break; }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }).await.is_ok();
+        if !confirmed { tracing::warn!("[Pi RPC] StopUnconfirmed for run {}", active.run_id); }
+        confirmed
     }
 
     pub async fn running_threads(&self) -> HashMap<String, RunInfo> {
@@ -1890,20 +1922,30 @@ impl PiRpcManager {
         let mut running = HashMap::with_capacity(active_runs.len());
         for (thread_id, active) in active_runs {
             let session_id = active.session_id.lock().await.clone();
+            let stopping = active.stop_reason.lock().await.is_some();
+            let mut info = RunInfo::active(
+                active.started_at,
+                Some("Pi RPC"),
+                Some(AGENT_TYPE),
+                Some(active.run_id.clone()),
+                Some(thread_id.clone()),
+                session_id,
+            );
+            if stopping { info.phase = Some("stopping".to_string()); }
             running.insert(
-                thread_id.clone(),
-                RunInfo::active(
-                    active.started_at,
-                    Some("Pi RPC"),
-                    Some(AGENT_TYPE),
-                    Some(active.run_id.clone()),
-                    Some(thread_id),
-                    session_id,
-                ),
+                thread_id,
+                info,
             );
         }
         running
     }
+    /// Called only after update cleanup has finished and installation returned.
+    /// Existing processes stay stopped; subsequent requests can create sessions.
+    #[cfg(windows)]
+    pub(crate) fn resume_after_failed_update(&self) {
+        self.shutting_down.store(false, Ordering::Release);
+    }
+
     pub async fn stop_all(&self) -> usize {
         self.shutting_down.store(true, Ordering::Release);
         // Use the same map lock order as startup promotion. The shutdown flag
@@ -1914,15 +1956,15 @@ impl PiRpcManager {
         sessions.extend(std::mem::take(&mut *starting_map));
         drop(starting_map);
         drop(sessions_map);
-        self.active_runs.lock().await.clear();
         let count = sessions.len();
         futures::future::join_all(sessions.into_iter().map(|(thread_id, session)| async move {
             session.shutdown(&thread_id).await;
         }))
         .await;
+        self.active_runs.lock().await.clear();
         count
     }
-    pub async fn reap_inactive_runs(&self, app: &tauri::AppHandle, idle_timeout_ms: i64) -> usize {
+    pub async fn reap_inactive_runs(&self, _app: &tauri::AppHandle, idle_timeout_ms: i64) -> usize {
         let now = chrono::Utc::now().timestamp_millis();
         let stale_runs = self
             .active_runs
@@ -1936,15 +1978,25 @@ impl PiRpcManager {
             })
             .map(|(thread_id, active)| (thread_id.clone(), active.clone()))
             .collect::<Vec<_>>();
+        let mut confirmed = 0;
         for (thread_id, active) in &stale_runs {
             let reason = format!("watchdog_idle_timeout_ms={idle_timeout_ms}");
             *active.stop_reason.lock().await = Some(reason.clone());
+            active.stop_notify.notify_one();
             let session = { active.session.lock().await.clone() };
             if let Some(session) = session {
                 self.remove_session_if_same(thread_id, &session).await;
             }
-            self.finish_run(app, thread_id, &active.run_id, active.clone(), Err(reason))
-                .await;
+            let settled = tokio::time::timeout(PI_ABORT_SETTLE_TIMEOUT + Duration::from_secs(1), async {
+                loop {
+                    let still_active = self.active_runs.lock().await.get(thread_id)
+                        .is_some_and(|current| Arc::ptr_eq(current, active));
+                    if !still_active { break; }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }).await.is_ok();
+            if settled { confirmed += 1; }
+            else { tracing::warn!("[Pi RPC] watchdog StopUnconfirmed for run {}", active.run_id); }
         }
 
         let active_ids = self
@@ -1969,7 +2021,7 @@ impl PiRpcManager {
         for (thread_id, session) in idle_sessions {
             self.remove_idle_session_if_same(&thread_id, &session).await;
         }
-        stale_runs.len()
+        confirmed
     }
 }
 
@@ -2045,33 +2097,73 @@ fn legacy_pi_session_dir(thread_id: &str) -> Result<PathBuf, String> {
 }
 
 fn pi_session_root() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        return crate::runtime_state::windows_state_dir().map(|root| root.join("pi-sessions"));
+    }
+    #[cfg(not(windows))]
     dirs::data_local_dir()
         .or_else(dirs::home_dir)
         .map(|path| path.join("Flowix").join("pi-sessions"))
         .ok_or_else(|| "user data directory is unavailable".to_string())
 }
 
+fn pi_session_candidates(thread_id: &str) -> Result<Vec<PathBuf>, String> {
+    #[allow(unused_mut)]
+    let mut candidates = vec![
+        pi_session_dir(thread_id)?,
+        legacy_pi_session_dir(thread_id)?,
+    ];
+    #[cfg(windows)]
+    {
+        let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?;
+        let old_root = PathBuf::from(local).join("Flowix").join("pi-sessions");
+        candidates.push(
+            old_root.join(
+                candidates[0]
+                    .file_name()
+                    .ok_or("Pi session path has no name")?,
+            ),
+        );
+        candidates.push(
+            old_root.join(
+                candidates[1]
+                    .file_name()
+                    .ok_or("Pi session path has no name")?,
+            ),
+        );
+    }
+    Ok(candidates)
+}
+
 fn resolve_pi_session_dir(thread_id: &str, create: bool) -> Result<PathBuf, String> {
-    let stable = pi_session_dir(thread_id)?;
-    let legacy = legacy_pi_session_dir(thread_id)?;
-    if !stable.exists() && legacy.exists() {
-        std::fs::create_dir_all(stable.parent().ok_or("Pi session path has no parent")?)
-            .map_err(|error| format!("cannot create Pi session directory: {error}"))?;
-        match std::fs::rename(&legacy, &stable) {
-            Ok(()) => {}
-            Err(_) if stable.exists() => {}
-            Err(error) => {
-                return Err(format!(
-                    "could not migrate Pi conversation session: {error}"
-                ));
+    #[cfg(windows)]
+    let path =
+        crate::runtime_state::resolve_pi_session_candidates(&pi_session_candidates(thread_id)?)?;
+    #[cfg(not(windows))]
+    let path = {
+        let stable = pi_session_dir(thread_id)?;
+        let legacy = legacy_pi_session_dir(thread_id)?;
+        if !stable.exists() && legacy.exists() {
+            std::fs::create_dir_all(stable.parent().ok_or("Pi session path has no parent")?)
+                .map_err(|error| format!("cannot create Pi session directory: {error}"))?;
+            match std::fs::rename(&legacy, &stable) {
+                Ok(()) => {}
+                Err(_) if stable.exists() => {}
+                Err(error) => {
+                    return Err(format!(
+                        "could not migrate Pi conversation session: {error}"
+                    ))
+                }
             }
         }
-    }
+        stable
+    };
     if create {
-        std::fs::create_dir_all(&stable)
+        std::fs::create_dir_all(&path)
             .map_err(|error| format!("cannot create Pi session directory: {error}"))?;
     }
-    Ok(stable)
+    Ok(path)
 }
 
 /// The sole receiver owner preserves every agent event while waiting for RPC.

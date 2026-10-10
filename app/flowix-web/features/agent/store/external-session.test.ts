@@ -1,190 +1,46 @@
 import { describe, expect, it } from "vitest";
-import type { AgentChunk, AgentTypeKey } from "@/types/agent";
+import type { AgentTypeKey } from "@/types/agent";
 import {
-  applyExternalSessionResolved,
-  resolveExternalChunkAgentType,
+  isKnownProductThreadId,
   resolveExternalChunkThreadId,
+  resolveProductThreadId,
+  resolveStoreThreadId,
 } from "@features/agent/store/external-session";
 
-function chunk(
-  kind: AgentChunk["kind"],
-  overrides: Partial<AgentChunk> = {},
-): AgentChunk {
-  return { kind, thread_id: "thread-local", ...overrides } as AgentChunk;
-}
+describe("product thread identity", () => {
+  const resolutions = { "codex-thread": "shared-native", "pi-thread": "shared-native" };
+  const threadTypes: Record<string, AgentTypeKey> = {
+    "codex-thread": "codex", "pi-thread": "pi",
+  };
 
-describe("external-session helpers", () => {
-  it("resolveExternalChunkThreadId honors session_resolved chunks", () => {
-    const resolved = chunk("session_resolved", { session_id: "session-A" });
-    expect(resolveExternalChunkThreadId(resolved, {})).toBe("thread-local");
+  it("scopes native aliases to their runtime", () => {
+    expect(resolveProductThreadId("shared-native", resolutions, "codex", threadTypes)).toBe("codex-thread");
+    expect(resolveProductThreadId("shared-native", resolutions, "pi", threadTypes)).toBe("pi-thread");
+    expect(resolveExternalChunkThreadId({
+      kind: "text", thread_id: "shared-native", agent_type: "pi", text: "hello",
+    }, resolutions, threadTypes)).toBe("pi-thread");
   });
 
-  it("resolveExternalChunkThreadId keeps the product id for later chunks", () => {
-    const textChunk = chunk("text", { thread_id: "thread-local" });
-    expect(resolveExternalChunkThreadId(textChunk, { "thread-local": "session-A" })).toBe(
-      "thread-local",
-    );
-    expect(resolveExternalChunkThreadId(textChunk, {})).toBe("thread-local");
+  it("keeps known product ids even when they equal native ids", () => {
+    const known = (id: string) => id === "shared-native";
+    expect(resolveProductThreadId("shared-native", resolutions, "codex", threadTypes, known))
+      .toBe("shared-native");
+    expect(resolveStoreThreadId("shared-native", resolutions, "codex", threadTypes, known))
+      .toBe("shared-native");
   });
 
-  it("resolveExternalChunkAgentType prefers chunk-provided agent type", () => {
-    const textChunk = chunk("text", { agent_type: "codex" });
-    expect(
-      resolveExternalChunkAgentType(textChunk, "thread-local", "thread-local", {}),
-    ).toBe("codex");
+  it("rejects native ids that cannot be resolved uniquely", () => {
+    const ambiguous = { first: "native", second: "native" };
+    const types: Record<string, AgentTypeKey> = { first: "codex", second: "codex" };
+    expect(resolveStoreThreadId("native", ambiguous, "codex", types)).toBeNull();
+    expect(resolveStoreThreadId("first", ambiguous, "codex", types)).toBe("first");
+    expect(resolveStoreThreadId("new-product", ambiguous, "codex", types)).toBe("new-product");
   });
 
-  it("resolveExternalChunkAgentType falls back to source thread type then target", () => {
-    const textChunk = chunk("text");
-    const threadTypes: Record<string, AgentTypeKey> = {
-      "thread-local": "deepseek-harness",
-      "session-A": "codex",
-    };
-    expect(
-      resolveExternalChunkAgentType(textChunk, "thread-local", "session-A", threadTypes),
-    ).toBe("deepseek-harness");
-
-    expect(
-      resolveExternalChunkAgentType(textChunk, "missing", "session-A", threadTypes),
-    ).toBe("codex");
-
-    expect(resolveExternalChunkAgentType(textChunk, "missing", "missing", {})).toBeUndefined();
-  });
-
-  it("applyExternalSessionResolved keeps merged runtime under the product thread", () => {
-    const fromState = {
-      messages: [
-        { id: "m1", role: "assistant" as const, content: "hello", timestamp: "2026-01-01T00:00:00.000Z" },
-      ],
-      isLoading: true,
-      activeRunId: "run-1",
-      runs: {
-        "run-1": {
-          runId: "run-1",
-          agentType: "codex" as const,
-          threadId: "thread-local",
-          startedAt: 1000,
-          status: "running" as const,
-        },
-      },
-      pendingAssistantId: null,
-      pendingReasoningId: null,
-      oldestSequence: 0,
-      hasMoreHistory: true,
-      loadingMore: false,
-    };
-    const toState = {
-      messages: [],
-      isLoading: false,
-      activeRunId: null,
-      runs: {},
-      pendingAssistantId: null,
-      pendingReasoningId: null,
-      oldestSequence: null,
-      hasMoreHistory: false,
-      loadingMore: false,
-    };
-    const result = applyExternalSessionResolved(
-      {
-        threadStates: {
-          "thread-local": fromState,
-          "session-A": toState,
-        },
-        threadTypes: { "thread-local": "deepseek-harness" },
-        externalSessionResolutions: {},
-      },
-      "thread-local",
-      "session-A",
-      "codex",
-    );
-
-    expect(result.externalSessionResolutions["thread-local"]).toBe("session-A");
-    expect(result.threadTypes).toMatchObject({
-      "thread-local": "codex",
-      "session-A": "codex",
-    });
-    const merged = result.threadStates["thread-local"];
-    expect(result.threadStates["session-A"]).toBeUndefined();
-    expect(merged.isLoading).toBe(true);
-    expect(merged.activeRunId).toBe("run-1");
-    expect(merged.runs["run-1"]?.agentType).toBe("codex");
-    expect(merged.hasMoreHistory).toBe(true);
-  });
-
-  it("applyExternalSessionResolved preserves session id entry that already had runs", () => {
-    const existingSessionRuns = {
-      "run-existing": {
-        runId: "run-existing",
-        agentType: "codex" as const,
-        threadId: "session-A",
-        startedAt: 500,
-        status: "completed" as const,
-      },
-    };
-    const result = applyExternalSessionResolved(
-      {
-        threadStates: {
-          "thread-local": {
-            ...emptyThreadState(),
-            runs: {
-              "run-existing": {
-                runId: "run-existing",
-                agentType: "codex",
-                threadId: "thread-local",
-                startedAt: 500,
-                status: "running",
-              },
-              "run-newer": {
-                runId: "run-newer",
-                agentType: "codex",
-                threadId: "thread-local",
-                startedAt: 1000,
-                status: "running",
-              },
-            },
-          },
-          "session-A": {
-            ...emptyThreadState(),
-            runs: existingSessionRuns,
-          },
-        },
-        threadTypes: {},
-        externalSessionResolutions: {},
-      },
-      "thread-local",
-      "session-A",
-      "codex",
-    );
-
-    const merged = result.threadStates["thread-local"];
-    // `fromState.runs` 在合并时覆盖 `toState.runs` 同 key, 这是当前
-    // applyExternalSessionResolved 的行为 (用 spread merge 表达 "local
-    // 优先"): 同 key 的 run 在合并结果里取 local thread 的状态。
-    expect(merged.runs["run-existing"]?.status).toBe("running");
-    expect(merged.runs["run-newer"]?.status).toBe("running");
+  it("recognizes product ids from their current owners", () => {
+    expect(isKnownProductThreadId("projected", {
+      sessionMeta: { activeThreadIds: {}, threadLists: {}, externalSessionResolutions: {} },
+      threadProjections: { projected: {} },
+    })).toBe(true);
   });
 });
-
-function emptyThreadState(): {
-  messages: never[];
-  isLoading: boolean;
-  activeRunId: null;
-  runs: Record<string, never>;
-  pendingAssistantId: null;
-  pendingReasoningId: null;
-  oldestSequence: null;
-  hasMoreHistory: boolean;
-  loadingMore: boolean;
-} {
-  return {
-    messages: [],
-    isLoading: false,
-    activeRunId: null,
-    runs: {},
-    pendingAssistantId: null,
-    pendingReasoningId: null,
-    oldestSequence: null,
-    hasMoreHistory: false,
-    loadingMore: false,
-  };
-}

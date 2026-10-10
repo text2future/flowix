@@ -79,13 +79,20 @@ pub(super) fn app_server_turn_messages_with_offset(
                 ));
                 compact_command_emitted = true;
             }
-            if let Some(message) = app_server_item_message(
+            if let Some(mut message) = app_server_item_message(
                 item,
                 &timestamp,
                 turn_index,
                 item_index,
                 turn_id.as_deref(),
             ) {
+                if matches!(message.role.as_str(), "assistant" | "reasoning") {
+                    let item_terminal = item.get("status").and_then(Value::as_str)
+                        .is_some_and(is_terminal_native_status);
+                    let turn_terminal = turn.get("status").and_then(Value::as_str)
+                        .is_some_and(is_terminal_native_status);
+                    message.is_completed = Some(item_terminal || turn_terminal);
+                }
                 messages.push(message);
             }
         }
@@ -103,6 +110,10 @@ pub(super) fn app_server_turn_messages_with_offset(
         }
     }
     messages
+}
+
+fn is_terminal_native_status(status: &str) -> bool {
+    matches!(status, "completed" | "failed" | "interrupted" | "cancelled")
 }
 
 /// A manual `/compact` is represented by Codex as a standalone turn whose
@@ -262,11 +273,6 @@ pub(super) fn app_server_item_message(
             if !has_visible_text(&message.content) {
                 return None;
             }
-            // Persisted reasoning items are terminal. Live rows set
-            // isCompleted=true on the item/completed snapshot; matching it
-            // here keeps render-equivalence (and the collapsed default)
-            // stable across live/history reconciliation.
-            message.is_completed = Some(true);
             message.reasoning = Some(message.content.clone());
         }
         "contextCompaction" => {
@@ -538,10 +544,16 @@ pub(super) fn paginate_app_server_turns(
         .unwrap_or(snapshot_end)
         .min(snapshot_end);
     let start = end.saturating_sub(limit);
+    let complete_turn_ids = turns[start..end].iter().filter_map(|turn| {
+        let status = turn.get("status").and_then(Value::as_str)?;
+        if !is_terminal_native_status(status) { return None; }
+        turn.get("id").and_then(Value::as_str).map(str::to_string)
+    }).collect();
     ThreadMessagesPage {
         messages: app_server_turn_messages(&turns[start..end]),
         oldest_sequence: (start > 0).then_some(start as i64),
         has_more: start > 0,
         snapshot_sequence: Some(snapshot_end as i64),
+        complete_turn_ids: Some(complete_turn_ids),
     }
 }

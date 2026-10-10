@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { files, notes, type DocTreeItem } from '@platform/tauri/client';
 import { toast } from '@/lib/toast';
-import { EXTERNAL_FILE_DROP_EVENT } from '@features/document/components/use-markdown-file-drop';
+import { EXTERNAL_FILE_DROP_EVENT } from '@features/document/components/use-external-file-drop';
 import type { FolderTreeController } from './use-folder-tree';
 import {
   NotebookFileTree,
@@ -46,6 +46,7 @@ vi.mock('@shared/ui/context-menu', () => ({
   ContextMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ContextMenuSubmenu: ({ label, children }: { label: string; children: React.ReactNode }) => <div>{label}{children}</div>,
   ContextMenuSeparator: () => <hr />,
   useContextMenuContext: () => ({ openAt: vi.fn() }),
 }));
@@ -721,11 +722,11 @@ describe('NotebookFileTree pointer dragging', () => {
     vi.mocked(document.elementFromPoint).mockReturnValue(childNoteRow);
 
     await act(async () => {
-      window.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
+      childNoteRow.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
+        bubbles: true,
         detail: {
           type: 'over',
           paths: ['/external/image.png'],
-          position: { x: 20, y: 20 },
         },
       }));
     });
@@ -733,11 +734,11 @@ describe('NotebookFileTree pointer dragging', () => {
     expect(folderGroup.dataset.dragOver).toBe('true');
 
     await act(async () => {
-      window.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
+      childNoteRow.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
+        bubbles: true,
         detail: {
           type: 'drop',
           paths: ['/external/image.png'],
-          position: { x: 20, y: 20 },
         },
       }));
     });
@@ -756,22 +757,20 @@ describe('NotebookFileTree pointer dragging', () => {
     vi.mocked(document.elementFromPoint).mockReturnValue(dropSurface);
 
     await act(async () => {
-      window.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
+      dropSurface.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
         detail: {
           type: 'over',
           paths: ['/external/note.md'],
-          position: { x: 20, y: 20 },
         },
       }));
     });
     expect(treeRoot.className).toContain('bg-[color-mix(in_oklch,var(--brand)_10%,transparent)]');
 
     await act(async () => {
-      window.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
+      dropSurface.dispatchEvent(new CustomEvent(EXTERNAL_FILE_DROP_EVENT, {
         detail: {
           type: 'drop',
           paths: ['/external/note.md'],
-          position: { x: 20, y: 20 },
         },
       }));
     });

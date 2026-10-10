@@ -540,6 +540,7 @@ fn paginate_turns(
         oldest_sequence: (start < end).then_some((start + 1) as i64),
         has_more: start > 0,
         snapshot_sequence: None,
+        complete_turn_ids: None,
     }
 }
 

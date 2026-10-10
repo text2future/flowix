@@ -79,11 +79,9 @@ import { updateNoteLinksAfterMove } from '@features/memo/services/note-link-rewr
 import { openExternalTarget, replaceExternalDocumentPath } from '@features/workspace/use-cases/workspace-navigation';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 import {
-  elementFromExternalDropPosition,
   EXTERNAL_FILE_DROP_EVENT,
-  type ExternalDropPosition,
   type ExternalFileDropDetail,
-} from '@features/document/components/use-markdown-file-drop';
+} from '@features/document/public/shell-api';
 import { localDocumentOperations, renameMarkdownTitle } from '@features/document/public/file-operations-api';
 import folderIcon from '@/assets/folder-outline.svg?raw';
 import { resolveNotebookAgentFiles } from '@/lib/agent-access-defaults';
@@ -101,6 +99,7 @@ import { useAgentAccessStore } from '@features/agent/store/agent-access-store';
 import { normalizeWorkspacePath } from '@features/agent/runtime/workspace-path';
 import {
   files,
+  dialogs,
   product,
   system,
   windows,
@@ -119,6 +118,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSubmenu,
   ContextMenuTrigger,
 } from '@shared/ui/context-menu';
 
@@ -137,6 +137,7 @@ const TREE_VIRTUAL_OVERSCAN = 10;
 const TREE_DRAG_SCROLL_EDGE = 40;
 const TREE_DRAG_SCROLL_MAX_STEP = 18;
 const TREE_DRAG_EXPAND_DELAY_MS = 650;
+const TREE_EXTERNAL_DRAG_EXPAND_DELAY_MS = 1000;
 const logger = createLogger('notebook-file-tree');
 // Row gutter (6px) + inline padding (6px) + half of the 12px caret.
 const FOLDER_CARET_CENTER_OFFSET = 12;
@@ -390,6 +391,21 @@ function AgentRepositoryItem({
       toast.error(t(String(error).includes('FOLDER_DELETE_PARTIAL') ? 'memo.fileTree.deletePartialFailed' : 'memo.fileTree.deleteFailed'));
     }
   };
+  const importIntoRepository = async (targetDirectoryPath: string) => {
+    const selectedPaths = await dialogs.selectFiles({ multiple: true });
+    if (!selectedPaths?.length) return;
+    let failed = 0;
+    for (const sourcePath of selectedPaths) {
+      try {
+        await files.importFile(sourcePath, targetDirectoryPath, repository.path);
+      } catch (error) {
+        logger.warn('importing file into access space failed', { error, sourcePath, targetDirectoryPath });
+        failed += 1;
+      }
+    }
+    await tree.refresh(targetDirectoryPath);
+    if (failed) toast.error(t('memo.fileTree.movePartialFailed', { moved: selectedPaths.length - failed, failed }));
+  };
   const renderRepositoryItems = (items: DocTreeItem[], depth: number): ReactNode[] => items.map((item) => {
     const isFolder = item.type === 'folder';
     const isActive = !isFolder && activeFilePath != null && samePath(item.fullPath, activeFilePath);
@@ -490,12 +506,17 @@ function AgentRepositoryItem({
       </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-        <ContextMenuItem onClick={() => setRenaming({ item, value: item.type === 'document' && (isTableDocumentFilename(item.name) || isMediaLibraryFilename(item.name)) ? displayTitleFromFilename(item.name) : item.name })} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><PencilSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.rename')}</ContextMenuItem>
         {!isFolder && onOpenInNewTab && <ContextMenuItem onClick={() => onOpenInNewTab(item.fullPath)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.openInRight')}</ContextMenuItem>}
+        <ContextMenuSubmenu label={t('memo.create.more')} icon={<Plus className="h-4 w-4" aria-hidden="true" />}>
+          <ContextMenuItem onClick={() => { void importIntoRepository(isFolder ? item.fullPath : parentDirectoryPath(item.fullPath, repository.path)); }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]">
+            {t('memo.fileTree.import')}
+          </ContextMenuItem>
+        </ContextMenuSubmenu>
+        <ContextMenuItem onClick={() => setRenaming({ item, value: item.type === 'document' && (isTableDocumentFilename(item.name) || isMediaLibraryFilename(item.name)) ? displayTitleFromFilename(item.name) : item.name })} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><PencilSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.rename')}</ContextMenuItem>
         {!isFolder && <NotebookCopyContextMenu path={item.fullPath} isNote={(item.resourceKind ?? resourceKindFromPath(item.name)) === 'note'} />}
         {isFolder && <ContextMenuItem onClick={async () => { try { await navigator.clipboard.writeText(item.fullPath); toast.success(t('memo.fileTree.pathCopied')); } catch { toast.error(t('memo.fileTree.copyFailed')); } }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><CopyIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.copyPath')}</ContextMenuItem>}
         <ContextMenuItem onClick={() => { void product.revealInFileManager(item.fullPath).catch(() => toast.error(t('memo.fileTree.openFailed'))); }} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"><FolderOpenIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.reveal')}</ContextMenuItem>
-        <ContextMenuSeparator />
+        {!isFolder && (item.resourceKind ?? resourceKindFromPath(item.name)) !== 'note' && <ContextMenuSeparator />}
         <ContextMenuItem onClick={() => setDeleting(item)} className="h-7 items-center justify-start rounded-lg px-2 py-0 text-left hover:bg-transparent hover:text-[var(--destructive)]"><TrashSimpleIcon className="mr-2 h-4 w-4" aria-hidden="true" />{t('memo.fileTree.delete')}</ContextMenuItem>
       </ContextMenuContent>
       </ContextMenu>
@@ -726,16 +747,6 @@ function resolveDropDirectory(
   return notebookPath;
 }
 
-function resolveExternalDropDirectory(
-  position: ExternalDropPosition | null,
-  treeRoot: HTMLElement,
-  notebookPath: string,
-): string | null {
-  const hit = elementFromExternalDropPosition(position);
-  return hit ? resolveDropDirectory(hit, treeRoot, notebookPath) : null;
-}
-
-
 export interface NotebookFolderCreateRequest {
   id: number;
   parentPath: string;
@@ -965,6 +976,11 @@ export function NotebookFileTree({
   const [isCreatingLibrary, setIsCreatingLibrary] = useState(false);
   const viewTableDocuments = useMemo(() => tableDocuments.filter((table) => table.inViews), [tableDocuments]);
   const viewMediaLibraries = useMemo(() => mediaLibraries.filter((library) => library.inViews), [mediaLibraries]);
+  const viewDocumentPaths = useMemo(() => new Set([
+    ...viewTableDocuments.map((table) => joinNotebookMemoPath(notebookPath, table.relativePath)),
+    ...viewMediaLibraries.map((library) => joinNotebookMemoPath(notebookPath, library.relativePath)),
+  ].flatMap((path) => path ? [canonicalPath(path)] : [])), [notebookPath, viewMediaLibraries, viewTableDocuments]);
+  const activeFileIsInViews = Boolean(activeFilePath && viewDocumentPaths.has(canonicalPath(activeFilePath)));
   const tableDocumentByPath = useMemo(() => {
     const byPath = new Map<string, TableDocumentListItem>();
     for (const table of tableDocuments) {
@@ -1018,6 +1034,8 @@ export function NotebookFileTree({
   const pendingActiveFileScrollPathRef = useRef<string | null>(
     activeFilePath ? canonicalPath(activeFilePath) : null,
   );
+  const activeFileIsInViewsRef = useRef(activeFileIsInViews);
+  activeFileIsInViewsRef.current = activeFileIsInViews;
   const externalDropSurfaceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1292,12 +1310,12 @@ export function NotebookFileTree({
   }, [draft, renderRows, treeContentOffset]);
   useEffect(() => {
     const activePath = activeFilePath ? canonicalPath(activeFilePath) : null;
-    pendingActiveFileScrollPathRef.current = activePath;
+    pendingActiveFileScrollPathRef.current = activeFileIsInViewsRef.current ? null : activePath;
   }, [activeFilePath]);
   // Folder expansion changes the row index map; only honor a pending request
   // from an active-file change, and keep it pending until that row is loaded.
   useEffect(() => {
-    if (!activeFilePath) return;
+    if (!activeFilePath || activeFileIsInViews) return;
     const activePath = canonicalPath(activeFilePath);
     if (pendingActiveFileScrollPathRef.current !== activePath) return;
     const index = renderRowIndexByPath.get(activePath);
@@ -1310,7 +1328,7 @@ export function NotebookFileTree({
       scroller.scrollTop = Math.max(0, rowBottom - scroller.clientHeight);
     }
     pendingActiveFileScrollPathRef.current = null;
-  }, [activeFilePath, renderRowIndexByPath, treeContentOffset]);
+  }, [activeFileIsInViews, activeFilePath, renderRowIndexByPath, treeContentOffset]);
   const visibleDocumentPaths = useMemo(
     () => visibleTreeItems
       .filter(({ item }) => item.type === 'document')
@@ -1481,9 +1499,9 @@ export function NotebookFileTree({
   expandToRef.current = tree.expandTo;
 
   useEffect(() => {
-    if (!isActive || !activeFilePath || tree.loading) return;
+    if (!isActive || !activeFilePath || activeFileIsInViews || tree.loading) return;
     void expandToRef.current(activeFilePath);
-  }, [activeFilePath, isActive, tree.loading]);
+  }, [activeFileIsInViews, activeFilePath, isActive, tree.loading]);
 
   useEffect(() => {
     if (!createFolderRequest || handledFolderRequestIdRef.current === createFolderRequest.id) return;
@@ -1928,6 +1946,25 @@ export function NotebookFileTree({
     />
   );
 
+  const handleImportFiles = useCallback(async (targetDirectoryPath: string) => {
+    const selectedPaths = await dialogs.selectFiles({ multiple: true });
+    if (!selectedPaths?.length) return;
+    let failed = 0;
+    for (const sourcePath of selectedPaths) {
+      try {
+        await files.importFile(sourcePath, targetDirectoryPath, notebookPath);
+      } catch (error) {
+        logger.warn('importing file into notebook tree failed', { error, sourcePath, targetDirectoryPath });
+        failed += 1;
+      }
+    }
+    await tree.refresh(targetDirectoryPath);
+    if (failed) toast.error(t('memo.fileTree.movePartialFailed', {
+      moved: selectedPaths.length - failed,
+      failed,
+    }));
+  }, [notebookPath, t, tree.refresh]);
+
   const renderTreeItem = (
     item: DocTreeItem,
     depth: number,
@@ -1999,6 +2036,7 @@ export function NotebookFileTree({
           onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
           onCreateNote={handleCreateNoteAtPath}
           onCreateFolder={handleCreateFolderAtPath}
+          onImportFiles={(path) => { void handleImportFiles(path); }}
           onCreateView={(parentPath) => {
             openNewTableDialog(false, parentPath);
           }}
@@ -2147,7 +2185,10 @@ export function NotebookFileTree({
     }
   }, []);
 
-  const scheduleFolderHoverExpand = useCallback((path: string | null) => {
+  const scheduleFolderHoverExpand = useCallback((
+    path: string | null,
+    delayMs = TREE_DRAG_EXPAND_DELAY_MS,
+  ) => {
     const key = path ? canonicalPath(path) : null;
     if (key === dragExpandPathRef.current) return;
     clearDragExpandTimer();
@@ -2167,7 +2208,7 @@ export function NotebookFileTree({
       ) {
         tree.toggle(item.fullPath);
       }
-    }, TREE_DRAG_EXPAND_DELAY_MS);
+    }, delayMs);
   }, [clearDragExpandTimer, tree.expanded, tree.toggle, treeItemByPath]);
 
   const stopDragAutoScroll = useCallback(() => {
@@ -2254,23 +2295,23 @@ export function NotebookFileTree({
     const dropSurface = externalDropSurfaceRef.current;
     if (!dropSurface) return;
 
-    const updateExternalDropTarget = (detail: ExternalFileDropDetail) => {
+    const updateExternalDropTarget = (detail: ExternalFileDropDetail, hit: Element | null) => {
       if (dropPendingRef.current) {
         externalDropTargetPathRef.current = null;
+        scheduleFolderHoverExpand(null);
         setDragOverFolderPath(null);
         return;
       }
       if (detail.type === 'leave' || detail.paths.length === 0) {
         externalDropTargetPathRef.current = null;
+        scheduleFolderHoverExpand(null);
         if (!pointerDragRef.current) setDragOverFolderPath(null);
         return;
       }
 
-      const targetDirectoryPath = resolveExternalDropDirectory(
-        detail.position,
-        dropSurface,
-        notebookPath,
-      );
+      const targetDirectoryPath = hit
+        ? resolveDropDirectory(hit, dropSurface, notebookPath)
+        : null;
       const targetPath = targetDirectoryPath
         ? canonicalDirectoryPath(targetDirectoryPath)
         : null;
@@ -2284,26 +2325,38 @@ export function NotebookFileTree({
         setDragOverFolderPath(nextTargetPath);
       }
 
-      if (detail.type !== 'drop' || !nextTargetPath) return;
-      externalDropTargetPathRef.current = null;
-      void handleDrop(nextTargetPath, detail.paths.map((path) => ({
-        path,
-        resourceKind: resourceKindFromPath(path),
-      })));
+      if (detail.type === 'drop') {
+        scheduleFolderHoverExpand(null);
+        if (!nextTargetPath) return;
+        externalDropTargetPathRef.current = null;
+        void handleDrop(nextTargetPath, detail.paths.map((path) => ({
+          path,
+          resourceKind: resourceKindFromPath(path),
+        })));
+        return;
+      }
+
+      if (previousTargetPath !== nextTargetPath || !nextTargetPath) {
+        scheduleFolderHoverExpand(
+          nextTargetPath,
+          TREE_EXTERNAL_DRAG_EXPAND_DELAY_MS,
+        );
+      }
     };
 
     const onExternalFileDrop = (event: Event) => {
       const detail = (event as CustomEvent<ExternalFileDropDetail>).detail;
       if (!detail) return;
-      updateExternalDropTarget(detail);
+      const hit = event.target instanceof Element ? event.target : null;
+      updateExternalDropTarget(detail, hit);
     };
 
-    window.addEventListener(EXTERNAL_FILE_DROP_EVENT, onExternalFileDrop);
+    dropSurface.addEventListener(EXTERNAL_FILE_DROP_EVENT, onExternalFileDrop);
     return () => {
-      window.removeEventListener(EXTERNAL_FILE_DROP_EVENT, onExternalFileDrop);
+      dropSurface.removeEventListener(EXTERNAL_FILE_DROP_EVENT, onExternalFileDrop);
       externalDropTargetPathRef.current = null;
     };
-  }, [handleDrop, notebookPath]);
+  }, [handleDrop, notebookPath, scheduleFolderHoverExpand]);
 
   const folderDropHighlight = useMemo(() => {
     if (!dragOverFolderPath || samePath(dragOverFolderPath, notebookPath)) return null;
@@ -2412,6 +2465,7 @@ export function NotebookFileTree({
                   onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
                   onCreateNote={handleCreateNoteAtPath}
                   onCreateFolder={handleCreateFolderAtPath}
+          onImportFiles={(path) => { void handleImportFiles(path); }}
                   onCreateView={(parentPath) => {
                     openNewTableDialog(false, parentPath);
                   }}
@@ -2759,6 +2813,7 @@ export function NotebookFileTree({
                 onCreateFolder={() => handleCreateFolderAtPath(notebookPath)}
                 onCreateTable={() => openNewTableDialog(false, notebookPath)}
                 onCreateMediaLibrary={() => openNewMediaLibraryDialog(false, notebookPath)}
+                onImport={() => { void handleImportFiles(notebookPath); }}
               />
               <ContextMenuItem
                 onClick={(event) => {

@@ -44,6 +44,16 @@ describe("createAgentSessionStateStorage", () => {
     expect(local.state.sessionMeta.activeAgentTypeKey).toBe("codex");
   });
 
+  it("ignores obsolete global navigation while retaining global settings", async () => {
+    localStorage.setItem(STORAGE_KEYS.AGENT_SESSION, value("codex", "read-only"));
+
+    const raw = await createAgentSessionStateStorage("main").getItem(STORAGE_KEYS.AGENT_SESSION);
+    const meta = JSON.parse(raw!).state.sessionMeta;
+    expect(meta.activeAgentTypeKey).toBeUndefined();
+    expect(meta.activeThreadIds).toBeUndefined();
+    expect(meta.settings.agentPermissionMode).toBe("read-only");
+  });
+
   it("does not let stale navigation writes roll back global settings", () => {
     localStorage.setItem(STORAGE_KEYS.AGENT_SESSION, value("deepseek-harness", "read-only"));
     const main = createAgentSessionStateStorage("main");

@@ -8,17 +8,20 @@ import type {
 
 export const USER_STOPPED_REASON = "user_stopped";
 
-export interface RunLifecycleThreadState {
+export interface RunCoreState {
   isLoading: boolean;
   activeRunId: string | null;
   runs: Record<string, AgentRunState>;
-  pendingAssistantId: string | null;
-  pendingReasoningId: string | null;
   lastRun?: LastRunSnapshot;
 }
 
+export interface RunLifecycleThreadState extends RunCoreState {
+  pendingAssistantId: string | null;
+  pendingReasoningId: string | null;
+}
+
 function upsertRun(
-  st: RunLifecycleThreadState,
+  st: RunCoreState,
   event: AgentEvent,
   status: AgentRunState["status"],
   extra: Partial<AgentRunState> = {},
@@ -87,11 +90,13 @@ function accumulateUsage(previous: UsageInfo | undefined, next: UsageInfo): Usag
   };
 }
 
-export function applyRunStarted<T extends RunLifecycleThreadState>(
+export function applyRunStarted<T extends RunCoreState>(
   st: T,
   event: AgentEvent,
   extra: Partial<AgentRunState> = {},
 ): T {
+  if (st.lastRun?.runId === event.runId &&
+    ["completed", "failed", "cancelled"].includes(st.lastRun.status)) return st;
   const nextRuns = upsertRun(st, event, "running", extra);
   return {
     ...st,
@@ -101,22 +106,27 @@ export function applyRunStarted<T extends RunLifecycleThreadState>(
   };
 }
 
-export function applyRunToolState<T extends RunLifecycleThreadState>(
+export function applyRunToolState<T extends RunCoreState>(
   st: T,
   event: AgentEvent,
   currentTool: string | null,
 ): T {
+  if (st.lastRun?.runId === event.runId &&
+    ["completed", "failed", "cancelled"].includes(st.lastRun.status)) return st;
   return {
     ...st,
     runs: upsertRun(st, event, "running", { currentTool }),
   };
 }
 
-export function applyRunFailed<T extends RunLifecycleThreadState>(
+export function applyRunFailedCore<T extends RunCoreState>(
   st: T,
   event: AgentEvent,
   reason: string,
 ): T {
+  if (st.lastRun?.runId === event.runId &&
+    ["completed", "failed", "cancelled"].includes(st.lastRun.status)) return st;
+  if (st.activeRunId && st.activeRunId !== event.runId && !st.runs[event.runId]) return st;
   const nextRuns = upsertRun(st, event, "failed", {
     endedAt: event.timestamp,
     reason,
@@ -129,6 +139,18 @@ export function applyRunFailed<T extends RunLifecycleThreadState>(
     lastRun: snapshotFromRun(run, "failed", reason),
     isLoading: isActiveRunFailure ? false : st.isLoading,
     activeRunId: isActiveRunFailure ? null : st.activeRunId,
+  };
+}
+
+export function applyRunFailed<T extends RunLifecycleThreadState>(
+  st: T,
+  event: AgentEvent,
+  reason: string,
+): T {
+  const next = applyRunFailedCore(st, event, reason);
+  if (next === st) return st;
+  return st.activeRunId !== event.runId ? next : {
+    ...next,
     pendingAssistantId: null,
     pendingReasoningId: null,
   };
@@ -159,7 +181,7 @@ export function applyRunStopped<T extends RunLifecycleThreadState>(
   };
 }
 
-export function applyRunUsage<T extends RunLifecycleThreadState>(
+export function applyRunUsage<T extends RunCoreState>(
   st: T,
   event: AgentEvent & { kind: "usage" },
 ): T {
@@ -212,15 +234,14 @@ export function applyRunUsage<T extends RunLifecycleThreadState>(
   };
 }
 
-export function applyRunEnded<T extends RunLifecycleThreadState>(
+export function applyRunEndedCore<T extends RunCoreState>(
   st: T,
   event: AgentEvent & { kind: "stream_end"; reason: string | null },
 ): T {
   const eventMatchesLastRun = st.lastRun?.runId === event.runId;
-  const effectiveRunId =
-    st.activeRunId && !st.runs[event.runId] && !eventMatchesLastRun
-      ? st.activeRunId
-      : event.runId;
+  if (eventMatchesLastRun && ["completed", "failed", "cancelled"].includes(st.lastRun!.status)) return st;
+  if (!st.runs[event.runId] && !eventMatchesLastRun) return st;
+  const effectiveRunId = event.runId;
   const matchingLastRun =
     st.lastRun?.runId === effectiveRunId ? st.lastRun : undefined;
   const existingStatus = st.runs[effectiveRunId]?.status ?? matchingLastRun?.status;
@@ -256,7 +277,18 @@ export function applyRunEnded<T extends RunLifecycleThreadState>(
     activeRunId: isActiveRunEnd ? null : st.activeRunId,
     runs: keepRunningRuns(st.runs, effectiveRunId),
     lastRun: snapshotFromRun(finalRun, status, event.reason),
-    pendingAssistantId: isActiveRunEnd ? null : st.pendingAssistantId,
-    pendingReasoningId: isActiveRunEnd ? null : st.pendingReasoningId,
+  };
+}
+
+export function applyRunEnded<T extends RunLifecycleThreadState>(
+  st: T,
+  event: AgentEvent & { kind: "stream_end"; reason: string | null },
+): T {
+  const next = applyRunEndedCore(st, event);
+  if (next === st) return st;
+  return st.activeRunId && st.activeRunId !== event.runId ? next : {
+    ...next,
+    pendingAssistantId: null,
+    pendingReasoningId: null,
   };
 }

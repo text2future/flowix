@@ -16,6 +16,64 @@ function message(id: string, role: ChatMessage["role"], content: string): ChatMe
 }
 
 describe("reconcileHistorySnapshot", () => {
+  it("keeps a live completed reply when a run-completion page has only partial coverage", () => {
+    const user = { ...message("u1", "user", "ask"), codexTurnId: "turn-1" };
+    const reply = { ...message("a1", "assistant", "answer"), codexTurnId: "turn-1" };
+    const result = reconcileHistorySnapshot({
+      agentType: "codex", current: [user, reply], reason: "run_completed",
+      runId: "run-1", turnId: "turn-1",
+      snapshot: { messages: [user], coverage: { kind: "partial" }, revision: null, oldestCursor: null, hasMore: false },
+    });
+    expect(result.messages.map((row) => row.id)).toEqual(["u1", "a1"]);
+  });
+
+  it("does not replace a newer run after a completed turn history read", () => {
+    const oldUser = { ...message("u1", "user", "first"), codexTurnId: "turn-1" };
+    const newUser = { ...message("u2", "user", "second"), codexTurnId: "turn-2" };
+    const newReply = { ...message("a2", "assistant", "live second"), codexTurnId: "turn-2" };
+    const current = [oldUser, newUser, newReply];
+    const result = reconcileHistorySnapshot({
+      agentType: "codex", current, requestProjection: current, reason: "run_completed",
+      runId: "run-1", turnId: "turn-1",
+      snapshot: {
+        messages: [oldUser], coverage: { kind: "complete-turns", turnIds: ["turn-1"] },
+        revision: null, oldestCursor: null, hasMore: false,
+      },
+    });
+    expect(result.messages.map((row) => row.id)).toEqual(["u1", "u2", "a2"]);
+  });
+
+  it("aligns the latest unchanged turn when native history proves it complete", () => {
+    const user = { ...message("u1", "user", "first"), codexTurnId: "turn-1" };
+    const live = { ...message("live-answer", "assistant", "draft"), codexTurnId: "turn-1" };
+    const persisted = { ...message("native-answer", "assistant", "finished"), codexTurnId: "turn-1", isCompleted: true };
+    const current = [user, live];
+    const result = reconcileHistorySnapshot({
+      agentType: "codex", current, requestProjection: current, reason: "run_completed",
+      runId: "run-1", turnId: "turn-1",
+      snapshot: {
+        messages: [user, persisted], coverage: { kind: "complete-turns", turnIds: ["turn-1"] },
+        revision: null, oldestCursor: null, hasMore: false,
+      },
+    });
+    expect(result.messages.map((row) => row.id)).toEqual(["u1", "native-answer"]);
+  });
+
+  it("does not replace content updated after the history request", () => {
+    const user = { ...message("u1", "user", "first"), codexTurnId: "turn-1" };
+    const pending = { ...message("a1", "assistant", "draft"), codexTurnId: "turn-1" };
+    const finished = { ...pending, content: "finished" };
+    const result = reconcileHistorySnapshot({
+      agentType: "codex", current: [user, finished], requestProjection: [user, pending],
+      reason: "run_completed", runId: "run-1", turnId: "turn-1",
+      snapshot: {
+        messages: [user], coverage: { kind: "complete-turns", turnIds: ["turn-1"] },
+        revision: null, oldestCursor: null, hasMore: false,
+      },
+    });
+    expect(result.messages.some((row) => row.content === "finished")).toBe(true);
+  });
+
   it("keeps a native Pi message completed after the history read began", () => {
     const user = { ...message("user", "user", "prompt"), messageId: "user" };
     const committed = { ...message("entry:block:0", "assistant", "new answer"), messageId: "entry", renderKey: "draft-key", piBlockIndex: 0 };

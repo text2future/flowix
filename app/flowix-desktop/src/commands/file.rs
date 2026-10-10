@@ -2315,12 +2315,6 @@ pub async fn import_file(
     {
         return Err("SOURCE_NOT_REGULAR_FILE".to_string());
     }
-    if !matches!(
-        resource_kind_for_path(source),
-        Some(DocTreeResourceKind::Note | DocTreeResourceKind::Image | DocTreeResourceKind::Video)
-    ) {
-        return Err("UNSUPPORTED_IMPORT_FILE".to_string());
-    }
     if !fs::symlink_metadata(target_directory)
         .map_err(file_mutation_error)?
         .is_dir()

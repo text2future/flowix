@@ -614,6 +614,7 @@ impl ThreadManager {
                 oldest_sequence: None,
                 has_more: false,
                 snapshot_sequence: None,
+                complete_turn_ids: None,
             });
         };
 
@@ -672,6 +673,7 @@ impl ThreadManager {
             oldest_sequence: Some(cutoff_id),
             has_more,
             snapshot_sequence: None,
+            complete_turn_ids: None,
         })
     }
 }

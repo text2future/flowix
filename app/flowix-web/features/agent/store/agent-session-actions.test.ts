@@ -1,7 +1,18 @@
-﻿import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentChunk } from "@/types/agent";
 import { CONTEXT_PROMPT_MARKER } from "@features/agent/message";
-import { DEFAULT_AGENT_TYPE_KEY } from "@/lib/agent-types";
+import type { ThreadProjection } from "@features/agent/store/session-reducer";
+import { emptyProjection } from "@features/agent/store/session-reducer";
+
+async function seedProjection(threadId: string, updater: (projection: ThreadProjection) => ThreadProjection) {
+  const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+  useAgentSessionStore.setState((state) => ({
+    threadProjections: {
+      ...state.threadProjections,
+      [threadId]: updater(state.threadProjections[threadId] ?? emptyProjection()),
+    },
+  }));
+}
 
 const memoStateMock = vi.hoisted(() => ({
   selectedNotebook: null as null | {
@@ -90,7 +101,6 @@ vi.mock("@platform/tauri/client", () => ({
       oldestSequence: null,
       hasMore: false,
     })),
-    externalEvents: vi.fn(async () => []),
     deleteThread: vi.fn(),
     archiveAgentThread: vi.fn(async () => undefined),
     deleteAgentThread: vi.fn(async () => undefined),
@@ -369,13 +379,14 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const threadId = "thread-card-flowix";
 
     store.bindThreadType(threadId, "deepseek-harness");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-flowix" });
     store.dispatchAgentChunk({
       kind: "text",
       thread_id: threadId,
+      run_id: "run-flowix",
       text: "Hel",
     });
-    store.dispatchAgentChunk({ kind: "text", thread_id: threadId, text: "lo" });
+    store.dispatchAgentChunk({ kind: "text", thread_id: threadId, run_id: "run-flowix", text: "lo" });
 
     await flushAnimationFrame();
 
@@ -400,6 +411,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     store.dispatchAgentChunk({
       kind: "stream_end",
       thread_id: threadId,
+      run_id: "run-flowix",
       reason: null,
     });
 
@@ -445,8 +457,22 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     });
     expect(renderMessages[0].content).toContain("Hello from user");
     expect(
-      selectRenderableThreadMessages({ typeKey: "deepseek-harness", threadId }),
+      selectRenderableThreadMessages(threadId),
     ).toBe(renderMessages);
+  });
+
+  it("does not start a new run while thread lifecycle cleanup is pending", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-pending-delete-send";
+    useChatStore.getState().setThreadMutationGuard(threadId, true);
+    try {
+      await useChatStore.getState().sendMessageToThread(threadId, "late input", "codex");
+      expect(vi.mocked(agent.chatStream)).not.toHaveBeenCalled();
+      expect(useChatStore.getState().threadProjections[threadId]?.messages).toBeUndefined();
+    } finally {
+      useChatStore.getState().setThreadMutationGuard(threadId, false);
+    }
   });
 
   it("does not let a non-active thread-card send overwrite the active title", async () => {
@@ -490,19 +516,16 @@ describe("chat-store Agent Thread Card streaming flow", () => {
   it("uses canonical render messages to detect non-first follow-up sends", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
-    const { useAgentConversationStore } = await import(
-      "@features/agent/store/agent-session-test-facade"
-    );
     const threadId = "thread-follow-up-after-runtime-release";
 
-    useAgentConversationStore.getState().syncRenderableMessages("deepseek-harness", threadId, [
+    await seedProjection(threadId, (projection) => ({ ...projection, messages: [
       {
         id: "history-user",
         role: "user",
         content: "previous",
         timestamp: "2026-01-01T00:00:00.000Z",
       },
-    ]);
+    ] }));
 
     await useChatStore.getState().sendMessageToThread(
       threadId,
@@ -528,7 +551,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const toolCallId = "tool-live-state";
 
     useChatStore.getState().bindThreadType(threadId, "deepseek-harness");
-    useAgentConversationStore.getState().syncLiveMessageState("deepseek-harness", threadId, {
+    await seedProjection(threadId, (projection) => ({
+      ...projection,
       messages: [
         {
           id: `tool-${toolCallId}`,
@@ -540,9 +564,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
           isLoading: true,
         },
       ],
-      pendingAssistantId: null,
-      pendingReasoningId: null,
-    });
+      pending: { assistantId: null, reasoningId: null },
+    }));
 
     useChatStore.getState().dispatchAgentChunk({
       kind: "tool_result",
@@ -857,15 +880,12 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const { useAgentConversationStore } = await import(
       "@features/agent/store/agent-session-test-facade"
     );
-    const { useAgentSessionStore } = await import(
-      "@features/agent/store/agent-session-store"
-    );
     const threadId = "thread-buffered-conversation-live";
 
     useChatStore.getState().bindThreadType(threadId, "deepseek-harness");
     // Phase 2 (2026-08-02): session-store 是真源, 直接 seed 它. mirror 会自动
     // 把同步状态写到 conv-store 与 chat-store, 断言仍走两个老 store.
-    useAgentSessionStore.getState().setThreadProjection(threadId, (p) => ({
+    await seedProjection(threadId, (p) => ({
       ...p,
       messages: [
         {
@@ -952,7 +972,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.lastRunningRunsReconciledAt).toEqual(expect.any(Number));
   });
 
-  it("migrates conversation messages when backend snapshot resolves a pending thread", async () => {
+  it("keeps product messages when a backend snapshot supplies the native session", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/agent-session-test-facade"
     );
@@ -962,11 +982,9 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const localThreadId = "codex-local-snapshot-pending";
     const sessionId = "codex-session-snapshot-pending";
 
-    useAgentConversationStore.getState().syncLiveMessageState(
-      "codex",
-      localThreadId,
-      {
-        messages: [
+    await seedProjection(localThreadId, (projection) => ({
+      ...projection,
+      messages: [
           {
             id: "assistant-snapshot-pending",
             role: "assistant",
@@ -974,10 +992,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
             timestamp: "2026-01-01T00:00:00.000Z",
           },
         ],
-        pendingAssistantId: "assistant-snapshot-pending",
-        pendingReasoningId: null,
-      },
-    );
+      pending: { assistantId: "assistant-snapshot-pending", reasoningId: null },
+    }));
     useChatStore.getState().bindThreadType(localThreadId, "codex");
 
     useChatStore.getState().reconcileRunningRunsFromSnapshot({
@@ -1177,6 +1193,63 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       status: "failed",
       reason: "missing_from_snapshot",
     });
+  });
+
+  it("does not end a run that starts while the running snapshot is in flight", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    const threadId = "snapshot-race-thread";
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let finishQuery!: (result: Record<string, never>) => void;
+    vi.mocked(agent.runningThreads).mockReturnValueOnce(new Promise((resolve) => { finishQuery = resolve; }));
+    const pending = useAgentSessionStore.getState().reconcileRunningRuns();
+    useAgentSessionStore.getState().dispatchAgentChunk({
+      kind: "stream_start", thread_id: threadId, run_id: "new-run", agent_type: "claude",
+    });
+    now += 10_000;
+    finishQuery({});
+    await pending;
+    clock.mockRestore();
+    expect(useAgentSessionStore.getState().threadProjections[threadId].runs.activeRunId).toBe("new-run");
+  });
+
+  it("does not route an untyped provider event using a cached alias alone", async () => {
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    const store = useAgentSessionStore.getState();
+    store.setSessionMeta((meta) => ({
+      ...meta,
+      externalSessionResolutions: { ...meta.externalSessionResolutions, "alias-codex": "alias-shared", "alias-pi": "alias-shared" },
+      threadTypes: { ...meta.threadTypes, "alias-codex": "codex", "alias-pi": "pi", "alias-shared": "pi" },
+    }));
+    store.dispatchAgentChunk({ kind: "text", thread_id: "alias-shared", run_id: "run-1", text: "wrong owner" });
+    store.flushAgentEventBuffer();
+    expect(useAgentSessionStore.getState().threadProjections["alias-pi"]).toBeUndefined();
+    expect(useAgentSessionStore.getState().threadProjections["alias-codex"]).toBeUndefined();
+  });
+
+  it("rejects a stream chunk without run_id even when another run is active", async () => {
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    const store = useAgentSessionStore.getState();
+    const threadId = "missing-run-id";
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "current-run", agent_type: "codex" });
+    store.dispatchAgentChunk({ kind: "text", thread_id: threadId, text: "late old text", agent_type: "codex" });
+    expect(useAgentSessionStore.getState().threadProjections[threadId].messages).toEqual([]);
+  });
+
+  it("routes a typed native alias only within its runtime", async () => {
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    const store = useAgentSessionStore.getState();
+    store.setSessionMeta((meta) => ({
+      ...meta,
+      externalSessionResolutions: { ...meta.externalSessionResolutions, "product-codex": "shared-native", "product-pi": "shared-native" },
+      threadTypes: { ...meta.threadTypes, "product-codex": "codex", "product-pi": "pi" },
+    }));
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: "shared-native", run_id: "run-pi", agent_type: "pi" });
+    expect(useAgentSessionStore.getState().threadProjections["product-pi"]?.runs.activeRunId).toBe("run-pi");
+    expect(useAgentSessionStore.getState().threadProjections["product-codex"]).toBeUndefined();
+    expect(useAgentSessionStore.getState().threadProjections["shared-native"]).toBeUndefined();
   });
 
   it("keeps optimistic local run during backend snapshot grace window", async () => {
@@ -1483,7 +1556,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.runs["run-3"]?.status).toBe("running");
   });
 
-  it("migrates a local Codex thread to the resolved session id", async () => {
+  it("keeps a local Codex product thread when its native session resolves", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/agent-session-test-facade"
     );
@@ -1536,7 +1609,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const state = useChatStore.getState();
     expect(state.externalSessionResolutions[localThreadId]).toBe(sessionId);
     expect(state.activeThreadIds.codex).toBe(localThreadId);
-    expect(state.threadTypes[sessionId]).toBe("codex");
+    expect(state.threadTypes[sessionId]).toBeUndefined();
     expect(state.threadStates[localThreadId].isLoading).toBe(true);
     expect(state.threadStates[localThreadId].activeRunId).toBe("run-local-1");
     // Phase 2 (2026-08-02): projection 持久 messages, session_resolved 迁移后保留.
@@ -1555,10 +1628,10 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       threadId: localThreadId,
       source: {
         kind: "thread-card",
-        memoId: "memo-running-session",
         documentPath: "/tmp/running-session.md",
       },
     });
+    expect(resolvedInstance?.source).not.toHaveProperty("memoId");
     expect(
       selectRunningAgentConversationThreadIds(
         useAgentConversationStore.getState(),
@@ -1578,7 +1651,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(endedState.threadStates[localThreadId].activeRunId).toBeNull();
   });
 
-  it("migrates conversation messages on session resolution without requiring an instance", async () => {
+  it("keeps product messages on session resolution without an instance", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/agent-session-test-facade"
     );
@@ -1587,11 +1660,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     );
     const localThreadId = "codex-local-without-instance";
     const sessionId = "codex-session-without-instance";
-
-    const { useAgentSessionStore } = await import(
-      "@features/agent/store/agent-session-store"
-    );
-    useAgentSessionStore.getState().setThreadProjection(localThreadId, (p) => ({
+    await seedProjection(localThreadId, (p) => ({
       ...p,
       messages: [
         {
@@ -1625,7 +1694,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     ).toBe(sessionId);
   });
 
-  it("commits projection, metadata, and conversation migration in one store update", async () => {
+  it("commits the native binding and instance display in one store update", async () => {
     const { useAgentSessionStore } = await import(
       "@features/agent/store/agent-session-store"
     );
@@ -1633,7 +1702,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const sessionId = "atomic-session-thread";
     const instance = useAgentSessionStore.getState().createInstance({
       agentType: "codex",
-      title: "Atomic migration",
+      title: "Atomic binding",
       threadId: localThreadId,
       source: { kind: "thread-card" },
     });
@@ -1669,9 +1738,112 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(state.conversationRegistry.instances[instance.instanceId].threadId).toBe(
       localThreadId,
     );
+    expect(state.conversationRegistry.instances[instance.instanceId].providerSessionId).toBe(sessionId);
   });
 
-  it("migrates external session cache resolution through conversation messages", async () => {
+  it("keeps a colliding product thread intact when a provider session resolves", async () => {
+    const { useAgentSessionStore } = await import(
+      "@features/agent/store/agent-session-store"
+    );
+    const store = useAgentSessionStore.getState();
+    const other = store.createInstance({
+      agentType: "pi", title: "Other", threadId: "shared-id", source: { kind: "dedicated" },
+    });
+    await seedProjection("shared-id", (projection) => ({
+      ...projection,
+      messages: [{ id: "other-message", role: "assistant", content: "other", timestamp: "2026-01-01T00:00:00.000Z" }],
+    }));
+    store.applySessionResolved({
+      kind: "session_resolved", agentType: "codex", threadId: "codex-product",
+      sessionId: "shared-id", runId: "run-1", timestamp: 1,
+    });
+    const state = useAgentSessionStore.getState();
+    expect(state.threadProjections["shared-id"]?.messages[0]?.id).toBe("other-message");
+    expect(state.conversationRegistry.instances[other.instanceId]?.threadId).toBe("shared-id");
+    expect(state.sessionMeta.externalSessionResolutions["codex-product"]).toBe("shared-id");
+  });
+
+  it("updates the native session display on every instance of one product thread", async () => {
+    const { useAgentSessionStore } = await import(
+      "@features/agent/store/agent-session-store"
+    );
+    const store = useAgentSessionStore.getState();
+    const first = store.createInstance({
+      agentType: "codex", title: "First", threadId: "shared-product", source: { kind: "dedicated" },
+    });
+    const second = store.createInstance({
+      agentType: "codex", title: "Second", threadId: "shared-product", source: { kind: "dedicated" },
+    });
+    let notifications = 0;
+    const unsubscribe = useAgentSessionStore.subscribe(() => { notifications += 1; });
+    store.dispatchAgentEvent({
+      kind: "session_resolved", agentType: "codex", threadId: "shared-product",
+      sessionId: "native-session", runId: "run-1", timestamp: 1,
+    });
+    unsubscribe();
+    const instances = useAgentSessionStore.getState().conversationRegistry.instances;
+    expect(notifications).toBe(1);
+    expect(instances[first.instanceId]?.providerSessionId).toBe("native-session");
+    expect(instances[second.instanceId]?.providerSessionId).toBe("native-session");
+    store.updateThread(second.instanceId, { threadId: "different-product" });
+    expect(useAgentSessionStore.getState().conversationRegistry.instances[second.instanceId]?.providerSessionId)
+      .toBeNull();
+  });
+
+  it("preserves a projection-only product thread when a native id collides", async () => {
+    const { useAgentSessionStore } = await import(
+      "@features/agent/store/agent-session-store"
+    );
+    const store = useAgentSessionStore.getState();
+    await seedProjection("projection-only", (projection) => ({
+      ...projection,
+      messages: [{ id: "owned-message", role: "assistant", content: "owned", timestamp: "2026-01-01T00:00:00.000Z" }],
+    }));
+    store.setSessionMeta((meta) => ({
+      ...meta,
+      externalSessionResolutions: { ...meta.externalSessionResolutions, "another-product": "projection-only" },
+    }));
+    store.applySessionResolved({
+      kind: "session_resolved", agentType: "codex", threadId: "another-product",
+      sessionId: "projection-only", runId: "run-1", timestamp: 1,
+    });
+    store.dispatchAgentEvent({
+      kind: "stream_start", agentType: "codex", threadId: "projection-only",
+      runId: "owned-run", timestamp: 2,
+    });
+    expect(useAgentSessionStore.getState().threadProjections["projection-only"]?.messages[0]?.id)
+      .toBe("owned-message");
+    expect(useAgentSessionStore.getState().threadProjections["projection-only"]?.runs.activeRunId)
+      .toBe("owned-run");
+  });
+
+  it("keeps same-runtime product events and history on their product thread", async () => {
+    const { useAgentSessionStore } = await import(
+      "@features/agent/store/agent-session-store"
+    );
+    const store = useAgentSessionStore.getState();
+    store.createInstance({
+      agentType: "codex", title: "First", threadId: "first-product", source: { kind: "dedicated" },
+    });
+    store.createInstance({
+      agentType: "codex", title: "Second", threadId: "second-product", source: { kind: "dedicated" },
+    });
+    store.bindProviderSessionId("first-product", "second-product", "codex");
+    store.dispatchAgentEvent({
+      kind: "stream_start", agentType: "codex", threadId: "second-product",
+      runId: "second-run", timestamp: 1,
+    });
+    store.applyHistoryPage("second-product", "codex", {
+      coverage: "partial",
+      messages: [{ id: "second-message", role: "assistant", content: "second", timestamp: "2026-01-01T00:00:00.000Z" }],
+    });
+    const state = useAgentSessionStore.getState();
+    expect(state.threadProjections["second-product"]?.runs.activeRunId).toBe("second-run");
+    expect(state.threadProjections["second-product"]?.messages[0]?.id).toBe("second-message");
+    expect(state.threadProjections["first-product"]?.runs.activeRunId).toBeUndefined();
+  });
+
+  it("binds an external session without changing product messages", async () => {
     const { useChatStore } = await import(
       "@features/agent/store/agent-session-test-facade"
     );
@@ -1686,10 +1858,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const sessionId = "codex-session-cache-resolved";
 
     // Phase 2 (2026-08-02): seed session-store (真源), mirror 同步到 conv-store.
-    const { useAgentSessionStore } = await import(
-      "@features/agent/store/agent-session-store"
-    );
-    useAgentSessionStore.getState().setThreadProjection(localThreadId, (p) => ({
+    await seedProjection(localThreadId, (p) => ({
       ...p,
       messages: [
         {
@@ -1749,12 +1918,12 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     store.bindThreadType(secondThreadId, "deepseek-harness");
 
     const chunks: AgentChunk[] = [
-      { kind: "stream_start", thread_id: firstThreadId },
-      { kind: "stream_start", thread_id: secondThreadId },
-      { kind: "text", thread_id: firstThreadId, text: "Cod" },
-      { kind: "text", thread_id: secondThreadId, text: "Flo" },
-      { kind: "text", thread_id: firstThreadId, text: "ex" },
-      { kind: "text", thread_id: secondThreadId, text: "wix" },
+      { kind: "stream_start", thread_id: firstThreadId, run_id: "run-codex" },
+      { kind: "stream_start", thread_id: secondThreadId, run_id: "run-flowix" },
+      { kind: "text", thread_id: firstThreadId, run_id: "run-codex", text: "Cod" },
+      { kind: "text", thread_id: secondThreadId, run_id: "run-flowix", text: "Flo" },
+      { kind: "text", thread_id: firstThreadId, run_id: "run-codex", text: "ex" },
+      { kind: "text", thread_id: secondThreadId, run_id: "run-flowix", text: "wix" },
     ];
 
     chunks.forEach((chunk) => store.dispatchAgentChunk(chunk));
@@ -1857,7 +2026,6 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
     await useChatStore.getState().loadCodexThread(threadId);
 
-    expect(agent.externalEvents).not.toHaveBeenCalled();
     expect(agent.getCodexThreadPage).toHaveBeenCalledWith(
       threadId,
       null,
@@ -1883,7 +2051,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const threadId = "dsh-history-after-compact";
     const timestamp = new Date().toISOString();
 
-    useAgentSessionStore.getState().setThreadProjection(threadId, (projection) => ({
+    await seedProjection(threadId, (projection) => ({
       ...projection,
       messages: [
         {
@@ -1908,9 +2076,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
     const messages = await useAgentSessionStore
       .getState()
-      .reloadMessagesFromHistory("deepseek-harness", threadId, {
-        preserveExistingMessages: true,
-      });
+      .reloadMessagesFromHistory("deepseek-harness", threadId);
 
     expect(agent.getDeepSeekHarnessThread).toHaveBeenCalledWith(threadId);
     expect(messages).toEqual(
@@ -2072,10 +2238,11 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const threadId = "thread-card-codex-final";
 
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-codex" });
     store.dispatchAgentChunk({
       kind: "text",
       thread_id: threadId,
+      run_id: "run-codex",
       text: "Final Codex answer",
     });
 
@@ -2093,10 +2260,11 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const threadId = "thread-card-tool";
 
     store.bindThreadType(threadId, "deepseek-harness");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-tool" });
     store.dispatchAgentChunk({
       kind: "tool_call",
       thread_id: threadId,
+      run_id: "run-tool",
       id: "tool-1",
       name: "shell",
       input: { command: "pwd" },
@@ -2104,6 +2272,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     store.dispatchAgentChunk({
       kind: "tool_result",
       thread_id: threadId,
+      run_id: "run-tool",
       id: "tool-1",
       name: "shell",
       result: { ok: true },
@@ -2128,10 +2297,11 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     const threadId = "thread-card-codex-command-json";
 
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-command-json" });
     store.dispatchAgentChunk({
       kind: "tool_call",
       thread_id: threadId,
+      run_id: "run-command-json",
       id: "tool-json",
       name: "shell_command",
       input:
@@ -2213,10 +2383,11 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     result.self = result;
 
     store.bindThreadType(threadId, "codex");
-    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId });
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-circular" });
     store.dispatchAgentChunk({
       kind: "tool_call",
       thread_id: threadId,
+      run_id: "run-circular",
       id: "tool-circular",
       name: "shell_command",
       input: { command: "pwd" },
@@ -2226,6 +2397,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       store.dispatchAgentChunk({
         kind: "tool_result",
         thread_id: threadId,
+        run_id: "run-circular",
         id: "tool-circular",
         name: "shell_command",
         result,
@@ -2260,13 +2432,9 @@ describe("chat-store Agent Thread Card streaming flow", () => {
       "codex",
       "run-stop-codex",
     );
-    expect(threadState.isLoading).toBe(false);
-    expect(threadState.activeRunId).toBeNull();
-    expect(threadState.runs["run-stop-codex"]).toBeUndefined();
-    expect(threadState.lastRun).toMatchObject({
-      runId: "run-stop-codex",
-      status: "cancelled",
-    });
+    expect(threadState.isLoading).toBe(true);
+    expect(threadState.activeRunId).toBe("run-stop-codex");
+    expect(threadState.runs["run-stop-codex"]).toMatchObject({ phase: "stopping" });
     store.dispatchAgentChunk({
       kind: "stream_end",
       thread_id: threadId,
@@ -2277,8 +2445,66 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
     expect(useChatStore.getState().threadStates[threadId].lastRun).toMatchObject({
       runId: "run-stop-codex",
-      status: "cancelled",
+      status: "completed",
     });
+  });
+
+  it.each(["rejected", "failed"] as const)("restores a run when stop is %s", async (outcome) => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = `thread-stop-${outcome}`;
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-stop", agent_type: "codex" });
+    vi.mocked(agent.stopChatStream).mockImplementationOnce(outcome === "rejected"
+      ? async () => false
+      : async () => { throw new Error("transport failed"); });
+    vi.mocked(agent.runningThreads).mockResolvedValueOnce({
+      [threadId]: { runId: "run-stop", agentType: "codex", startedAt: Date.now(), currentTool: null, phase: "running" },
+    });
+
+    await store.stopThreadRun(threadId, "run-stop");
+
+    const state = useChatStore.getState().threadStates[threadId];
+    expect(state.activeRunId).toBe("run-stop");
+    expect(state.isLoading).toBe(true);
+    expect(state.runs["run-stop"]?.phase).not.toBe("stopping");
+  });
+
+  it("keeps stopping when the backend has accepted cancellation but cannot confirm completion", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-stop-unconfirmed";
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-stop", agent_type: "codex" });
+    vi.mocked(agent.stopChatStream).mockResolvedValueOnce(false);
+    vi.mocked(agent.runningThreads).mockResolvedValueOnce({
+      [threadId]: { runId: "run-stop", agentType: "codex", startedAt: Date.now(), currentTool: null, phase: "stopping" },
+    });
+
+    await store.stopThreadRun(threadId, "run-stop");
+
+    expect(useChatStore.getState().threadStates[threadId].runs["run-stop"]?.phase).toBe("stopping");
+  });
+
+  it("sends one stop request while the same run is already stopping", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-stop-duplicate";
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "run-stop", agent_type: "codex" });
+    let acceptStop!: (accepted: boolean) => void;
+    vi.mocked(agent.stopChatStream).mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      acceptStop = resolve;
+    }));
+
+    const first = store.stopThreadRun(threadId, "run-stop");
+    await store.stopThreadRun(threadId, "run-stop");
+    expect(agent.stopChatStream).toHaveBeenCalledTimes(1);
+    acceptStop(true);
+    await first;
   });
 
   it("setActiveThreadId / setActiveCodexThreadId do not change activeAgentTypeKey", async () => {
@@ -2308,7 +2534,7 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     expect(useChatStore.getState().activeAgentTypeKey).toBe("codex");
   });
 
-  it("stopThreadRun sends thread-wide IPC when no active run is recorded locally", async () => {
+  it("stopThreadRun does not send an unscoped stop when no run can be resolved", async () => {
     // 淇 #9: 涔嬪墠 `targetRunId` 鏃?return 鍚庝粛鍙?IPC, 鍚庣璧?thread-wide
     // stop 鍏滃簳, 鏄氮璐广€?鐜板湪 targetRunId 鏈В鏋愭椂鐩存帴 return, 涓嶅彂 IPC銆?    // 楠岃瘉涓ょ鎯呭舰:
     //   1. thread 瀹屽叏娌?dispatch 杩?stream_start, 鍐呴儴鏃?active run銆?    //   2. thread 宸?stream_end, activeRunId 琚竻, 涔熸病涓滆タ鍙仠銆?  
@@ -2319,11 +2545,8 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     // Scenario 1: a brand-new thread that has never run.
     vi.clearAllMocks();
     await store.stopThreadRun("thread-stop-empty");
-    expect(agent.stopChatStream).toHaveBeenCalledWith(
-      "thread-stop-empty",
-      DEFAULT_AGENT_TYPE_KEY,
-      undefined,
-    );
+    expect(agent.runningThreads).toHaveBeenCalled();
+    expect(agent.stopChatStream).not.toHaveBeenCalled();
 
     // 鈹€鈹€ 鎯呭舰 2: thread 璺戣繃浣嗗凡鑷劧缁撴潫銆?  
     const finishedThreadId = "thread-stop-already-ended";
@@ -2345,11 +2568,20 @@ describe("chat-store Agent Thread Card streaming flow", () => {
 
     vi.clearAllMocks();
     await store.stopThreadRun(finishedThreadId);
-    expect(agent.stopChatStream).toHaveBeenCalledWith(
-      finishedThreadId,
-      "deepseek-harness",
-      undefined,
-    );
+    expect(agent.stopChatStream).not.toHaveBeenCalled();
+  });
+
+  it("does not let a delayed stop for an old run target the current run", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
+    const threadId = "thread-stop-old-run";
+    const store = useChatStore.getState();
+    store.bindThreadType(threadId, "codex");
+    store.dispatchAgentChunk({ kind: "stream_start", thread_id: threadId, run_id: "new-run", agent_type: "codex" });
+    vi.clearAllMocks();
+    await store.stopThreadRun(threadId, "old-run");
+    expect(agent.stopChatStream).not.toHaveBeenCalled();
+    expect(useChatStore.getState().threadStates[threadId].activeRunId).toBe("new-run");
   });
 
   it("sends Codex model and permission through runtime config", async () => {

@@ -239,6 +239,11 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            #[cfg(windows)]
+            {
+                let shutdown_app = app.handle().clone();
+                flowix_installer_helper::listen_for_shutdown(move || shutdown_app.exit(0));
+            }
             record_startup_stage(&startup_coordinator, "native-setup-start");
             if let Err(error) = crate::template_store::initialize(&user_config_dir_for_device) {
                 tracing::warn!("[startup] failed to initialize template directories: {error}");
@@ -303,6 +308,7 @@ pub fn run() {
             };
             app_state.upload_sessions.start_cleanup();
             app.manage(app_state);
+            external_runtimes.listen_for_terminal_events(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 crate::window_chrome::apply_window_border_color(&window);
                 // �?��即�?齐主题背�?��, 消除冷启动白�?(尤其深色主�?)�?
@@ -1347,7 +1353,7 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
             event: tauri::WindowEvent::Destroyed,
             ..
         } => {
-            commands::document_shutdown::forget_window(&label);
+            commands::document_shutdown::forget_window(app, &label);
             commands::document_operations::forget_window(&label);
             app.state::<AppState>().export_access.revoke(&label);
             app.state::<AppState>().document_access.revoke(&label);
@@ -1395,6 +1401,28 @@ fn checkpoint_thread_database(app: &tauri::AppHandle, phase: &str) {
     let state = app.state::<AppState>();
     tracing::debug!("running shutdown maintenance: {phase}");
     crate::maintenance::run_shutdown_maintenance(&state.thread_manager);
+}
+
+/// Called on a blocking worker after the updater's document-save handshake.
+/// The updater exits through std::process::exit and will not emit RunEvent::Exit.
+#[cfg(windows)]
+pub(crate) fn prepare_for_update(app: &tauri::AppHandle) -> UpdateRuntimeGuard {
+    // Construct before cleanup so unwinding also restores admission. This guard
+    // stays on the same worker through cleanup and installer launch.
+    let guard = UpdateRuntimeGuard(app.state::<AppState>().pi.clone());
+    stop_external_agent_children(app, "update");
+    checkpoint_thread_database(app, "update");
+    guard
+}
+
+#[cfg(windows)]
+pub(crate) struct UpdateRuntimeGuard(Arc<PiRpcManager>);
+
+#[cfg(windows)]
+impl Drop for UpdateRuntimeGuard {
+    fn drop(&mut self) {
+        self.0.resume_after_failed_update();
+    }
 }
 
 /// 退出路径上等待 5 个 CLI manager `stop_all` 的总时长上界。

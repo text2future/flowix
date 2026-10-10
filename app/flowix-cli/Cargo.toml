@@ -1,6 +1,6 @@
 [package]
 name = "flowix-cli"
-version = "1.5.3"
+version = "1.5.4"
 description = "Flowix 命令行工具 ── 共享同一份 memo_file 存储, 跟桌面端 watcher 双向同步"
 authors = ["Flowix Contributors"]
 edition.workspace = true

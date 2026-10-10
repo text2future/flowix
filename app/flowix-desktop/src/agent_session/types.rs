@@ -292,4 +292,7 @@ pub struct ThreadMessagesPage {
     /// Pins all pages in one history traversal to the same DSH event snapshot.
     #[serde(default)]
     pub snapshot_sequence: Option<i64>,
+    /// Native turns proven terminal and fully represented by this page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complete_turn_ids: Option<Vec<String>>,
 }

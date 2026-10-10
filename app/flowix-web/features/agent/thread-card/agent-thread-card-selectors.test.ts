@@ -62,6 +62,25 @@ describe('agent thread card selectors', () => {
     expect(status.latestRun?.runId).toBe('run-1');
   });
 
+  it('keeps a stopping run busy without offering another stop action', () => {
+    const view = selectAgentThreadCardRuntimeView({
+      state: threadState({
+        isLoading: true,
+        activeRunId: 'run-1',
+        runs: {
+          'run-1': {
+            runId: 'run-1', agentType: 'codex', threadId: 'thread-1',
+            status: 'running', phase: 'stopping', startedAt: 10,
+          },
+        },
+      }),
+      isCreating: false, isLoading: true, typeKey: 'codex',
+    });
+    expect(view.status).toBe('stopping');
+    expect(view.isBusy).toBe(true);
+    expect(view.sendButtonWantsStop).toBe(false);
+  });
+
   it('uses the latest thread runtime when no active run is present', () => {
     const status = selectAgentThreadCardRunStatus({
       state: threadState({

@@ -183,6 +183,9 @@ function AgentConversationDetailContent({
   ));
   const messages = projection?.messages ?? EMPTY_MESSAGES;
   const isLoading = !!projection?.runs.isLoading;
+  const isStopping = projection?.runs.activeRunId
+    ? projection.runs.runs[projection.runs.activeRunId]?.phase === 'stopping'
+    : false;
   const isDshCommandRunning = projection?.runs.dshCommand?.status === 'pending';
   const isCodexCommandRunning = projection?.runs.codexCommand?.status === 'pending';
   const isCodexCommandStoppable =
@@ -223,6 +226,7 @@ function AgentConversationDetailContent({
   const typeKeyRef = useRef<AgentTypeKey>(instance?.agentType ?? DEFAULT_AGENT_TYPE_KEY);
   const messagesRef = useRef(messages);
   const isLoadingRef = useRef(isLoading);
+  const isStoppingRef = useRef(isStopping);
   const isDshCommandRunningRef = useRef(isDshCommandRunning);
   const isCodexCommandRunningRef = useRef(isCodexCommandRunning);
   const isCodexCommandStoppableRef = useRef(isCodexCommandStoppable);
@@ -267,6 +271,7 @@ function AgentConversationDetailContent({
   typeKeyRef.current = instance?.agentType ?? DEFAULT_AGENT_TYPE_KEY;
   messagesRef.current = messages;
   isLoadingRef.current = isLoading;
+  isStoppingRef.current = isStopping;
   isDshCommandRunningRef.current = isDshCommandRunning;
   isCodexCommandRunningRef.current = isCodexCommandRunning;
   isCodexCommandStoppableRef.current = isCodexCommandStoppable;
@@ -639,7 +644,7 @@ function AgentConversationDetailContent({
         },
         renderResolvedSessionMessages: (resolvedMessages) => {
           const id = renderThreadIdRef.current;
-          if (id) useAgentSessionStore.getState().mergeMessages(typeKeyRef.current, id, resolvedMessages);
+          if (id) useAgentSessionStore.getState().applyHistoryPage(id, typeKeyRef.current, { messages: resolvedMessages, coverage: "partial" });
         },
         applyResolvedSession: (localThreadId, sessionId, typeKey) => {
           useAgentSessionStore.getState().applySessionResolved({
@@ -658,21 +663,23 @@ function AgentConversationDetailContent({
         inputDraftMaxChars: INPUT_DRAFT_MAX_CHARS,
         getCurrentInputDraft: () => draftRef.current ?? '',
         getUserHistoryMessages: () => getAgentThreadCardUserHistoryMessagesFromMessages(messagesRef.current),
-        getSendLabel: (wantStop, isRunning) => isRunning
+        getSendLabel: (wantStop, isRunning) => isStoppingRef.current
+          ? tRef.current('editor.threadCard.stopping')
+          : isRunning
           ? tRef.current('editor.threadCard.running')
           : tRef.current(wantStop ? 'editor.threadCard.stop' : 'editor.threadCard.send'),
         getSendButtonWantsStop: () => {
           // `/goal` is the one native Codex command that exposes a real stop
           // action. It must win over the draft/steering condition below.
           if (isCodexCommandStoppableRef.current) return true;
-          return isLoadingRef.current &&
+          return isLoadingRef.current && !isStoppingRef.current &&
             !isDshCommandRunningRef.current &&
             !isCodexCommandRunningRef.current &&
             !((typeKeyRef.current === 'codex' || typeKeyRef.current === 'deepseek-harness') &&
               !!composerControllerRef.current?.getPrompt().trim());
         },
         getSendButtonRunning: () =>
-          isDshCommandRunningRef.current ||
+          isStoppingRef.current || isDshCommandRunningRef.current ||
           (isCodexCommandRunningRef.current && !isCodexCommandStoppableRef.current),
         getHasAttachments: () => composerImagesController.hasImages,
         getHasPendingAttachments: () => composerImagesController.hasPending,

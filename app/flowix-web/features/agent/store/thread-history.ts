@@ -1,11 +1,13 @@
 import { piRowIdentity, reconcilePiTimeline } from "@features/agent/store/pi-message-reconciliation";
 import type { ChatMessage, ThreadListItem } from "@/types";
-import type { PiHistoryRevision, AgentTypeKey } from "@/types/agent";
+import type { AgentTypeKey } from "@/types/agent";
 import { stripSystemBlock } from "@features/agent/message";
 import { createAgentToolDisplay } from "@features/agent/tool-display";
 import { isEmptyAssistantMessage } from "@features/agent/message";
 import {
+  attachHistoryCursor,
   getAgentHistoryAdapter,
+  readHistoryPageWithCursor,
   type ThreadHistoryPage,
 } from "@features/agent/store/agent-history-adapters";
 import { completedRunUserMessageId } from "@features/agent/events/message-identity";
@@ -34,28 +36,12 @@ export async function findHistoryThreadInfo(
 export async function getHistoryPage(
   type: AgentTypeKey,
   threadId: string,
-  beforeSequence: number | null,
   limit: number,
-  snapshotSequence?: number | null,
-  piRevision?: PiHistoryRevision,
-  piBeforeEntryId?: string | null,
+  cursor?: string,
 ): Promise<ThreadHistoryPage> {
-  return getAgentHistoryAdapter(type).getPage(
-    threadId,
-    beforeSequence,
-    limit,
-    snapshotSequence,
-    piRevision,
-    piBeforeEntryId,
-  );
-}
-
-export async function getInitialThreadHistory(
-  type: AgentTypeKey,
-  threadId: string,
-  limit: number,
-): Promise<ThreadHistoryPage> {
-  return getAgentHistoryAdapter(type).getInitialHistory(threadId, limit);
+  if (cursor) return readHistoryPageWithCursor(type, threadId, cursor, limit, getAgentHistoryAdapter(type));
+  const page = await getAgentHistoryAdapter(type).getInitialHistory(threadId, limit);
+  return attachHistoryCursor(type, threadId, page);
 }
 
 export function filterRenderableHistoryMessages(
@@ -75,8 +61,7 @@ export function filterRenderableHistoryMessages(
 // FNV-1a 32-bit hashes combined give an effectively 64-bit collision space
 // while walking each string only once with constant per-character work.
 // Replaces JSON.stringify(content) which, on multi-MB assistant responses,
-// allocated several MB of UTF-16 strings per message per rAF frame
-// (syncRenderableMessages is invoked on every streaming flush). Collisions
+// allocated several MB of UTF-16 strings per message per streaming flush. Collisions
 // remain theoretically possible but vanishingly unlikely for chat history;
 // the dedup logic treats a collision as "duplicate, skip" which is benign.
 function contentFingerprint(content: string): string {
@@ -90,13 +75,6 @@ function contentFingerprint(content: string): string {
     h2 = Math.imul(h2 ^ c, prime2);
   }
   return `${h1 >>> 0}:${h2 >>> 0}`;
-}
-
-function userMessageStableKey(message: ChatMessage): string | null {
-  if (message.role !== "user") return null;
-  const contentFp = message.content ? contentFingerprint(message.content) : "";
-  const llmFp = message.llmContent ? contentFingerprint(message.llmContent) : "";
-  return `user:${contentFp}:${llmFp}:${message.systemReminderDirectory ?? ""}:${message.systemReminderDocumentPath ?? ""}`;
 }
 
 function userMessageVisibleKey(message: ChatMessage): string | null {
@@ -155,6 +133,26 @@ export function historyCoversLiveTurn(
     historyVisibleRows.set(key, count - 1);
   }
   return true;
+}
+
+/** Release live cache only after stable identities and completed content agree.
+ * Content-only matching remains a legacy display reconciliation aid, never a
+ * persistence confirmation. */
+export function historyConfirmsLiveMessages(
+  history: ChatMessage[],
+  live: ChatMessage[],
+): boolean {
+  if (live.length === 0) return false;
+  const byId = new Map(history.map((message) => [message.id, message]));
+  return live.every((message) => {
+    const persisted = byId.get(message.id);
+    return !!persisted &&
+      persisted.role === message.role &&
+      persisted.content === message.content &&
+      persisted.llmContent === message.llmContent &&
+      !persisted.isLoading &&
+      (message.role !== "assistant" && message.role !== "reasoning" || persisted.isCompleted === true);
+  });
 }
 
 function messageContentStableKey(message: ChatMessage): string | null {
@@ -271,6 +269,13 @@ export function reconcilePiHistory(
     reconcilePiTimeline(live, history, { kind: "snapshot", coverage: hasMore ? "latest-page" : "full-branch", requestProjection }));
 }
 
+function latestUserIndex(messages: readonly ChatMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") return index;
+  }
+  return -1;
+}
+
 export function mergeHistoricalMessages(
   existing: ChatMessage[],
   historical: ChatMessage[],
@@ -294,8 +299,11 @@ export function mergeHistoricalMessages(
   let mergedExisting = existing;
   const seenIds = new Set(existing.map(messageIdentityKey));
   const existingToolIndexByCallId = new Map<string, number>();
-  const existingUserCounts = new Map<string, number>();
-  const existingVisibleUserCounts = new Map<string, number>();
+  const latestExistingUser = latestUserIndex(existing);
+  const latestHistoricalUser = latestUserIndex(hydratedHistorical);
+  const sameLatestTurn = latestExistingUser >= 0 && latestHistoricalUser >= 0 &&
+    messageIdentityKey(existing[latestExistingUser]) ===
+      messageIdentityKey(hydratedHistorical[latestHistoricalUser]);
   const existingContentCounts = new Map<string, number>();
   for (const [index, message] of existing.entries()) {
     if (message.role === "tool" && message.toolCallId) {
@@ -303,20 +311,9 @@ export function mergeHistoricalMessages(
       existingToolIndexByCallId.set(toolCallIdentityKey(message.toolCallId), index);
     }
 
-    const key = userMessageStableKey(message);
-    if (key) {
-      existingUserCounts.set(key, (existingUserCounts.get(key) ?? 0) + 1);
-    }
-
-    const visibleKey = userMessageVisibleKey(message);
-    if (visibleKey) {
-      existingVisibleUserCounts.set(
-        visibleKey,
-        (existingVisibleUserCounts.get(visibleKey) ?? 0) + 1,
-      );
-    }
-
-    const contentKey = messageContentStableKey(message);
+    const contentKey = sameLatestTurn && index > latestExistingUser &&
+      (message.role === "assistant" || message.role === "reasoning")
+      ? messageContentStableKey(message) : null;
     if (contentKey) {
       existingContentCounts.set(
         contentKey,
@@ -329,7 +326,7 @@ export function mergeHistoricalMessages(
   // 被 historical tool 合并替代的 existing tool 下标 ── 这些 live tool 不再
   // 占 existing 位置, 合并消息(代表历史 tool)放 missing 的历史顺序位置。
   const mergedExistingIndices = new Set<number>();
-  for (const message of hydratedHistorical) {
+  for (const [historyIndex, message] of hydratedHistorical.entries()) {
     if (seenIds.has(messageIdentityKey(message))) continue;
 
     if (message.role === "tool" && message.toolCallId) {
@@ -350,44 +347,9 @@ export function mergeHistoricalMessages(
     }
 
 
-    const key = userMessageStableKey(message);
-    if (key) {
-      const count = existingUserCounts.get(key) ?? 0;
-      if (count > 0) {
-        existingUserCounts.set(key, count - 1);
-        const visibleKey = userMessageVisibleKey(message);
-        if (visibleKey) {
-          const visibleCount = existingVisibleUserCounts.get(visibleKey) ?? 0;
-          if (visibleCount > 0) {
-            existingVisibleUserCounts.set(visibleKey, visibleCount - 1);
-            const contentKey = messageContentStableKey(message);
-            if (contentKey) {
-              const contentCount = existingContentCounts.get(contentKey) ?? 0;
-              if (contentCount > 0)
-                existingContentCounts.set(contentKey, contentCount - 1);
-            }
-          }
-        }
-        continue;
-      }
-    }
-
-    const visibleKey = userMessageVisibleKey(message);
-    if (visibleKey) {
-      const count = existingVisibleUserCounts.get(visibleKey) ?? 0;
-      if (count > 0) {
-        existingVisibleUserCounts.set(visibleKey, count - 1);
-        const contentKey = messageContentStableKey(message);
-        if (contentKey) {
-          const contentCount = existingContentCounts.get(contentKey) ?? 0;
-          if (contentCount > 0)
-            existingContentCounts.set(contentKey, contentCount - 1);
-        }
-        continue;
-      }
-    }
-
-    const contentKey = messageContentStableKey(message);
+    const contentKey = sameLatestTurn && historyIndex > latestHistoricalUser &&
+      (message.role === "assistant" || message.role === "reasoning")
+      ? messageContentStableKey(message) : null;
     if (contentKey) {
       const count = existingContentCounts.get(contentKey) ?? 0;
       if (count > 0) {
@@ -424,6 +386,16 @@ function mergeCodexHistoricalMessages(
   existing: ChatMessage[],
   historical: ChatMessage[],
 ): ChatMessage[] {
+  const scopedUserKey = (message: ChatMessage) => {
+    if (!message.codexTurnId) return null;
+    const key = userMessageVisibleKey(message);
+    return key ? `${message.codexTurnId}:${key}` : null;
+  };
+  const scopedContentKey = (message: ChatMessage) => {
+    if (!message.codexTurnId) return null;
+    const key = messageContentStableKey(message);
+    return key ? `${message.codexTurnId}:${key}` : null;
+  };
   const historyIds = new Set(historical.map(messageIdentityKey));
   const historyToolIds = new Set(
     historical
@@ -436,11 +408,11 @@ function mergeCodexHistoricalMessages(
   const historyUserCounts = new Map<string, number>();
   const historyContentCounts = new Map<string, number>();
   for (const message of historical) {
-    const userKey = userMessageVisibleKey(message);
+    const userKey = scopedUserKey(message);
     if (userKey) {
       historyUserCounts.set(userKey, (historyUserCounts.get(userKey) ?? 0) + 1);
     }
-    const contentKey = messageContentStableKey(message);
+    const contentKey = scopedContentKey(message);
     if (contentKey) {
       historyContentCounts.set(
         contentKey,
@@ -460,7 +432,7 @@ function mergeCodexHistoricalMessages(
       return false;
     }
 
-    const userKey = userMessageVisibleKey(message);
+    const userKey = scopedUserKey(message);
     if (userKey) {
       const count = historyUserCounts.get(userKey) ?? 0;
       if (count > 0) {
@@ -469,7 +441,7 @@ function mergeCodexHistoricalMessages(
       }
     }
 
-    const contentKey = messageContentStableKey(message);
+    const contentKey = scopedContentKey(message);
     if (contentKey) {
       const count = historyContentCounts.get(contentKey) ?? 0;
       if (count > 0) {
@@ -904,12 +876,19 @@ export function mergeMessagesForThreadRender({
     return mergeCodexHistoryWithLive(hydratedHistory, hydratedLive);
   }
   if (agentType === "pi") return reuseRenderEquivalentMessageReferences(hydratedLive, reconcilePiTimeline(hydratedLive, hydratedHistory, { kind: "snapshot", coverage: "page" }));
+  const latestHistoryUser = latestUserIndex(hydratedHistory);
+  const latestLiveUser = latestUserIndex(hydratedLive);
+  const sameLatestTurn = latestHistoryUser >= 0 && latestLiveUser >= 0 &&
+    messageIdentityKey(hydratedHistory[latestHistoryUser]) ===
+      messageIdentityKey(hydratedLive[latestLiveUser]);
   const seenIds = new Set(hydratedHistory.map(messageIdentityKey));
   const historicalContentCounts = new Map<string, number>();
   const latestHistoricalTimeByContent = new Map<string, number>();
 
-  for (const message of hydratedHistory) {
-    const key = messageContentStableKey(message);
+  for (const [index, message] of hydratedHistory.entries()) {
+    const key = sameLatestTurn && index > latestHistoryUser &&
+      (message.role === "assistant" || message.role === "reasoning")
+      ? messageContentStableKey(message) : null;
     if (!key) continue;
     historicalContentCounts.set(key, (historicalContentCounts.get(key) ?? 0) + 1);
     latestHistoricalTimeByContent.set(
@@ -924,10 +903,12 @@ export function mergeMessagesForThreadRender({
   }));
   let order = history.length;
 
-  for (const message of hydratedLive) {
+  for (const [index, message] of hydratedLive.entries()) {
     if (seenIds.has(messageIdentityKey(message))) continue;
 
-    const key = messageContentStableKey(message);
+    const key = sameLatestTurn && index > latestLiveUser &&
+      (message.role === "assistant" || message.role === "reasoning")
+      ? messageContentStableKey(message) : null;
     if (key) {
       const historicalCount = historicalContentCounts.get(key) ?? 0;
       const latestHistoricalTime = latestHistoricalTimeByContent.get(key) ?? 0;

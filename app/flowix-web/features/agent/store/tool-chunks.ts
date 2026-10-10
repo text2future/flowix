@@ -1,9 +1,6 @@
 import type { ChatMessage } from "@/types";
 import type { AgentTypeKey } from "@/types/agent";
-import type {
-  ApplyResult,
-  LiveMessageState,
-} from "@features/agent/store/chunk-result";
+import type { MessageProjection } from "@features/agent/store/session-reducer/types";
 import {
   createAgentToolDisplay,
   normalizeToolInput,
@@ -37,13 +34,13 @@ function toolCallIdsMatch(left: string | undefined, right: string): boolean {
  * 提供原始工具事件，不把另一套 toolview/display 注入消息。
  */
 export function applyToolCallChunk(
-  st: LiveMessageState,
+  st: MessageProjection,
   id: string,
   name: string,
   input: unknown,
   agentType?: AgentTypeKey,
   metadata: MessageChunkMetadata = {},
-): ApplyResult {
+): MessageProjection {
   const toolInput = normalizeToolInput(input);
   const toolMessage: ChatMessage = {
     id: metadata.id ?? `tool-${id || Date.now()}`,
@@ -95,14 +92,12 @@ export function applyToolCallChunk(
     };
     return {
       messages: agentType === "pi" ? orderPiMessageBlocks(messages) : messages,
-      pendingAssistantId: null,
-      pendingReasoningId: st.pendingReasoningId,
+      pending: { assistantId: null, reasoningId: st.pending.reasoningId },
     };
   }
   return {
     messages: agentType === "pi" ? orderPiMessageBlocks([...st.messages, toolMessage]) : insertAgentMessageBySourceOrder(st.messages, toolMessage),
-    pendingAssistantId: null,
-    pendingReasoningId: st.pendingReasoningId,
+    pending: { assistantId: null, reasoningId: st.pending.reasoningId },
   };
 }
 
@@ -117,13 +112,13 @@ export function applyToolCallChunk(
  * response after this tool append to the assistant message before the tool.
  */
 export function applyToolResultChunk(
-  st: LiveMessageState,
+  st: MessageProjection,
   id: string,
   name: string,
   result: unknown,
   agentType?: AgentTypeKey,
   metadata: MessageChunkMetadata = {},
-): ApplyResult {
+): MessageProjection {
   const resultToolName = name && name !== "tool_result" ? name : "";
   const resultContent = summarizeToolResult(result, resultToolName);
   const hasMatchingCall = st.messages.some(
@@ -178,8 +173,7 @@ export function applyToolResultChunk(
       }, agentType === "pi");
   return {
     messages,
-    pendingAssistantId: null,
-    pendingReasoningId: st.pendingReasoningId,
+    pending: { assistantId: null, reasoningId: st.pending.reasoningId },
   };
 }
 

@@ -84,6 +84,7 @@ impl ThreadManager {
             oldest_sequence,
             has_more,
             snapshot_sequence: None,
+            complete_turn_ids: None,
         })
     }
 

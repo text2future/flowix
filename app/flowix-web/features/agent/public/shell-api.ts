@@ -6,9 +6,30 @@ export { AgentTasksSection } from '@features/agent/components/agent-tasks-sectio
 
 import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
+import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import { selectAndOpenAgentConversation } from '@features/workspace/use-cases/agent-conversation-navigation';
 import { useNoteStore } from '@features/memo/store/note-store';
 import type { AgentTypeKey } from '@/types/agent';
+
+export { isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus } from '@features/agent/runtime/agent-runtime-status';
+
+export function useBrowserColumnAgentHeaderModel() {
+  const statusByType = useAgentRuntimeStore((state) => state.statusByType);
+  const isChecking = useAgentRuntimeStore((state) => state.isChecking);
+  const refreshIfStale = useAgentRuntimeStore((state) => state.refreshIfStale);
+  const conversationInstances = useAgentSessionStore((state) => state.conversationRegistry.instances);
+  return { statusByType, isChecking, refreshIfStale, conversationInstances };
+}
+
+export function createBrowserColumnAgentConversation(typeKey: AgentTypeKey, notebookId: string): string {
+  return useAgentSessionStore.getState().createInstance({
+    agentType: typeKey,
+    title: '',
+    threadId: null,
+    source: { kind: 'dedicated', notebookId, documentPath: null },
+    runtimeConfig: buildInitialInstanceRuntimeConfig(typeKey),
+  }).instanceId;
+}
 
 export function createAndOpenAgentConversation(typeKey: AgentTypeKey, notebookId: string): void {
   const instance = useAgentSessionStore.getState().createInstance({

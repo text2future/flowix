@@ -176,6 +176,14 @@
   stroke: color-mix(in oklch, var(--muted-foreground) 82%, transparent) !important;
 }
 
+.mermaid-surface > svg .edgePath .path,
+.mermaid-surface > svg .flowchart-link,
+.mermaid-surface > svg .messageLine0,
+.mermaid-surface > svg .messageLine1,
+.mermaid-surface > svg path.relation {
+  fill: none !important;
+}
+
 .mermaid-surface > svg marker path,
 .mermaid-surface > svg defs marker path {
   fill: color-mix(in oklch, var(--muted-foreground) 82%, transparent) !important;

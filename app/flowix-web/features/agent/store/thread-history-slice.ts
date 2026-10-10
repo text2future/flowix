@@ -1,25 +1,25 @@
 import type { ChatMessage } from "@/types";
 import type { AgentTypeKey } from "@/types/agent";
 import type { AgentConversationMessageState } from "@features/agent/store/agent-conversation-types";
-import type { LiveMessageState } from "@features/agent/store/chunk-result";
 import type { ProjectionSlice } from "@features/agent/store/projection-slice";
+import type { AgentSessionMeta } from "@features/agent/store/session-state";
 import { emptyProjection } from "@features/agent/store/session-reducer";
-import { getAgentHistoryAdapter } from "@features/agent/store/agent-history-adapters";
-import { PiHistorySnapshotChangedError } from "@features/agent/store/pi-message-reconciliation";
+import { getAgentHistoryAdapter, HistoryChangedError } from "@features/agent/store/agent-history-adapters";
+import type { ThreadHistoryPage } from "@features/agent/store/agent-history-adapters";
+import { createLogger } from "@/lib/logger";
+import { isKnownProductThreadId, resolveStoreThreadId } from "@features/agent/store/external-session";
+import { createHistoryRequestCoordinator } from "@features/agent/store/history-request-coordinator";
 import {
   filterRenderableHistoryMessages,
   getHistoryPage,
-  getInitialThreadHistory,
   HISTORY_PAGE_SIZE,
-  replaceHistoricalMessages,
   areMessagesEquivalent,
   historyCoversLiveTurn,
+  historyConfirmsLiveMessages,
   reconcilePiHistory,
   mergeHistoricalMessages,
   mergeMessagesForThreadRender,
-  mergeLiveMessagesIntoRenderableMessages,
   prependHistoricalMessages,
-  trySwapLastLiveMessage,
 } from "@features/agent/store/thread-history";
 // history-sync is loaded lazily to keep its reconcile engine out of the desktop
 // startup graph (`check-web-bundle.mjs` STARTUP_GZIP_BUDGET=850_000). All three
@@ -27,6 +27,7 @@ import {
 // of which are already async, so a dynamic import adds no perceptible latency.
 type HistorySyncModule = typeof import("@features/agent/store/history-sync");
 let historySyncModulePromise: Promise<HistorySyncModule> | null = null;
+const logger = createLogger("agent-thread-history");
 function loadHistorySync(): Promise<HistorySyncModule> {
   if (!historySyncModulePromise) {
     historySyncModulePromise = import("@features/agent/store/history-sync");
@@ -34,13 +35,9 @@ function loadHistorySync(): Promise<HistorySyncModule> {
   return historySyncModulePromise;
 }
 
-type SessionSet = (
-  updater: (state: HistoryContext) => Partial<HistoryContext> | HistoryContext,
-) => void;
-type HistoryContext = ThreadHistorySlice & ProjectionSlice;
+type HistoryContext = ThreadHistorySlice & ProjectionSlice & { sessionMeta: AgentSessionMeta };
 type SessionGet = () => HistoryContext;
 
-const codexReconciles = new Map<string, Promise<void>>();
 // Codex history is normally available immediately after turn completion. Keep
 // one delayed retry for app-server persistence lag, but avoid four snapshots
 // and four render/reconcile cycles for every completed turn.
@@ -54,28 +51,17 @@ export interface ThreadHistorySlice {
   getMessageState(
     threadId: string | null | undefined,
   ): AgentConversationMessageState | null;
-  mergeMessages(
-    agentType: AgentTypeKey,
+  applyHistoryPage(
     threadId: string,
-    messages: ChatMessage[],
-  ): void;
-  syncRenderableMessages(
     agentType: AgentTypeKey,
-    threadId: string,
-    messages: ChatMessage[],
-  ): void;
-  syncLiveMessageState(
-    agentType: AgentTypeKey,
-    threadId: string,
-    liveState: LiveMessageState,
+    page: Pick<ThreadHistoryPage, "messages"> & { coverage: "partial" },
   ): void;
   resetMessageStates(threadIds: string[]): void;
   loadMessages(agentType: AgentTypeKey, threadId: string): Promise<void>;
-  /** Reload the complete provider snapshot and treat it as authoritative. */
+  /** Reload complete provider history while preserving newer live messages. */
   reloadMessagesFromHistory(
     agentType: AgentTypeKey,
     threadId: string,
-    options?: { preserveExistingMessages?: boolean },
   ): Promise<ChatMessage[]>;
   reconcileCompletedRun(
     agentType: AgentTypeKey,
@@ -86,23 +72,34 @@ export interface ThreadHistorySlice {
 }
 
 export function createThreadHistorySlice(
-  set: SessionSet,
   get: SessionGet,
 ): ThreadHistorySlice {
-  // Orders concurrent Pi history reads locally; these are request versions,
-  // never message IDs and never persisted. Native revisions remain opaque.
-  const piHistoryReadVersions = new Map<string, number>();
-  const beginHistoryRead = (agentType: AgentTypeKey, threadId: string) => {
-    if (agentType !== "pi") return 0;
-    const version = (piHistoryReadVersions.get(threadId) ?? 0) + 1;
-    piHistoryReadVersions.set(threadId, version);
-    return version;
+  const requests = createHistoryRequestCoordinator({
+    binding: (threadId) => ({
+      providerSessionId: get().sessionMeta.externalSessionResolutions[threadId],
+      agentType: get().sessionMeta.threadTypes[threadId],
+    }),
+    epoch: (threadId) => get().threadEpochs[threadId] ?? 0,
+    isDeleted: (threadId) => !!get().threadTombstones[threadId],
+  });
+  const productThreadIdFor = (threadId: string, agentType: AgentTypeKey) => {
+    const meta = get().sessionMeta;
+    return resolveStoreThreadId(
+      threadId, meta.externalSessionResolutions, agentType, meta.threadTypes,
+      (id) => isKnownProductThreadId(id, get()),
+    );
   };
-  const isHistoryReadCurrent = (agentType: AgentTypeKey, threadId: string, version: number) =>
-    agentType !== "pi" || piHistoryReadVersions.get(threadId) === version;
-  const isRequestCurrent = (threadId: string, epoch: number) =>
-    !get().threadTombstones[threadId] &&
-    (get().threadEpochs[threadId] ?? 0) === epoch;
+  const clearStaleLoading = (threadId: string, request: ReturnType<typeof requests.begin>, kind: "initial" | "more") => {
+    if (!requests.isLatest(request) || get().threadTombstones[threadId]) return;
+    get().updateThreadHistory(threadId, (projection) => {
+      if (kind === "initial") {
+        if (!projection.pagination.loadingInitial) return projection;
+        return { ...projection, pagination: { ...projection.pagination, loadingInitial: false, initialStatus: "idle" } };
+      }
+      if (!projection.pagination.loadingMore) return projection;
+      return { ...projection, pagination: { ...projection.pagination, loadingMore: false } };
+    });
+  };
 
   return {
     getMessageState: (threadId) => {
@@ -120,89 +117,33 @@ export function createThreadHistorySlice(
         loadingMore: projection.pagination.loadingMore,
       };
     },
-    mergeMessages: (agentType, threadId, messages) => {
-      const renderable = filterRenderableHistoryMessages(messages);
+    applyHistoryPage: (threadId, agentType, page) => {
+      const productThreadId = productThreadIdFor(threadId, agentType);
+      if (!productThreadId) return;
+      if (productThreadId !== threadId) return get().applyHistoryPage(productThreadId, agentType, page);
+      const renderable = filterRenderableHistoryMessages(page.messages);
       if (renderable.length === 0) return;
-      set((state) => {
-        if (state.threadTombstones[threadId]) return state;
-        const current = state.threadProjections[threadId] ?? emptyProjection();
+      get().updateThreadHistory(threadId, (current) => {
+        const boundRuntime = get().sessionMeta.threadTypes[threadId];
+        if (boundRuntime && boundRuntime !== agentType) return current;
         const merged = mergeHistoricalMessages(
           current.messages,
           renderable,
           agentType,
         );
-        if (merged === current.messages) return state;
-        return {
-          threadProjections: {
-            ...state.threadProjections,
-            [threadId]: { ...current, messages: merged },
-          },
-        };
-      });
-    },
-    syncRenderableMessages: (agentType, threadId, messages) => {
-      const renderable = filterRenderableHistoryMessages(messages);
-      if (renderable.length === 0) return;
-      set((state) => {
-        if (state.threadTombstones[threadId]) return state;
-        const current = state.threadProjections[threadId] ?? emptyProjection();
-        const merged = mergeLiveMessagesIntoRenderableMessages(
-          current.messages,
-          renderable,
-          agentType,
-        );
-        if (merged === current.messages) return state;
-        return {
-          threadProjections: {
-            ...state.threadProjections,
-            [threadId]: { ...current, messages: merged },
-          },
-        };
-      });
-    },
-    syncLiveMessageState: (agentType, threadId, liveState) => {
-      const renderable = filterRenderableHistoryMessages(liveState.messages);
-      set((state) => {
-        if (state.threadTombstones[threadId]) return state;
-        const current = state.threadProjections[threadId] ?? emptyProjection();
-        const swapped = trySwapLastLiveMessage(current.messages, renderable);
-        const merged =
-          swapped ??
-          (renderable.length > 0
-            ? mergeLiveMessagesIntoRenderableMessages(
-                current.messages,
-                renderable,
-                agentType,
-              )
-            : current.messages);
-        if (
-          merged === current.messages &&
-          current.pending.assistantId === liveState.pendingAssistantId &&
-          current.pending.reasoningId === liveState.pendingReasoningId
-        ) {
-          return state;
-        }
-        return {
-          threadProjections: {
-            ...state.threadProjections,
-            [threadId]: {
-              ...current,
-              messages: merged,
-              pending: {
-                assistantId: liveState.pendingAssistantId,
-                reasoningId: liveState.pendingReasoningId,
-              },
-            },
-          },
-        };
+        return merged === current.messages ? current : { ...current, messages: merged };
       });
     },
     resetMessageStates: (threadIds) => get().resetThreadProjections(threadIds),
     loadMessages: async (agentType, threadId) => {
-      if (get().threadProjections[threadId]?.pagination.loadingInitial) return;
+      const productThreadId = productThreadIdFor(threadId, agentType);
+      if (!productThreadId) return;
+      if (productThreadId !== threadId) return get().loadMessages(agentType, productThreadId);
       if (get().threadTombstones[threadId]) return;
-      const requestEpoch = get().threadEpochs[threadId] ?? 0;
-      const historyReadVersion = beginHistoryRead(agentType, threadId);
+      const binding = requests.binding(threadId);
+      if (get().threadProjections[threadId]?.pagination.loadingInitial &&
+        requests.hasInitial(threadId, agentType, binding)) return;
+      const historyReadVersion = requests.begin(threadId);
       const requestProjection = get().threadProjections[threadId]?.messages ?? [];
       const isInitialLoad =
         (get().threadProjections[threadId]?.messages.length ?? 0) === 0;
@@ -210,7 +151,8 @@ export function createThreadHistorySlice(
       // conversation must not enter loading or invalidate its projection just
       // because a silent snapshot request started.
       if (isInitialLoad) {
-        get().setThreadProjection(threadId, (projection) => ({
+        requests.startInitial(threadId, agentType, binding);
+        get().updateThreadHistory(threadId, (projection) => ({
           ...projection,
           pagination: {
             ...projection.pagination,
@@ -221,12 +163,15 @@ export function createThreadHistorySlice(
         }));
       }
       try {
-        const page = await getInitialThreadHistory(
+        const page = await getHistoryPage(
           agentType,
           threadId,
           HISTORY_PAGE_SIZE,
         );
-        if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return;
+        if (!requests.isCurrent(historyReadVersion)) {
+          clearStaleLoading(threadId, historyReadVersion, "initial");
+          return;
+        }
         const messages = filterRenderableHistoryMessages(page.messages);
         const cached = agentType === "codex" ? get().codexLiveTurns[threadId] : undefined;
         const lastRun = get().threadProjections[threadId]?.runs.lastRun;
@@ -238,8 +183,8 @@ export function createThreadHistorySlice(
               : undefined;
         const { isOlderHistorySnapshot, historyRevision, reconcileHistorySnapshot } =
           await loadHistorySync();
-        get().setThreadProjection(threadId, (projection) => {
-          if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return projection;
+        get().updateThreadHistory(threadId, (projection) => {
+          if (!requests.isCurrent(historyReadVersion)) return projection;
           if (
             agentType !== "pi" && isOlderHistorySnapshot(
               projection.pagination.snapshotSequence,
@@ -262,11 +207,10 @@ export function createThreadHistorySlice(
                   current: projection.messages,
                   snapshot: {
                     messages,
+                    coverage: page.coverage,
                     revision: historyRevision(page.snapshotSequence),
                     oldestCursor: page.oldestSequence,
                     hasMore: page.hasMore,
-                    piRevision: page.piRevision,
-                    piBeforeEntryId: page.piBeforeEntryId,
                   },
                   requestProjection,
                   reason: completedRunId ? "run_completed" : "open",
@@ -278,8 +222,7 @@ export function createThreadHistorySlice(
             initialError: null,
             oldestSequence: page.oldestSequence,
             snapshotSequence: page.snapshotSequence ?? null,
-            piRevision: page.piRevision,
-            piBeforeEntryId: page.piBeforeEntryId,
+            nextCursor: page.nextCursor,
             hasMoreHistory: page.hasMore,
             loadingInitial: false,
             loadingMore: false,
@@ -290,8 +233,7 @@ export function createThreadHistorySlice(
             projection.pagination.oldestSequence === pagination.oldestSequence &&
             (projection.pagination.snapshotSequence ?? null) ===
               pagination.snapshotSequence &&
-            JSON.stringify(projection.pagination.piRevision) === JSON.stringify(pagination.piRevision) &&
-            projection.pagination.piBeforeEntryId === pagination.piBeforeEntryId &&
+            projection.pagination.nextCursor === pagination.nextCursor &&
             projection.pagination.hasMoreHistory === pagination.hasMoreHistory &&
             projection.pagination.loadingInitial === pagination.loadingInitial &&
             projection.pagination.loadingMore === pagination.loadingMore;
@@ -302,15 +244,18 @@ export function createThreadHistorySlice(
         if (
           agentType === "codex" &&
           cached?.status === "completed" &&
-          historyCoversLiveTurn(messages, cached.messages)
+          historyConfirmsLiveMessages(messages, cached.messages)
         ) {
           get().clearCodexLiveTurn(threadId, cached.runId);
         }
       } catch (error) {
-        console.error("[AgentSession] Failed to load messages:", error);
-        if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return;
+        logger.error("Failed to load messages", { error: String(error) });
+        if (!requests.isCurrent(historyReadVersion)) {
+          clearStaleLoading(threadId, historyReadVersion, "initial");
+          return;
+        }
         if (isInitialLoad) {
-          get().setThreadProjection(threadId, (projection) => ({
+          get().updateThreadHistory(threadId, (projection) => ({
             ...projection,
             pagination: {
               ...projection.pagination,
@@ -320,9 +265,14 @@ export function createThreadHistorySlice(
             },
           }));
         }
+      } finally {
+        if (isInitialLoad) requests.finishInitial(historyReadVersion);
       }
     },
-    reloadMessagesFromHistory: async (agentType, threadId, options) => {
+    reloadMessagesFromHistory: async (agentType, threadId) => {
+      const productThreadId = productThreadIdFor(threadId, agentType);
+      if (!productThreadId) return [];
+      if (productThreadId !== threadId) return get().reloadMessagesFromHistory(agentType, productThreadId);
       if (!threadId || get().threadTombstones[threadId]) return [];
 
       // Invalidate an initial/page request that may have started before a DSH
@@ -331,42 +281,46 @@ export function createThreadHistorySlice(
       // back into the projection afterwards.
       const requestProjection = get().threadProjections[threadId]?.messages ?? [];
       get().invalidateThread(threadId);
-      const requestEpoch = get().threadEpochs[threadId] ?? 0;
-      const historyReadVersion = beginHistoryRead(agentType, threadId);
+      const historyReadVersion = requests.begin(threadId);
       const history = await getAgentHistoryAdapter(agentType).getFullHistory(threadId);
-      if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return [];
+      const { reconcileHistorySnapshot } = await loadHistorySync();
+      if (!requests.isCurrent(historyReadVersion)) return [];
 
       const current = get().threadProjections[threadId] ?? emptyProjection();
-      const messages = replaceHistoricalMessages(history, agentType);
-      const existingMessages = options?.preserveExistingMessages
-        ? current.messages.filter(
+      const messages = filterRenderableHistoryMessages(history);
+      const existingMessages = current.messages.filter(
             (message) =>
               !(
                 message.messageType === "dsh-command" &&
                 message.id.startsWith("dsh-command:live:")
               ),
-          )
-        : current.messages;
-      const nextMessages = agentType === "pi"
-        ? reconcilePiHistory(messages, existingMessages, false, requestProjection)
-        : options?.preserveExistingMessages
-          ? mergeHistoricalMessages(existingMessages, messages, agentType)
-        : areMessagesEquivalent(current.messages, messages)
-          ? current.messages
-          : messages;
-      get().setThreadProjection(threadId, (projection) => {
-        if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return projection;
+          );
+      const nextMessages = reconcileHistorySnapshot({
+        agentType,
+        current: existingMessages,
+        snapshot: {
+          messages,
+          revision: null,
+          oldestCursor: null,
+          hasMore: false,
+        },
+        requestProjection,
+        reason: "recovery",
+      }).messages;
+      get().updateThreadHistory(threadId, (projection) => {
+        if (!requests.isCurrent(historyReadVersion)) return projection;
+        const visibleMessages = areMessagesEquivalent(projection.messages, nextMessages)
+          ? projection.messages : nextMessages;
         return {
           ...projection,
-          messages: nextMessages,
+          messages: visibleMessages,
           pagination: {
             ...projection.pagination,
             initialStatus: "ready",
             initialError: null,
             oldestSequence: null,
             snapshotSequence: null,
-            piRevision: undefined,
-            piBeforeEntryId: undefined,
+            nextCursor: undefined,
             hasMoreHistory: false,
             loadingInitial: false,
             loadingMore: false,
@@ -376,28 +330,27 @@ export function createThreadHistorySlice(
       return nextMessages;
     },
     reconcileCompletedRun: async (agentType, threadId, runId) => {
+      const productThreadId = productThreadIdFor(threadId, agentType);
+      if (!productThreadId) return;
+      if (productThreadId !== threadId) return get().reconcileCompletedRun(agentType, productThreadId, runId);
       if (get().threadTombstones[threadId]) return;
-      if (agentType === "codex") {
-        const existing = codexReconciles.get(threadId);
-        if (existing) return existing;
-      }
-      const requestEpoch = get().threadEpochs[threadId] ?? 0;
-      const historyReadVersion = beginHistoryRead(agentType, threadId);
-      const reconcile = (async () => {
+      const reconcile = async () => {
+        if (get().threadTombstones[threadId]) return;
+        const historyReadVersion = requests.begin(threadId);
         try {
           const {
             isOlderHistorySnapshot,
             historyRevision,
             reconcileHistorySnapshot,
           } = await loadHistorySync();
-          let page: Awaited<ReturnType<typeof getInitialThreadHistory>> | null = null;
+          let page: Awaited<ReturnType<typeof getHistoryPage>> | null = null;
           let historicalMessages: ChatMessage[] = [];
           let cachedTurnId: string | undefined;
           let requestProjection: readonly ChatMessage[] = [];
           for (const delay of agentType === "codex" ? CODEX_RECONCILE_DELAYS : [0]) {
             await wait(delay);
             requestProjection = get().threadProjections[threadId]?.messages ?? [];
-            page = await getInitialThreadHistory(agentType, threadId, HISTORY_PAGE_SIZE);
+            page = await getHistoryPage(agentType, threadId, HISTORY_PAGE_SIZE);
             historicalMessages = filterRenderableHistoryMessages(page.messages);
             const cached = get().codexLiveTurns[threadId];
             cachedTurnId = cached?.runId === runId ? cached?.turnId : undefined;
@@ -410,9 +363,11 @@ export function createThreadHistorySlice(
             ) break;
           }
           if (!page) return;
-        if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return;
-        get().setThreadProjection(threadId, (projection) => {
-          if (!isRequestCurrent(threadId, requestEpoch) || !isHistoryReadCurrent(agentType, threadId, historyReadVersion)) return projection;
+        if (!requests.isCurrent(historyReadVersion)) {
+          return;
+        }
+        get().updateThreadHistory(threadId, (projection) => {
+          if (!requests.isCurrent(historyReadVersion)) return projection;
           if (
             agentType !== "pi" && isOlderHistorySnapshot(
               projection.pagination.snapshotSequence,
@@ -426,11 +381,10 @@ export function createThreadHistorySlice(
             current: projection.messages,
             snapshot: {
               messages: historicalMessages,
+              coverage: page.coverage,
               revision: historyRevision(page.snapshotSequence),
               oldestCursor: page.oldestSequence,
               hasMore: page.hasMore,
-              piRevision: page.piRevision,
-              piBeforeEntryId: page.piBeforeEntryId,
             },
             requestProjection,
             reason: "run_completed",
@@ -441,8 +395,7 @@ export function createThreadHistorySlice(
             initialStatus: "ready" as const,
             oldestSequence: page.oldestSequence,
             snapshotSequence: page.snapshotSequence ?? null,
-            piRevision: page.piRevision,
-            piBeforeEntryId: page.piBeforeEntryId,
+            nextCursor: page.nextCursor,
             hasMoreHistory: page.hasMore,
             loadingInitial: false,
             loadingMore: false,
@@ -454,8 +407,7 @@ export function createThreadHistorySlice(
           const paginationUnchanged =
             projection.pagination.initialStatus === nextPagination.initialStatus &&
             projection.pagination.oldestSequence === nextPagination.oldestSequence &&
-            JSON.stringify(projection.pagination.piRevision) === JSON.stringify(nextPagination.piRevision) &&
-            projection.pagination.piBeforeEntryId === nextPagination.piBeforeEntryId &&
+            projection.pagination.nextCursor === nextPagination.nextCursor &&
             projection.pagination.hasMoreHistory === nextPagination.hasMoreHistory &&
             projection.pagination.loadingInitial === nextPagination.loadingInitial &&
             projection.pagination.loadingMore === nextPagination.loadingMore;
@@ -474,62 +426,55 @@ export function createThreadHistorySlice(
         if (agentType === "codex") {
           const cached = get().codexLiveTurns[threadId];
           if (cached && cached.runId === runId) {
-            if (historyCoversLiveTurn(historicalMessages, cached.messages)) {
+            if (historyConfirmsLiveMessages(historicalMessages, cached.messages)) {
               get().clearCodexLiveTurn(threadId, runId);
             }
           }
         }
         } catch (error) {
-          console.error("[AgentSession] Failed to reconcile completed run:", error);
+          logger.error("Failed to reconcile completed run", { error: String(error) });
         }
-      })();
+      };
       if (agentType === "codex") {
-        codexReconciles.set(threadId, reconcile);
-        try {
-          await reconcile;
-        } finally {
-          if (codexReconciles.get(threadId) === reconcile) codexReconciles.delete(threadId);
-        }
+        await requests.reconcileCodex(threadId, runId, reconcile);
       } else {
-        await reconcile;
+        await reconcile();
       }
     },
     loadMoreMessages: async (agentType, threadId) => {
+      const productThreadId = productThreadIdFor(threadId, agentType);
+      if (!productThreadId) return;
+      if (productThreadId !== threadId) return get().loadMoreMessages(agentType, productThreadId);
       const current = get().threadProjections[threadId];
       if (
         !current ||
         current.pagination.loadingMore ||
         !current.pagination.hasMoreHistory ||
-        current.pagination.oldestSequence === null ||
+        !current.pagination.nextCursor ||
         get().threadTombstones[threadId]
       ) {
         return;
       }
-      const requestEpoch = get().threadEpochs[threadId] ?? 0;
-      get().setThreadProjection(threadId, (projection) => ({
+      const historyReadVersion = requests.begin(threadId);
+      get().updateThreadHistory(threadId, (projection) => ({
         ...projection,
         pagination: { ...projection.pagination, loadingMore: true },
       }));
       try {
         const page = await getHistoryPage(
-          agentType,
-          threadId,
-          current.pagination.oldestSequence,
-          HISTORY_PAGE_SIZE,
-          current.pagination.snapshotSequence,
-          current.pagination.piRevision,
-          current.pagination.piBeforeEntryId,
+          agentType, threadId, HISTORY_PAGE_SIZE, current.pagination.nextCursor,
         );
-        if (!isRequestCurrent(threadId, requestEpoch)) return;
+        if (!requests.isCurrent(historyReadVersion)) {
+          clearStaleLoading(threadId, historyReadVersion, "more");
+          return;
+        }
         const messages = filterRenderableHistoryMessages(page.messages);
-        get().setThreadProjection(threadId, (projection) => {
+        get().updateThreadHistory(threadId, (projection) => {
+          if (!requests.isCurrent(historyReadVersion)) return projection;
           const currentSnapshot = projection.pagination.snapshotSequence;
-          const nativeSnapshotChanged = agentType === "pi" &&
-            JSON.stringify(projection.pagination.piRevision) !== JSON.stringify(page.piRevision);
           if (
-            nativeSnapshotChanged || (
-              currentSnapshot != null && page.snapshotSequence != null &&
-              currentSnapshot !== page.snapshotSequence)
+            currentSnapshot != null && page.snapshotSequence != null &&
+            currentSnapshot !== page.snapshotSequence
           ) {
             return {
               ...projection,
@@ -548,8 +493,7 @@ export function createThreadHistorySlice(
                 page.oldestSequence ?? projection.pagination.oldestSequence,
               snapshotSequence:
                 page.snapshotSequence ?? currentSnapshot ?? null,
-              piRevision: page.piRevision,
-              piBeforeEntryId: page.piBeforeEntryId,
+              nextCursor: page.nextCursor,
               hasMoreHistory: page.hasMore,
               loadingInitial: false,
               loadingMore: false,
@@ -557,17 +501,19 @@ export function createThreadHistorySlice(
           };
         });
       } catch (error) {
-        if (!isRequestCurrent(threadId, requestEpoch)) return;
-        get().setThreadProjection(threadId, (projection) => ({
+        if (!requests.isCurrent(historyReadVersion)) {
+          clearStaleLoading(threadId, historyReadVersion, "more");
+          return;
+        }
+        get().updateThreadHistory(threadId, (projection) => ({
           ...projection,
           pagination: { ...projection.pagination, loadingMore: false },
         }));
-        const stalePiSnapshot = agentType === "pi" && error instanceof PiHistorySnapshotChangedError;
-        if (stalePiSnapshot) {
+        if (error instanceof HistoryChangedError) {
           await get().loadMessages(agentType, threadId);
           return;
         }
-        console.error("[AgentSession] Failed to load more messages:", error);
+        logger.error("Failed to load more messages", { error: String(error) });
       }
     },
   };

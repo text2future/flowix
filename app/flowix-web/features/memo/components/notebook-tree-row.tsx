@@ -94,6 +94,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onCreateFolder,
   onCreateView,
   onCreateMediaLibrary,
+  onImportFiles,
   onRename,
   onDeleteFolder,
   onDeleteFile,
@@ -130,6 +131,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onCreateFolder: (parentPath: string) => void;
   onCreateView: (parentPath: string) => void;
   onCreateMediaLibrary: (parentPath: string) => void;
+  onImportFiles?: (parentPath: string) => void;
   onRename: (item: DocTreeItem, nextName: string) => Promise<void> | void;
   onPointerDown: (item: DocTreeItem, event: ReactPointerEvent<HTMLDivElement>) => void;
   onDeleteFolder?: (path: string) => Promise<void>;
@@ -553,10 +555,56 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className={TREE_MENU_CLASS}>
-        {isTableDocument && onOpenInNewTab && (
+        {!isFolder && onOpenInNewTab && (
           <ContextMenuItem onClick={() => onOpenInNewTab(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
             <SquareSplitHorizontalIcon className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('memo.action.openInSplit')}
+          </ContextMenuItem>
+        )}
+        <NotebookCreateContextMenuItems
+          onCreateNote={() => onCreateNote(actionParentPath)}
+          onCreateFolder={() => onCreateFolder(actionParentPath)}
+          onCreateTable={() => onCreateView(actionParentPath)}
+          onCreateMediaLibrary={() => onCreateMediaLibrary(actionParentPath)}
+          onImport={onImportFiles ? () => onImportFiles(actionParentPath) : undefined}
+        />
+        <ContextMenuItem
+          onClick={() => {
+            setRenameValue(isFolder || !isExtensionlessDocument ? item.name : displayTitleFromFilename(item.name));
+            setRenaming(true);
+          }}
+          className={TREE_MENU_ITEM_CLASS}
+        >
+          <PencilSimpleIcon className="mr-2 h-4 w-4" />
+          {t('memo.fileTree.rename')}
+        </ContextMenuItem>
+        {!isFolder && (!isNote || !displayedMemo) && <NotebookCopyContextMenu path={item.fullPath} isNote={isNote} />}
+        {isFolder && onDeleteFolder && (
+          <ContextMenuItem
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(item.fullPath);
+                toast.success(t('memo.fileTree.pathCopied'));
+              } catch {
+                toast.error(t('memo.fileTree.copyFailed'));
+              }
+            }}
+            className={TREE_MENU_ITEM_CLASS}
+          >
+            <CopyIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t('memo.fileTree.copyPath')}
+          </ContextMenuItem>
+        )}
+        {(isFolder || !isNote || !displayedMemo) && (
+          <ContextMenuItem onClick={revealInFileManager} className={TREE_MENU_ITEM_CLASS}>
+          <FolderOpenIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t('memo.fileTree.reveal')}
+          </ContextMenuItem>
+        )}
+        {isFolder && onSetDefaultFolder && (
+          <ContextMenuItem onClick={() => onSetDefaultFolder(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
+            <MapPinSimpleAreaIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t(isDefaultFolder ? 'memo.fileTree.clearDefaultCreateFolder' : 'memo.fileTree.setDefaultCreateFolder')}
           </ContextMenuItem>
         )}
         {isTableDocument && tableViewVisibility && (
@@ -585,54 +633,6 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t(mediaLibraryViewVisibility.inViews ? 'mediaLibrary.viewMembership.hide' : 'mediaLibrary.viewMembership.show')}
           </ContextMenuItem>
         )}
-        {((isTableDocument && (onOpenInNewTab || tableViewVisibility)) || (isMediaLibrary && mediaLibraryViewVisibility)) && (
-          <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-        )}
-        <NotebookCreateContextMenuItems
-          onCreateNote={() => onCreateNote(actionParentPath)}
-          onCreateFolder={() => onCreateFolder(actionParentPath)}
-          onCreateTable={() => onCreateView(actionParentPath)}
-          onCreateMediaLibrary={() => onCreateMediaLibrary(actionParentPath)}
-        />
-        <ContextMenuItem
-          onClick={() => {
-            setRenameValue(isFolder || !isExtensionlessDocument ? item.name : displayTitleFromFilename(item.name));
-            setRenaming(true);
-          }}
-          className={TREE_MENU_ITEM_CLASS}
-        >
-          <PencilSimpleIcon className="mr-2 h-4 w-4" />
-          {t('memo.fileTree.rename')}
-        </ContextMenuItem>
-        {!isFolder && (!isNote || !displayedMemo) && <NotebookCopyContextMenu path={item.fullPath} isNote={isNote} />}
-        {isFolder && onSetDefaultFolder && (
-          <ContextMenuItem onClick={() => onSetDefaultFolder(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
-            <MapPinSimpleAreaIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(isDefaultFolder ? 'memo.fileTree.clearDefaultCreateFolder' : 'memo.fileTree.setDefaultCreateFolder')}
-          </ContextMenuItem>
-        )}
-        {isFolder && onDeleteFolder && (
-          <ContextMenuItem
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(item.fullPath);
-                toast.success(t('memo.fileTree.pathCopied'));
-              } catch {
-                toast.error(t('memo.fileTree.copyFailed'));
-              }
-            }}
-            className={TREE_MENU_ITEM_CLASS}
-          >
-            <CopyIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t('memo.fileTree.copyPath')}
-          </ContextMenuItem>
-        )}
-        {(isFolder || !isNote || !displayedMemo) && (
-          <ContextMenuItem onClick={revealInFileManager} className={TREE_MENU_ITEM_CLASS}>
-          <FolderOpenIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t('memo.fileTree.reveal')}
-          </ContextMenuItem>
-        )}
         {isFolder && (onDeleteFolder || isAgentProjectFolder) && (
           <>
             <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
@@ -655,7 +655,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             ) : null}
           </>
         )}
-        {!isFolder && (
+        {!isFolder && !isNote && onDeleteFile && (
           <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
         )}
         {!isFolder && !isNote && onDeleteFile && (
@@ -673,9 +673,6 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             filePath={item.fullPath}
             hideCopyActions
             copyMenuBeforeReveal={<NotebookCopyContextMenu path={item.fullPath} isNote />}
-            onOpenInSplit={onOpenInNewTab
-              ? () => onOpenInNewTab(item.fullPath)
-              : undefined}
             onFavoriteToggle={(nextMemo) => { void toggleFavorite(nextMemo.favorited, nextMemo.relativePath); }}
             onDelete={requestDelete}
             onColorsChange={(nextMemo, colors) => { void changeColors(nextMemo, colors); }}

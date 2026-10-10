@@ -43,10 +43,9 @@ import {
 import { files } from '@platform/tauri/client/desktop';
 import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { NotebookDeleteDialog } from '@features/shell/components/notebook-delete-dialog';
-import { MarkdownFileDropOverlay } from '@features/shell/components/drag-overlay/markdown-file-drop-overlay';
+import { ExternalFileDropOverlay } from '@features/shell/components/drag-overlay/external-file-drop-overlay';
 import { useMainMiddleColumnController } from '@features/shell/hooks/use-main-middle-column-controller';
 import { useMainPanelController } from '@features/shell/hooks/use-main-panel-controller';
-import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { ListColumn } from '@features/shell/components/list-column';
 import { ListColumnContent } from '@features/shell/components/list-column-content';
 import { useI18n } from '@/lib/i18n';
@@ -65,6 +64,7 @@ import {
   useShellWorkspaceViewModel,
   selectNotebook as selectNotebookInWorkspace,
   BROWSER_COLUMN_MIN_WIDTH,
+  clearBrowserColumnExternalPath,
   type WorkColumnTarget,
 } from '@features/workspace/public/shell-api';
 import { MainStatusBarHost } from '@features/shell/components/main-status-bar-host';
@@ -383,7 +383,7 @@ export function MainLayout({
         }
         const deleted = await files.delete(expectedFilePath, notebookPath);
         if (!deleted) throw new Error('删除多维表格失败');
-        useBrowserColumnStore.getState().clearExternalPath(expectedFilePath);
+        clearBrowserColumnExternalPath(expectedFilePath);
       }
     } catch (error) {
       logger.warn('[MainLayout] Failed to delete external file:', { error: error });
@@ -621,7 +621,7 @@ export function MainLayout({
       style={{ backgroundColor: 'var(--frame-bg)' }}
     >
       <WindowsTitlebarControls />
-      <MarkdownFileDropOverlay />
+      <ExternalFileDropOverlay />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className={`relative flex flex-1 h-full overflow-hidden ${isWindowsPlatform() ? 'rounded-b-[12px]' : 'rounded-b-[18px]'} border-b border-[var(--divider)]`}>

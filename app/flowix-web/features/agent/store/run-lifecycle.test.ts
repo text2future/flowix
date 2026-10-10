@@ -169,11 +169,12 @@ describe("run lifecycle reducer", () => {
       endedAt: 150,
     });
     expect(ended.runs["run-1"]).toBeUndefined();
+    expect(ended).toBe(stopped);
     expect(ended.lastRun).toMatchObject({
       runId: "run-1",
       status: "cancelled",
-      endedAt: 200,
-      reason: null,
+      endedAt: 150,
+      reason: "cancelled",
       model: "claude-sonnet",
     });
   });
@@ -230,20 +231,26 @@ describe("run lifecycle reducer", () => {
     expect(afterLateEnd.lastRun).toMatchObject({
       runId: "run-1",
       status: "cancelled",
-      reason: null,
+      reason: "cancelled",
     });
   });
 
-  it("ends the active run when an external stream_end has an unknown run id", () => {
+  it("ignores an external stream_end with an unknown run id", () => {
     const running = applyRunStarted(emptyState(), startEvent("run-1"));
     const ended = applyRunEnded(running, endEvent("session-end-run"));
 
-    expect(ended.isLoading).toBe(false);
-    expect(ended.activeRunId).toBeNull();
-    expect(ended.runs["run-1"]).toBeUndefined();
-    expect(ended.lastRun).toMatchObject({
-      runId: "run-1",
-      status: "completed",
-    });
+    expect(ended).toBe(running);
+    expect(ended.activeRunId).toBe("run-1");
+  });
+
+  it("does not let a late failure close another run's pending text", () => {
+    const first = applyRunStarted(emptyState(), startEvent("run-1"));
+    const second = applyRunStarted({
+      ...first,
+      pendingAssistantId: "assistant-run-2",
+    }, startEvent("run-2"));
+    const failed = applyRunFailed(second, errorEvent("run-1", "late failure"), "late failure");
+    expect(failed.activeRunId).toBe("run-2");
+    expect(failed.pendingAssistantId).toBe("assistant-run-2");
   });
 });

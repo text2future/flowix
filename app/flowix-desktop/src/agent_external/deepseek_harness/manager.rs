@@ -27,7 +27,7 @@ use crate::agent_external::lifecycle::ExternalLifecycleEmitter;
 use crate::agent_external::{
     emit_chunk_with_run_id, emit_chunk_with_run_id_and_metadata,
     persist_external_chunk_for_thread_with_metadata, AgentChunkMetadata, StreamingEmitBuffer,
-    STREAM_FLUSH_INTERVAL, USER_STOPPED_REASON,
+    STREAM_FLUSH_INTERVAL,
 };
 use crate::agent_session::{ChatMessage, ThreadManager, ThreadMessagesPage};
 use crate::agent_wire::{AgentChunk, AgentUserMessage, RunInfo};
@@ -263,6 +263,29 @@ impl DeepSeekHarnessManager {
             .get("archived")
             .and_then(Value::as_bool)
             .unwrap_or(false))
+    }
+
+    /// Lifecycle deletion must also revoke a native Goal waiting between
+    /// rounds. Stopping the currently observed turn alone leaves that work
+    /// scheduled inside DSH and able to resume after Flowix removes its row.
+    pub async fn cancel_pending_goal(&self, thread_id: &str) -> Result<(), String> {
+        let Some(session_id) = self.sessions.session_id(thread_id).await? else {
+            return Ok(());
+        };
+        let host = self.model_host().await?;
+        let goal = host.request(serde_json::json!({
+            "jsonrpc": "2.0", "id": host.next_request_id(),
+            "method": "thread/goal/get", "params": { "threadId": session_id }
+        })).await?;
+        if goal.get("goal").is_none_or(Value::is_null) { return Ok(()); }
+        let result = host.request(serde_json::json!({
+            "jsonrpc": "2.0", "id": host.next_request_id(),
+            "method": "thread/goal/clear", "params": { "threadId": session_id }
+        })).await?;
+        if result.get("cleared").and_then(Value::as_bool) != Some(true) {
+            return Err("StopUnconfirmed: DSH pending goal was not cleared".to_string());
+        }
+        Ok(())
     }
 
     /// Execute a DSH human command through the command registry. Commands are
@@ -1292,6 +1315,7 @@ impl DeepSeekHarnessManager {
             oldest_sequence: page.oldest_sequence,
             has_more: page.has_more,
             snapshot_sequence: Some(page.snapshot_sequence),
+            complete_turn_ids: None,
         })
     }
 
@@ -1299,31 +1323,37 @@ impl DeepSeekHarnessManager {
         &self,
         thread_id: &str,
         run_id: Option<&str>,
-        app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> bool {
         let Some(target) = self.runs.target(thread_id, run_id).await else {
             return false;
         };
         let run_id = target.run_id;
-        let stream_end_emitted = target.stream_end_emitted;
         let hosts = self.hosts.cancellation_targets().await;
+        if hosts.is_empty() {
+            tracing::warn!("[DSH] no host can confirm interruption for run {run_id}");
+            return false;
+        }
+        let mut accepted = false;
         for host in hosts {
             let request =
                 protocol::app_turn_interrupt_request(host.next_request_id(), &target.session_id);
-            let _ = host.request(request).await;
+            if host.request(request).await.is_ok() { accepted = true; }
         }
-        if self.runs.remove_if_matches(thread_id, &run_id).await {
-            self.hosts.run_finished().await;
+        if !accepted {
+            tracing::warn!("[DSH] native interruption was not accepted for run {run_id}");
+            return false;
         }
-        self.emit_stream_end(
-            app,
-            thread_id,
-            &run_id,
-            Some(USER_STOPPED_REASON.to_string()),
-            &stream_end_emitted,
-        )
-        .await;
-        true
+        self.runs.mark_stopping(thread_id, &run_id).await;
+        let confirmed = tokio::time::timeout(Duration::from_secs(5), async {
+            while self.runs.target(thread_id, Some(&run_id)).await.is_some() {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }).await.is_ok();
+        if !confirmed {
+            tracing::warn!("[DSH] StopUnconfirmed for run {run_id}");
+        }
+        confirmed
     }
 
     pub async fn running_threads(&self) -> HashMap<String, RunInfo> {

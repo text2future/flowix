@@ -584,6 +584,8 @@ export interface AgentRunState {
   agentType: AgentTypeKey;
   threadId: string;
   status: AgentRunStatus;
+  /** Backend lifecycle phase; stopping remains busy until terminal proof. */
+  phase?: "starting" | "running" | "stopping";
   startedAt: number;
   endedAt?: number;
   currentTool?: string | null;
@@ -711,6 +713,8 @@ export type AgentEvent =
 // camelCase (`startedAt` / `currentTool`)。
 export interface RunInfo {
   startedAt: number;
+  /** Optional lifecycle phase from newer backends; absent means an active run. */
+  phase?: "starting" | "running" | "stopping";
   currentTool: string | null;
   agentType?: AgentTypeKey;
   runId?: string;

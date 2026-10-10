@@ -1,5 +1,4 @@
-import type { AgentEvent, AgentTypeKey } from "@/types/agent";
-import { getAgentType } from "@/lib/agent-types";
+import type { AgentEvent } from "@/types/agent";
 import { recordAgentLifecycleEvent } from "@features/agent/diagnostics/agent-run-trace";
 import {
   emptyProjection,
@@ -9,7 +8,6 @@ import {
 import {
   createStreamingBuffer,
   type StreamingScheduler,
-  type StreamingBufferSnapshot,
 } from "@features/agent/store/streaming-buffer";
 
 /**
@@ -36,8 +34,6 @@ export interface StreamEventDispatcher {
 
 export interface StreamEventDispatcherPorts {
   getProjection(threadId: string): ReturnType<typeof emptyProjection> | undefined;
-  getThreadAgentType(threadId: string): AgentTypeKey;
-  resolveThreadId(threadId: string): string;
   canDispatch(threadId: string): boolean;
   dispatch(event: AgentEvent): void;
   applySessionResolved(event: AgentEvent & { kind: "session_resolved" }): void;
@@ -87,7 +83,7 @@ function synthesizeStreamStart(event: AgentEvent): AgentEvent & {
     kind: "stream_start",
     agentType: event.agentType,
     threadId: event.threadId,
-    runId: event.runId ?? `${event.threadId}-synthetic`,
+    runId: event.runId,
     timestamp: event.timestamp,
   };
 }
@@ -105,61 +101,21 @@ export function createStreamEventDispatcher(
   scheduler?: StreamingScheduler,
 ): StreamEventDispatcher {
   const streamingBuffer = createStreamingBuffer(
-    (
-      textSnapshot: StreamingBufferSnapshot,
-      reasoningSnapshot: StreamingBufferSnapshot,
-    ) => {
-      const now = Date.now();
-      // reasoning 先 apply ── 与旧 store 时序一致 (reasoning chunk 先于
-      // text 出现; text chunk 落地时会 close reasoning 行).
-      for (const [tid, text] of reasoningSnapshot) {
-        const canonicalThreadId = ports.resolveThreadId(tid);
-        if (!ports.canDispatch(canonicalThreadId)) continue;
-        const current = ports.getProjection(canonicalThreadId);
-        if (!current || !current.runs.activeRunId) continue;
-        const agentType = getAgentType(ports.getThreadAgentType(canonicalThreadId)).key;
-        ports.dispatch({
-          kind: "reasoning_delta",
-          agentType,
-          threadId: canonicalThreadId,
-          runId: current.runs.activeRunId,
-          timestamp: now,
-          text,
-          messagePhase: "updated",
-          contentMode: "delta",
-          sourceTimestamp: now,
-        });
-      }
-      for (const [tid, text] of textSnapshot) {
-        const canonicalThreadId = ports.resolveThreadId(tid);
-        if (!ports.canDispatch(canonicalThreadId)) continue;
-        const current = ports.getProjection(canonicalThreadId);
-        if (!current || !current.runs.activeRunId) continue;
-        const agentType = getAgentType(ports.getThreadAgentType(canonicalThreadId)).key;
-        ports.dispatch({
-          kind: "text_delta",
-          agentType,
-          threadId: canonicalThreadId,
-          runId: current.runs.activeRunId,
-          timestamp: now,
-          text,
-          messagePhase: "updated",
-          contentMode: "delta",
-          sourceTimestamp: now,
-        });
+    (events) => {
+      for (const bufferedEvent of events) {
+        const threadId = bufferedEvent.threadId;
+        if (!ports.canDispatch(threadId)) continue;
+        const current = ports.getProjection(threadId);
+        if (!current || current.runs.activeRunId !== bufferedEvent.runId) continue;
+        if (isProjectionRunEnded(current, bufferedEvent.runId)) continue;
+        ports.dispatch(bufferedEvent);
       }
     },
     scheduler,
   );
 
-  function dispatch(inputEvent: AgentEvent): void {
-    let event = inputEvent;
-    if (event.kind !== "session_resolved") {
-      const canonicalThreadId = ports.resolveThreadId(event.threadId);
-      if (canonicalThreadId !== event.threadId) {
-        event = { ...event, threadId: canonicalThreadId } as AgentEvent;
-      }
-    }
+  function dispatch(event: AgentEvent): void {
+    if (!event.runId?.trim()) return;
     if (!ports.canDispatch(event.threadId)) return;
     const current = ports.getProjection(event.threadId) ?? emptyProjection();
 
@@ -188,7 +144,7 @@ export function createStreamEventDispatcher(
     // text / reasoning 走 rAF 缓冲.
     switch (event.kind) {
       case "text_delta": {
-        if (!event.text || !event.text.trim()) return;
+        if (event.text === "") return;
         if (
           event.messageId ||
           event.contentMode === "snapshot" ||
@@ -201,7 +157,7 @@ export function createStreamEventDispatcher(
           ports.dispatch(event);
           return;
         }
-        streamingBuffer.appendText(event.threadId, event.text);
+        streamingBuffer.append(event);
         return;
       }
       case "reasoning_delta": {
@@ -210,7 +166,7 @@ export function createStreamEventDispatcher(
           ports.dispatch(event);
           return;
         }
-        streamingBuffer.appendReasoning(event.threadId, event.text);
+        streamingBuffer.append(event);
         return;
       }
       case "context_compaction":
@@ -227,6 +183,8 @@ export function createStreamEventDispatcher(
         streamingBuffer.flushSync();
         break;
       case "stream_start":
+        streamingBuffer.flushSync();
+        break;
       case "usage":
         // stream_start / usage 无需 flush.
         break;

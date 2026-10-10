@@ -32,6 +32,8 @@
 }
 
 .plugin-markmap-canvas__svg .markmap-link {
+  /* Branches are open paths; filling them paints the large wedges between bends. */
+  fill: none;
   opacity: 0.72;
 }
 

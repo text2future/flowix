@@ -14,8 +14,12 @@ import {
 } from '@features/workspace/use-cases/browser-column-coordinator';
 import {
   openBrowserColumnMarkdown,
+  openBrowserColumnAgentConversation,
+  openBrowserColumnNotebookNote,
   openBrowserColumnTabInWorkColumn,
 } from '@features/workspace/use-cases/browser-column-navigation';
+
+export { openBrowserColumnAgentConversation, openBrowserColumnNotebookNote };
 
 export {
   canMoveBrowserColumnTargetToWorkColumn,

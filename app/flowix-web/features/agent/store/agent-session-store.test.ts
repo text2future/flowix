@@ -4,6 +4,7 @@ import {
   useAgentSessionStore,
 } from "@features/agent/store/agent-session-store";
 import { emptyProjection } from "@features/agent/store/session-reducer";
+import { agentClient } from "@features/agent/store/agent-client";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { DEFAULT_AGENT_TYPE_KEY } from "@/lib/agent-types";
 
@@ -100,6 +101,7 @@ describe("useAgentSessionStore", () => {
   });
 
   it("clears pending steering messages when the active run is stopped", async () => {
+    const stop = vi.spyOn(agentClient, "stopChatStream").mockResolvedValue(true);
     const store = useAgentSessionStore.getState();
     const threadId = "steer-stop-thread";
 
@@ -115,6 +117,7 @@ describe("useAgentSessionStore", () => {
     await store.stopThreadRun(threadId, "steer-stop-run");
 
     expect(useAgentSessionStore.getState().pendingSteeringMessages[threadId]).toBeUndefined();
+    stop.mockRestore();
   });
 
   it("clears pending steering messages when a run ends abnormally", () => {
@@ -240,19 +243,42 @@ describe("useAgentSessionStore", () => {
 
   it("removeThreadProjection drops a thread entry", () => {
     useAgentSessionStore.getState().dispatch(streamStart("r1"));
+    useAgentSessionStore.getState().dispatch(streamEnd("r1"));
+    useAgentSessionStore.getState().markThreadRead("t1");
     expect(useAgentSessionStore.getState().threadProjections["t1"]).toBeDefined();
     useAgentSessionStore.getState().removeThreadProjection("t1");
     expect(useAgentSessionStore.getState().threadProjections["t1"]).toBeUndefined();
     expect(useAgentSessionStore.getState().threadRunSignatures["t1"]).toBeUndefined();
+    expect(useAgentSessionStore.getState().latestCompletedRunIds["t1"]).toBeUndefined();
+    expect(useAgentSessionStore.getState().readThroughRunIds["t1"]).toBeUndefined();
   });
 
   it("resetThreadProjections replaces specified entries with empty", () => {
     useAgentSessionStore.getState().dispatch(streamStart("r1", "t1"));
     useAgentSessionStore.getState().dispatch(streamStart("r2", "t2"));
+    useAgentSessionStore.getState().dispatch(streamEnd("r1", "t1"));
+    useAgentSessionStore.getState().markThreadRead("t1");
     useAgentSessionStore.getState().resetThreadProjections(["t1"]);
     const s = useAgentSessionStore.getState();
     expect(s.threadProjections["t1"]).toEqual(emptyProjection());
     expect(s.threadProjections["t2"]?.runs.isLoading).toBe(true);
+    expect(s.latestCompletedRunIds["t1"]).toBeUndefined();
+    expect(s.readThroughRunIds["t1"]).toBeUndefined();
+  });
+
+  it("keeps history and run writes within their projection partitions", () => {
+    const store = useAgentSessionStore.getState();
+    store.dispatch(streamStart("r1"));
+    const before = useAgentSessionStore.getState().threadProjections.t1;
+    store.updateThreadHistory("t1", (projection) => ({
+      ...projection,
+      messages: [{ id: "history", role: "assistant", content: "saved", timestamp: "2026-01-01T00:00:00Z" }],
+      runs: emptyProjection().runs,
+    }));
+    const afterHistory = useAgentSessionStore.getState().threadProjections.t1;
+    expect(afterHistory.runs).toBe(before.runs);
+    store.updateThreadRuns("t1", () => emptyProjection().runs);
+    expect(useAgentSessionStore.getState().threadProjections.t1.messages).toBe(afterHistory.messages);
   });
 });
 
@@ -263,42 +289,10 @@ describe("useAgentSessionStore persist", () => {
     vi.resetModules();
   });
 
-  it("migrates legacy chat-store flat format from STORAGE_KEYS.CHAT", async () => {
-    localStorage.setItem(
-      STORAGE_KEYS.CHAT,
-      JSON.stringify({
-        state: {
-          activeThreadIds: { codex: "codex-thread-1" },
-          activeAgentTypeKey: "codex",
-          threadTypes: { "codex-thread-1": "codex" },
-          currentThreadTitles: { codex: "Codex Title" },
-          agentPermissionMode: "read-only",
-          agentCodexModel: "claude-opus-4-8",
-          agentCodexReasoningEffort: "high",
-          externalSessionResolutions: { "local-1": "real-1" },
-        },
-        version: 0,
-      }),
-    );
-
-    const { useAgentSessionStore } = await import(
-      "@features/agent/store/agent-session-store"
-    );
-    const meta = useAgentSessionStore.getState().sessionMeta;
-
-    expect(meta.activeAgentTypeKey).toBe("codex");
-    expect(meta.activeThreadIds.codex).toBe("codex-thread-1");
-    expect(meta.threadTypes["codex-thread-1"]).toBe("codex");
-    expect(meta.currentThreadTitles["codex-thread-1"]).toBe("Codex Title");
-    expect(meta.currentThreadTitles["codex"]).toBeUndefined();
-    expect(meta.settings.agentPermissionMode).toBe("read-only");
-    expect(meta.settings.agentCodexModel).toBe("claude-opus-4-8");
-    expect(meta.settings.agentCodexReasoningEffort).toBe("high");
-    expect(meta.externalSessionResolutions["local-1"]).toBe("real-1");
-    expect(localStorage.getItem(STORAGE_KEYS.CHAT)).toBeNull();
-    // runtime-only 字段不从持久化恢复
-    expect(meta.threadLists).toEqual({});
-    expect(meta.lastRunningRunsReconciledAt).toBeNull();
+  it("starts with current defaults when only obsolete CHAT data exists", async () => {
+    localStorage.setItem(STORAGE_KEYS.CHAT, JSON.stringify({ state: { activeAgentTypeKey: "claude" } }));
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    expect(useAgentSessionStore.getState().sessionMeta.activeAgentTypeKey).toBe(DEFAULT_AGENT_TYPE_KEY);
   });
 
   it("persists sessionMeta (incl. settings) and rehydrates from AGENT_SESSION", async () => {
@@ -334,7 +328,7 @@ describe("useAgentSessionStore persist", () => {
     expect(meta.settings.agentCodexReasoningEffort).toBe("high");
   });
 
-  it("prefers AGENT_SESSION over legacy CHAT migration", async () => {
+  it("ignores the obsolete CHAT key when AGENT_SESSION is present", async () => {
     localStorage.setItem(
       STORAGE_KEYS.CHAT,
       JSON.stringify({ state: { activeAgentTypeKey: "claude" } }),

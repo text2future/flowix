@@ -6,8 +6,17 @@ import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focu
 import { openWorkColumnTargetInBrowserColumn } from '@features/workspace/use-cases/browser-column-navigation';
 
 export { selectNotebook } from '@features/workspace/use-cases/workspace-navigation';
-export { historyEntryFromWorkColumnTarget, openDocumentListTarget } from '@features/workspace/use-cases/workspace-navigation';
+export {
+  historyEntryFromWorkColumnTarget,
+  openDocumentListTarget,
+  openExternalTarget,
+} from '@features/workspace/use-cases/workspace-navigation';
+export { openBrowserColumnDroppedFile } from '@features/workspace/use-cases/browser-column-navigation';
 export { deleteMainExternalDocument } from '@features/workspace/use-cases/delete-main-external-document';
+
+export function clearBrowserColumnExternalPath(path: string): void {
+  useBrowserColumnStore.getState().clearExternalPath(path);
+}
 
 export {
   BROWSER_COLUMN_DEFAULT_SPLIT_RATIO,

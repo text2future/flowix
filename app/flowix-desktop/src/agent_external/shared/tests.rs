@@ -318,6 +318,14 @@ fn resolve_run_id_falls_back_to_generated_thread_scoped_id() {
     assert!(run_id.starts_with("thread_1-"));
 }
 
+#[test]
+fn generated_run_ids_are_unique_within_one_millisecond() {
+    let ids: std::collections::HashSet<_> = (0..1000)
+        .map(|_| create_run_id("thread_1"))
+        .collect();
+    assert_eq!(ids.len(), 1000);
+}
+
 #[tokio::test]
 async fn prepare_start_normalizes_run_id_and_creates_unclaimed_terminal_slot() {
     use std::sync::atomic::Ordering;
@@ -330,6 +338,55 @@ async fn prepare_start_normalizes_run_id_and_creates_unclaimed_terminal_slot() {
 
     assert_eq!(start.run_id, "run-1");
     assert!(!start.stream_end_emitted.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn starting_reservation_rejects_a_second_run_and_is_visible_to_queries() {
+    let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
+    let first = registry.reserve_start("thread_1", Some("run-1")).await.unwrap();
+    assert_eq!(first.run_id, "run-1");
+    assert!(registry.reserve_start("thread_1", Some("run-2")).await.is_err());
+    let running = registry.running_threads().await;
+    assert_eq!(running.get("thread_1").and_then(|run| run.run_id.as_deref()), Some("run-1"));
+    assert_eq!(running.get("thread_1").and_then(|run| run.phase.as_deref()), Some("starting"));
+    assert!(!registry.cancel_start("thread_1", Some("run-2")).await);
+    assert!(registry.cancel_start("thread_1", Some("run-1")).await);
+    assert!(registry.start_cancelled("thread_1", "run-1").await);
+    assert_eq!(registry.running_threads().await.get("thread_1").and_then(|run| run.phase.as_deref()), Some("stopping"));
+    registry.release_start("thread_1", "run-1").await;
+    assert!(registry.running_threads().await.is_empty());
+    assert!(registry.reserve_start("thread_1", Some("run-2")).await.is_ok());
+}
+
+#[tokio::test]
+async fn simultaneous_starts_claim_the_thread_once() {
+    let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
+    let (first, second) = tokio::join!(
+        registry.reserve_start("thread_1", Some("run-a")),
+        registry.reserve_start("thread_1", Some("run-b")),
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+    assert_eq!(registry.running_threads().await.len(), 1);
+}
+
+#[tokio::test]
+async fn cancelled_start_rejects_a_late_child() {
+    let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
+    let start = registry.reserve_start("thread_1", Some("run-a")).await.unwrap();
+    assert!(registry.cancel_start("thread_1", Some("run-a")).await);
+    #[cfg(windows)]
+    let mut command = tokio::process::Command::new("cmd");
+    #[cfg(windows)]
+    command.args(["/C", "exit", "0"]);
+    #[cfg(not(windows))]
+    let mut command = tokio::process::Command::new("true");
+    let child = command.spawn().unwrap();
+    let mut rejected = registry.insert_reserved(
+        "thread_1".to_string(), child, "run-a", start.stream_end_emitted,
+    ).await.expect_err("cancelled start must reject a late child");
+    let _ = rejected.wait().await;
+    assert!(registry.running_threads().await.contains_key("thread_1"));
+    registry.release_start("thread_1", "run-a").await;
 }
 
 #[cfg(unix)]
@@ -355,20 +412,60 @@ async fn stop_run_preserves_expected_run_matching_and_shared_terminal_slot() {
         )
         .await;
 
-    assert!(registry
+    assert!(matches!(registry
         .stop_run("thread_1", "thread_1", Some("wrong-run"), "TestCli")
-        .await
-        .is_none());
+        .await, Ok(None)));
     assert!(registry.contains("thread_1").await);
 
     let stopped = registry
         .stop_run("thread_1", "thread_1", Some("run-1"), "TestCli")
         .await
+        .expect("stop should be confirmed")
         .expect("matching run should be stopped");
     assert_eq!(stopped.run_id, "run-1");
     assert!(!registry.contains("thread_1").await);
     assert!(Arc::ptr_eq(&caller_flag, &stopped.stream_end_emitted));
     assert!(!caller_flag.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn stopping_slot_blocks_new_run_and_is_visible_to_queries() {
+    let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
+    registry.stopping.lock().await.insert(
+        "thread_1".to_string(),
+        ExternalStoppingRun { run_id: "run-1".to_string(), started_at: 123 },
+    );
+
+    assert!(registry.reserve_start("thread_1", Some("run-2")).await.is_err());
+    assert!(matches!(
+        registry.stop_run("thread_1", "thread_1", Some("run-1"), "TestCli").await,
+        Err(StopUnconfirmed { run_id }) if run_id == "run-1"
+    ));
+    assert!(matches!(
+        registry.stop_run("thread_1", "thread_1", Some("run-2"), "TestCli").await,
+        Ok(None)
+    ));
+    let info = registry.running_threads().await;
+    assert_eq!(info["thread_1"].phase.as_deref(), Some("stopping"));
+    assert_eq!(info["thread_1"].run_id.as_deref(), Some("run-1"));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn stop_run_keeps_slot_until_process_exit_is_confirmed() {
+    let registry = ExternalRunRegistry::new("claude", "ClaudeCli");
+    let child = tokio::process::Command::new("cmd")
+        .args(["/C", "ping -n 20 127.0.0.1 >nul"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn long-running command");
+    registry.insert("thread_1".to_string(), child, Some("run-1".to_string()), Arc::new(AtomicBool::new(false))).await;
+
+    let stopped = registry.stop_run("thread_1", "thread_1", Some("run-1"), "TestCli").await;
+    assert!(matches!(stopped, Ok(Some(_))), "process exit must be confirmed before stop succeeds");
+    assert!(!registry.running_threads().await.contains_key("thread_1"));
+    assert!(registry.reserve_start("thread_1", Some("run-2")).await.is_ok());
 }
 
 #[test]

@@ -5,7 +5,6 @@ import type {
 } from "@features/agent/store/session-state";
 import {
   emptyProjection,
-  mergeThreadProjections,
   reduceProjection,
   type ThreadProjection,
 } from "@features/agent/store/session-reducer";
@@ -27,6 +26,28 @@ type ProjectionContext = ProjectionSlice & {
   sessionMeta: AgentSessionMeta;
   conversationRegistry: AgentConversationRegistry;
 };
+
+/** Apply projection removal and its derived run indexes in one store commit. */
+export function removeProjectionPatch(
+  state: ProjectionContext,
+  threadId: string,
+): Partial<ProjectionContext> {
+  const { [threadId]: _removed, ...threadProjections } = state.threadProjections;
+  const { [threadId]: _removedLive, ...codexLiveTurns } = state.codexLiveTurns;
+  const { [threadId]: _removedSignature, ...threadRunSignatures } = state.threadRunSignatures;
+  const { [threadId]: _removedCompleted, ...latestCompletedRunIds } = state.latestCompletedRunIds;
+  const { [threadId]: _removedRead, ...readThroughRunIds } = state.readThroughRunIds;
+  const hadRunIndex = threadId in state.threadRunSignatures ||
+    threadId in state.latestCompletedRunIds || threadId in state.readThroughRunIds;
+  return {
+    threadProjections,
+    codexLiveTurns,
+    threadRunSignatures,
+    latestCompletedRunIds,
+    readThroughRunIds,
+    runStateVersion: hadRunIndex ? state.runStateVersion + 1 : state.runStateVersion,
+  };
+}
 export interface ProjectionSlice {
   threadProjections: Record<string, ThreadProjection>;
   /** Incrementally maintained lifecycle projection used by conversation rows. */
@@ -39,13 +60,22 @@ export interface ProjectionSlice {
   runStateVersion: number;
   threadEpochs: Record<string, number>;
   threadTombstones: Record<string, true>;
+  /** Blocks new local commands while archive/delete is in progress. */
+  threadMutationGuards: Record<string, true>;
+  setThreadMutationGuard(threadId: string, guarded: boolean): void;
+  appendTransientCommandResult(threadId: string, content: string): void;
   codexLiveTurns: Record<string, CodexLiveTurnCache>;
   clearCodexLiveTurn(threadId: string, runId?: string): void;
   dispatch(event: AgentEvent): void;
-  setThreadProjection(
+  updateThreadHistory(
     threadId: string,
-    updater: (projection: ThreadProjection) => ThreadProjection,
+    updater: (projection: Readonly<ThreadProjection>) => Pick<ThreadProjection, "messages" | "pagination">,
   ): void;
+  updateThreadRuns(
+    threadId: string,
+    updater: (projection: Readonly<ThreadProjection>) => ThreadProjection["runs"],
+  ): void;
+  clearThreadPending(threadId: string): void;
   removeThreadProjection(threadId: string): void;
   resetThreadProjections(threadIds: string[]): void;
   activateThread(threadId: string): void;
@@ -62,7 +92,7 @@ export function createProjectionSlice(
   const runStatePatch = (
     state: ProjectionContext,
     threadId: string,
-    nextProjection: ThreadProjection | undefined,
+    nextProjection: ThreadProjection,
   ): Partial<ProjectionContext> => {
     const previousSignature = state.threadRunSignatures[threadId]
       ?? getConversationRunSignature(state.threadProjections[threadId]);
@@ -73,13 +103,6 @@ export function createProjectionSlice(
       && nextStatus !== "running"
       && nextStatus !== null;
     const nextRunId = splitConversationRunSignature(nextSignature).runId;
-    const latestCompletedRunIds = { ...state.latestCompletedRunIds };
-    const readThroughRunIds = { ...state.readThroughRunIds };
-    if (runEnded && nextRunId) latestCompletedRunIds[threadId] = nextRunId;
-    if (!nextProjection) {
-      delete latestCompletedRunIds[threadId];
-      delete readThroughRunIds[threadId];
-    }
     if (previousSignature === nextSignature && !runEnded) return {};
 
     const threadRunSignatures = { ...state.threadRunSignatures };
@@ -91,12 +114,9 @@ export function createProjectionSlice(
     return {
       threadRunSignatures,
       runStateVersion: state.runStateVersion + 1,
-      ...(latestCompletedRunIds[threadId] === state.latestCompletedRunIds[threadId]
-        ? {}
-        : { latestCompletedRunIds }),
-      ...(readThroughRunIds[threadId] === state.readThroughRunIds[threadId]
-        ? {}
-        : { readThroughRunIds }),
+      ...(runEnded && nextRunId
+        ? { latestCompletedRunIds: { ...state.latestCompletedRunIds, [threadId]: nextRunId } }
+        : {}),
     };
   };
 
@@ -108,6 +128,38 @@ export function createProjectionSlice(
     runStateVersion: 0,
     threadEpochs: {},
     threadTombstones: {},
+    threadMutationGuards: {},
+    setThreadMutationGuard: (threadId, guarded) => {
+      if (!threadId) return;
+      set((state) => {
+        if (Boolean(state.threadMutationGuards[threadId]) === guarded) return state;
+        const threadMutationGuards = { ...state.threadMutationGuards };
+        if (guarded) threadMutationGuards[threadId] = true;
+        else delete threadMutationGuards[threadId];
+        return { threadMutationGuards };
+      });
+    },
+    appendTransientCommandResult: (threadId, content) => {
+      const now = Date.now();
+      set((state) => {
+        if (state.threadTombstones[threadId] || state.threadMutationGuards[threadId]) return state;
+        const projection = state.threadProjections[threadId] ?? emptyProjection();
+        return {
+          threadProjections: {
+            ...state.threadProjections,
+            [threadId]: {
+              ...projection,
+              messages: [...projection.messages, {
+                id: `dsh-command-result-${now}-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
+                role: "system" as const,
+                content,
+                timestamp: new Date(now).toISOString(),
+              }],
+            },
+          },
+        };
+      });
+    },
     codexLiveTurns: {},
     markThreadRead: (threadId, runId) => {
       if (!threadId) return;
@@ -176,37 +228,49 @@ export function createProjectionSlice(
         };
       });
     },
-    setThreadProjection: (threadId, updater) => {
+    updateThreadHistory: (threadId, updater) => {
       set((state) => {
         if (state.threadTombstones[threadId]) return state;
         const current = state.threadProjections[threadId] ?? emptyProjection();
-        const next = updater(current);
-        if (next === current) return state;
-        return {
-          threadProjections: {
-            ...state.threadProjections,
-            [threadId]: next,
-          },
-          ...runStatePatch(state, threadId, next),
-        };
+        const nextHistory = updater(current);
+        if (nextHistory.messages === current.messages && nextHistory.pagination === current.pagination) return state;
+        return { threadProjections: { ...state.threadProjections, [threadId]: {
+          ...current, messages: nextHistory.messages, pagination: nextHistory.pagination,
+        } } };
+      });
+    },
+    updateThreadRuns: (threadId, updater) => {
+      set((state) => {
+        if (state.threadTombstones[threadId]) return state;
+        const current = state.threadProjections[threadId] ?? emptyProjection();
+        const runs = updater(current);
+        if (runs === current.runs) return state;
+        const next = { ...current, runs };
+        return { threadProjections: { ...state.threadProjections, [threadId]: next },
+          ...runStatePatch(state, threadId, next) };
+      });
+    },
+    clearThreadPending: (threadId) => {
+      set((state) => {
+        if (state.threadTombstones[threadId]) return state;
+        const current = state.threadProjections[threadId] ?? emptyProjection();
+        if (!current.pending.assistantId && !current.pending.reasoningId) return state;
+        return { threadProjections: { ...state.threadProjections, [threadId]: {
+          ...current, pending: { assistantId: null, reasoningId: null },
+        } } };
       });
     },
     removeThreadProjection: (threadId) => {
       set((state) => {
         if (!(threadId in state.threadProjections)) return state;
-        const { [threadId]: _removed, ...threadProjections } =
-          state.threadProjections;
-        const { [threadId]: _removedLive, ...codexLiveTurns } = state.codexLiveTurns;
-        return {
-          threadProjections,
-          codexLiveTurns,
-          ...runStatePatch(state, threadId, undefined),
-        };
+        return removeProjectionPatch(state, threadId);
       });
     },
     resetThreadProjections: (threadIds) => {
       set((state) => {
         const threadProjections = { ...state.threadProjections };
+        const latestCompletedRunIds = { ...state.latestCompletedRunIds };
+        const readThroughRunIds = { ...state.readThroughRunIds };
         for (const threadId of threadIds) {
           if (!state.threadTombstones[threadId]) {
             const cached = state.codexLiveTurns[threadId];
@@ -214,11 +278,14 @@ export function createProjectionSlice(
               ...emptyProjection(),
               ...(cached ? { messages: cached.messages } : {}),
             };
+            delete latestCompletedRunIds[threadId];
+            delete readThroughRunIds[threadId];
           }
         }
         let threadRunSignatures = state.threadRunSignatures;
         let runStateVersion = state.runStateVersion;
         for (const threadId of threadIds) {
+          if (state.threadTombstones[threadId]) continue;
           const patch = runStatePatch(
             { ...state, threadRunSignatures, runStateVersion },
             threadId,
@@ -227,7 +294,8 @@ export function createProjectionSlice(
           if (patch.threadRunSignatures) threadRunSignatures = patch.threadRunSignatures;
           if (patch.runStateVersion !== undefined) runStateVersion = patch.runStateVersion;
         }
-        return { threadProjections, threadRunSignatures, runStateVersion };
+        return { threadProjections, threadRunSignatures, runStateVersion,
+          latestCompletedRunIds, readThroughRunIds };
       });
     },
     activateThread: (threadId) => {
@@ -269,80 +337,37 @@ export function createProjectionSlice(
       }));
     },
     applySessionResolved: (event) => {
-      const localThreadId = event.threadId;
-      const sessionId = event.sessionId;
-      if (!sessionId || sessionId === localThreadId) return;
+      const threadId = event.threadId;
+      const providerSessionId = event.sessionId;
+      if (!providerSessionId) return;
       set((state) => {
-        const local = state.threadProjections[localThreadId];
-        const legacySession = state.threadProjections[sessionId];
-        let threadProjections = state.threadProjections;
-        let codexLiveTurns = state.codexLiveTurns;
-        if (local || legacySession) {
-          const merged = mergeThreadProjections(
-            local,
-            legacySession,
-            event.agentType,
-          );
-          const { [sessionId]: _removed, ...rest } = threadProjections;
-          threadProjections = { ...rest, [localThreadId]: merged };
-        }
-        if (event.agentType === "codex") {
-          const localLive = state.codexLiveTurns[localThreadId];
-          const sessionLive = state.codexLiveTurns[sessionId];
-          if (localLive || sessionLive) {
-            codexLiveTurns = { ...state.codexLiveTurns };
-            if (!localLive && sessionLive) codexLiveTurns[localThreadId] = sessionLive;
-            delete codexLiveTurns[sessionId];
-          }
-        }
-
-        const mergedRunPatch = runStatePatch(state, localThreadId, threadProjections[localThreadId]);
-        const currentThreadTitles = { ...state.sessionMeta.currentThreadTitles };
-        if (sessionId !== localThreadId) {
-          const resolvedTitle =
-            currentThreadTitles[localThreadId] ?? currentThreadTitles[sessionId];
-          if (resolvedTitle !== undefined) {
-            currentThreadTitles[localThreadId] = resolvedTitle;
-          }
-          delete currentThreadTitles[sessionId];
-        }
-        const removedRunSignature = state.threadRunSignatures[sessionId]
-          ?? getConversationRunSignature(state.threadProjections[sessionId]);
-        const threadRunSignatures = mergedRunPatch.threadRunSignatures
-          ? { ...mergedRunPatch.threadRunSignatures }
-          : { ...state.threadRunSignatures };
-        delete threadRunSignatures[sessionId];
-        const removedRunChanged = removedRunSignature !== EMPTY_CONVERSATION_RUN_SIGNATURE;
+        const instances = state.conversationRegistry.instances;
+        const changedInstances = Object.entries(instances).filter(([, instance]) =>
+          instance.threadId === threadId && instance.providerSessionId !== providerSessionId,
+        );
+        const conversationRegistry = changedInstances.length > 0 ? {
+          instances: {
+            ...instances,
+            ...Object.fromEntries(changedInstances.map(([id, instance]) =>
+              [id, { ...instance, providerSessionId }],
+            )),
+          },
+        } : state.conversationRegistry;
         return {
-          threadProjections,
-          codexLiveTurns,
-          threadRunSignatures,
-          runStateVersion:
-            (mergedRunPatch.runStateVersion ?? state.runStateVersion)
-            + (removedRunChanged ? 1 : 0),
-          threadEpochs: {
-            ...state.threadEpochs,
-            [sessionId]: (state.threadEpochs[sessionId] ?? 0) + 1,
-          },
-          threadTombstones: {
-            ...state.threadTombstones,
-            [sessionId]: true,
-          },
+          conversationRegistry,
           sessionMeta: {
             ...state.sessionMeta,
             threadTypes: {
               ...state.sessionMeta.threadTypes,
-              [localThreadId]: event.agentType,
-              [sessionId]: event.agentType,
+              [threadId]: event.agentType,
             },
             externalSessionResolutions: {
               ...state.sessionMeta.externalSessionResolutions,
-              [localThreadId]: sessionId,
+              [threadId]: providerSessionId,
             },
-            currentThreadTitles,
             activeThreadIds: {
               ...state.sessionMeta.activeThreadIds,
-              [event.agentType]: localThreadId,
+              [event.agentType]: threadId,
             },
             activeAgentTypeKey: event.agentType,
           },

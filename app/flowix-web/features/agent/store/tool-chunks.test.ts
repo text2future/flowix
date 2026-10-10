@@ -10,13 +10,12 @@ import {
   applyTextChunk,
   applyUserMessageChunk,
 } from "@features/agent/store/message-chunks";
-import type { LiveMessageState } from "@features/agent/store/chunk-result";
+import type { MessageProjection } from "@features/agent/store/session-reducer/types";
 
-function emptyState(): LiveMessageState {
+function emptyState(): MessageProjection {
   return {
     messages: [],
-    pendingAssistantId: null,
-    pendingReasoningId: null,
+    pending: { assistantId: null, reasoningId: null },
   };
 }
 
@@ -25,7 +24,7 @@ describe("tool chunk idempotency", () => {
     const scope = { adoptPendingId: true, draftScope: "run" };
     let projection = emptyState();
     let displayed = projection.messages;
-    const sync = (next: LiveMessageState) => {
+    const sync = (next: MessageProjection) => {
       projection = next;
       displayed = mergeLiveMessagesIntoRenderableMessages(displayed, projection.messages, "pi");
     };
@@ -84,7 +83,7 @@ describe("tool chunk idempotency", () => {
   });
 
   it("reconciles a persisted user message with the optimistic row by id", () => {
-    const optimistic: LiveMessageState = {
+    const optimistic: MessageProjection = {
       ...emptyState(),
       messages: [
         {
@@ -114,7 +113,7 @@ describe("tool chunk idempotency", () => {
   });
 
   it("appends a new user turn despite stale provider ordering metadata", () => {
-    const state: LiveMessageState = {
+    const state: MessageProjection = {
       ...emptyState(),
       messages: [
         {
@@ -381,7 +380,7 @@ describe("tool chunk idempotency", () => {
       id: "assistant-item-3",
       content: "complete",
     });
-    expect(updated.pendingAssistantId).toBeNull();
+    expect(updated.pending.assistantId).toBeNull();
   });
 
   it("upserts reasoning snapshots by Codex message id and keeps the first order anchor", () => {
@@ -411,7 +410,7 @@ describe("tool chunk idempotency", () => {
       sourceSequence: 4,
       isCompleted: true,
     });
-    expect(updated.pendingReasoningId).toBeNull();
+    expect(updated.pending.reasoningId).toBeNull();
   });
 
   it("reopens and appends one run-scoped Claude reasoning row after a tool cycle", () => {
@@ -448,6 +447,6 @@ describe("tool chunk idempotency", () => {
         isCompleted: false,
       },
     ]);
-    expect(continued.pendingReasoningId).toBe("reasoning-run-1");
+    expect(continued.pending.reasoningId).toBe("reasoning-run-1");
   });
 });

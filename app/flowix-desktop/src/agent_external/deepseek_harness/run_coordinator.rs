@@ -10,6 +10,7 @@ struct ActiveRun {
     run_id: String,
     session_id: String,
     stream_end_emitted: Arc<AtomicBool>,
+    stopping: bool,
 }
 
 pub(crate) struct RunTarget {
@@ -44,6 +45,7 @@ impl RunCoordinator {
                 run_id: run_id.into(),
                 session_id: session_id.unwrap_or_default().into(),
                 stream_end_emitted,
+                stopping: false,
             },
         );
         Ok(())
@@ -66,6 +68,10 @@ impl RunCoordinator {
     pub(crate) async fn bind_session(&self, thread_id: &str, run_id: &str, session_id: &str) {
         self.update(thread_id, run_id, |run| run.session_id = session_id.into())
             .await;
+    }
+
+    pub(crate) async fn mark_stopping(&self, thread_id: &str, run_id: &str) {
+        self.update(thread_id, run_id, |run| run.stopping = true).await;
     }
 
     pub(crate) async fn target(
@@ -103,17 +109,16 @@ impl RunCoordinator {
             .await
             .iter()
             .map(|(thread_id, run)| {
-                (
-                    thread_id.clone(),
-                    RunInfo::active(
+                let mut info = RunInfo::active(
                         run.started_at,
                         Some("DeepSeek Harness"),
                         Some(agent_type),
                         Some(run.run_id.clone()),
                         Some(thread_id.clone()),
                         Some(run.session_id.clone()),
-                    ),
-                )
+                    );
+                if run.stopping { info.phase = Some("stopping".to_string()); }
+                (thread_id.clone(), info)
             })
             .collect()
     }
@@ -187,5 +192,17 @@ mod tests {
         runs.bind_session("t", "r1", "wrong").await;
         let target = runs.target("t", None).await.unwrap();
         assert_eq!(target.session_id, "");
+    }
+
+    #[tokio::test]
+    async fn stopping_remains_visible_until_native_turn_is_removed() {
+        let runs = RunCoordinator::default();
+        runs.register("t", "r1", Some("s1"), Arc::new(AtomicBool::new(false)))
+            .await.unwrap();
+        runs.mark_stopping("t", "r1").await;
+        let snapshot = runs.running_threads("deepseek-harness").await;
+        assert_eq!(snapshot["t"].phase.as_deref(), Some("stopping"));
+        assert!(runs.register("t", "r2", None, Arc::new(AtomicBool::new(false))).await.is_err());
+        assert!(runs.remove_if_matches("t", "r1").await);
     }
 }

@@ -7,8 +7,8 @@ export interface AgentThreadCardRunStatusView {
   latestRun: AgentRunState | undefined;
   supportsStreaming: boolean;
   isIdle: boolean;
-  status: AgentRunState['status'] | 'completed';
-  statusClass: AgentRunState['status'] | 'completed' | 'idle';
+  status: AgentRunState['status'] | 'completed' | 'stopping';
+  statusClass: AgentRunState['status'] | 'completed' | 'stopping' | 'idle';
   shouldShowStatus: boolean;
 }
 
@@ -53,7 +53,7 @@ export function selectAgentThreadCardRunStatus(input: {
     !isCodexCommandRunning;
   const status = input.isCreating
     ? 'running'
-    : activeRun?.status ??
+    : activeRun?.phase === 'stopping' ? 'stopping' : activeRun?.status ??
       (input.isLoading || isDshCommandRunning || isCodexCommandRunning
         ? 'running'
         : latestThreadRun?.status ?? 'completed');
@@ -64,7 +64,7 @@ export function selectAgentThreadCardRunStatus(input: {
     supportsStreaming,
     isIdle,
     status,
-    statusClass: isIdle ? 'idle' : status,
+    statusClass: isIdle ? 'idle' : status === 'stopping' ? 'running' : status,
     shouldShowStatus: !isIdle,
   };
 }
@@ -126,7 +126,7 @@ export function selectAgentThreadCardRuntimeView(input: {
     // Codex accepts the next prompt into Flowix's serial queue while its
     // current turn is running. The composer decides whether there is input;
     // this base value remains the stop state for an empty composer.
-    sendButtonWantsStop: isModelRunning || isCodexCommandStoppable,
+    sendButtonWantsStop: (isModelRunning && activeRun?.phase !== 'stopping') || isCodexCommandStoppable,
   };
 }
 

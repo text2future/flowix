@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader};
 #[cfg(test)]
@@ -97,7 +97,7 @@ impl ClaudeCliManager {
         let thread_id = thread_id.to_string();
         let start = self
             .runs
-            .prepare_start(&thread_id, message.run_id.as_deref())
+            .reserve_start(&thread_id, message.run_id.as_deref())
             .await?;
         let app_handle = app_handle.clone();
         let manager = self.clone();
@@ -112,7 +112,7 @@ impl ClaudeCliManager {
                 .emit_stream_start(&app_handle, &thread_id, &message, &run_id)
                 .await;
 
-            let reason = match manager
+            let result = manager
                 .run_claude(
                     &thread_id,
                     &run_id,
@@ -120,8 +120,14 @@ impl ClaudeCliManager {
                     &app_handle,
                     stream_end_emitted.clone(),
                 )
-                .await
-            {
+                .await;
+            let cancelled = manager.runs.start_cancelled(&thread_id, &run_id).await;
+            manager.runs.release_start(&thread_id, &run_id).await;
+            let reason = if stream_end_emitted.load(Ordering::SeqCst) {
+                None
+            } else if cancelled {
+                Some(USER_STOPPED_REASON.to_string())
+            } else { match result {
                 Ok(()) => None,
                 Err(err) => {
                     manager
@@ -129,7 +135,7 @@ impl ClaudeCliManager {
                         .await;
                     Some(err)
                 }
-            };
+            }};
 
             manager
                 .emit_stream_end(
@@ -152,10 +158,17 @@ impl ClaudeCliManager {
         app_handle: &tauri::AppHandle,
     ) -> bool {
         let mut event_thread_id = thread_id.to_string();
-        let mut stopped = self
+        let mut lookup_thread_id = thread_id.to_string();
+        let mut stopped = match self
             .runs
             .stop_run(thread_id, thread_id, run_id, "ClaudeCli")
-            .await;
+            .await {
+                Ok(stopped) => stopped,
+                Err(unconfirmed) => {
+                    tracing::warn!("[ClaudeCli] stop still unconfirmed for run {}", unconfirmed.run_id);
+                    return false;
+                }
+            };
         if stopped.is_none() {
             let mapped_thread_id = {
                 self.thread_manager
@@ -166,10 +179,17 @@ impl ClaudeCliManager {
             };
             if let Some(mapped_thread_id) = mapped_thread_id {
                 if mapped_thread_id != thread_id {
-                    stopped = self
+                    lookup_thread_id = mapped_thread_id.clone();
+                    stopped = match self
                         .runs
                         .stop_run(&mapped_thread_id, thread_id, run_id, "ClaudeCli")
-                        .await;
+                        .await {
+                            Ok(stopped) => stopped,
+                            Err(unconfirmed) => {
+                                tracing::warn!("[ClaudeCli] stop still unconfirmed for run {}", unconfirmed.run_id);
+                                return false;
+                            }
+                        };
                     if stopped.is_some() {
                         event_thread_id = mapped_thread_id;
                     }
@@ -177,7 +197,28 @@ impl ClaudeCliManager {
             }
         }
         let Some(stopped) = stopped else {
-            return false;
+            if self.runs.cancel_start(&lookup_thread_id, run_id).await {
+                return true;
+            }
+            // The reservation may have become a child between the first
+            // stop lookup and cancellation. Recheck before reporting failure.
+            let stopped = match self.runs.stop_run(&lookup_thread_id, thread_id, run_id, "ClaudeCli").await {
+                Ok(Some(stopped)) => stopped,
+                Ok(None) => return false,
+                Err(unconfirmed) => {
+                    tracing::warn!("[ClaudeCli] stop still unconfirmed for run {}", unconfirmed.run_id);
+                    return false;
+                }
+            };
+            event_thread_id = lookup_thread_id;
+            self.emit_stream_end(
+                app_handle,
+                &event_thread_id,
+                &stopped.run_id,
+                Some(USER_STOPPED_REASON.to_string()),
+                &stopped.stream_end_emitted,
+            ).await;
+            return true;
         };
 
         let run_id_for_chunk = stopped.run_id;
@@ -308,6 +349,10 @@ impl ClaudeCliManager {
 
         preflight_claude()?;
 
+        if self.runs.start_cancelled(thread_id, run_id).await {
+            return Err(USER_STOPPED_REASON.to_string());
+        }
+
         let mut child = build_claude_command(
             session_id.as_deref(),
             &cwd,
@@ -334,38 +379,49 @@ impl ClaudeCliManager {
             })),
         );
 
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(prompt.as_bytes())
-                .await
-                .map_err(|e| format!("failed to write Claude Code prompt: {e}"))?;
-            stdin
-                .shutdown()
-                .await
-                .map_err(|e| format!("failed to close Claude Code stdin: {e}"))?;
-        }
+        let stdin = child.stdin.take();
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                crate::agent_external::shared::kill_child_tree(&mut child, "ClaudeCli", thread_id).await;
+                return Err("failed to capture Claude Code stdout".to_string());
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                crate::agent_external::shared::kill_child_tree(&mut child, "ClaudeCli", thread_id).await;
+                return Err("failed to capture Claude Code stderr".to_string());
+            }
+        };
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "failed to capture Claude Code stdout".to_string())?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| "failed to capture Claude Code stderr".to_string())?;
-
-        if let Err(mut duplicate_child) = self
+        if let Err(mut cancelled_child) = self
             .runs
-            .try_insert(
+            .insert_reserved(
                 thread_id.to_string(),
                 child,
-                Some(run_id.to_string()),
+                run_id,
                 stream_end_emitted,
             )
             .await
         {
-            let _ = duplicate_child.kill().await;
-            return Err("Claude Code CLI is already running for this thread".to_string());
+            crate::agent_external::shared::kill_child_tree(
+                &mut cancelled_child, "ClaudeCli", thread_id,
+            ).await;
+            return Err(USER_STOPPED_REASON.to_string());
+        }
+
+        if let Some(mut stdin) = stdin {
+            let write_result = async {
+                stdin.write_all(prompt.as_bytes()).await
+                    .map_err(|e| format!("failed to write Claude Code prompt: {e}"))?;
+                stdin.shutdown().await
+                    .map_err(|e| format!("failed to close Claude Code stdin: {e}"))
+            }.await;
+            if let Err(error) = write_result {
+                let _ = self.runs.stop_run(thread_id, thread_id, Some(run_id), "ClaudeCli").await;
+                return Err(error);
+            }
         }
 
         let stdout_task = read_claude_stdout(
@@ -380,9 +436,8 @@ impl ClaudeCliManager {
             read_stderr_to_string(thread_id, Some(run_id), &self.runs, BufReader::new(stderr));
         let (stdout_result, stderr_text) = tokio::join!(stdout_task, stderr_task);
 
-        let mut child = self.runs.remove_if_run_id(thread_id, Some(run_id)).await;
-        let status = if let Some(running) = child.as_mut() {
-            running.child.wait().await.map_err(|e| e.to_string())?
+        let status = if let Some(status) = self.runs.wait_for_exit_and_remove_if_run_id(thread_id, run_id).await? {
+            status
         } else {
             // child 已�? stop_chat �?watchdog 移走 ── 二者都�?CAS 抢发�?
             // StreamEnd, 这里直接返回, tail �?CAS 会失败�?skip, 不双发�?

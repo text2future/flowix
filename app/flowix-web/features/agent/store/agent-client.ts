@@ -11,7 +11,6 @@ export const agentClient = {
   runningThreads: agent.runningThreads,
   backgroundTerminals: agent.backgroundTerminals,
   backgroundJobs: agent.backgroundJobs,
-  externalEvents: agent.externalEvents,
   listThreads: agent.listThreads,
   listLocalAgentThreads: agent.listLocalAgentThreads,
   listPiThreads: agent.listPiThreads,

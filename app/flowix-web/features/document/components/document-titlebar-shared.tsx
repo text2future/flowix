@@ -712,7 +712,7 @@ export function AgentThreadCardFullscreenIdentity({
   // 都必须显式 [-webkit-app-region:no-drag], 否则 Radix HoverCard 的 hover 会被
   // macOS 窗口拖拽吞掉。同步处理 ── 与第三列 AgentConversationHeader 行为对齐。
   const productThreadId = instance?.threadId ?? info.threadId ?? '';
-  const providerSessionId = instance?.sessionId ?? (
+  const providerSessionId = instance?.providerSessionId ?? (
     productThreadId ? getResolvedExternalSessionId(productThreadId) : null
   );
   const { model, usage } = computeAgentThreadCardBadgeData({
