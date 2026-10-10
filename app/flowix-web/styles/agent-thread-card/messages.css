@@ -104,7 +104,7 @@
 
 [data-theme="dark"] .markdown-editor .agent-thread-card__message--assistant,
 [data-theme="dark"] .markdown-editor .agent-thread-card__message--assistant .agent-thread-card__message-content {
-  color: oklch(0.80 0.013 265);
+  color: var(--foreground);
 }
 
 .markdown-editor .agent-thread-card__message--system {
@@ -145,7 +145,7 @@
 }
 
 .markdown-editor .agent-thread-card__message--goal-blocked {
-  color: var(--destructive, #b42318);
+  color: var(--destructive);
 }
 
 /* DSH slash-command transcript rows are durable command projections, not

@@ -1,27 +1,19 @@
 [data-theme="dark"] {
 	--neutral-hue: 265;
-	/* brand-hue: 与 --primary 同色 (hue 92, 暖黄/橄榄) ── 复刻 light 的
-	 * "primary=brand" 套路, 让 --brand 通过同公式拿到与 --primary 完全
-	 * 相等的色值。改一处全跟: focus ring / 选区 / 链接 / tag 全部染黄,
-	 * 替代原 brand-hue 273 (紫) 与 primary 92 分离的旧设计。 */
-	--brand-hue: 92;
-	/* brand-chroma: 与 --primary 同档 (0.142), 让 --brand 通过同公式复刻
-	 * --primary 的饱和度。 */
-	--brand-chroma: 0.142;
+	/* 深色主题品牌色对齐 rock: 暖陶土色。品牌衍生的链接与标签颜色
+	 * 继续沿用这组色相。 */
+	--brand-hue: 22;
+	--brand-chroma: 0.120;
 
-	/* 主色 + brand: 沿用 light 的"primary=brand"同值结构 ── 都引用
-	 * --brand-chroma 与 --brand-hue, 公式完全一致。L=0.816 暖黄在暗底
-	 * 上是"高亮信号灯", 与暗字 ΔL=0.64, 对比 ~15:1 (AAA), 远高于 light
-	 * (L=0.552) 的 6:1 ── 暗底配色习惯性提亮主色, 让 focus / 选中 / 链
-	 * 接在深色场景下"跳出来"。 */
-	--primary: oklch(0.816 var(--brand-chroma) var(--brand-hue));
-	--primary-foreground: oklch(0.173 0.009 var(--neutral-hue));
-	--brand: oklch(0.816 var(--brand-chroma) var(--brand-hue));
+	/* 主色与品牌色使用同一暖陶土色；配浅色前景保持按钮文字对比。 */
+	--primary: oklch(0.550 var(--brand-chroma) var(--brand-hue));
+	--primary-foreground: oklch(0.970 0.007 var(--neutral-hue));
+	--brand: oklch(0.550 var(--brand-chroma) var(--brand-hue));
 	--text-hint: #0F8C25;
 
 	--background: oklch(0.173 0.009 var(--neutral-hue));
 	--frame-bg: var(--background);
-	--foreground: oklch(0.80 0.013 265);
+	--foreground: oklch(0.68 0.013 265);
 	--card: oklch(0.240 0.013 var(--neutral-hue));
 	/* Memo 列表独立于 card, 保持比编辑区更深一档的层次。 */
 	--list-bg: oklch(0.200 0.013 265);
@@ -56,7 +48,7 @@
 	--bg-titlebar: oklch(0.173 0.009 var(--neutral-hue));
 	/* 文档: 在 background 上提一档亮度, 与 .tiptap 纸面形成"暗桌+纸边"层级 */
 	--document-bg: oklch(0.160 0.013 265);
-	--document-foreground: oklch(0.80 0.013 265);
+	--document-foreground: oklch(0.68 0.013 265);
 	/* 链接: 高亮+提 chroma 路线, 与普通文字拉开"可点击"权重; hover 由 color-mix 派生 */
 	--document-link: oklch(0.80 0.18 var(--brand-hue));
 	--document-highlight-bg: oklch(0.800 0.182 152);

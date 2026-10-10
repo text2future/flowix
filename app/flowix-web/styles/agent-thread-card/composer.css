@@ -183,7 +183,7 @@
 .agent-background-terminals__approval-copy strong { flex: 0 0 auto; color: var(--foreground); font-size: 0.78rem; }
 .agent-background-terminals__approval-copy span { flex: 0 0 auto; color: var(--muted-foreground); }
 .agent-background-terminals__approval-copy code { min-width: 0; overflow: hidden; color: var(--foreground); text-overflow: ellipsis; white-space: nowrap; opacity: 0.78; }
-.agent-background-terminals__approval-error { flex-basis: 100%; color: var(--destructive, #c2410c); font-size: 0.68rem; }
+.agent-background-terminals__approval-error { flex-basis: 100%; color: var(--destructive); font-size: 0.68rem; }
 .agent-background-terminals__approval-actions { display: flex; flex: 0 0 auto; gap: 0.35rem; }
 .agent-background-terminals__approval-actions button { min-height: 1.27rem; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.15rem 0.2rem; background: transparent; color: var(--muted-foreground); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
 .agent-background-terminals__approval-actions button:hover { background: var(--muted); color: var(--foreground); }
@@ -710,7 +710,7 @@
 }
 
 .markdown-editor .agent-thread-card__slash-token:hover {
-  color: color-mix(in oklch, var(--foreground) 75%, white 25%);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -737,12 +737,13 @@
   color: var(--foreground);
   font-size: inherit;
   line-height: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
   vertical-align: top;
 }
 
 .markdown-editor .agent-thread-card__slash-token--control:hover,
 .markdown-editor .agent-thread-card__folder-token:hover {
-  color: color-mix(in oklch, var(--foreground) 75%, white 25%);
+  color: var(--foreground);
 }
 
 .markdown-editor :is(
@@ -752,6 +753,10 @@
   border-color: color-mix(in oklch, var(--border) 68%, var(--foreground) 32%);
   background: transparent;
   color: var(--foreground);
+}
+
+.markdown-editor .agent-thread-card__slash-token-wrapper.is-selected > .agent-thread-card__slash-token--control {
+  background-color: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .markdown-editor .agent-thread-card__skill-token {
@@ -767,17 +772,27 @@
   font: inherit;
   font-size: inherit;
   line-height: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
   white-space: nowrap;
   vertical-align: top;
   cursor: pointer;
 }
 
-.markdown-editor .agent-thread-card__skill-token:hover,
+.markdown-editor .agent-thread-card__skill-token:hover {
+  background: transparent;
+  color: var(--foreground);
+  outline: none;
+}
+
 .markdown-editor .agent-thread-card__skill-token:focus-visible {
   border-color: color-mix(in oklch, var(--border) 68%, var(--foreground) 32%);
   background: transparent;
   color: var(--foreground);
   outline: none;
+}
+
+.markdown-editor .agent-thread-card__skill-token.ProseMirror-selectednode {
+  background-color: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 /* Notebook add-dir mention. Keep the chip geometry aligned with Skill cards;
@@ -818,7 +833,7 @@
   .editor-note-reference__notebook,
   .editor-note-reference__chevron
 ) {
-  color: color-mix(in oklch, var(--foreground) 75%, white 25%);
+  color: var(--foreground);
 }
 
 .markdown-editor .agent-thread-card__composer .agent-thread-card__composer-input .editor-note-reference--composer .editor-note-reference__card:focus-visible,

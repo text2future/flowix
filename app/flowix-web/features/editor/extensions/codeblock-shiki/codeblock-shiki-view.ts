@@ -306,7 +306,12 @@ class CodeBlockShikiView implements NodeView {
     if (!highlighter.getLoadedThemes().includes(themeName)) return
 
     const theme = highlighter.getTheme(themeName)
-    this.dom.style.setProperty('--code-block-shiki-fg', theme.fg)
+    const foreground = themeName === 'github-dark'
+      ? getComputedStyle(document.documentElement)
+        .getPropertyValue('--document-foreground')
+        .trim() || theme.fg
+      : theme.fg
+    this.dom.style.setProperty('--code-block-shiki-fg', foreground)
   }
 
   private createLanguageDropdownShell(): HTMLElement {

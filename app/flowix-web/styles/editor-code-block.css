@@ -46,6 +46,11 @@
   word-break: inherit;
 }
 
+[data-theme="dark"] .markdown-editor .tiptap:not(.agent-thread-card__composer-editor) .code-block-wrapper > .code-block-editor > .code-block-content,
+[data-theme="dark"] .code-editor .cm-line {
+  opacity: 0.68;
+}
+
 .code-block-header {
   order: 1;
   display: flex;
