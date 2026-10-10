@@ -1,8 +1,7 @@
 import { createCollectionMetadata, createUuidV7, parseCollectionEnvelope, serializeCollectionEnvelope, validateCollectionMetadata, type CollectionMetadata } from '@features/collection/model';
+import { createUniqueNotebookFile } from '@features/collection/create-unique-notebook-file';
 export { createUuidV7 } from '@features/collection/model';
 import { sanitizeFileName } from '@/lib/export-utils';
-import { canonicalDirectoryPath, joinNotebookMemoPath } from '@/lib/path';
-import { files } from '@platform/tauri/client';
 
 export type MediaLibraryKind = 'image' | 'video';
 export interface MediaLibraryFileCondition {
@@ -186,25 +185,15 @@ export async function createMediaLibraryFile(
 ): Promise<{ filePath: string; document: MediaLibraryDocument }> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error('请输入媒体库名称');
-  const notebookRoot = canonicalDirectoryPath(notebookPath);
-  const folderPath = relativeFolder ? joinNotebookMemoPath(notebookRoot, relativeFolder) : notebookRoot;
-  if (!folderPath) throw new Error('媒体库目录无效');
   const stem = sanitizeFileName(trimmedName).replace(/\.lib\.ya?ml$/i, '');
   if (!stem) throw new Error('媒体库名称无效');
-  const children = await files.getDirChildren(folderPath);
-  const existing = new Set(children.map((entry) => entry.name.toLocaleLowerCase()));
-  let filename = `${stem}.lib.yaml`;
-  let suffix = 2;
-  while (existing.has(filename.toLocaleLowerCase())) {
-    filename = `${stem} (${suffix}).lib.yaml`;
-    suffix += 1;
-  }
-  const relativePath = [relativeFolder, filename].filter(Boolean).join('/');
-  const filePath = joinNotebookMemoPath(notebookRoot, relativePath);
-  if (!filePath) throw new Error('媒体库路径无效');
   const document = createMediaLibrary(stem);
-  if (!await files.write(filePath, serializeMediaLibrary(document), false, notebookRoot)) {
-    throw new Error('创建媒体库失败');
-  }
+  const { filePath } = await createUniqueNotebookFile(
+    notebookPath,
+    relativeFolder,
+    stem,
+    '.lib.yaml',
+    serializeMediaLibrary(document),
+  );
   return { filePath, document };
 }

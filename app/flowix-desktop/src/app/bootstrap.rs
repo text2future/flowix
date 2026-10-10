@@ -618,6 +618,7 @@ pub fn run() {
             commands::file::get_media_thumbnail,
             commands::file::cancel_media_thumbnail,
             commands::file::write_file,
+            commands::file::create_file,
             commands::file::rename_file,
             commands::file::move_file,
             commands::file::move_folder,

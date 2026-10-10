@@ -1853,6 +1853,45 @@ pub fn write_file(
 }
 
 #[tauri::command]
+pub fn create_file(
+    file_path: String,
+    content: String,
+    space_path: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    if !can_access_scoped_file(path, space_path.as_deref(), &state)
+        || is_internal_notebook_path(path, &state)
+    {
+        return Err("FILE_PERMISSION_DENIED".to_string());
+    }
+    if !path.parent().is_some_and(Path::is_dir) {
+        return Err("FILE_NOT_FOUND: parent directory does not exist".to_string());
+    }
+    start_security_bookmark_access(&state, path);
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let notebook_ids = memo_file
+        .notebook_ids_for_paths(&[path])
+        .map_err(file_mutation_error)?;
+    match notebook_ids.as_slice() {
+        [notebook_id] => memo_file
+            .create_file_for_notebook(notebook_id, path, content.as_bytes())
+            .map_err(file_mutation_error)?,
+        [] => memo_file
+            .create_file(path, content.as_bytes())
+            .map_err(file_mutation_error)?,
+        _ => memo_file
+            .with_registered_path_change(&[path], "create_file_nested_notebooks", || {
+                flowix_core::memo_file::atomic_create_bytes(path, content.as_bytes())
+            })
+            .map_err(file_mutation_error)?,
+    }
+    refresh_notebook_note_index(&memo_file, path);
+    crate::commands::document_list::refresh_view_document_path(&memo_file, path);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn delete_file(file_path: String, space_path: Option<String>, state: State<AppState>) -> bool {
     if !can_access_scoped_file(Path::new(&file_path), space_path.as_deref(), &state) {
         eprintln!("[delete_file] refused out-of-scope path: {}", file_path);

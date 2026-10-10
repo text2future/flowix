@@ -220,6 +220,8 @@ export const files = {
   toAssetUrl: (filePath: string) => convertFileSrc(filePath),
   write: (filePath: string, content: string, skipValidation?: boolean, spacePath?: string) =>
     invoke<boolean>('write_file', { filePath, content, skipValidation, spacePath }),
+  create: (filePath: string, content: string, spacePath?: string) =>
+    invoke<void>('create_file', { filePath, content, spacePath }),
   delete: (filePath: string, spacePath?: string) => invoke<boolean>('delete_file', { filePath, spacePath }),
   deleteFolder: (folderPath: string, spacePath: string) =>
     invoke<boolean>('delete_folder', { folderPath, spacePath }),
