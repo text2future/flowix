@@ -58,17 +58,19 @@ function subscribeMemoEventBridge(): () => void {
         at: new Date().toISOString(),
         kind: payload.kind,
         source: payload.kind === 'created' || payload.kind === 'updated' ? payload.source : null,
-        id:
-          payload.kind === 'updated' || payload.kind === 'deleted'
-            ? payload.id
-            : payload.kind === 'created'
-              ? payload.memo.id
-              : null,
+        relativePath:
+          payload.kind === 'created'
+            ? payload.memo.relativePath ?? payload.memo.filename
+            : payload.kind === 'updated'
+              ? payload.memo.relativePath ?? payload.path
+              : payload.kind === 'deleted'
+                ? payload.relativePath
+                : null,
         // tags_renamed / tags_deleted 是 metadata 事件, 顺手把 affected
         // memo 数打到日志, 排查"重命名 / 删除影响范围"时不用再看 IPC 抓包。
         affectedMemos:
           payload.kind === 'tags_renamed' || payload.kind === 'tags_deleted'
-            ? payload.affectedMemoIds.length
+            ? payload.affectedRelativePaths.length
             : null,
       });
     memoDispatcher.dispatch(payload);

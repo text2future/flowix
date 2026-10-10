@@ -524,10 +524,33 @@ export function flattenLoadedTree(
   return out;
 }
 
-export function flattenVisibleTree(state: FolderTreeState): VisibleTreeNode[] {
+export type FolderTreeSort = 'createdAt' | 'updatedAt' | 'filenameAsc' | 'filenameDesc';
+
+function compareTreeItems(sort: FolderTreeSort, a: DocTreeItem, b: DocTreeItem): number {
+  // Keep directories grouped before documents for every selected sort.
+  if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+
+  if (sort === 'filenameAsc' || sort === 'filenameDesc') {
+    const order = a.name.toLocaleLowerCase().localeCompare(b.name.toLocaleLowerCase())
+      || a.name.localeCompare(b.name)
+      || a.fullPath.localeCompare(b.fullPath);
+    return sort === 'filenameDesc' ? -order : order;
+  }
+
+  const aTime = sort === 'updatedAt' ? a.modifiedMs : a.createdMs;
+  const bTime = sort === 'updatedAt' ? b.modifiedMs : b.createdMs;
+  if (aTime === null && bTime !== null) return 1;
+  if (aTime !== null && bTime === null) return -1;
+  if (aTime !== null && bTime !== null && aTime !== bTime) return bTime - aTime;
+  return a.name.toLocaleLowerCase().localeCompare(b.name.toLocaleLowerCase())
+    || a.name.localeCompare(b.name)
+    || a.fullPath.localeCompare(b.fullPath);
+}
+
+export function flattenVisibleTree(state: FolderTreeState, sort: FolderTreeSort = 'createdAt'): VisibleTreeNode[] {
   const out: VisibleTreeNode[] = [];
   const walk = (items: DocTreeItem[], depth: number) => {
-    for (const item of items) {
+    for (const item of [...items].sort((a, b) => compareTreeItems(sort, a, b))) {
       out.push({ item, depth });
       if (item.type !== 'folder') continue;
       const key = canonicalPath(item.fullPath);

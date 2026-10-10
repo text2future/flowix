@@ -139,9 +139,15 @@ export const useWorkColumnStore = create<WorkColumnStore>()((set, get) => ({
     notebookSwitchesInFlight: Math.max(0, state.notebookSwitchesInFlight - 1),
   })),
   replaceExternalPath: (previousPath, path) => set((state) => {
+    const previousParent = canonicalPath(previousPath).replace(/\/[^/]*$/, '');
+    const nextParent = canonicalPath(path).replace(/\/[^/]*$/, '');
     const replace = (target: WorkColumnTarget): WorkColumnTarget => (
       target.kind === 'external' && canonicalPath(target.path) === canonicalPath(previousPath)
-        ? { ...target, path }
+        ? { ...target, path, fileBrowser: target.fileBrowser
+          ? { ...target.fileBrowser, folderPath: target.fileBrowser.folderPath
+            && canonicalPath(target.fileBrowser.folderPath) === previousParent
+            ? nextParent : target.fileBrowser.folderPath }
+          : undefined }
         : (target.kind === 'collection' || target.kind === 'table') && canonicalPath(target.filePath) === canonicalPath(previousPath)
           ? { ...target, filePath: path }
           : target.kind === 'media-library' && canonicalPath(target.filePath) === canonicalPath(previousPath)

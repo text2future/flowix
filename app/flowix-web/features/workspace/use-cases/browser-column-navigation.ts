@@ -239,7 +239,7 @@ export function openBrowserColumnNotebookNote(
   });
 }
 
-export function openBrowserColumnText(filePath: string, scopePath: string): Promise<BrowserColumnOpenResult | null> {
+export function openBrowserColumnText(filePath: string, scopePath: string | null): Promise<BrowserColumnOpenResult | null> {
   return openBrowserColumnTarget(createFileBrowserTarget(filePath, scopePath));
 }
 

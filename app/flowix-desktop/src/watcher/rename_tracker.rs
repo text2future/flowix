@@ -16,6 +16,30 @@ pub struct RenameTracker {
     pending: HashMap<PathBuf, ((u64, u64), Instant)>,
 }
 impl RenameTracker {
+    fn rebase_known(&mut self, old: &Path, path: &Path) {
+        let rebased: Vec<_> = self
+            .known
+            .iter()
+            .filter_map(|(previous, id)| {
+                let suffix = previous.strip_prefix(old).ok()?;
+                let next = if suffix.as_os_str().is_empty() {
+                    path.to_path_buf()
+                } else {
+                    path.join(suffix)
+                };
+                Some((previous.clone(), next, *id))
+            })
+            .collect();
+        for (previous, next, id) in rebased {
+            self.known.remove(&previous);
+            self.known.insert(next.clone(), id);
+            if self.known_directories.remove(&previous) {
+                self.known_directories.insert(next);
+            }
+        }
+        self.observe(path);
+    }
+
     pub fn seed(roots: &[NotebookWatchContext]) -> Self {
         let mut tracker = Self::default();
         for root in roots {
@@ -58,6 +82,16 @@ impl RenameTracker {
     pub fn correlate(&mut self, event: Event) -> Event {
         self.pending
             .retain(|_, (_, time)| time.elapsed() < Duration::from_secs(2));
+        if matches!(event.kind, EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            && event.paths.len() == 2
+        {
+            let old = &event.paths[0];
+            let new = &event.paths[1];
+            if !old.exists() && self.known.get(old).copied() == filesystem_identity(new) {
+                self.rebase_known(old, new);
+            }
+            return event;
+        }
         if event.paths.len() != 1 {
             return event;
         }
@@ -86,27 +120,7 @@ impl RenameTracker {
                 if candidates.len() == 1 {
                     let old = &candidates[0];
                     self.pending.remove(old);
-                    let rebased: Vec<_> = self
-                        .known
-                        .iter()
-                        .filter_map(|(previous, id)| {
-                            let suffix = previous.strip_prefix(old).ok()?;
-                            let next = if suffix.as_os_str().is_empty() {
-                                path.clone()
-                            } else {
-                                path.join(suffix)
-                            };
-                            Some((previous.clone(), next, *id))
-                        })
-                        .collect();
-                    for (previous, next, id) in rebased {
-                        self.known.remove(&previous);
-                        self.known.insert(next.clone(), id);
-                        if self.known_directories.remove(&previous) {
-                            self.known_directories.insert(next);
-                        }
-                    }
-                    self.observe(path);
+                    self.rebase_known(old, path);
                     return Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
                         .add_path(old.clone())
                         .add_path(path.clone());
@@ -161,5 +175,28 @@ mod tests {
             tracker.correlate(event(RenameMode::To, &new)).paths,
             vec![new]
         );
+    }
+
+    #[test]
+    fn direct_rename_pair_rebases_known_descendants_for_the_next_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("drafts");
+        let middle = dir.path().join("archive");
+        let final_path = dir.path().join("done");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("note.md"), "note").unwrap();
+        let mut tracker = RenameTracker::default();
+        tracker.observe(&old);
+        tracker.observe(&old.join("note.md"));
+        std::fs::rename(&old, &middle).unwrap();
+        let paired = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(old.clone()).add_path(middle.clone());
+        tracker.correlate(paired);
+        assert!(tracker.was_directory(&middle));
+        assert!(tracker.known.contains_key(&middle.join("note.md")));
+        std::fs::rename(&middle, &final_path).unwrap();
+        tracker.correlate(event(RenameMode::From, &middle));
+        assert_eq!(tracker.correlate(event(RenameMode::To, &final_path)).paths,
+            vec![middle, final_path]);
     }
 }

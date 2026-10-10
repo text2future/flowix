@@ -153,6 +153,15 @@ jobs:
             Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Build and sign native Windows installer helper
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_THUMBPRINT: ${{ secrets.WINDOWS_CERT_THUMBPRINT }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+          FLOWIX_REQUIRE_SIGNED_INSTALLER_HELPER: '1'
+        run: node scripts/build-windows-installer-helper.mjs
+
       - name: Prepare production Tauri config
         id: production-config
         shell: bash

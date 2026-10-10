@@ -4,7 +4,6 @@ pub mod export_access;
 pub mod native_menu;
 pub mod panic;
 pub mod paths;
-pub mod search_index;
 pub mod startup;
 pub mod state;
 pub mod watchdog;

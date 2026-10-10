@@ -45,9 +45,9 @@ import {
 } from '@features/document/store/document-session-service';
 import { useDocumentStore } from '@features/document/store/document-store';
 import { documentIdentityFromFile } from '@features/document/store/document-identity';
-import { notes as notesClient, product, type MemoVersionMeta, type PathVersionMeta } from '@platform/tauri/client';
+import { notes as notesClient, product, type PathVersionMeta } from '@platform/tauri/client';
 
-type VersionDisplay = MemoVersionMeta | PathVersionMeta;
+type VersionDisplay = PathVersionMeta;
 import { toast } from '@/lib/toast';
 import type { WorkspaceHostId } from '@features/workspace/store/workspace-focus-store';
 import { useI18n, translate, type AppLanguage, type I18nKey, type I18nParams } from '@/lib/i18n';
@@ -789,7 +789,7 @@ export function AgentThreadCardFullscreenIdentity({
 // iconButtonClass (size / radius / bg / border) supplied by caller
 // =====================================================================
 
-const VERSION_SOURCE_LABEL_KEYS: Record<MemoVersionMeta['source'], I18nKey> = {
+const VERSION_SOURCE_LABEL_KEYS: Record<PathVersionMeta['source'], I18nKey> = {
   auto: "document.version.source.auto",
   manual: "document.version.source.manual",
   restore_backup: "document.version.source.restoreBackup",
@@ -927,7 +927,7 @@ function VersionHistorySubmenu({
                   onSelectVersion(version);
                 }}
                 className="group block w-full rounded-lg px-2 py-2 text-left hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-60"
-                title={'title' in version ? (version.title || version.filename) : relativePath}
+                title={relativePath}
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-xs text-[var(--foreground)] group-hover:text-[var(--foreground)]">
@@ -942,7 +942,7 @@ function VersionHistorySubmenu({
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]">
                   <span className="min-w-0 flex-1 truncate group-hover:text-[var(--foreground)]">
-                    {'title' in version ? (version.title || version.filename) : relativePath}
+                    {relativePath}
                   </span>
                   <span className="shrink-0">{formatVersionSize(version.size)}</span>
                 </div>

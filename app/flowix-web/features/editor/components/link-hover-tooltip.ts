@@ -1,6 +1,7 @@
 import { openUrl } from '@platform/tauri/opener';
 import type { Editor } from '@tiptap/core';
 import { normalizePlainLinkHref } from '@features/editor/extensions/markdown-link';
+import { decodeEditorHref, resolveEditorLocalHref, type EditorLinkContext, type ResolvedEditorLocalLink } from '@features/editor/editor-link-resolution';
 import { isLinkEditPopupOpen, openLinkEditPopup } from '@features/editor/components/link-edit-popup';
 import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
 import { translate } from '@/lib/i18n';
@@ -31,12 +32,23 @@ function createIconButton(label: string, icon: string, onClick: (event: MouseEve
   return button;
 }
 
-export function attachLinkHoverTooltip(editor: Editor, root: HTMLElement): () => void {
+export function attachLinkHoverTooltip(
+  editor: Editor,
+  root: HTMLElement,
+  getLinkContext?: () => EditorLinkContext | undefined,
+): () => void {
   let tooltipEl: HTMLDivElement | null = null;
   let activeLink: HTMLAnchorElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let removeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Local file target for a link, or null when it keeps web semantics. */
+  const localTargetFor = (rawHref: string | null): ResolvedEditorLocalLink | null => {
+    const context = getLinkContext?.();
+    if (!context) return null;
+    return resolveEditorLocalHref(rawHref, context.documentPath);
+  };
 
   const getEventElement = (event: Event): Element | null => {
     const target = event.target;
@@ -134,7 +146,12 @@ export function attachLinkHoverTooltip(editor: Editor, root: HTMLElement): () =>
     }
     if (!activeLink) return;
 
-    const href = normalizePlainLinkHref(activeLink.getAttribute('href'));
+    const rawHref = activeLink.getAttribute('href');
+    // Path-like hrefs keep their stored (relative) form in the edit popup;
+    // only web hrefs go through the http:// normalization.
+    const href = localTargetFor(rawHref)
+      ? decodeEditorHref(rawHref ?? '')
+      : normalizePlainLinkHref(rawHref);
     const range = getLinkRange(activeLink);
     if (!range) return;
 
@@ -317,7 +334,11 @@ export function attachLinkHoverTooltip(editor: Editor, root: HTMLElement): () =>
 
     if (!link) return;
 
-    const href = normalizePlainLinkHref(link.getAttribute('href'));
+    const rawHref = link.getAttribute('href');
+    const resolvedPath = localTargetFor(rawHref);
+    const href = resolvedPath
+      ? decodeEditorHref(rawHref ?? '')
+      : normalizePlainLinkHref(rawHref);
 
     if (event.type === 'click' && href.startsWith('#')) {
       event.preventDefault();
@@ -329,6 +350,21 @@ export function attachLinkHoverTooltip(editor: Editor, root: HTMLElement): () =>
     if (event.type === 'click' && href) {
       event.preventDefault();
       hide();
+      if (resolvedPath) {
+        const context = getLinkContext?.();
+        if (context?.openLocalPath) {
+          void Promise.resolve(context.openLocalPath(resolvedPath)).catch((error) => {
+            console.error('Failed to open local document link:', error);
+          });
+          return;
+        }
+        // No navigation callback wired: keep the historic web-opener
+        // semantics instead of turning the click into a dead end.
+        void openUrl(normalizePlainLinkHref(rawHref)).catch((error) => {
+          console.error('Failed to open external link:', error);
+        });
+        return;
+      }
       void openUrl(href).catch((error) => {
         console.error('Failed to open external link:', error);
       });

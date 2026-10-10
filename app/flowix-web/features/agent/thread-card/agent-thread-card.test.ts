@@ -44,7 +44,9 @@ vi.mock("@features/workspace/use-cases/browser-column-navigation", () => ({
     tabId: 'file-browser:/Users/rop/Desktop/vibe/flowix-main',
     alreadyOpen: false,
   })),
-  openBrowserColumnText: vi.fn(() => "file:/Users/rop/Documents/Outside Text.txt"),
+  openBrowserColumnText: vi.fn(() => ({
+    host: 'browser-column', tabId: 'file:external-text', alreadyOpen: false,
+  })),
   openBrowserColumnWebpage: vi.fn(() => ({
     host: 'browser-column',
     tabId: 'web:https://example.com/docs',
@@ -588,13 +590,17 @@ describe("AgentThreadCard NodeView streaming", () => {
     expect(card?.classList.contains("agent-thread-card--running")).toBe(false);
   }, 30_000);
 
-  it("opens an encoded absolute assistant link with the system default app", async () => {
+  it("opens an encoded absolute assistant docx link through the browser column", async () => {
     const { AgentThreadCard } =
       await import("@features/agent/thread-card");
     const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");
     const { openPath, openUrl } = await import("@tauri-apps/plugin-opener");
+    const { openBrowserColumnText } = await import(
+      "@features/workspace/use-cases/browser-column-navigation",
+    );
     vi.mocked(openPath).mockClear();
     vi.mocked(openUrl).mockClear();
+    vi.mocked(openBrowserColumnText).mockClear();
 
     const threadId = "thread-card-local-file-link";
     const host = document.createElement("div");
@@ -640,9 +646,13 @@ describe("AgentThreadCard NodeView streaming", () => {
     );
     await flushPromises();
 
-    expect(openPath).toHaveBeenCalledWith(
+    // 工作空间外的 docx 有专用预览面（externalFileViewKind → 'docx'），
+    // 统一分流后不再回退系统默认应用，而是经浏览器列打开。
+    expect(openBrowserColumnText).toHaveBeenCalledWith(
       "/Users/rop/Desktop/人物档案/tool-smoke-test/outputs/tool-smoke-report.docx",
+      null,
     );
+    expect(openPath).not.toHaveBeenCalled();
     expect(openUrl).not.toHaveBeenCalled();
   });
 
@@ -699,9 +709,54 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     expect(openBrowserColumnText).toHaveBeenCalledWith(
       "/Users/rop/Documents/Outside Note.md",
-      "/Users/rop/Documents",
+      null,
     );
     expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it('opens a Tauri HTTP Windows file href as a local file and keeps its line reference', async () => {
+    const { AgentThreadCard } = await import('@features/agent/thread-card');
+    const { useChatStore } = await import('@features/agent/store/agent-session-test-facade');
+    const { openBrowserColumnText, openBrowserColumnWebpage } = await import(
+      '@features/workspace/use-cases/browser-column-navigation',
+    );
+    const { peekAgentLocationRequest, consumeAgentLocationRequest } = await import(
+      '@features/document/use-cases/agent-location-navigation',
+    );
+    const threadId = 'thread-card-tauri-windows-file-link';
+    vi.mocked(openBrowserColumnText).mockClear();
+    vi.mocked(openBrowserColumnWebpage).mockClear();
+    vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, AgentThreadCard],
+      content: { type: 'doc', content: [{ type: 'agentThreadCard', attrs: {
+        threadId, title: 'Windows file link', typeKey: 'codex', collapsed: false,
+      } }] },
+    });
+    useChatStore.getState().bindThreadType(threadId, 'codex');
+    useChatStore.getState().dispatchAgentChunk({ kind: 'stream_start', thread_id: threadId, agent_type: 'codex' });
+    useChatStore.getState().dispatchAgentChunk({
+      kind: 'text', thread_id: threadId, agent_type: 'codex',
+      text: '<a href="http://tauri.localhost/D:/Notes/%E6%8E%A8%E5%B9%BF%E8%AE%BE%E8%AE%A1/Flowix%20Agent.md:144">方案</a>',
+    });
+    await flushStreamingRender();
+
+    const link = host.querySelector<HTMLAnchorElement>('.agent-thread-card__message--assistant a[href]');
+    expect(link?.getAttribute('href')).toBe('http://tauri.localhost/D:/Notes/%E6%8E%A8%E5%B9%BF%E8%AE%BE%E8%AE%A1/Flowix%20Agent.md:144');
+    vi.useFakeTimers();
+    link?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(openBrowserColumnText).toHaveBeenCalledWith('D:/Notes/推广设计/Flowix Agent.md', null);
+    expect(openBrowserColumnWebpage).not.toHaveBeenCalled();
+    const request = peekAgentLocationRequest('D:/Notes/推广设计/Flowix Agent.md');
+    expect(request?.location).toEqual({ line: 144 });
+    if (request) consumeAgentLocationRequest(request.path, request.id);
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it("opens a file inside the conversation workspace in the file browser", async () => {
@@ -837,7 +892,7 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     expect(openBrowserColumnText).toHaveBeenCalledWith(
       "/Users/rop/Documents/Outside.ts",
-      "/Users/rop/Documents",
+      null,
     );
     expect(openBrowserColumnFileBrowser).not.toHaveBeenCalled();
   });

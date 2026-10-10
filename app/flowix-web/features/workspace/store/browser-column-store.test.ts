@@ -38,6 +38,15 @@ describe('browser column store', () => {
     useBrowserColumnStore.getState().reset();
   });
 
+  it('updates a retained tab path and folder when its file moves', () => {
+    const store = useBrowserColumnStore.getState();
+    store.openTab({ ...tab('file'), target: { ...tab('file').target, folderPath: '/notes/drafts', activeFilePath: '/notes/drafts/a.md' } });
+    store.replaceExternalPath('/notes/drafts/a.md', '/notes/done/a.md');
+    expect(useBrowserColumnStore.getState().tabs[0].target).toMatchObject({
+      activeFilePath: '/notes/done/a.md', folderPath: '/notes/done',
+    });
+  });
+
   it('focuses an existing target instead of duplicating it by default', () => {
     const store = useBrowserColumnStore.getState();
     store.openTab(tab('memo:a', 'a'));

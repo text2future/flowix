@@ -38,6 +38,7 @@ import {
   syncAppAgentConversationRestore,
   openBrowserColumnNotebookNote,
   removeBrowserColumnTabsByPath,
+  applyNotebookPathMove,
 } from '@features/workspace/public/app-api';
 
 const logger = createLogger('main-window-effects');
@@ -81,12 +82,23 @@ export function MainWindowEffects() {
   }, [mainWindowTitle]);
 
   useEffect(() => {
-    return subscribe<{ notebookId: string; relativePath: string; deleted?: boolean }>(
+    let moveChain = Promise.resolve();
+    let disposed = false;
+    const unsubscribe = subscribe<{ notebookId: string; relativePath: string; previousRelativePath?: string; directory?: boolean; deleted?: boolean }>(
       'flowix:path-note-changed',
-      ({ notebookId, relativePath, deleted }) => {
+      ({ notebookId, relativePath, previousRelativePath, directory, deleted }) => {
         invalidateMentionNotes();
         invalidateMentionTags();
         refreshAppPathNoteMetadata(notebookId);
+        if (previousRelativePath && relativePath && !deleted) {
+          moveChain = moveChain.then(async () => {
+            const notebookPath = await getAppNotebookPath(notebookId);
+            if (!disposed && notebookPath) applyNotebookPathMove({
+              notebookId, notebookPath, previousRelativePath, relativePath,
+              directory: directory === true,
+            });
+          }).catch((error) => logger.warn('rebase moved note path failed', { error, notebookId, relativePath }));
+        }
         if (deleted && relativePath) {
           void getAppNotebookPath(notebookId).then((notebookPath) => {
             const path = notebookPath && joinNotebookMemoPath(notebookPath, relativePath);
@@ -95,6 +107,7 @@ export function MainWindowEffects() {
         }
       },
     );
+    return () => { disposed = true; unsubscribe(); };
   }, []);
 
   useEffect(() => {

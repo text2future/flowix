@@ -630,9 +630,11 @@ fn unknown_command_errors() {
 
 #[test]
 fn exit_codes() {
-    // 4 个 CliError 变体各自映射到约定的退出码
+    // 错误变体各自映射到约定的退出码
     assert_eq!(CliError::Usage("x".into()).exit_code(), 2);
     assert_eq!(CliError::NotFound("x".into()).exit_code(), 3);
     assert_eq!(CliError::Io(std::io::Error::other("x")).exit_code(), 5);
+    assert_eq!(CliError::Conflict("x".into()).exit_code(), 4);
+    assert_eq!(CliError::Conflict("x".into()).code(), "CONFLICT");
     assert_eq!(CliError::Other("x".into()).exit_code(), 1);
 }

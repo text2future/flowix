@@ -22,7 +22,7 @@ fn sessions_enforce_owner_order_limits_expiry_and_release() {
         sessions.begin(
             "main",
             0,
-            "memo".into(),
+            Some("notes/memo.md".into()),
             "notebook".into(),
             "file.bin".into(),
             size,
@@ -80,7 +80,7 @@ fn sessions_enforce_owner_order_limits_expiry_and_release() {
         .begin(
             "main",
             sessions.generation("main").unwrap(),
-            "memo".into(),
+            Some("notes/memo.md".into()),
             "notebook".into(),
             "empty".into(),
             0,

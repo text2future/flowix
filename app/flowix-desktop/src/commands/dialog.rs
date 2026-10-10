@@ -207,7 +207,7 @@ pub async fn save_attachment(
     window: tauri::WebviewWindow,
     source_path: String,
     notebook_id: Option<String>,
-    memo_id: Option<String>,
+    note_path: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let permit = upload_quota::UPLOAD_QUOTA.acquire()?;
@@ -232,9 +232,12 @@ pub async fn save_attachment(
     }
     let root = {
         let store = read_lock(&state.memo_file, "memo_file");
-        let owner =
-            attachments::resolve_notebook_id(&store, notebook_id.as_deref(), memo_id.as_deref())
-                .map_err(|error| error.to_string())?;
+        let (owner, _) = attachments::resolve_note_owner(
+            &store,
+            notebook_id.as_deref(),
+            note_path.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         attachments::notebook_root(&store, Some(&owner)).map_err(|error| error.to_string())?
     };
     start_security_bookmark_access(&state, &root);
@@ -245,7 +248,7 @@ pub async fn save_attachment(
         let path = attachments::save_for_owner(
             &store,
             notebook_id.as_deref(),
-            memo_id.as_deref(),
+            note_path.as_deref(),
             &name,
             &mut reader,
         )

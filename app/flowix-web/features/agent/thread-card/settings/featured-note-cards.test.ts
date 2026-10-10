@@ -20,9 +20,9 @@ import {
   appendFeaturedNoteIconContent,
   getFeaturedNoteCards,
   getFeaturedNotePage,
+  loadAllFeaturedNoteCards,
   getFeaturedNotePageCount,
   getFeaturedNotePageCountForSize,
-  loadAllFeaturedNoteCards,
   readFeaturedNoteFilter,
   writeFeaturedNoteFilter,
 } from "./featured-note-cards";
@@ -30,6 +30,9 @@ import {
 function memo(overrides: Partial<MemoItem>): MemoItem {
   return {
     id: "memo-1",
+    // Path-keyed identity: card ids derive from relativePath, so keep it in
+    // sync with the fixture id to preserve the existing assertions.
+    relativePath: overrides.relativePath ?? overrides.id ?? "memo-1",
     filename: "Getting started.md",
     preview: "Fallback preview",
     thumbnail: null,

@@ -9,7 +9,7 @@ export interface MainWindowMemoEventActions {
   reportOpenFailure: (error: unknown) => void;
   handleMemoCreated: (memo: MemoItem) => void;
   handleMemoUpdated: (memo: MemoItem) => void;
-  handleMemoDeleted: (memoId: string) => void;
+  handleMemoDeleted: () => void;
   removeBrowserColumnTabsByPath: (path: string) => void;
   handleTagsRenamed: (event: Extract<MemoEvent, { kind: 'tags_renamed' }>) => void;
   handleTagsDeleted: (event: Extract<MemoEvent, { kind: 'tags_deleted' }>) => void;
@@ -86,7 +86,7 @@ export function handleMainWindowMemoEvent(
   } else if (event.kind === 'updated') {
     actions.handleMemoUpdated(event.memo);
   } else {
-    actions.handleMemoDeleted(event.id);
+    actions.handleMemoDeleted();
   }
 
   actions.refreshSelectedNotebookMetadata(event);

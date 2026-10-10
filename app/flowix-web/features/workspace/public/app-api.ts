@@ -4,6 +4,7 @@ export {
   removeBrowserColumnTabsByPath,
   openBrowserColumnNotebookNote,
 } from '@features/workspace/use-cases/browser-column-navigation';
+export { applyNotebookPathMove } from '@features/workspace/use-cases/notebook-path-move';
 
 export function syncAppAgentConversationRestore(instanceId: string | null): void {
   const restore = useWorkspaceRestoreStore.getState();

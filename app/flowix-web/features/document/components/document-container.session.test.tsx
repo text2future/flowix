@@ -4,6 +4,7 @@ import type { Editor } from '@tiptap/core';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { DocumentContainer } from './document-container';
 import { DocumentSaveNotifications } from './document-save-status';
+import { ActionableNoticeHost } from '@features/notifications/actionable-notice-host';
 import { I18nProvider } from '@/lib/i18n';
 import { ShortcutsProvider } from '@features/shortcuts';
 import '@features/shortcuts/actions';
@@ -15,6 +16,8 @@ import { getDocumentSession } from '../store/document-runtime-session';
 import { getDocumentBuffer, captureLatestDocumentContent, stageDocumentSnapshot } from '../store/document-session-service';
 import { notifyDocumentBufferChanged } from '../store/buffer-registry';
 import { waitForDocumentCommits } from '../store/document-commit-queue';
+import { EditorView } from '@codemirror/view';
+import { publishAgentLocationRequest, peekAgentLocationRequest } from '../use-cases/agent-location-navigation';
 
 const mocks = vi.hoisted(() => ({ recoveryRead: vi.fn().mockResolvedValue(null), read: vi.fn(), write: vi.fn(), rename: vi.fn(), publish: vi.fn() }));
 vi.mock('./lazy-document-editor', async () => ({
@@ -24,7 +27,7 @@ vi.mock('./lazy-document-editor', async () => ({
 vi.mock('../use-cases/local-document-operations', () => ({ localDocumentOperations: { read: mocks.read, write: mocks.write, rename: mocks.rename } }));
 vi.mock('@features/workspace/use-cases/workspace-navigation', () => ({ replaceExternalDocumentPath: (displayId: string, oldPath: string, path: string) => {
   rebaseFileDisplayPath(oldPath, path, displayId); mocks.publish(path);
-} }));
+}, openExternalTarget: vi.fn().mockResolvedValue({ host: 'main-third', state: 'active' }) }));
 vi.mock('../store/recovery-draft-store', () => ({
   persistRecoveryDraft: vi.fn().mockResolvedValue(true), readRecoveryDraft: mocks.recoveryRead,
   clearRecoveryDraftThrough: vi.fn().mockResolvedValue(undefined), rebaseRecoveryDraftPath: vi.fn(),
@@ -42,7 +45,7 @@ function setup(initialBoth = true) {
   const ready = (host: string) => (editor: Editor | null) => { if (editor) { editors[host] = editor; mounts++; } };
   const leftReady = ready('left'); const rightReady = ready('right');
   const render = () => root.render(<I18nProvider language="en-US"><ShortcutsProvider overrides={{}}>
-    <Toaster /><DocumentSaveNotifications />
+    <Toaster /><DocumentSaveNotifications /><ActionableNoticeHost />
     <DocumentContainer fileIdentity={{ ...identity, path }} isExternalDocument externalEditorMode="markdown" externalScopePath={path.replace(/\/[^/]+$/, '')} onEditorReady={leftReady} />
     {both && <DocumentContainer fileIdentity={{ ...identity, path }}
       isExternalDocument externalEditorMode="markdown" externalScopePath={path.replace(/\/[^/]+$/, '')} documentSessionMode="isolated" onEditorReady={rightReady} />}
@@ -61,6 +64,42 @@ function setup(initialBoth = true) {
 }
 
 describe('real document container session lifecycle', () => {
+  it('switches a rich Markdown view to source and consumes a pending Agent location after load', async () => {
+    const doc = setup(false);
+    mocks.read.mockResolvedValue('first\nsecond\nthird');
+    publishAgentLocationRequest({
+      path: doc.identity.path,
+      location: { line: 2, column: 3 },
+      host: 'main-third',
+      viewId: 'main-third',
+    });
+
+    await act(async () => { doc.render(); });
+    const content = container.querySelector<HTMLElement>('.cm-content');
+    expect(content).not.toBeNull();
+    const view = EditorView.findFromDOM(content!);
+    expect(view).not.toBeNull();
+    expect(view!.state.selection.main.from).toBe(view!.state.doc.line(2).from + 2);
+  });
+
+  it('reveals a cross-document heading anchor in the rich text view without switching to source', async () => {
+    const doc = setup(false);
+    mocks.read.mockResolvedValue('## 实验步骤\n\n正文段落');
+    publishAgentLocationRequest({
+      path: doc.identity.path,
+      anchor: '实验步骤',
+      host: 'main-third',
+      viewId: 'main-third',
+    });
+
+    await act(async () => { doc.render(); });
+    // 标题锚点是语义定位：富文本视图保持不变，不切换源码。
+    expect(container.querySelector('.cm-content')).toBeNull();
+    expect(doc.editors.left).not.toBeNull();
+    // 定位请求被消费。
+    expect(peekAgentLocationRequest(doc.identity.path)).toBeNull();
+  });
+
   it('opens a just-created document without another disk or recovery read', async () => {
     const doc = setup(false);
     stageDocumentSnapshot(doc.identity, doc.identity.path, 'fresh body');
@@ -180,19 +219,19 @@ describe('real document container session lifecycle', () => {
     expect(getDocumentBuffer(doc.identity).content).toContain('right');
     expect(getDocumentBuffer(doc.identity).content).toContain('left');
   });
-  it('shows one conflict panel in the focused editor when another view closes', async () => {
+  it('shows one global conflict notice when another view closes', async () => {
     const doc = setup(); await act(async () => { doc.render(); });
     act(() => {
       const buffer = getDocumentBuffer(doc.identity); buffer.conflicted = true; buffer.saveState = 'conflict';
       notifyDocumentBufferChanged(doc.identity, 'save_settled');
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(container.querySelectorAll('.document-container [role="alert"]')).toHaveLength(1);
-    expect(container.querySelector('.document-container [role="alert"]')?.textContent).toContain('Saved version conflicts');
-    expect([...container.querySelectorAll('.document-container [role="alert"] button')].map(button => button.textContent))
+    expect(container.querySelectorAll('[data-actionable-notice-host] [role="alert"]')).toHaveLength(1);
+    expect(container.querySelector('[data-actionable-notice-host] [role="alert"]')?.textContent).toContain('Saved version conflicts');
+    expect([...container.querySelectorAll('[data-actionable-notice-host] [role="alert"] button')].map(button => button.textContent))
       .toEqual(['Use the file version', 'Use editor version']);
     await act(async () => { doc.closeRight(); await vi.advanceTimersByTimeAsync(300); });
-    expect(container.querySelectorAll('.document-container [role="alert"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-actionable-notice-host] [role="alert"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-sonner-toast]')).toHaveLength(0);
   });
 });

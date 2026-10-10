@@ -35,7 +35,7 @@ function pickBrowserFiles(params: OpenFileDialogParams | undefined, signal: Abor
     });
 }
 
-export function createAttachmentCommands(memoId?: string): Partial<RawCommands> {
+export function createAttachmentCommands(ownerPath?: string): Partial<RawCommands> {
     return {
         openFileDialog:
             (params?: OpenFileDialogParams) =>
@@ -48,12 +48,12 @@ export function createAttachmentCommands(memoId?: string): Partial<RawCommands> 
                             multiple: params?.multiple ?? true,
                         });
                         if (!paths?.length || signal.aborted) return [];
-                        return (await createAttachmentUploadFromPaths(paths, memoId, signal)).assets;
+                        return (await createAttachmentUploadFromPaths(paths, ownerPath, signal)).assets;
                     }
                     const files = await pickBrowserFiles(params, signal);
                     if (signal.aborted) return [];
-                    return (await createAttachmentUpload(files, undefined, undefined, memoId, signal)).assets;
-                }, undefined, params?.replaceRange, memoId);
+                    return (await createAttachmentUpload(files, undefined, undefined, ownerPath, signal)).assets;
+                }, undefined, params?.replaceRange, ownerPath);
                 return true;
             },
 
@@ -61,7 +61,7 @@ export function createAttachmentCommands(memoId?: string): Partial<RawCommands> 
             (params: { files: File[]; position?: number }) =>
             ({ editor }: { editor: Editor }) => {
                 if (editor.isDestroyed || !editor.isEditable) return false;
-                void handleFileUpload(editor.view, params.files, params.position, undefined, memoId);
+                void handleFileUpload(editor.view, params.files, params.position, undefined, ownerPath);
                 return true;
             },
     };

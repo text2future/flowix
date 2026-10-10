@@ -85,6 +85,36 @@ describe('CodeEditor', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('reveals one-based source line and column without splitting a surrogate pair', async () => {
+    const editorRef = createRef<CodeEditorHandle>();
+    const content = '---\ntitle: Note\n---\n😀alpha\nlast';
+    await act(async () => root.render(
+      <CodeEditor ref={editorRef} filePath="/project/note.md" content={content} onChange={vi.fn()} />
+    ));
+
+    let result: { clamped: boolean } | null | undefined;
+    act(() => { result = editorRef.current?.revealSourceLocation?.({ line: 4, column: 2 }); });
+    const view = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!);
+    expect(result).toEqual({ clamped: false });
+    expect(view?.state.selection.main.from).toBe(view?.state.doc.line(4).from);
+
+    act(() => { result = editorRef.current?.revealSourceLocation?.({ line: 99, column: 99 }); });
+    expect(result).toEqual({ clamped: true });
+    expect(view?.state.selection.main.from).toBe(view?.state.doc.line(5).to);
+  });
+
+  it('reveals Markdown heading anchors from source mode', async () => {
+    const editorRef = createRef<CodeEditorHandle>();
+    await act(async () => root.render(
+      <CodeEditor ref={editorRef} filePath="/project/note.md" content={'# Intro\n\n## About Me'} onChange={vi.fn()} />
+    ));
+    let result: boolean | null | undefined;
+    act(() => { result = editorRef.current?.revealSourceAnchor?.('about-me'); });
+    const view = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!);
+    expect(result).toBe(true);
+    expect(view?.state.selection.main.from).toBe(view?.state.doc.line(3).from);
+  });
+
   it('moves title tail into the source body after frontmatter', async () => {
     const editorRef = createRef<CodeEditorHandle>();
     const onChange = vi.fn();

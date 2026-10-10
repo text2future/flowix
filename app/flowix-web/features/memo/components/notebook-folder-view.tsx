@@ -255,14 +255,18 @@ export function NotebookFolderView({
   }, [notebook.id, notebook.path]);
 
   const deleteFolder = useCallback(async (folderPath: string) => {
-    const ok = await files.deleteFolder(folderPath, notebook.path);
-    if (!ok) {
-      toast.error(t('memo.fileTree.deleteFailed'));
-      return;
+    try {
+      const ok = await files.deleteFolder(folderPath, notebook.path);
+      if (!ok) throw new Error('delete failed');
+      const parent = folderPath.slice(0, folderPath.replace(/[\\/]+$/, '').lastIndexOf('/')) || notebook.path;
+      await tree.refresh(parent);
+      toast.success(t('memo.fileTree.deleted', { name: folderPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? folderPath }));
+    } catch (error) {
+      logger.warn('deleting notebook folder failed', { error, folderPath });
+      const parent = folderPath.slice(0, folderPath.replace(/[\\/]+$/, '').lastIndexOf('/')) || notebook.path;
+      await tree.refresh(parent).catch((refreshError) => logger.warn('refreshing folder after failed deletion failed', { refreshError, parent }));
+      toast.error(t(String(error).includes('FOLDER_DELETE_PARTIAL') ? 'memo.fileTree.deletePartialFailed' : 'memo.fileTree.deleteFailed'));
     }
-    const parent = folderPath.slice(0, folderPath.replace(/[\\/]+$/, '').lastIndexOf('/')) || notebook.path;
-    await tree.refresh(parent);
-    toast.success(t('memo.fileTree.deleted', { name: folderPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? folderPath }));
   }, [notebook.path, t, tree.refresh]);
 
   const deleteFile = useCallback(async (item: DocTreeItem) => {

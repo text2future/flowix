@@ -2,7 +2,7 @@
 
 import { getDocumentSession } from '../store/document-runtime-session';
 
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   captureLatestDocumentContent,
@@ -35,7 +35,6 @@ import {
 import { useDocumentContent } from '@features/document/components/session/use-document-content';
 import { useDocumentAutosave } from '@features/document/components/session/use-document-autosave';
 import { useExternalDocumentChangeWatch } from '@features/document/components/session/use-external-document-change-watch';
-import { DocumentConflictPanel } from '@features/document/components/document-save-status';
 import {
   LazyDocumentEditor,
   preloadDocumentEditor,
@@ -62,6 +61,13 @@ import {
 import { rebaseActiveDocumentPath } from '@features/document/store/document-session-service';
 import type { Editor } from '@tiptap/core';
 import { replaceExternalDocumentPath } from '@features/workspace/use-cases/workspace-navigation';
+import { openDocumentLocalLink } from '@features/document/use-cases/open-document-local-link';
+import {
+  cancelAgentLocationRequest,
+  consumeAgentLocationRequest,
+  peekAgentLocationRequest,
+  subscribeAgentLocationRequest,
+} from '@features/document/use-cases/agent-location-navigation';
 
 export function DocumentContainer({
   fileIdentity,
@@ -75,6 +81,7 @@ export function DocumentContainer({
   toolbarCollapsed = false,
   onToolbarCollapsedChange,
   documentSessionMode = 'main',
+  navigationViewId,
   readOnly: forcedReadOnly = false,
   initialFocus,
   onEditorReady,
@@ -84,6 +91,7 @@ export function DocumentContainer({
   const displayId = fileIdentity.displayId;
   const { t } = useI18n();
   const hostId = documentSessionMode === 'isolated' ? 'browser-column' : 'main-third';
+  const locationViewId = navigationViewId ?? hostId;
   const focusedHostId = useWorkspaceFocusStore((store) => store.focusedHostId);
   const readOnly = forcedReadOnly || focusedHostId !== hostId;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,6 +112,9 @@ export function DocumentContainer({
     : editorMode === 'source';
   const loadedDocumentInstanceKeyRef = useRef<string | null>(null);
   const editorHandleRef = useRef<MarkdownEditorHandle | null>(null);
+  // 编辑器懒加载完成后递增，驱动待消费的定位请求在 handle 就绪后重试，
+  // 避免用固定计时器猜测加载状态。
+  const [editorReadyTick, setEditorReadyTick] = useState(0);
   const titleEditorRef = useRef<MemoTitleEditorHandle | null>(null);
   const memoFilename = fileNameFromPath(filePath);
   const renameInProgressRef = useRef(false);
@@ -118,6 +129,58 @@ export function DocumentContainer({
     transitionId,
     isolatedSession: documentSessionMode === 'isolated',
   });
+
+  useEffect(() => {
+    if (!filePath) return;
+    const revealPendingLocation = () => {
+      if (state.error) {
+        const pending = peekAgentLocationRequest(filePath);
+        if (pending?.host === hostId && pending.viewId === locationViewId) {
+          cancelAgentLocationRequest(filePath, pending.id);
+        }
+        return;
+      }
+      const request = peekAgentLocationRequest(filePath);
+      if (!request || request.host !== hostId || request.viewId !== locationViewId
+        || (!request.location && !request.anchor)) return;
+      if (!state.isLoaded) return;
+      if (!usesCodeEditor) {
+        if (!request.location && request.anchor) {
+          // Heading anchors are semantic (GitHub slug): reveal in the rich
+          // text view without forcing source mode.
+          const found = editorHandleRef.current?.revealHeadingAnchor?.(request.anchor);
+          if (found === null || found === undefined) return;
+          consumeAgentLocationRequest(filePath, request.id);
+          if (!found) toast.info(t('document.file.anchorNotFound'));
+          return;
+        }
+        // Agent links refer to source lines. Rich Markdown positions have no
+        // stable one-to-one mapping, so switch this document surface to source.
+        setDocumentEditorMode(hostId, documentIdentity, 'source');
+        return;
+      }
+      if (request.location) {
+        const result = editorHandleRef.current?.revealSourceLocation?.(request.location);
+        if (!result) return;
+        consumeAgentLocationRequest(filePath, request.id);
+        if (result.clamped) toast.info(t('document.file.locationClamped'));
+        return;
+      }
+      const found = request.anchor
+        ? editorHandleRef.current?.revealSourceAnchor?.(request.anchor)
+        : null;
+      if (found === null || found === undefined) return;
+      consumeAgentLocationRequest(filePath, request.id);
+      if (!found) toast.info(t('document.file.anchorNotFound'));
+    };
+    revealPendingLocation();
+    return subscribeAgentLocationRequest(filePath, revealPendingLocation);
+  }, [documentIdentity, filePath, hostId, locationViewId, state.error, state.isLoaded, t, usesCodeEditor, editorReadyTick]);
+
+  useEffect(() => () => {
+    const request = peekAgentLocationRequest(filePath);
+    if (request?.viewId === locationViewId) cancelAgentLocationRequest(filePath, request.id);
+  }, [filePath, locationViewId]);
 
   useEffect(() => {
     if (!state.isLoaded || state.updatedAtDate || !filePath) return;
@@ -427,8 +490,6 @@ export function DocumentContainer({
       onPointerDownCapture={() => useWorkspaceFocusStore.getState().focusHost(hostId)}
       className="document-container h-full w-full min-w-0 flex flex-col bg-transparent relative overflow-hidden"
     >
-      {focusedHostId === hostId &&
-        <DocumentConflictPanel identity={documentIdentity} scopePath={externalScopePath} />}
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
         {state.isLoading && (
           <CenteredLoadingSpinner className="h-full w-full" />
@@ -477,7 +538,14 @@ export function DocumentContainer({
             autoFocus={initialFocus === 'body'}
             searchPanelOpen={searchPanelOpen}
             onSearchPanelOpenChange={onSearchPanelOpenChange}
-            onBeforeCreate={(editor: Editor) => onEditorReady?.(editor)}
+            onBeforeCreate={(editor: Editor) => {
+              onEditorReady?.(editor);
+              setEditorReadyTick((tick) => tick + 1);
+            }}
+            linkContext={{
+              documentPath: filePath,
+              openLocalPath: (target) => openDocumentLocalLink(target, externalScopePath),
+            }}
             toolbarCollapsed={toolbarCollapsed}
             onToolbarCollapsedChange={onToolbarCollapsedChange}
           />

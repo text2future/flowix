@@ -43,24 +43,29 @@ mod tests {
 pub struct DocumentMutationCoordinator;
 
 impl DocumentMutationCoordinator {
+    /// Commit one content revision keyed by the note's path. `notebook_id`
+    /// plus `relative_path` address the revision stream; `path` is the
+    /// absolute file location used to read the committed bytes.
     pub fn commit(
         app: &AppHandle,
-        memo_id: &str,
         notebook_id: &str,
+        relative_path: &str,
         path: &Path,
     ) -> Result<Option<DocumentCommit>, ()> {
         let Some(state) = app.try_state::<crate::app::state::AppState>() else {
             return Ok(None);
         };
         let store = read_lock(&state.memo_file, "memo_file");
-        let Ok(expected) = store.read_memo_content_revision_for_notebook(notebook_id, memo_id) else {
+        let Ok(expected) =
+            store.read_note_content_revision_for_notebook(notebook_id, relative_path)
+        else {
             return Ok(None);
         };
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
             Err(error) => {
                 tracing::warn!(
-                    "failed to read memo bytes for revision commit {}: {error}",
+                    "failed to read note bytes for revision commit {}: {error}",
                     path.display()
                 );
                 return Ok(None);
@@ -69,8 +74,8 @@ impl DocumentMutationCoordinator {
         let content_hash = format!("{:x}", Sha256::digest(&bytes));
         Self::commit_hash(
             &store,
-            memo_id,
             notebook_id,
+            relative_path,
             content_hash,
             expected.as_ref(),
         )
@@ -78,20 +83,22 @@ impl DocumentMutationCoordinator {
 
     pub fn commit_deletion(
         app: &AppHandle,
-        memo_id: &str,
         notebook_id: &str,
+        relative_path: &str,
     ) -> Result<Option<DocumentCommit>, ()> {
         let Some(state) = app.try_state::<crate::app::state::AppState>() else {
             return Ok(None);
         };
         let store = read_lock(&state.memo_file, "memo_file");
-        let Ok(expected) = store.read_memo_content_revision_for_notebook(notebook_id, memo_id) else {
+        let Ok(expected) =
+            store.read_note_content_revision_for_notebook(notebook_id, relative_path)
+        else {
             return Ok(None);
         };
         Self::commit_hash(
             &store,
-            memo_id,
             notebook_id,
+            relative_path,
             "deleted".to_string(),
             expected.as_ref(),
         )
@@ -99,15 +106,15 @@ impl DocumentMutationCoordinator {
 
     fn commit_hash(
         store: &flowix_core::memo_file::MemoFile,
-        memo_id: &str,
         notebook_id: &str,
+        relative_path: &str,
         content_hash: String,
-        expected: Option<&flowix_core::memo_file::MemoContentRevision>,
+        expected: Option<&flowix_core::memo_file::NoteContentRevision>,
     ) -> Result<Option<DocumentCommit>, ()> {
         let change_id = uuid::Uuid::new_v4().to_string();
-        let result = store.commit_memo_content_revision_if_current(
-            memo_id,
+        let result = store.commit_note_content_revision_if_current(
             notebook_id,
+            relative_path,
             &content_hash,
             &change_id,
             expected,
@@ -121,7 +128,7 @@ impl DocumentMutationCoordinator {
             Ok(None) => Err(()),
             Err(error) => {
                 tracing::warn!(
-                    "failed to persist memo content revision {notebook_id}/{memo_id}: {error}"
+                    "failed to persist note content revision {notebook_id}/{relative_path}: {error}"
                 );
                 Ok(None)
             }

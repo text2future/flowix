@@ -20,6 +20,8 @@ import { SelectionBubbleMenu } from '@features/editor/components/selection-bubbl
 import { HeadingOutlineNavigation } from '@features/editor/components/heading-outline-navigation';
 import { DragContextMenu } from '@features/editor/components/drag-context-menu';
 import { attachLinkHoverTooltip } from '@features/editor/components/link-hover-tooltip';
+import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
+import type { EditorLinkContext } from '@features/editor/editor-link-resolution';
 import { Tag } from '@features/editor/extensions/tag';
 import MarkdownPaste from '@features/editor/extensions/markdown-paste';
 import ManagedPasteRules, { pasteClipboardSnapshot } from '@features/editor/extensions/paste-rules';
@@ -51,7 +53,8 @@ import { markDocumentOpenTrace } from '@/lib/document-open-perf';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 
 interface MarkdownEditorProps {
-  memoId?: string;
+  /** Absolute or notebook-relative path of the note owning editor uploads. */
+  ownerPath?: string;
   propertyTargetId?: string;
   onViewSourceMode?: () => void;
   transitionId?: number | null;
@@ -78,6 +81,12 @@ interface MarkdownEditorProps {
   /** Append the first editable body line to the existing title. */
   /** Return false when the title update was refused; the body block is then preserved. */
   onAppendToTitle?: (title: string) => void | boolean | Promise<boolean>;
+  /**
+   * Navigation context for in-content links: relative path hrefs resolve
+   * against `documentPath` and route through `openLocalPath` (supplied by the
+   * document layer). Omitted contexts fall back to the historic web opener.
+   */
+  linkContext?: EditorLinkContext;
   /** Content in the document scroller that stays outside ProseMirror. */
   header?: ReactNode;
 }
@@ -87,6 +96,10 @@ const persistenceLog = createLogger('document:editor');
 export interface MarkdownEditorHandle {
   flushPendingChanges: () => string | null;
   getCurrentMarkdown: () => string;
+  revealSourceLocation?: (location: { line: number; column?: number }) => { clamped: boolean } | null;
+  revealSourceAnchor?: (anchor: string) => boolean | null;
+  /** Reveal a GitHub-slug heading anchor in the rich text view (scroll only). */
+  revealHeadingAnchor?: (anchor: string) => boolean | null;
   focusStart?: () => void;
   moveTitleToBody?: (trailingContent: string) => void;
   pasteToBody?: (snapshot: ClipboardSnapshot) => boolean;
@@ -542,7 +555,7 @@ function focusEmptyParagraphAfterMedia(
 }
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
-  memoId,
+  ownerPath,
   propertyTargetId,
   onViewSourceMode,
   transitionId = null,
@@ -562,6 +575,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onEditingFinished,
   onFocusTitle,
   onAppendToTitle,
+  linkContext,
   header,
 }, ref) {
   const { t } = useI18n();
@@ -597,6 +611,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const onFocusTitleRef = useRef(onFocusTitle);
   const onAppendToTitleRef = useRef(onAppendToTitle);
   const editableRef = useRef(editable);
+  // 链接导航上下文走 ref：mount effect 不因文档路径变化重建编辑器，
+  // 点击时始终读取最新值。
+  const linkContextRef = useRef<EditorLinkContext | undefined>(linkContext);
   onEditorScrollRef.current = onEditorScroll;
   onChangeRef.current = onChange;
   onSearchPanelOpenChangeRef.current = onSearchPanelOpenChange;
@@ -604,6 +621,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onFocusTitleRef.current = onFocusTitle;
   onAppendToTitleRef.current = onAppendToTitle;
   editableRef.current = editable;
+  linkContextRef.current = linkContext;
 
   const clearSerializeTimer = useCallback(() => {
     if (serializeTimerRef.current) {
@@ -833,8 +851,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       editor.view.dispatch(editor.state.tr.setSelection(selection));
     }
 
-    return pasteClipboardSnapshot(editor, snapshot, memoId);
-  }, [memoId]);
+    return pasteClipboardSnapshot(editor, snapshot, ownerPath);
+  }, [ownerPath]);
 
   const handleBackspaceAtBodyStart = useCallback(() => {
     const editor = editorRef.current;
@@ -906,6 +924,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return serializePendingChanges({ force: true }) ?? contentRef.current;
       }
       return contentRef.current;
+    },
+    // 标题锚点是语义定位（GitHub slug），富文本视图可直接滚动，无需切源码。
+    revealHeadingAnchor: (anchor: string): boolean | null => {
+      const editor = editorRef.current;
+      if (!editor) return null;
+      return navigateToHeadingAnchor(editor.view.dom, `#${anchor}`);
     },
     focusStart: focusBodyStart,
     moveTitleToBody,
@@ -982,7 +1006,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         MarkdownEscape,
         HTMLStrongFallback,
         LegacyAdjacentStrongMarkdown,
-        AttachmentLink.configure({ memoId }),
+        AttachmentLink.configure({ ownerPath }),
         MarkdownLink,
         LinkSelectionHighlight,
         CodeBlockShiki.configure({ traceId: transitionId }),
@@ -1022,7 +1046,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           },
         }),
         Tag,
-        ManagedPasteRules.configure({ memoId }),
+        ManagedPasteRules.configure({ ownerPath }),
         MarkdownPaste,
         Frontmatter.configure({ propertyTargetId, onViewSourceMode }),
         NoteReference,
@@ -1094,7 +1118,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     };
     editorDom.addEventListener('compositionstart', handleCompositionStart);
 
-    const detachLinkHoverTooltip = attachLinkHoverTooltip(editor, editorMountRef.current);
+    const detachLinkHoverTooltip = attachLinkHoverTooltip(
+      editor,
+      editorMountRef.current,
+      () => linkContextRef.current,
+    );
 
     const scrollEl = elementRef.current ? findScrollable(elementRef.current) : null;
     if (scrollEl) {

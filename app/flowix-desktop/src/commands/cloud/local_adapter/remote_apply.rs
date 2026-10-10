@@ -81,8 +81,8 @@ fn apply_v2_note_changes(
     changes: &[&V2RemoteApply],
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _write_guard = memo_file
-        .acquire_cross_process_write_lock()
+    let _write_guard = memo_file.operation_locks()
+        .notebook_change(&[notebook_id], "apply_cloud_note_changes")
         .map_err(sync_error)?;
     let notebook = memo_file
         .get_notebook_config_by_id(notebook_id)
@@ -198,7 +198,7 @@ fn apply_v2_note_changes(
                 &state.cloud_sync,
                 notebook_id,
                 note_id,
-                Some(filename),
+                filename,
                 |path| crate::watcher::runtime::mark_self_write_for(app, path),
             )? {
                 let path = notebook_path_from_relative(&base, &memo.relative_path)
@@ -209,6 +209,7 @@ fn apply_v2_note_changes(
                     MemoEvent::Deleted {
                         id: memo.id.clone(),
                         path: path.to_string_lossy().into_owned(),
+                        relative_path: memo.relative_path.clone(),
                         notebook_id: notebook_id.to_string(),
                         derived_changed,
                         source: MemoChangeSource::CloudSync,

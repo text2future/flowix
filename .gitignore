@@ -11,6 +11,7 @@ dsh-appserver/bin/
 app/target/
 app/flowix-desktop/target/
 app/flowix-desktop/binaries/
+app/flowix-desktop/nsis/flowix-installer-helper.exe
 
 # Tauri-generated native scaffolds
 app/flowix-desktop/gen/
@@ -69,3 +70,6 @@ developerID_application.*
 *.p8
 *.mobileprovision
 appstoreconnect/
+
+# WorkBuddy agent workspace data
+.workbuddy/

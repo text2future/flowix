@@ -4,12 +4,14 @@ type TagUsageSummary = (Vec<String>, Vec<(String, usize)>, usize, usize, usize);
 
 impl MemoFile {
     pub fn read_used_tag_ids(&self) -> std::io::Result<Vec<String>> {
-        let notebook_id = self.current_notebook_id_for_index();
-        if self.note_index_is_ready(&notebook_id)? {
-            return Ok(self.note_tag_usage_summary(&notebook_id)?.0);
-        }
-        let list = self.read_index_result()?.unwrap_or_default();
-        Self::used_tag_ids_from_index(list)
+        Ok(self
+            .read_tag_usage_summary_for_notebook_id(Some(
+                &self.current_notebook_id_for_index(),
+            ))?
+            .1
+            .into_iter()
+            .map(|(tag, _)| tag)
+            .collect())
     }
 
     pub fn read_notebook_tag_paths(
@@ -82,14 +84,12 @@ impl MemoFile {
         &self,
         notebook_id: Option<&str>,
     ) -> std::io::Result<Vec<String>> {
-        let resolved_id = self.notebook_id_for_index(notebook_id);
-        if self.note_index_is_ready(&resolved_id)? {
-            return Ok(self.note_tag_usage_summary(&resolved_id)?.0);
-        }
-        let list = self
-            .read_index_for_notebook_id(notebook_id)?
-            .unwrap_or_default();
-        Self::used_tag_ids_from_index(list)
+        Ok(self
+            .read_tag_usage_summary_for_notebook_id(notebook_id)?
+            .1
+            .into_iter()
+            .map(|(tag, _)| tag)
+            .collect())
     }
 
     pub fn read_tag_usage_summary_for_notebook_id(
@@ -97,81 +97,15 @@ impl MemoFile {
         notebook_id: Option<&str>,
     ) -> std::io::Result<TagUsageSummary> {
         let notebook_id = self.notebook_id_for_index(notebook_id);
-        if self.note_index_is_ready(&notebook_id)? {
-            return self.note_tag_usage_summary(&notebook_id);
+        if !self.note_index_is_ready(&notebook_id)? {
+            // Cold start: rebuild the rebuildable projection instead of
+            // reading the legacy ID-keyed cache. The summary is an active
+            // request, so wait for the maintenance lock rather than skipping.
+            let _ = self.reconcile_note_index_blocking(&notebook_id);
         }
-        let _ = self.read_index_for_notebook_id(Some(&notebook_id));
-        let conn = self.open_memo_index_db_for_notebook_id(&notebook_id)?;
-        let total_count = conn
-            .query_row(
-                "SELECT COUNT(*) FROM memos WHERE notebook_id = ?1",
-                params![notebook_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(sqlite_to_io)? as usize;
-        let agent_memo_count = conn
-            .query_row(
-                r#"
-                SELECT COUNT(DISTINCT ma.memo_id)
-                FROM memo_agents ma
-                JOIN memos m ON m.id = ma.memo_id
-                WHERE m.notebook_id = ?1
-                "#,
-                params![notebook_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(sqlite_to_io)? as usize;
-        let todo_memo_count = conn
-            .query_row(
-                r#"
-                SELECT COUNT(DISTINCT mt.memo_id)
-                FROM memo_todos mt
-                JOIN memos m ON m.id = mt.memo_id
-                WHERE m.notebook_id = ?1
-                "#,
-                params![notebook_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(sqlite_to_io)? as usize;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT mt.tag, COUNT(*)
-                FROM memo_tags mt
-                JOIN memos m ON m.id = mt.memo_id
-                WHERE m.notebook_id = ?1
-                GROUP BY mt.tag
-                ORDER BY mt.tag COLLATE NOCASE ASC
-                "#,
-            )
-            .map_err(sqlite_to_io)?;
-        let rows = stmt
-            .query_map(params![notebook_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
-            })
-            .map_err(sqlite_to_io)?;
-        let tag_counts = rows.collect::<Result<Vec<_>, _>>().map_err(sqlite_to_io)?;
-        let used_tag_ids = tag_counts.iter().map(|(tag, _)| tag.clone()).collect();
-        Ok((
-            used_tag_ids,
-            tag_counts,
-            total_count,
-            agent_memo_count,
-            todo_memo_count,
-        ))
+        self.note_tag_usage_summary(&notebook_id)
     }
 
-    fn used_tag_ids_from_index(list: MemoIndexFile) -> std::io::Result<Vec<String>> {
-        let mut used = Vec::new();
-        for memo in list.memos {
-            for tag in memo.tags {
-                if !used.contains(&tag) {
-                    used.push(tag);
-                }
-            }
-        }
-        Ok(used)
-    }
 
     /// 路径式 tag 的 prefix → 去重 memo 数。每个真实 tag `T` 拆出
     /// 所有前缀 (`T` 自身 + `T` 的每级祖先 fullPath), 然后每个 prefix

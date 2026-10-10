@@ -66,35 +66,35 @@ function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
         kind,
         instanceKey: 'artifact:1',
         renderer: 'markmap',
-        props: { memoId: 'memo-1' },
+        props: { notePath: '/notebook/pointer.md' },
       };
     case 'html':
       return {
         kind,
         instanceKey: 'artifact:1',
         renderer: 'html',
-        props: { memoId: 'memo-1' },
+        props: { notePath: '/notebook/pointer.md' },
       };
     case 'json':
       return {
         kind,
         instanceKey: 'artifact:1',
         renderer: 'json-viewer',
-        props: { memoId: 'memo-1' },
+        props: { notePath: '/notebook/pointer.md' },
       };
     case 'text':
       return {
         kind,
         instanceKey: 'artifact:1',
         renderer: 'text',
-        props: { memoId: 'memo-1' },
+        props: { notePath: '/notebook/pointer.md' },
       };
     case 'plugin-artifact':
       return {
         kind,
         instanceKey: 'artifact:1',
         renderer: null,
-        props: { memoId: 'memo-1' },
+        props: { notePath: '/notebook/pointer.md' },
       };
     case 'agent-conversation':
       return { kind, instanceKey: 'agent:1', instanceId: 'agent-1' };

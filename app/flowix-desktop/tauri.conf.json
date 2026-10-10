@@ -46,7 +46,7 @@
       ],
       "dangerousInsecureTransportProtocol": false,
       "windows": {
-        "installMode": "passive"
+        "installMode": "quiet"
       }
     }
   },
@@ -58,6 +58,7 @@
     "windows": {
       "nsis": {
         "installerHooks": "nsis/flowix-cli-path.nsh",
+        "template": "nsis/flowix-installer.nsi",
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico"
       }

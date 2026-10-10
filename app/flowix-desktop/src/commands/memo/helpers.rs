@@ -10,32 +10,14 @@ use crate::document_mutation::DocumentCommit;
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
 use flowix_core::memo_file::{extract_body_content, is_system_frontmatter_key, Memo};
-use flowix_core::MemoService;
 
 use crate::app::state::AppState;
 pub(super) use crate::commands::helpers::notebook_note_address;
-use crate::watcher::runtime::mark_self_write_for;
-
-pub(super) fn read_memo_or_none(state: &AppState, id: &str) -> Option<Memo> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    MemoService::new(&memo_file).memo_metadata(id).ok()
-}
 
 pub(super) fn current_notebook_id(state: &AppState) -> String {
     read_lock(&state.memo_file, "memo_file")
         .current_notebook_id_value()
         .unwrap_or_else(|| "nb_default".to_string())
-}
-
-pub(super) fn notebook_id_for_memo(state: &AppState, id: &str) -> String {
-    let resolved_notebook_id = {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        MemoService::new(&memo_file)
-            .resolve_memo(id)
-            .ok()
-            .map(|resolved| resolved.notebook.id)
-    };
-    resolved_notebook_id.unwrap_or_else(|| current_notebook_id(state))
 }
 
 pub(super) fn emit_updated_memo_event(
@@ -48,7 +30,7 @@ pub(super) fn emit_updated_memo_event(
     source: MemoChangeSource,
     origin_window_label: Option<&str>,
 ) -> Option<DocumentCommit> {
-    crate::document_derived::schedule(app, id, None);
+    crate::document_derived::schedule(app, id);
     memo_events::emit_with_commit_from_window(
         app,
         MemoEvent::Updated {
@@ -61,43 +43,6 @@ pub(super) fn emit_updated_memo_event(
         },
         origin_window_label,
     )
-}
-
-pub(super) fn emit_saved_memo_receipt(
-    app: &AppHandle,
-    receipt: flowix_core::service::MemoSaveReceipt,
-    before: Option<Memo>,
-    origin_window_label: &str,
-) -> Option<super::WriteDocumentResult> {
-    let memo = receipt.edited.memo?;
-    let id = receipt.edited.id;
-    let path = receipt.edited.path.to_string_lossy().into_owned();
-    mark_self_write_for(app, &receipt.edited.path);
-    crate::document_derived::schedule(app, &memo.id, Some(&receipt.content));
-    let derived_changed = MemoDerivedChanged::from_memos(before.as_ref(), &memo);
-    let commit = receipt.commit.map(|commit| DocumentCommit {
-        content_hash: commit.content_hash,
-        revision: commit.revision,
-        change_id: commit.change_id,
-    });
-    let commit = memo_events::emit_with_recorded_commit_from_window(
-        app,
-        MemoEvent::Updated {
-            id,
-            path: path.clone(),
-            notebook_id: receipt.notebook_id,
-            memo,
-            derived_changed,
-            source: MemoChangeSource::UserEdit,
-        },
-        commit,
-        Some(origin_window_label),
-    );
-    Some(super::WriteDocumentResult {
-        path,
-        content: receipt.content,
-        commit,
-    })
 }
 
 /// Lightweight CAS fallback normalization.

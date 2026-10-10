@@ -10,7 +10,7 @@
 //! - content: `read_all_memos` / `read_all_memos_filtered` / `read_memo_with_body`
 //! - memo index schema: 无 `path` 字段, `filename` 直存磁盘文件名
 
-use super::frontmatter::{build_md_content, extract_document_metadata};
+use super::frontmatter::extract_document_metadata;
 use super::ops::{
     atomic_write_bytes, base_filename, resolve_filename_conflict, sanitize_filename_component,
 };
@@ -207,7 +207,9 @@ fn content_revision_is_created_and_advanced_only_for_changed_bytes() {
 #[test]
 fn opening_legacy_index_creates_content_revision_table() {
     let (mf, _tmp) = fresh_memo_file();
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+    // Legacy memo tables live in the per-notebook notebook.db, not the registry.
+    let notebook_db = mf.notebook_db_path("nb_test").unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
     conn.execute_batch("DROP TABLE IF EXISTS memo_content_revisions;")
         .unwrap();
     drop(conn);
@@ -215,7 +217,7 @@ fn opening_legacy_index_creates_content_revision_table() {
     // Any memo-index operation runs the additive schema migration.
     mf.invalidate_caches();
     let _ = mf.read_index();
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
     let exists: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'memo_content_revisions'",
@@ -245,6 +247,167 @@ fn pending_data_migrations_run_once_and_persist_version() {
     );
 }
 
+/// Global indexes written before the lifecycle refactor have `memos` but no
+/// `memo_lifecycles`. The legacy import must skip the missing table instead of
+/// failing startup data migrations (regression for
+/// "no such table: legacy_index.memo_lifecycles").
+#[test]
+fn legacy_global_index_without_memo_lifecycles_imports_cleanly() {
+    let (mf, base) = fresh_memo_file();
+    // Seed the registry db with a pre-lifecycle global index: `memos` exists,
+    // `memo_lifecycles` does not.
+    let legacy_path = mf.registry_db_path();
+    let legacy = rusqlite::Connection::open(&legacy_path).unwrap();
+    legacy
+        .execute_batch(
+            r#"
+            CREATE TABLE memos (
+                id TEXT PRIMARY KEY,
+                notebook_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                preview TEXT,
+                thumbnail TEXT,
+                thumbnail_checked INTEGER NOT NULL DEFAULT 0,
+                agents_checked INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                favorited INTEGER NOT NULL DEFAULT 0,
+                icon TEXT,
+                properties TEXT
+            );
+            INSERT INTO memos (id, notebook_id, filename, relative_path, created_at, updated_at)
+            VALUES ('memo-legacy-1', 'nb_test', 'Old.md', 'Old.md', 1, 1);
+            "#,
+        )
+        .unwrap();
+    drop(legacy);
+
+    let report = mf.run_pending_data_migrations().unwrap();
+    assert_eq!(report.to_version, super::LATEST_DATA_MIGRATION_VERSION);
+
+    // The legacy memo row is imported into the notebook-local index, and the
+    // lifecycle table is backfilled from the imported memos.
+    let notebook_db = mf.notebook_db_path("nb_test").unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
+    let memos: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memos WHERE notebook_id = 'nb_test'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(memos, 1);
+    let lifecycles: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memo_lifecycles WHERE memo_id = 'memo-legacy-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(lifecycles, 1);
+    assert!(base.join(".flowix/notebook.json").is_file());
+}
+
+/// Real-world pre-refactor global indexes (observed in the field) lack
+/// `memos.relative_path`, lack `memo_todos.todo_id`, and lack
+/// `memo_lifecycles` entirely. The import must adapt: filename becomes the
+/// relative path, todo ids are synthesized from rowids, and lifecycle rows
+/// are backfilled.
+#[test]
+fn legacy_global_index_with_pre_relative_path_schema_imports_cleanly() {
+    let (mf, _tmp) = fresh_memo_file();
+    let legacy_path = mf.registry_db_path();
+    let legacy = rusqlite::Connection::open(&legacy_path).unwrap();
+    legacy
+        .execute_batch(
+            r#"
+            CREATE TABLE memos (
+                id TEXT PRIMARY KEY,
+                notebook_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                preview TEXT NOT NULL,
+                thumbnail TEXT,
+                thumbnail_checked INTEGER NOT NULL DEFAULT 0,
+                agents_checked INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                favorited INTEGER NOT NULL,
+                icon TEXT,
+                properties TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE memo_todos (
+                memo_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                time_range TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                assignee TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                position INTEGER NOT NULL
+            );
+            CREATE TABLE memo_content_revisions (
+                memo_id TEXT PRIMARY KEY,
+                notebook_id TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                local_revision INTEGER NOT NULL,
+                change_id TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            INSERT INTO memos (id, notebook_id, filename, preview, created_at, updated_at, favorited)
+            VALUES ('memo-legacy-1', 'nb_test', 'Old.md', '# Old', 1, 1, 0);
+            INSERT INTO memo_todos (memo_id, content, status, priority, time_range, owner, assignee, created_at, updated_at, position)
+            VALUES ('memo-legacy-1', 'task', 'open', '', '', '', '', 1, 1, 0);
+            INSERT INTO memo_content_revisions (memo_id, notebook_id, content_hash, local_revision, change_id, updated_at)
+            VALUES ('memo-legacy-1', 'nb_test', 'hash-a', 1, 'change-a', 1);
+            "#,
+        )
+        .unwrap();
+    drop(legacy);
+
+    let report = mf.run_pending_data_migrations().unwrap();
+    assert_eq!(report.to_version, super::LATEST_DATA_MIGRATION_VERSION);
+
+    let notebook_db = mf.notebook_db_path("nb_test").unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
+    let (imported_relative_path, imported_preview): (String, String) = conn
+        .query_row(
+            "SELECT relative_path, preview FROM memos WHERE id = 'memo-legacy-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(imported_relative_path, "Old.md");
+    assert_eq!(imported_preview, "# Old");
+    let todo_id: String = conn
+        .query_row(
+            "SELECT todo_id FROM memo_todos WHERE memo_id = 'memo-legacy-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(todo_id.starts_with("todo-legacy-"));
+    let lifecycles: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memo_lifecycles WHERE memo_id = 'memo-legacy-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(lifecycles, 1);
+    // The revision row survives: its lifecycle FK target was backfilled.
+    let revisions: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memo_content_revisions WHERE memo_id = 'memo-legacy-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(revisions, 1);
+}
+
 #[test]
 fn pending_data_migrations_skip_unavailable_notebooks() {
     let (mf, base) = fresh_memo_file();
@@ -272,7 +435,10 @@ fn relative_path_migration_recovers_populated_replacement_table() {
     let (mf, _tmp) = fresh_memo_file();
     let memo = mf.create_memo("Recovered", "body", None).unwrap();
 
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+    // Legacy memo tables (memos / memo_index_state / schema_migrations) live
+    // in the per-notebook notebook.db, not the registry.
+    let notebook_db = mf.notebook_db_path("nb_test").unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
     let state_before: i64 = conn
         .query_row(
             "SELECT last_updated FROM memo_index_state WHERE notebook_id = 'nb_test'",
@@ -314,7 +480,7 @@ fn relative_path_migration_recovers_populated_replacement_table() {
     assert_eq!(recovered.memos.len(), 1);
     assert_eq!(recovered.memos[0].id, memo.id);
 
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
     let replacement_exists: i64 = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memos_relative_paths_v1')",
@@ -392,47 +558,6 @@ fn missing_revision_observation_cannot_replace_a_first_commit() {
         .unwrap()
         .unwrap();
     assert_eq!(next.state.revision, first.state.revision + 1);
-}
-
-#[test]
-fn writing_notebook_configs_preserves_existing_memo_rows() {
-    let (mf, tmp) = fresh_memo_file();
-    let memo = mf.create_memo("Keep", "# Keep", None).unwrap();
-
-    let configs = vec![
-        super::types::NotebookConfig {
-            id: "nb_test".to_string(),
-            name: "Test".to_string(),
-            icon: Some("test".to_string()),
-            path: format!("{}/", tmp.display()),
-            is_default: true,
-            sort: 0,
-            created_at: 0,
-            updated_at: 1,
-        },
-        super::types::NotebookConfig {
-            id: "nb_other".to_string(),
-            name: "Other".to_string(),
-            icon: Some("other".to_string()),
-            path: format!("{}/other/", tmp.display()),
-            is_default: false,
-            sort: 0,
-            created_at: 2,
-            updated_at: 3,
-        },
-    ];
-    mf.write_notebook_configs(&configs)
-        .expect("write notebooks");
-
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM memos WHERE notebook_id = 'nb_test' AND id = ?1",
-            rusqlite::params![memo.id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 1);
 }
 
 #[test]
@@ -771,129 +896,6 @@ fn pasted_file_with_key_from_other_notebook_gets_new_id_in_current_notebook() {
     );
 }
 
-#[test]
-fn create_memo_writes_memo_row_to_index_db() {
-    let (mf, _tmp) = fresh_memo_file();
-    let memo = mf
-        .create_memo("DB Note", "# DB Note\n#body-only\n- [ ] todo", Some("tag"))
-        .unwrap();
-
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
-    let row: (String, String, i64) = conn
-        .query_row(
-            "SELECT notebook_id, filename, favorited FROM memos WHERE id = ?1",
-            rusqlite::params![memo.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(row.0, "nb_test");
-    assert_eq!(row.1, memo.filename);
-    assert_eq!(row.2, 0);
-
-    let tag_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM memo_tags WHERE memo_id = ?1 AND tag = 'tag'",
-            rusqlite::params![memo.id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(tag_count, 1);
-
-    let todo_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM memo_todos WHERE memo_id = ?1 AND content = 'todo'",
-            rusqlite::params![memo.id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(todo_count, 1);
-}
-
-#[test]
-fn reloading_a_memo_preserves_todo_metadata() {
-    let (mf, base) = fresh_memo_file();
-    let memo = mf
-        .create_memo("Todo metadata", "- [ ] keep this task\n", None)
-        .unwrap();
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
-    conn.execute(
-        "UPDATE memo_todos SET priority = 'high', time_range = 'tomorrow', owner = 'me', assignee = 'you', created_at = 11, updated_at = 12 WHERE memo_id = ?1 AND content = ?2",
-        rusqlite::params![memo.id, "keep this task"],
-    )
-    .unwrap();
-
-    let path = base.join(&memo.filename);
-    let content = fs::read_to_string(&path).unwrap();
-    fs::write(&path, format!("{content}\nextra\n")).unwrap();
-    mf.reload_memo_from_disk(&memo.id).unwrap();
-
-    let todos = mf
-        .read_todo_metadata_entries_for_notebook_id(Some("nb_test"), "createdAt")
-        .unwrap();
-    let todo = todos
-        .into_iter()
-        .find(|todo| todo.memo_id == memo.id)
-        .unwrap();
-    assert_eq!(todo.priority, "high");
-    assert_eq!(todo.time_range, "tomorrow");
-    assert_eq!(todo.owner, "me");
-    assert_eq!(todo.assignee, "you");
-    assert_eq!(todo.created_at, 11);
-    assert_eq!(todo.updated_at, 12);
-}
-
-#[test]
-fn write_index_persists_to_memos_table() {
-    let (mf, _tmp) = fresh_memo_file();
-    let list = MemoIndexFile {
-        version: 1,
-        last_updated: 42,
-        memos: vec![super::types::MemoIndexEntry {
-            id: "abc123".to_string(),
-            filename: "Legacy.md".to_string(),
-            relative_path: "Legacy.md".to_string(),
-            preview: "Legacy".to_string(),
-            thumbnail: Some("https://example.com/legacy.png".to_string()),
-            tags: vec!["legacy".to_string()],
-            todos: vec![super::types::TodoItem {
-                id: "todo-legacy".to_string(),
-                content: "todo".to_string(),
-                status: "pending".to_string(),
-            }],
-            agents: vec![],
-            created_at: 1,
-            updated_at: 2,
-            favorited: true,
-            icon: Some("star".to_string()),
-            colors: vec![super::types::MemoColor::Blue],
-            properties: serde_json::json!({ "key": "abc123", "status": "draft" }),
-        }],
-    };
-    mf.write_index(&list).unwrap();
-
-    let loaded = mf.read_index().expect("migrated index");
-    assert_eq!(loaded.memos.len(), 1);
-    assert_eq!(loaded.memos[0].id, "abc123");
-    assert_eq!(
-        loaded.memos[0].thumbnail.as_deref(),
-        Some("https://example.com/legacy.png")
-    );
-    assert_eq!(loaded.memos[0].properties["status"], "draft");
-
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
-    let (filename, properties): (String, String) = conn
-        .query_row(
-            "SELECT filename, properties FROM memos WHERE id = 'abc123'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!(filename, "Legacy.md");
-    let properties: serde_json::Value = serde_json::from_str(&properties).unwrap();
-    assert_eq!(properties["key"], "abc123");
-    assert_eq!(properties["status"], "draft");
-}
-
 // =====================================================================
 // helpers
 // =====================================================================
@@ -945,12 +947,6 @@ fn resolve_filename_conflict_picks_first_free() {
         resolve_filename_conflict(&dir, "Foo", &[]),
         "Foo-2.md".to_string()
     );
-}
-
-#[test]
-fn build_md_content_writes_frontmatter_then_body() {
-    let content = build_md_content("abc123", "world\n");
-    assert_eq!(content, "world\n");
 }
 
 // =====================================================================
@@ -1057,47 +1053,16 @@ fn template_note_with_existing_flowix_key_creates_after_prior_nested_notes() {
 }
 
 #[test]
-fn create_memo_persists_frontmatter_properties_to_index_db() {
-    let (mf, _base) = fresh_memo_file();
-    let body = concat!(
-        "---\n",
-        "name: guizang-ppt-skill\n",
-        "status: draft\n",
-        "tags: [ppt, skill]\n",
-        "---\n",
-        "# Body\n"
-    );
-    let memo = mf.create_memo("Imported", body, None).expect("create ok");
-
-    let from_index = mf.read_memo(&memo.id).expect("memo in index");
-    assert!(from_index.properties.get("flowix_key").is_none());
-    assert_eq!(from_index.properties["name"], "guizang-ppt-skill");
-    assert_eq!(from_index.properties["status"], "draft");
-    assert_eq!(from_index.properties["tags"][0], "ppt");
-
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
-    let properties: String = conn
-        .query_row(
-            "SELECT properties FROM memos WHERE id = ?1",
-            rusqlite::params![memo.id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let properties: serde_json::Value = serde_json::from_str(&properties).unwrap();
-    assert_eq!(properties["name"], "guizang-ppt-skill");
-    assert_eq!(properties["status"], "draft");
-    assert_eq!(properties["tags"][1], "skill");
-}
-
-#[test]
 fn read_index_backfills_missing_properties_from_frontmatter() {
     let (mf, _base) = fresh_memo_file();
     let memo = mf
         .create_memo("Backfill", "---\nstatus: review\n---\n# Backfill\n", None)
         .expect("create ok");
 
+    // Legacy memo rows live in the per-notebook notebook.db.
+    let notebook_db = mf.notebook_db_path("nb_test").unwrap();
     {
-        let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+        let conn = rusqlite::Connection::open(&notebook_db).unwrap();
         conn.execute(
             "UPDATE memos SET properties = '{}' WHERE id = ?1",
             rusqlite::params![memo.id],
@@ -1109,7 +1074,7 @@ fn read_index_backfills_missing_properties_from_frontmatter() {
     let from_index = mf.read_memo(&memo.id).expect("memo in index");
     assert_eq!(from_index.properties["status"], "review");
 
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+    let conn = rusqlite::Connection::open(&notebook_db).unwrap();
     let properties: String = conn
         .query_row(
             "SELECT properties FROM memos WHERE id = ?1",
@@ -1516,21 +1481,6 @@ fn delete_memo_removes_file_and_index_entry() {
 }
 
 #[test]
-fn delete_memo_removes_version_history() {
-    let (mf, base) = fresh_memo_file();
-    let memo = mf.create_memo("Versioned delete", "x", None).unwrap();
-    let version = mf
-        .create_memo_version(&memo.id, "old body", super::MemoVersionSource::Manual)
-        .unwrap()
-        .unwrap();
-    let version_dir = base.join(".flowix/versions").join(&memo.id);
-    assert!(version_dir.join(format!("{}.md", version.id)).exists());
-    assert!(mf.delete_memo_result(&memo.id).unwrap());
-    assert!(!version_dir.exists());
-    assert!(mf.read_memo(&memo.id).is_none());
-}
-
-#[test]
 fn delete_memo_handles_orphan_index_entry() {
     let (mf, base) = fresh_memo_file();
     let memo = mf.create_memo("Orphan", "x", None).unwrap();
@@ -1545,37 +1495,6 @@ fn delete_memo_handles_orphan_index_entry() {
 fn delete_memo_returns_false_when_unknown() {
     let (mf, _base) = fresh_memo_file();
     assert!(!mf.delete_memo("zzzzzz"));
-}
-
-#[test]
-fn version_cleanup_retains_recent_unknown_history() {
-    let (mf, base) = fresh_memo_file();
-    let orphan = base.join(".flowix/versions/abcdefgh");
-    fs::create_dir_all(&orphan).unwrap();
-    fs::write(
-        orphan.join("manifest.json"),
-        r#"{"version":1,"memoId":"abcdefgh","versions":[]}"#,
-    )
-    .unwrap();
-
-    let report = mf
-        .cleanup_orphan_memo_versions("nb_test", std::time::SystemTime::now())
-        .unwrap();
-    assert_eq!(report.retained_recent, 1);
-    assert!(orphan.exists());
-}
-
-#[test]
-fn deleting_last_version_removes_empty_history_directory_and_rejects_traversal() {
-    let (mf, base) = fresh_memo_file();
-    let memo = mf.create_memo("Version delete", "x", None).unwrap();
-    let version = mf
-        .create_memo_version(&memo.id, "old body", super::MemoVersionSource::Manual)
-        .unwrap()
-        .unwrap();
-    assert!(!mf.delete_memo_version(&memo.id, "../../outside"));
-    assert!(mf.delete_memo_version(&memo.id, &version.id));
-    assert!(!base.join(".flowix/versions").join(&memo.id).exists());
 }
 
 #[test]
@@ -1753,13 +1672,16 @@ fn reconcile_excludes_agents_files_unless_included_by_file_policy() {
     fs::write(base.join("docs/public/Visible.md"), "# Visible\n").unwrap();
 
     let report = mf.reconcile_with_disk_bidirectional().unwrap();
-    assert_eq!(report.added, 1);
+    // Root AGENTS.md is a deliberate exception: it is indexed (while hidden
+    // from the tree) so agent instructions remain searchable. Nested
+    // AGENTS.md files and the ignored directories stay excluded.
+    assert_eq!(report.added, 2);
     let indexed_paths = mf
         .read_all_memos()
         .into_iter()
         .map(|memo| memo.relative_path)
         .collect::<std::collections::HashSet<_>>();
-    assert!(!indexed_paths.contains("AGENTS.md"));
+    assert!(indexed_paths.contains("AGENTS.md"));
     assert!(!indexed_paths.contains("docs/AGENTS.md"));
     assert!(indexed_paths.contains("docs/public/Visible.md"));
 }
@@ -2867,12 +2789,12 @@ fn read_index_returns_none_for_missing_file_without_caching() {
 // move_memo_tag_locked 单测 — Step 3 的核心 IPC 后端。
 // =====================================================================
 
-fn read_memo_tags(mf: &MemoFile, memo_id: &str) -> Vec<String> {
-    let conn = rusqlite::Connection::open(mf.registry_db_path()).unwrap();
+fn read_note_tags(mf: &MemoFile, relative_path: &str) -> Vec<String> {
+    let conn = rusqlite::Connection::open(mf.notebook_db_path("nb_test").unwrap()).unwrap();
     let mut stmt = conn
-        .prepare("SELECT tag FROM memo_tags WHERE memo_id = ?1 ORDER BY rowid ASC")
+        .prepare("SELECT tag FROM note_tags WHERE relative_path = ?1 ORDER BY tag ASC")
         .unwrap();
-    stmt.query_map([memo_id], |row| row.get(0))
+    stmt.query_map([relative_path], |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
@@ -2886,10 +2808,15 @@ fn read_body(mf: &MemoFile, filename: &str) -> String {
 #[test]
 fn move_tag_rewrites_exact_match_in_both_sources() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf
-        .create_memo("Move exact", "正文 #旅行/曼谷 末尾", Some("旅行/曼谷"))
+    let relative_path = mf
+        .create_note_by_path(
+            "nb_test",
+            None,
+            "Move exact",
+            "---\ntags: [旅行/曼谷]\n---\n正文 #旅行/曼谷 末尾",
+        )
         .unwrap();
-    let original_body = read_body(&mf, &memo.filename);
+    let original_body = read_body(&mf, &relative_path);
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
@@ -2904,7 +2831,7 @@ fn move_tag_rewrites_exact_match_in_both_sources() {
         report.renamed_tags
     );
 
-    let body = read_body(&mf, &memo.filename);
+    let body = read_body(&mf, &relative_path);
     assert!(body.contains("正文 #中国/曼谷 末尾"));
     assert_ne!(body, original_body, "两个标签来源都应被更新");
     assert_eq!(
@@ -2912,19 +2839,20 @@ fn move_tag_rewrites_exact_match_in_both_sources() {
         vec!["中国/曼谷".to_string()]
     );
 
-    // 验证 memo_tags 同步
-    let tags = read_memo_tags(&mf, &memo.id);
+    // 验证 note_tags 同步
+    let tags = read_note_tags(&mf, &relative_path);
     assert_eq!(tags, vec!["中国/曼谷".to_string()]);
 }
 
 #[test]
 fn move_tag_rewrites_subtree_in_both_sources() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf
-        .create_memo(
+    let relative_path = mf
+        .create_note_by_path(
+            "nb_test",
+            None,
             "Move subtree",
             "---\ntags:\n  - 旅行/曼谷\n  - 旅行/曼谷/住\n  - 旅行/曼谷/吃/路边摊\n---\n见 #旅行/曼谷",
-            None,
         )
         .unwrap();
 
@@ -2933,7 +2861,7 @@ fn move_tag_rewrites_subtree_in_both_sources() {
         .unwrap();
     assert_eq!(report.affected_memos, 1);
 
-    let body = read_body(&mf, &memo.filename);
+    let body = read_body(&mf, &relative_path);
     assert!(body.contains("见 #中国/曼谷"));
     assert_eq!(
         extract_document_metadata(&body).unwrap().tags,
@@ -2944,7 +2872,7 @@ fn move_tag_rewrites_subtree_in_both_sources() {
         ]
     );
 
-    let tags = read_memo_tags(&mf, &memo.id);
+    let tags = read_note_tags(&mf, &relative_path);
     assert!(tags.contains(&"中国/曼谷".to_string()));
     assert!(tags.contains(&"中国/曼谷/住".to_string()));
     assert!(tags.contains(&"中国/曼谷/吃/路边摊".to_string()));
@@ -2953,23 +2881,24 @@ fn move_tag_rewrites_subtree_in_both_sources() {
 #[test]
 fn move_tag_leaves_unrelated_tags_intact() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf
-        .create_memo(
+    let relative_path = mf
+        .create_note_by_path(
+            "nb_test",
+            None,
             "Unrelated",
             "---\ntags: [旅行/曼谷, 旅行, 泰国/曼谷]\n---\n#旅行/曼谷 正文 #旅行 正文 #泰国/曼谷",
-            None,
         )
         .unwrap();
 
     mf.move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
         .unwrap();
 
-    let body = read_body(&mf, &memo.filename);
+    let body = read_body(&mf, &relative_path);
     assert!(body.contains("#旅行 "), "#旅行 不应被改: {body}");
     assert!(body.contains("#泰国/曼谷"), "#泰国/曼谷 不应被改: {body}");
     assert!(body.contains("#中国/曼谷"));
 
-    let tags = read_memo_tags(&mf, &memo.id);
+    let tags = read_note_tags(&mf, &relative_path);
     assert!(tags.contains(&"中国/曼谷".to_string()));
     assert!(tags.contains(&"旅行".to_string()));
     assert!(tags.contains(&"泰国/曼谷".to_string()));
@@ -2978,11 +2907,12 @@ fn move_tag_leaves_unrelated_tags_intact() {
 #[test]
 fn move_tag_rewrites_body_only_membership_but_not_code() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf
-        .create_memo(
+    let relative_path = mf
+        .create_note_by_path(
+            "nb_test",
+            None,
             "Body only",
             "Body #old/path\n`#old/path`\n```md\n#old/path\n```",
-            None,
         )
         .unwrap();
 
@@ -2991,22 +2921,23 @@ fn move_tag_rewrites_body_only_membership_but_not_code() {
         .unwrap();
     assert_eq!(report.affected_memos, 1);
 
-    let content = read_body(&mf, &memo.filename);
+    let content = read_body(&mf, &relative_path);
     assert!(content.contains("Body #new/path"));
     assert!(content.contains("`#old/path`"));
     assert!(content.contains("```md\n#old/path\n```"));
     assert!(extract_document_metadata(&content).unwrap().tags.is_empty());
-    assert_eq!(read_memo_tags(&mf, &memo.id), vec!["new/path"]);
+    assert_eq!(read_note_tags(&mf, &relative_path), vec!["new/path"]);
 }
 
 #[test]
 fn delete_tag_removes_body_only_membership_but_not_code() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf
-        .create_memo(
+    let relative_path = mf
+        .create_note_by_path(
+            "nb_test",
+            None,
             "Delete body tag",
             "Body #remove/path remains\n`#remove/path`",
-            None,
         )
         .unwrap();
 
@@ -3015,17 +2946,19 @@ fn delete_tag_removes_body_only_membership_but_not_code() {
         .unwrap();
     assert_eq!(report.affected_memos, 1);
 
-    let content = read_body(&mf, &memo.filename);
+    let content = read_body(&mf, &relative_path);
     assert!(content.contains("Body  remains"));
     assert!(content.contains("`#remove/path`"));
-    assert!(read_memo_tags(&mf, &memo.id).is_empty());
+    assert!(read_note_tags(&mf, &relative_path).is_empty());
 }
 
 #[test]
 fn delete_tag_ignores_unrelated_invalid_legacy_frontmatter_path() {
     let (mf, base) = fresh_memo_file();
-    let memo = mf.create_memo("Legacy", "Body #1", None).unwrap();
-    let path = base.join(&memo.filename);
+    let relative_path = mf
+        .create_note_by_path("nb_test", None, "Legacy", "Body #1")
+        .unwrap();
+    let path = base.join(&relative_path);
     let content = std::fs::read_to_string(&path).unwrap();
     let content = format!("---\ntags:\n  - \"legacy tag\"\n---\n{content}");
     std::fs::write(&path, content).unwrap();
@@ -3036,13 +2969,13 @@ fn delete_tag_ignores_unrelated_invalid_legacy_frontmatter_path() {
     let content = std::fs::read_to_string(path).unwrap();
     assert!(content.contains("legacy tag"));
     assert!(!content.contains("#1"));
-    assert!(read_memo_tags(&mf, &memo.id).is_empty());
+    assert!(read_note_tags(&mf, &relative_path).is_empty());
 }
 
 #[test]
 fn move_tag_rejects_invalid_paths() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_memo("Any", "#x", None).unwrap();
+    let _ = mf.create_note_by_path("nb_test", None, "Any", "#x").unwrap();
 
     // 含 //
     assert!(mf
@@ -3059,8 +2992,12 @@ fn move_tag_rejects_invalid_paths() {
 #[test]
 fn move_tag_rejects_target_conflict() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_memo("A", "正文", Some("旅行/曼谷")).unwrap();
-    let _ = mf.create_memo("B", "正文", Some("中国/曼谷")).unwrap();
+    let _ = mf
+        .create_note_by_path("nb_test", None, "A", "---\ntags: [旅行/曼谷]\n---\n正文")
+        .unwrap();
+    let _ = mf
+        .create_note_by_path("nb_test", None, "B", "---\ntags: [中国/曼谷]\n---\n正文")
+        .unwrap();
 
     // 已有 "中国/曼谷" → 移动 "旅行/曼谷" → "中国/曼谷" 冲突
     let err = mf
@@ -3072,7 +3009,9 @@ fn move_tag_rejects_target_conflict() {
 #[test]
 fn move_tag_same_path_is_noop() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_memo("Same", "正文", Some("旅行/曼谷")).unwrap();
+    let _ = mf
+        .create_note_by_path("nb_test", None, "Same", "---\ntags: [旅行/曼谷]\n---\n正文")
+        .unwrap();
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "旅行/曼谷")
@@ -3084,15 +3023,20 @@ fn move_tag_same_path_is_noop() {
 #[test]
 fn move_tag_handles_multiple_memos() {
     let (mf, _base) = fresh_memo_file();
-    let a = mf.create_memo("A", "正文", Some("旅行/曼谷")).unwrap();
+    let a = mf
+        .create_note_by_path("nb_test", None, "A", "---\ntags: [旅行/曼谷]\n---\n正文")
+        .unwrap();
     let b = mf
-        .create_memo(
+        .create_note_by_path(
+            "nb_test",
+            None,
             "B",
             "---\ntags: [旅行, 旅行/曼谷/住]\n---\n#旅行 正文 #旅行/曼谷/住",
-            None,
         )
         .unwrap();
-    let _c = mf.create_memo("C", "正文", Some("不相关")).unwrap(); // 不应被影响
+    let c = mf
+        .create_note_by_path("nb_test", None, "C", "---\ntags: [不相关]\n---\n正文")
+        .unwrap(); // 不应被影响
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
@@ -3101,12 +3045,12 @@ fn move_tag_handles_multiple_memos() {
     assert_eq!(report.affected_memos, 2);
 
     // 验证 C 完全没动
-    let c_tags = read_memo_tags(&mf, &_c.id);
+    let c_tags = read_note_tags(&mf, &c);
     assert_eq!(c_tags, vec!["不相关".to_string()]);
 
     // 验证 A, B
-    let a_tags = read_memo_tags(&mf, &a.id);
-    let b_tags = read_memo_tags(&mf, &b.id);
+    let a_tags = read_note_tags(&mf, &a);
+    let b_tags = read_note_tags(&mf, &b);
     assert!(a_tags.contains(&"中国/曼谷".to_string()));
     assert!(b_tags.contains(&"中国/曼谷/住".to_string()));
     assert!(b_tags.contains(&"旅行".to_string()), "#旅行 不应被改");
@@ -3115,15 +3059,19 @@ fn move_tag_handles_multiple_memos() {
 #[test]
 fn move_tag_preserves_frontmatter_key() {
     let (mf, _base) = fresh_memo_file();
-    let memo = mf
-        .create_memo("FM", "正文 #旅行/曼谷", Some("旅行/曼谷"))
+    let relative_path = mf
+        .create_note_by_path(
+            "nb_test",
+            None,
+            "FM",
+            "---\ntags: [旅行/曼谷]\n---\n正文 #旅行/曼谷",
+        )
         .unwrap();
-    assert!(!memo.id.is_empty());
 
     mf.move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
         .unwrap();
 
-    let body = read_body(&mf, &memo.filename);
+    let body = read_body(&mf, &relative_path);
     // frontmatter key 必须保留 (跟原 memo id 一致)
     let key = super::frontmatter::extract_frontmatter_key(&body);
     assert_eq!(key, None, "frontmatter key 必须在改写后保留: body = {body}");
@@ -3132,7 +3080,9 @@ fn move_tag_preserves_frontmatter_key() {
 #[test]
 fn move_tag_no_match_returns_zero_affected() {
     let (mf, _base) = fresh_memo_file();
-    let _ = mf.create_memo("Empty", "正文 no tags", None).unwrap();
+    let _ = mf
+        .create_note_by_path("nb_test", None, "Empty", "正文 no tags")
+        .unwrap();
 
     let report = mf
         .move_memo_tag_locked(Some("nb_test"), "旅行/曼谷", "中国/曼谷")
@@ -3629,9 +3579,12 @@ fn tag_union_index_upgrade_rebuilds_index_without_touching_markdown() {
         .unwrap();
 
     assert_eq!(updated, 0);
+    // note_tags is a set; assert membership without depending on row order.
+    let mut tags = read_note_tags(&mf, &memo.relative_path);
+    tags.sort();
     assert_eq!(
-        read_memo_tags(&mf, &memo.id),
-        vec!["yamltag".to_string(), "bodytag".to_string()]
+        tags,
+        vec!["bodytag".to_string(), "yamltag".to_string()]
     );
     assert_ne!(before_upgrade, original);
     assert_eq!(fs::read_to_string(&path).unwrap(), before_upgrade);

@@ -8,7 +8,24 @@ impl MemoFile {
         source: &Path,
         target: &Path,
     ) -> std::io::Result<Vec<(String, Memo, Memo)>> {
-        let _process_guard = self.acquire_cross_process_write_lock()?;
+        let notebook_ids = self.notebook_ids_for_paths(&[source, target])?;
+        let _change_guard = if notebook_ids.is_empty() {
+            None
+        } else {
+            let ids: Vec<&str> = notebook_ids.iter().map(String::as_str).collect();
+            Some(self.operation_locks().notebook_change(&ids, "rename_indexed_path")?)
+        };
+        let _legacy_guard = if notebook_ids.is_empty() {
+            Some(self.acquire_cross_process_write_lock()?)
+        } else {
+            None
+        };
+        if !notebook_ids.is_empty() && self.notebook_ids_for_paths(&[source, target])? != notebook_ids {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "notebook registration changed while waiting for path rename",
+            ));
+        }
         let _guard = self.current_index_io.lock().expect("index_io poisoned");
         let mut changes = Vec::new();
         for notebook in self.read_notebook_configs()? {
@@ -44,14 +61,25 @@ impl MemoFile {
         rename_file_noclobber(source, target)?;
         for (notebook, _, after) in &changes {
             if let Err(error) =
-                Self::sync_index_on_write_for_notebook_id_locked(self, notebook, after)
+                Self::sync_index_on_write_for_notebook_id_locked_without_projection(self, notebook, after)
             {
                 // Restore the original address on a failed index commit.
                 rename_file_noclobber(target, source)?;
                 for (notebook, before, _) in &changes {
-                    Self::sync_index_on_write_for_notebook_id_locked(self, notebook, before)?;
+                    Self::sync_index_on_write_for_notebook_id_locked_without_projection(self, notebook, before)?;
                 }
                 return Err(error);
+            }
+        }
+        drop(_guard);
+        drop(_change_guard);
+        drop(_legacy_guard);
+        for (notebook_id, before, after) in &changes {
+            for relative_path in [&before.relative_path, &after.relative_path] {
+                if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
+                    let _ = self.mark_note_index_refresh_pending_for_notebook(notebook_id);
+                    tracing::warn!(notebook_id, relative_path, "path moved but note index refresh failed: {error}");
+                }
             }
         }
         Ok(changes)

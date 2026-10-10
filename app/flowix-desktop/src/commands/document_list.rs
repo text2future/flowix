@@ -200,7 +200,7 @@ pub(crate) fn rebase_table_note_paths(
         else {
             continue;
         };
-        match memo_file.write_file_if_matches(&path, &next, Some(&source)) {
+        match memo_file.write_file_if_matches_for_notebook(notebook_id, &path, &next, Some(&source)) {
             Ok(FileWriteOutcome::Saved) => refresh_table_document_path(memo_file, &path),
             Ok(FileWriteOutcome::Conflict { .. }) => {
                 tracing::debug!(path = %path.display(), "table reference rebase skipped after concurrent edit")

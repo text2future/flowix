@@ -17,7 +17,9 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  Check,
   ChevronRight,
+  ArrowDownUp,
   MoreHorizontal,
   GripVertical,
   Plus,
@@ -90,6 +92,7 @@ import {
   flattenVisibleTree,
   useFolderTree,
   type FolderTreeController,
+  type FolderTreeSort,
 } from '@features/memo/components/use-folder-tree';
 import { NotebookTreeRow } from '@features/memo/components/notebook-tree-row';
 import { ResourceFileIcon, ResourceFolderIcon } from '@features/surface/resource-file-icon';
@@ -205,6 +208,8 @@ function TreeSectionMoreMenu({
   onMoveDown,
   onCreateFolder,
   onCreateNote,
+  sort,
+  onSort,
   onCustomizeDisplay,
 }: {
   canMoveUp: boolean;
@@ -213,9 +218,12 @@ function TreeSectionMoreMenu({
   onMoveDown: () => void;
   onCreateFolder?: () => void;
   onCreateNote?: () => void;
+  sort?: FolderTreeSort;
+  onSort?: (sort: FolderTreeSort) => void;
   onCustomizeDisplay?: (anchorRect: DOMRect) => void;
 }) {
   const { t } = useI18n();
+  const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
   const itemClassName = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-40';
   return (
     <DropdownMenu>
@@ -249,6 +257,51 @@ function TreeSectionMoreMenu({
             <FolderSimplePlusIcon className="h-3.5 w-3.5" aria-hidden="true" />
             {t('memo.fileTree.newFolder')}
           </DropdownMenuItem>
+        )}
+        {sort && onSort && (
+          <div
+            className="relative"
+            onMouseEnter={() => setSortSubmenuOpen(true)}
+            onMouseLeave={() => setSortSubmenuOpen(false)}
+          >
+            <button
+              type="button"
+              className={cn(itemClassName, 'flex w-full items-center justify-between')}
+              onClick={() => setSortSubmenuOpen((open) => !open)}
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              <span className="flex items-center gap-2">
+                <ArrowDownUp className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('memo.list.sortLabel')}
+              </span>
+              <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+                {t(sort === 'createdAt' ? 'memo.list.sortCreated' : sort === 'updatedAt' ? 'memo.list.sortUpdated' : sort === 'filenameAsc' ? 'memo.list.sortFilenameAsc' : 'memo.list.sortFilenameDesc')}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            </button>
+            {sortSubmenuOpen && (
+              <div className="absolute left-full top-0 w-[176px] space-y-0.5 rounded-xl border border-[var(--border-popup)] bg-[var(--card)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                {([
+                  ['createdAt', 'memo.list.sortCreated'],
+                  ['updatedAt', 'memo.list.sortUpdated'],
+                  ['filenameAsc', 'memo.list.sortFilenameAsc'],
+                  ['filenameDesc', 'memo.list.sortFilenameDesc'],
+                ] as const).map(([value, label]) => (
+                  <DropdownMenuItem
+                    key={value}
+                    onClick={() => onSort(value)}
+                    className={cn(
+                      'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
+                      sort === value && 'is-selected',
+                    )}
+                  >
+                    <span>{t(label)}</span>
+                    {sort === value && <Check className="h-4 w-4 text-[var(--brand)]" aria-hidden="true" />}
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => { void windows.openPreferences('noteSettings'); }} className={itemClassName}>
@@ -332,8 +385,9 @@ function AgentRepositoryItem({
       await tree.refresh(parentDirectoryPath(deleting.fullPath, repository.path));
       toast.success(t('memo.fileTree.deleted', { name: deleting.name }));
       setDeleting(null);
-    } catch {
-      toast.error(t('memo.fileTree.deleteFailed'));
+    } catch (error) {
+      await tree.refresh(parentDirectoryPath(deleting.fullPath, repository.path)).catch(() => {});
+      toast.error(t(String(error).includes('FOLDER_DELETE_PARTIAL') ? 'memo.fileTree.deletePartialFailed' : 'memo.fileTree.deleteFailed'));
     }
   };
   const renderRepositoryItems = (items: DocTreeItem[], depth: number): ReactNode[] => items.map((item) => {
@@ -930,6 +984,7 @@ export function NotebookFileTree({
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [viewsCollapsed, setViewsCollapsed] = useState(false);
   const [filesCollapsed, setFilesCollapsed] = useState(false);
+  const [fileTreeSort, setFileTreeSort] = useState<FolderTreeSort>('createdAt');
   const [repositorySectionHeight, setRepositorySectionHeight] = useState(0);
   const [sectionOrder, setSectionOrder] = useState<NotebookTreeSection[]>(DEFAULT_TREE_SECTION_ORDER);
   const [hiddenSections, setHiddenSections] = useState<NotebookTreeSection[]>([]);
@@ -1163,7 +1218,7 @@ export function NotebookFileTree({
     [selectedFilePaths],
   );
   const loadedTreeItems = useMemo(() => flattenLoadedTree(tree), [tree]);
-  const visibleTreeItems = useMemo(() => flattenVisibleTree(tree), [tree]);
+  const visibleTreeItems = useMemo(() => flattenVisibleTree(tree, fileTreeSort), [fileTreeSort, tree]);
   const renderRows = useMemo(
     () => buildNotebookTreeRenderRows(visibleTreeItems, notebookPath, draft),
     [draft, notebookPath, visibleTreeItems],
@@ -2556,6 +2611,8 @@ export function NotebookFileTree({
                 onMoveDown={() => moveTreeSection('files', 1)}
                 onCreateFolder={onCreateFolder}
                 onCreateNote={() => handleCreateNoteAtPath(notebookPath)}
+                sort={fileTreeSort}
+                onSort={setFileTreeSort}
                 onCustomizeDisplay={openCustomizeDisplay}
               />
             </div>

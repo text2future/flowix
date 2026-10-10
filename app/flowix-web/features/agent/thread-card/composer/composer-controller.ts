@@ -100,6 +100,8 @@ export class ComposerController {
   private readonly slashCommands: ComposerSlashCommandController;
   private readonly folderReferences: ComposerFolderController;
   private readonly removeSelectAllHandler: () => void;
+  private readonly removeUndoHandler: () => void;
+  private readonly removeRedoHandler: () => void;
 
   private isComposing = false;
   private historyCursor: number | null = null;
@@ -201,12 +203,32 @@ export class ComposerController {
     });
     removeSlashToken = () => this.slashCommands.removeSelectedToken();
 
-    // macOS routes Cmd+A through the native menu, bypassing the DOM keymap.
-    // Share its action while keeping selection scoped to the focused composer.
+    // macOS routes Cmd+A / Cmd+Z / Cmd+Shift+Z through the native menu, which
+    // consumes the accelerators before either the DOM keymap or ProseMirror's
+    // own UndoRedo keymap can see them. The native edit-menu bridge forwards
+    // those menu events to the shared action registry, so the composer must
+    // publish its own handlers for each command — mirroring the document and
+    // code editors. Without the undo/redo handlers the forwarded events
+    // dead-end and the composer silently ignores Cmd+Z / Cmd+Shift+Z, even
+    // though the editor carries the UndoRedo extension. Each handler stays
+    // scoped to the focused composer so an unfocused composer never claims the
+    // command from the surrounding document editor.
+    const isComposerFocused = (): boolean =>
+      !this.disposed && !this.editor.isDestroyed && this.editor.view.hasFocus();
     this.removeSelectAllHandler = pushHandler(
       "editor.selectAll",
       () => this.editor.commands.selectAll(),
-      { isActive: () => !this.disposed && !this.editor.isDestroyed && this.editor.view.hasFocus() },
+      { isActive: isComposerFocused },
+    );
+    this.removeUndoHandler = pushHandler(
+      "editor.undo",
+      () => this.editor.commands.undo(),
+      { isActive: isComposerFocused },
+    );
+    this.removeRedoHandler = pushHandler(
+      "editor.redo",
+      () => this.editor.commands.redo(),
+      { isActive: isComposerFocused },
     );
 
     // Capture before ProseMirror's own keymap so plain Enter submits without
@@ -376,6 +398,8 @@ export class ComposerController {
     if (this.disposed) return;
     this.disposed = true;
     this.removeSelectAllHandler();
+    this.removeUndoHandler();
+    this.removeRedoHandler();
     this.input.removeEventListener("keydown", this.handleKeydown, true);
     this.input.removeEventListener("beforeinput", this.handleBeforeInput, true);
     this.input.removeEventListener("compositionstart", this.handleCompositionStart);

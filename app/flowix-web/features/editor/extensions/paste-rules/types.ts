@@ -18,7 +18,7 @@ export interface PasteContext {
   editor: Editor;
   view: EditorView;
   /** The memo that owns attachments inserted by this editor instance. */
-  memoId?: string;
+  ownerPath?: string;
   event: ClipboardEvent;
   types: string[];
   markdown: string;

@@ -1,16 +1,12 @@
 import GithubSlugger from 'github-slugger';
+import { decodeEditorHref } from '@features/editor/editor-link-resolution';
 
 const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6';
 const NON_DOCUMENT_HEADING_SELECTOR = '.agent-thread-card, .frontmatter-property-node';
 const HEADING_SCROLL_OFFSET_PX = 16;
 
 function decodeAnchorFragment(href: string): string {
-  const fragment = href.startsWith('#') ? href.slice(1) : href;
-  try {
-    return decodeURIComponent(fragment);
-  } catch {
-    return fragment;
-  }
+  return decodeEditorHref(href.startsWith('#') ? href.slice(1) : href);
 }
 
 /**

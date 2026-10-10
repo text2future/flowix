@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import { TabulatorFull as Tabulator, type CellComponent, type ColumnDefinition } from 'tabulator-tables';
 import { externalDocuments } from '@platform/tauri/client/memos';
+import { clearActionableNotice, upsertActionableNotice } from '@features/notifications/actionable-notice-store';
+import { useI18n } from '@/lib/i18n';
 import './csv-preview.css';
 
 const MAX_CSV_BYTES = 20 * 1024 * 1024;
@@ -180,6 +182,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function CsvPreview({ filePath, scopePath }: { filePath: string; scopePath: string | null }) {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const documentRef = useRef<CsvData | null>(null);
@@ -207,7 +210,7 @@ export function CsvPreview({ filePath, scopePath }: { filePath: string; scopePat
     });
   }
 
-  async function saveCurrentDocument() {
+  const saveCurrentDocument = useCallback(async () => {
     const requestId = requestRef.current;
     const key = draftKey(filePath, scopePath);
     if (savingRef.current === requestId) return;
@@ -261,7 +264,39 @@ export function CsvPreview({ filePath, scopePath }: { filePath: string; scopePat
     } finally {
       if (savingRef.current === requestId) savingRef.current = null;
     }
-  }
+  }, [filePath, scopePath]);
+
+  useEffect(() => {
+    const noticeId = `csv-save:${draftKey(filePath, scopePath)}`;
+    if (saveState.status === 'error' && saveState.retryable) {
+      const filename = filePath.split(/[\\/]/).pop() ?? filePath;
+      const revision = `${requestRef.current}:${saveState.message ?? ''}`;
+      upsertActionableNotice({
+        id: noticeId,
+        priority: 80,
+        tone: 'error',
+        title: filename,
+        message: saveState.message ?? '保存失败',
+        revision,
+        actions: [{
+          id: 'retry',
+          label: t('document.save.retry'),
+          variant: 'default',
+          run: saveCurrentDocument,
+        }],
+      });
+    } else if (saveState.status === 'saving') {
+      // Keep an existing notice visible while its retry is in flight. The
+      // action host owns its busy state; ordinary autosaves need no new alert.
+      return;
+    } else {
+      clearActionableNotice(noticeId);
+    }
+  }, [filePath, saveCurrentDocument, saveState.message, saveState.retryable, saveState.status, scopePath, t]);
+
+  useEffect(() => () => {
+    clearActionableNotice(`csv-save:${draftKey(filePath, scopePath)}`);
+  }, [filePath, scopePath]);
 
   useEffect(() => {
     const requestId = ++requestRef.current;
@@ -790,7 +825,7 @@ export function CsvPreview({ filePath, scopePath }: { filePath: string; scopePat
         {saveState.status === 'saved' && <span>已自动保存</span>}
         <span className="csv-preview__readonly">双击编辑 · ⌘/Ctrl+C 复制 · ⌘/Ctrl+X 剪切 · ⌘/Ctrl+V 粘贴 · Delete/Backspace 清空</span>
       </header>
-      {saveState.status === 'error' && <div className="csv-preview__save-error" role="alert">{saveState.message}{saveState.retryable && <> <button type="button" onClick={() => { void saveCurrentDocument(); }}>重试保存</button></>}</div>}
+      {saveState.status === 'error' && !saveState.retryable && <div className="csv-preview__save-error" role="alert">{saveState.message}</div>}
       <div className="csv-preview__table" ref={hostRef} />
     </section>
   );

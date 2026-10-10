@@ -330,19 +330,6 @@ pub struct ReconcileReport {
     pub removed_memos: Vec<Memo>,
 }
 
-/// Report returned by version-history maintenance.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MemoVersionCleanupReport {
-    /// Version directories moved to the notebook that owns the memo ID.
-    pub moved: usize,
-    /// Version directories removed after the orphan retention period.
-    pub removed: usize,
-    /// Unknown version directories retained because they are still recent.
-    pub retained_recent: usize,
-    /// Entries that could not be inspected or moved/removed.
-    pub failed: usize,
-}
-
 /// [`crate::memo_file::MemoFile::move_memo_tag_locked`] 的返回报告。
 ///
 /// - `affected_memos`: 实际被批量改写 YAML `tags` + 同步 memo index 的 memo

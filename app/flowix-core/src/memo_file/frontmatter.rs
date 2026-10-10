@@ -514,65 +514,6 @@ pub(crate) fn replace_frontmatter_tags_preserving_invalid_paths(
     Ok(format!("---\n{}\n---\n{}", lines.join("\n"), body))
 }
 
-/// Legacy creation helper. The key argument is retained for API compatibility;
-/// newly created Markdown does not contain a memo identity field.
-pub fn build_md_content(_key: &str, body: &str) -> String {
-    body.to_string()
-}
-
-/// Explicit legacy cleanup helper. Normal creation and saving preserve supplied content.
-pub fn without_flowix_key(content: &str) -> String {
-    let Some(caps) = FRONTMATTER_RE.captures(content) else {
-        return content.to_string();
-    };
-    let inner = caps.get(1).unwrap().as_str();
-    let body = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-    // Parse first: a key can also be quoted, indented, or written in a flow
-    // mapping. Removing one line from a block scalar would corrupt the YAML.
-    let Ok(serde_yaml::Value::Mapping(mut mapping)) =
-        serde_yaml::from_str::<serde_yaml::Value>(inner)
-    else {
-        return content.to_string();
-    };
-    if mapping
-        .remove(serde_yaml::Value::String(CANONICAL_FRONTMATTER_KEY.into()))
-        .is_none()
-    {
-        return content.to_string();
-    }
-    let identity_line = Regex::new(r#"^(?:flowix_key|'flowix_key'|"flowix_key")\s*:"#).unwrap();
-    let simple_line = inner
-        .lines()
-        .filter(|line| identity_line.is_match(line))
-        .count()
-        == 1
-        && inner.lines().all(|line| {
-            !identity_line.is_match(line)
-                || line.split_once(':').is_some_and(|(_, value)| {
-                    let value = value.trim();
-                    !value.is_empty() && !value.starts_with('|') && !value.starts_with('>')
-                })
-        });
-    if !simple_line {
-        if mapping.is_empty() {
-            return body.to_string();
-        }
-        let yaml = serde_yaml::to_string(&mapping).unwrap_or_default();
-        return format!("---\n{}---\n{}", yaml, body);
-    }
-    let kept: Vec<&str> = inner
-        .lines()
-        .filter(|line| !identity_line.is_match(line))
-        .collect();
-    if kept.len() == inner.lines().count() {
-        return content.to_string();
-    }
-    if kept.iter().all(|line| line.trim().is_empty()) {
-        return body.to_string();
-    }
-    format!("---\n{}\n---\n{}", kept.join("\n"), body)
-}
-
 /// 就地编辑 frontmatter 块, 见模块 doc 详述行为契约。
 pub fn merge_frontmatter(content: &str, overrides: &MergeOverrides) -> String {
     let mut canonical_overrides = overrides.clone();
@@ -845,35 +786,6 @@ mod tests {
         let input = "---\nflowix_key: abc12345\n---\nbody\n";
 
         assert_eq!(merge_frontmatter(input, &overrides), input);
-    }
-
-    // ============== build_md_content ==============
-
-    #[test]
-    fn template_identity_cleanup_handles_flow_mapping_and_block_value() {
-        let inline = without_flowix_key("---\n{flowix_key: old123, color: blue}\n---\n# Body\n");
-        assert!(!inline.contains("flowix_key"));
-        assert!(inline.contains("color: blue"));
-        assert!(inline.ends_with("# Body\n"));
-
-        let block = without_flowix_key("---\nflowix_key: |\n  old123\ncolor: blue\n---\n# Body\n");
-        assert!(!block.contains("flowix_key"));
-        assert!(!block.contains("old123"));
-        assert!(block.contains("color: blue"));
-        assert!(block.ends_with("# Body\n"));
-    }
-
-    #[test]
-    fn build_with_key_and_body() {
-        assert_eq!(
-            build_md_content("abc123", "# Title\nbody\n"),
-            "# Title\nbody\n"
-        );
-    }
-
-    #[test]
-    fn build_with_empty_body() {
-        assert_eq!(build_md_content("abc123", ""), "");
     }
 
     // ============== merge_frontmatter: no frontmatter ==============

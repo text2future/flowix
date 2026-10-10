@@ -165,7 +165,7 @@ describe('handleMainWindowMemoEvent', () => {
       kind: 'tags_renamed',
       notebookId: 'notebook-b',
       renamedTags: [['old', 'new']],
-      affectedMemoIds: ['memo-1', 'memo-2'],
+      affectedRelativePaths: ['memo-1', 'memo-2'],
     };
 
     handleMainWindowMemoEvent(event, actions);
@@ -187,7 +187,7 @@ describe('handleMainWindowMemoEvent', () => {
       kind: 'tags_renamed',
       notebookId: 'notebook-b',
       renamedTags: [],
-      affectedMemoIds: [],
+      affectedRelativePaths: [],
     };
 
     handleMainWindowMemoEvent(event, actions);
@@ -203,7 +203,7 @@ describe('handleMainWindowMemoEvent', () => {
       kind: 'tags_deleted',
       notebookId: 'notebook-b',
       deletedTags: ['old', 'old/child'],
-      affectedMemoIds: ['memo-1'],
+      affectedRelativePaths: ['memo-1'],
     };
 
     handleMainWindowMemoEvent(event, actions);
@@ -225,7 +225,7 @@ describe('handleMainWindowMemoEvent', () => {
       kind: 'tags_deleted',
       notebookId: 'notebook-b',
       deletedTags: [],
-      affectedMemoIds: [],
+      affectedRelativePaths: [],
     };
 
     handleMainWindowMemoEvent(event, actions);

@@ -302,6 +302,31 @@ impl MemoFile {
         body: &str,
     ) -> std::io::Result<Memo> {
         let _guard = self.current_index_io.lock().expect("index_io poisoned");
+        let (memo, notebook_id) = self.write_memo_preserving_filename_content(id, body, None)?;
+        MemoFile::sync_index_on_write_for_notebook_id_locked(self, &notebook_id, &memo)?;
+        Ok(memo)
+    }
+
+    /// The caller holds the file lock. Keep content I/O outside the legacy
+    /// process-local index mutex so independent files can write concurrently.
+    pub(crate) fn write_memo_preserving_filename_under_file_lock(
+        &self,
+        id: &str,
+        body: &str,
+        file_guard: &super::super::FileWriteGuard,
+    ) -> std::io::Result<Memo> {
+        let (memo, notebook_id) = self.write_memo_preserving_filename_content(id, body, Some(file_guard))?;
+        let _guard = self.current_index_io.lock().expect("index_io poisoned");
+        MemoFile::sync_index_on_write_for_notebook_id_locked(self, &notebook_id, &memo)?;
+        Ok(memo)
+    }
+
+    fn write_memo_preserving_filename_content(
+        &self,
+        id: &str,
+        body: &str,
+        file_guard: Option<&super::super::FileWriteGuard>,
+    ) -> std::io::Result<(Memo, String)> {
         let location = self.resolve_memo_location(id)?.ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, format!("memo {id} not found"))
         })?;
@@ -316,12 +341,16 @@ impl MemoFile {
         let path = notebook_path_from_relative(&base, &memo.relative_path)
             .map_err(std::io::Error::other)?;
         fs::metadata(&path)?;
+        if let Some(file_guard) = file_guard {
+            if std::fs::canonicalize(&path)? != file_guard.path() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "file guard does not match memo path"));
+            }
+        }
         atomic_write_bytes(&path, merged.as_bytes())?;
 
         memo.updated_at = chrono::Utc::now().timestamp_millis();
         apply_derived_memo_fields(&mut memo, &merged);
-        MemoFile::sync_index_on_write_for_notebook_id_locked(self, &location.notebook.id, &memo)?;
-        Ok(memo)
+        Ok((memo, location.notebook.id))
     }
 
     /// 无锁版本的 [`Self::write_memo`]。调用方已持 `current_index_io` 锁。
@@ -563,10 +592,6 @@ impl MemoFile {
             }
         };
         if removed {
-            // Delete the note first. If history cleanup fails, the stale index
-            // row remains available for a retry/reconcile and the snapshots
-            // are still recoverable.
-            self.remove_memo_versions_for_notebook(&self.get_memo_base(), id)?;
             MemoFile::sync_index_on_delete_locked(self, id)?;
         }
         Ok(removed)
@@ -590,7 +615,6 @@ impl MemoFile {
             true
         };
         if removed {
-            self.remove_memo_versions_for_notebook(Path::new(&location.notebook.path), id)?;
             MemoFile::sync_index_on_delete_for_notebook_id_locked(self, &location.notebook.id, id)?;
         }
         Ok(removed)
@@ -618,7 +642,6 @@ impl MemoFile {
         if memo.id != expected_id {
             return Ok(false);
         }
-        self.remove_memo_versions_for_notebook(&base, expected_id)?;
         MemoFile::sync_index_on_delete_for_notebook_id_locked(self, notebook_id, expected_id)?;
         Ok(true)
     }
@@ -645,7 +668,6 @@ impl MemoFile {
         if path.exists() {
             fs::remove_file(&path)?;
         }
-        self.remove_memo_versions_for_notebook(&base, id)?;
         MemoFile::sync_index_on_delete_for_notebook_id_locked(self, notebook_id, id)?;
         Ok(true)
     }

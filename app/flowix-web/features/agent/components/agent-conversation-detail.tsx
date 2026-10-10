@@ -40,19 +40,12 @@ import { CodexApprovalQueue } from '@features/agent/components/codex-approval-qu
 import { buildInitialInstanceRuntimeConfig } from '@features/agent/store/initial-runtime-config';
 import { defaultThreadTitle } from '@features/agent/store/thread-titles';
 import { selectAndOpenAgentConversation } from '@features/workspace/use-cases/agent-conversation-navigation';
-import { openUrl } from '@platform/tauri/opener';
 import { dialogs } from '@platform/tauri/client/desktop';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import { openNoteByDeepLink } from '@features/memo/use-cases/open-by-target';
 import {
   agentFileScopePathForRuntime,
-  localFilePathFromAgentHref,
+  handleAgentLinkClick,
 } from '@features/agent/thread-card/link-navigation';
-import {
-  openBrowserColumnFileBrowser,
-  openBrowserColumnText,
-  openBrowserColumnWebpage,
-} from '@features/workspace/use-cases/browser-column-navigation';
 import {
   runDshCommand,
   hasPendingDshCommand,
@@ -546,47 +539,8 @@ function AgentConversationDetailContent({
     inputRef.current = input;
 
     const handleMessageLinkClick = (event: MouseEvent): void => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const link = target.closest<HTMLAnchorElement>('a[href]');
-      if (!link) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      const rawHref = link.getAttribute('href');
-      void (async () => {
-        const { normalizePlainLinkHref } = await import(
-          '@features/editor/extensions/markdown-link'
-        );
-        const href = normalizePlainLinkHref(rawHref);
-        if (!href) return;
-        if (href.startsWith('flowix://')) {
-          await openNoteByDeepLink(href);
-          return;
-        }
-        if (/^https?:\/\//i.test(href)) {
-          await openBrowserColumnWebpage(href);
-          return;
-        }
-        const localPath = localFilePathFromAgentHref(rawHref);
-        if (!localPath) {
-          await openUrl(href);
-          return;
-        }
-
-        const scopePath = agentFileScopePathForRuntime(
-          localPath,
-          instanceRef.current?.runtimeConfig,
-        );
-        if (scopePath) {
-          await openBrowserColumnFileBrowser(scopePath, localPath);
-          return;
-        }
-
-        const parentPath = localPath.replace(/[\\/][^\\/]*$/, '') || localPath;
-        await openBrowserColumnText(localPath, parentPath);
-      })().catch((error) => {
-        logger.error('Failed to open conversation link', { error });
+      handleAgentLinkClick(event, instanceRef.current?.runtimeConfig, (error, rawHref) => {
+        logger.error('Failed to open conversation link', { error, rawHref });
         toast.error(error instanceof Error ? error.message : String(error));
       });
     };

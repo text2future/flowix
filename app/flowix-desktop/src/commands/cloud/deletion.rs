@@ -10,18 +10,12 @@ pub(super) fn delete_cloud_note_locked(
     sync: &SyncManager,
     notebook_id: &str,
     note_id: &str,
-    relative_path: Option<&str>,
+    relative_path: &str,
     before_delete: impl FnOnce(&Path),
 ) -> Result<Option<Memo>, String> {
-    let memo = if let Some(path) = relative_path {
-        memo_file.find_memo_by_relative_path_for_notebook_id(notebook_id, path)
-    } else {
-        let location = memo_file.resolve_memo_location(note_id).map_err(|error| error.to_string())?;
-        if location.as_ref().is_some_and(|location| location.notebook.id != notebook_id) {
-            return Err(format!("CLOUD_NOTE_ID_COLLISION: {note_id}"));
-        }
-        location.and_then(|_| memo_file.read_memo_for_notebook_id(notebook_id, note_id))
-    };
+    // Cloud v2 note ids are path-derived; the local note is addressed by the
+    // same relative path. Legacy id-based lookup is no longer supported.
+    let memo = memo_file.find_memo_by_relative_path_for_notebook_id(notebook_id, relative_path);
     let Some(memo) = memo else { return Ok(None) };
     let notebook = memo_file.get_notebook_config_by_id(notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;

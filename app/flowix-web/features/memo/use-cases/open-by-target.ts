@@ -5,8 +5,30 @@ import { useNoteStore } from '@features/memo/store/note-store';
 import { setCurrentWorkspaceNotebook } from '@features/memo/public/workspace-api';
 import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { clearWorkspaceDocument, openExternalTarget } from '@features/workspace/use-cases/workspace-navigation';
+import type { WorkspaceContentLocation } from '@features/workspace/use-cases/workspace-content-activation';
+import { publishHeadingAnchorRequest } from '@features/document/use-cases/heading-anchor-publish';
 import { translate } from '@/lib/i18n';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
+
+/** Extract the heading anchor from a flowix://open deep link.
+ *
+ * Two accepted forms: the standard `#fragment` (GitHub slug), and the
+ * generator's `heading` query parameter (raw heading text; an empty value
+ * only disambiguates filenames containing '#' and is not an anchor).
+ */
+function anchorFromDeepLinkUrl(rawUrl: string): string | null {
+  if (!/^flowix:\/\/open\?/i.test(rawUrl.trim())) return null;
+  try {
+    const target = new URL(rawUrl.trim().replace(/&amp;/gi, '&'));
+    const fragment = target.hash.replace(/^#/, '').trim();
+    if (fragment) {
+      try { return decodeURIComponent(fragment) || null; } catch { return fragment; }
+    }
+    return target.searchParams.get('heading')?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 function hasHiddenNotebookDirectory(path: string, notebookPath: string): boolean {
   const absolutePath = canonicalPath(path);
@@ -46,7 +68,8 @@ function hiddenNotebookForPhysicalTarget(rawPath: string): { path: string; noteb
 }
 
 /** Resolve a path link through the notebook path index and open the document. */
-export async function openNoteByDeepLink(url: string): Promise<void> {
+export async function openNoteByDeepLink(url: string, anchorOverride: string | null = null): Promise<void> {
+  const anchor = anchorOverride ?? anchorFromDeepLinkUrl(url);
   if (/^flowix:\/\/open\?/i.test(url.trim())) {
     const target = new URL(url.trim().replace(/&amp;/gi, '&'));
     const book = target.searchParams.get('b') ?? target.searchParams.get('book');
@@ -59,13 +82,13 @@ export async function openNoteByDeepLink(url: string): Promise<void> {
       }
       const matches = notebooks.filter((item) => item.name === book);
       if (matches.length !== 1) throw new Error(`Notebook link is unavailable or ambiguous: ${book}`);
-      await openNoteByNotebookPath(matches[0].id, file);
+      await openNoteByNotebookPath(matches[0].id, file, anchor);
       return;
     }
     const notebookId = target.searchParams.get('notebookId');
     const relativePath = target.searchParams.get('relativePath');
     if (notebookId && relativePath) {
-      await openNoteByNotebookPath(notebookId, relativePath);
+      await openNoteByNotebookPath(notebookId, relativePath, anchor);
       return;
     }
     if (!target.searchParams.get('path')) throw new Error(`Invalid note link: ${url}`);
@@ -82,16 +105,17 @@ export async function openNoteByDeepLink(url: string): Promise<void> {
   if (/\.(?:md|markdown)$/i.test(physicalPath)) {
     const location = await notesClient.resolveLocation(physicalPath).catch(() => null);
     if (location?.indexable && location.notebookId && location.relativePath) {
-      await openNoteByNotebookPath(location.notebookId, location.relativePath);
+      await openNoteByNotebookPath(location.notebookId, location.relativePath, anchor);
       return;
     }
   }
   const hiddenTarget = hiddenNotebookForPhysicalTarget(url);
   if (hiddenTarget) {
-    await openExternalTarget(hiddenTarget.path, {
+    const opened = await openExternalTarget(hiddenTarget.path, {
       destination: 'main-third',
       scopePath: hiddenTarget.notebookPath,
     });
+    if (anchor) publishHeadingAnchorRequest(hiddenTarget.path, opened, anchor);
     return;
   }
 
@@ -101,10 +125,16 @@ export async function openNoteByDeepLink(url: string): Promise<void> {
   if (!/\.(?:md|markdown)$/i.test(physicalPath)) {
     throw new Error(`Unsupported note target: ${url}`);
   }
-  await openExternalTarget(physicalPath, { scopePath: null, destination: 'main-third' });
+  const opened = await openExternalTarget(physicalPath, { scopePath: null, destination: 'main-third' });
+  if (anchor) publishHeadingAnchorRequest(physicalPath, opened, anchor);
 }
 
-export async function openNoteByNotebookPath(notebookId: string, relativePath: string): Promise<void> {
+/** Open a note by notebook ID + relative path; returns where the content landed. */
+export async function openNoteByNotebookPath(
+  notebookId: string,
+  relativePath: string,
+  anchor: string | null = null,
+): Promise<WorkspaceContentLocation | null> {
   const normalized = relativePath.replace(/\\/g, '/');
   if (!normalized || normalized.startsWith('/') || normalized.split('/').some((part) => !part || part === '.' || part === '..')) {
     throw new Error('Invalid notebook-relative note path');
@@ -122,12 +152,14 @@ export async function openNoteByNotebookPath(notebookId: string, relativePath: s
       path: `${notebook.name}/${normalized}`,
     }));
   }
-  await openExternalTarget(path, { scopePath: notebook.path, destination: 'main-third' });
+  const opened = await openExternalTarget(path, { scopePath: notebook.path, destination: 'main-third' });
+  if (anchor) publishHeadingAnchorRequest(path, opened, anchor);
+  return opened;
 }
 
-/** Open a Markdown file by absolute path or file URL. */
-export async function openNoteByPhysicalPath(rawPath: string): Promise<void> {
-  await openNoteByDeepLink(rawPath);
+/** Open a Markdown file by absolute path or file URL, with an optional heading anchor. */
+export async function openNoteByPhysicalPath(rawPath: string, anchor: string | null = null): Promise<void> {
+  await openNoteByDeepLink(rawPath, anchor);
 }
 
 /** Open a notebook by its explicit notebook link. */

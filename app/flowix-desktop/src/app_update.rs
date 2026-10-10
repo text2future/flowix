@@ -10,9 +10,9 @@ use tauri_plugin_updater::UpdaterExt;
 #[cfg(target_os = "windows")]
 use std::fs::OpenOptions;
 #[cfg(target_os = "windows")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[cfg(target_os = "windows")]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Default)]
 pub struct AppUpdateState {
@@ -27,6 +27,113 @@ pub struct AppUpdateInfo {
     pub notify: bool,
     pub date: Option<String>,
     pub body: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInstallResult {
+    pub status: String,
+    pub message: Option<String>,
+}
+
+/// Read and clear the result left by a quiet Windows NSIS update.
+#[tauri::command]
+pub fn consume_app_update_result(app: AppHandle) -> Option<AppUpdateInstallResult> {
+    #[cfg(target_os = "windows")]
+    {
+        let path = app_update_result_path()?;
+        let content = std::fs::read_to_string(&path).ok()?;
+        let target_path = app_update_target_path()?;
+        let target_version = std::fs::read_to_string(&target_path)
+            .ok()
+            .map(|value| value.trim().to_string());
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(target_path);
+        let (status, message) = content.trim().split_once('|')?;
+        let current_version = app.package_info().version.to_string();
+        return match status {
+            "success" if target_version.as_deref() == Some(current_version.as_str()) => {
+                Some(AppUpdateInstallResult {
+                    status: "success".to_string(),
+                    message: None,
+                })
+            }
+            "success" => Some(AppUpdateInstallResult {
+                status: "failed".to_string(),
+                message: Some(format!(
+                    "Installer reported success for {}, but Flowix started as {current_version}.",
+                    target_version.as_deref().unwrap_or("the requested version")
+                )),
+            }),
+            "failed" => Some(AppUpdateInstallResult {
+                status: "failed".to_string(),
+                message: (!message.is_empty()).then(|| message.to_string()),
+            }),
+            "pending" => Some(AppUpdateInstallResult {
+                status: "failed".to_string(),
+                message: Some(format!(
+                    "Installer did not report a completed update to {message}; Flowix started as {current_version}."
+                )),
+            }),
+            _ => None,
+        };
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn app_update_result_path() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|path| path.join("Flowix").join("app-update-result.txt"))
+}
+
+#[cfg(target_os = "windows")]
+fn app_update_target_path() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|path| path.join("Flowix").join("app-update-target.txt"))
+}
+
+#[cfg(target_os = "windows")]
+fn write_pending_app_update_result(version: &str) -> Result<(), String> {
+    let target_path =
+        app_update_target_path().ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?;
+    let parent = target_path
+        .parent()
+        .ok_or_else(|| "update target path has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create update target directory: {error}"))?;
+    std::fs::write(target_path, version)
+        .map_err(|error| format!("failed to persist update target version: {error}"))?;
+    write_app_update_result("pending", version)
+}
+
+#[cfg(target_os = "windows")]
+fn write_app_update_result(status: &str, message: &str) -> Result<(), String> {
+    let path = app_update_result_path().ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "update result path has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create update result directory: {error}"))?;
+    std::fs::write(path, format!("{status}|{message}\n"))
+        .map_err(|error| format!("failed to persist update result: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn write_pending_app_update_result(_version: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn write_app_update_result(_status: &str, _message: &str) -> Result<(), String> {
+    Ok(())
 }
 
 fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
@@ -86,6 +193,7 @@ pub async fn install_app_update(
         .await
         .map_err(|error| format!("failed to check for update: {error}"))?
         .ok_or_else(|| "no application update is available".to_string())?;
+    let target_version = update.version.clone();
 
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     {
@@ -149,10 +257,16 @@ pub async fn install_app_update(
                 "downloadedBytes": progress_bytes.load(Ordering::Relaxed),
             }),
         );
-        let _cli_update_guard = prepare_cli_for_update()?;
-        update
-            .install(bytes)
-            .map_err(|error| format!("failed to install update: {error}"))
+        let _cli_update_guard = prepare_cli_for_update(&target_version)?;
+        write_pending_app_update_result(&target_version)?;
+        match update.install(bytes) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let message = format!("failed to install update: {error}");
+                let _ = write_app_update_result("failed", &message);
+                Err(message)
+            }
+        }
     };
 
     let result = Abortable::new(task, abort_registration).await;
@@ -177,9 +291,10 @@ struct CliUpdateGuard {
     _update_lock: UpdateLock,
 }
 
-fn prepare_cli_for_update() -> Result<CliUpdateGuard, String> {
+fn prepare_cli_for_update(target_version: &str) -> Result<CliUpdateGuard, String> {
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = target_version;
         return Ok(CliUpdateGuard {});
     }
 
@@ -187,32 +302,29 @@ fn prepare_cli_for_update() -> Result<CliUpdateGuard, String> {
     {
         let update_lock = acquire_update_lock()?;
         let cli_path = current_cli_path()?;
-        let pids = matching_cli_processes(&cli_path)?;
-
-        for pid in pids {
-            terminate_process(pid)?;
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let remaining = matching_cli_processes(&cli_path)?;
-            if remaining.is_empty() {
-                return Ok(CliUpdateGuard {
-                    _update_lock: update_lock,
-                });
-            }
-            if Instant::now() >= deadline {
-                return Err(format!(
-                    "cannot update while flowix-cli is still running (pid: {})",
-                    remaining
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
+        let log_dir = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .ok_or_else(|| "LOCALAPPDATA is unavailable".to_string())?
+            .join("Flowix");
+        std::fs::create_dir_all(&log_dir)
+            .map_err(|error| format!("failed to create update log directory: {error}"))?;
+        flowix_installer_helper::log(
+            &log_dir.join("app-update.log"),
+            &format!(
+                "installer-check-start version={target_version} source=app-updater target={}",
+                cli_path.display()
+            ),
+        );
+        flowix_installer_helper::close_target_cli(
+            &cli_path,
+            Duration::from_secs(10),
+            Duration::from_millis(200),
+            &log_dir.join("app-update.log"),
+        )
+        .map_err(|error| format!("failed to prepare Flowix CLI for update: {error:?}"))?;
+        Ok(CliUpdateGuard {
+            _update_lock: update_lock,
+        })
     }
 }
 
@@ -247,100 +359,6 @@ fn current_cli_path() -> Result<PathBuf, String> {
         .parent()
         .ok_or_else(|| "Flowix executable has no parent directory".to_string())?;
     Ok(parent.join("flowix-cli.exe"))
-}
-
-#[cfg(target_os = "windows")]
-fn matching_cli_processes(target: &Path) -> Result<Vec<u32>, String> {
-    use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-    use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
-    };
-
-    let target = normalize_path(target);
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
-        .map_err(|error| format!("failed to enumerate processes: {error}"))?;
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err("failed to create process snapshot".to_string());
-    }
-
-    let mut entry = PROCESSENTRY32W {
-        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut result = Vec::new();
-    let mut has_entry = unsafe { Process32FirstW(snapshot, &mut entry).is_ok() };
-    while has_entry {
-        let pid = entry.th32ProcessID;
-        if pid != 0 {
-            let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE;
-            if let Ok(process) = unsafe { OpenProcess(access, false, pid) } {
-                let mut buffer = vec![0u16; 32_768];
-                let mut length = buffer.len() as u32;
-                let matches = unsafe {
-                    QueryFullProcessImageNameW(
-                        process,
-                        PROCESS_NAME_FORMAT(0),
-                        windows::core::PWSTR(buffer.as_mut_ptr()),
-                        &mut length,
-                    )
-                    .is_ok()
-                } && normalize_path(Path::new(&String::from_utf16_lossy(
-                    &buffer[..length as usize],
-                ))) == target;
-                unsafe {
-                    let _ = CloseHandle(process);
-                }
-                if matches {
-                    result.push(pid);
-                }
-            }
-        }
-        has_entry = unsafe { Process32NextW(snapshot, &mut entry).is_ok() };
-    }
-    unsafe {
-        let _ = CloseHandle(snapshot);
-    }
-    Ok(result)
-}
-
-#[cfg(target_os = "windows")]
-fn terminate_process(pid: u32) -> Result<(), String> {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
-    };
-
-    let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | PROCESS_SYNCHRONIZE;
-    let process = unsafe { OpenProcess(access, false, pid) }
-        .map_err(|error| format!("failed to open flowix-cli process {pid}: {error}"))?;
-    let terminated = unsafe { TerminateProcess(process, 1).is_ok() };
-    if !terminated {
-        unsafe {
-            let _ = CloseHandle(process);
-        }
-        return Err(format!("failed to terminate flowix-cli process {pid}"));
-    }
-    unsafe { WaitForSingleObject(process, 5_000) };
-    unsafe {
-        let _ = CloseHandle(process);
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn normalize_path(path: &Path) -> String {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .replace('/', "\\")
-        .trim_end_matches('\\')
-        .to_ascii_lowercase()
 }
 
 #[tauri::command]

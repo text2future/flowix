@@ -332,7 +332,7 @@ fn is_safe_component(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memo_file::{MemoFile, MemoVersionSource, NotebookConfig};
+    use crate::memo_file::{MemoFile, NotebookConfig};
 
     fn fixture() -> (MemoFile, tempfile::TempDir) {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -420,17 +420,5 @@ mod tests {
             .is_file());
     }
 
-    #[test]
-    fn new_version_writes_use_flowix_root() {
-        let (mf, temp) = fixture();
-        let memo = mf.create_memo("Versioned", "body", None).unwrap();
-        mf.create_memo_version(&memo.id, "snapshot", MemoVersionSource::Manual)
-            .unwrap();
-        assert!(temp
-            .path()
-            .join("notebook/.flowix/versions")
-            .join(&memo.id)
-            .join("manifest.json")
-            .is_file());
-    }
+
 }

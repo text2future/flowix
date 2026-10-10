@@ -44,7 +44,8 @@ pub(crate) struct ArtifactPointerMemo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactSession {
-    pub pointer_memo_id: String,
+    pub notebook_id: String,
+    pub note_path: String,
     pub plugin_id: String,
     pub plugin_version: String,
     pub path: String,
@@ -54,7 +55,6 @@ pub struct ArtifactSession {
     pub parser: String,
     pub renderer: String,
     pub content: Option<String>,
-    pub note_id: Option<String>,
     pub status: String,
     pub plugin_available: bool,
     pub error: Option<String>,
@@ -156,40 +156,40 @@ fn artifact_body(raw: &str) -> String {
         .unwrap_or_else(|| raw.to_string())
 }
 
-/// Resolve a pointer memo without loading a plugin descriptor. The descriptor
-/// is only probed to report availability; it is never required to read the
-/// durable artifact file.
+/// Resolve a durable artifact pointer without loading a plugin descriptor.
+/// The descriptor is only probed to report availability; it is never required
+/// to read the durable artifact file. Addressing is path-based: `note_path`
+/// must be an absolute path of the pointer note inside a registered notebook.
 pub fn resolve(
-    id_or_path: &str,
+    note_path: &str,
     memo_file: &Arc<RwLock<flowix_core::memo_file::MemoFile>>,
 ) -> Result<ArtifactSession, String> {
+    let path = Path::new(note_path);
+    if !path.is_absolute() {
+        return Err("absolute note path required".to_string());
+    }
     let memo_file_guard = read_lock(memo_file, "memo_file");
-    let memo_id = if Path::new(id_or_path).is_absolute() {
-        flowix_core::MemoService::new(&memo_file_guard)
-            .resolve_memo(id_or_path)
-            .map_err(|error| format!("artifact pointer not found: {error}"))?
-            .id
-    } else {
-        id_or_path.to_string()
+    let Some((notebook_id, relative_path)) =
+        crate::commands::helpers::notebook_note_address(&memo_file_guard, path)?
+    else {
+        return Err(format!("artifact pointer not found: {note_path}"));
     };
-    let (entry, raw_note) = memo_file_guard
-        .read_memo_with_body_global(&memo_id)
-        .ok_or_else(|| format!("artifact pointer not found: {memo_id}"))?;
     let notebook = memo_file_guard
-        .resolve_memo_location(&memo_id)
-        .map_err(|error| format!("resolve artifact pointer: {error}"))?
-        .map(|location| PathBuf::from(location.notebook.path))
-        .ok_or_else(|| format!("artifact pointer not found: {memo_id}"))?;
+        .get_notebook_config_by_id(&notebook_id)
+        .ok_or_else(|| format!("artifact notebook not found: {notebook_id}"))?;
+    let notebook_root = PathBuf::from(&notebook.path);
     drop(memo_file_guard);
 
+    let raw_note = fs::read_to_string(path)
+        .map_err(|error| format!("read artifact pointer: {error}"))?;
     let pointer_memo = pointer_from_note(&raw_note)?;
     let pointer = &pointer_memo.flowix_artifact;
-    let candidates = artifact_candidates(&notebook, &pointer_memo.flowix_plugin, &pointer.path)?;
+    let candidates = artifact_candidates(&notebook_root, &pointer_memo.flowix_plugin, &pointer.path)?;
     let artifact_path = candidates.iter().find(|path| path.is_file()).cloned();
     let plugin_available = crate::plugin::get_plugin(&pointer_memo.flowix_plugin).is_ok();
-    let path = artifact_path
+    let artifact_file = artifact_path
         .clone()
-        .unwrap_or_else(|| notebook.join(&pointer.path));
+        .unwrap_or_else(|| notebook_root.join(&pointer.path));
 
     let (content, status, error) = match artifact_path {
         Some(path) => match fs::read_to_string(&path) {
@@ -228,13 +228,19 @@ pub fn resolve(
         ),
     };
 
+    let pointer_stem = Path::new(&relative_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_string();
     Ok(ArtifactSession {
-        pointer_memo_id: memo_id.to_string(),
+        notebook_id,
+        note_path: relative_path,
         plugin_id: pointer_memo.flowix_plugin,
         plugin_version: pointer_memo.flowix_plugin_version,
-        path: path.to_string_lossy().to_string(),
+        path: artifact_file.to_string_lossy().to_string(),
         name: if pointer.title.trim().is_empty() {
-            entry.filename.trim_end_matches(".md").to_string()
+            pointer_stem
         } else {
             pointer.title.clone()
         },
@@ -243,36 +249,36 @@ pub fn resolve(
         parser: pointer.parser.clone(),
         renderer: pointer.renderer.clone(),
         content,
-        note_id: Some(entry.id),
         status,
         plugin_available,
         error,
     })
 }
 
-/// Return the backing file for pointer-memo deletion. This remains host-owned
-/// so uninstalling a producer plugin does not strand its artifact forever.
-pub fn path_for_memo(
-    memo_id: &str,
+/// Return the backing file for a pointer note's deletion. This remains
+/// host-owned so uninstalling a producer plugin does not strand its artifact
+/// forever. Addressing is path-based: `(notebook_id, relative_path)`.
+pub fn path_for_note(
+    notebook_id: &str,
+    relative_path: &str,
     memo_file: &Arc<RwLock<flowix_core::memo_file::MemoFile>>,
 ) -> Result<Option<PathBuf>, String> {
     let memo_file_guard = read_lock(memo_file, "memo_file");
-    let Some((_, raw_note)) = memo_file_guard.read_memo_with_body_global(memo_id) else {
+    let Some(notebook) = memo_file_guard.get_notebook_config_by_id(notebook_id) else {
         return Ok(None);
     };
-    let notebook = memo_file_guard
-        .resolve_memo_location(memo_id)
-        .map_err(|error| format!("resolve artifact pointer for deletion: {error}"))?
-        .map(|location| PathBuf::from(location.notebook.path));
     drop(memo_file_guard);
-    let Some(notebook) = notebook else {
-        return Ok(None);
+    let notebook_root = PathBuf::from(&notebook.path);
+    let raw_note = match fs::read_to_string(notebook_root.join(relative_path)) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("read artifact pointer for deletion: {error}")),
     };
     let Ok(pointer_memo) = pointer_from_note(&raw_note) else {
         return Ok(None);
     };
     let candidates = artifact_candidates(
-        &notebook,
+        &notebook_root,
         &pointer_memo.flowix_plugin,
         &pointer_memo.flowix_artifact.path,
     )?;

@@ -8,10 +8,10 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, ErrorCode, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
@@ -50,6 +50,12 @@ fn mark_note_index_refresh_pending(root: &Path) -> io::Result<()> {
     }
 }
 
+fn mark_note_index_refresh_pending_logged(root: &Path, notebook_id: &str, relative_path: &str) {
+    if let Err(error) = mark_note_index_refresh_pending(root) {
+        tracing::warn!(notebook_id, relative_path, "note index refresh marker failed: {error}");
+    }
+}
+
 fn pending_note_index_refreshes(root: &Path) -> io::Result<Vec<std::path::PathBuf>> {
     let mut pending = Vec::new();
     let legacy = root.join(".flowix").join(NOTE_INDEX_REFRESH_PENDING);
@@ -66,6 +72,14 @@ fn pending_note_index_refreshes(root: &Path) -> io::Result<Vec<std::path::PathBu
         Err(error) => return Err(error),
     }
     Ok(pending)
+}
+
+fn sqlite_busy(error: &io::Error) -> bool {
+    matches!(
+        error.get_ref().and_then(|source| source.downcast_ref::<rusqlite::Error>()),
+        Some(rusqlite::Error::SqliteFailure(code, _))
+            if matches!(code.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
 }
 
 fn display_title_from_relative_path(relative_path: &str) -> String {
@@ -186,6 +200,21 @@ impl LegacyTodoAttributes {
 }
 
 impl MemoFile {
+    pub(crate) fn mark_note_index_refresh_pending_for_notebook(&self, notebook_id: &str) -> io::Result<()> {
+        let root = self.notebook_root_for_note(notebook_id)?;
+        mark_note_index_refresh_pending(&root)
+    }
+
+    /// A completed file create remains successful when its rebuildable index lags.
+    pub fn refresh_note_path_after_write(&self, notebook_id: &str, relative_path: &str) {
+        if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
+            if let Err(marker_error) = self.mark_note_index_refresh_pending_for_notebook(notebook_id) {
+                tracing::warn!(notebook_id, relative_path, "note index refresh marker failed: {marker_error}");
+            }
+            tracing::warn!(notebook_id, relative_path, "note saved but index refresh failed: {error}");
+        }
+    }
+
     /// Create a note with no generated memo ID and register it by relative path.
     pub fn create_note_by_path(
         &self,
@@ -194,7 +223,6 @@ impl MemoFile {
         title: &str,
         content: &str,
     ) -> io::Result<String> {
-        let _write_guard = self.acquire_cross_process_write_lock()?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let parent_relative = parent_relative_path.unwrap_or("").replace('\\', "/");
         let parent_path = if parent_relative.is_empty() {
@@ -238,7 +266,7 @@ impl MemoFile {
                 format!("{candidate}-{suffix}.md")
             };
             let path = parent_path.join(filename);
-            match super::atomic_create_bytes(&path, content.as_bytes()) {
+            match self.create_file_for_notebook(notebook_id, &path, content.as_bytes()) {
                 Ok(()) => break path,
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     suffix = suffix.saturating_add(1);
@@ -248,7 +276,7 @@ impl MemoFile {
         };
         let relative = notebook_relative_path(&root, &path).map_err(io::Error::other)?;
         if let Err(error) = self.refresh_note_path(notebook_id, &relative) {
-            mark_note_index_refresh_pending(&root)?;
+            mark_note_index_refresh_pending_logged(&root, notebook_id, &relative);
             tracing::warn!(notebook_id, relative_path = %relative, "note created but path index refresh failed: {error}");
         }
         Ok(relative)
@@ -266,13 +294,13 @@ impl MemoFile {
         let path = self.validate_note_path(&root, relative_path, true)?;
         super::frontmatter::extract_document_metadata_tolerant(content)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
-        match self.write_file_if_matches(&path, content, expected_content)? {
+        match self.write_file_if_matches_for_notebook(notebook_id, &path, content, expected_content)? {
             super::FileWriteOutcome::Conflict { disk_content } => {
                 Ok(NoteWriteOutcome::Conflict { disk_content })
             }
             super::FileWriteOutcome::Saved => {
                 if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
-                    mark_note_index_refresh_pending(&root)?;
+                    mark_note_index_refresh_pending_logged(&root, notebook_id, relative_path);
                     tracing::warn!(
                         notebook_id,
                         relative_path,
@@ -295,7 +323,7 @@ impl MemoFile {
         new_title: &str,
         expected_content: Option<&str>,
     ) -> io::Result<String> {
-        let _write_guard = self.acquire_cross_process_write_lock()?;
+        let change_guard = self.operation_locks().notebook_change(&[notebook_id], "rename_note_by_path")?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let old_path = self.validate_note_path(&root, relative_path, true)?;
         if let Some(expected) = expected_content {
@@ -309,10 +337,11 @@ impl MemoFile {
                 ));
             }
         }
+        // Read the existing projection without refreshing: this runs while
+        // holding the notebook's exclusive lock, and refreshing would try to
+        // re-acquire the notebook shared lock and deadlock against itself.
         let previous_created_at = self
-            .read_note_entry_by_path(notebook_id, relative_path)
-            .ok()
-            .flatten()
+            .read_indexed_note_entry_by_path(notebook_id, relative_path)?
             .map(|entry| entry.created_at)
             .or_else(|| {
                 self.derive_note_entry_from_disk(notebook_id, relative_path)
@@ -365,8 +394,16 @@ impl MemoFile {
                 "note renamed but archive move failed: {error}"
             );
         }
+        if let Err(error) = self.rekey_note_content_revision(notebook_id, relative_path, &new_relative) {
+            tracing::warn!(
+                notebook_id,
+                relative_path,
+                "note renamed but content revision rekey failed: {error}"
+            );
+        }
+        drop(change_guard);
         if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
-            mark_note_index_refresh_pending(&root)?;
+            mark_note_index_refresh_pending_logged(&root, notebook_id, relative_path);
             tracing::warn!(
                 notebook_id,
                 relative_path,
@@ -374,7 +411,7 @@ impl MemoFile {
             );
         }
         if let Err(error) = self.refresh_note_path(notebook_id, &new_relative) {
-            mark_note_index_refresh_pending(&root)?;
+            mark_note_index_refresh_pending_logged(&root, notebook_id, &new_relative);
             tracing::warn!(notebook_id, relative_path = %new_relative, "note renamed but new path index refresh failed: {error}");
         } else if let Some(created_at) = previous_created_at.filter(|value| *value > 0) {
             let result = self
@@ -403,7 +440,7 @@ impl MemoFile {
         relative_path: &str,
         parent_relative_path: &str,
     ) -> io::Result<String> {
-        let _write_guard = self.acquire_cross_process_write_lock()?;
+        let change_guard = self.operation_locks().notebook_change(&[notebook_id], "move_note_by_path")?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let old_path = self.validate_note_path(&root, relative_path, true)?;
         let parent_relative = parent_relative_path.replace('\\', "/");
@@ -441,9 +478,17 @@ impl MemoFile {
             return Ok(new_relative);
         }
 
+        // Read the existing projection without refreshing: this runs while
+        // holding the notebook's exclusive lock, and refreshing would try to
+        // re-acquire the notebook shared lock and deadlock against itself.
         let previous_created_at = self
-            .read_note_entry_by_path(notebook_id, relative_path)?
-            .map(|entry| entry.created_at);
+            .read_indexed_note_entry_by_path(notebook_id, relative_path)?
+            .map(|entry| entry.created_at)
+            .or_else(|| {
+                self.derive_note_entry_from_disk(notebook_id, relative_path)
+                    .ok()
+                    .map(|entry| entry.created_at)
+            });
         super::rename_file_noclobber(&old_path, &new_path)?;
         if let Err(error) = self.move_path_archive(notebook_id, relative_path, &new_relative) {
             tracing::warn!(
@@ -452,9 +497,18 @@ impl MemoFile {
                 "note moved but archive move failed: {error}"
             );
         }
+        if let Err(error) = self.rekey_note_content_revision(notebook_id, relative_path, &new_relative) {
+            tracing::warn!(
+                notebook_id,
+                relative_path,
+                "note moved but content revision rekey failed: {error}"
+            );
+        }
+
+        drop(change_guard);
 
         if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
-            mark_note_index_refresh_pending(&root)?;
+            mark_note_index_refresh_pending_logged(&root, notebook_id, relative_path);
             tracing::warn!(
                 notebook_id,
                 relative_path,
@@ -462,7 +516,7 @@ impl MemoFile {
             );
         }
         if let Err(error) = self.refresh_note_path(notebook_id, &new_relative) {
-            mark_note_index_refresh_pending(&root)?;
+            mark_note_index_refresh_pending_logged(&root, notebook_id, &new_relative);
             tracing::warn!(notebook_id, relative_path = %new_relative, "note moved but new path index refresh failed: {error}");
         } else if let Some(created_at) = previous_created_at.filter(|value| *value > 0) {
             let result = self
@@ -484,13 +538,30 @@ impl MemoFile {
 
     /// Delete an existing note by path and remove only its rebuildable projection row.
     pub fn delete_note_by_path(&self, notebook_id: &str, relative_path: &str) -> io::Result<bool> {
-        let _write_guard = self.acquire_cross_process_write_lock()?;
+        self.delete_note_by_path_checked(notebook_id, relative_path, None)
+    }
+
+    /// The expected body is compared while holding the target file lock.
+    pub fn delete_note_by_path_checked(&self, notebook_id: &str, relative_path: &str, expected_content: Option<&str>) -> io::Result<bool> {
         let root = self.notebook_root_for_note(notebook_id)?;
         let path = self.validate_note_path(&root, relative_path, false)?;
-        match fs::remove_file(&path) {
+        match self.with_file_write(
+            notebook_id,
+            &path,
+            super::FileLockIntent::ExistingOrMissing,
+            "delete_note_by_path",
+            |path| {
+                if let Some(expected) = expected_content {
+                    if fs::read_to_string(path)? != expected {
+                        return Err(io::Error::new(io::ErrorKind::WouldBlock, "note changed before delete"));
+                    }
+                }
+                fs::remove_file(path)
+            },
+        ) {
             Ok(()) => {
                 if let Err(error) = self.refresh_note_path(notebook_id, relative_path) {
-                    mark_note_index_refresh_pending(&root)?;
+                    mark_note_index_refresh_pending_logged(&root, notebook_id, relative_path);
                     tracing::warn!(
                         notebook_id,
                         relative_path,
@@ -501,7 +572,7 @@ impl MemoFile {
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 if let Err(index_error) = self.refresh_note_path(notebook_id, relative_path) {
-                    mark_note_index_refresh_pending(&root)?;
+                    mark_note_index_refresh_pending_logged(&root, notebook_id, relative_path);
                     tracing::warn!(
                         notebook_id,
                         relative_path,
@@ -520,7 +591,7 @@ impl MemoFile {
         notebook_id: &str,
         relative_path: &str,
     ) -> io::Result<bool> {
-        let _write_guard = self.acquire_cross_process_write_lock()?;
+        let _write_guard = self.operation_locks().notebook_read(notebook_id, "prune_missing_note_index")?;
         let root = self.notebook_root_for_note(notebook_id)?;
         let path = self.validate_note_path(&root, relative_path, false)?;
         match fs::symlink_metadata(&path) {
@@ -587,6 +658,40 @@ impl MemoFile {
             Err(error) => return Err(error),
         }
         Ok(path)
+    }
+
+    /// Return whether any note carries exactly `tag` in the path projection.
+    pub fn note_tag_exists(&self, notebook_id: &str, tag: &str) -> io::Result<bool> {
+        let conn = self.open_note_index_connection(notebook_id)?;
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM note_tags WHERE tag = ?1)",
+                [tag],
+                |row| row.get(0),
+            )
+            .map_err(io::Error::other)?;
+        Ok(exists)
+    }
+
+    /// Return distinct note relative paths carrying `tag` or a subtree tag
+    /// (`tag/<...>` at any depth), ordered for deterministic iteration.
+    pub fn note_paths_with_tag(
+        &self,
+        notebook_id: &str,
+        tag: &str,
+    ) -> io::Result<Vec<String>> {
+        let conn = self.open_note_index_connection(notebook_id)?;
+        let prefix = format!("{tag}/");
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT relative_path FROM note_tags \
+                 WHERE tag = ?1 OR tag LIKE ?2 ESCAPE '\\' ORDER BY relative_path",
+            )
+            .map_err(io::Error::other)?;
+        let rows = stmt
+            .query_map(params![tag, format!("{prefix}%")], |row| row.get(0))
+            .map_err(io::Error::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(io::Error::other)
     }
 
     /// Read one note's projection by path. This also repairs a missing or
@@ -1816,14 +1921,35 @@ impl MemoFile {
     /// Reconcile one notebook's Note projection with files on disk. Existing
     /// rows are checked by stat first and hashed only when their stat changes.
     /// This method intentionally does not touch the legacy memo tables.
+    ///
+    /// This passive/lazy path skips instead of blocking when another process is
+    /// already reconciling the same notebook, so a background refresh never
+    /// turns into a spurious 5s timeout error. The next read pass retries.
     pub fn reconcile_note_index(&self, notebook_id: &str) -> io::Result<NoteIndexReconcileReport> {
-        self.reconcile_note_index_inner(notebook_id, false)
+        self.reconcile_note_index_inner(notebook_id, false, true)
     }
 
     /// Hash every file, including entries whose size and mtime are unchanged.
     /// Use this for an occasional audit or after a suspected missed watcher event.
+    ///
+    /// Unlike [`Self::reconcile_note_index`], this explicit audit waits for the
+    /// maintenance lock rather than skipping, so the caller can rely on a full
+    /// pass having completed.
     pub fn verify_note_index(&self, notebook_id: &str) -> io::Result<NoteIndexReconcileReport> {
-        self.reconcile_note_index_inner(notebook_id, true)
+        self.reconcile_note_index_inner(notebook_id, true, false)
+    }
+
+    /// Blocking reconcile used by short-lived CLI/MCP processes that need an
+    /// accurate result: it stats each file and hashes only those whose size or
+    /// mtime changed, so a fresh index is cheap while a file changed after the
+    /// last scan (for example a crash between body commit and refresh marker)
+    /// is still picked up. Unlike [`Self::reconcile_note_index`], it waits for
+    /// the maintenance lock instead of skipping a concurrent pass.
+    pub fn reconcile_note_index_blocking(
+        &self,
+        notebook_id: &str,
+    ) -> io::Result<NoteIndexReconcileReport> {
+        self.reconcile_note_index_inner(notebook_id, false, false)
     }
 
     /// Enumerate Markdown note paths directly from the notebook tree without
@@ -1888,14 +2014,33 @@ impl MemoFile {
         }
         let mut conn = self.open_note_index_connection(notebook_id)?;
         let mut report = NoteIndexReconcileReport::default();
-        Self::refresh_note_index_path(&mut conn, &root, &path, true, false, &mut report)
+        self.refresh_note_index_path_with_retry(
+            notebook_id, &mut conn, &root, &path, true, false, &mut report,
+        )
     }
 
     fn reconcile_note_index_inner(
         &self,
         notebook_id: &str,
         verify_hashes: bool,
+        skip_if_busy: bool,
     ) -> io::Result<NoteIndexReconcileReport> {
+        let _maintenance_guard = if skip_if_busy {
+            let Some(guard) = self
+                .operation_locks()
+                .try_notebook_maintenance(notebook_id, "reconcile_note_index")?
+            else {
+                tracing::debug!(
+                    notebook_id,
+                    "note index reconcile skipped: another maintenance pass is in progress"
+                );
+                return Ok(NoteIndexReconcileReport::default());
+            };
+            guard
+        } else {
+            self.operation_locks()
+                .notebook_maintenance(notebook_id, "reconcile_note_index")?
+        };
         let root = self
             .get_notebook_config_by_id(notebook_id)
             .map(|config| std::path::PathBuf::from(config.path))
@@ -1947,7 +2092,8 @@ impl MemoFile {
             }
             let relative = notebook_relative_path(&root, entry.path()).map_err(io::Error::other)?;
             seen.insert(relative.clone());
-            Self::refresh_note_index_path(
+            self.refresh_note_index_path_with_retry(
+                notebook_id,
                 &mut conn,
                 &root,
                 entry.path(),
@@ -1967,17 +2113,13 @@ impl MemoFile {
         drop(stmt);
         for relative in indexed {
             if !seen.contains(&relative) {
-                conn.execute(
-                    "DELETE FROM note_search_fts WHERE relative_path = ?1",
-                    params![relative],
-                )
-                .map_err(io::Error::other)?;
-                conn.execute(
-                    "DELETE FROM notes WHERE relative_path = ?1",
-                    params![relative],
-                )
-                .map_err(io::Error::other)?;
-                report.removed += 1;
+                let candidate = notebook_path_from_relative(&root, &relative).map_err(io::Error::other)?;
+                // The scan only nominates stale rows. A file may have appeared
+                // after its directory was visited, so inspect it again under
+                // the notebook lock and SQLite transaction.
+                self.refresh_note_index_path_with_retry(
+                    notebook_id, &mut conn, &root, &candidate, true, false, &mut report,
+                )?;
             }
         }
         conn.execute(
@@ -2007,6 +2149,41 @@ impl MemoFile {
         Ok(report)
     }
 
+    fn refresh_note_index_path_with_retry(
+        &self,
+        notebook_id: &str,
+        conn: &mut Connection,
+        root: &Path,
+        path: &Path,
+        verify_hashes: bool,
+        reparse_all: bool,
+        report: &mut NoteIndexReconcileReport,
+    ) -> io::Result<()> {
+        conn.busy_timeout(Duration::ZERO).map_err(io::Error::other)?;
+        let started = Instant::now();
+        loop {
+            let guard = self.operation_locks().notebook_read(notebook_id, "refresh_note_index_path")?;
+            let mut attempt = NoteIndexReconcileReport::default();
+            let result = Self::refresh_note_index_path(
+                conn, root, path, verify_hashes, reparse_all, &mut attempt,
+            );
+            drop(guard);
+            match result {
+                Ok(()) => {
+                    report.added += attempt.added;
+                    report.updated += attempt.updated;
+                    report.removed += attempt.removed;
+                    report.unchanged += attempt.unchanged;
+                    return Ok(());
+                }
+                Err(error) if sqlite_busy(&error) && started.elapsed() < Duration::from_secs(5) => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
     fn refresh_note_index_path(
         conn: &mut Connection,
         root: &Path,
@@ -2017,18 +2194,27 @@ impl MemoFile {
     ) -> io::Result<()> {
         let relative = notebook_relative_path(root, path).map_err(io::Error::other)?;
         let policy = super::FileManagementPolicy::from_notebook_root(root);
-        if !path.exists() || policy.is_index_ignored_at(root, Path::new(&relative)) {
-            conn.execute(
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(io::Error::other)?;
+        let missing = match fs::symlink_metadata(path) {
+            Ok(_) => false,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+            Err(error) => return Err(error),
+        };
+        if missing || policy.is_index_ignored_at(root, Path::new(&relative)) {
+            tx.execute(
                 "DELETE FROM note_search_fts WHERE relative_path = ?1",
                 params![relative],
             )
             .map_err(io::Error::other)?;
-            report.removed += conn
+            report.removed += tx
                 .execute(
                     "DELETE FROM notes WHERE relative_path = ?1",
                     params![relative],
                 )
                 .map_err(io::Error::other)?;
+            tx.commit().map_err(io::Error::other)?;
             return Ok(());
         }
         let metadata = fs::metadata(path)?;
@@ -2044,7 +2230,7 @@ impl MemoFile {
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|time| time.as_millis().min(i64::MAX as u128) as i64)
             .unwrap_or_else(|| modified_ns.unwrap_or(0) / 1_000_000);
-        let previous: Option<(i64, Option<i64>, String, i64)> = conn.query_row(
+        let previous: Option<(i64, Option<i64>, String, i64)> = tx.query_row(
                 "SELECT size_bytes, modified_ns, content_hash, created_at FROM notes WHERE relative_path = ?1",
                 params![relative],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -2058,6 +2244,7 @@ impl MemoFile {
                 })
         {
             report.unchanged += 1;
+            tx.commit().map_err(io::Error::other)?;
             return Ok(());
         }
         let bytes = fs::read(path)?;
@@ -2067,12 +2254,13 @@ impl MemoFile {
                 .as_ref()
                 .is_some_and(|(_, _, old_hash, _)| *old_hash == hash)
         {
-            conn.execute(
+            tx.execute(
                 "UPDATE notes SET size_bytes = ?2, modified_ns = ?3 WHERE relative_path = ?1",
                 params![relative, size, modified_ns],
             )
             .map_err(io::Error::other)?;
             report.unchanged += 1;
+            tx.commit().map_err(io::Error::other)?;
             return Ok(());
         }
         let content = String::from_utf8(bytes)
@@ -2095,9 +2283,6 @@ impl MemoFile {
             properties: serde_json::json!({}),
         };
         super::apply_derived_memo_fields(&mut derived, &content);
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(io::Error::other)?;
         tx.execute(
                 "INSERT INTO notes (relative_path, size_bytes, modified_ns, content_hash, title, preview, thumbnail, properties_json, indexed_at, created_at, updated_at, favorited, icon, colors_json, filename, filename_lower) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) \
@@ -2193,7 +2378,7 @@ impl MemoFile {
         Ok(())
     }
 
-    fn open_note_index_connection(&self, notebook_id: &str) -> io::Result<Connection> {
+    pub(crate) fn open_note_index_connection(&self, notebook_id: &str) -> io::Result<Connection> {
         let path = self.notebook_db_path(notebook_id)?;
         let mut conn = Connection::open(path).map_err(io::Error::other)?;
         conn.busy_timeout(std::time::Duration::from_secs(10))
@@ -2221,7 +2406,10 @@ impl MemoFile {
               PRIMARY KEY(relative_path, position)); \
             CREATE TABLE IF NOT EXISTS note_agents (relative_path TEXT NOT NULL REFERENCES notes(relative_path) ON DELETE CASCADE, \
               position INTEGER NOT NULL, thread_id TEXT NOT NULL, title TEXT NOT NULL, agent_type TEXT NOT NULL, \
-              PRIMARY KEY(relative_path, position));")
+              PRIMARY KEY(relative_path, position)); \
+            CREATE TABLE IF NOT EXISTS note_content_revisions (notebook_id TEXT NOT NULL, \
+              relative_path TEXT NOT NULL, content_hash TEXT NOT NULL, local_revision INTEGER NOT NULL, \
+              change_id TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(notebook_id, relative_path));")
             .map_err(io::Error::other)?;
         conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS note_search_fts USING fts5(\
@@ -2625,6 +2813,90 @@ mod tests {
         assert_eq!(store.reconcile_note_index("nb_test").unwrap().updated, 1);
         fs::remove_file(root.join("sub/a.md")).unwrap();
         assert_eq!(store.reconcile_note_index("nb_test").unwrap().removed, 1);
+    }
+
+    #[test]
+    fn content_revisions_survive_a_path_rename() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("a.md"), "# A\nbody\n").unwrap();
+        let mut store = MemoFile::new(temp.path().join("config"));
+        store
+            .write_notebook_configs(&[NotebookConfig {
+                id: "nb_test".into(),
+                name: "Test".into(),
+                icon: None,
+                path: root.to_string_lossy().into_owned(),
+                is_default: true,
+                sort: 0,
+                created_at: 0,
+                updated_at: 0,
+            }])
+            .unwrap();
+        store.set_current_notebook(Some("nb_test".into()));
+
+        store
+            .commit_note_content_revision("nb_test", "a.md", "hash-1", "change-1")
+            .unwrap();
+        let moved = store.move_note_by_path("nb_test", "a.md", "sub").unwrap();
+
+        let revision = store
+            .read_note_content_revision_for_notebook("nb_test", &moved)
+            .unwrap()
+            .expect("revision must follow the rename");
+        assert_eq!(revision.revision, 1);
+        assert_eq!(revision.change_id, "change-1");
+        assert!(store
+            .read_note_content_revision_for_notebook("nb_test", "a.md")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn legacy_revisions_backfill_into_the_path_keyed_table_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("Legacy.md"), "# Legacy\n").unwrap();
+        let mut store = MemoFile::new(temp.path().join("config"));
+        store
+            .write_notebook_configs(&[NotebookConfig {
+                id: "nb_test".into(),
+                name: "Test".into(),
+                icon: None,
+                path: root.to_string_lossy().into_owned(),
+                is_default: true,
+                sort: 0,
+                created_at: 0,
+                updated_at: 0,
+            }])
+            .unwrap();
+        store.set_current_notebook(Some("nb_test".into()));
+        // Register the file in the legacy id-keyed cache, then commit a
+        // revision through the legacy API.
+        let memo = store
+            .register_existing_file_for_notebook_id("nb_test", &root.join("Legacy.md"))
+            .map_err(|error| error.to_string())
+            .unwrap();
+        store
+            .commit_memo_content_revision(&memo.id, "nb_test", "hash-legacy", "change-legacy")
+            .unwrap();
+
+        // First path-keyed read migrates the legacy row.
+        let revision = store
+            .read_note_content_revision_for_notebook("nb_test", "Legacy.md")
+            .unwrap()
+            .expect("legacy revision must be visible through the path key");
+        assert_eq!(revision.revision, 1);
+        assert_eq!(revision.change_id, "change-legacy");
+
+        // A new path-keyed commit continues the same stream.
+        let commit = store
+            .commit_note_content_revision("nb_test", "Legacy.md", "hash-new", "change-new")
+            .unwrap();
+        assert!(commit.changed);
+        assert_eq!(commit.state.revision, 2);
     }
 
     #[test]

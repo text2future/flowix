@@ -19,7 +19,11 @@ pub(crate) fn notebook_note_counts(configs: &[NotebookConfig]) -> Result<HashMap
     let mf = open()?;
     let mut counts = HashMap::new();
     for config in configs {
-        mf.reconcile_note_index(&config.id)?;
+        // CLI is a fresh process on every invocation. Reconcile disk content so
+        // a crash between file commit and refresh marker cannot leave stale
+        // counts. Stat-based reconcile hashes only changed files, so a fresh
+        // index is cheap while the crash window is still covered.
+        mf.reconcile_note_index_blocking(&config.id)?;
         counts.insert(config.id.clone(), NoteService::new(&mf).list(&config.id)?.len());
     }
     Ok(counts)
@@ -53,7 +57,7 @@ pub(crate) fn notebook_tags(notebook: Option<&str>) -> Result<serde_json::Value,
     let key = resolve_notebook_key(notebook)?;
     let mf = open()?;
     let config = MemoService::new(&mf).resolve_notebook(&key)?;
-    mf.reconcile_note_index(&config.id)?;
+    mf.reconcile_note_index_blocking(&config.id)?;
     let tags = mf.read_used_tag_ids_for_notebook_id(Some(&config.id))?;
     Ok(serde_json::json!({"ok": true, "action": "tags", "notebook": config.name,
         "notebookId": config.id, "total": tags.len(), "tags": tags}))

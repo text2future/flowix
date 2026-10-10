@@ -1,18 +1,20 @@
 import { listDocumentSessions, findDocumentSession, subscribeDocumentSessions } from '../store/document-runtime-session';
 import { isTitleSaving, subscribeTitleChanges } from '../store/document-title-session';
 import { clearRecoveryDraftThrough } from '../store/recovery-draft-store';
-import { toast as notifications } from 'sonner';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { findFileDisplayPath } from '@/lib/file-display-registry';
 import { captureLatestDocumentContent, getDocumentBuffer, protectDocumentDraft, saveDocumentContent, applyLoadedDocumentContent } from '../store/document-session-service';
 import { notifyDocumentBufferChanged, subscribeDocumentBufferChanges } from '../store/buffer-registry';
 import type { DocumentIdentity } from '../store/document-identity';
 import { localDocumentOperations } from '../use-cases/local-document-operations';
-import { Button } from '@shared/ui/button';
+import { clearActionableNotice, upsertActionableNotice } from '@features/notifications/actionable-notice-store';
 
-export function DocumentSaveStatus({ identity, scopePath, inline = false }: {
-  identity: DocumentIdentity; scopePath: string | null; inline?: boolean;
+const saveNoticeId = (displayId: string) => `document-save:${displayId}`;
+const conflictNoticeId = (displayId: string) => `document-conflict:${displayId}`;
+
+export function DocumentSaveStatus({ identity, scopePath }: {
+  identity: DocumentIdentity; scopePath: string | null;
 }) {
   const { t } = useI18n();
   const subscribe = useCallback((notify: () => void) => {
@@ -26,81 +28,107 @@ export function DocumentSaveStatus({ identity, scopePath, inline = false }: {
   }, [identity.displayId]);
   const snapshot = useCallback(() => {
     const buffer = getDocumentBuffer(identity);
-    return JSON.stringify([buffer.saveState, buffer.saveError, buffer.conflicted, buffer.savingRevision, isTitleSaving(identity.displayId)]);
+    return JSON.stringify([
+      buffer.saveError,
+      buffer.conflicted,
+      buffer.capturedRevision,
+      buffer.conflictContent !== null,
+      buffer.savingRevision,
+      isTitleSaving(identity.displayId),
+    ]);
   }, [identity]);
-  const status = useSyncExternalStore(subscribe, snapshot, snapshot);
+  useSyncExternalStore(subscribe, snapshot, snapshot);
   const buffer = getDocumentBuffer(identity);
-  const [working, setWorking] = useState(false);
-  const saving = buffer.savingRevision !== null || isTitleSaving(identity.displayId);
-  void status;
+  const path = findFileDisplayPath(identity.displayId) ?? identity.path;
+  const filename = path.split(/[\\/]/).pop() ?? path;
 
-  const resolve = async (choice: 'retry' | 'local' | 'disk') => {
-    if (working || saving) return;
-    setWorking(true);
-    const path = findFileDisplayPath(identity.displayId) ?? identity.path;
+  const resolve = useCallback(async (choice: 'retry' | 'local' | 'disk') => {
+    const currentBuffer = getDocumentBuffer(identity);
+    if (currentBuffer.savingRevision !== null || isTitleSaving(identity.displayId)) return;
+    const currentPath = findFileDisplayPath(identity.displayId) ?? identity.path;
     captureLatestDocumentContent(identity);
-    const revision = buffer.capturedRevision;
+    const revision = currentBuffer.capturedRevision;
     try {
       if (choice !== 'retry') {
         // Keep the local copy recoverable before an explicit conflict decision.
-        if (!await protectDocumentDraft(identity, path, 'save-error')) return;
-        const disk = await localDocumentOperations.read({
-          path, scopePath,
-        });
+        if (!await protectDocumentDraft(identity, currentPath, 'save-error')) return;
+        const disk = await localDocumentOperations.read({ path: currentPath, scopePath });
         if (disk === null) throw new Error(t('document.save.missing'));
         captureLatestDocumentContent(identity);
-        if (buffer.capturedRevision !== revision) return;
+        if (currentBuffer.capturedRevision !== revision) return;
         if (choice === 'disk') {
-          await clearRecoveryDraftThrough({ ...identity, path }, findDocumentSession(identity.displayId)!.recoveryRevision);
+          await clearRecoveryDraftThrough(
+            { ...identity, path: currentPath },
+            findDocumentSession(identity.displayId)!.recoveryRevision,
+          );
           captureLatestDocumentContent(identity);
-          if (buffer.capturedRevision !== revision) return;
-          applyLoadedDocumentContent(identity, path, disk, { preservePending: false });
-          void protectDocumentDraft(identity, path, 'autosave');
+          if (currentBuffer.capturedRevision !== revision) return;
+          applyLoadedDocumentContent(identity, currentPath, disk, { preservePending: false });
+          void protectDocumentDraft(identity, currentPath, 'autosave');
           return;
         }
         // This decision authorizes replacing the disk version just read. If
         // the file changes again, the conditional writer reconciles it anew.
-        buffer.lastSavedContent = disk;
-        buffer.conflicted = false;
-        buffer.conflictContent = null;
+        currentBuffer.lastSavedContent = disk;
+        currentBuffer.conflicted = false;
+        currentBuffer.conflictContent = null;
       }
-      buffer.saveError = null;
-      await saveDocumentContent({ identity, path, content: buffer.content, scopePath, force: true });
+      currentBuffer.saveError = null;
+      await saveDocumentContent({ identity, path: currentPath, content: currentBuffer.content, scopePath, force: true });
     } catch (error) {
-      buffer.saveError = error instanceof Error ? error.message : String(error);
+      currentBuffer.saveError = error instanceof Error ? error.message : String(error);
     } finally {
       notifyDocumentBufferChanged(identity, 'save_settled');
-      setWorking(false);
     }
-  };
-  const notificationId = `document-save:${identity.displayId}`;
-  useEffect(() => () => { if (!inline) notifications.dismiss(notificationId); }, [inline, notificationId]);
-  useEffect(() => {
-    if (inline) return;
-    if (buffer.conflicted || !buffer.saveError) { notifications.dismiss(notificationId); return; }
-    notifications.custom(() => <div role="status" aria-live="polite" className="flex w-[var(--width)] flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--floating-bg)] px-4 py-3 text-sm text-[var(--floating-foreground)] shadow-lg">
-    <span className="w-full truncate font-medium" title={identity.path}>{identity.path.split(/[\\/]/).pop()}</span>
-    <span>{t('document.save.failed', { message: buffer.saveError ?? '' })}</span>
-    <button className="underline" disabled={working || saving} onClick={() => void resolve('retry')}>{t('document.save.retry')}</button>
-  </div>, { id: notificationId, duration: Infinity });
-  });
-  if (inline && buffer.conflicted) {
-    return <div role="alert" aria-live="polite"
-      className="absolute left-1/2 top-0 z-[30] flex w-max max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2 text-sm text-[var(--foreground)] shadow-lg animate-in slide-in-from-top-2 fade-in duration-200">
-      <span className="px-1 font-medium whitespace-nowrap">{t('document.save.conflictPrompt')}</span>
-      <Button variant="outline" size="sm" className="rounded-lg" disabled={working || saving} onClick={() => void resolve('disk')}>
-        {t('document.save.useDisk')}
-      </Button>
-      <Button size="sm" className="rounded-lg" disabled={working || saving} onClick={() => void resolve('local')}>
-        {t('document.save.keepLocal')}
-      </Button>
-    </div>;
-  }
-  return null;
-}
+  }, [identity, scopePath, t]);
 
-export function DocumentConflictPanel(props: { identity: DocumentIdentity; scopePath: string | null }) {
-  return <DocumentSaveStatus {...props} inline />;
+  useEffect(() => {
+    const saveId = saveNoticeId(identity.displayId);
+    const conflictId = conflictNoticeId(identity.displayId);
+    // Keep an actionable notice visible while an explicit retry or conflict
+    // decision is still writing. The settled buffer state decides whether it
+    // should be cleared or replaced with a new failure notice.
+    if (buffer.savingRevision !== null) return;
+    if (buffer.conflicted) {
+      clearActionableNotice(saveId);
+      upsertActionableNotice({
+        id: conflictId,
+        priority: 100,
+        tone: 'warning',
+        title: `${filename} · ${t('document.save.conflictPrompt')}`,
+        message: buffer.saveError
+          ? `${t('document.save.conflictHelp')}\n${buffer.saveError}`
+          : t('document.save.conflictHelp'),
+        revision: `${buffer.capturedRevision}:${buffer.conflictContent?.length ?? 0}`,
+        actions: [
+          { id: 'disk', label: t('document.save.useDisk'), variant: 'outline', run: () => resolve('disk') },
+          { id: 'local', label: t('document.save.keepLocal'), variant: 'default', run: () => resolve('local') },
+        ],
+      });
+      return;
+    }
+    clearActionableNotice(conflictId);
+    if (buffer.saveError) {
+      upsertActionableNotice({
+        id: saveId,
+        priority: 80,
+        tone: 'error',
+        title: filename,
+        message: t('document.save.failed', { message: buffer.saveError }),
+        revision: `${buffer.capturedRevision}:${buffer.saveError}`,
+        actions: [{ id: 'retry', label: t('document.save.retry'), variant: 'default', run: () => resolve('retry') }],
+      });
+    } else {
+      clearActionableNotice(saveId);
+    }
+  }, [buffer, buffer.conflictContent, buffer.conflicted, buffer.capturedRevision, buffer.saveError, buffer.savingRevision, filename, identity.displayId, resolve, t]);
+
+  useEffect(() => () => {
+    clearActionableNotice(saveNoticeId(identity.displayId));
+    clearActionableNotice(conflictNoticeId(identity.displayId));
+  }, [identity.displayId]);
+
+  return null;
 }
 
 const subscribeNotifications = (notify: () => void) => {
@@ -110,10 +138,10 @@ const subscribeNotifications = (notify: () => void) => {
   return () => { stopSessions(); stopBody(); stopTitle(); };
 };
 const notificationSnapshot = () => JSON.stringify(listDocumentSessions()
-  .filter(session => !session.buffer?.conflicted && session.buffer?.saveError)
+  .filter(session => session.buffer && (session.buffer.conflicted || session.buffer.saveError))
   .map(session => session.identity.displayId).sort());
 
-/** Exactly one host per window, independent of editor mounts. */
+/** Exactly one document notice bridge per window, independent of editor mounts. */
 export function DocumentSaveNotifications() {
   const snapshot = useSyncExternalStore(subscribeNotifications, notificationSnapshot, notificationSnapshot);
   const displayIds: string[] = JSON.parse(snapshot);

@@ -33,6 +33,13 @@ describe('rewrite moved note links', () => {
     );
   });
 
+  it('keeps heading anchor fragments when rewriting moved note links', () => {
+    const content = '[Plan](flowix://open?b=My+Vault&f=Projects%2FOld.md#%E7%9B%AE%E6%A0%87)';
+    expect(rewriteMovedNoteLinks(content, before, after)).toBe(
+      '[New](flowix://open?b=My+Vault&f=Projects%2FNew.md#%E7%9B%AE%E6%A0%87)',
+    );
+  });
+
   it('does not replace plain text or links to another notebook', () => {
     const content = 'flowix://open?b=My+Vault&f=Projects%2FOld.md '
       + '[Old](flowix://open?b=Other&f=Projects%2FOld.md)';

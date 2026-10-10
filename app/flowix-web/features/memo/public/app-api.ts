@@ -40,7 +40,7 @@ export function applyAppMemoUpdated(_memo: unknown): void {
   useNoteStore.getState().handleMemoEvent();
 }
 
-export function applyAppMemoDeleted(_memoId: string): void {
+export function applyAppMemoDeleted(): void {
   useNoteStore.getState().handleMemoEvent();
 }
 
@@ -74,7 +74,7 @@ function refreshTags(notebookId: string): void {
 export function applyAppTagsRenamed(event: Extract<MemoEvent, { kind: 'tags_renamed' }>): void {
   refreshTags(event.notebookId);
   if (getAppSelectedNotebookId() === event.notebookId
-    && event.affectedMemoIds.length
+    && event.affectedRelativePaths.length
     && event.renamedTags.length) {
     useNoteStore.getState().triggerRefresh();
   }
@@ -83,7 +83,7 @@ export function applyAppTagsRenamed(event: Extract<MemoEvent, { kind: 'tags_rena
 export function applyAppTagsDeleted(event: Extract<MemoEvent, { kind: 'tags_deleted' }>): void {
   refreshTags(event.notebookId);
   if (getAppSelectedNotebookId() === event.notebookId
-    && event.affectedMemoIds.length
+    && event.affectedRelativePaths.length
     && event.deletedTags.length) {
     useNoteStore.getState().triggerRefresh();
   }

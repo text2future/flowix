@@ -52,7 +52,8 @@ export type MemoEvent =
     } & MemoContentCommit)
   | ({
       kind: 'updated';
-      id: string;
+      /** @deprecated Legacy memo cache id. Dedup/patch keys use relativePath. */
+      id?: string;
       path: string;
       memo: MemoItem;
       notebookId: string;
@@ -61,8 +62,10 @@ export type MemoEvent =
     } & MemoContentCommit)
   | ({
       kind: 'deleted';
-      id: string;
+      /** @deprecated Legacy memo cache id. Dedup keys use relativePath. */
+      id?: string;
       path: string;
+      relativePath: string;
       notebookId: string;
       derivedChanged: MemoDerivedChanged;
       source: MemoChangeSource;
@@ -71,11 +74,11 @@ export type MemoEvent =
       kind: 'tags_renamed';
       notebookId: string;
       renamedTags: Array<[string, string]>;
-      affectedMemoIds: string[];
+      affectedRelativePaths: string[];
     }
   | {
       kind: 'tags_deleted';
       notebookId: string;
       deletedTags: string[];
-      affectedMemoIds: string[];
+      affectedRelativePaths: string[];
     };

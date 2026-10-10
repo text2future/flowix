@@ -216,16 +216,6 @@ fn normalize_for_compare(path: &Path) -> PathBuf {
 }
 
 impl MemoFile {
-    /// Generate an eight-character legacy memo ID, retrying on collision.
-    pub fn generate_memo_id(&self) -> String {
-        loop {
-            let id = nanoid::nanoid!(8, &super::MEMO_ID_ALPHABET);
-            if self.read_current_memo(&id).is_none() {
-                return id;
-            }
-        }
-    }
-
     fn generate_global_memo_id(&self) -> String {
         loop {
             let id = nanoid::nanoid!(8, &super::MEMO_ID_ALPHABET);

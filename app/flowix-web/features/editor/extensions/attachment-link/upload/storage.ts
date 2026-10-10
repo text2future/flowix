@@ -15,11 +15,11 @@ export async function createAttachmentUpload(
     files: File[],
     saveContent?: AttachmentContentSaver,
     saveFile?: AttachmentFileSaver,
-    memoId?: string,
+    ownerPath?: string,
     signal?: AbortSignal,
 ): Promise<{ assets: StoredAsset[] }> {
     const assets: StoredAsset[] = [];
-    if (!memoId && !saveContent && !saveFile) {
+    if (!ownerPath && !saveContent && !saveFile) {
         reportUploadFailure('OWNER_REQUIRED');
         return { assets };
     }
@@ -44,7 +44,7 @@ export async function createAttachmentUpload(
                     if (signal?.aborted) break;
                     storageKey = await saveContent({ content: base64Content, fileName });
                 } else {
-                    storageKey = await uploadInChunks(file, fileName, memoId!, signal);
+                    storageKey = await uploadInChunks(file, fileName, ownerPath!, signal);
                 }
             }
             if (!storageKey) throw new Error('Attachment save returned no path');
@@ -73,9 +73,9 @@ export async function createAttachmentUpload(
     return { assets };
 }
 
-export async function createAttachmentUploadFromPaths(paths: string[], memoId?: string, signal?: AbortSignal): Promise<{ assets: StoredAsset[] }> {
+export async function createAttachmentUploadFromPaths(paths: string[], ownerPath?: string, signal?: AbortSignal): Promise<{ assets: StoredAsset[] }> {
     const assets: StoredAsset[] = [];
-    if (!memoId) {
+    if (!ownerPath) {
         reportUploadFailure('OWNER_REQUIRED');
         return { assets };
     }
@@ -91,7 +91,7 @@ export async function createAttachmentUploadFromPaths(paths: string[], memoId?: 
             release = acquireUploadSlot();
             storageKey = await invoke<string | null>('save_attachment', {
                 sourcePath: path,
-                memoId,
+                notePath: ownerPath,
             });
             if (!storageKey) throw new Error('Attachment save returned no path');
         } catch (err) {

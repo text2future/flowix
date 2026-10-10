@@ -37,29 +37,30 @@ fn explicit_destination_does_not_switch_current_notebook() {
 }
 
 #[test]
-fn memo_owner_wins_over_global_notebook_selection() {
-    let (_directory, store) = fixture();
+fn note_owner_resolves_notebook_from_absolute_path() {
+    let (directory, store) = fixture();
     let created = flowix_core::MemoService::new(&store)
-        .create_memo("second", "# Note\nbody\n")
+        .create_memo_named_with_tag_in_directory(Some("second"), None, "Untitled", "# Note\nbody\n", None)
         .unwrap();
+    let note = directory.path().join("second").join(&created.memo.relative_path);
     assert_eq!(
-        resolve_notebook_id(&store, None, Some(&created.memo.id)).unwrap(),
-        "second"
+        resolve_note_owner(&store, None, Some(note.to_str().unwrap())).unwrap(),
+        ("second".to_string(), Some("Untitled.md".to_string()))
     );
     assert_eq!(store.current_notebook_id_value().as_deref(), Some("first"));
-    assert!(resolve_notebook_id(&store, Some("first"), Some(&created.memo.id)).is_err());
+    assert!(resolve_note_owner(&store, Some("first"), Some(note.to_str().unwrap())).is_err());
 }
 
 #[test]
 fn missing_or_unknown_owner_never_falls_back_to_current_notebook() {
     let (_directory, store) = fixture();
-    assert!(resolve_notebook_id(&store, None, None).is_err());
-    assert!(resolve_notebook_id(&store, Some(""), None).is_err());
-    assert!(resolve_notebook_id(&store, Some("first"), Some("missing")).is_err());
-    assert!(resolve_notebook_id(&store, Some("missing"), None).is_err());
+    assert!(resolve_note_owner(&store, None, None).is_err());
+    assert!(resolve_note_owner(&store, Some(""), None).is_err());
+    assert!(resolve_note_owner(&store, Some("first"), Some("missing.md")).is_err());
+    assert!(resolve_note_owner(&store, Some("missing"), None).is_err());
     assert_eq!(
-        resolve_notebook_id(&store, Some("second"), None).unwrap(),
-        "second"
+        resolve_note_owner(&store, Some("second"), None).unwrap(),
+        ("second".to_string(), None)
     );
 }
 
@@ -68,12 +69,13 @@ fn owned_save_validates_identity_before_creating_attachments() {
     let (directory, store) = fixture();
     assert!(save_for_owner(&store, None, None, "data", &mut &b"data"[..]).is_err());
     let created = flowix_core::MemoService::new(&store)
-        .create_memo("second", "# Owner\nbody\n")
+        .create_memo_named_with_tag_in_directory(Some("second"), None, "Untitled", "# Owner\nbody\n", None)
         .unwrap();
+    let note = directory.path().join("second").join(&created.memo.relative_path);
     assert!(save_for_owner(
         &store,
         Some("first"),
-        Some(&created.memo.id),
+        Some(note.to_str().unwrap()),
         "data",
         &mut &b"data"[..]
     )
@@ -82,7 +84,7 @@ fn owned_save_validates_identity_before_creating_attachments() {
     let saved = save_for_owner(
         &store,
         None,
-        Some(&created.memo.id),
+        Some(note.to_str().unwrap()),
         "data",
         &mut &b"data"[..],
     )

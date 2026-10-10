@@ -978,6 +978,9 @@ pub fn delete_notebook(id: String, state: State<AppState>, app: AppHandle) -> Re
 
     let (was_current, next_notebook_id) = {
         let memo_file = read_lock(&state.memo_file, "memo_file");
+        let _change_guard = memo_file.operation_locks()
+            .notebook_change(&[&id], "remove_notebook_from_registry")
+            .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?;
         let mut configs = memo_file.read_notebook_configs().unwrap_or_default();
 
         let index = match configs.iter().position(|c| c.id == id) {
@@ -1114,10 +1117,24 @@ pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> Result<bool, S
 
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let configs = memo_file.read_notebook_configs().unwrap_or_default();
+    let ids: Vec<&str> = configs.iter().map(|config| config.id.as_str()).collect();
+    let _change_guard = if ids.is_empty() {
+        None
+    } else {
+        Some(memo_file.operation_locks().notebook_change(&ids, "clear_notebooks")
+            .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?)
+    };
+    let current_ids: std::collections::HashSet<String> = memo_file
+        .read_notebook_configs().map_err(|error| error.to_string())?
+        .into_iter().map(|config| config.id).collect();
+    if current_ids != ids.iter().map(|id| (*id).to_owned()).collect() {
+        return Err("NOTEBOOK_REGISTRY_CHANGED".to_string());
+    }
     let before_ids: std::collections::HashSet<String> =
         configs.iter().map(|c| c.id.clone()).collect();
 
     let ok = memo_file.write_notebook_configs(&[]).is_ok();
+    drop(_change_guard);
     drop(memo_file);
     drop(setup_guard);
 

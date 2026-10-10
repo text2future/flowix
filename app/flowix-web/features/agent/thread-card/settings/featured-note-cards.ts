@@ -286,6 +286,7 @@ export function appendFeaturedNoteIconContent(target: HTMLElement, icon: string)
  *
  * 多条条件按 **并集** 处理: 命中任意一条即入选。
  */
+/** @deprecated Test harness only; production uses `getFeaturedPathNoteCards`. */
 export function getFeaturedNoteCards(
   memos: MemoItem[],
   config: FeaturedNoteFilterConfig = DEFAULT_FEATURED_NOTE_FILTER_CONFIG,
@@ -310,7 +311,9 @@ export function getFeaturedNoteCards(
       || DEFAULT_FEATURED_NOTE_ICON;
 
     return [{
-      id: memo.id,
+      // Test harness for the shared filter logic; production uses the path variant.
+      // Re-keyed off the path identity during the memo id decommission.
+      id: memo.relativePath || memo.filename,
       icon,
       name,
       title: noteTitle(memo.filename),
@@ -318,7 +321,29 @@ export function getFeaturedNoteCards(
     }];
   });
 }
+/** @deprecated Test harness only. */
+export async function loadAllFeaturedNoteCards(
+  loadPage: (cursor?: string) => Promise<FeaturedNoteMemoPage>,
+  isActive: () => boolean = () => true,
+  config: FeaturedNoteFilterConfig = DEFAULT_FEATURED_NOTE_FILTER_CONFIG,
+): Promise<FeaturedNoteCard[]> {
+  const cards: FeaturedNoteCard[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
 
+  while (isActive()) {
+    const page = await loadPage(cursor);
+    if (!isActive()) return [];
+    cards.push(...getFeaturedNoteCards(page.memos, config));
+
+    const nextCursor = page.nextCursor?.trim() || undefined;
+    if (!page.hasMore || !nextCursor || seenCursors.has(nextCursor)) break;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return cards;
+}
 export function getFeaturedPathNoteCards(
   notes: NoteEntry[],
   config: FeaturedNoteFilterConfig | null = DEFAULT_FEATURED_NOTE_FILTER_CONFIG,
@@ -359,25 +384,3 @@ export function getFeaturedNotePage(
   return notes.slice(start, start + safePageSize);
 }
 
-export async function loadAllFeaturedNoteCards(
-  loadPage: (cursor?: string) => Promise<FeaturedNoteMemoPage>,
-  isActive: () => boolean = () => true,
-  config: FeaturedNoteFilterConfig = DEFAULT_FEATURED_NOTE_FILTER_CONFIG,
-): Promise<FeaturedNoteCard[]> {
-  const cards: FeaturedNoteCard[] = [];
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
-
-  while (isActive()) {
-    const page = await loadPage(cursor);
-    if (!isActive()) return [];
-    cards.push(...getFeaturedNoteCards(page.memos, config));
-
-    const nextCursor = page.nextCursor?.trim() || undefined;
-    if (!page.hasMore || !nextCursor || seenCursors.has(nextCursor)) break;
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-
-  return cards;
-}

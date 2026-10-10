@@ -1,4 +1,3 @@
-import { openUrl } from "@platform/tauri/opener";
 import { dialogs } from "@platform/tauri/client/desktop";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { GapCursor } from "@tiptap/pm/gapcursor";
@@ -22,9 +21,7 @@ import type { WorkspaceHostId } from "@features/workspace/store/workspace-focus-
 import { deriveThreadTitleFromPrompt, defaultThreadTitle } from "@features/agent/store/thread-titles";
 import { toast } from "@/lib/toast";
 import { useNoteStore } from "@features/memo/store/note-store";
-import { openNoteByDeepLink } from "@features/memo/use-cases/open-by-target";
 import { agent } from "@platform/tauri/client/agent";
-import { normalizePlainLinkHref } from "@features/editor/extensions/markdown-link";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
 import { getCurrentAppLanguage } from "@features/preferences/public/runtime-api";
 import type { AgentRuntimeSettingKind } from "@features/agent/runtime/agent-runtime-spec";
@@ -76,11 +73,6 @@ import {
 import { AgentConversationSurfaceController } from "@features/agent/thread-card/surface/agent-conversation-surface-controller";
 import { getAgentConversationRuntimeCwd } from "@features/agent/conversation-presentation";
 import { selectAndOpenAgentConversation } from "@features/workspace/use-cases/agent-conversation-navigation";
-import {
-  openBrowserColumnFileBrowser,
-  openBrowserColumnText,
-  openBrowserColumnWebpage,
-} from "@features/workspace/use-cases/browser-column-navigation";
 
 const logger = createLogger("agent-thread-card");
 import {
@@ -103,7 +95,7 @@ import {
 } from "@features/agent/thread-card/agent-thread-card-selectors";
 import {
   agentFileScopePathForRuntime,
-  localFilePathFromAgentHref,
+  handleAgentLinkClick,
 } from "@features/agent/thread-card/link-navigation";
 
 export { localFilePathFromAgentHref } from "@features/agent/thread-card/link-navigation";
@@ -1470,46 +1462,9 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   // 消息链接点击委托 ── AgentThreadCard 是只读 NodeView, 不使用编辑器正文的
   // link hover tooltip。这里本地接管点击, 保留 flowix:// 深链和普通外链打开能力。
   private handleBodyClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-    const a = target.closest<HTMLAnchorElement>("a[href]");
-    if (!a) return;
-    event.preventDefault();
-    // 阻止冒泡到外层可能存在的 React handler (例如把 click 解读为'打开卡片')
-    event.stopPropagation();
-    const rawHref = a.getAttribute("href");
-    const localPath = localFilePathFromAgentHref(rawHref);
-    if (localPath) {
-      void (async () => {
-        const scopePath = this.scopePathForLocalFile(localPath);
-        if (scopePath) {
-          await openBrowserColumnFileBrowser(scopePath, localPath);
-          return;
-        }
-        const parentPath = localPath.replace(/[\\/][^\\/]*$/, '') || localPath;
-        await openBrowserColumnText(localPath, parentPath);
-      })().catch((error) => {
-        logger.error("Failed to open local file link", { error });
-        toast.error(this.t("agent.link.openLocalFileFailed"));
-      });
-      return;
-    }
-    const href = normalizePlainLinkHref(rawHref);
-    if (!href) return;
-    if (href.startsWith("flowix://")) {
-      void openNoteByDeepLink(href).catch((error) => {
-        toast.error(error instanceof Error ? error.message : String(error));
-      });
-      return;
-    }
-    if (/^https?:\/\//i.test(href)) {
-      void Promise.resolve(openBrowserColumnWebpage(href)).catch((error) => {
-        logger.error("Failed to open webpage link in browser column", { error });
-      });
-      return;
-    }
-    void openUrl(href).catch((error) => {
-      logger.error("Failed to open external link", { error });
+    handleAgentLinkClick(event, this.instance?.runtimeConfig, (error, rawHref) => {
+      logger.error("Failed to open Agent message link", { error, rawHref });
+      toast.error(error instanceof Error ? error.message : this.t("agent.link.openLocalFileFailed"));
     });
   }
 

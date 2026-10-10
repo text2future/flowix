@@ -29,6 +29,9 @@ const requestedArch = archArgIndex >= 0 ? process.argv[archArgIndex + 1] : undef
 if (!['win32', 'darwin', 'linux'].includes(targetPlatform)) {
   throw new Error(`Unsupported --platform value: ${targetPlatform ?? '<missing>'}`)
 }
+if (targetPlatform === 'win32') {
+  run(process.execPath, ['scripts/build-windows-installer-helper.mjs'])
+}
 if (!npmEntrypoint) {
   throw new Error('Production build must be started through npm run tauri:build:prod')
 }

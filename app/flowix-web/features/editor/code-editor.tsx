@@ -37,6 +37,7 @@ import {
   lineNumberWidgetMarker,
   gutterWidgetClass,
 } from '@codemirror/view';
+import GithubSlugger from 'github-slugger';
 import {
   closeSearchPanel,
   openSearchPanel,
@@ -52,6 +53,8 @@ import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/
 
 export interface CodeEditorHandle {
   flushPendingChanges: () => string | null;
+  revealSourceLocation?: (location: { line: number; column?: number }) => { clamped: boolean } | null;
+  revealSourceAnchor?: (anchor: string) => boolean | null;
   focusStart?: () => void;
   moveTitleToBody?: (trailingContent: string) => void;
   pasteToBody?: (snapshot: ClipboardSnapshot) => void;
@@ -345,6 +348,51 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     flushPendingChanges: () => {
       const content = viewRef.current?.state.doc.toString() ?? null;
       return content;
+    },
+    revealSourceLocation: ({ line, column = 1 }) => {
+      const view = viewRef.current;
+      if (!view) return null;
+      const doc = view.state.doc;
+      const lineNumber = Math.min(line, doc.lines);
+      const sourceLine = doc.line(lineNumber);
+      const requestedColumn = Math.max(1, column);
+      let position = Math.min(sourceLine.from + requestedColumn - 1, sourceLine.to);
+      // CodeMirror offsets use UTF-16 units. Keep the cursor outside surrogate pairs.
+      const previous = doc.sliceString(Math.max(sourceLine.from, position - 1), position);
+      const current = doc.sliceString(position, Math.min(sourceLine.to, position + 1));
+      if (previous.length === 1 && current.length === 1
+        && previous.charCodeAt(0) >= 0xd800 && previous.charCodeAt(0) <= 0xdbff
+        && current.charCodeAt(0) >= 0xdc00 && current.charCodeAt(0) <= 0xdfff) {
+        position -= 1;
+      }
+      const clamped = lineNumber !== line || requestedColumn > sourceLine.to - sourceLine.from;
+      view.dispatch({
+        selection: { anchor: position, head: position },
+        effects: EditorView.scrollIntoView(position, { y: 'center' }),
+      });
+      view.focus();
+      return { clamped };
+    },
+    revealSourceAnchor: (anchor) => {
+      const view = viewRef.current;
+      if (!view) return null;
+      const expected = anchor.replace(/^#/, '').trim().toLocaleLowerCase();
+      const slugger = new GithubSlugger();
+      for (let number = 1; number <= view.state.doc.lines; number += 1) {
+        const line = view.state.doc.line(number);
+        const heading = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line.text)?.[1];
+        if (!heading) continue;
+        const explicit = /\s+\{#([^}]+)\}\s*$/.exec(heading)?.[1];
+        const text = heading.replace(/\s+\{#[^}]+\}\s*$/, '');
+        if ((explicit ?? slugger.slug(text)) !== expected) continue;
+        view.dispatch({
+          selection: { anchor: line.from, head: line.from },
+          effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+        });
+        view.focus();
+        return true;
+      }
+      return false;
     },
     focusStart: () => {
       const view = viewRef.current;

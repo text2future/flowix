@@ -7,8 +7,8 @@ pub(crate) fn resolve_v2_move_conflict(
     movement: &flowix_sync::V2PendingMove,
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file
-        .acquire_cross_process_write_lock()
+    let _guard = memo_file.operation_locks()
+        .notebook_change(&[&movement.notebook_id], "resolve_cloud_move_conflict")
         .map_err(sync_error)?;
     let notebook = memo_file
         .get_notebook_config_by_id(&movement.notebook_id)
@@ -96,8 +96,8 @@ pub(crate) fn resolve_v2_delete_conflict(
     material: &flowix_sync::V2ConflictMaterial,
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file
-        .acquire_cross_process_write_lock()
+    let _guard = memo_file.operation_locks()
+        .notebook_change(&[&material.notebook_id], "resolve_cloud_delete_conflict")
         .map_err(sync_error)?;
     let notebook = memo_file
         .get_notebook_config_by_id(&material.notebook_id)

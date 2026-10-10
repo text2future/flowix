@@ -41,6 +41,17 @@ export function normalizePlainLinkHref(url: string | null | undefined): string {
 
 function stripOptionalTitle(destination: string): { href: string; title: string | null } {
   const trimmed = destination.trim();
+
+  // `<destination> "title"` form — the bracketed destination itself may
+  // contain spaces, so the plain `\S+` title regex would split it wrongly.
+  const bracketTitleMatch = /^<(.+)>\s+["']([^"']*)["']$/.exec(trimmed);
+  if (bracketTitleMatch) {
+    return {
+      href: normalizeMarkdownDestination(bracketTitleMatch[1]),
+      title: bracketTitleMatch[2] || null,
+    };
+  }
+
   const titleMatch = /^(\S+)\s+["']([^"']*)["']$/.exec(trimmed);
 
   if (!titleMatch) {
@@ -53,14 +64,26 @@ function stripOptionalTitle(destination: string): { href: string; title: string 
   };
 }
 
+/**
+ * CommonMark strict destination: `<...>` guards spaces and parens. The
+ * delimiters must not reach the stored href, otherwise strict links like
+ * `[x](<../计划表.csv>)` would later be prefixed with `http://` as if they
+ * were bare domains.
+ */
+function stripAngleBracketDestination(destination: string): string {
+  return destination.startsWith('<') && destination.endsWith('>')
+    ? destination.slice(1, -1).trim()
+    : destination;
+}
+
 function normalizeMarkdownDestination(url: string | null | undefined): string {
   const safeHref = sanitizeLinkHref(url);
   if (!safeHref) return '';
-  const trimmed = safeHref.trim();
-  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('//')) {
-    return normalizePlainLinkHref(trimmed);
+  const destination = stripAngleBracketDestination(safeHref);
+  if (!destination || /^[a-z][a-z0-9+.-]*:/i.test(destination) || destination.startsWith('//')) {
+    return normalizePlainLinkHref(destination);
   }
-  return trimmed;
+  return destination;
 }
 
 export function isPlainMarkdownLinkUrl(url: string | null | undefined): boolean {

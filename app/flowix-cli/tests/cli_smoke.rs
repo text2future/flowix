@@ -66,7 +66,8 @@ fn binary_describes_builtin_webpage_tool() {
 fn binary_reports_usage_errors_with_expected_exit_code() {
     let missing = cli(&["show"]);
     assert_eq!(missing.status.code(), Some(2));
-    assert!(stderr(&missing).contains("Usage: flowix show <PATH-OR-LEGACY-ID>"));
+    assert!(stderr(&missing).contains("Usage: flowix show"));
+    assert!(stderr(&missing).contains("<NOTEBOOK::RELATIVE-PATH-OR-ABSOLUTE-PATH>"));
 
     let unknown = cli(&["unknown-command"]);
     assert_eq!(unknown.status.code(), Some(2));

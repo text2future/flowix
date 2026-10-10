@@ -39,6 +39,25 @@ pub struct MemoContentCommit {
     pub changed: bool,
 }
 
+/// Path-keyed successor of [`MemoContentRevision`]. The revision stream is
+/// addressed by `(notebook_id, relative_path)` instead of a legacy memo ID,
+/// so renames must carry the row over (see rename/move flows).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteContentRevision {
+    pub notebook_id: String,
+    pub relative_path: String,
+    pub content_hash: String,
+    pub revision: i64,
+    pub change_id: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteContentCommit {
+    pub state: NoteContentRevision,
+    pub changed: bool,
+}
+
 // Pending markers only bridge a live Desktop watcher and a concurrent CLI/MCP
 // process. Expiry prevents an offline create from being mistaken for a create
 // when that document is edited much later.

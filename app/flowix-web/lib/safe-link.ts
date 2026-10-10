@@ -1,4 +1,4 @@
-const SAFE_LINK_PROTOCOLS = new Set([
+export const SAFE_LINK_PROTOCOLS: ReadonlySet<string> = new Set([
   "http",
   "https",
   "file",
@@ -20,6 +20,7 @@ export function sanitizeLinkHref(
 ): string | null {
   const href = rawHref?.trim() ?? "";
   if (!href) return null;
+  if (/[\u0000-\u001f\u007f]/.test(href)) return null;
 
   // Windows drive paths have a colon but are not URI schemes.
   if (href.startsWith("/") || /^[a-z]:[\\/]/i.test(href)) return href;

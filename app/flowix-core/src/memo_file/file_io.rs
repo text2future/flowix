@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use super::MemoFile;
+use super::{FileLockIntent, MemoFile};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FileWriteOutcome {
@@ -104,6 +104,64 @@ pub fn rename_file_noclobber(_source: &Path, _target: &Path) -> io::Result<()> {
 }
 
 impl MemoFile {
+    pub fn create_file_for_notebook(&self, notebook_id: &str, path: &Path, content: &[u8]) -> io::Result<()> {
+        self.with_file_write(notebook_id, path, FileLockIntent::Create, "create_file", |path| {
+            atomic_create_bytes(path, content)
+        })
+    }
+
+    pub fn write_file_for_notebook(&self, notebook_id: &str, path: &Path, content: &[u8]) -> io::Result<()> {
+        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "write_file", |path| {
+            // Existing saves must never recreate a deleted parent or file.
+            fs::metadata(path)?;
+            atomic_write_bytes(path, content)
+        })
+    }
+
+    pub fn delete_file_for_notebook(&self, notebook_id: &str, path: &Path) -> io::Result<()> {
+        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "delete_file", |path| fs::remove_file(path))
+    }
+
+    pub fn write_file_if_matches_for_notebook(
+        &self,
+        notebook_id: &str,
+        path: &Path,
+        content: &str,
+        expected: Option<&str>,
+    ) -> io::Result<FileWriteOutcome> {
+        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "write_file_if_matches", |path| {
+            write_file_if_matches_locked(path, content, expected)
+        })
+    }
+
+    pub fn write_file_if_matches_for_registered_path(
+        &self, path: &Path, content: &str, expected: Option<&str>,
+    ) -> io::Result<FileWriteOutcome> {
+        self.with_registered_path_change(&[path], "write_file_nested_notebooks", || {
+            write_file_if_matches_locked(path, content, expected)
+        })
+    }
+
+    pub fn write_markdown_merging_for_notebook(
+        &self,
+        notebook_id: &str,
+        path: &Path,
+        content: &str,
+        expected: Option<&str>,
+    ) -> io::Result<MergedFileWriteOutcome> {
+        self.with_file_write(notebook_id, path, FileLockIntent::Existing, "write_markdown_merging", |path| {
+            write_markdown_merging_locked(path, content, expected)
+        })
+    }
+
+    pub fn write_markdown_merging_for_registered_path(
+        &self, path: &Path, content: &str, expected: Option<&str>,
+    ) -> io::Result<MergedFileWriteOutcome> {
+        self.with_registered_path_change(&[path], "write_markdown_nested_notebooks", || {
+            write_markdown_merging_locked(path, content, expected)
+        })
+    }
+
     pub fn create_file(&self, path: &Path, content: &[u8]) -> io::Result<()> {
         let _guard = self.acquire_cross_process_write_lock()?;
         atomic_create_bytes(path, content)
@@ -131,12 +189,7 @@ impl MemoFile {
         expected: Option<&str>,
     ) -> io::Result<FileWriteOutcome> {
         let _guard = self.acquire_cross_process_write_lock()?;
-        let disk_content = fs::read_to_string(path)?;
-        if expected.is_some_and(|expected| expected != disk_content) {
-            return Ok(FileWriteOutcome::Conflict { disk_content });
-        }
-        atomic_write_bytes(path, content.as_bytes())?;
-        Ok(FileWriteOutcome::Saved)
+        write_file_if_matches_locked(path, content, expected)
     }
 
     /// Merge a Markdown edit against a concurrent disk edit while holding the
@@ -148,6 +201,24 @@ impl MemoFile {
         expected: Option<&str>,
     ) -> io::Result<MergedFileWriteOutcome> {
         let _guard = self.acquire_cross_process_write_lock()?;
+        write_markdown_merging_locked(path, content, expected)
+    }
+}
+
+fn write_file_if_matches_locked(path: &Path, content: &str, expected: Option<&str>) -> io::Result<FileWriteOutcome> {
+    let disk_content = fs::read_to_string(path)?;
+    if expected.is_some_and(|expected| expected != disk_content) {
+        return Ok(FileWriteOutcome::Conflict { disk_content });
+    }
+    atomic_write_bytes(path, content.as_bytes())?;
+    Ok(FileWriteOutcome::Saved)
+}
+
+fn write_markdown_merging_locked(
+    path: &Path,
+    content: &str,
+    expected: Option<&str>,
+) -> io::Result<MergedFileWriteOutcome> {
         let disk_content = fs::read_to_string(path)?;
         let (content, merged) = match expected {
             Some(base) if base != disk_content => {
@@ -169,7 +240,6 @@ impl MemoFile {
         };
         atomic_write_bytes(path, content.as_bytes())?;
         Ok(MergedFileWriteOutcome::Saved { content, merged })
-    }
 }
 
 #[cfg(test)]

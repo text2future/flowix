@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { invokeHandler } from "@/lib/shortcuts/handler-registry";
 
 import {
@@ -12,6 +12,19 @@ import { insertComposerSkillToken } from "./composer-skill-token";
 
 const controllers: ComposerController[] = [];
 const domParts: ReturnType<typeof createAgentComposerDom>[] = [];
+
+// jsdom does not implement Range layout geometry. ProseMirror reads it via
+// getClientRects when a transaction moves the selection (e.g. undo/redo scroll
+// positioning), so provide the minimal stub the editor contract expects.
+beforeEach(() => {
+  Object.defineProperties(Range.prototype, {
+    getClientRects: { configurable: true, value: () => [] },
+    getBoundingClientRect: {
+      configurable: true,
+      value: () => ({ top: 0, bottom: 0, left: 0, right: 0, height: 0, width: 0 }),
+    },
+  });
+});
 
 function setup() {
   const parts = createAgentComposerDom({
@@ -123,6 +136,47 @@ describe("ComposerController note references", () => {
     expect(invokeHandler("editor.selectAll")).toBe(true);
     controller.dispose();
     expect(invokeHandler("editor.selectAll")).toBe(false);
+  });
+
+  it("routes native undo/redo to the focused composer", () => {
+    const { controller } = setup();
+    const view = controller.editorInstance.view;
+    view.dispatch(view.state.tr.insertText("hello", 1));
+    controller.focus();
+
+    expect(controller.getPrompt()).toBe("hello");
+    expect(invokeHandler("editor.undo")).toBe(true);
+    expect(controller.getPrompt()).toBe("");
+    expect(invokeHandler("editor.redo")).toBe(true);
+    expect(controller.getPrompt()).toBe("hello");
+  });
+
+  it("keeps undo/redo scoped to the focused composer", () => {
+    const { controller } = setup();
+    const other = setup().controller;
+    controller.editorInstance.view.dispatch(
+      controller.editorInstance.view.state.tr.insertText("composer", 1),
+    );
+    other.editorInstance.view.dispatch(
+      other.editorInstance.view.state.tr.insertText("other", 1),
+    );
+    controller.focus();
+
+    expect(invokeHandler("editor.undo")).toBe(true);
+    expect(controller.getPrompt()).toBe("");
+    expect(other.getPrompt()).toBe("other");
+  });
+
+  it("releases the undo/redo handlers when the composer is disposed", () => {
+    const { controller } = setup();
+    const view = controller.editorInstance.view;
+    view.dispatch(view.state.tr.insertText("hello", 1));
+    controller.focus();
+    expect(invokeHandler("editor.undo")).toBe(true);
+    expect(invokeHandler("editor.redo")).toBe(true);
+    controller.dispose();
+    expect(invokeHandler("editor.undo")).toBe(false);
+    expect(invokeHandler("editor.redo")).toBe(false);
   });
 
   it("focuses the Tiptap editor when clicking the input row", () => {

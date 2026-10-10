@@ -74,26 +74,6 @@ pub fn plugin_prepare_prompt(
 }
 
 #[tauri::command]
-pub fn plugin_resolve_note(
-    memo_id: String,
-    state: State<AppState>,
-) -> Result<PluginArtifact, String> {
-    // Compatibility endpoint. The actual read is host-owned so the old
-    // plugin API also remains usable after its producer has been removed.
-    let session = crate::artifact::resolve(&memo_id, &state.memo_file)?;
-    Ok(PluginArtifact {
-        plugin_id: session.plugin_id,
-        path: session.path,
-        name: session.name,
-        created_at: session.created_at,
-        format: session.format,
-        renderer: session.renderer,
-        content: session.content,
-        note_id: session.note_id,
-    })
-}
-
-#[tauri::command]
 pub async fn plugin_run(
     plugin_id: String,
     user_prompt: String,

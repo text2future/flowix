@@ -427,7 +427,7 @@ pub fn restore_local_path_version(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file.acquire_cross_process_write_lock().map_err(sync_error)?;
+    let _guard = memo_file.operation_locks().notebook_change(&[&notebook_id], "restore_local_path_version").map_err(sync_error)?;
     let notebook = memo_file.get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);
@@ -544,7 +544,7 @@ pub fn cloud_resolve_markdown_conflict(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file.acquire_cross_process_write_lock().map_err(sync_error)?;
+    let _guard = memo_file.operation_locks().notebook_change(&[&notebook_id], "resolve_markdown_conflict").map_err(sync_error)?;
     let notebook = memo_file.get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);
@@ -658,7 +658,7 @@ pub fn cloud_resolve_attachment_conflict(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file.acquire_cross_process_write_lock().map_err(sync_error)?;
+    let _guard = memo_file.operation_locks().notebook_change(&[&notebook_id], "resolve_attachment_conflict").map_err(sync_error)?;
     let notebook = memo_file.get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);
@@ -777,7 +777,7 @@ pub async fn cloud_restore_note_revision(
         return Err("CLOUD_HISTORY_ID_MISMATCH".into());
     }
     let memo_file = read_lock(&state.memo_file, "memo_file");
-    let _guard = memo_file.acquire_cross_process_write_lock().map_err(sync_error)?;
+    let _guard = memo_file.operation_locks().notebook_change(&[&notebook_id], "restore_cloud_note_revision").map_err(sync_error)?;
     let notebook = memo_file.get_notebook_config_by_id(&notebook_id)
         .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
     let root = Path::new(&notebook.path);

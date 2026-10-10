@@ -1,17 +1,12 @@
 import { invokeDocumentMutation } from './document-mutation';
 import { invoke } from '@tauri-apps/api/core';
 import type { MemoItem } from '@/types/memo-item';
-import type { MemoContentCommit } from '@/types/memo';
 import type { NotebookImportStatus } from './agent';
 import { notes } from './notes';
 import type {
   FilterType,
-  MatchField,
   NoteColorFilter,
-  NoteDeleteOutcome,
   NotePathStatus,
-  NoteVersionSource,
-  PruneMissingNoteOutcome,
   SortType,
 } from './notes';
 
@@ -35,21 +30,6 @@ export type {
   SortType,
 } from './notes';
 
-export interface MemoListPage {
-  memos: MemoItem[];
-  nextCursor: string | null;
-  hasMore: boolean;
-}
-
-export interface MemoSearchHit {
-  id: string;
-  filename: string;
-  snippet: string;
-  matchedIn: MatchField;
-  score: number;
-  updatedAt: number;
-}
-
 export interface NotebookTemplateRecord {
   id: string;
   name: string;
@@ -60,58 +40,11 @@ export interface NotebookTemplateRecord {
   coverUrl?: string;
 }
 
-export interface MentionNoteSearchItem {
-  id: string;
-  filename: string;
-  title: string;
-  updatedAt: number;
-  notebookId: string;
-  notebookName: string;
-  notebookPath: string;
-  originalPath: string | null;
-}
-
-export interface MemoVersionMeta {
-  id: string;
-  memoId: string;
-  createdAt: number;
-  source: NoteVersionSource;
-  filename: string;
-  title: string;
-  size: number;
-  contentHash: string;
-}
-
-export interface OpenMemoSession {
-  memo: MemoItem;
-  notebookId: string;
-  notebookPath: string;
-  path: string;
-  content: string;
-}
-
 /** Legacy Memo-ID operations and compatibility IPC. */
 export const memos = {
   /** @deprecated Use `notes.resolveLocation`. */
   resolveMarkdownLocation: (filePath: string) =>
     notes.resolveLocation(filePath),
-  getMemos: (params?: {
-    notebookId?: string;
-    filter?: FilterType;
-    sort?: SortType;
-    tagId?: string;
-    color?: NoteColorFilter;
-    cursor?: string;
-    limit?: number;
-  }) => invoke<MemoListPage>('get_memos', {
-    notebookId: params?.notebookId,
-    filter: params?.filter || 'all',
-    sort: params?.sort || 'createdAt',
-    tagId: params?.tagId,
-    color: params?.color,
-    cursor: params?.cursor,
-    limit: params?.limit,
-  }),
   /** @deprecated Use `notes.list`. */
   listNotesByPath: notes.list,
   /** @deprecated Use `notes.getPage`. */
@@ -124,11 +57,6 @@ export const memos = {
     cursor?: string;
     limit?: number;
   }) => notes.getPage(params),
-  searchMentionNotes: (query?: string, limit?: number) =>
-    invoke<MentionNoteSearchItem[]>('search_mention_notes', {
-      query,
-      limit,
-    }),
   getUsedTagIds: (notebookId?: string) =>
     invoke<{
       usedTagIds: string[];
@@ -139,9 +67,6 @@ export const memos = {
     }>('get_used_memo_tag_ids', { notebookId }),
   getTodoCount: (notebookId?: string) =>
     invoke<number>('get_memo_todo_count', { notebookId }),
-  readMemo: (id: string) => invoke<MemoItem | null>('read_memo', { id }),
-  openMemoSession: (id: string) =>
-    invoke<OpenMemoSession | null>('open_memo_session', { id }),
   /** @deprecated Use `notes.readDocument`. */
   readDocument: notes.readDocument,
   /** @deprecated Use `notes.pathStatus`. */
@@ -174,30 +99,12 @@ export const memos = {
   createPathFromTemplate: notes.createFromTemplate,
   /** @deprecated Use `notes.importDocument`. */
   importExternalDocumentByPath: notes.importDocument,
-  deleteMemo: (filePath: string) => invoke<NoteDeleteOutcome>('delete_memo', { filePath }),
-  pruneMissingMemo: (filePath: string) => invoke<PruneMissingNoteOutcome>('prune_missing_memo', { filePath }),
-  clearMemos: (notebookId?: string) => invoke<boolean>('clear_memos', { notebookId }),
-  listVersions: (id: string) =>
-    invoke<MemoVersionMeta[]>('list_memo_versions', { id }),
   /** @deprecated Use `notes.listVersions`. */
   listPathVersions: notes.listVersions,
   /** @deprecated Use `notes.createVersion`. */
   createPathVersion: notes.createVersion,
   /** @deprecated Use `notes.restoreVersion`. */
   restorePathVersion: notes.restoreVersion,
-  restoreVersion: (id: string, filePath: string, versionId: string, expectedContent?: string) =>
-    invoke<({ path: string; content: string } & MemoContentCommit) | null>('restore_memo_version', {
-      id,
-      filePath,
-      versionId,
-      expectedContent,
-    }),
-  search: (notebookId: string | null, query: string, limit?: number) =>
-    invoke<{ hits: MemoSearchHit[]; indexReady: boolean }>('search_memos', {
-      notebookId,
-      query,
-      limit,
-    }),
   /** @deprecated Use `notes.search`. */
   searchPathNotes: notes.search,
   // 鍏ㄥ眬"閫氳繃閾炬帴鎵撳紑绗旇"鍏ュ彛 鈹€鈹€ 鎺ユ敹浠绘剰褰㈠紡鐨?`flowix://` URL / 鐗╃悊璺緞,

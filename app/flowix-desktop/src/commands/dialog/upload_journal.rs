@@ -13,7 +13,11 @@ use crate::lock_utils::read_lock;
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ImportRecord {
     path: String,
-    memo_id: Option<String>,
+    /// Notebook-relative path of the note that owned this upload, when known.
+    /// Older records stored a legacy `memo_id` instead; unknown fields from
+    /// those records are ignored on read.
+    #[serde(default)]
+    note_path: Option<String>,
     sha256: String,
     bytes: u64,
     prepared_at: i64,
@@ -57,7 +61,7 @@ fn journal_directory(root: &Path) -> io::Result<PathBuf> {
 pub(super) fn prepare(
     root: &Path,
     target: &Path,
-    memo_id: Option<&str>,
+    note_path: Option<&str>,
     fingerprint: &(String, u64),
 ) -> io::Result<Journal> {
     let directory = journal_directory(root)?;
@@ -72,7 +76,7 @@ pub(super) fn prepare(
     let relative = target.strip_prefix(root).map_err(io::Error::other)?;
     let record = ImportRecord {
         path: relative.to_string_lossy().into_owned(),
-        memo_id: memo_id.map(str::to_owned),
+        note_path: note_path.map(str::to_owned),
         sha256: fingerprint.0.clone(),
         bytes: fingerprint.1,
         prepared_at: chrono::Utc::now().timestamp_millis(),
@@ -199,7 +203,7 @@ mod tests {
         journal.confirm().unwrap();
         let confirmed = list(&root).unwrap();
         assert!(confirmed.records[0].confirmed);
-        assert_eq!(confirmed.records[0].memo_id.as_deref(), Some("memo"));
+        assert_eq!(confirmed.records[0].note_path.as_deref(), Some("memo"));
     }
 
     #[test]

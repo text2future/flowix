@@ -128,9 +128,9 @@ export function createManagedPasteRules(options: {
       kind: 'files',
       priority: 1000,
       match: ({ files }) => filterFilesByMimeTypes(files, options.allowedMimeTypes).length > 0,
-      run: ({ view, files, memoId }) => {
+      run: ({ view, files, ownerPath }) => {
         const filteredFiles = filterFilesByMimeTypes(files, options.allowedMimeTypes);
-        void handleFileUpload(view, filteredFiles, view.state.selection.from, undefined, memoId);
+        void handleFileUpload(view, filteredFiles, view.state.selection.from, undefined, ownerPath);
         return 'handled';
       },
     },

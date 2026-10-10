@@ -34,18 +34,8 @@ pub use reads::*;
 use serde::Serialize;
 
 use flowix_core::memo_file::{Memo, NoteEntry};
-use flowix_core::search::MemoSearchHit;
 
 // Shared response / item structs 鈹€鈹€ referenced by multiple sections below.
-
-#[derive(Serialize)]
-pub struct GetMemosResponse {
-    pub memos: Vec<Memo>,
-    #[serde(rename = "nextCursor")]
-    pub next_cursor: Option<String>,
-    #[serde(rename = "hasMore")]
-    pub has_more: bool,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,36 +43,6 @@ pub struct GetPathNotesResponse {
     pub notes: Vec<NoteEntry>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenMemoSessionResponse {
-    pub memo: Memo,
-    pub notebook_id: String,
-    pub notebook_path: String,
-    pub path: String,
-    pub content: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchMemosResponse {
-    pub hits: Vec<MemoSearchHit>,
-    pub index_ready: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MentionNoteSearchItem {
-    pub id: String,
-    pub filename: String,
-    pub title: String,
-    pub updated_at: i64,
-    pub notebook_id: String,
-    pub notebook_name: String,
-    pub notebook_path: String,
-    pub original_path: Option<String>,
 }
 
 #[derive(Serialize)]

@@ -50,8 +50,13 @@ import type { MemoEvent, MemoDerivedRefresh } from '@/types/memo';
  * 返回 `undefined` 表示此事件不参与 dedup (立即 next)。
  */
 function memoEventKey(event: MemoEvent): string | undefined {
-  if (event.kind === 'created') return JSON.stringify([event.notebookId, event.memo.id]);
-  if (event.kind === 'updated' || event.kind === 'deleted') return JSON.stringify([event.notebookId, event.id]);
+  // Path-keyed dedup: (notebookId, relativePath) is the identity that
+  // survives the legacy memo id decommission.
+  if (event.kind === 'created')
+    return JSON.stringify([event.notebookId, event.memo.relativePath ?? event.memo.filename]);
+  if (event.kind === 'updated')
+    return JSON.stringify([event.notebookId, event.memo.relativePath ?? event.path]);
+  if (event.kind === 'deleted') return JSON.stringify([event.notebookId, event.relativePath]);
   // tags_renamed 没有 memo id 维度, 返回 undefined 让 caller 走 "立即 next" 分支
   return undefined;
 }
@@ -93,9 +98,9 @@ export function createMemoDedupMiddleware(
     const key = getKey(event);
     if (!key) {
       if (event.kind === 'tags_renamed' || event.kind === 'tags_deleted') {
-        const affected = new Set(event.affectedMemoIds);
+        const affected = new Set(event.affectedRelativePaths);
         for (const [pendingKey, [queued, timer]] of pending) {
-          if (queued.kind === 'updated' && queued.notebookId === event.notebookId && affected.has(queued.id)) {
+          if (queued.kind === 'updated' && queued.notebookId === event.notebookId && affected.has(queued.memo.relativePath ?? queued.memo.filename)) {
             clearTimeout(timer);
             pending.delete(pendingKey);
             next(queued);

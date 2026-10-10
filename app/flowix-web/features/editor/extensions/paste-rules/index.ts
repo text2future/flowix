@@ -6,13 +6,13 @@ import { hasImportableHtml, isInternalEditorHtml, sanitizeExternalHtml } from '@
 import type { PasteContext } from '@features/editor/extensions/paste-rules/types';
 import type { Editor } from '@tiptap/core';
 
-export const ManagedPasteRules = Extension.create<{ memoId?: string }>({
+export const ManagedPasteRules = Extension.create<{ ownerPath?: string }>({
   name: 'managedPasteRules',
   priority: 1100,
 
   addOptions() {
     return {
-      memoId: undefined,
+      ownerPath: undefined,
     };
   },
 
@@ -35,13 +35,13 @@ export const ManagedPasteRules = Extension.create<{ memoId?: string }>({
             const snapshot = readClipboardSnapshot(clipboardData);
             if (snapshot.html && !hasImportableHtml(snapshot.html) && snapshot.text) {
               event.preventDefault();
-              return pasteClipboardSnapshot(this.editor, { ...snapshot, html: '' }, this.options.memoId);
+              return pasteClipboardSnapshot(this.editor, { ...snapshot, html: '' }, this.options.ownerPath);
             }
 
             const ctx: PasteContext = {
               editor: this.editor,
               view,
-              memoId: this.options.memoId,
+              ownerPath: this.options.ownerPath,
               event,
               types: snapshot.types,
               markdown: snapshot.markdown,
@@ -84,7 +84,7 @@ function createSyntheticPasteEvent(): ClipboardEvent {
 export function pasteClipboardSnapshot(
   editor: Editor,
   snapshot: ClipboardSnapshot,
-  memoId?: string,
+  ownerPath?: string,
 ): boolean {
   // This path is also used when a title paste sends its body remainder into
   // the editor. Make the target editor explicit for the duration of the
@@ -95,7 +95,7 @@ export function pasteClipboardSnapshot(
   const ctx: PasteContext = {
     editor,
     view: editor.view,
-    memoId,
+    ownerPath,
     event,
     types: snapshot.types,
     markdown: snapshot.markdown,

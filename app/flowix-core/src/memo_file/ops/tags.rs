@@ -85,13 +85,13 @@ impl MemoFile {
     ) -> std::io::Result<MoveTagReport> {
         // 旧入口 (无 hook): 保持原签名, 委托 with_hooks 传 no-op 回调。
         // core 单测与无 watcher 需求的调用方 (CLI) 走这个, 不感知 hook。
-        self.move_memo_tag_locked_with_hooks(notebook_id, old_path, new_path, |_| {}, |_, _| {})
+        self.move_memo_tag_locked_with_hooks(notebook_id, old_path, new_path, |_| {}, |_| {})
     }
 
     /// [`move_memo_tag_locked`] 的带 hook 版: desktop 在每个 memo 写盘前后
     /// 注入回调 ── `on_before_write` 用于 mark_self_write 抑制 watcher 自写,
-    /// `on_after_write` 用于收集 (id, before) 供调用方在释放 memo_file read
-    /// lock 后 emit MemoEvent::Updated。core 不依赖 tauri / watcher /
+    /// `on_after_write` 用于收集 (relative_path) 供调用方在释放 memo_file
+    /// read lock 后 emit MemoEvent::Updated。core 不依赖 tauri / watcher /
     /// memo_events, 通过回调与 desktop 解耦 (保持零 Tauri 依赖)。
     pub fn move_memo_tag_locked_with_hooks<F, G>(
         &self,
@@ -103,7 +103,7 @@ impl MemoFile {
     ) -> std::io::Result<MoveTagReport>
     where
         F: Fn(&Path),
-        G: FnMut(&str, &Memo),
+        G: FnMut(&str),
     {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
 
@@ -163,9 +163,6 @@ impl MemoFile {
             .collect::<Result<Vec<_>, _>>()
             .map_err(sqlite_to_io)?;
         drop(catalog_stmt);
-        if catalog_paths.is_empty() {
-            return Ok(MoveTagReport::default());
-        }
         let renamed_catalog_paths: Vec<(String, String)> = catalog_paths
             .iter()
             .map(|path| {
@@ -196,18 +193,7 @@ impl MemoFile {
             }
         }
 
-        let new_exists: bool = conn
-            .query_row(
-                "SELECT 1 FROM memo_tags mt
-                 JOIN memos m ON m.id = mt.memo_id
-                 WHERE m.notebook_id = ?1 AND mt.tag = ?2
-                 LIMIT 1",
-                rusqlite::params![&notebook_id_owned, &new_path],
-                |_| Ok(true),
-            )
-            .optional()
-            .map_err(sqlite_to_io)?
-            .unwrap_or(false);
+        let new_exists = self.note_tag_exists(&notebook_id_owned, &new_path)?;
         if new_exists {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -215,25 +201,12 @@ impl MemoFile {
             ));
         }
 
-        // 5. 找所有 affected memo_id (memo_tags 里有 old_path 或 old_path/*)
-        let mut stmt = conn
-            .prepare(
-                "SELECT DISTINCT mt.memo_id FROM memo_tags mt
-                 JOIN memos m ON m.id = mt.memo_id
-                 WHERE m.notebook_id = ?1
-                   AND (mt.tag = ?2 OR mt.tag LIKE ?3 ESCAPE '\\')",
-            )
-            .map_err(sqlite_to_io)?;
-        let affected_ids: Vec<String> = stmt
-            .query_map(
-                rusqlite::params![&notebook_id_owned, &old_path, format!("{prefix}%")],
-                |row| row.get(0),
-            )
-            .map_err(sqlite_to_io)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(sqlite_to_io)?;
-
-        drop(stmt);
+        // 5. 找所有 affected note relative_path (note_tags 里有 old_path 或 old_path/*)
+        let affected_paths: Vec<String> =
+            self.note_paths_with_tag(&notebook_id_owned, &old_path)?;
+        if catalog_paths.is_empty() && affected_paths.is_empty() {
+            return Ok(MoveTagReport::default());
+        }
 
         // 6. 逐 memo 改写 YAML 与正文中的真实标签来源，再同步并集索引。
         let mut report = MoveTagReport {
@@ -242,20 +215,12 @@ impl MemoFile {
         };
         let mut renamed_seen: std::collections::HashSet<(String, String)> =
             report.renamed_tags.iter().cloned().collect();
-        for memo_id in &affected_ids {
-            let location = self.resolve_memo_location(memo_id)?.ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("memo {memo_id} not found"),
-                )
-            })?;
-            let path = super::super::notebook_path_from_relative(
-                &std::path::PathBuf::from(&location.notebook.path),
-                &location.memo.relative_path,
-            )
-            .unwrap_or_else(|_| {
-                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename)
-            });
+        let notebook_root = self
+            .memo_base_for_notebook_id_result(&notebook_id_owned)
+            .map_err(std::io::Error::other)?;
+        for relative_path in &affected_paths {
+            let path = super::super::notebook_path_from_relative(&notebook_root, relative_path)
+                .map_err(std::io::Error::other)?;
             let content = std::fs::read_to_string(&path)?;
             let metadata = extract_document_metadata(&content).map_err(|error| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
@@ -293,12 +258,8 @@ impl MemoFile {
                 content_with_body
             };
 
-            // 改写前的 memo 快照: on_after_write 把它交回调用方, 用于 emit
-            // memo-event 时算 derived_changed (before -> after)。
-            let before_memo = MemoFile::index_entry_to_memo(&location.memo);
-
             // 收集实际改写涉及的 (old, new) 路径对, 用于报告
-            for old_tag in &location.memo.tags {
+            for old_tag in &metadata.tags {
                 let new_tag = if old_tag == &old_path {
                     Some(new_path.clone())
                 } else {
@@ -322,20 +283,13 @@ impl MemoFile {
 
             atomic_write_bytes(&path, merged.as_bytes())?;
 
-            // 重新派生 + 同步 memo index
-            let mut memo = before_memo.clone();
-            apply_derived_memo_fields(&mut memo, &merged);
-            memo.updated_at = chrono::Utc::now().timestamp_millis();
-            MemoFile::sync_index_on_write_for_notebook_id_locked(
-                self,
-                &location.notebook.id,
-                &memo,
-            )?;
+            // 重新派生 Note 投影 + note_tags。
+            self.refresh_note_path(&notebook_id_owned, relative_path)?;
 
-            // 写盘 + index 同步完成后, 把 (id, before) 交回调用方 ── 调用方
+            // 写盘 + 投影同步完成后, 把 relative_path 交回调用方 ── 调用方
             // 在释放 memo_file read lock 后据此 emit MemoEvent::Updated,
             // 避免持锁期间递归 read_lock (std RwLock 不支持递归 read)。
-            on_after_write(memo_id.as_str(), &before_memo);
+            on_after_write(relative_path.as_str());
 
             report.affected_memos += 1;
         }
@@ -392,12 +346,12 @@ impl MemoFile {
         notebook_id: Option<&str>,
         tag_path: &str,
     ) -> std::io::Result<DeleteTagReport> {
-        self.delete_memo_tag_locked_with_hooks(notebook_id, tag_path, |_| {}, |_, _| {})
+        self.delete_memo_tag_locked_with_hooks(notebook_id, tag_path, |_| {}, |_| {})
     }
 
     /// Hooked variant of [`delete_memo_tag_locked`]. Desktop injects
     /// `on_before_write` to suppress watcher self-writes and an
-    /// `on_after_write` to collect `(id, before)` pairs for downstream
+    /// `on_after_write` to collect relative paths for downstream
     /// emit. Core stays Tauri-free.
     ///
     pub fn delete_memo_tag_locked_with_hooks<F, G>(
@@ -409,7 +363,7 @@ impl MemoFile {
     ) -> std::io::Result<DeleteTagReport>
     where
         F: Fn(&Path),
-        G: FnMut(&str, &Memo),
+        G: FnMut(&str),
     {
         let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
 
@@ -452,52 +406,27 @@ impl MemoFile {
             .map_err(sqlite_to_io)?;
         drop(stmt);
 
-        if deleted_tags.is_empty() {
+        // 4. collect affected note relative_paths
+        let affected_paths: Vec<String> =
+            self.note_paths_with_tag(&notebook_id_owned, &tag_path)?;
+        if deleted_tags.is_empty() && affected_paths.is_empty() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!("tag not found in notebook: {tag_path}"),
             ));
         }
 
-        // 4. collect affected memo_ids
-        let mut stmt = conn
-            .prepare(
-                "SELECT DISTINCT mt.memo_id FROM memo_tags mt
-                 JOIN memos m ON m.id = mt.memo_id
-                 WHERE m.notebook_id = ?1
-                   AND (mt.tag = ?2 OR mt.tag LIKE ?3 ESCAPE '\\')",
-            )
-            .map_err(sqlite_to_io)?;
-        let affected_ids: Vec<String> = stmt
-            .query_map(
-                rusqlite::params![&notebook_id_owned, &tag_path, format!("{prefix}%")],
-                |row| row.get(0),
-            )
-            .map_err(sqlite_to_io)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(sqlite_to_io)?;
-        drop(stmt);
-
-        // 5. Per-memo YAML/body tag rewrite + union index sync.
+        // 5. Per-note YAML/body tag rewrite + path projection sync.
         let mut report = DeleteTagReport {
             affected_memos: 0,
             deleted_tags,
         };
-        for memo_id in &affected_ids {
-            let location = self.resolve_memo_location(memo_id)?.ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("memo {memo_id} not found"),
-                )
-            })?;
-            let path = super::super::notebook_path_from_relative(
-                &std::path::PathBuf::from(&location.notebook.path),
-                &location.memo.relative_path,
-            )
-            .unwrap_or_else(|_| {
-                std::path::PathBuf::from(&location.notebook.path).join(&location.memo.filename)
-            });
-            let before_memo = MemoFile::index_entry_to_memo(&location.memo);
+        let notebook_root = self
+            .memo_base_for_notebook_id_result(&notebook_id_owned)
+            .map_err(std::io::Error::other)?;
+        for relative_path in &affected_paths {
+            let path = super::super::notebook_path_from_relative(&notebook_root, relative_path)
+                .map_err(std::io::Error::other)?;
             let content = std::fs::read_to_string(&path)?;
             let metadata = extract_document_metadata_preserving_invalid_tag_paths(&content)
                 .map_err(|error| {
@@ -514,14 +443,8 @@ impl MemoFile {
                 super::super::derivation::rewrite_body_tag_path(&content, &tag_path, None);
             let body_changed = content_with_body != content;
             if !yaml_changed && !body_changed {
-                // A stale index row is repaired without changing the document.
-                let mut memo = MemoFile::index_entry_to_memo(&location.memo);
-                apply_derived_memo_fields(&mut memo, &content);
-                MemoFile::sync_index_on_write_for_notebook_id_locked(
-                    self,
-                    &location.notebook.id,
-                    &memo,
-                )?;
+                // A stale projection row is repaired without changing the document.
+                self.refresh_note_path(&notebook_id_owned, relative_path)?;
                 continue;
             }
             let content_with_tags = if yaml_changed {
@@ -542,17 +465,10 @@ impl MemoFile {
 
             atomic_write_bytes(&path, merged.as_bytes())?;
 
-            // Re-derive the YAML/body union and prune deleted index rows.
-            let mut memo = before_memo.clone();
-            apply_derived_memo_fields(&mut memo, &merged);
-            memo.updated_at = chrono::Utc::now().timestamp_millis();
-            MemoFile::sync_index_on_write_for_notebook_id_locked(
-                self,
-                &location.notebook.id,
-                &memo,
-            )?;
+            // Re-derive the YAML/body union and prune deleted projection rows.
+            self.refresh_note_path(&notebook_id_owned, relative_path)?;
 
-            on_after_write(memo_id, &before_memo);
+            on_after_write(relative_path.as_str());
             report.affected_memos += 1;
         }
 

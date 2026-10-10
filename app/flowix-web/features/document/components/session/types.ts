@@ -53,6 +53,8 @@ export interface DocumentContainerProps {
   onToolbarCollapsedChange?: (collapsed: boolean) => void;
   /** Keep this editor out of the main workspace's singleton document session. */
   documentSessionMode?: 'main' | 'isolated';
+  /** Runtime surface identity used to bind one-shot Agent navigation requests. */
+  navigationViewId?: string;
   /** Render the document without edit or metadata mutation controls. */
   readOnly?: boolean;
   /** One-shot focus requested by the memo creation/open transaction. */

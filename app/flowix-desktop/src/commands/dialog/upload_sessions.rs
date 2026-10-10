@@ -30,7 +30,7 @@ fn admit_request(
 
 struct Upload {
     owner: String,
-    memo_id: String,
+    note_path: Option<String>,
     notebook_id: String,
     name: String,
     expected: u64,
@@ -60,7 +60,7 @@ impl UploadSessions {
         &self,
         owner: &str,
         generation: u64,
-        memo_id: String,
+        note_path: Option<String>,
         notebook_id: String,
         name: String,
         size: u64,
@@ -68,7 +68,10 @@ impl UploadSessions {
         if size > base64_input::MAX_CONTENT_BYTES as u64 {
             return Err("ATTACHMENT_CONTENT_TOO_LARGE".into());
         }
-        if name.is_empty() || name.len() > 1024 || memo_id.len() > 256 {
+        if name.is_empty()
+            || name.len() > 1024
+            || note_path.as_deref().is_some_and(|path| path.len() > 1024)
+        {
             return Err("Invalid upload metadata".into());
         }
         let generations = self
@@ -90,7 +93,7 @@ impl UploadSessions {
             id.clone(),
             Upload {
                 owner: owner.into(),
-                memo_id,
+                note_path,
                 notebook_id,
                 name,
                 expected: size,
@@ -206,22 +209,23 @@ impl UploadSessions {
 #[tauri::command]
 pub fn begin_attachment_upload(
     window: tauri::WebviewWindow,
-    memo_id: String,
+    note_path: String,
     file_name: String,
     size: u64,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let generation = state.upload_sessions.generation(window.label())?;
     let store = read_lock(&state.memo_file, "memo_file");
-    let notebook_id = attachments::resolve_notebook_id(&store, None, Some(&memo_id))
-        .map_err(|error| error.to_string())?;
+    let (notebook_id, owner_note) =
+        attachments::resolve_note_owner(&store, None, Some(&note_path))
+            .map_err(|error| error.to_string())?;
     let root = attachments::notebook_root(&store, Some(&notebook_id))
         .map_err(|error| error.to_string())?;
     super::start_security_bookmark_access(&state, &root);
     state.upload_sessions.begin(
         window.label(),
         generation,
-        memo_id,
+        owner_note,
         notebook_id,
         file_name,
         size,
@@ -264,7 +268,7 @@ pub async fn finish_attachment_upload(
         let path = attachments::save_for_owner(
             &store,
             Some(&upload.notebook_id),
-            Some(&upload.memo_id),
+            upload.note_path.as_deref(),
             &upload.name,
             &mut upload.file,
         )

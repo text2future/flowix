@@ -4,7 +4,7 @@
 //! provide final artifact content; the runtime validates it, writes the hidden
 //! artifact, and creates the user-facing Flowix pointer note.
 
-use flowix_core::memo_file::{atomic_write_bytes, MemoFile, NotebookConfig};
+use flowix_core::memo_file::{MemoFile, NotebookConfig};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -591,19 +591,18 @@ fn create_artifact_from_definition(
     // the identity; no pointer memo or hidden artifact is created.
     if request.plugin_id == MINDMAP_PLUGIN_ID {
         let output_dir = notebook_path.join("Mindmaps");
-        std::fs::create_dir_all(&output_dir)
+        memo_file.with_notebook_change(&[&notebook.id], "create_mindmap_directory", || std::fs::create_dir_all(&output_dir))
             .map_err(|error| format!("create mindmap directory: {error}"))?;
         let artifact_path = output_file_path(&output_dir, &parsed.title, "md");
         let document = serialize_artifact_document(
             request.plugin_id, version, "markdown", &parsed.content,
         );
-        atomic_write_bytes(&artifact_path, document.as_bytes())
+        memo_file.create_file_for_notebook(&notebook.id, &artifact_path, document.as_bytes())
             .map_err(|error| format!("write mindmap document: {error}"))?;
         let relative_path = artifact_path.strip_prefix(&notebook_path)
             .map_err(|_| "mindmap escaped notebook root".to_string())?
             .to_string_lossy().replace('\\', "/");
-        memo_file.refresh_note_path(&notebook.id, &relative_path)
-            .map_err(|error| format!("index mindmap document: {error}"))?;
+        memo_file.refresh_note_path_after_write(&notebook.id, &relative_path);
         let note_path = artifact_path.to_string_lossy().to_string();
         return Ok(CreatedPluginArtifact {
             ok: true,
@@ -621,20 +620,19 @@ fn create_artifact_from_definition(
 
     let _ = (output_directory, extension, parser, note_type);
     let output_dir = notebook_path.join("Plugins").join(request.plugin_id);
-    std::fs::create_dir_all(&output_dir)
+    memo_file.with_notebook_change(&[&notebook.id], "create_plugin_directory", || std::fs::create_dir_all(&output_dir))
         .map_err(|error| format!("create plugin directory: {error}"))?;
     let artifact_path = output_file_path(&output_dir, &parsed.title, "md");
     let document = serialize_path_plugin_document(
         request.plugin_id, version, format, renderer, &parsed.content,
         request.producer, request.source_note,
     );
-    atomic_write_bytes(&artifact_path, document.as_bytes())
+    memo_file.create_file_for_notebook(&notebook.id, &artifact_path, document.as_bytes())
         .map_err(|error| format!("write plugin document: {error}"))?;
     let relative_path = artifact_path.strip_prefix(&notebook_path)
         .map_err(|_| "plugin document escaped notebook root".to_string())?
         .to_string_lossy().replace('\\', "/");
-    memo_file.refresh_note_path(&notebook.id, &relative_path)
-        .map_err(|error| format!("index plugin document: {error}"))?;
+    memo_file.refresh_note_path_after_write(&notebook.id, &relative_path);
     let note_path = artifact_path.to_string_lossy().to_string();
     Ok(CreatedPluginArtifact {
         ok: true,

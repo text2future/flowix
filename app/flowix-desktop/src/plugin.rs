@@ -706,10 +706,18 @@ pub fn write_output(
     let parsed = parse_plugin_output(&plugin, content)?;
     let clean = parsed.content;
     let title = parsed.title;
+    let notebook_id = read_lock(memo_file, "memo_file")
+        .read_notebook_configs().map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|config| dunce::canonicalize(&config.path).ok().as_deref() == Some(notebook.as_path()))
+        .map(|config| config.id)
+        .ok_or_else(|| "notebook path is not registered in Flowix".to_string())?;
     {
         let output_dir = if id == "mindmap" { notebook.join("Mindmaps") }
             else { notebook.join("Plugins").join(id) };
-        fs::create_dir_all(&output_dir).map_err(|e| format!("create plugin directory: {e}"))?;
+        read_lock(memo_file, "memo_file")
+            .with_notebook_change(&[&notebook_id], "create_plugin_output_directory", || fs::create_dir_all(&output_dir))
+            .map_err(|e| format!("create plugin directory: {e}"))?;
         if !path_is_inside(&output_dir, &notebook) {
             return Err("mindmap directory escaped notebook root".to_string());
         }
@@ -731,19 +739,14 @@ pub fn write_output(
                 &clean, agent_type, source_note,
             )
         };
-        flowix_core::memo_file::atomic_write_bytes(&output_path, document.as_bytes())
+        read_lock(memo_file, "memo_file")
+            .create_file_for_notebook(&notebook_id, &output_path, document.as_bytes())
             .map_err(|e| format!("write mindmap: {e}"))?;
         let relative_path = output_path.strip_prefix(&notebook)
             .map_err(|_| "mindmap path escaped notebook root".to_string())?
             .to_string_lossy().replace('\\', "/");
-        let notebook_id = read_lock(memo_file, "memo_file")
-            .read_notebook_configs().map_err(|e| e.to_string())?
-            .into_iter().find(|config| Path::new(&config.path) == notebook)
-            .map(|config| config.id)
-            .ok_or_else(|| "notebook path is not registered in Flowix".to_string())?;
         read_lock(memo_file, "memo_file")
-            .refresh_note_path(&notebook_id, &relative_path)
-            .map_err(|e| format!("index mindmap: {e}"))?;
+            .refresh_note_path_after_write(&notebook_id, &relative_path);
         if let Some(app_handle) = app_handle.as_ref() {
             crate::watcher::runtime::mark_self_write_for(app_handle, &output_path);
         }

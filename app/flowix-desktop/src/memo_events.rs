@@ -106,6 +106,10 @@ pub enum MemoEvent {
     Deleted {
         id: String,
         path: String,
+        /// Notebook-relative path of the deleted note; the path-keyed
+        /// identity that survives the deletion of the legacy id.
+        #[serde(rename = "relativePath")]
+        relative_path: String,
         #[serde(rename = "notebookId")]
         notebook_id: String,
         #[serde(rename = "derivedChanged")]
@@ -133,10 +137,10 @@ pub enum MemoEvent {
         /// (直接 `.clone()` 进 payload, 不需要转换)。
         #[serde(rename = "renamedTags")]
         renamed_tags: Vec<(String, String)>,
-        /// 受影响的 memo id 列表 — 前端用此定位要 patch 的行。后端
+        /// 受影响的 note 相对路径列表 — 前端用此定位要 patch 的行。后端
         /// `try_index_upsert` 也基于此逐条刷新搜索索引。
-        #[serde(rename = "affectedMemoIds")]
-        affected_memo_ids: Vec<String>,
+        #[serde(rename = "affectedRelativePaths")]
+        affected_relative_paths: Vec<String>,
     },
     /// 整棵 tag 子树删除完成 (delete_memo_tag IPC): 一次性发出, 替代
     /// 之前每个 affected memo 都发一次 Updated 的方案。后端已经从
@@ -155,11 +159,11 @@ pub enum MemoEvent {
         /// `tag_path/` 为前缀的子树 tag。 前端 memos[*].tags 过滤这些值。
         #[serde(rename = "deletedTags")]
         deleted_tags: Vec<String>,
-        /// 受影响的 memo id 列表 ── 前端按 id 局部过滤 memos 数组的
+        /// 受影响的 note 相对路径列表 ── 前端按路径局部过滤 memos 数组的
         /// .tags, 不替换整个 memo。 后端 `try_index_upsert` 也基于此
         /// 逐条刷新搜索索引 (虽然 tag 删了, 但 memo body 内容变了)。
-        #[serde(rename = "affectedMemoIds")]
-        affected_memo_ids: Vec<String>,
+        #[serde(rename = "affectedRelativePaths")]
+        affected_relative_paths: Vec<String>,
     },
 }
 
@@ -340,13 +344,13 @@ fn is_false(value: &bool) -> bool {
 }
 
 fn commit_for_event(app: &AppHandle, event: &MemoEvent) -> Result<Option<DocumentCommit>, ()> {
-    let (memo_id, notebook_id, path) = match event {
+    // Revision streams are keyed by (notebook_id, relative_path).
+    match event {
         MemoEvent::Created {
             memo, notebook_id, ..
         } => {
             let state = app.try_state::<crate::app::state::AppState>().ok_or(())?;
             // Created events carry the authoritative notebook and relative path.
-            // Resolving the ID globally reopens every preceding notebook DB.
             let notebook = read_lock(&state.memo_file, "memo_file")
                 .get_notebook_config_by_id(notebook_id)
                 .ok_or(())?;
@@ -354,26 +358,55 @@ fn commit_for_event(app: &AppHandle, event: &MemoEvent) -> Result<Option<Documen
                 std::path::Path::new(&notebook.path),
                 &memo.relative_path,
             ).map_err(|_| ())?;
-            (memo.id.as_str(), notebook_id.as_str(), path)
+            DocumentMutationCoordinator::commit(
+                app,
+                notebook_id,
+                &memo.relative_path,
+                &path,
+            )
         }
         MemoEvent::Updated {
-            id,
+            memo,
             notebook_id,
             path,
             ..
-        } if !path.is_empty() => (
-            id.as_str(),
-            notebook_id.as_str(),
-            std::path::PathBuf::from(path),
-        ),
-        MemoEvent::Deleted {
-            id, notebook_id, ..
-        } => {
-            return DocumentMutationCoordinator::commit_deletion(app, id, notebook_id);
+        } if !path.is_empty() => {
+            let relative = if memo.relative_path.is_empty() {
+                relativize_note_path(app, notebook_id, std::path::Path::new(path)).ok_or(())?
+            } else {
+                memo.relative_path.clone()
+            };
+            DocumentMutationCoordinator::commit(
+                app,
+                notebook_id,
+                &relative,
+                std::path::Path::new(path),
+            )
         }
-        _ => return Ok(None),
-    };
-    DocumentMutationCoordinator::commit(app, memo_id, notebook_id, &path)
+        MemoEvent::Deleted {
+            path,
+            notebook_id,
+            ..
+        } if !path.is_empty() => {
+            let relative =
+                relativize_note_path(app, notebook_id, std::path::Path::new(path)).ok_or(())?;
+            DocumentMutationCoordinator::commit_deletion(app, notebook_id, &relative)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Convert an absolute note path into its notebook-relative form.
+fn relativize_note_path(
+    app: &AppHandle,
+    notebook_id: &str,
+    path: &std::path::Path,
+) -> Option<String> {
+    let state = app.try_state::<crate::app::state::AppState>()?;
+    let notebook = read_lock(&state.memo_file, "memo_file")
+        .get_notebook_config_by_id(notebook_id)?;
+    let relative = path.strip_prefix(std::path::Path::new(&notebook.path)).ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
 /// 通过 dispatcher 派发 —�?`crate::events::EventDispatcher`
@@ -514,6 +547,7 @@ mod tests {
         let event = MemoEvent::Deleted {
             id: "m_abc".to_string(),
             path: "/tmp/foo.md".to_string(),
+            relative_path: "foo.md".to_string(),
             notebook_id: "nb_default".to_string(),
             derived_changed: MemoDerivedChanged {
                 tags: false,

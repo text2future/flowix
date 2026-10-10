@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { boot, dshIntegration, type DshDownloadProgress } from '@platform/tauri/client';
+import { boot, consumeAppUpdateResult, dshIntegration, type DshDownloadProgress } from '@platform/tauri/client';
 import { subscribe } from '@platform/tauri/event-bus';
 import { useAppUpdatePreferences } from '@features/preferences/public/app-api';
 import {
@@ -11,6 +11,8 @@ import {
   type AppUpdaterState,
 } from '@features/shell/public/system-api';
 import { createLogger } from '@/lib/logger';
+import { toast } from '@/lib/toast';
+import { useI18n } from '@/lib/i18n';
 
 const logger = createLogger('main-window-system-controller');
 
@@ -37,12 +39,26 @@ export function useMainWindowSystemController(): MainWindowSystemController {
   const [dshDownload, setDshDownload] = useState<DshDownloadProgress | null>(null);
   const [dshInstallPromptOpen, setDshInstallPromptOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const { t } = useI18n();
   const updatePreferences = useAppUpdatePreferences();
   const updater = useAppUpdater({
     autoCheck: !updatePreferences.loading,
     enabled: updatePreferences.enabled,
   });
   const dshInstaller = useDshRuntimeInstaller();
+
+  useEffect(() => {
+    void consumeAppUpdateResult().then((result) => {
+      if (!result) return;
+      if (result.status === 'failed') {
+        toast.error(`${t('appUpdates.previousInstallFailed')}${result.message ? `: ${result.message}` : ''}`);
+      } else {
+        toast.success(t('appUpdates.installSucceeded'));
+      }
+    }).catch((error) => {
+      logger.warn('read previous app update result failed', { error });
+    });
+  }, [t]);
 
   useEffect(() => {
     const applyProgress = (progress: DshDownloadProgress) => {

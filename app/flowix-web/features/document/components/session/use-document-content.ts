@@ -53,6 +53,22 @@ function logOpenDocPerf(label: string, startedAt: number, meta?: Record<string, 
   }
 }
 
+function readFailureMessage(error: unknown, language: ReturnType<typeof getCurrentAppLanguage>): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  const normalized = reason.toLowerCase();
+  if (normalized.includes('outside its authorized scope') || normalized.includes('permission denied')) {
+    return translate(language, 'document.load.accessDenied');
+  }
+  if (normalized.includes('no such file') || normalized.includes('not found') || normalized.includes('failed to resolve')) {
+    return translate(language, 'document.load.fileNotFound');
+  }
+  if (normalized.includes('not a supported text file') || normalized.includes('is a directory')
+    || normalized.includes('not a regular file') || normalized.includes('expected file')) {
+    return translate(language, 'document.load.notTextFile');
+  }
+  return `${translate(language, 'document.load.failed')}: ${reason}`;
+}
+
 export function useDocumentContent({
   identity,
   externalScopePath,
@@ -261,7 +277,7 @@ export function useDocumentContent({
         if (fullContent === null || fullContent === undefined) {
           if (currentLoadId !== counter.current) return;
           const language = getCurrentAppLanguage();
-          setState((prev) => ({ ...prev, isLoading: false, error: translate(language, 'document.load.failed') }));
+          setState((prev) => ({ ...prev, isLoading: false, error: translate(language, 'document.load.fileNotFound') }));
           if (!isolatedSession && transitionId !== null) {
             useDocumentStore.getState().finishDocumentTransition(transitionId);
           }
@@ -318,7 +334,7 @@ export function useDocumentContent({
       } catch (err) {
         if (currentLoadId !== counter.current) return;
         const language = getCurrentAppLanguage();
-        setState((prev) => ({ ...prev, isLoading: false, error: translate(language, 'document.load.failed') }));
+        setState((prev) => ({ ...prev, isLoading: false, error: readFailureMessage(err, language) }));
         logOpenDocPerf('reloadDocument:error', startedAt, {
           transitionId,
         });

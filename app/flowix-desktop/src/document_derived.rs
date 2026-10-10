@@ -1,7 +1,5 @@
-//! One coalescing worker for derived search/version work, outside save receipts.
-//! Search reads the latest file; auto-versions use an immutable committed body.
-use crate::{app::state::AppState, lock_utils::read_lock};
-use flowix_core::MemoService;
+//! One coalescing worker for derived search work, outside save receipts.
+use crate::app::state::AppState;
 use std::{
     collections::BTreeMap,
     sync::{Mutex, OnceLock},
@@ -11,7 +9,6 @@ use tauri::{AppHandle, Manager};
 struct Job {
     app: AppHandle,
     memo_id: String,
-    version_content: Option<String>,
 }
 #[derive(Default)]
 struct Pending {
@@ -23,17 +20,12 @@ fn pending() -> &'static Mutex<Pending> {
     PENDING.get_or_init(Mutex::default)
 }
 
-pub fn schedule(app: &AppHandle, memo_id: &str, content: Option<&str>) {
+pub fn schedule(app: &AppHandle, memo_id: &str) {
     let mut state = pending().lock().unwrap_or_else(|e| e.into_inner());
-    let job = state.jobs.entry(memo_id.into()).or_insert_with(|| Job {
+    state.jobs.entry(memo_id.into()).or_insert_with(|| Job {
         app: app.clone(),
         memo_id: memo_id.into(),
-        version_content: None,
     });
-    // A rename/index refresh must not erase a queued committed body version.
-    if let Some(content) = content {
-        job.version_content = Some(content.into());
-    }
     if state.running {
         return;
     }
@@ -55,18 +47,20 @@ pub fn schedule(app: &AppHandle, memo_id: &str, content: Option<&str>) {
                 let state = job.app.state::<AppState>();
                 // A delayed local snapshot must not overwrite a newer external
                 // search update, or resurrect an entry deleted meanwhile.
-                crate::app::search_index::try_index_upsert(&state, &job.memo_id);
-                if let Some(content) = job.version_content {
-                    let memo_file = read_lock(&state.memo_file, "memo_file");
-                    MemoService::new(&memo_file)
-                        .maybe_create_auto_memo_version(&job.memo_id, &content)?;
+                // 旧 memo id → notebook + relative_path，再刷新 search index。
+                let target = crate::lock_utils::read_lock(&state.memo_file, "memo_file")
+                    .resolve_memo_location(&job.memo_id)
+                    .ok()
+                    .flatten()
+                    .map(|location| (location.notebook.id, location.memo.relative_path));
+                if let Some((notebook_id, relative_path)) = target {
                 }
                 Ok::<(), flowix_core::FlowixError>(())
             })
             .await;
             match result {
                 Err(error) => tracing::error!("document derived worker failed: {error}"),
-                Ok(Err(error)) => tracing::error!("document auto-version failed: {error}"),
+                Ok(Err(error)) => tracing::error!("document derived work failed: {error}"),
                 Ok(Ok(())) => {}
             }
         }

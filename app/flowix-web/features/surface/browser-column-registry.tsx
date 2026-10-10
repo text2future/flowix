@@ -393,7 +393,7 @@ function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowse
         content: <DocxPreview filePath={surface.activeFilePath} scopePath={surface.scopePath} />,
       }} />;
     case 'markdown':
-      return <DocumentContainer {...surface.documentProps} fileIdentity={surface.fileIdentity} externalEditorMode="markdown" />;
+      return <DocumentContainer {...surface.documentProps} fileIdentity={surface.fileIdentity} navigationViewId={surface.tabId} externalEditorMode="markdown" />;
     case 'code':
       return <FileBrowserView surface={{
         ...surface,
@@ -402,6 +402,7 @@ function BrowserFileBrowserSurfaceView({ surface }: { surface: BrowserFileBrowse
         content: <DocumentContainer
           {...surface.documentProps}
           fileIdentity={surface.fileIdentity}
+          navigationViewId={surface.tabId}
           externalScopePath={surface.scopePath}
         />,
       }} />;

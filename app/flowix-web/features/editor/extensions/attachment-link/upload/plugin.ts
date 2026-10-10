@@ -11,22 +11,22 @@ export async function handleFileUpload(
     files: File[],
     position?: number,
     replaceRange?: { from: number; to: number },
-    memoId?: string,
+    ownerPath?: string,
 ) {
     try {
         const filteredFiles = filterIncomingFiles(files);
         if (filteredFiles.length === 0) return;
 
         await runTrackedUpload(view, async (signal) =>
-            (await createAttachmentUpload(filteredFiles, undefined, undefined, memoId, signal)).assets,
-        position, replaceRange, memoId);
+            (await createAttachmentUpload(filteredFiles, undefined, undefined, ownerPath, signal)).assets,
+        position, replaceRange, ownerPath);
     } catch (err) {
         console.error('[FileUpload] Upload failed:', err);
     }
 }
 
 export function createFileUploadPlugin(options: {
-    memoId?: string;
+    ownerPath?: string;
     ingest: { drop: boolean; paste: boolean; allowedMimeTypes?: string[] };
 }) {
     const { ingest } = options;
@@ -48,7 +48,7 @@ export function createFileUploadPlugin(options: {
                 event.stopPropagation();
                 const coords = { left: event.clientX, top: event.clientY };
                 const pos = view.posAtCoords(coords)?.pos;
-                handleFileUpload(view, filteredFiles, pos, undefined, options.memoId);
+                handleFileUpload(view, filteredFiles, pos, undefined, options.ownerPath);
                 return true;
             },
             handlePaste(view, event) {
@@ -64,7 +64,7 @@ export function createFileUploadPlugin(options: {
                 event.preventDefault();
                 event.stopPropagation();
                 const pos = view.state.selection.from;
-                handleFileUpload(view, files, pos, undefined, options.memoId);
+                handleFileUpload(view, files, pos, undefined, options.ownerPath);
                 return true;
             },
         },

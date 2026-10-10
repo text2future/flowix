@@ -22,7 +22,6 @@ use crate::plugin;
 use crate::runtime_log;
 use crate::system_data::SystemData;
 use crate::watcher::MemoWatcher;
-use flowix_core::search::{BigramTokenizer, MemoIndex};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -181,7 +180,6 @@ pub fn run() {
     // `system_data` 娌?
     // impl Clone ── 直接 move �?setup �?��, 那里
     // move 杩?AppState銆?
-    let search_init = RwLock::new(MemoIndex::new(Arc::new(BigramTokenizer)));
     let codex_app_server = Arc::new(CodexAppServerManager::new(thread_manager_arc.clone()));
     let claude_cli_manager = Arc::new(ClaudeCliManager::new(thread_manager_arc.clone()));
     let hermes_cli_manager = Arc::new(HermesAcpManager::new(thread_manager_arc.clone()));
@@ -287,8 +285,6 @@ pub fn run() {
                 system_data,
                 agent_external_config,
                 memo_file: memo_file_for_state.clone(),
-                search: search_init,
-                search_rebuild: Default::default(),
                 external_runtimes: external_runtimes.clone(),
                 codex_app_server: codex_app_server.clone(),
                 opencode: opencode_acp_manager.clone(),
@@ -435,7 +431,6 @@ pub fn run() {
             commands::plugin::plugin_prepare_prompt,
             commands::plugin::plugin_run,
             commands::plugin::plugin_run_stop,
-            commands::plugin::plugin_resolve_note,
             commands::artifact::artifact_resolve,
             commands::settings::get_preference,
             commands::settings::patch_preference,
@@ -468,6 +463,7 @@ pub fn run() {
             commands::dsh::dsh_manage_profile_plugin,
             crate::app_update::install_app_update,
             crate::app_update::check_app_update,
+            crate::app_update::consume_app_update_result,
             crate::app_update::cancel_app_update,
             commands::settings::get_watcher_config,
             commands::settings::update_watcher_config,
@@ -525,12 +521,10 @@ pub fn run() {
             // 瀛愭ā鍧楄矾寰勫彇, 涓嶈蛋 `commands::memo::xxx` 椤跺眰 re-export 鈹€鈹€
             // `#[tauri::command]` 宏生成的 `__cmd__xxx` wrapper �?��数所�?            // 模块的同�?macro, �?��在�?模块�?�� (`commands::memo::reads::xxx`)
             // 解析�? `commands::memo::xxx` 顶层�?��不传�?macro re-export.
-            commands::memo::reads::get_memos,
             commands::memo::reads::list_notes_by_path,
             commands::memo::reads::get_indexed_note_by_path,
             commands::memo::reads::get_path_notes,
             commands::memo::reads::resolve_markdown_location,
-            commands::memo::reads::search_mention_notes,
             commands::media::get_media_resource,
             commands::media::list_media_resources_page,
             commands::media::update_media_resource,
@@ -538,8 +532,6 @@ pub fn run() {
             commands::memo::reads::get_used_memo_tag_ids,
             commands::memo::reads::get_memo_todo_metadata,
             commands::memo::reads::get_memo_todo_count,
-            commands::memo::reads::read_memo,
-            commands::memo::reads::open_memo_session,
             commands::memo::reads::read_document,
             commands::memo::reads::note_path_status,
             commands::memo::reads::get_document_modified_at,
@@ -557,7 +549,6 @@ pub fn run() {
             commands::external_document::get_external_document_mime_type,
             commands::external_document::write_external_document,
             commands::memo::reads::get_launch_open_files,
-            commands::memo::reads::search_memos,
             commands::memo::reads::search_path_notes,
             commands::memo::creates::add_path_document,
             commands::memo::creates::list_notebook_templates,
@@ -570,17 +561,11 @@ pub fn run() {
             commands::memo::creates::save_memo_template,
             commands::memo::creates::delete_memo_template,
             commands::memo::creates::create_path_from_template,
-            commands::memo::versions::list_memo_versions,
             commands::memo::versions::list_path_versions,
             commands::memo::versions::create_path_version,
             commands::memo::versions::restore_path_version,
-            commands::memo::versions::read_memo_version,
-            commands::memo::versions::create_memo_version,
-            commands::memo::versions::restore_memo_version,
             commands::memo::deletes::delete_memo,
             commands::memo::deletes::prune_missing_memo,
-            commands::memo::deletes::clear_memos,
-            commands::memo::versions::delete_memo_version,
             // tag
             commands::tag::get_all_tags,
             commands::tag::create_notebook_tag,
@@ -855,7 +840,6 @@ fn spawn_startup_reconciliation(
                         "media-reconcile",
                         media_started.elapsed(),
                     );
-                    maintain_startup_versions(notebook, &memo_file);
                     std::thread::yield_now();
                 }
                 tracing::info!(
@@ -917,7 +901,10 @@ fn run_startup_reconciliation(
         let root = Path::new(&notebook.path);
         if root.is_dir() {
             if let Err(error) =
-                crate::commands::file::migrate_legacy_watcher_rules(root, &legacy_watcher)
+                crate::commands::file::migrate_legacy_watcher_rules(
+                    root, &legacy_watcher,
+                    &crate::lock_utils::read_lock(&memo_file, "memo_file"),
+                )
             {
                 tracing::warn!(notebook = %notebook.id, %error, "legacy watcher rule migration deferred");
             }
@@ -1052,60 +1039,6 @@ fn reconcile_startup_notebook(
     record_slow_notebook_stage(&notebook.id, "markdown-reconcile", started.elapsed());
     Ok(())
 }
-fn maintain_startup_versions(
-    notebook: &flowix_core::memo_file::NotebookConfig,
-    memo_file: &Arc<RwLock<flowix_core::memo_file::MemoFile>>,
-) {
-    let root = Path::new(&notebook.path);
-    if !root.is_dir() {
-        return;
-    }
-    let marker = root
-        .join(".flowix")
-        .join("maintenance")
-        .join("version-cleanup.done");
-    if std::fs::metadata(&marker)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| modified.elapsed().ok())
-        .is_some_and(|elapsed| elapsed < Duration::from_secs(24 * 60 * 60))
-    {
-        return;
-    }
-    let started = Instant::now();
-    let succeeded = match crate::lock_utils::read_lock(memo_file, "memo_file")
-        .cleanup_orphan_memo_versions(&notebook.id, std::time::SystemTime::now())
-    {
-        Ok(report) if report.moved > 0 || report.removed > 0 || report.failed > 0 => {
-            tracing::info!(
-                notebook = %notebook.id,
-                moved = report.moved,
-                removed = report.removed,
-                retained_recent = report.retained_recent,
-                failed = report.failed,
-                "[startup] version maintenance"
-            );
-            report.failed == 0
-        }
-        Ok(_) => true,
-        Err(error) => {
-            tracing::warn!(notebook = %notebook.id, "[startup] version maintenance failed: {error}");
-            false
-        }
-    };
-    if succeeded {
-        if let Some(parent) = marker.parent() {
-            if let Err(error) = std::fs::create_dir_all(parent)
-                .and_then(|_| std::fs::write(&marker, b"completed\n"))
-            {
-                tracing::warn!(notebook = %notebook.id, "[startup] version maintenance marker failed: {error}");
-            }
-        }
-    }
-    tracing::info!(notebook = %notebook.id, elapsed_ms = started.elapsed().as_millis(), "[startup] version maintenance checked");
-    record_slow_notebook_stage(&notebook.id, "version-maintenance", started.elapsed());
-}
-
 async fn restore_cloud_session_until_ready(
     app: tauri::AppHandle,
     cloud_sync: Arc<flowix_sync::SyncManager>,

@@ -77,7 +77,6 @@ impl ExportAccess {
         reader: &mut impl Read,
         memo_file: &flowix_core::memo_file::MemoFile,
     ) -> io::Result<()> {
-        let _guard = memo_file.acquire_cross_process_write_lock()?;
         let (target, _) = resolve_target(path)?;
         let expected = self
             .targets
@@ -105,21 +104,46 @@ impl ExportAccess {
             }
         }
         temporary.as_file().sync_all()?;
-        if let Some(expected) = expected {
-            let (_, exists) = resolve_target(&target)?;
-            if !exists || fingerprint(&target)? != expected {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    "EXPORT_CONTENT_CONFLICT: target changed since selection",
-                ));
+        let publish = |target: &Path| -> io::Result<()> {
+            if let Some(expected) = expected {
+                let (_, exists) = resolve_target(target)?;
+                if !exists || fingerprint(target)? != expected {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "EXPORT_CONTENT_CONFLICT: target changed since selection",
+                    ));
+                }
+                temporary.persist(target).map_err(|error| error.error)?;
+            } else {
+                temporary
+                    .persist_noclobber(target)
+                    .map_err(|error| error.error)?;
             }
-            temporary.persist(&target).map_err(|error| error.error)?;
-        } else {
-            temporary
-                .persist_noclobber(&target)
-                .map_err(|error| error.error)?;
+            Ok(())
+        };
+        let notebook_ids = memo_file.notebook_ids_for_paths(&[target.as_path()])?;
+        match notebook_ids.as_slice() {
+            [notebook_id] => memo_file.with_file_write(
+                notebook_id,
+                &target,
+                if expected.is_some() {
+                    flowix_core::memo_file::FileLockIntent::Existing
+                } else {
+                    flowix_core::memo_file::FileLockIntent::Create
+                },
+                "export_save",
+                publish,
+            ),
+            [] => {
+                let _guard = memo_file.acquire_cross_process_write_lock()?;
+                publish(&target)
+            }
+            _ => {
+                memo_file.with_registered_path_change(&[target.as_path()], "export_save_nested_notebooks", || {
+                    publish(&target)
+                })
+            }
         }
-        Ok(())
     }
 
     /// Check that a path was selected by the save dialog without consuming the

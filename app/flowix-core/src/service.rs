@@ -12,10 +12,9 @@ use thiserror::Error;
 
 use crate::memo_file::{
     base_filename, normalize_search_tag_filter, notebook_path_from_relative,
-    resolve_filename_conflict, Memo, MemoColor, MemoFile, MemoIndexEntry, MemoTodoEntry,
-    MemoVersionMeta, MemoVersionSource, NoteEntry, NoteSearchHit, NoteWriteOutcome, NotebookConfig,
+    resolve_filename_conflict, FileLockIntent, FileWriteGuard, Memo, MemoColor, MemoFile, MemoIndexEntry, MemoTodoEntry,
+    NoteEntry, NoteSearchHit, NoteWriteOutcome, NotebookConfig,
 };
-use crate::search::{self, NotebookSearchResults};
 
 const MAX_SEARCH_LIMIT: usize = 200;
 const DEFAULT_LIST_PAGE_SIZE: usize = 50;
@@ -26,7 +25,7 @@ pub struct MemoSaveReceipt {
     pub edited: EditedMemo,
     pub content: String,
     pub notebook_id: String,
-    pub commit: Option<crate::memo_file::MemoContentRevision>,
+    pub commit: Option<crate::memo_file::NoteContentRevision>,
 }
 
 type TagUsageSummary = (Vec<String>, Vec<(String, usize)>, usize, usize, usize);
@@ -202,6 +201,22 @@ pub struct MemoService<'a> {
 impl<'a> MemoService<'a> {
     pub fn new(memo_file: &'a MemoFile) -> Self {
         Self { memo_file }
+    }
+
+    fn lock_resolved_memo(&self, resolved: &ResolvedMemo, operation: &str) -> Result<FileWriteGuard, FlowixError> {
+        let guard = self.memo_file.operation_locks().file_write(
+            &resolved.notebook.id,
+            Path::new(&resolved.notebook.path),
+            &resolved.path,
+            FileLockIntent::Existing,
+            operation,
+        )?;
+        let current = self.memo_file.get_notebook_config_by_id(&resolved.notebook.id)
+            .ok_or_else(|| FlowixError::Conflict("notebook was removed while waiting for the file lock".into()))?;
+        if std::fs::canonicalize(&current.path)? != std::fs::canonicalize(&resolved.notebook.path)? {
+            return Err(FlowixError::Conflict("notebook root changed while waiting for the file lock".into()));
+        }
+        Ok(guard)
     }
 
     pub fn list_notebooks(&mut self) -> Result<Vec<NotebookConfig>, FlowixError> {
@@ -692,99 +707,6 @@ impl MemoService<'_> {
         })
     }
 
-    pub fn create_memo(
-        &mut self,
-        notebook_key: &str,
-        body: &str,
-    ) -> Result<CreatedMemo, FlowixError> {
-        if body.trim().is_empty() {
-            return Err(FlowixError::InvalidInput(
-                "empty body, note not created".into(),
-            ));
-        }
-        self.create_memo_named(Some(notebook_key), "Untitled", body)
-    }
-
-    /// Create from CLI/MCP and mark the operation for Desktop's watcher before
-    /// the markdown file is published.
-    pub fn create_external_memo(
-        &mut self,
-        notebook_key: &str,
-        body: &str,
-    ) -> Result<CreatedMemo, FlowixError> {
-        if body.trim().is_empty() {
-            return Err(FlowixError::InvalidInput(
-                "empty body, note not created".into(),
-            ));
-        }
-        let notebook = self.resolve_notebook(notebook_key)?;
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
-        let memo = self.memo_file.create_external_memo_for_notebook_id(
-            &notebook.id,
-            "Untitled",
-            body,
-            None,
-        )?;
-        let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &memo.relative_path)
-            .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&memo.filename));
-        Ok(CreatedMemo {
-            memo,
-            notebook,
-            path,
-        })
-    }
-
-    /// Create a named memo from a separate CLI/tool process and mark it for
-    /// Desktop's watcher before publishing the Markdown file.
-    pub fn create_external_memo_named(
-        &mut self,
-        notebook_key: &str,
-        title: &str,
-        body: &str,
-    ) -> Result<CreatedMemo, FlowixError> {
-        if title.trim().is_empty() {
-            return Err(FlowixError::InvalidInput(
-                "empty title, note not created".into(),
-            ));
-        }
-        let notebook = self.resolve_notebook(notebook_key)?;
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
-        let memo =
-            self.memo_file
-                .create_external_memo_for_notebook_id(&notebook.id, title, body, None)?;
-        let path = notebook_path_from_relative(&PathBuf::from(&notebook.path), &memo.relative_path)
-            .unwrap_or_else(|_| PathBuf::from(&notebook.path).join(&memo.filename));
-        Ok(CreatedMemo {
-            memo,
-            notebook,
-            path,
-        })
-    }
-
-    /// Create a memo with an explicit title while preserving Desktop's ability to
-    /// create an empty document. When `notebook_key` is omitted, the store's current
-    /// notebook/default fallback remains in effect.
-    pub fn create_memo_named(
-        &mut self,
-        notebook_key: Option<&str>,
-        title: &str,
-        body: &str,
-    ) -> Result<CreatedMemo, FlowixError> {
-        self.create_memo_named_with_tag(notebook_key, title, body, None)
-    }
-
-    /// Create a memo and assign its initial document-membership tag through
-    /// frontmatter. The body is never decorated with a synthetic `#tag`.
-    pub fn create_memo_named_with_tag(
-        &mut self,
-        notebook_key: Option<&str>,
-        title: &str,
-        body: &str,
-        tag: Option<&str>,
-    ) -> Result<CreatedMemo, FlowixError> {
-        self.create_memo_named_with_tag_in_directory(notebook_key, None, title, body, tag)
-    }
-
     pub fn create_memo_named_with_tag_in_directory(
         &mut self,
         notebook_key: Option<&str>,
@@ -945,13 +867,17 @@ impl MemoService<'_> {
         new: &str,
         dry_run: bool,
     ) -> Result<EditedMemo, FlowixError> {
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         if old.is_empty() {
             return Err(FlowixError::InvalidInput(
                 "edit: old_string cannot be empty".into(),
             ));
         }
         let resolved = self.resolve_memo(id_or_filename)?;
+        let _file_guard = self.lock_resolved_memo(&resolved, "edit_memo_exact")?;
+        let locked = self.resolve_memo(id_or_filename)?;
+        if locked.id != resolved.id || locked.path != resolved.path {
+            return Err(FlowixError::Conflict("document moved while waiting for the file lock".into()));
+        }
         let current = std::fs::read_to_string(&resolved.path)?;
         let matches = current.matches(old).count();
         if matches == 0 {
@@ -981,7 +907,7 @@ impl MemoService<'_> {
         let body = current.replacen(old, new, 1);
         let memo = self
             .memo_file
-            .write_memo_preserving_filename_global(&resolved.id, &body)?;
+            .write_memo_preserving_filename_under_file_lock(&resolved.id, &body, &_file_guard)?;
         let path = notebook_path_from_relative(
             &PathBuf::from(&resolved.notebook.path),
             &memo.relative_path,
@@ -1035,7 +961,7 @@ impl MemoService<'_> {
         body: &str,
         validate: impl FnOnce(&ResolvedMemo, &str) -> Result<(), FlowixError>,
     ) -> Result<(EditedMemo, String), FlowixError> {
-        self.save_memo_with_receipt(id_or_filename, body, false, validate)
+        self.save_memo_with_receipt(id_or_filename, body, validate)
             .map(|receipt| (receipt.edited, receipt.content))
     }
 
@@ -1043,18 +969,21 @@ impl MemoService<'_> {
         &mut self,
         id_or_filename: &str,
         body: &str,
-        create_auto_version: bool,
         validate: impl FnOnce(&ResolvedMemo, &str) -> Result<(), FlowixError>,
     ) -> Result<MemoSaveReceipt, FlowixError> {
         use sha2::{Digest, Sha256};
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         let resolved = self.resolve_memo(id_or_filename)?;
+        let _file_guard = self.lock_resolved_memo(&resolved, "save_memo_with_receipt")?;
+        let locked = self.resolve_memo(id_or_filename)?;
+        if locked.id != resolved.id || locked.path != resolved.path {
+            return Err(FlowixError::Conflict("document moved while waiting for the file lock".into()));
+        }
         let current = std::fs::read_to_string(&resolved.path)?;
         validate(&resolved, &current)?;
         let old_bytes = current.len();
         let memo = self
             .memo_file
-            .write_memo_preserving_filename_global(&resolved.id, body)?;
+            .write_memo_preserving_filename_under_file_lock(&resolved.id, body, &_file_guard)?;
         let path = notebook_path_from_relative(
             &PathBuf::from(&resolved.notebook.path),
             &memo.relative_path,
@@ -1062,9 +991,9 @@ impl MemoService<'_> {
         .unwrap_or_else(|_| PathBuf::from(&resolved.notebook.path).join(&memo.filename));
         let content = std::fs::read_to_string(&path)?;
         let content_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
-        let commit = match self.memo_file.commit_memo_content_revision(
-            &resolved.id,
+        let commit = match self.memo_file.commit_note_content_revision(
             &resolved.notebook.id,
+            &memo.relative_path,
             &content_hash,
             &uuid::Uuid::new_v4().to_string(),
         ) {
@@ -1074,14 +1003,6 @@ impl MemoService<'_> {
                 None
             }
         };
-        if create_auto_version {
-            if let Err(error) = self
-                .memo_file
-                .maybe_create_auto_memo_version(&resolved.id, &content)
-            {
-                tracing::warn!("Memo saved but automatic version failed: {error}");
-            }
-        }
         Ok(MemoSaveReceipt {
             edited: EditedMemo {
                 id: resolved.id,
@@ -1102,14 +1023,18 @@ impl MemoService<'_> {
         id_or_filename: &str,
         body: &str,
     ) -> Result<EditedMemo, FlowixError> {
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
         let resolved = self.resolve_memo(id_or_filename)?;
+        let _file_guard = self.lock_resolved_memo(&resolved, "save_memo_preserving_filename")?;
+        let locked = self.resolve_memo(id_or_filename)?;
+        if locked.id != resolved.id || locked.path != resolved.path {
+            return Err(FlowixError::Conflict("document moved while waiting for the file lock".into()));
+        }
         let old_bytes = std::fs::metadata(&resolved.path)
             .map(|metadata| metadata.len() as usize)
             .unwrap_or(0);
         let memo = self
             .memo_file
-            .write_memo_preserving_filename_global(&resolved.id, body)?;
+            .write_memo_preserving_filename_under_file_lock(&resolved.id, body, &_file_guard)?;
         let path = notebook_path_from_relative(
             &PathBuf::from(&resolved.notebook.path),
             &memo.relative_path,
@@ -1205,93 +1130,6 @@ impl MemoService<'_> {
         self.memo_file
             .read_todo_metadata_entries_for_notebook_id(notebook_id, sort)
             .map_err(FlowixError::Io)
-    }
-
-    pub fn list_memo_versions(&mut self, memo_id: &str) -> Vec<MemoVersionMeta> {
-        self.memo_file.list_memo_versions(memo_id)
-    }
-
-    pub fn read_memo_version(&mut self, memo_id: &str, version_id: &str) -> Option<String> {
-        self.memo_file.read_memo_version(memo_id, version_id)
-    }
-
-    pub fn create_memo_version(
-        &mut self,
-        memo_id: &str,
-        content: &str,
-        source: MemoVersionSource,
-    ) -> Result<Option<MemoVersionMeta>, FlowixError> {
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
-        self.memo_file
-            .create_memo_version(memo_id, content, source)
-            .map_err(FlowixError::Io)
-    }
-
-    pub fn maybe_create_auto_memo_version(
-        &mut self,
-        memo_id: &str,
-        content: &str,
-    ) -> Result<Option<MemoVersionMeta>, FlowixError> {
-        let _write_guard = self.memo_file.acquire_cross_process_write_lock()?;
-        self.memo_file
-            .maybe_create_auto_memo_version(memo_id, content)
-            .map_err(FlowixError::Io)
-    }
-
-    pub fn delete_memo_version(&mut self, memo_id: &str, version_id: &str) -> bool {
-        let Ok(_write_guard) = self.memo_file.acquire_cross_process_write_lock() else {
-            return false;
-        };
-        self.memo_file.delete_memo_version(memo_id, version_id)
-    }
-
-    pub fn search_memos(
-        &mut self,
-        query: &str,
-        notebook_filter: Option<&str>,
-        tag_filter: Option<&str>,
-        limit: usize,
-    ) -> Result<NotebookSearchResults, FlowixError> {
-        // Memo-ID compatibility search. New path-based callers use NoteService::search.
-        if query.trim().is_empty() {
-            return Err(FlowixError::InvalidInput(
-                "search query cannot be empty".into(),
-            ));
-        }
-        if limit == 0 {
-            return Err(FlowixError::InvalidInput(
-                "search limit must be greater than 0".into(),
-            ));
-        }
-        let normalized_tag_filter = match tag_filter {
-            Some(raw) => Some(normalize_search_tag_filter(raw).ok_or_else(|| {
-                FlowixError::InvalidInput(
-                    "search tag filter must be a valid tag path (for example `项目/Flowix`)".into(),
-                )
-            })?),
-            None => None,
-        };
-        let configs = self.list_notebooks()?;
-        if let Some(filter) = notebook_filter {
-            if !configs
-                .iter()
-                .any(|config| config.id == filter || config.name == filter)
-            {
-                return Err(FlowixError::NotFound(format!(
-                    "no notebooks matched filter `{filter}`"
-                )));
-            }
-        } else if configs.is_empty() {
-            return Err(FlowixError::NotFound("no notebooks configured".into()));
-        }
-        Ok(search::search_notebooks_with_tag_filter(
-            self.memo_file,
-            &configs,
-            notebook_filter,
-            query,
-            normalized_tag_filter.as_deref(),
-            limit.min(MAX_SEARCH_LIMIT),
-        ))
     }
 
     pub fn resolve_notebook(&mut self, key: &str) -> Result<NotebookConfig, FlowixError> {
@@ -1518,6 +1356,17 @@ impl<'a> NoteService<'a> {
     pub fn delete(&mut self, notebook: &str, relative_path: &str) -> Result<bool, FlowixError> {
         self.delete_note_by_path(notebook, relative_path)
     }
+
+    pub fn delete_checked(&mut self, notebook: &str, relative_path: &str, expected_content: &str) -> Result<bool, FlowixError> {
+        let notebook = self.resolve_notebook(notebook)?;
+        match self.memo_file.delete_note_by_path_checked(&notebook.id, relative_path, Some(expected_content)) {
+            Ok(removed) => Ok(removed),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(FlowixError::Conflict("note changed before delete".into()))
+            }
+            Err(error) => Err(FlowixError::Io(error)),
+        }
+    }
 }
 
 fn memo_sort_value(memo: &Memo, sort: &str) -> i64 {
@@ -1723,6 +1572,19 @@ mod tests {
     }
 
     #[test]
+    fn checked_path_delete_rejects_content_changed_since_read() {
+        let (_temp, store) = service_fixture();
+        let mut service = NoteService::new(&store);
+        let created = service.create("work", None, "Delete conflict", "original").unwrap();
+        std::fs::write(&created.path, "concurrent edit").unwrap();
+        assert!(matches!(
+            service.delete_checked("work", &created.entry.relative_path, "original"),
+            Err(FlowixError::Conflict(_))
+        ));
+        assert_eq!(std::fs::read_to_string(&created.path).unwrap(), "concurrent edit");
+    }
+
+    #[test]
     fn date_sorted_path_pages_use_stable_database_cursor() {
         let (_temp, store) = service_fixture();
         let mut service = NoteService::new(&store);
@@ -1760,49 +1622,10 @@ mod tests {
     }
 
     #[test]
-    fn repeated_search_refreshes_after_external_markdown_change() {
-        let (_temp, store) = service_fixture();
-        let mut service = MemoService::new(&store);
-        let created = service
-            .create_memo("work", "# Search note\noldkeyword\n")
-            .unwrap();
-        assert_eq!(
-            service
-                .search_memos("oldkeyword", Some("work"), None, 10)
-                .unwrap()
-                .hits
-                .len(),
-            1
-        );
-        assert_eq!(
-            service
-                .search_memos("oldkeyword", Some("work"), None, 10)
-                .unwrap()
-                .hits
-                .len(),
-            1
-        );
-        std::fs::write(&created.path, "# Search note\nnewkeywordlonger\n").unwrap();
-        assert!(service
-            .search_memos("oldkeyword", Some("work"), None, 10)
-            .unwrap()
-            .hits
-            .is_empty());
-        assert_eq!(
-            service
-                .search_memos("newkeywordlonger", Some("work"), None, 10)
-                .unwrap()
-                .hits
-                .len(),
-            1
-        );
-    }
-
-    #[test]
     fn path_delete_guards_replacement_and_removes_missing_index_entry() {
         let (_temp, store) = service_fixture();
         let mut service = MemoService::new(&store);
-        let created = service.create_memo("work", "# Plain\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Plain\n", None).unwrap();
         let path = created.path.to_string_lossy().into_owned();
         assert!(service
             .delete_memo_checked(&path, Some("anotherid"))
@@ -1822,7 +1645,7 @@ mod tests {
     fn path_save_and_rename_need_no_frontmatter_identity() {
         let (_temp, store) = service_fixture();
         let mut service = MemoService::new(&store);
-        let created = service.create_memo("work", "# Plain\nbody\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Plain\nbody\n", None).unwrap();
         assert_eq!(
             std::fs::read_to_string(&created.path).unwrap(),
             "# Plain\nbody\n"
@@ -1846,7 +1669,7 @@ mod tests {
     fn title_rename_recovers_a_stale_path_only_with_matching_id_and_filename() {
         let (_temp, store) = service_fixture();
         let mut service = MemoService::new(&store);
-        let created = service.create_memo("work", "# Plain\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Plain\n", None).unwrap();
         let original = created.path.to_string_lossy().into_owned();
         let id = created.memo.id;
         let renamed = service.rename_memo(&original, "Second").unwrap();
@@ -1911,7 +1734,7 @@ mod tests {
     fn path_resolution_never_falls_back_to_same_filename() {
         let (temp, store) = service_fixture();
         let mut service = MemoService::new(&store);
-        service.create_memo("work", "# Same\noriginal").unwrap();
+        service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Same\noriginal", None).unwrap();
         let other = temp.path().join("outside/Same.md");
         std::fs::create_dir_all(other.parent().unwrap()).unwrap();
         std::fs::write(&other, "other").unwrap();
@@ -1925,7 +1748,7 @@ mod tests {
     fn save_snapshot_does_not_change_when_a_later_writer_saves() {
         let (_directory, store) = service_fixture();
         let mut service = MemoService::new(&store);
-        let created = service.create_memo("work", "# Note\noriginal\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Note\noriginal\n", None).unwrap();
         let (edited, snapshot) = service
             .save_memo_with_snapshot(&created.memo.id, "# Note\nfirst\n", |_, _| Ok(()))
             .unwrap();
@@ -1943,13 +1766,13 @@ mod tests {
         use sha2::{Digest, Sha256};
         let (_directory, store) = service_fixture();
         let mut service = MemoService::new(&store);
-        let created = service.create_memo("work", "# Note\noriginal\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Note\noriginal\n", None).unwrap();
         let first = service
-            .save_memo_with_receipt(&created.memo.id, "# Note\nfirst\n", true, |_, _| Ok(()))
+            .save_memo_with_receipt(&created.memo.id, "# Note\nfirst\n", |_, _| Ok(()))
             .unwrap();
         let first_commit = first.commit.unwrap();
         let second = service
-            .save_memo_with_receipt(&created.memo.id, "# Note\nsecond\n", false, |_, _| Ok(()))
+            .save_memo_with_receipt(&created.memo.id, "# Note\nsecond\n", |_, _| Ok(()))
             .unwrap();
         let second_commit = second.commit.unwrap();
         assert_eq!(
@@ -1963,17 +1786,6 @@ mod tests {
         assert!(second_commit.revision > first_commit.revision);
         assert_ne!(first_commit.change_id, second_commit.change_id);
         assert_eq!(first.notebook_id, "work");
-        let versions = service.list_memo_versions(&created.memo.id);
-        let version = versions
-            .iter()
-            .find(|version| version.content_hash == first_commit.content_hash)
-            .unwrap();
-        assert_eq!(
-            service
-                .read_memo_version(&created.memo.id, &version.id)
-                .as_deref(),
-            Some(first.content.as_str())
-        );
     }
 
     #[test]
@@ -1981,7 +1793,7 @@ mod tests {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
         let created = service
-            .create_memo("work", "# Original\n\nimportant\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Original\n\nimportant\n", None)
             .unwrap();
         let original = std::fs::read_to_string(&created.path).unwrap();
         let before = service.get_memo(&created.memo.id).unwrap();
@@ -1999,10 +1811,11 @@ mod tests {
     }
 
     #[test]
-    fn validation_runs_while_the_shared_write_lock_is_held() {
+    fn validation_holds_the_file_lock_and_allows_another_file() {
         let (temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
-        let created = service.create_memo("work", "# Note\nold\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Note\nold\n", None).unwrap();
+        let other = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Other\nold\n", None).unwrap();
         let lock_path = temp.path().join("config/.memo-write.lock");
         let result = service
             .save_memo_with_validation(&created.memo.id, "# Note\nnew\n", |_, current| {
@@ -2013,6 +1826,10 @@ mod tests {
                     .open(&lock_path)
                     .unwrap();
                 assert!(fs2::FileExt::try_lock_exclusive(&probe).is_err());
+                let _other_guard = memo_file.operation_locks().file_write(
+                    "work", other.path.parent().unwrap(), &other.path,
+                    crate::memo_file::FileLockIntent::Existing, "other_file_probe",
+                ).unwrap();
                 Ok(())
             })
             .unwrap();
@@ -2026,7 +1843,7 @@ mod tests {
         use std::sync::{Arc, Barrier};
         let (temp, memo_file) = service_fixture();
         let created = MemoService::new(&memo_file)
-            .create_memo("work", "# Note\nold\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Note\nold\n", None)
             .unwrap();
         let expected = std::fs::read_to_string(&created.path).unwrap();
         let barrier = Arc::new(Barrier::new(2));
@@ -2080,7 +1897,7 @@ mod tests {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
         let created = service
-            .create_memo("Work Notes", "# Service note\n\nold text\n")
+            .create_memo_named_with_tag_in_directory(Some("Work Notes"), None, "Untitled", "# Service note\n\nold text\n", None)
             .unwrap();
         assert!(created.path.exists());
 
@@ -2108,7 +1925,7 @@ mod tests {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
         let created = service
-            .create_memo("work", "# Body heading\n\ncontent")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Body heading\n\ncontent", None)
             .unwrap();
 
         assert!(created.memo.filename.starts_with("Untitled"));
@@ -2176,7 +1993,7 @@ mod tests {
         let (temp, memo_file) = service_fixture();
         std::fs::create_dir_all(temp.path().join("notes/projects")).unwrap();
         let mut service = MemoService::new(&memo_file);
-        let created = service.create_memo("work", "# Move me\n").unwrap();
+        let created = service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Move me\n", None).unwrap();
         let old_path = created.path.clone();
 
         let moved = service
@@ -2195,7 +2012,7 @@ mod tests {
         let mut service = MemoService::new(&memo_file);
         for index in 0..5 {
             service
-                .create_memo("work", &format!("# Page note {index}\n"))
+                .create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", &format!("# Page note {index}\n"), None)
                 .unwrap();
         }
 
@@ -2243,13 +2060,13 @@ mod tests {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
         service
-            .create_memo_named(Some("work"), "Zulu", "# Zulu\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Zulu", "# Zulu\n", None)
             .unwrap();
         service
-            .create_memo_named(Some("work"), "alpha", "# alpha\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "alpha", "# alpha\n", None)
             .unwrap();
         service
-            .create_memo_named(Some("work"), "middle", "# middle\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "middle", "# middle\n", None)
             .unwrap();
 
         let asc = service
@@ -2333,8 +2150,8 @@ mod tests {
     fn memo_page_rejects_a_cursor_from_another_query() {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
-        service.create_memo("work", "# Cursor note\n").unwrap();
-        service.create_memo("work", "# Cursor note two\n").unwrap();
+        service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Cursor note\n", None).unwrap();
+        service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Cursor note two\n", None).unwrap();
         let first = service
             .list_memos_filtered_page(Some("work"), "all", "createdAt", None, None, None, Some(1))
             .unwrap();
@@ -2371,9 +2188,9 @@ mod tests {
         memo_file.write_notebook_configs(&configs).unwrap();
 
         let mut service = MemoService::new(&memo_file);
-        service.create_memo("work", "# Work one\n").unwrap();
-        service.create_memo("work", "# Work two\n").unwrap();
-        service.create_memo("personal", "# Personal one\n").unwrap();
+        service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Work one\n", None).unwrap();
+        service.create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Work two\n", None).unwrap();
+        service.create_memo_named_with_tag_in_directory(Some("personal"), None, "Untitled", "# Personal one\n", None).unwrap();
 
         let configs = service.list_notebooks().unwrap();
         let counts = service.notebook_note_counts(&configs).unwrap();
@@ -2386,34 +2203,12 @@ mod tests {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
         let created = service
-            .create_memo("work", "# Conflict\n\nrepeat repeat\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Conflict\n\nrepeat repeat\n", None)
             .unwrap();
         let error = service
             .edit_memo_exact(&created.memo.id, "repeat", "changed", false)
             .unwrap_err();
         assert!(matches!(error, FlowixError::Conflict(_)));
-    }
-
-    #[test]
-    fn search_validates_and_normalizes_tag_filter() {
-        let (_temp, memo_file) = service_fixture();
-        let mut service = MemoService::new(&memo_file);
-        service
-            .create_memo(
-                "work",
-                "---\ntags: [项目/Flowix/CLI]\n---\n# 发布计划\n\n正文关键词\n",
-            )
-            .unwrap();
-
-        let results = service
-            .search_memos("发布计划", None, Some("#项目/Flowix"), 10)
-            .unwrap();
-        assert_eq!(results.hits.len(), 1);
-
-        let error = service
-            .search_memos("发布计划", None, Some("项目//Flowix"), 10)
-            .unwrap_err();
-        assert!(matches!(error, FlowixError::InvalidInput(_)));
     }
 
     #[test]
@@ -2425,7 +2220,7 @@ mod tests {
             .preview_create_path(Some("work"), "Imported title")
             .unwrap();
         let created = service
-            .create_memo_named(Some("work"), "Imported title", "")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Imported title", "", None)
             .unwrap();
         assert_eq!(created.path, preview);
         assert_eq!(created.memo.filename, "Imported title.md");
@@ -2438,14 +2233,6 @@ mod tests {
         service.sync_memo_metadata(&metadata).unwrap();
         assert!(service.memo_metadata(&created.memo.id).unwrap().favorited);
 
-        let version = service
-            .create_memo_version(&created.memo.id, "version body", MemoVersionSource::Manual)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            service.read_memo_version(&created.memo.id, &version.id),
-            Some("version body".to_string())
-        );
     }
 
     #[test]
@@ -2453,7 +2240,7 @@ mod tests {
         let (_temp, memo_file) = service_fixture();
         let mut service = MemoService::new(&memo_file);
         let created = service
-            .create_memo_named(Some("work"), "Original", "body")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Original", "body", None)
             .unwrap();
 
         let error = service
@@ -2480,7 +2267,7 @@ mod tests {
 
         let (temp, memo_file) = service_fixture();
         let created = MemoService::new(&memo_file)
-            .create_memo("work", "# Shared\n\nalpha beta\n")
+            .create_memo_named_with_tag_in_directory(Some("work"), None, "Untitled", "# Shared\n\nalpha beta\n", None)
             .unwrap();
         let memo_id = created.memo.id;
         let config_dir = temp.path().join("config");

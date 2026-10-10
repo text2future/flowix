@@ -569,6 +569,8 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
       replaceExternalPath: (previousPath, path) => {
         const previous = canonicalPath(previousPath);
         const next = canonicalPath(path);
+        const previousParent = previous.replace(/\/[^/]*$/, '');
+        const nextParent = next.replace(/\/[^/]*$/, '');
         const filename = next.split(/[\\/]/).pop() ?? next;
         set((state) => ({
           tabs: state.tabs.map((tab) => tab.target.kind === 'file-browser'
@@ -577,7 +579,9 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
             ? {
                 ...tab,
                 title: displayTitleFromFilename(filename),
-                target: { ...tab.target, activeFilePath: next },
+                target: { ...tab.target, activeFilePath: next,
+                  folderPath: tab.target.folderPath && canonicalPath(tab.target.folderPath) === previousParent
+                    ? nextParent : tab.target.folderPath },
               }
             : tab),
         }));

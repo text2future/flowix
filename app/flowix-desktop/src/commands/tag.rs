@@ -3,7 +3,6 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::app::search_index::try_index_upsert;
 use crate::lock_utils::read_lock;
 use crate::memo_events::{self, MemoEvent};
 use crate::watcher::runtime::mark_self_write_for;
@@ -11,13 +10,9 @@ use flowix_core::memo_file::types::{DeleteTagReport, MoveTagReport};
 
 use crate::app::state::AppState;
 
-fn mark_tagged_memos_cloud_dirty(state: &AppState, notebook_id: &str, memo_ids: &[String]) {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    for memo_id in memo_ids {
-        let Some(memo) = memo_file.read_memo_for_notebook_id(notebook_id, memo_id) else {
-            continue;
-        };
-        let cloud_id = flowix_sync::v2_path_note_id(notebook_id, &memo.relative_path);
+fn mark_tagged_memos_cloud_dirty(state: &AppState, notebook_id: &str, relative_paths: &[String]) {
+    for relative_path in relative_paths {
+        let cloud_id = flowix_sync::v2_path_note_id(notebook_id, relative_path);
         if let Err(error) = state.cloud_sync.record_v2_local_change(
             notebook_id,
             &cloud_id,
@@ -25,7 +20,7 @@ fn mark_tagged_memos_cloud_dirty(state: &AppState, notebook_id: &str, memo_ids: 
             "unobserved",
         ) {
             tracing::warn!(
-                "failed to persist cloud dirty tag change for {notebook_id}/{memo_id}: {error}"
+                "failed to persist cloud dirty tag change for {notebook_id}/{relative_path}: {error}"
             );
         }
     }
@@ -95,9 +90,10 @@ pub fn move_memo_tag(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<MoveTagReport, String> {
-    // Collect changed memo IDs while the core callback runs under the read lock.
-    // Refresh search/cloud state and emit the aggregate event after releasing it.
-    let mut affected_memo_ids: Vec<String> = Vec::new();
+    // Collect changed note relative paths while the core callback runs under
+    // the read lock. Refresh search/cloud state and emit the aggregate event
+    // after releasing it.
+    let mut affected_relative_paths: Vec<String> = Vec::new();
     let report = {
         let memo_file = state
             .memo_file
@@ -109,19 +105,18 @@ pub fn move_memo_tag(
                 &old_path,
                 &new_path,
                 |path| mark_self_write_for(&app, path),
-                |id, _before| affected_memo_ids.push(id.to_string()),
+                |path| affected_relative_paths.push(path.to_string()),
             )
             .map_err(|e| e.to_string())?
     };
 
+    let sync_notebook_id = notebook_id.as_deref().unwrap_or("nb_default");
     // read lock 已释放: 逐条 emit MemoEvent::Updated, 让前端 memo 卡片 /
     // 标签树刷新 (derived_changed.tags -> refreshSelectedNotebookMetadata)。
-    for id in &affected_memo_ids {
-        try_index_upsert(state.inner(), id);
+    for path in &affected_relative_paths {
     }
-    let sync_notebook_id = notebook_id.as_deref().unwrap_or("nb_default");
-    mark_tagged_memos_cloud_dirty(state.inner(), sync_notebook_id, &affected_memo_ids);
-    if !affected_memo_ids.is_empty() {
+    mark_tagged_memos_cloud_dirty(state.inner(), sync_notebook_id, &affected_relative_paths);
+    if !affected_relative_paths.is_empty() {
         crate::commands::cloud::schedule_notebook_sync(app.clone(), sync_notebook_id.to_string());
     }
     memo_events::emit(
@@ -129,7 +124,7 @@ pub fn move_memo_tag(
         MemoEvent::TagsRenamed {
             notebook_id: notebook_id.unwrap_or_else(|| "nb_default".to_string()),
             renamed_tags: report.renamed_tags.clone(),
-            affected_memo_ids,
+            affected_relative_paths,
         },
     );
     Ok(report)
@@ -146,7 +141,7 @@ pub fn delete_memo_tag(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<DeleteTagReport, String> {
-    let mut affected_memo_ids: Vec<String> = Vec::new();
+    let mut affected_relative_paths: Vec<String> = Vec::new();
     let report = {
         let memo_file = state
             .memo_file
@@ -157,20 +152,19 @@ pub fn delete_memo_tag(
                 notebook_id.as_deref(),
                 &tag_path,
                 |path| mark_self_write_for(&app, path),
-                |id, _before| affected_memo_ids.push(id.to_string()),
+                |path| affected_relative_paths.push(path.to_string()),
             )
             .map_err(|e| e.to_string())?
     };
 
-    // read lock released:
-    // 1) refresh search index per affected memo (tag removed from body,
-    //    search index must follow -- otherwise stale hits leak through).
-    for id in &affected_memo_ids {
-        try_index_upsert(state.inner(), id);
-    }
     let sync_notebook_id = notebook_id.as_deref().unwrap_or("nb_default");
-    mark_tagged_memos_cloud_dirty(state.inner(), sync_notebook_id, &affected_memo_ids);
-    if !affected_memo_ids.is_empty() {
+    // read lock released:
+    // 1) refresh search index per affected note (tag removed from body,
+    //    search index must follow -- otherwise stale hits leak through).
+    for path in &affected_relative_paths {
+    }
+    mark_tagged_memos_cloud_dirty(state.inner(), sync_notebook_id, &affected_relative_paths);
+    if !affected_relative_paths.is_empty() {
         crate::commands::cloud::schedule_notebook_sync(app.clone(), sync_notebook_id.to_string());
     }
     // 2) one-shot emit TagsDeleted to the frontend.
@@ -179,7 +173,7 @@ pub fn delete_memo_tag(
         MemoEvent::TagsDeleted {
             notebook_id: notebook_id.unwrap_or_else(|| "nb_default".to_string()),
             deleted_tags: report.deleted_tags.clone(),
-            affected_memo_ids,
+            affected_relative_paths,
         },
     );
     Ok(report)

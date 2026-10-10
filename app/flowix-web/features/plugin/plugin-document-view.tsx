@@ -12,10 +12,10 @@ import { PluginArtifactRenderer, type PluginArtifactRendererHandle } from './plu
 import { PluginMarkmapControls } from './plugin-markmap-controls';
 
 export function PluginDocumentView({
-  memoId,
+  notePath,
   transitionId,
 }: {
-  memoId: string;
+  notePath: string;
   transitionId?: number;
 }) {
   const [artifact, setArtifact] = useState<ArtifactSession | null>(null);
@@ -27,7 +27,7 @@ export function PluginDocumentView({
   const load = useCallback(async () => {
     setError(null);
     try {
-      setArtifact(await artifacts.resolve(memoId));
+      setArtifact(await artifacts.resolve(notePath));
     } catch (loadError) {
       setArtifact(null);
       setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -40,7 +40,7 @@ export function PluginDocumentView({
         useDocumentStore.getState().finishDocumentTransition(transitionId);
       }
     }
-  }, [memoId, transitionId]);
+  }, [notePath, transitionId]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {

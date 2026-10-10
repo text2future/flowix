@@ -183,17 +183,6 @@ fn switch_notebook(
     notebook_id: Option<String>,
 ) -> Result<(), String> {
     let prev = read_lock(&state.memo_file, "memo_file").current_notebook_id_value();
-    let idx_nb = state
-        .search
-        .read()
-        .unwrap_or_else(|poisoned| {
-            tracing::error!("search read lock poisoned, recovering");
-            poisoned.into_inner()
-        })
-        .current_notebook()
-        .map(str::to_string);
-    let idx_loaded = read_lock(&state.search, "search").is_loaded();
-
     if let Some(target_id) = notebook_id.as_deref() {
         let target_path = read_lock(&state.memo_file, "memo_file")
             .get_notebook_config_by_id(target_id)
@@ -208,7 +197,7 @@ fn switch_notebook(
         }
     }
 
-    if prev == notebook_id && idx_nb == notebook_id && idx_loaded {
+    if prev == notebook_id {
         if let Some(notebook_id) = notebook_id.as_deref() {
             {
                 let memo_file = read_lock(&state.memo_file, "memo_file");
@@ -252,7 +241,6 @@ fn switch_notebook(
         };
     }
 
-    write_lock(&state.search, "search").mark_unloaded();
     Ok(())
 }
 

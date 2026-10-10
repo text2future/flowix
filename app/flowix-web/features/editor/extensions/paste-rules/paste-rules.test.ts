@@ -54,7 +54,7 @@ describe('paste rule helpers', () => {
     expect(rule.run({
       view,
       files,
-      memoId: 'memo-a',
+      ownerPath: 'memo-a',
     } as unknown as Parameters<typeof rule.run>[0])).toBe('handled');
     expect(attachmentUploadMock.handleFileUpload).toHaveBeenCalledWith(
       view,

@@ -1,7 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { useI18n, type I18nParams } from '@/lib/i18n';
 import { useShallow } from 'zustand/react/shallow';
@@ -24,6 +24,7 @@ import {
   notebookCreateErrorMessage,
 } from '@platform/tauri/errors';
 import { useCreateNotebookFlow } from '@features/memo/hooks/use-create-notebook-flow';
+import { clearActionableNotice, upsertActionableNotice } from '@features/notifications/actionable-notice-store';
 import { noteRepository, notebookRepository } from '@features/memo/services/note-repository';
 import { getVisibleCreateFilter, useNoteStore, useTagStore, type NoteListItem, type Notebook } from '@features/memo/store';
 import { noteListItemRelativePath } from '@/types/note-item';
@@ -345,8 +346,8 @@ export function MemoListServicesHost({
   const [notebookSetupJob, setNotebookSetupJob] = useState<NotebookSetupJob | null>(null);
   const [notebookSetupNotice, setNotebookSetupNotice] = useState<NotebookSetupReport | null>(null);
   const [dismissedNotebookSetupKey, setDismissedNotebookSetupKey] = useState<string | null>(null);
-  const [retryingNotebookSetup, setRetryingNotebookSetup] = useState(false);
   const notebookSetupJobRef = useRef<NotebookSetupJob | null>(null);
+  const activeSetupNoticeIdRef = useRef<string | null>(null);
   const emptyNotebookPromptedRef = useRef(false);
 
   const { creationState, createNotebook } = useCreateNotebookFlow({
@@ -400,26 +401,24 @@ export function MemoListServicesHost({
     };
   }, [onRefresh, selectedNotebook?.id]);
 
-  const retryNotebookSetup = useCallback(async () => {
-    const notebookId = selectedNotebook?.id;
-    if (!notebookId || retryingNotebookSetup) return;
-    setRetryingNotebookSetup(true);
+  const retryNotebookSetup = useCallback(async (notebookId: string) => {
     try {
       const job = await notebooksClient.startTemplateSetup(notebookId, true);
-      if (job) setNotebookSetupJob(job);
+      if (job && useNoteStore.getState().selectedNotebook?.id === notebookId) {
+        notebookSetupJobRef.current = job;
+        setNotebookSetupJob(job);
+      }
     } catch (error) {
-      toast.error(notebookCreateErrorMessage(error, t));
-    } finally {
-      setRetryingNotebookSetup(false);
+      throw new Error(notebookCreateErrorMessage(error, t));
     }
-  }, [retryingNotebookSetup, selectedNotebook?.id, t]);
+  }, [t]);
 
   const setupJobNoticeKey = notebookSetupJob
     ? `${notebookSetupJob.notebookId}:${notebookSetupJob.updatedAt}:${notebookSetupJob.status}`
     : null;
   const notebookSetupNoticeDismissed = setupJobNoticeKey !== null
     && dismissedNotebookSetupKey === setupJobNoticeKey;
-  const dismissNotebookSetupNotice = () => {
+  const dismissNotebookSetupNotice = useCallback(() => {
     if (!setupJobNoticeKey || !notebookSetupJob) return;
     setDismissedNotebookSetupKey(setupJobNoticeKey);
     try {
@@ -430,7 +429,56 @@ export function MemoListServicesHost({
     } catch {
       // Keep the notice dismissible for this session when persistent storage is unavailable.
     }
-  };
+  }, [notebookSetupJob, setupJobNoticeKey]);
+
+  useEffect(() => {
+    const job = notebookSetupJob;
+    const previousId = activeSetupNoticeIdRef.current;
+    if (job?.status !== 'partial' && job?.status !== 'failed') {
+      if (previousId) clearActionableNotice(previousId);
+      activeSetupNoticeIdRef.current = null;
+      return;
+    }
+    const noticeId = `notebook-setup:${job.notebookId}`;
+    if (previousId && previousId !== noticeId) clearActionableNotice(previousId);
+    activeSetupNoticeIdRef.current = noticeId;
+    if (notebookSetupNoticeDismissed) return;
+
+    const failedFiles = job.report?.failedFiles ?? 0;
+    const summary = failedFiles > 0
+      ? t('notebook.setup.partialSummary', {
+        written: job.report?.writtenFiles ?? 0,
+        existing: job.report?.skippedExistingFiles ?? 0,
+        failed: failedFiles,
+        path: job.report?.firstFailurePath ?? '',
+        reason: job.report?.firstFailureReason ?? '',
+      })
+      : null;
+    const details = [
+      summary,
+      job.message ? notebookCreateErrorMessage(job.message, t) : null,
+    ].filter(Boolean).join('\n');
+    upsertActionableNotice({
+      id: noticeId,
+      priority: 50,
+      tone: 'error',
+      title: `${selectedNotebook?.name ?? t('notebook.create.title')} · ${t(job.status === 'partial' ? 'notebook.setup.partial' : 'notebook.setup.failed')}`,
+      message: details || undefined,
+      revision: `${job.updatedAt}:${job.status}:${failedFiles}:${job.message ?? ''}`,
+      dismissible: true,
+      onDismiss: dismissNotebookSetupNotice,
+      actions: [{
+        id: 'retry',
+        label: t('notebook.setup.retry'),
+        variant: 'default',
+        run: () => retryNotebookSetup(job.notebookId),
+      }],
+    });
+  }, [dismissNotebookSetupNotice, notebookSetupJob, notebookSetupNoticeDismissed, retryNotebookSetup, selectedNotebook?.name, t]);
+
+  useEffect(() => () => {
+    if (activeSetupNoticeIdRef.current) clearActionableNotice(activeSetupNoticeIdRef.current);
+  }, []);
 
   const resetCreateState = useCallback(() => {
     setCreateOpen(false);
@@ -846,53 +894,6 @@ export function MemoListServicesHost({
             written: notebookSetupNotice.writtenFiles,
             existing: notebookSetupNotice.skippedExistingFiles,
           })}
-        </div>
-      )}
-      {(notebookSetupJob?.status === 'partial' || notebookSetupJob?.status === 'failed') && !notebookSetupNoticeDismissed && (
-        <div
-          className="fixed bottom-16 right-4 z-[180] flex max-w-md items-center gap-3 rounded-xl border border-destructive/30 bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)] shadow-xl"
-          role="alert"
-        >
-          <span className="min-w-0 flex-1">
-            <strong className="block">
-              {notebookSetupJob.status === 'partial'
-                ? t('notebook.setup.partial')
-                : t('notebook.setup.failed')}
-            </strong>
-            {(notebookSetupJob.report?.failedFiles ?? 0) > 0 && (
-              <small className="mt-1 block break-words text-[var(--muted-foreground)]">
-                {t('notebook.setup.partialSummary', {
-                  written: notebookSetupJob.report?.writtenFiles ?? 0,
-                  existing: notebookSetupJob.report?.skippedExistingFiles ?? 0,
-                  failed: notebookSetupJob.report?.failedFiles ?? 0,
-                  path: notebookSetupJob.report?.firstFailurePath ?? '',
-                  reason: notebookSetupJob.report?.firstFailureReason ?? '',
-                })}
-              </small>
-            )}
-            {notebookSetupJob.message && (
-              <small className="mt-1 block break-words text-[var(--muted-foreground)]">
-                {notebookCreateErrorMessage(notebookSetupJob.message, t)}
-              </small>
-            )}
-          </span>
-          <button
-            type="button"
-            className="shrink-0 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs text-[var(--primary-foreground)] disabled:opacity-60"
-            onClick={() => void retryNotebookSetup()}
-            disabled={retryingNotebookSetup}
-          >
-            {retryingNotebookSetup ? t('notebook.setup.retrying') : t('notebook.setup.retry')}
-          </button>
-          <button
-            type="button"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-            aria-label={t('common.close')}
-            title={t('common.close')}
-            onClick={dismissNotebookSetupNotice}
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
         </div>
       )}
       <ExternalMarkdownOpenDialog />

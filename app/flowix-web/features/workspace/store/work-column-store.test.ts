@@ -47,6 +47,19 @@ describe('work-column store', () => {
     });
   });
 
+  it('updates the open file and its displayed folder after a confirmed move', () => {
+    const target = {
+      kind: 'external' as const,
+      path: '/notes/drafts/a.md', scopePath: '/notes', transitionId: null,
+      fileBrowser: { folderPath: '/notes/drafts', notebookId: 'book', scopePath: '/notes', fileTreeVisible: true, fileTreeWidth: 220 },
+    };
+    useWorkColumnStore.setState((state) => ({ navigation: { ...state.navigation, target } }));
+    useWorkColumnStore.getState().replaceExternalPath('/notes/drafts/a.md', '/notes/done/a.md');
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
+      path: '/notes/done/a.md', fileBrowser: { folderPath: '/notes/done' },
+    });
+  });
+
   it('ignores stale commits and preserves the committed target while loading', () => {
     const first = useWorkColumnStore.getState().beginNavigation({ kind: 'web', url: 'https://one.test' }, null);
     useWorkColumnStore.getState().commitNavigation(first, { kind: 'web', url: 'https://one.test' });

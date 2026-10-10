@@ -8,7 +8,7 @@ function updated(revision: number, notebookId = 'notebook'): Extract<MemoEvent, 
     changeId: `change-${revision}`, source: 'user_edit',
     derivedChanged: { tags: false, todos: false, agents: false },
     memo: {
-      id: 'memo', filename: 'note.md', preview: '', tags: [], todos: [], agents: [],
+      id: 'memo', filename: 'note.md', relativePath: 'note.md', preview: '', tags: [], todos: [], agents: [],
       createdAt: 1, updatedAt: 1, favorited: false, icon: null, colors: [], properties: {},
     },
   };
@@ -78,7 +78,7 @@ describe('memo event ordering', () => {
     const next = vi.fn();
     const dispatch = createMemoDedupMiddleware()(next);
     dispatch(updated(1));
-    dispatch({ kind: 'tags_deleted', notebookId: 'notebook', affectedMemoIds: ['memo'], deletedTags: ['tag'] });
+    dispatch({ kind: 'tags_deleted', notebookId: 'notebook', affectedRelativePaths: ['note.md'], deletedTags: ['tag'] });
     vi.runAllTimers();
     expect(next.mock.calls.map(([event]) => event.kind)).toEqual(['updated', 'tags_deleted']);
   });
@@ -87,7 +87,7 @@ describe('memo event ordering', () => {
     const next = vi.fn();
     const dispatch = createMemoDedupMiddleware()(next);
     const { memo, ...event } = updated(4);
-    dispatch({ ...event, kind: 'deleted' });
+    dispatch({ ...event, kind: 'deleted', relativePath: memo.relativePath ?? memo.filename });
     dispatch(updated(3));
     vi.runAllTimers();
     expect(next).toHaveBeenCalledOnce();

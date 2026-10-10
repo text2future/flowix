@@ -6,6 +6,7 @@ members = [
     "flowix-plugin-runtime",
     "flowix-sync",
     "flowix-cli",
+    "flowix-installer-helper",
 ]
 
 # 锁定共用依赖到同一版本 ── 避免 backend / cli 走不一致版本。

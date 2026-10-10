@@ -3,12 +3,12 @@ import { readFileBase64 } from './io';
 
 export const UPLOAD_CHUNK_BYTES = 256 * 1024;
 
-export async function uploadInChunks(file: File, fileName: string, memoId: string, signal?: AbortSignal): Promise<string> {
+export async function uploadInChunks(file: File, fileName: string, ownerPath: string, signal?: AbortSignal): Promise<string> {
     const checkCancelled = () => {
         if (signal?.aborted) throw new DOMException('Upload cancelled', 'AbortError');
     };
     checkCancelled();
-    const uploadId = await invoke<string>('begin_attachment_upload', { memoId, fileName, size: file.size });
+    const uploadId = await invoke<string>('begin_attachment_upload', { ownerPath, fileName, size: file.size });
     let finished = false;
     try {
         checkCancelled();

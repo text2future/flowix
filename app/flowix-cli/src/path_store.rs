@@ -68,7 +68,7 @@ fn document_json(document: &flowix_core::service::NoteDocument) -> Value {
 pub(crate) fn list(notebook_key: &str) -> Result<Value, CliError> {
     let mf = store::open()?;
     let notebook = MemoService::new(&mf).resolve_notebook(notebook_key)?;
-    mf.reconcile_note_index(&notebook.id)?;
+    mf.reconcile_note_index_blocking(&notebook.id)?;
     let notes = NoteService::new(&mf).list(&notebook.id)?;
     Ok(json!({"notebookId": notebook.id, "notes": notes}))
 }
@@ -118,7 +118,7 @@ pub(crate) fn edit(
         match NoteService::new(&mf).save(&notebook.id, &relative, &next, Some(&current.body))? {
             flowix_core::service::NoteSaveOutcome::Saved(_) => {}
             flowix_core::service::NoteSaveOutcome::Conflict { .. } => {
-                return Err(CliError::Other(
+                return Err(CliError::Conflict(
                     "note changed on disk; edit was not applied".into(),
                 ))
             }
@@ -143,7 +143,7 @@ pub(crate) fn write(raw: &str, content: &str) -> Result<Value, CliError> {
         flowix_core::service::NoteSaveOutcome::Saved(document) => {
             Ok(json!({"ok": true, "action": "written", "note": document_json(&document)}))
         }
-        flowix_core::service::NoteSaveOutcome::Conflict { .. } => Err(CliError::Other(
+        flowix_core::service::NoteSaveOutcome::Conflict { .. } => Err(CliError::Conflict(
             "note changed on disk; write was not applied".into(),
         )),
     }
@@ -152,7 +152,7 @@ pub(crate) fn write(raw: &str, content: &str) -> Result<Value, CliError> {
 pub(crate) fn delete(raw: &str) -> Result<Value, CliError> {
     let (mf, notebook, relative) = address(raw)?;
     let document = NoteService::new(&mf).get(&notebook.id, &relative)?;
-    let removed = NoteService::new(&mf).delete(&notebook.id, &relative)?;
+    let removed = NoteService::new(&mf).delete_checked(&notebook.id, &relative, &document.body)?;
     Ok(
         json!({"ok": removed, "action": "deleted", "notebookId": notebook.id,
         "relativePath": relative, "address": locator(&notebook.id, &relative), "path": document.path}),
@@ -170,6 +170,16 @@ pub(crate) fn search(
             "search requires a query and positive limit".into(),
         ));
     }
+    let normalized_tag = tag_filter
+        .map(|raw| {
+            flowix_core::memo_file::normalize_search_tag_filter(raw).ok_or_else(|| {
+                CliError::Usage(
+                    "search tag filter must be a valid tag path (for example `项目/Flowix`)"
+                        .into(),
+                )
+            })
+        })
+        .transpose()?;
     let mf = store::open()?;
     let configs = MemoService::new(&mf).list_notebooks()?;
     let selected = if let Some(key) = notebook_filter {
@@ -179,11 +189,11 @@ pub(crate) fn search(
     };
     let mut hits = Vec::new();
     for notebook in selected {
-        mf.reconcile_note_index(&notebook.id)?;
+        mf.reconcile_note_index_blocking(&notebook.id)?;
         for hit in NoteService::new(&mf).search_with_tag_filter(
             &notebook.id,
             query,
-            tag_filter,
+            normalized_tag.as_deref(),
             limit.saturating_sub(hits.len()),
         )? {
             hits.push(
@@ -213,7 +223,10 @@ pub(crate) fn read_input(
         )));
     }
     if let Some(path) = file {
-        return String::from_utf8(std::fs::read(path)?)
+        let bytes = std::fs::read(path).map_err(|error| {
+            CliError::Io(std::io::Error::new(error.kind(), format!("failed to read input file `{path}`: {error}")))
+        })?;
+        return String::from_utf8(bytes)
             .map_err(|error| CliError::Other(format!("input is not UTF-8: {error}")));
     }
     let mut content = String::new();

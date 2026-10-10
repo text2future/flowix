@@ -1278,6 +1278,7 @@ dependencies = [
  "dunce",
  "flate2",
  "flowix-core",
+ "flowix-installer-helper",
  "flowix-plugin-runtime",
  "flowix-sync",
  "fs2",
@@ -1325,6 +1326,14 @@ dependencies = [
  "webview2-com",
  "windows",
  "zip",
+]
+
+[[package]]
+name = "flowix-installer-helper"
+version = "1.5.2"
+dependencies = [
+ "dunce",
+ "windows",
 ]
 
 [[package]]

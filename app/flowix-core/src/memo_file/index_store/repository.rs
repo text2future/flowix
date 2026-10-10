@@ -267,6 +267,23 @@ impl MemoFile {
         notebook_id: &str,
         memo: &Memo,
     ) -> std::io::Result<()> {
+        self.sync_index_on_write_for_notebook_id_locked_inner(notebook_id, memo, true)
+    }
+
+    pub(crate) fn sync_index_on_write_for_notebook_id_locked_without_projection(
+        &self,
+        notebook_id: &str,
+        memo: &Memo,
+    ) -> std::io::Result<()> {
+        self.sync_index_on_write_for_notebook_id_locked_inner(notebook_id, memo, false)
+    }
+
+    fn sync_index_on_write_for_notebook_id_locked_inner(
+        &self,
+        notebook_id: &str,
+        memo: &Memo,
+        refresh_projection: bool,
+    ) -> std::io::Result<()> {
         let mut conn = self.open_memo_index_db_for_notebook_id(notebook_id)?;
         let old_path: Option<String> = conn
             .query_row(
@@ -288,10 +305,12 @@ impl MemoFile {
             updated_at,
         )?;
         tx.commit().map_err(sqlite_to_io)?;
-        if let Some(path) = old_path.filter(|path| path != &memo.relative_path) {
-            self.refresh_note_path(notebook_id, &path)?;
+        if refresh_projection {
+            if let Some(path) = old_path.filter(|path| path != &memo.relative_path) {
+                self.refresh_note_path(notebook_id, &path)?;
+            }
+            self.refresh_note_path(notebook_id, &memo.relative_path)?;
         }
-        self.refresh_note_path(notebook_id, &memo.relative_path)?;
         if self.current_notebook_id_for_index() == notebook_id {
             let mut cache = self.index_cache.write().expect("index_cache poisoned");
             if let Some(index) = cache.as_mut() {

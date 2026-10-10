@@ -46,7 +46,7 @@ export const AttachmentLink = Extension.create<AttachmentUploadOptions>({
         const opts = normalizeOptions(this.options);
         return [
             createFileUploadPlugin({
-                memoId: this.options.memoId,
+                ownerPath: this.options.ownerPath,
                 ingest: {
                     drop: opts.ingest.drop,
                     paste: false,
@@ -61,7 +61,7 @@ export const AttachmentLink = Extension.create<AttachmentUploadOptions>({
     },
 
     addCommands() {
-        return createAttachmentCommands(this.options.memoId);
+        return createAttachmentCommands(this.options.ownerPath);
     },
 });
 

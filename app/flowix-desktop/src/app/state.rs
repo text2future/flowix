@@ -6,13 +6,11 @@ use serde::Serialize;
 use crate::agent_external::runtime_registry::ExternalRuntimeRegistry;
 use crate::agent_external_config::AgentExternalConfig;
 use crate::agent_session::ThreadManager;
-use crate::app::search_index::SearchRebuildCoordinator;
 use crate::app::startup::StartupCoordinator;
 use crate::config::{AgentAccessStore, SecurityBookmarkStore, UserConfigStore};
 use crate::plugin::PluginRunCoordinator;
 use crate::system_data::SystemData;
 use flowix_core::memo_file::MemoFile;
-use flowix_core::search::MemoIndex;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,8 +52,6 @@ pub struct AppState {
     pub memo_file: Arc<RwLock<MemoFile>>,
     /// 当前 notebook 的全文搜索索引 (内存倒排). 切换 notebook 时 rebuild;
     /// 写命令做 upsert/remove.
-    pub search: RwLock<MemoIndex>,
-    pub search_rebuild: SearchRebuildCoordinator,
     pub external_runtimes: Arc<ExternalRuntimeRegistry>,
     /// Long-lived Codex App Server. Codex owns its thread history and model
     /// catalog; Flowix stores only the mapping to its local conversation.

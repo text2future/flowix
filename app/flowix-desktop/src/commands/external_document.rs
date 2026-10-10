@@ -263,11 +263,23 @@ pub async fn write_external_document(
                 };
 
                 let memo_file = read_lock(&state.memo_file, "memo_file");
+                let notebook_ids = match memo_file.notebook_ids_for_paths(&[&path]) {
+                    Ok(ids) => ids,
+                    Err(error) => return ExternalDocumentWriteOutcome::Error { message: error.to_string() },
+                };
                 watches.begin_window_write(&path);
                 let outcome = if is_markdown_document_path(&path) {
-                    memo_file.write_markdown_merging(&path, &content, expectedContent.as_deref())
+                    match notebook_ids.as_slice() {
+                        [notebook_id] => memo_file.write_markdown_merging_for_notebook(notebook_id, &path, &content, expectedContent.as_deref()),
+                        [] => memo_file.write_markdown_merging(&path, &content, expectedContent.as_deref()),
+                        _ => memo_file.write_markdown_merging_for_registered_path(&path, &content, expectedContent.as_deref()),
+                    }
                 } else {
-                    memo_file.write_file_if_matches(&path, &content, expectedContent.as_deref())
+                    match notebook_ids.as_slice() {
+                        [notebook_id] => memo_file.write_file_if_matches_for_notebook(notebook_id, &path, &content, expectedContent.as_deref()),
+                        [] => memo_file.write_file_if_matches(&path, &content, expectedContent.as_deref()),
+                        _ => memo_file.write_file_if_matches_for_registered_path(&path, &content, expectedContent.as_deref()),
+                    }
                         .map(|outcome| match outcome {
                             FileWriteOutcome::Saved => MergedFileWriteOutcome::Saved {
                                 content: content.clone(), merged: false,
@@ -294,7 +306,13 @@ pub async fn write_external_document(
                                 let root = Path::new(&notebook.path);
                                 if let Ok(relative) = path.strip_prefix(root) {
                                     let relative_path = relative.to_string_lossy().replace('\\', "/");
-                                    if let Err(error) = memo_file.maybe_create_auto_path_version(&notebook.id, &relative_path, &content) {
+                                    if let Err(error) = memo_file.with_file_write(
+                                        &notebook.id, &path,
+                                        flowix_core::memo_file::FileLockIntent::Existing,
+                                        "auto_path_version", |_| {
+                                            memo_file.maybe_create_auto_path_version(&notebook.id, &relative_path, &content)
+                                        },
+                                    ) {
                                         tracing::warn!(path = %path.display(), "automatic path version failed: {error}");
                                     }
                                     break;

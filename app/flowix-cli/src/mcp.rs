@@ -505,6 +505,7 @@ fn error_code(error: &CliError) -> &'static str {
         CliError::Usage(_) => "INVALID_COMMAND",
         CliError::NotFound(_) => "NOT_FOUND",
         CliError::Io(_) => "IO_ERROR",
+        CliError::Conflict(_) => "CONFLICT",
         CliError::Other(_) => "EXECUTION_ERROR",
     }
 }

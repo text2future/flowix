@@ -665,26 +665,6 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
     return notesClient.create(resolvedNotebookId, undefined, undefined, title);
   }, [editable, resolvedNotebookId]);
 
-  const addRecord = useCallback(async () => {
-    if (!document || !noteField || saving) return;
-    const sequence = loadSequenceRef.current;
-    const id = `rec_${createUuidV7()}`;
-    const now = new Date().toISOString();
-    const next: MultidimensionalTableDocument = {
-      ...document,
-      collection: reviseCollection(document.collection),
-      records: { ...document.records, data: [...document.records.data, {
-        id,
-        updated_at: now,
-        note_path: '',
-      }] },
-    };
-    if (await save(next, false, sequence) && isCurrentSession(sequence)) {
-      setTablePage(Math.floor((next.records.data.length - 1) / TABLE_PAGE_SIZE));
-      setAutoOpenPrimaryRecordId(id);
-    }
-  }, [document, isCurrentSession, loadSequenceRef, noteField, save, saving]);
-
   const createViewForField = useCallback(async (field: TableField | string) => {
     if (!document || !pendingViewType || saving) return;
     const sequence = loadSequenceRef.current;
@@ -813,6 +793,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
       setNotePickerCalendarDate(null);
       const saved = await save(next, true, sequence);
       if (saved && isCurrentSession(sequence) && !notePickerRecordId) setTablePage(Math.floor((next.records.data.length - 1) / TABLE_PAGE_SIZE));
+      if (!saved && updatedNote && notePickerCalendarDate) toast.error('笔记日期已修改，但表格关联未保存，请重试关联');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '关联笔记失败');
     } finally {
@@ -1755,7 +1736,7 @@ function TableDocumentViewSession({ filePath, fileIdentity, notebookPath, notebo
           {visibleRecords.length === 0 && <tr><td colSpan={tableColumnCount} className="border-b border-[var(--border)] px-4 py-3 text-center text-sm text-[var(--muted-foreground)]">未添加内容</td></tr>}
           {(canCreateRecords || showAssociateNoteAction) && <tr>
             <td colSpan={tableColumnCount} className="px-0 py-1.5">
-              <button type="button" disabled={!editable || saving} onClick={() => void addRecord()} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
+              <button type="button" disabled={!editable || saving || !noteField} onClick={(event) => openNotePicker(event.currentTarget.getBoundingClientRect(), null)} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />关联笔记
               </button>
             </td>

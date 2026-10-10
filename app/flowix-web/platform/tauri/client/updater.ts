@@ -10,6 +10,11 @@ export interface AppUpdate {
   body?: string;
 }
 
+export interface AppUpdateInstallResult {
+  status: 'success' | 'failed';
+  message?: string;
+}
+
 export type AppUpdateDownloadProgress =
   | { phase: 'started'; contentLength?: number }
   | { phase: 'progress'; downloadedBytes: number; contentLength?: number }
@@ -52,6 +57,11 @@ export async function checkAppUpdate(): Promise<AppUpdate | null> {
   } finally {
     if (checkPromise === pending) checkPromise = null;
   }
+}
+
+export async function consumeAppUpdateResult(): Promise<AppUpdateInstallResult | null> {
+  if (!isTauriDesktopRuntime()) return null;
+  return await invoke<AppUpdateInstallResult | null>('consume_app_update_result');
 }
 
 export async function installAppUpdate(

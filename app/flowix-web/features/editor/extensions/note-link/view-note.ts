@@ -14,6 +14,7 @@ import { translate, type I18nKey } from '@/lib/i18n';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { createTerminalInlineAtomCaretDecorations } from '@features/editor/extensions/shared/terminal-inline-atom-caret';
 import { navigateToHeadingAnchor } from '@features/editor/components/heading-anchor-navigation';
+import { decodeEditorHref } from '@features/editor/editor-link-resolution';
 import GithubSlugger from 'github-slugger';
 import { notes as notesClient } from '@platform/tauri/client';
 import { useNoteStore } from '@features/memo/store/note-store';
@@ -72,21 +73,13 @@ type ParsedWikiNoteLink = {
   title: string;
 };
 
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
 export function splitObsidianTarget(rawTarget: string): { target: string; heading: string | null } {
   const hash = rawTarget.indexOf('#');
-  if (hash < 0) return { target: safeDecode(rawTarget.trim()), heading: null };
-  const target = safeDecode(rawTarget.slice(0, hash).trim());
+  if (hash < 0) return { target: decodeEditorHref(rawTarget.trim()), heading: null };
+  const target = decodeEditorHref(rawTarget.slice(0, hash).trim());
   // Also accept the commonly typed `## Heading`, while Obsidian itself uses
   // one `#` regardless of heading level.
-  const heading = safeDecode(rawTarget.slice(hash).replace(/^#+\s*/, '').trim());
+  const heading = decodeEditorHref(rawTarget.slice(hash).replace(/^#+\s*/, '').trim());
   return { target, heading: heading || null };
 }
 
@@ -240,7 +233,8 @@ function attrsFromMarkdownNoteLink(titleText: string, href: string): NoteReferen
     originalPath: null,
     linkStyle: 'flowix',
     linkTarget: href,
-    heading: null,
+    // flowix://open 深链的 `#fragment` 是 GitHub-slug 标题锚点，与相对链接同语义。
+    heading: pathTarget?.hash ? decodeEditorHref(pathTarget.hash.replace(/^#/, '').trim()) || null : null,
     stale: parsed.stale,
   };
 }
@@ -462,21 +456,19 @@ class NoteReferenceView implements ProseMirrorNodeView {
     }
 
     try {
+      // 跨文档锚点随打开流程发布定位请求（与 Agent 链接同一通道，slug 归一化
+      // 在发布出口统一完成）；仅当引用不带任何目标字段（如 `[[#标题]]` 指向
+      // 本文档）时才在当前编辑器内滚动。
+      const sameDocumentHeading = Boolean(attrs.heading)
+        && !attrs.linkTarget && !attrs.notebookId && !attrs.relativePath && !attrs.originalPath;
       if (attrs.notebookId && attrs.relativePath) {
-        await openNoteByNotebookPath(attrs.notebookId, attrs.relativePath);
+        await openNoteByNotebookPath(attrs.notebookId, attrs.relativePath, attrs.heading);
       } else if (attrs.originalPath) {
-        await openNoteByPhysicalPath(attrs.originalPath);
+        await openNoteByPhysicalPath(attrs.originalPath, attrs.heading);
       } else if (attrs.linkTarget) {
         await openNoteByPhysicalPath(attrs.linkTarget);
-      } else {
-        this.applyAttrs({ stale: true });
-        return;
-      }
-      if (attrs.stale) {
-        this.applyAttrs({ stale: false });
-      }
-      if (attrs.heading) {
-        const slug = new GithubSlugger().slug(attrs.heading);
+      } else if (sameDocumentHeading) {
+        const slug = new GithubSlugger().slug(attrs.heading!);
         let attempts = 0;
         const navigate = () => {
           if (this.destroyed || navigateToHeadingAnchor(this.view.dom, `#${slug}`)) return;
@@ -484,6 +476,12 @@ class NoteReferenceView implements ProseMirrorNodeView {
           if (attempts < 10) window.setTimeout(navigate, 50);
         };
         window.setTimeout(navigate, 0);
+      } else {
+        this.applyAttrs({ stale: true });
+        return;
+      }
+      if (attrs.stale) {
+        this.applyAttrs({ stale: false });
       }
     } catch (err) {
       this.applyAttrs({ stale: true });

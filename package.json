@@ -31,6 +31,7 @@
     "tauri:dev:pi": "node scripts/tauri-dev.mjs --with-pi app/flowix-desktop/tauri.conf.dev.json",
     "tauri:dev:win": "node scripts/tauri-dev.mjs app/flowix-desktop/tauri.windows.dev.conf.json",
     "tauri:build:prod": "node scripts/build-tauri-production.mjs",
+    "build:windows-installer-helper": "node scripts/build-windows-installer-helper.mjs",
     "tauri:build:prod:pi": "node scripts/build-tauri-production.mjs --with-pi",
     "pi:bundle:prepare": "node scripts/prepare-pi-bundle.mjs",
     "release:updater": "bash scripts/release.sh",

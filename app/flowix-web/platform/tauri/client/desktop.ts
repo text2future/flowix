@@ -296,7 +296,7 @@ export const dialogs = {
 
 export const attachments = {
   saveFromPath: (sourcePath: string, notebookId: string) =>
-    invoke<string | null>('save_attachment', { sourcePath, notebookId, memoId: null }),
+    invoke<string | null>('save_attachment', { sourcePath, notebookId }),
 };
 
 export interface ExternalDocumentChangedEvent {
@@ -426,7 +426,8 @@ export interface PluginArtifact {
  * producing plugin is unavailable. Plugin runtime state is intentionally not
  * part of this model. */
 export interface ArtifactSession {
-  pointerMemoId: string;
+  notebookId: string;
+  notePath: string;
   pluginId: string;
   pluginVersion: string;
   path: string;
@@ -436,7 +437,6 @@ export interface ArtifactSession {
   parser: string;
   renderer: string;
   content?: string | null;
-  noteId?: string | null;
   status: 'ready' | 'unavailable' | 'invalid' | 'missing';
   pluginAvailable: boolean;
   error?: string | null;
@@ -486,8 +486,8 @@ export const plugins = {
 };
 
 export const artifacts = {
-  resolve: (memoId: string) =>
-    invoke<ArtifactSession>('artifact_resolve', { memoId }),
+  resolve: (notePath: string) =>
+    invoke<ArtifactSession>('artifact_resolve', { notePath }),
 };
 
 // Agent

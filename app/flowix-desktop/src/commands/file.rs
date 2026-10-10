@@ -16,7 +16,7 @@ use crate::config::path_is_inside;
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{
     media_kind_for_path, notebook_path_from_relative, FileManagementPolicy, MediaResourceKind,
-    MemoColor,
+    MemoColor, MemoFile,
 };
 use sha2::{Digest, Sha256};
 use tokio::sync::{Notify, Semaphore};
@@ -432,11 +432,30 @@ pub(crate) fn default_create_folder_for_notebook(root: &Path) -> Result<Option<S
 pub(crate) fn migrate_legacy_watcher_rules(
     root: &Path,
     config: &crate::watcher::WhitelistConfig,
+    memo: &MemoFile,
 ) -> Result<(), String> {
-    static MIGRATION_LOCK: Mutex<()> = Mutex::new(());
-    let _guard = MIGRATION_LOCK
-        .lock()
-        .map_err(|_| "FILE_MANAGEMENT_MIGRATION_LOCK_FAILED")?;
+    if read_notebook_view_preferences(root).file_management.legacy_watcher_migrated {
+        return Ok(());
+    }
+    with_registered_notebook_change(root, memo, "migrate_file_management_preferences", || {
+        migrate_legacy_watcher_rules_locked(root, config)
+    })
+}
+
+fn with_registered_notebook_change<T>(
+    root: &Path,
+    memo: &MemoFile,
+    operation: &str,
+    change: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    memo.with_registered_path_change(&[root], operation, || Ok(change()))
+        .map_err(|error| error.to_string())?
+}
+
+fn migrate_legacy_watcher_rules_locked(
+    root: &Path,
+    config: &crate::watcher::WhitelistConfig,
+) -> Result<(), String> {
     let mut preferences = read_notebook_view_preferences(root);
     if preferences.file_management.legacy_watcher_migrated {
         return Ok(());
@@ -479,7 +498,7 @@ pub(crate) fn migrate_legacy_watcher_rules(
     if !policy.legacy_skip_dirs.is_empty() || !policy.legacy_skip_files.is_empty() {
         flowix_core::memo_file::atomic_write_bytes(
             &root.join(".flowix/file-management-refresh-pending"),
-            b"pending",
+            uuid::Uuid::new_v4().to_string().as_bytes(),
         )
         .map_err(|error| error.to_string())?;
     }
@@ -534,7 +553,8 @@ pub fn get_notebook_view_preferences(
     if !is_registered_notebook_root(root, &state) {
         return Err("NOTEBOOK_NOT_REGISTERED".to_string());
     }
-    migrate_legacy_watcher_rules(root, &state.user_config.get_preference().watcher)?;
+    migrate_legacy_watcher_rules(root, &state.user_config.get_preference().watcher,
+        &read_lock(&state.memo_file, "memo_file"))?;
     if root
         .join(".flowix/file-management-refresh-pending")
         .exists()
@@ -556,6 +576,8 @@ fn refresh_file_management_indexes(
     app: &AppHandle,
 ) -> Result<(), String> {
     let memo_file = read_lock(&state.memo_file, "memo_file");
+    let refresh_marker = root.join(".flowix/file-management-refresh-pending");
+    let marker_before = fs::read(&refresh_marker).ok();
     let notebook = memo_file
         .read_notebook_configs()
         .map_err(|error| error.to_string())?
@@ -569,8 +591,14 @@ fn refresh_file_management_indexes(
         .reconcile_media_resources(&notebook.id)
         .map_err(|error| format!("refresh media index failed: {error}"))?;
     crate::commands::document_list::refresh_view_document_catalog_checked(&memo_file, &notebook.id, root)?;
-    fs::remove_file(root.join(".flowix/file-management-refresh-pending"))
-        .map_err(|error| format!("clear index refresh marker failed: {error}"))?;
+    if let Some(marker_before) = marker_before {
+        memo_file.with_registered_path_change(&[root], "finish_file_management_refresh", || {
+            if fs::read(&refresh_marker).ok().as_deref() == Some(marker_before.as_slice()) {
+                fs::remove_file(&refresh_marker)?;
+            }
+            Ok(())
+        }).map_err(|error| format!("clear index refresh marker failed: {error}"))?;
+    }
     let _ = app.emit(
         "file-management-changed",
         serde_json::json!({
@@ -601,7 +629,8 @@ pub fn get_file_management_candidates(
     if !is_registered_notebook_root(root, &state) {
         return Err("NOTEBOOK_NOT_REGISTERED".to_string());
     }
-    migrate_legacy_watcher_rules(root, &state.user_config.get_preference().watcher)?;
+    migrate_legacy_watcher_rules(root, &state.user_config.get_preference().watcher,
+        &read_lock(&state.memo_file, "memo_file"))?;
     let policy = read_notebook_view_preferences(root).file_management;
     let defaults = FileManagementPolicy::default();
     let mut pending = vec![root.to_path_buf()];
@@ -792,48 +821,58 @@ pub fn set_notebook_view_preferences(
     }
     let root = fs::canonicalize(root)
         .map_err(|error| format!("resolve notebook directory failed: {error}"))?;
-    migrate_legacy_watcher_rules(&root, &state.user_config.get_preference().watcher)?;
-    let previous_preferences = read_notebook_view_preferences(&root);
-    let previous_policy = previous_preferences.file_management.clone();
-    let path = notebook_preferences_path(&root)?;
-    let parent = path
-        .parent()
-        .expect("notebook preferences have a parent directory");
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("create notebook config directory failed: {error}"))?;
-    let preferences = NotebookViewPreferences {
-        default_create_folder: normalize_default_create_folder(preferences.default_create_folder)?,
-        file_management: FileManagementPolicy {
-            included_paths: normalize_relative_folder_paths(
-                preferences.file_management.included_paths,
-            )?,
-            hidden_paths: normalize_relative_folder_paths(
-                preferences.file_management.hidden_paths,
-            )?,
-            excluded_index_paths: normalize_excluded_index_paths(
-                preferences.file_management.excluded_index_paths,
-            )?,
-            legacy_skip_dirs: previous_policy.legacy_skip_dirs.clone(),
-            legacy_skip_files: previous_policy.legacy_skip_files.clone(),
-            legacy_watcher_migrated: previous_policy.legacy_watcher_migrated,
-        },
-        refresh_pending: false,
-    };
-    let bytes = serde_json::to_vec_pretty(&preferences)
-        .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
-    let tree_visibility_changed =
-        previous_policy.hidden_paths != preferences.file_management.hidden_paths;
-    let default_create_folder_changed =
-        previous_preferences.default_create_folder != preferences.default_create_folder;
-    let refresh_marker = root.join(".flowix/file-management-refresh-pending");
-    if previous_policy.included_paths != preferences.file_management.included_paths
-        || previous_policy.excluded_index_paths != preferences.file_management.excluded_index_paths
-    {
-        flowix_core::memo_file::atomic_write_bytes(&refresh_marker, b"pending")
-            .map_err(|error| format!("mark index refresh pending failed: {error}"))?;
-    }
-    flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
-        .map_err(|error| format!("write notebook preferences failed: {error}"))?;
+    let (tree_visibility_changed, default_create_folder_changed, refresh_marker) =
+        with_registered_notebook_change(
+            &root,
+            &read_lock(&state.memo_file, "memo_file"),
+            "set_notebook_view_preferences",
+            || {
+                migrate_legacy_watcher_rules_locked(&root, &state.user_config.get_preference().watcher)?;
+                let previous_preferences = read_notebook_view_preferences(&root);
+                let previous_policy = previous_preferences.file_management.clone();
+                let path = notebook_preferences_path(&root)?;
+                let parent = path
+                    .parent()
+                    .expect("notebook preferences have a parent directory");
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("create notebook config directory failed: {error}"))?;
+                let preferences = NotebookViewPreferences {
+                    default_create_folder: normalize_default_create_folder(preferences.default_create_folder)?,
+                    file_management: FileManagementPolicy {
+                        included_paths: normalize_relative_folder_paths(
+                            preferences.file_management.included_paths,
+                        )?,
+                        hidden_paths: normalize_relative_folder_paths(
+                            preferences.file_management.hidden_paths,
+                        )?,
+                        excluded_index_paths: normalize_excluded_index_paths(
+                            preferences.file_management.excluded_index_paths,
+                        )?,
+                        legacy_skip_dirs: previous_policy.legacy_skip_dirs.clone(),
+                        legacy_skip_files: previous_policy.legacy_skip_files.clone(),
+                        legacy_watcher_migrated: previous_policy.legacy_watcher_migrated,
+                    },
+                    refresh_pending: false,
+                };
+                let bytes = serde_json::to_vec_pretty(&preferences)
+                    .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
+                let tree_visibility_changed =
+                    previous_policy.hidden_paths != preferences.file_management.hidden_paths;
+                let default_create_folder_changed =
+                    previous_preferences.default_create_folder != preferences.default_create_folder;
+                let refresh_marker = root.join(".flowix/file-management-refresh-pending");
+                if previous_policy.included_paths != preferences.file_management.included_paths
+                    || previous_policy.excluded_index_paths != preferences.file_management.excluded_index_paths
+                {
+                    flowix_core::memo_file::atomic_write_bytes(&refresh_marker,
+                        uuid::Uuid::new_v4().to_string().as_bytes())
+                        .map_err(|error| format!("mark index refresh pending failed: {error}"))?;
+                }
+                flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
+                    .map_err(|error| format!("write notebook preferences failed: {error}"))?;
+                Ok((tree_visibility_changed, default_create_folder_changed, refresh_marker))
+            },
+        )?;
     if tree_visibility_changed || default_create_folder_changed {
         let _ = app.emit(
             "notebook-view-preferences-changed",
@@ -1250,14 +1289,17 @@ pub async fn create_docx_markdown(
         if !can_access_scoped_file(&source, Some(&space_path), &state) {
             return Err("DOCX_FORBIDDEN: cannot create Markdown outside this space".to_string());
         }
-        let target = create_docx_markdown_with_images(
-            &source,
-            &space_path,
-            content,
-            images,
-            &state,
-        )?;
         let memo_file = read_lock(&state.memo_file, "memo_file");
+        let notebook_ids = memo_file.notebook_ids_for_paths(&[&source])
+            .map_err(|error| error.to_string())?;
+        let target = if notebook_ids.is_empty() {
+            create_docx_markdown_with_images(&source, &space_path, content, images, &state)?
+        } else {
+            let ids: Vec<&str> = notebook_ids.iter().map(String::as_str).collect();
+            memo_file.with_notebook_change(&ids, "create_docx_markdown_with_images", || {
+                Ok(create_docx_markdown_with_images(&source, &space_path, content, images, &state))
+            }).map_err(|error| error.to_string())??
+        };
         refresh_notebook_note_index(&memo_file, &target);
         Ok(target.to_string_lossy().into_owned())
     })
@@ -1788,7 +1830,21 @@ pub fn write_file(
     start_security_bookmark_access(&state, Path::new(&file_path));
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let path = Path::new(&file_path);
-    let saved = memo_file.write_file(path, content.as_bytes()).is_ok();
+    let notebook_ids = match memo_file.notebook_ids_for_paths(&[path]) {
+        Ok(ids) => ids,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), "cannot resolve notebook for write: {error}");
+            return false;
+        }
+    };
+    let saved = match notebook_ids.as_slice() {
+        [notebook_id] => memo_file.write_file_for_notebook(notebook_id, path, content.as_bytes()).is_ok(),
+        [] => memo_file.write_file(path, content.as_bytes()).is_ok(),
+        _ => memo_file.with_registered_path_change(&[path], "write_file_nested_notebooks", || {
+            fs::metadata(path)?;
+            flowix_core::memo_file::atomic_write_bytes(path, content.as_bytes())
+        }).is_ok(),
+    };
     if saved {
         refresh_notebook_note_index(&memo_file, path);
         crate::commands::document_list::refresh_view_document_path(&memo_file, path);
@@ -1805,7 +1861,20 @@ pub fn delete_file(file_path: String, space_path: Option<String>, state: State<A
     start_security_bookmark_access(&state, Path::new(&file_path));
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let path = Path::new(&file_path);
-    let deleted = memo_file.delete_file(path).is_ok();
+    let notebook_ids = match memo_file.notebook_ids_for_paths(&[path]) {
+        Ok(ids) => ids,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), "cannot resolve notebook for delete: {error}");
+            return false;
+        }
+    };
+    let deleted = match notebook_ids.as_slice() {
+        [notebook_id] => memo_file.delete_file_for_notebook(notebook_id, path).is_ok(),
+        [] => memo_file.delete_file(path).is_ok(),
+        _ => memo_file.with_registered_path_change(&[path], "delete_file_nested_notebooks", || {
+            fs::remove_file(path)
+        }).is_ok(),
+    };
     if deleted {
         refresh_notebook_note_index(&memo_file, path);
         crate::commands::document_list::refresh_view_document_path(&memo_file, path);
@@ -1814,7 +1883,7 @@ pub fn delete_file(file_path: String, space_path: Option<String>, state: State<A
 }
 
 #[tauri::command]
-pub fn delete_folder(folder_path: String, space_path: String, state: State<AppState>) -> bool {
+pub fn delete_folder(folder_path: String, space_path: String, state: State<AppState>) -> Result<bool, String> {
     let folder = Path::new(&folder_path);
     let scope = Path::new(&space_path);
     // Never allow the notebook root itself to be removed. The folder command
@@ -1829,12 +1898,49 @@ pub fn delete_folder(folder_path: String, space_path: String, state: State<AppSt
             "[delete_folder] refused out-of-scope or notebook-root path: {}",
             folder_path
         );
-        return false;
+        return Err("FILE_PERMISSION_DENIED".to_string());
     }
     start_security_bookmark_access(&state, folder);
-    let deleted = fs::remove_dir_all(folder).is_ok();
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let notebook_ids = memo_file.notebook_ids_for_paths(&[folder]).map_err(file_mutation_error)?;
+    let deletion_attempted = std::cell::Cell::new(false);
+    let deletion = if notebook_ids.is_empty() {
+        memo_file.acquire_cross_process_write_lock()
+            .and_then(|_guard| {
+                deletion_attempted.set(true);
+                fs::remove_dir_all(folder)
+            })
+    } else {
+        let ids: Vec<&str> = notebook_ids.iter().map(String::as_str).collect();
+        memo_file.with_notebook_change(&ids, "delete_folder", || {
+            if memo_file.notebook_ids_for_paths(&[folder])? != notebook_ids
+                || !path_is_inside(folder, scope)
+                || folder == scope
+            {
+                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "folder changed while waiting for notebook lock"));
+            }
+            let metadata = fs::symlink_metadata(folder)?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "folder is no longer a directory"));
+            }
+            deletion_attempted.set(true);
+            fs::remove_dir_all(folder)
+        })
+    };
+    if let Err(error) = deletion {
+        for id in &notebook_ids {
+            if let Err(index_error) = memo_file.reconcile_note_index(id) {
+                tracing::warn!(notebook_id = %id, "index refresh after partial folder deletion failed: {index_error}");
+            }
+        }
+        return Err(if deletion_attempted.get() && folder.exists() {
+            format!("FOLDER_DELETE_PARTIAL: {} remains: {error}", folder.display())
+        } else {
+            format!("FOLDER_DELETE_FAILED: {error}")
+        });
+    }
+    let deleted = true;
     if deleted {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
         let canonical_scope = dunce::canonicalize(scope).unwrap_or_else(|_| scope.to_path_buf());
         if let Some(notebook) = memo_file
             .read_notebook_configs()
@@ -1856,7 +1962,7 @@ pub fn delete_folder(folder_path: String, space_path: String, state: State<AppSt
             );
         }
     }
-    deleted
+    Ok(deleted)
 }
 
 fn file_mutation_error(error: std::io::Error) -> String {
@@ -1961,6 +2067,7 @@ fn rename_path_and_notify(
                     "relativePath": relative_path,
                     "previousRelativePath": previous_path,
                     "kind": "path",
+                    "directory": source_was_directory,
                     "deleted": false,
                 }),
             );
@@ -2237,17 +2344,33 @@ pub async fn import_file(
 
     let source = source.to_path_buf();
     let target = target.to_path_buf();
+    let memo_file = state.memo_file.clone();
     tokio::task::spawn_blocking(move || {
-        let mut input = fs::File::open(&source).map_err(file_mutation_error)?;
-        let mut output = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target)
-            .map_err(file_mutation_error)?;
-        if let Err(error) = std::io::copy(&mut input, &mut output) {
-            let _ = fs::remove_file(&target);
-            return Err(file_mutation_error(error));
-        }
+        let store = read_lock(&memo_file, "memo_file");
+        let ids = store.notebook_ids_for_paths(&[&target]).map_err(file_mutation_error)?;
+        let copy = |destination: &Path| -> std::io::Result<()> {
+            let mut input = fs::File::open(&source)?;
+            let mut output = fs::OpenOptions::new().write(true).create_new(true).open(destination)?;
+            if let Err(error) = std::io::copy(&mut input, &mut output) {
+                let _ = fs::remove_file(destination);
+                return Err(error);
+            }
+            output.sync_all()
+        };
+        match ids.as_slice() {
+            [notebook_id] => store.with_file_write(
+                notebook_id,
+                &target,
+                flowix_core::memo_file::FileLockIntent::Create,
+                "import_file",
+                copy,
+            ),
+            [] => {
+                let _guard = store.acquire_cross_process_write_lock().map_err(file_mutation_error)?;
+                copy(&target)
+            }
+            _ => store.with_registered_path_change(&[&target], "import_file_nested_notebooks", || copy(&target)),
+        }.map_err(file_mutation_error)?;
         Ok(target.to_string_lossy().into_owned())
     })
     .await
@@ -2317,7 +2440,16 @@ pub fn create_folder(
         return None;
     }
     start_security_bookmark_access(&state, &target_path);
-    fs::create_dir_all(&target_path).ok()?;
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let notebook_ids = memo_file.notebook_ids_for_paths(&[&target_path]).ok()?;
+    if notebook_ids.is_empty() {
+        let _guard = memo_file.acquire_cross_process_write_lock().ok()?;
+        fs::create_dir_all(&target_path).ok()?;
+    } else {
+        memo_file.with_registered_path_change(&[&target_path], "create_folder", || {
+            fs::create_dir_all(&target_path)
+        }).ok()?;
+    }
 
     Some(DocTreeItem {
         id: generate_stable_id(&target_path.to_string_lossy()),
@@ -2360,9 +2492,15 @@ pub fn create_document(
         return Err("FILE_PERMISSION_DENIED".to_string());
     }
     start_security_bookmark_access(&state, &target_path);
-    read_lock(&state.memo_file, "memo_file")
-        .create_file(&target_path, b"")
-        .map_err(file_mutation_error)?;
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    let notebook_ids = memo_file.notebook_ids_for_paths(&[&target_path]).map_err(file_mutation_error)?;
+    match notebook_ids.as_slice() {
+        [notebook_id] => memo_file.create_file_for_notebook(notebook_id, &target_path, b"").map_err(file_mutation_error)?,
+        [] => memo_file.create_file(&target_path, b"").map_err(file_mutation_error)?,
+        _ => memo_file.with_registered_path_change(&[&target_path], "create_document_nested_notebooks", || {
+            flowix_core::memo_file::atomic_create_bytes(&target_path, b"")
+        }).map_err(file_mutation_error)?,
+    }
 
     Ok(DocTreeItem {
         id: generate_stable_id(&target_path.to_string_lossy()),

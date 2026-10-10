@@ -15,6 +15,7 @@ import { listenToUserConfigChanges, windows } from "@platform/tauri/client";
 import { syncUserConfigChange } from "./user-config-sync";
 import { invalidateDshModelConfigs } from "@features/agent/public/app-api";
 import { createLogger } from "@/lib/logger";
+import { ActionableNoticeHost } from "@features/notifications/actionable-notice-host";
 
 const DocumentSaveNotifications = lazy(() => import('@features/document/public/app-api')
   .then(module => ({ default: module.DocumentSaveNotifications })));
@@ -48,13 +49,14 @@ const AgentWindowEffects = lazy(() =>
 function AppToaster() {
   return (
     <>
-    <Suspense fallback={null}><DocumentSaveNotifications /></Suspense>
     <Toaster
       className="flowix-toaster"
-      position="top-center"
+      position="bottom-right"
       richColors={false}
       closeButton={false}
     />
+    <Suspense fallback={null}><DocumentSaveNotifications /></Suspense>
+    <ActionableNoticeHost />
     </>
   );
 }

@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { files, memos, type DocTreeItem } from '@platform/tauri/client';
+import { files, notes, type DocTreeItem } from '@platform/tauri/client';
 import { toast } from '@/lib/toast';
 import { EXTERNAL_FILE_DROP_EVENT } from '@features/document/components/use-markdown-file-drop';
 import type { FolderTreeController } from './use-folder-tree';
@@ -368,15 +368,15 @@ describe('NotebookFileTree pointer dragging', () => {
   });
 
   it('does not load full note metadata while the tree is mounted', async () => {
-    const readMemo = vi.spyOn(memos, 'readMemo').mockResolvedValue(null);
+    const readDocument = vi.spyOn(notes, 'readDocument').mockResolvedValue(null as never);
     const { root } = await mount(successfulMove);
 
-    expect(readMemo).not.toHaveBeenCalled();
+    expect(readDocument).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
 
   it('renders note icon and colors from tree metadata without loading the full memo', async () => {
-    const readMemo = vi.spyOn(memos, 'readMemo').mockResolvedValue(null);
+    const readDocument = vi.spyOn(notes, 'readDocument').mockResolvedValue(null as never);
     const note = {
       ...item('/notes/a.md', 'document'),
       memoMeta: {
@@ -392,7 +392,7 @@ describe('NotebookFileTree pointer dragging', () => {
     expect(noteRow.querySelector('img')).not.toBeNull();
     expect(noteRow.querySelector('.lucide-file')).toBeNull();
     expect(noteRow.querySelector('[aria-label="Note colors"]')).not.toBeNull();
-    expect(readMemo).not.toHaveBeenCalled();
+    expect(readDocument).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
 

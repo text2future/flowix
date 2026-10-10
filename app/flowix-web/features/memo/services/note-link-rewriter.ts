@@ -57,7 +57,9 @@ export function rewriteMovedNoteLinks(
     params.set('b', after.book);
     params.set('f', targetFile);
     const label = displayTitleFromFilename(targetFile).replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
-    return `[${label}](flowix://open?${params.toString()}${suffix}`;
+    // url.hash is the heading anchor fragment (e.g. `#目标与范围`); searchParams
+    // never carries it, so it must be re-appended or moves would drop it.
+    return `[${label}](flowix://open?${params.toString()}${url.hash}${suffix}`;
   });
   let fence: { marker: string; length: number } | null = null;
   return content.split(/(\r?\n)/).map((part) => {

@@ -3,6 +3,19 @@ use std::sync::{LazyLock, Mutex};
 
 static MEMO_RELATIVE_PATH_MIGRATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+/// Legacy global indexes predate several optional tables and columns.
+/// Importing from an absent source is a no-op, not an error; anything else
+/// still fails.
+fn tolerate_missing_legacy_table(error: std::io::Error) -> std::io::Result<usize> {
+    if error.to_string().contains("no such table")
+        || error.to_string().contains("no such column")
+    {
+        Ok(0)
+    } else {
+        Err(error)
+    }
+}
+
 impl MemoFile {
     pub fn storage_title_from_filename(filename: &str) -> String {
         let stem = filename.strip_suffix(".md").unwrap_or(filename).to_string();
@@ -624,9 +637,35 @@ impl MemoFile {
         let legacy_path_string = legacy_path.to_string_lossy().to_string();
         conn.execute("ATTACH DATABASE ?1 AS legacy_index", [&legacy_path_string])
             .map_err(sqlite_to_io)?;
+        // Pre-relative-path global indexes kept the notebook-relative location
+        // in `filename` and had no `relative_path` column; pre-todo-id todo
+        // tables had no stable `todo_id`. Detect both and adapt the import.
+        let legacy_has = |table: &str, column: &str| -> std::io::Result<bool> {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info(?1, 'legacy_index') WHERE name = ?2",
+                [table, column],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_to_io)?;
+            Ok(count > 0)
+        };
+        let legacy_relative_path_expr = if legacy_has("memos", "relative_path")? {
+            "relative_path"
+        } else {
+            "filename"
+        };
+        let legacy_todo_id_expr = if legacy_has("memo_todos", "todo_id")? {
+            "mt.todo_id"
+        } else {
+            "'todo-legacy-' || mt.rowid"
+        };
         let result = (|| -> std::io::Result<()> {
             let tx = conn.unchecked_transaction().map_err(sqlite_to_io)?;
 
+            // Global indexes written before the lifecycle refactor predate the
+            // memo_lifecycles table. Skipping the import is safe: the primary
+            // copy stays valid and migrate_memo_lifecycles backfills lifecycle
+            // rows from the imported memos.
             tx.execute(
                 "INSERT OR IGNORE INTO memo_lifecycles
                     (memo_id, notebook_id, relative_path, generation, is_deleted, created_at, updated_at, deleted_at)
@@ -634,7 +673,8 @@ impl MemoFile {
                  FROM legacy_index.memo_lifecycles WHERE notebook_id = ?1",
                 [notebook_id],
             )
-            .map_err(sqlite_to_io)?;
+            .map_err(sqlite_to_io)
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO memo_lifecycles
                     (memo_id, notebook_id, relative_path, generation, is_deleted, created_at, updated_at, deleted_at)
@@ -644,20 +684,27 @@ impl MemoFile {
                 [notebook_id],
             )
             .map_err(sqlite_to_io)
-                .or_else(|error| {
-                    // Older global indexes did not have revisions yet. The
-                    // primary copy remains valid when that optional table is absent.
-                    if error.to_string().contains("no such table") {
-                        Ok(0)
-                    } else {
-                        Err(error)
-                    }
-                })?;
+                // Older global indexes did not have revisions yet. The
+                // primary copy remains valid when that optional table is absent.
+                .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
-                "INSERT OR IGNORE INTO memos
-                    (id, notebook_id, filename, relative_path, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties)
-                 SELECT id, notebook_id, filename, relative_path, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties
-                 FROM legacy_index.memos WHERE notebook_id = ?1",
+                &format!(
+                    "INSERT OR IGNORE INTO memos
+                        (id, notebook_id, filename, relative_path, preview, thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, properties)
+                     SELECT id, notebook_id, filename, {legacy_relative_path_expr}, COALESCE(preview, ''), thumbnail, thumbnail_checked, agents_checked, created_at, updated_at, favorited, icon, COALESCE(properties, '{{}}')
+                     FROM legacy_index.memos WHERE notebook_id = ?1"
+                ),
+                [notebook_id],
+            )
+            .map_err(sqlite_to_io)?;
+            // The ensure_memo_tables lifecycle backfill ran before this import,
+            // so imported memos have no lifecycle rows yet. Backfill now: later
+            // revision imports reference these rows under FK RESTRICT.
+            tx.execute(
+                "INSERT OR IGNORE INTO memo_lifecycles
+                    (memo_id, notebook_id, relative_path, generation, is_deleted, created_at, updated_at)
+                 SELECT id, notebook_id, relative_path, 1, 0, created_at, updated_at
+                 FROM memos WHERE notebook_id = ?1",
                 [notebook_id],
             )
             .map_err(sqlite_to_io)?;
@@ -669,13 +716,7 @@ impl MemoFile {
                 [notebook_id],
             )
             .map_err(sqlite_to_io)
-            .or_else(|error| {
-                if error.to_string().contains("no such table") {
-                    Ok(0)
-                } else {
-                    Err(error)
-                }
-            })?;
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO memo_tags (memo_id, tag)
                  SELECT mt.memo_id, mt.tag FROM legacy_index.memo_tags mt
@@ -683,7 +724,8 @@ impl MemoFile {
                  WHERE m.notebook_id = ?1",
                 [notebook_id],
             )
-            .map_err(sqlite_to_io)?;
+            .map_err(sqlite_to_io)
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO memo_colors (memo_id, color, position)
                  SELECT mc.memo_id, mc.color, mc.position FROM legacy_index.memo_colors mc
@@ -691,17 +733,21 @@ impl MemoFile {
                  WHERE m.notebook_id = ?1",
                 [notebook_id],
             )
-            .map_err(sqlite_to_io)?;
+            .map_err(sqlite_to_io)
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
-                "INSERT OR IGNORE INTO memo_todos
-                    (memo_id, todo_id, content, status, priority, time_range, owner, assignee, created_at, updated_at, position)
-                 SELECT mt.memo_id, mt.todo_id, mt.content, mt.status, mt.priority, mt.time_range, mt.owner, mt.assignee, mt.created_at, mt.updated_at, mt.position
-                 FROM legacy_index.memo_todos mt
-                 JOIN legacy_index.memos m ON m.id = mt.memo_id
-                 WHERE m.notebook_id = ?1",
+                &format!(
+                    "INSERT OR IGNORE INTO memo_todos
+                        (memo_id, todo_id, content, status, priority, time_range, owner, assignee, created_at, updated_at, position)
+                     SELECT mt.memo_id, {legacy_todo_id_expr}, mt.content, mt.status, mt.priority, mt.time_range, mt.owner, mt.assignee, mt.created_at, mt.updated_at, mt.position
+                     FROM legacy_index.memo_todos mt
+                     JOIN legacy_index.memos m ON m.id = mt.memo_id
+                     WHERE m.notebook_id = ?1"
+                ),
                 [notebook_id],
             )
-            .map_err(sqlite_to_io)?;
+            .map_err(sqlite_to_io)
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO memo_agents (memo_id, thread_id, title, agent_type, position)
                  SELECT ma.memo_id, ma.thread_id, ma.title, ma.agent_type, ma.position
@@ -710,7 +756,8 @@ impl MemoFile {
                  WHERE m.notebook_id = ?1",
                 [notebook_id],
             )
-            .map_err(sqlite_to_io)?;
+            .map_err(sqlite_to_io)
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO notebook_tags (notebook_id, path, created_at, updated_at)
                  SELECT notebook_id, path, created_at, updated_at
@@ -718,13 +765,7 @@ impl MemoFile {
                 [notebook_id],
             )
             .map_err(sqlite_to_io)
-            .or_else(|error| {
-                if error.to_string().contains("no such table") {
-                    Ok(0)
-                } else {
-                    Err(error)
-                }
-            })?;
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO memo_index_state (notebook_id, version, last_updated, migrated_at)
                  SELECT notebook_id, version, last_updated, migrated_at
@@ -732,13 +773,7 @@ impl MemoFile {
                 [notebook_id],
             )
             .map_err(sqlite_to_io)
-                .or_else(|error| {
-                    if error.to_string().contains("no such table") {
-                        Ok(0)
-                    } else {
-                        Err(error)
-                    }
-                })?;
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR IGNORE INTO notebook_data_migrations (notebook_id, migration_key, version, completed_at)
                  SELECT notebook_id, migration_key, version, completed_at
@@ -746,13 +781,7 @@ impl MemoFile {
                 [notebook_id],
             )
             .map_err(sqlite_to_io)
-                .or_else(|error| {
-                    if error.to_string().contains("no such table") {
-                        Ok(0)
-                    } else {
-                        Err(error)
-                    }
-                })?;
+            .or_else(tolerate_missing_legacy_table)?;
             tx.execute(
                 "INSERT OR REPLACE INTO notebook_index_meta (key, value) VALUES ('legacy_global_index_import_v1', ?1)",
                 ["complete"],
@@ -1100,6 +1129,237 @@ impl MemoFile {
         )
         .optional()
         .map_err(sqlite_to_io)
+    }
+
+    /// Backfill the path-keyed revision table from the legacy ID-keyed one.
+    /// Runs only when the legacy tables exist (they are never created here, so
+    /// path-only notebooks stay free of them). Idempotent: existing path-keyed
+    /// rows (which may already be newer after a rename cascade) always win.
+    fn backfill_note_content_revisions(conn: &Connection) -> std::io::Result<bool> {
+        let legacy_present: bool = conn
+            .query_row(
+                "SELECT COUNT(*) = 2 FROM sqlite_master
+                 WHERE type = 'table' AND name IN ('memo_content_revisions', 'memos')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_to_io)?;
+        if !legacy_present {
+            return Ok(false);
+        }
+        let migrated = conn
+            .execute(
+                r#"
+            INSERT OR IGNORE INTO note_content_revisions
+                (notebook_id, relative_path, content_hash, local_revision, change_id, updated_at)
+            SELECT m.notebook_id, m.relative_path, r.content_hash, r.local_revision, r.change_id, r.updated_at
+            FROM memo_content_revisions r
+            JOIN memos m ON m.id = r.memo_id AND m.notebook_id = r.notebook_id
+            WHERE m.relative_path != ''
+            "#,
+                [],
+            )
+            .map_err(sqlite_to_io)?;
+        Ok(migrated > 0)
+    }
+
+    /// Atomically records a stable content revision for one note, addressed by
+    /// `(notebook_id, relative_path)`.
+    ///
+    /// Re-observing identical bytes returns the existing revision/change id.
+    /// Returning to an older hash after another commit is a new transition and
+    /// therefore advances the counter as well.
+    pub fn commit_note_content_revision(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        content_hash: &str,
+        next_change_id: &str,
+    ) -> std::io::Result<NoteContentCommit> {
+        self.commit_note_content_revision_internal(
+            notebook_id,
+            relative_path,
+            content_hash,
+            next_change_id,
+            None,
+        )?
+        .ok_or_else(|| std::io::Error::other("unconditional revision commit was rejected"))
+    }
+
+    pub fn commit_note_content_revision_if_current(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        content_hash: &str,
+        next_change_id: &str,
+        expected: Option<&NoteContentRevision>,
+    ) -> std::io::Result<Option<NoteContentCommit>> {
+        self.commit_note_content_revision_internal(
+            notebook_id,
+            relative_path,
+            content_hash,
+            next_change_id,
+            Some(expected),
+        )
+    }
+
+    fn commit_note_content_revision_internal(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+        content_hash: &str,
+        next_change_id: &str,
+        expected: Option<Option<&NoteContentRevision>>,
+    ) -> std::io::Result<Option<NoteContentCommit>> {
+        let mut conn = self.open_note_index_connection(notebook_id)?;
+        Self::backfill_note_content_revisions(&conn)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_to_io)?;
+        let current = tx
+            .query_row(
+                "SELECT content_hash, local_revision, change_id, updated_at
+                 FROM note_content_revisions WHERE notebook_id = ?1 AND relative_path = ?2",
+                params![notebook_id, relative_path],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(sqlite_to_io)?;
+
+        if let Some(expected) = expected {
+            let matches = match (expected, current.as_ref()) {
+                (None, None) => true,
+                (Some(expected), Some((hash, revision, change_id, _))) => {
+                    expected.relative_path == relative_path
+                        && expected.content_hash == *hash
+                        && expected.revision == *revision
+                        && expected.change_id == *change_id
+                }
+                _ => false,
+            };
+            if !matches {
+                return Ok(None);
+            }
+        }
+
+        if let Some((existing_hash, revision, change_id, updated_at)) = current.as_ref() {
+            if existing_hash == content_hash {
+                tx.commit().map_err(sqlite_to_io)?;
+                return Ok(Some(NoteContentCommit {
+                    state: NoteContentRevision {
+                        notebook_id: notebook_id.to_string(),
+                        relative_path: relative_path.to_string(),
+                        content_hash: existing_hash.clone(),
+                        revision: *revision,
+                        change_id: change_id.clone(),
+                        updated_at: *updated_at,
+                    },
+                    changed: false,
+                }));
+            }
+        }
+
+        let revision = current
+            .as_ref()
+            .map(|(_, revision, _, _)| revision.saturating_add(1))
+            .unwrap_or(1);
+        let updated_at = chrono::Utc::now().timestamp_millis();
+        tx.execute(
+            r#"
+            INSERT INTO note_content_revisions
+                (notebook_id, relative_path, content_hash, local_revision, change_id, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(notebook_id, relative_path) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                local_revision = excluded.local_revision,
+                change_id = excluded.change_id,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                notebook_id,
+                relative_path,
+                content_hash,
+                revision,
+                next_change_id,
+                updated_at,
+            ],
+        )
+        .map_err(sqlite_to_io)?;
+        tx.commit().map_err(sqlite_to_io)?;
+
+        Ok(Some(NoteContentCommit {
+            state: NoteContentRevision {
+                notebook_id: notebook_id.to_string(),
+                relative_path: relative_path.to_string(),
+                content_hash: content_hash.to_string(),
+                revision,
+                change_id: next_change_id.to_string(),
+                updated_at,
+            },
+            changed: true,
+        }))
+    }
+
+    /// Mutation callers already know the notebook. Avoid opening every local
+    /// database, especially for newly created notes with no revision yet.
+    pub fn read_note_content_revision_for_notebook(
+        &self,
+        notebook_id: &str,
+        relative_path: &str,
+    ) -> std::io::Result<Option<NoteContentRevision>> {
+        let conn = self.open_note_index_connection(notebook_id)?;
+        Self::backfill_note_content_revisions(&conn)?;
+        conn.query_row(
+            "SELECT content_hash, local_revision, change_id, updated_at
+             FROM note_content_revisions WHERE notebook_id = ?1 AND relative_path = ?2",
+            params![notebook_id, relative_path],
+            |row| {
+                Ok(NoteContentRevision {
+                    notebook_id: notebook_id.to_string(),
+                    relative_path: relative_path.to_string(),
+                    content_hash: row.get(0)?,
+                    revision: row.get(1)?,
+                    change_id: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(sqlite_to_io)
+    }
+
+    /// Carry the path-keyed revision stream over when a note is renamed or
+    /// moved. A missing source row is not an error (the note may simply have
+    /// no revision history yet).
+    pub fn rekey_note_content_revision(
+        &self,
+        notebook_id: &str,
+        old_relative_path: &str,
+        new_relative_path: &str,
+    ) -> std::io::Result<()> {
+        if old_relative_path == new_relative_path {
+            return Ok(());
+        }
+        let mut conn = self.open_note_index_connection(notebook_id)?;
+        Self::backfill_note_content_revisions(&conn)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_to_io)?;
+        tx.execute(
+            "UPDATE OR REPLACE note_content_revisions
+             SET relative_path = ?3 WHERE notebook_id = ?1 AND relative_path = ?2",
+            params![notebook_id, old_relative_path, new_relative_path],
+        )
+        .map_err(sqlite_to_io)?;
+        tx.commit().map_err(sqlite_to_io)?;
+        Ok(())
     }
 
     pub(super) fn mark_index_state(

@@ -41,6 +41,7 @@ mod migration;
 mod notebook;
 mod notebook_registry;
 mod onboarding;
+mod operation_locks;
 mod ops;
 mod registration;
 pub(crate) mod time;
@@ -52,6 +53,7 @@ pub use note_index::{
     NoteEntry, NoteIndexReconcileReport, NotePropertyMigrationReport, NoteSearchHit,
     NoteTodoMigrationReport, NoteWriteOutcome,
 };
+pub use operation_locks::{FileLockIntent, FileWriteGuard, OperationLocks};
 
 // 公开 API re-export — 跟旧 `memo_file.rs` 的 pub use 边界一致。
 pub use derivation::{
@@ -65,13 +67,13 @@ pub use file_io::{
 };
 pub use file_management::{default_create_folder_for_notebook, FileManagementPolicy};
 pub use frontmatter::{
-    build_md_content, extract_body_content, extract_document_metadata, extract_frontmatter_key,
+    extract_body_content, extract_document_metadata, extract_frontmatter_key,
     extract_frontmatter_properties, is_system_frontmatter_key, merge_frontmatter,
     normalize_document_tags, normalize_markdown_encoding_boundaries, replace_frontmatter_tags,
     DocumentMetadata, FrontmatterMetadataError, MergeOverrides, CANONICAL_FRONTMATTER_KEY,
     LEGACY_FRONTMATTER_KEY, SYSTEM_FRONTMATTER_KEYS,
 };
-pub use index_store::{MemoContentCommit, MemoContentRevision};
+pub use index_store::{MemoContentCommit, MemoContentRevision, NoteContentCommit, NoteContentRevision};
 pub use internal_migration::{NotebookInternalMigrationReport, NOTEBOOK_INTERNAL_MIGRATION_KEY};
 pub use media_resource::{media_kind_for_path, MediaResource, MediaResourceKind, MediaResourcePage};
 pub use migration::{DataMigrationReport, NotebookMigrationReport, LATEST_DATA_MIGRATION_VERSION};
@@ -82,14 +84,14 @@ pub use ops::{
 };
 pub use types::{
     AgentThreadItem, DeleteTagReport, Memo, MemoColor, MemoIndexEntry, MemoIndexFile, MemoLocation,
-    MemoMetadataFile, MemoTag, MemoTodoEntry, MemoVersionCleanupReport, MoveTagReport, NoteColor,
+    MemoMetadataFile, MemoTag, MemoTodoEntry, MoveTagReport, NoteColor,
     Notebook, NotebookConfig, NotebookManifest, NotebookSetupJob, NotebookSetupJobStatus,
     NotebookSetupReport,
     PathTodoEntry, ReconcileReport, TodoItem,
 };
 pub use versions::{
-    MemoVersionManifest, MemoVersionMeta, MemoVersionSource, PathArchiveSummary, PathVersionMeta, MEMO_AUTO_VERSION_INTERVAL_MS,
-    MEMO_ORPHAN_VERSION_RETENTION, MEMO_VERSION_LIMIT,
+    MemoVersionSource, PathArchiveSummary, PathVersionMeta, MEMO_AUTO_VERSION_INTERVAL_MS,
+    MEMO_VERSION_LIMIT,
 };
 
 /// Compatibility storage façade over notebook registry, Note catalog, media,
@@ -156,6 +158,95 @@ impl MemoFile {
         self.get_notebook_config_by_id(notebook_id)
             .map(|notebook| FileManagementPolicy::from_notebook_root(std::path::Path::new(&notebook.path)))
             .unwrap_or_default()
+    }
+
+    pub fn operation_locks(&self) -> OperationLocks {
+        OperationLocks::new(self.registry.config_dir.clone())
+    }
+
+    /// Resolve the registered notebooks touched by a filesystem path operation.
+    /// Missing targets are compared through their existing parent directory.
+    pub fn notebook_ids_for_paths(&self, paths: &[&std::path::Path]) -> io::Result<Vec<String>> {
+        let mut resolved = Vec::with_capacity(paths.len());
+        for path in paths {
+            let absolute = match std::fs::canonicalize(path) {
+                Ok(path) => path,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    let parent = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
+                    let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no name"))?;
+                    std::fs::canonicalize(parent)?.join(name)
+                }
+                Err(error) => return Err(error),
+            };
+            resolved.push(absolute);
+        }
+        let mut ids = Vec::new();
+        for notebook in self.read_notebook_configs()? {
+            let Ok(root) = std::fs::canonicalize(&notebook.path) else { continue; };
+            if resolved.iter().any(|path| path.starts_with(&root)) {
+                ids.push(notebook.id);
+            }
+        }
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
+    }
+
+    pub fn with_file_write<T>(
+        &self,
+        notebook_id: &str,
+        path: &std::path::Path,
+        intent: FileLockIntent,
+        operation: &str,
+        write: impl FnOnce(&std::path::Path) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let notebook = self.get_notebook_config_by_id(notebook_id)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "notebook not found"))?;
+        let guard = self.operation_locks().file_write(
+            notebook_id,
+            std::path::Path::new(&notebook.path),
+            path,
+            intent,
+            operation,
+        )?;
+        let current = self.get_notebook_config_by_id(notebook_id)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "notebook removed while waiting for file lock"))?;
+        if std::fs::canonicalize(&current.path)? != std::fs::canonicalize(&notebook.path)? {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "notebook root changed while waiting for file lock"));
+        }
+        write(guard.path())
+    }
+
+    pub fn with_notebook_change<T>(
+        &self,
+        notebook_ids: &[&str],
+        operation: &str,
+        change: impl FnOnce() -> io::Result<T>,
+    ) -> io::Result<T> {
+        let _guard = self.operation_locks().notebook_change(notebook_ids, operation)?;
+        change()
+    }
+
+    /// For a path covered by multiple registered notebooks, pause mutations
+    /// in all of them and verify that the registration still names the same
+    /// scopes after the wait.
+    pub fn with_registered_path_change<T>(
+        &self,
+        paths: &[&std::path::Path],
+        operation: &str,
+        change: impl FnOnce() -> io::Result<T>,
+    ) -> io::Result<T> {
+        let ids = self.notebook_ids_for_paths(paths)?;
+        if ids.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "path is outside registered notebooks"));
+        }
+        let borrowed: Vec<&str> = ids.iter().map(String::as_str).collect();
+        self.with_notebook_change(&borrowed, operation, || {
+            if self.notebook_ids_for_paths(paths)? != ids {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "notebook registration changed"));
+            }
+            change()
+        })
     }
 
     pub fn acquire_cross_process_write_lock(&self) -> io::Result<CrossProcessWriteGuard> {
@@ -238,11 +329,6 @@ impl MemoFile {
     /// Notebook-local Flowix data root: `<notebook>/.flowix/`.
     pub fn get_flowix_dir(&self) -> PathBuf {
         self.get_memo_base().join(".flowix")
-    }
-
-    /// Notebook-local version history root: `<notebook>/.flowix/versions/`.
-    pub fn get_versions_dir(&self) -> PathBuf {
-        self.get_flowix_dir().join("versions")
     }
 
     /// Notebook-local plugin output root for a validated plugin id.

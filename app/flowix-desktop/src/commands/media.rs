@@ -169,7 +169,7 @@ pub fn delete_media_resource(
         .map_err(|error| error.to_string())?;
     start_security_bookmark_access(&state, &file);
     memo_file
-        .delete_file(&file)
+        .delete_file_for_notebook(&notebook_id, &file)
         .map_err(|error| error.to_string())?;
     if !memo_file
         .mark_media_resource_deleted(&notebook_id, &resource.id)

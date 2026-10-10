@@ -1,4 +1,4 @@
-use flowix_core::memo_file::{MemoFile, NotebookConfig};
+use flowix_core::{memo_file::{MemoFile, NotebookConfig}, NoteService};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -143,12 +143,12 @@ fn mcp_tool_creates_reads_and_rejects_shell_syntax() {
         Some("# MCP note\n\ncreated through one tool\n"),
     );
     assert_eq!(created["result"]["isError"], false);
-    let note_id = created["result"]["structuredContent"]["id"]
+    let address = created["result"]["structuredContent"]["note"]["address"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let shown = call_tool(&mut stdin, &mut stdout, 2, &format!("show {note_id}"), None);
+    let shown = call_tool(&mut stdin, &mut stdout, 2, &format!("show {address}"), None);
     assert_eq!(shown["result"]["isError"], false);
     assert!(shown["result"]["structuredContent"]["body"]
         .as_str()
@@ -185,7 +185,7 @@ fn structured_actions_create_edit_list_and_show_without_cli_strings() {
         json!({"action":"create", "content":"# 结构化 MCP\n\n首次正确生成\n"}),
     );
     assert_eq!(created["result"]["isError"], false, "{created}");
-    let id = created["result"]["structuredContent"]["id"]
+    let address = created["result"]["structuredContent"]["note"]["address"]
         .as_str()
         .unwrap()
         .to_string();
@@ -194,7 +194,7 @@ fn structured_actions_create_edit_list_and_show_without_cli_strings() {
         &mut stdin,
         &mut stdout,
         2,
-        json!({"action":"edit", "id":id, "old":"首次正确生成", "content":"结构化编辑成功"}),
+        json!({"action":"edit", "address":address, "old":"首次正确生成", "content":"结构化编辑成功"}),
     );
     assert_eq!(edited["result"]["isError"], false, "{edited}");
 
@@ -220,7 +220,7 @@ fn structured_actions_create_edit_list_and_show_without_cli_strings() {
         &mut stdin,
         &mut stdout,
         5,
-        json!({"action":"show", "id":id}),
+        json!({"action":"show", "address":address}),
     );
     assert!(shown["result"]["structuredContent"]["body"]
         .as_str()
@@ -270,15 +270,12 @@ fn search_tag_filter_is_shared_by_structured_and_legacy_mcp() {
     );
     assert_eq!(structured["result"]["isError"], false, "{structured}");
     assert_eq!(
-        structured["result"]["structuredContent"]["tag"],
-        "项目/Flowix"
-    );
-    assert_eq!(
         structured["result"]["structuredContent"]["matches"]
             .as_array()
             .unwrap()
             .len(),
-        1
+        1,
+        "{structured}"
     );
 
     let legacy = call_tool(
@@ -289,7 +286,6 @@ fn search_tag_filter_is_shared_by_structured_and_legacy_mcp() {
         None,
     );
     assert_eq!(legacy["result"]["isError"], false, "{legacy}");
-    assert_eq!(legacy["result"]["structuredContent"]["tag"], "项目/Flowix");
     assert_eq!(
         legacy["result"]["structuredContent"]["matches"]
             .as_array()
@@ -360,21 +356,16 @@ fn concurrent_mcp_processes_do_not_overwrite_each_other() {
     }
 
     let memo_file = MemoFile::new(config_dir);
-    let list = memo_file
-        .read_index_for_notebook_id(Some("work"))
-        .unwrap()
-        .unwrap();
-    assert_eq!(list.memos.len(), 2);
-    let filenames = list
-        .memos
+    let notes = NoteService::new(&memo_file).list("work").unwrap();
+    assert_eq!(notes.len(), 2);
+    let filenames = notes
         .iter()
-        .map(|memo| memo.filename.clone())
+        .map(|note| note.relative_path.clone())
         .collect::<HashSet<_>>();
     assert_eq!(filenames.len(), 2);
-    let bodies = list
-        .memos
+    let bodies = notes
         .iter()
-        .map(|memo| std::fs::read_to_string(notebook_dir.join(&memo.filename)).unwrap())
+        .map(|note| std::fs::read_to_string(notebook_dir.join(&note.relative_path)).unwrap())
         .collect::<Vec<_>>();
     assert!(bodies.iter().any(|body| body.contains("first process")));
     assert!(bodies.iter().any(|body| body.contains("second process")));

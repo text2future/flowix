@@ -14,7 +14,6 @@ use flowix_core::memo_file::{
 use flowix_core::service::NoteSaveOutcome;
 use flowix_core::{FlowixError, MemoPage, MemoService, NoteService};
 
-use crate::app::search_index::rebuild_index_in_background;
 use crate::app::state::AppState;
 use crate::commands::helpers::start_security_bookmark_access;
 use crate::watcher::runtime::mark_self_write_for;
@@ -103,64 +102,6 @@ pub async fn resolve_markdown_location(
         })
     }).await.map_err(|error| format!("Markdown location task failed: {error}"))?
 }
-
-#[tauri::command]
-#[allow(non_snake_case)]
-pub async fn get_memos(
-    notebook_id: Option<String>,
-    filter: Option<String>,
-    sort: Option<String>,
-    tag_id: Option<String>,
-    color: Option<String>,
-    cursor: Option<String>,
-    limit: Option<usize>,
-    app: AppHandle,
-) -> Result<GetMemosResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        // Read the requested notebook directly. Do not switch current notebook here;
-        // switching would rebind watcher/reconcile/search and slow down list loading.
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        let mut service = MemoService::new(&memo_file);
-        let filter = filter.as_deref().unwrap_or("all");
-        let sort = sort.as_deref().unwrap_or("createdAt");
-        // Preserve the old no-pagination behavior for non-migrated transports.
-        // The desktop frontend always supplies `limit`, so it uses the bounded
-        // page path below without changing the legacy command's result shape.
-        let page = if cursor.is_none() && limit.is_none() && color.is_none() {
-            MemoPage {
-                memos: service.list_memos_filtered(
-                    notebook_id.as_deref(),
-                    filter,
-                    sort,
-                    tag_id.as_deref(),
-                ),
-                next_cursor: None,
-                has_more: false,
-            }
-        } else {
-            service
-                .list_memos_filtered_page(
-                    notebook_id.as_deref(),
-                    filter,
-                    sort,
-                    tag_id.as_deref(),
-                    color.as_deref(),
-                    cursor.as_deref(),
-                    limit,
-                )
-                .map_err(|error: FlowixError| error.to_string())?
-        };
-        Ok(GetMemosResponse {
-            memos: page.memos,
-            next_cursor: page.next_cursor,
-            has_more: page.has_more,
-        })
-    })
-    .await
-    .map_err(|error| format!("memo list task failed: {error}"))?
-}
-
 /// List the notebook's rebuildable note projection by relative path. This is
 /// the ID-free list boundary for callers migrating off the legacy memo table.
 #[tauri::command]
@@ -233,63 +174,6 @@ pub async fn get_path_notes(
     .await
     .map_err(|error| format!("path note list task failed: {error}"))?
 }
-
-#[tauri::command]
-pub fn search_mention_notes(
-    query: Option<String>,
-    limit: Option<usize>,
-    state: State<AppState>,
-) -> Vec<MentionNoteSearchItem> {
-    let normalized_query = query.unwrap_or_default().trim().to_lowercase();
-    let max_items = limit.unwrap_or(200).max(1);
-
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let previous_notebook_id = memo_file.current_notebook_id_value();
-    let mut service = MemoService::new(&memo_file);
-    let notebooks = service.list_notebooks().unwrap_or_default();
-
-    let mut ordered_notebooks = notebooks.clone();
-    if let Some(current_id) = previous_notebook_id.as_deref() {
-        ordered_notebooks.sort_by(|a, b| {
-            let a_current = a.id == current_id;
-            let b_current = b.id == current_id;
-            b_current.cmp(&a_current)
-        });
-    }
-
-    let mut items = Vec::new();
-    for notebook in ordered_notebooks {
-        for memo in service.list_memos_filtered(Some(&notebook.id), "all", "updatedAt", None) {
-            let title = note_title(&memo.filename);
-            if !normalized_query.is_empty() && !title.to_lowercase().contains(&normalized_query) {
-                continue;
-            }
-
-            let original_path =
-                notebook_path_from_relative(Path::new(&notebook.path), &memo.relative_path)
-                    .ok()
-                    .and_then(|path| path.to_str().map(str::to_string));
-
-            items.push(MentionNoteSearchItem {
-                id: memo.id,
-                filename: memo.filename,
-                title,
-                updated_at: memo.updated_at,
-                notebook_id: notebook.id.clone(),
-                notebook_name: notebook.name.clone(),
-                notebook_path: notebook.path.clone(),
-                original_path,
-            });
-
-            if items.len() >= max_items {
-                return items;
-            }
-        }
-    }
-
-    items
-}
-
 #[tauri::command]
 pub async fn get_used_memo_tag_ids(
     notebook_id: Option<String>,
@@ -340,73 +224,6 @@ pub fn get_memo_todo_metadata(
 pub fn get_memo_todo_count(notebook_id: Option<String>, state: State<AppState>) -> usize {
     get_memo_todo_metadata(notebook_id, None, state).len()
 }
-
-#[tauri::command]
-pub fn read_memo(id: String, state: State<AppState>) -> Option<Memo> {
-    let (memo, path) = {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        let mut service = MemoService::new(&memo_file);
-        let memo = service.memo_metadata(&id).ok()?;
-        let path = service.resolve_memo(&id).ok()?.path;
-        (memo, path)
-    };
-    // Keep stale index entries from opening an empty editor when the file is gone.
-    start_security_bookmark_access(&state, &path);
-    if !path.exists() {
-        tracing::info!(
-            "[read_memo] file gone, unregistering ghost: {}",
-            path.display()
-        );
-        let _ = MemoService::new(&read_lock(&state.memo_file, "memo_file")).delete_memo(&memo.id);
-        return None;
-    }
-    Some(memo)
-}
-
-/// Resolve the authoritative memo metadata, path and body in one IPC.
-///
-/// The browser-column host uses this at activation time so inactive tabs remain
-/// cheap and a document switch does not need separate `read_memo` +
-/// `read_document` calls.
-#[tauri::command]
-pub fn open_memo_session(id: String, state: State<AppState>) -> Option<OpenMemoSessionResponse> {
-    let (memo, notebook_id, notebook_path, path) = {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        let mut service = MemoService::new(&memo_file);
-        let resolved = service.resolve_memo(&id).ok()?;
-        (
-            MemoFile::index_entry_to_memo(&resolved.entry),
-            resolved.notebook.id,
-            resolved.notebook.path,
-            resolved.path,
-        )
-    };
-
-    start_security_bookmark_access(&state, &path);
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => normalize_markdown_encoding_boundaries(&content).into_owned(),
-        Err(error) => {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                tracing::info!(
-                    "[open_memo_session] file gone, unregistering ghost: {}",
-                    path.display()
-                );
-                let _ = MemoService::new(&read_lock(&state.memo_file, "memo_file"))
-                    .delete_memo(&memo.id);
-            }
-            return None;
-        }
-    };
-
-    Some(OpenMemoSessionResponse {
-        memo,
-        notebook_id,
-        notebook_path,
-        path: path.to_string_lossy().to_string(),
-        content,
-    })
-}
-
 #[tauri::command]
 pub async fn read_document(
     window: tauri::WebviewWindow,
@@ -580,43 +397,6 @@ pub fn get_launch_open_files(window: tauri::WebviewWindow, state: State<AppState
         .filter(|path| state.document_access.grant(window.label(), Path::new(path)))
         .collect()
 }
-
-#[tauri::command]
-pub fn search_memos(
-    notebook_id: Option<String>,
-    query: String,
-    limit: Option<usize>,
-    state: State<AppState>,
-    app: AppHandle,
-) -> SearchMemosResponse {
-    let idx = read_lock(&state.search, "search");
-    if let Some(ref nb) = notebook_id {
-        if idx.current_notebook() != Some(nb.as_str()) {
-            drop(idx);
-            rebuild_index_in_background(state.inner(), &app);
-            return SearchMemosResponse {
-                hits: vec![],
-                index_ready: false,
-            };
-        }
-    }
-    drop(idx);
-
-    let needs_rebuild = {
-        let idx = read_lock(&state.search, "search");
-        let current_nb = read_lock(&state.memo_file, "memo_file").current_notebook_id_value();
-        !idx.is_loaded() || idx.current_notebook() != current_nb.as_deref()
-    };
-    if needs_rebuild {
-        rebuild_index_in_background(state.inner(), &app);
-    }
-
-    let idx = read_lock(&state.search, "search");
-    let index_ready = idx.is_loaded();
-    let hits = idx.search(&query, limit.unwrap_or(30));
-    SearchMemosResponse { hits, index_ready }
-}
-
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathNoteSearchHit {
