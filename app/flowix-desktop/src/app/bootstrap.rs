@@ -310,13 +310,12 @@ pub fn run() {
             app.manage(app_state);
             external_runtimes.listen_for_terminal_events(app.handle());
             if let Some(window) = app.get_webview_window("main") {
-                crate::window_chrome::apply_window_border_color(&window);
                 // �?��即�?齐主题背�?��, 消除冷启动白�?(尤其深色主�?)�?
                 let theme = app.state::<AppState>().user_config.get_preference().theme;
-                crate::window_chrome::apply_theme_background(&window, theme);
+                crate::window_chrome::apply_window_chrome_theme(&window, theme);
 
                 // Theme::System 时跟�?OS 明暗实时切换窗口背景�? 仅当窗口�??显式
-                // theme (�?��用所有窗口都�? �?Tauri 才派�?ThemeChanged, 故这�?                // 监听主窗口即�?��发一次全局刷新 (apply_theme_background_all 遍历所有窗�?�?
+                // theme (�?��用所有窗口都�? �?Tauri 才派�?ThemeChanged, 故这�?                // 监听主窗口即�?��发一次全局刷新 (apply_window_chrome_theme_all 遍历所有窗�?�?
                 let app_for_window_event = app.handle().clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::ThemeChanged(_) = event {
@@ -326,7 +325,7 @@ pub fn run() {
                             .get_preference()
                             .theme;
                         if current == crate::config::Theme::System {
-                            crate::window_chrome::apply_theme_background_all(
+                            crate::window_chrome::apply_window_chrome_theme_all(
                                 &app_for_window_event,
                                 current,
                             );

@@ -43,7 +43,6 @@ pub fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window("main") else {
         return Ok(());
     };
-    crate::window_chrome::apply_window_border_color(&window);
     window.show().map_err(|e| e.to_string())?;
     if !MAIN_WINDOW_FOCUS_CONSUMED.swap(true, Ordering::SeqCst) {
         window.set_focus().ok();
@@ -103,10 +102,9 @@ pub async fn open_preferences_window(
     let builder = builder.decorations(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
-    crate::window_chrome::apply_window_border_color(&window);
     // 新窗口即刻�?齐主题背�?�� (与主窗口�?��一�?, 避免冷启动白�?�?
     let theme = state.user_config.get_preference().theme;
-    crate::window_chrome::apply_theme_background(&window, theme);
+    crate::window_chrome::apply_window_chrome_theme(&window, theme);
     Ok(())
 }
 
@@ -115,7 +113,7 @@ pub async fn open_preferences_window(
 /// `set_preference`, 与这里解�?-- 视�?更新与持久化分�?�?
 #[tauri::command]
 pub fn apply_window_theme(theme: Theme, app: tauri::AppHandle) -> Result<(), String> {
-    crate::window_chrome::apply_theme_background_all(&app, theme);
+    crate::window_chrome::apply_window_chrome_theme_all(&app, theme);
     Ok(())
 }
 

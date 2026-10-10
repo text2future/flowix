@@ -16,7 +16,30 @@ use tauri::Manager;
 use crate::config::Theme;
 
 #[cfg(target_os = "windows")]
-pub fn apply_window_border_color<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+const DARK_BORDER_COLOR: u32 = 0x00463D39; // COLORREF for #393D46
+#[cfg(target_os = "windows")]
+const LIGHT_BORDER_COLOR: u32 = 0x00BCBCBC; // COLORREF for #BCBCBC
+
+#[cfg(target_os = "windows")]
+fn border_color_for_theme(theme: Theme, system: Option<tauri::Theme>) -> u32 {
+    let is_dark = match theme {
+        Theme::Dark => true,
+        Theme::System => system == Some(tauri::Theme::Dark),
+        Theme::Light | Theme::Rock | Theme::Ember => false,
+    };
+    if is_dark {
+        DARK_BORDER_COLOR
+    } else {
+        LIGHT_BORDER_COLOR
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn apply_window_border_color<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    theme: Theme,
+    system: Option<tauri::Theme>,
+) {
     use std::ffi::c_void;
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
 
@@ -24,8 +47,7 @@ pub fn apply_window_border_color<R: tauri::Runtime>(window: &tauri::WebviewWindo
         return;
     };
 
-    // COLORREF is 0x00bbggrr. For neutral gray, #bcbcbc is the same value.
-    let border_color: u32 = 0x00bcbcbc;
+    let border_color = border_color_for_theme(theme, system);
 
     unsafe {
         let _ = DwmSetWindowAttribute(
@@ -38,7 +60,12 @@ pub fn apply_window_border_color<R: tauri::Runtime>(window: &tauri::WebviewWindo
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn apply_window_border_color<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) {}
+fn apply_window_border_color<R: tauri::Runtime>(
+    _window: &tauri::WebviewWindow<R>,
+    _theme: Theme,
+    _system: Option<tauri::Theme>,
+) {
+}
 
 /// Flowix 涓婚 -> Tauri 绐楀彛鑳屾櫙鑹层€?///
 /// 色值由前�? `styles/theme/*.css` �?`--background` (oklch) 精��?���?sRGB,
@@ -90,15 +117,17 @@ pub fn os_theme_for(theme: Theme) -> Option<tauri::Theme> {
 /// 同�?触发 `app.listen` 回调), 直接调用会静默失�?—�?典型表现: �?���?(setup
 /// 在主线程) 主�?生效, 运�?时切�?��题原�?chrome 不更新。故统一�?/// `run_on_main_thread` dispatch 到主线程, 并在主线程内�?`system` (避免离主线程
 /// �?NSApp appearance 拿到旧�?�?
-pub fn apply_theme_background(window: &tauri::WebviewWindow, theme: Theme) {
+pub fn apply_window_chrome_theme(window: &tauri::WebviewWindow, theme: Theme) {
     let win = window.clone();
     if let Err(e) = window.run_on_main_thread(move || {
-        let system = win.theme().ok();
         let os_theme = os_theme_for(theme);
-        let color = theme_background_color(theme, system);
         if let Err(e) = win.set_theme(os_theme) {
             tracing::warn!("[window_chrome] set_theme failed: {e}");
         }
+        // Resolve System after clearing any explicit per-window theme override.
+        let system = win.theme().ok();
+        let color = theme_background_color(theme, system);
+        apply_window_border_color(&win, theme, system);
         if let Err(e) = win.set_background_color(Some(color)) {
             tracing::warn!("[window_chrome] set_background_color failed: {e}");
         }
@@ -108,8 +137,8 @@ pub fn apply_theme_background(window: &tauri::WebviewWindow, theme: Theme) {
 }
 
 /// 把主题背�?��应用到当前所有窗�?(main / preferences / 动�?tab 窗口)�?
-pub fn apply_theme_background_all(app: &tauri::AppHandle, theme: Theme) {
+pub fn apply_window_chrome_theme_all(app: &tauri::AppHandle, theme: Theme) {
     for window in app.webview_windows().values() {
-        apply_theme_background(window, theme);
+        apply_window_chrome_theme(window, theme);
     }
 }
