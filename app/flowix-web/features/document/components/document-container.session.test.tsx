@@ -19,6 +19,7 @@ import { notifyDocumentBufferChanged } from '../store/buffer-registry';
 import { waitForDocumentCommits } from '../store/document-commit-queue';
 import { EditorView } from '@codemirror/view';
 import { publishAgentLocationRequest, peekAgentLocationRequest } from '../use-cases/agent-location-navigation';
+import * as attachmentIo from '@features/editor/extensions/attachment-link/upload/io';
 
 const mocks = vi.hoisted(() => ({ recoveryRead: vi.fn().mockResolvedValue(null), read: vi.fn(), write: vi.fn(), rename: vi.fn(), publish: vi.fn() }));
 vi.mock('@platform/tauri/core', () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}` }));
@@ -26,7 +27,21 @@ vi.mock('./lazy-document-editor', async () => ({
   LazyDocumentEditor: (await import('@features/editor/markdown-editor')).MarkdownEditor,
   preloadDocumentEditor: () => {},
 }));
-vi.mock('../use-cases/local-document-operations', () => ({ localDocumentOperations: { read: mocks.read, write: mocks.write, rename: mocks.rename } }));
+vi.mock('../use-cases/local-document-operations', async importOriginal => ({
+  ...await importOriginal<typeof import('../use-cases/local-document-operations')>(),
+  localDocumentOperations: { read: mocks.read, write: mocks.write, rename: mocks.rename },
+}));
+vi.mock('@platform/tauri/client/desktop', async importOriginal => {
+  const original = await importOriginal<typeof import('@platform/tauri/client/desktop')>();
+  return {
+    ...original,
+    files: {
+      ...original.files,
+      rename: async (path: string, name: string, scopePath: string) => (await mocks.rename({ path, name, scopePath })).path,
+    },
+  };
+});
+vi.mock('@features/memo/services/note-link-rewriter', () => ({ updateNoteLinksAfterMove: vi.fn() }));
 vi.mock('@features/workspace/use-cases/workspace-navigation', () => ({ replaceExternalDocumentPath: (displayId: string, oldPath: string, path: string) => {
   rebaseFileDisplayPath(oldPath, path, displayId); mocks.publish(path);
 }, openExternalTarget: vi.fn().mockResolvedValue({ host: 'main-third', state: 'active' }) }));
@@ -39,6 +54,20 @@ vi.mock('@platform/tauri/window', () => ({ getCurrentWindow: () => ({ label: 'ma
 
 let root: Root; let container: HTMLDivElement; let sequence = 0;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+
+function pasteScreenshot(editor: Editor): ClipboardEvent {
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
+  Object.defineProperty(event, 'clipboardData', {
+    value: {
+      types: ['Files'],
+      files: [new File(['image'], 'Screenshot.png', { type: 'image/png' })],
+      getData: () => '',
+    },
+  });
+  editor.view.dom.dispatchEvent(event);
+  return event;
+}
+
 function setup(initialBoth = true) {
   const identity = { kind: 'md' as const, ...ensureFileDisplayIdentity('/container-' + ++sequence + '/A.md') };
   reconcileFileDisplays([identity]);
@@ -159,6 +188,75 @@ describe('real document container session lifecycle', () => {
     container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
     environment.IS_REACT_ACT_ENVIRONMENT = false;
   });
+  it('pastes a screenshot into its owning note when another notebook is selected', async () => {
+    const doc = setup(false);
+    const notebook = { id: 'owner', name: 'Notebook', path: doc.identity.path.replace('/A.md', ''), createdAt: 1, updatedAt: 1, isDefault: false };
+    const other = { ...notebook, id: 'other', path: '/another-notebook' };
+    useNoteStore.setState({ notebooks: [other, notebook], selectedNotebook: other });
+    vi.spyOn(attachmentIo, 'readFileBase64').mockResolvedValue('aW1hZ2U=');
+    const saved = `${notebook.path}/attachments/Screenshot.png`;
+    vi.mocked(invoke).mockImplementation(async command => {
+      if (command === 'begin_attachment_upload') return 'screenshot-upload';
+      if (command === 'finish_attachment_upload') return { path: saved, created: true };
+    });
+
+    await act(async () => { doc.render(); });
+    await act(async () => { expect(pasteScreenshot(doc.editors.left!).defaultPrevented).toBe(true); });
+
+    expect(invoke).toHaveBeenCalledWith('begin_attachment_upload', {
+      notePath: doc.identity.path, fileName: 'Screenshot.png', size: 5, deduplicate: true,
+    });
+    expect(invoke).toHaveBeenCalledWith('append_attachment_upload', {
+      uploadId: 'screenshot-upload', offset: 0, content: 'aW1hZ2U=',
+    });
+    expect(invoke).toHaveBeenCalledWith('finish_attachment_upload', { uploadId: 'screenshot-upload' });
+    expect(doc.editors.left!.getMarkdown()).toContain('Screenshot.png');
+    expect(doc.editors.left!.getMarkdown()).toContain(encodeURIComponent(saved));
+  });
+  it.each(['paste', 'insertFiles', 'drop'] as const)('uses the renamed note path for %s without remounting the editor', async method => {
+    const doc = setup(false);
+    const notebook = { id: 'owner', name: 'Notebook', path: doc.identity.path.replace('/A.md', ''), createdAt: 1, updatedAt: 1, isDefault: false };
+    useNoteStore.setState({ notebooks: [notebook], selectedNotebook: notebook });
+    vi.spyOn(attachmentIo, 'readFileBase64').mockResolvedValue('aW1hZ2U=');
+    const saved = `${notebook.path}/attachments/Screenshot.png`;
+    vi.mocked(invoke).mockImplementation(async command => {
+      if (command === 'begin_attachment_upload') return 'screenshot-upload';
+      if (command === 'finish_attachment_upload') return { path: saved, created: true };
+    });
+    await act(async () => { doc.render(); });
+    const editor = doc.editors.left!;
+    await act(async () => { doc.rename('Renamed'); await waitForDocumentCommits('md:' + doc.identity.displayId); });
+    const renamedPath = `${notebook.path}/Renamed.md`;
+    expect(findFileDisplayPath(doc.identity.displayId)).toBe(renamedPath);
+
+    await act(async () => {
+      if (method === 'paste') {
+        pasteScreenshot(editor);
+        return;
+      }
+      const files = [new File(['image'], 'Screenshot.png', { type: 'image/png' })];
+      if (method === 'insertFiles') {
+        expect(editor.commands.insertFiles({ files })).toBe(true);
+        return;
+      }
+      vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: editor.state.selection.from, inside: -1 });
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        dataTransfer: { value: { files, types: ['Files'], getData: () => '' } },
+        clientX: { value: 0 },
+        clientY: { value: 0 },
+      });
+      editor.view.dom.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    expect(invoke).toHaveBeenCalledWith('begin_attachment_upload', {
+      notePath: renamedPath, fileName: 'Screenshot.png', size: 5, deduplicate: true,
+    });
+    expect(editor.getMarkdown()).toContain('Screenshot.png');
+    expect(doc.editors.left).toBe(editor);
+    expect(doc.mounts()).toBe(1);
+  });
   it('inserts a picked image into a path-based note even when another notebook is selected', async () => {
     const doc = setup(false);
     const notebook = { id: 'owner', name: 'Notebook', path: doc.identity.path.replace('/A.md', ''), createdAt: 1, updatedAt: 1, isDefault: false };
@@ -202,6 +300,7 @@ describe('real document container session lifecycle', () => {
     vi.stubGlobal('__TAURI__', {});
     vi.mocked(invoke).mockResolvedValue(['/selected/fig.png']);
     await act(async () => { doc.render(); });
+    vi.mocked(invoke).mockClear();
     await act(async () => { doc.editors.left!.commands.openFileDialog(); });
     expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['select_files']);
     expect(doc.editors.left!.getMarkdown()).toBe('Body');
@@ -256,7 +355,8 @@ describe('real document container session lifecycle', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(findFileDisplayPath(doc.identity.displayId)).toBe(doc.identity.path);
     expect(mocks.write).toHaveBeenLastCalledWith(expect.objectContaining({ path: doc.identity.path, content: expect.stringContaining('retained body') }));
-    expect((container.querySelector('textarea.memo-title-editor') as HTMLTextAreaElement).value).toBe('Taken');
+    expect((container.querySelector('textarea.memo-title-editor') as HTMLTextAreaElement).value).toBe('A');
+    expect(getDocumentSession(doc.identity).restoredTitle?.draft).toBe('Taken');
     expect(doc.mounts()).toBe(2);
   });
   it('captures outgoing input before enabling the other view and ignores inactive snapshots', async () => {

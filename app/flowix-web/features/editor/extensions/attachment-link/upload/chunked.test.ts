@@ -16,6 +16,7 @@ describe('chunked attachment transport', () => {
     it('slices input and waits for each chunk before committing', async () => {
         const file = new File([new Uint8Array(UPLOAD_CHUNK_BYTES + 1)], 'file');
         expect(await uploadInChunks(file, 'file', 'memo')).toEqual({ path: '/attachments/file', created: true });
+        expect(invoke).toHaveBeenNthCalledWith(1, 'begin_attachment_upload', { notePath: 'memo', fileName: 'file', size: file.size });
         expect(vi.mocked(readFileBase64).mock.calls.map(([blob]) => blob.size)).toEqual([UPLOAD_CHUNK_BYTES, 1]);
         expect(invoke).toHaveBeenNthCalledWith(2, 'append_attachment_upload', { uploadId: 'upload', offset: 0, content: 'YQ==' });
         expect(invoke).toHaveBeenNthCalledWith(3, 'append_attachment_upload', { uploadId: 'upload', offset: UPLOAD_CHUNK_BYTES, content: 'YQ==' });

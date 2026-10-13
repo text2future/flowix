@@ -22,6 +22,7 @@ export type AttachmentSaveResult = {
 
 export type AttachmentUploadOptions = {
     ownerPath?: string;
+    getOwnerPath?: () => string | undefined;
     getNotebookId?: () => string | undefined;
     storage: { mode: 'attachment' };
     picker: { accept: string | undefined; multiple: boolean };

@@ -35,12 +35,13 @@ function pickBrowserFiles(params: OpenFileDialogParams | undefined, signal: Abor
     });
 }
 
-export function createAttachmentCommands(ownerPath?: string, getNotebookId?: () => string | undefined): Partial<RawCommands> {
+export function createAttachmentCommands(getOwnerPath?: () => string | undefined, getNotebookId?: () => string | undefined): Partial<RawCommands> {
     return {
         openFileDialog:
             (params?: OpenFileDialogParams) =>
             ({ editor }: { editor: Editor }) => {
                 if (editor.isDestroyed || !editor.isEditable) return false;
+                const ownerPath = getOwnerPath?.();
                 const notebookId = getNotebookId?.();
                 void runTrackedUpload(editor.view, async (signal) => {
                     if (isTauriApp()) {
@@ -62,7 +63,7 @@ export function createAttachmentCommands(ownerPath?: string, getNotebookId?: () 
             (params: { files: File[]; position?: number }) =>
             ({ editor }: { editor: Editor }) => {
                 if (editor.isDestroyed || !editor.isEditable) return false;
-                void handleFileUpload(editor.view, params.files, params.position, undefined, ownerPath);
+                void handleFileUpload(editor.view, params.files, params.position, undefined, getOwnerPath?.());
                 return true;
             },
     };

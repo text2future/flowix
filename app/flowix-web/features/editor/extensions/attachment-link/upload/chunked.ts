@@ -16,7 +16,7 @@ export async function uploadInChunks(
     };
     checkCancelled();
     const uploadId = await invoke<string>('begin_attachment_upload', {
-        ownerPath,
+        notePath: ownerPath,
         fileName,
         size: file.size,
         ...(deduplicate ? { deduplicate: true } : {}),

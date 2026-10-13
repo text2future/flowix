@@ -55,6 +55,8 @@ import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 interface MarkdownEditorProps {
   /** Absolute or notebook-relative path of the note owning editor uploads. */
   ownerPath?: string;
+  /** Read the current path when an upload starts, including after a rename. */
+  getAttachmentOwnerPath?: () => string | undefined;
   getAttachmentNotebookId?: () => string | undefined;
   propertyTargetId?: string;
   onViewSourceMode?: () => void;
@@ -557,6 +559,7 @@ function focusEmptyParagraphAfterMedia(
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   ownerPath,
+  getAttachmentOwnerPath,
   getAttachmentNotebookId,
   propertyTargetId,
   onViewSourceMode,
@@ -613,6 +616,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const onFocusTitleRef = useRef(onFocusTitle);
   const onAppendToTitleRef = useRef(onAppendToTitle);
   const editableRef = useRef(editable);
+  const attachmentOwnerRef = useRef({ ownerPath, getAttachmentOwnerPath, getAttachmentNotebookId });
   // 链接导航上下文走 ref：mount effect 不因文档路径变化重建编辑器，
   // 点击时始终读取最新值。
   const linkContextRef = useRef<EditorLinkContext | undefined>(linkContext);
@@ -623,7 +627,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onFocusTitleRef.current = onFocusTitle;
   onAppendToTitleRef.current = onAppendToTitle;
   editableRef.current = editable;
+  attachmentOwnerRef.current = { ownerPath, getAttachmentOwnerPath, getAttachmentNotebookId };
   linkContextRef.current = linkContext;
+
+  const getCurrentAttachmentOwnerPath = useCallback(() => {
+    const current = attachmentOwnerRef.current;
+    return current.getAttachmentOwnerPath ? current.getAttachmentOwnerPath() : current.ownerPath;
+  }, []);
+  const getCurrentAttachmentNotebookId = useCallback(() => attachmentOwnerRef.current.getAttachmentNotebookId?.(), []);
 
   const clearSerializeTimer = useCallback(() => {
     if (serializeTimerRef.current) {
@@ -853,8 +864,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       editor.view.dispatch(editor.state.tr.setSelection(selection));
     }
 
-    return pasteClipboardSnapshot(editor, snapshot, ownerPath);
-  }, [ownerPath]);
+    return pasteClipboardSnapshot(editor, snapshot, getCurrentAttachmentOwnerPath());
+  }, [getCurrentAttachmentOwnerPath]);
 
   const handleBackspaceAtBodyStart = useCallback(() => {
     const editor = editorRef.current;
@@ -1008,7 +1019,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         MarkdownEscape,
         HTMLStrongFallback,
         LegacyAdjacentStrongMarkdown,
-        AttachmentLink.configure({ ownerPath, getNotebookId: getAttachmentNotebookId }),
+        AttachmentLink.configure({ getOwnerPath: getCurrentAttachmentOwnerPath, getNotebookId: getCurrentAttachmentNotebookId }),
         MarkdownLink,
         LinkSelectionHighlight,
         CodeBlockShiki.configure({ traceId: transitionId }),
@@ -1048,7 +1059,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           },
         }),
         Tag,
-        ManagedPasteRules.configure({ ownerPath }),
+        ManagedPasteRules.configure({ getOwnerPath: getCurrentAttachmentOwnerPath }),
         MarkdownPaste,
         Frontmatter.configure({ propertyTargetId, onViewSourceMode }),
         NoteReference,
@@ -1165,6 +1176,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   }, [
     applyExternalContent,
     findScrollable,
+    getCurrentAttachmentOwnerPath,
+    getCurrentAttachmentNotebookId,
     handleBackspaceAtBodyStart,
     schedulePendingSerialization,
     serializePendingChanges,

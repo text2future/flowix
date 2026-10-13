@@ -72,7 +72,7 @@ describe('attachment storage failures', () => {
         const controller = new AbortController();
         vi.mocked(uploadInChunks).mockResolvedValue({ path: '/attachments/file.txt', created: true });
         const result = await createAttachmentUpload([file], undefined, undefined, 'memo-a', controller.signal);
-        expect(uploadInChunks).toHaveBeenCalledWith(file, 'file.txt', 'memo-a', controller.signal);
+        expect(uploadInChunks).toHaveBeenCalledWith(file, 'file.txt', 'memo-a', controller.signal, false);
         expect(invoke).not.toHaveBeenCalled();
         expect(result.assets[0].storageKey).toBe('/attachments/file.txt');
     });
