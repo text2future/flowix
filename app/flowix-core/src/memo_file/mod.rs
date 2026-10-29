@@ -58,7 +58,9 @@ pub use file_io::{
     atomic_create_bytes, atomic_write_bytes, filesystem_identity, rename_file_noclobber,
     FileWriteOutcome, MergedFileWriteOutcome,
 };
-pub use file_management::{default_create_folder_for_notebook, FileManagementPolicy};
+pub use file_management::{
+    default_create_folder_for_notebook, rebase_default_create_folder_path, FileManagementPolicy,
+};
 pub use frontmatter::{
     extract_body_content, extract_document_metadata, extract_frontmatter_properties,
     merge_frontmatter,

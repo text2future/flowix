@@ -1,1 +1,0 @@
-import{d as s}from"./Middleware-DN3SEAXV.js";import{s as o}from"./transform-B0oYUMRy.js";var g=s((t,e)=>{let n;return e==="sandbox"&&(n=o("#i"+t)),(e==="sandbox"?o(n.nodes()[0].contentDocument.body):o("body")).select(`[id="${t}"]`)},"getDiagramElement");export{g};

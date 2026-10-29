@@ -249,3 +249,63 @@ pub fn default_create_folder_for_notebook(root: &Path) -> Result<Option<String>,
     }
     Ok(Some(path.to_string_lossy().replace('\\', "/")))
 }
+
+/// Rebase the notebook-relative default create folder after the directory it
+/// points at was renamed or moved.
+///
+/// The preference is stored as a notebook-relative path, so a rename leaves it
+/// dangling and note creation silently falls back to the notebook root. A
+/// rename of an ancestor directory moves the whole subtree, so the suffix below
+/// the moved directory has to be preserved. Returns `None` when the preference
+/// is unaffected, which keeps unrelated renames from rewriting the file.
+pub fn rebase_default_create_folder_path(
+    current: &str,
+    previous_relative: &str,
+    next_relative: &str,
+) -> Option<String> {
+    let current = current.trim_matches('/');
+    let previous = previous_relative.trim_matches('/');
+    let next = next_relative.trim_matches('/');
+    if current.is_empty() || previous.is_empty() || next.is_empty() {
+        return None;
+    }
+    if current == previous {
+        return Some(next.to_string());
+    }
+    let suffix = current.strip_prefix(previous)?.strip_prefix('/')?;
+    if suffix.is_empty() {
+        return None;
+    }
+    Some(format!("{next}/{suffix}"))
+}
+
+#[cfg(test)]
+mod rebase_default_create_folder_path_tests {
+    use super::rebase_default_create_folder_path as rebase;
+
+    #[test]
+    fn rebases_the_default_folder_itself() {
+        assert_eq!(rebase("笔记", "笔记", "Notes").as_deref(), Some("Notes"));
+    }
+
+    #[test]
+    fn rebases_descendants_of_a_renamed_ancestor() {
+        assert_eq!(
+            rebase("笔记/子目录", "笔记", "Notes").as_deref(),
+            Some("Notes/子目录")
+        );
+        assert_eq!(
+            rebase("笔记/子/孙", "笔记/子", "笔记/苗").as_deref(),
+            Some("笔记/苗/孙")
+        );
+    }
+
+    #[test]
+    fn ignores_unrelated_or_sibling_paths() {
+        assert_eq!(rebase("笔记/子", "笔记/子/孙", "x"), None);
+        assert_eq!(rebase("笔记2", "笔记", "Notes"), None);
+        assert_eq!(rebase("其他", "笔记", "Notes"), None);
+        assert_eq!(rebase("", "笔记", "Notes"), None);
+        assert_eq!(rebase("笔记", "笔记", ""), None);
+    }
+}

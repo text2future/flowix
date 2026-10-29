@@ -164,6 +164,7 @@ describe("agent workspace popover repositories page", () => {
       getTypeKey: () => "codex",
       getInstanceId: () => undefined,
       getLanguage: () => "zh-CN",
+      getEmptyStatePresentation: () => "inline-card",
       t: (key, params) => (params ? `${key}:${JSON.stringify(params)}` : key),
       isDestroyed: () => false,
       toast,
@@ -200,7 +201,8 @@ describe("agent workspace popover repositories page", () => {
     useAgentDataStore.getState().setUserPreference("dsh", { mode: "code" });
     const modeController = new ExternalAgentSettingsController({
       popover, getTypeKey: () => "dsh", getInstanceId: () => "mode-conversation",
-      getLanguage: () => "zh-CN", t: (key) => key, isDestroyed: () => false,
+      getLanguage: () => "zh-CN", getEmptyStatePresentation: () => "inline-card",
+      t: (key) => key, isDestroyed: () => false,
     });
     const button = modeController.createComposerModeButton()!;
     document.body.append(button);

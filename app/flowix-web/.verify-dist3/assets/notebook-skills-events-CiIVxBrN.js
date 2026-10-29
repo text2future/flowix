@@ -1,1 +1,0 @@
-import{g3 as s}from"./index-Ds2nF888.js";const a="flowix:notebook-agent-skills-changed";function c(o){const t=s.getState();for(const e of["codex","dsh","pi"])for(const n of new Set([o.notebookId,o.notebookPath]))t.invalidateSkillCatalog(e,n);window.dispatchEvent(new CustomEvent(a,{detail:o}))}export{a as N,c as n};

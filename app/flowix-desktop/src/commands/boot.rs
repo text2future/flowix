@@ -136,6 +136,30 @@ pub fn record_startup_stage(
     );
 }
 
+/// Persist an uncaught frontend error into the app log.
+///
+/// The WebView console is not captured anywhere, so an unhandled rejection or a
+/// window error would otherwise leave no trace behind (`GlobalErrorToaster`
+/// only turns it into a generic toast). Callers already have a fallback UI or a
+/// toast; this is the diagnostic channel that makes the failure nameable.
+#[tauri::command]
+pub fn record_frontend_error(kind: String, message: String, stack: Option<String>) {
+    if !matches!(kind.as_str(), "error" | "rejection" | "boundary") {
+        return;
+    }
+    let clamped = |value: &str, max: usize| value.chars().take(max).collect::<String>();
+    crate::runtime_log::record_event(
+        "error",
+        "frontend.uncaught",
+        serde_json::json!({
+            "kind": kind,
+            "message": clamped(&message, 400),
+            "stack": clamped(stack.as_deref().unwrap_or_default(), 2000),
+        })
+        .to_string(),
+    );
+}
+
 #[tauri::command]
 pub async fn wait_for_startup_ready(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().startup.wait_until_ready())

@@ -194,7 +194,9 @@ function ExternalDocumentOpenDialog() {
                   </button>
                 </SelectTrigger>
               </div>
-              <SelectContent align="end" fitViewport preferBelow maxHeight="50vh" className="flowix-preferences-select-content flowix-notebook-import-select-content w-[245px] max-w-[calc(100vw-2rem)]">
+              {/* Popup height is capped here; keep it at half the previous 50vh so the
+                  notebook list never covers the whole import dialog. */}
+              <SelectContent align="end" fitViewport preferBelow maxHeight="25vh" className="flowix-preferences-select-content flowix-notebook-import-select-content w-[245px] max-w-[calc(100vw-2rem)]">
                 {notebooks.map((notebook) => (
                   <SelectItem key={notebook.id} value={notebook.id}>
                     <span className="flex min-w-0 items-center gap-2">

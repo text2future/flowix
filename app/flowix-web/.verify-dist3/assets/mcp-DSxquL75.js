@@ -1,1 +1,0 @@
-import{cY as r}from"./index-Ds2nF888.js";import{M as s,C as e}from"./mcp-DlOaiNHv.js";import"./primitives-mQUOBv1B.js";import"./popover-CK52c9qi.js";import"./window-BvQMTvAN.js";function m(){return r.jsxs("div",{className:"space-y-8",children:[r.jsx(s,{}),r.jsx(e,{})]})}export{m as McpPreferencesTab};

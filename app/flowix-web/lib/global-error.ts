@@ -20,7 +20,43 @@ export interface UncaughtErrorReport {
 const MAX_RECENT = 50;
 const recent: UncaughtErrorReport[] = [];
 const listeners = new Set<(report: UncaughtErrorReport) => void>();
+const PERSIST_DEDUPE_MS = 3_000;
+let lastPersisted = { message: '', at: 0 };
+let persistedTo: ((report: UncaughtErrorReport) => void) | null = null;
 let installed = false;
+
+/**
+ * Register the backend that mirrors reports into the app log.
+ *
+ * Injected by the platform layer instead of imported here: `lib` must not talk
+ * to Tauri IPC directly, and non-Tauri entrypoints simply never register one.
+ */
+export function setUncaughtErrorPersister(
+  persister: ((report: UncaughtErrorReport) => void) | null,
+): void {
+  persistedTo = persister;
+}
+
+/**
+ * Mirror the report into the app log.
+ *
+ * The WebView console is not captured anywhere, so without this an unhandled
+ * rejection leaves no trace beyond a toast the user cannot act on. Best-effort
+ * by design: the diagnostic channel must never throw or block the listener
+ * fan-out, and repeated identical failures are collapsed to keep the log
+ * readable.
+ */
+function persistReport(report: UncaughtErrorReport): void {
+  if (!persistedTo) return;
+  const now = Date.now();
+  if (lastPersisted.message === report.message && now - lastPersisted.at < PERSIST_DEDUPE_MS) return;
+  lastPersisted = { message: report.message, at: now };
+  try {
+    persistedTo(report);
+  } catch (error) {
+    logger.error('failed to persist uncaught error', { error });
+  }
+}
 
 function describe(input: unknown): { message: string; stack?: string } {
   if (input instanceof Error) {
@@ -61,6 +97,8 @@ export function reportUncaughtError(
     stack: report.stack ?? '<no stack>',
     source: report.source ?? 'unknown',
   });
+
+  persistReport(report);
 
   if (options.notify === false) return;
   for (const listener of listeners) {

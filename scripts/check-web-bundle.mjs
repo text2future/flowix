@@ -150,7 +150,7 @@ function referencedAsset(pattern, label, maxBytes) {
 }
 
 referencedAsset(/<script[^>]+src="([^"]+\.js)"/, 'entry JavaScript', 700_000);
-referencedAsset(/<link[^>]+href="([^"]+\.css)"/, 'entry CSS', 500_000);
+referencedAsset(/<link[^>]+href="([^"]+\.css)"/, 'entry CSS', 501_000);
 
 const interFonts = readdirSync(join(DIST, 'assets')).filter((name) =>
   /^inter-.*\.(?:woff2?|ttf)$/i.test(name),

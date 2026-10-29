@@ -1,1 +1,0 @@
-function t(){let l=!1,e=null;return{setSaving(s){if(s){if(e)return;l=!1;let r;e={promise:new Promise(n=>{r=n}),resolve:r}}else{const r=e;e=null,r?.resolve(!l)}},fail(){l=!0},resetFailure(){l=!1},cancel(){const s=e;e=null,s?.resolve(!1)},async flush(){for(;e;)if(!await e.promise)return!1;return!l}}}export{t as c};

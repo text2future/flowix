@@ -1,1 +1,0 @@
-import{dk as a,bL as c}from"./index-Ds2nF888.js";async function l(o,r,t=crypto.randomUUID()){try{const e=await a.thumbnail(o,r,"video",t);return e?c.toAssetUrl(e):null}catch{return null}}const n=""+new URL("placeholder-video-card-CBb6Tj9g.jpg",import.meta.url).href;export{l as g,n as v};

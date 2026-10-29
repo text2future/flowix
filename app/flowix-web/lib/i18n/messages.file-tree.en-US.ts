@@ -8,6 +8,8 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "memo.fileTree.invalidName": "Invalid file name format",
   "memo.fileTree.invalidNameReplaced": "Invalid file name format; it has been replaced automatically.",
   "memo.fileTree.openInLeft": "Open in main workspace",
+  "memo.fileTree.sectionEmpty": "List is empty",
+  "memo.fileTree.sectionEmptyHide": "Hide",
 };
 
 export default enUS;

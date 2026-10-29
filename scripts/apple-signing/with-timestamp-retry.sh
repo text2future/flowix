@@ -42,8 +42,9 @@ while (( attempt <= MAX_ATTEMPTS )); do
   echo "==> attempt $attempt/$MAX_ATTEMPTS: $*"
   if "$@" 2>"$log_file"; then
     exit 0
+  else
+    rc=$?
   fi
-  rc=$?
 
   if (( attempt == MAX_ATTEMPTS )); then
     echo "==> failed after $MAX_ATTEMPTS attempts (last exit=$rc); giving up" >&2

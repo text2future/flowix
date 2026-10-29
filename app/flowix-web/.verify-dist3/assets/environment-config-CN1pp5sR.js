@@ -1,1 +1,0 @@
-import{cY as r}from"./index-Ds2nF888.js";import{E as n}from"./environment-config-CmwoasXr.js";import"./use-app-updater-BAOUtbma.js";import"./popover-CK52c9qi.js";import"./window-BvQMTvAN.js";import"./primitives-mQUOBv1B.js";function s({productInfo:o=null}){return r.jsx(n,{productInfo:o})}export{s as EnvironmentConfigPreferencesTab};

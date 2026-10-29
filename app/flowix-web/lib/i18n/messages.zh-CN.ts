@@ -1872,7 +1872,7 @@ const zhCN = {
     "document.save.retry": "重试保存",
     "document.save.missing": "文件暂时不可用",
     "document.save.titleFailed": "标题未能保存，修改后可重试。",
-    "document.save.titleEmpty": "请输入文件名。",
+    "document.save.titleEmpty": "请输入文件名",
     "document.save.recoverTitle": "恢复未提交的标题",
     "document.save.failed": "保存失败：{message}",
     "document.save.externalChanged": "文档已被外部修改",

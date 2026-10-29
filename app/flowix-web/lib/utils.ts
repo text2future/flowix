@@ -34,7 +34,7 @@ export function formatDateTime(
 }
 
 /**
- * 展示用名称 ── 把 Markdown、多维表格和媒体库文件扩展名剥掉，供 UI 展示使用。
+ * 展示用名称 ── 把 Markdown、多维表格、媒体库和网页文件扩展名剥掉，供 UI 展示使用。
  *
  * 物理路径拼接 / memo index `filename` key 跟磁盘对齐, **不要** 走本函数
  * (走 `lib/path` 里的 `joinNotebookMemoPath`)。
@@ -42,13 +42,19 @@ export function formatDateTime(
  * 边界:
  * - 空字符串 / `undefined` / `null` → 原样返回 (空串)
  * - 不区分大小写: `.MD` / `.Md` / `.markdown` 一并剥掉 (跟后端
- *   `IsMd` 判定的 `.md` / `.markdown` 后缀口径一致)
+ *   `IsMd` 判定的 `.md` / `.markdown` 后缀口径一致); 网页文件同理
+ * - 网页文件 (`.html` / `.htm` / `.xhtml`) 与 `classifyFileContent` 的
+ *   HTML 扩展名集合保持一致 —— 访问空间里它们都按网页图标渲染, 标题不再带后缀
  * - 多个后缀 (例如 `Foo.md.bak`) 不动, 避免误剥
  */
 export function displayTitleFromFilename(filename: string | null | undefined): string {
   if (!filename) return '';
   const basename = filename.split(/[\\/]/).pop() ?? filename;
-  return basename.replace(/\.(md|markdown)$/i, '').replace(/\.(table|lib)\.ya?ml$/i, '').replace(/\.index\.yaml$/i, '');
+  return basename
+    .replace(/\.(md|markdown)$/i, '')
+    .replace(/\.(table|lib)\.ya?ml$/i, '')
+    .replace(/\.index\.yaml$/i, '')
+    .replace(/\.(html?|xhtml)$/i, '');
 }
 
 export function isTableDocumentFilename(filename: string | null | undefined): boolean {

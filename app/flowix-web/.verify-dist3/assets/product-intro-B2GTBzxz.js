@@ -1,1 +1,0 @@
-import{cY as t}from"./index-Ds2nF888.js";import"./use-app-updater-BAOUtbma.js";import"./popover-CK52c9qi.js";import{P as o}from"./product-intro-content-DajziAdo.js";import"./window-BvQMTvAN.js";function e(){return t.jsx(o,{layout:"panel"})}export{e as ProductIntroSection};

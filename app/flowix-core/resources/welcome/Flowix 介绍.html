@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowix · 把知识库放回你自己的文件夹</title>
+<style>
+  /* === 设计意图 ===
+     一套纵向滚动的网页幻灯片：每页都是固定的 1920×1080 舞台，靠 --s 等比缩放，
+     纵向排列、整页吸附。视觉基调取"暖纸 + 墨字 + 克制的紫"——纸感负责阅读舒适，
+     紫色只承担标签、细线与关键强调，避免大色块渐变糊在页面上。
+
+     字体三分工（协调的关键，勿越界混用）：
+       宋体 --serif  只做展示位：封面主标题、页标题、公式、步骤大号数字。
+       苹方 --sans   一切正文与卡片标题（600 字重）。
+       等宽 --mono   只写拉丁标签：STEP 01、页码、外链、LOCAL-FIRST。
+     中文永远不进 mono（中文会回退到别的字体，字面大小和灰度都不一致）；
+     中文标题不加负字距（CJK 负字距会糊），拉丁 mono 标签才拉 .16em 字距。
+
+     卡片系统：10px 圆角 + 1px 描边 + paper-2 底，四页的栏块共用一套；
+     公式用 brand-soft 淡紫横条，避免与页脚细线叠成两条平行线。
+
+     五页结构（原 11 页压缩而来，只保留一条主线）：
+       1 封面（主张） 2 是什么（结构 + 公式） 3 内容模型（笔记/资料）
+       4 为什么（安全/管理/价格三合一） 5 怎么开始（三步 + 链接） */
+
+  /* === 基础变量 === */
+  :root {
+    --paper: #f5f0e7;
+    --paper-2: #fcf9f4;
+    --ink: #1b1822;
+    --ink-2: #4c4759;
+    --ink-3: #847e92;
+    --line: rgba(27, 24, 34, .13);
+    --line-soft: rgba(27, 24, 34, .07);
+    --brand: #5b45d6;
+    --brand-soft: rgba(91, 69, 214, .08);
+    --warm: #b4652c;
+
+    --serif: "Songti SC", "Source Han Serif SC", "Noto Serif SC", "Times New Roman", serif;
+    --sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    --frame-w: 100vw;
+    --frame-h: 56.25vw;
+    --s: 0.5;
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+    /* 纵向排列的每一页整页吸附 */
+    scroll-snap-type: y mandatory;
+  }
+
+  body {
+    margin: 0;
+    background: #0e0d14;
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
+  }
+
+  ::selection { background: var(--brand); color: #fff; }
+
+  /* === 幻灯片外壳：每页占满一屏，舞台居中并按宽度等比缩放 === */
+  .slide {
+    position: relative;
+    height: 100vh;
+    display: grid;
+    place-items: center;
+    scroll-snap-align: center;
+    padding: 0;
+    /* 纵向留白与页面同色：窄栏里不会出现黑边，看起来像一张连续的纸 */
+    background: var(--paper);
+  }
+
+  .frame {
+    position: relative;
+    width: var(--frame-w);
+    height: var(--frame-h);
+    overflow: hidden;
+    background: var(--paper);
+  }
+
+  .stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 1080px;
+    transform: scale(var(--s));
+    transform-origin: top left;
+    overflow: hidden;
+    /* 文字颜色必须在这个作用域里解析，暗场页面才能拿到暗色主题的 --ink */
+    color: var(--ink);
+    font-family: var(--sans);
+  }
+
+  /* 每个舞台统一的留白骨架 */
+  .pad {
+    position: absolute;
+    inset: 0;
+    padding: 92px 124px 88px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* === 明暗两套页面 === */
+  .slide.is-dark {
+    --paper: #151223;
+    --paper-2: #1e1a2f;
+    --ink: #f4f1fa;
+    --ink-2: #c7c1da;
+    --ink-3: #928caa;
+    --line: rgba(244, 241, 250, .15);
+    --line-soft: rgba(244, 241, 250, .08);
+    --brand: #ab9eff;
+    --brand-soft: rgba(171, 158, 255, .11);
+  }
+
+  /* 极淡的光晕，只做透气，不做"渐变海报" */
+  .frame::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(1100px 620px at 92% -14%, var(--brand-soft), transparent 62%),
+      radial-gradient(900px 500px at -10% 108%, rgba(180, 101, 44, .05), transparent 65%);
+    pointer-events: none;
+  }
+
+  /* === 通用排印 ===
+     展示位用宋体：只有封面 h1、页标题 h2、公式、步骤大号数字。
+     卡片标题走 sans 600，与正文同族，避免宋体/苹方在小字号互相打架。 */
+  h1, h2 { font-family: var(--serif); font-weight: 600; margin: 0; letter-spacing: 0; }
+  h3 { font-family: var(--sans); font-weight: 600; margin: 0; letter-spacing: 0; }
+  /* 标题不许在词中间折行（浏览器默认对中文按字断行，会拆开"上下文"这种词） */
+  h1, h2, h3 { word-break: keep-all; }
+  /* 正文里的关键短语用它包一层，整块挪到下一行 */
+  .nb { white-space: nowrap; }
+
+  .slide-title {
+    margin-top: 16px;
+    font-size: 76px;
+    line-height: 1.24;
+    letter-spacing: 0;
+  }
+
+  .slide-sub {
+    text-wrap: pretty;
+    margin: 18px 0 0;
+    max-width: 1100px;
+    font-size: 26px;
+    line-height: 1.85;
+    color: var(--ink-2);
+  }
+
+  /* 页级标签：中文进 sans，只留拉丁数字/符号；前置细线做编辑感 */
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    margin: 0;
+    font-family: var(--sans);
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    color: var(--brand);
+    text-transform: uppercase;
+  }
+
+  /* 只有页面顶部的标签带前置细线，卡片里的标签保持干净 */
+  .pad > .kicker::before {
+    content: "";
+    width: 30px;
+    height: 1px;
+    background: currentColor;
+    opacity: .55;
+  }
+
+  .body-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    min-height: 0;
+    padding: 52px 0 36px;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: .84em;
+    padding: 3px 10px;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    background: var(--paper);
+  }
+
+  /* === 页脚：页名 + 页码。中文走 sans，纯数字的页码才进 mono === */
+  .slide-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 22px;
+    border-top: 1px solid var(--line-soft);
+    font-family: var(--sans);
+    font-size: 16px;
+    letter-spacing: .14em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+  }
+
+  .slide-foot .pagenum {
+    font-family: var(--mono);
+    letter-spacing: .16em;
+  }
+
+  .slide-foot .num { color: var(--brand); }
+
+  /* === 封面 === */
+  .cover .pad { justify-content: space-between; }
+
+  .cover-mark {
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+    font-family: var(--mono);
+    font-size: 17px;
+    letter-spacing: .28em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+  }
+
+  .cover-mark b {
+    font-family: var(--serif);
+    font-size: 30px;
+    letter-spacing: .02em;
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .cover h1 {
+    font-size: 108px;
+    line-height: 1.18;
+    letter-spacing: 0;
+    margin: 0;
+  }
+
+  .cover h1 em {
+    font-style: normal;
+    color: var(--brand);
+    padding: 0 .03em;
+  }
+
+  .cover-lede {
+    margin: 32px 0 0;
+    max-width: 1080px;
+    font-size: 28px;
+    line-height: 1.85;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  .cover-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 42px;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cover-meta li {
+    padding: 10px 20px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper-2);
+    font-size: 20px;
+    letter-spacing: .02em;
+    color: var(--ink-2);
+  }
+
+  .cover-bottom {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .scroll-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    /* 中文提示走 sans；mono 只留给纯拉丁标签 */
+    font-family: var(--sans);
+    font-size: 16px;
+    letter-spacing: .12em;
+    color: var(--ink-3);
+  }
+
+  .scroll-hint .arrow {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-family: var(--sans);
+    font-size: 17px;
+    color: var(--brand);
+    animation: nudge 2.2s ease-in-out infinite;
+  }
+
+  @keyframes nudge {
+    0%, 100% { transform: translateY(-2px); }
+    50% { transform: translateY(6px); }
+  }
+
+  /* === 卡片基元：流程节点、内容栏、三个理由、三步，共用一套 === */
+  .node, .card, .reason, .step {
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 38px 34px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  /* === 流程页：文件夹 → 笔记本 → Agent === */
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr 52px 1fr 52px 1fr;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .node { min-height: 330px; }
+
+  .node .idx {
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: .22em;
+    color: var(--brand);
+    text-transform: uppercase;
+  }
+
+  .node h3 {
+    margin: 18px 0 14px;
+    font-size: 30px;
+    line-height: 1.42;
+  }
+
+  .node p {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.85;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  .node p + p { margin-top: 8px; }
+
+  .arrow-cell {
+    display: grid;
+    place-items: center;
+    color: var(--ink-3);
+    font-family: var(--sans);
+    font-size: 28px;
+  }
+
+  /* === 合成公式：结构页底部的淡紫收束带 === */
+  .equation {
+    margin-top: auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 16px 18px;
+    padding: 26px 34px;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    background: var(--brand-soft);
+    font-family: var(--serif);
+    font-size: 40px;
+    line-height: 1.35;
+    letter-spacing: 0;
+  }
+
+  .equation .op { color: var(--brand); }
+  .equation .out { color: var(--brand); font-weight: 600; }
+  .equation .as {
+    margin-left: auto;
+    font-family: var(--sans);
+    font-size: 19px;
+    letter-spacing: .04em;
+    color: var(--warm);
+  }
+
+  /* === 内容模型：两栏卡片 === */
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    align-items: stretch;
+  }
+
+  .duo .card {
+    justify-content: flex-start;
+    min-height: 380px;
+    padding: 40px 38px;
+  }
+
+  .duo h3 {
+    margin: 16px 0 16px;
+    font-size: 32px;
+    line-height: 1.42;
+  }
+
+  .duo p {
+    margin: 0;
+    /* 自动均衡行末，避免中文段落出现单字孤行 */
+    text-wrap: pretty;
+    font-size: 23px;
+    line-height: 1.9;
+    color: var(--ink-2);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 28px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .chips li {
+    padding: 8px 17px;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--brand-soft);
+    font-size: 18px;
+    letter-spacing: .02em;
+    color: var(--ink-2);
+  }
+
+  .note-line {
+    margin: 36px 0 0;
+    padding: 22px 28px;
+    border-left: 2px solid var(--brand);
+    background: var(--paper-2);
+    border-radius: 0 10px 10px 0;
+    font-size: 22px;
+    line-height: 1.85;
+    color: var(--ink-3);
+    text-wrap: pretty;
+  }
+
+  .note-line b { color: var(--ink); font-weight: 600; }
+
+  /* === 优势页：三张理由卡 === */
+  .reasons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+    align-items: stretch;
+  }
+
+  .reason {
+    justify-content: flex-start;
+    min-height: 420px;
+    padding: 38px 32px;
+  }
+
+  .reason h3 {
+    margin: 18px 0 22px;
+    font-size: 29px;
+    line-height: 1.45;
+  }
+
+  .reason ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 18px;
+  }
+
+  .reason li {
+    position: relative;
+    padding-left: 26px;
+    font-size: 22px;
+    line-height: 1.85;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  .reason li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--brand);
+  }
+
+  .reason li b { color: var(--ink); font-weight: 600; }
+
+  /* === 步骤页：三张步骤卡 === */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+    align-items: stretch;
+  }
+
+  .step {
+    justify-content: flex-start;
+    min-height: 330px;
+    padding: 36px 32px;
+  }
+
+  .step .step-num {
+    font-family: var(--serif);
+    font-size: 58px;
+    line-height: 1;
+    color: var(--brand);
+    opacity: .9;
+  }
+
+  .step h3 {
+    margin: 24px 0 14px;
+    font-size: 29px;
+    line-height: 1.45;
+  }
+
+  .step p {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.85;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  /* === 结尾区：两种界面的注脚 + 链接 === */
+  .close-row {
+    margin: auto 0 0;
+    padding-top: 30px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 28px 48px;
+  }
+
+  .modes-note {
+    margin: 0;
+    max-width: 920px;
+    font-size: 22px;
+    line-height: 1.85;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  .modes-note b { color: var(--ink); font-weight: 600; }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 36px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-family: var(--sans);
+    font-size: 19px;
+    letter-spacing: .06em;
+  }
+
+  .links a {
+    color: var(--brand);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    padding-bottom: 3px;
+    transition: border-color .2s ease;
+  }
+
+  .links a:hover { border-bottom-color: currentColor; }
+
+  /* === 右侧进度点（跨明暗两页都要看得见，故不取页面主题色） === */
+  .rail {
+    position: fixed;
+    top: 50%;
+    right: 26px;
+    transform: translateY(-50%);
+    display: grid;
+    gap: 10px;
+    z-index: 40;
+  }
+
+  .rail button {
+    width: 7px;
+    height: 7px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: #6f6a80;
+    opacity: .45;
+    cursor: pointer;
+    transition: transform .3s ease, opacity .3s ease, background .3s ease;
+  }
+
+  .rail button:hover { transform: scale(1.4); opacity: .9; }
+  .rail button.is-current { background: #7c66f0; opacity: 1; transform: scale(1.5); }
+
+  .edit-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 999px;
+    background: rgba(20, 18, 32, .55);
+    backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, .7);
+    font-family: var(--sans);
+    font-size: 13px;
+    letter-spacing: .08em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .35s ease;
+  }
+
+  body:hover .edit-toggle, .edit-toggle:focus-visible { opacity: 1; }
+
+  body.is-editing .edit-toggle {
+    opacity: 1;
+    color: #0e0d14;
+    background: #a99bff;
+    border-color: #a99bff;
+  }
+
+  body.is-editing .stage { outline: 2px dashed rgba(91, 69, 214, .45); outline-offset: -12px; }
+
+  /* === 入场动效：逐条上浮，按 --d 错峰 === */
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(26px);
+    transition:
+      opacity .95s cubic-bezier(.2, .7, .2, 1),
+      transform .95s cubic-bezier(.2, .7, .2, 1);
+    transition-delay: var(--d, 0s);
+  }
+
+  [data-reveal="line"] {
+    opacity: 1;
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 1.1s cubic-bezier(.2, .7, .2, 1);
+    transition-delay: var(--d, 0s);
+  }
+
+  .slide.is-active [data-reveal] { opacity: 1; transform: none; }
+  .slide.is-active [data-reveal="line"] { transform: scaleX(1); }
+
+  /* === 减少动效 === */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    [data-reveal], [data-reveal="line"] {
+      transition: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+    .scroll-hint .arrow { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- === 第 1 页 · 封面 === -->
+<section class="slide is-dark cover" id="s1">
+  <div class="frame">
+    <div class="stage">
+      <div class="pad">
+        <div class="cover-mark" data-reveal>
+          <b>Flowix</b>
+          <span>Local-first knowledge base</span>
+        </div>
+
+        <div>
+          <h1 data-reveal style="--d:.08s">把知识库，<br>放回<em>你的文件夹</em>。</h1>
+          <p class="cover-lede" data-reveal style="--d:.2s">
+            Markdown 写在你的文件夹里。笔记、资料、Agent 的产出，都在同一个目录。<br>
+            不导出。不锁格式。不在云端多留一份副本。
+          </p>
+          <ul class="cover-meta">
+            <li data-reveal style="--d:.3s">纯 Markdown</li>
+            <li data-reveal style="--d:.36s">离线可用</li>
+            <li data-reveal style="--d:.42s">Agent 可读写</li>
+            <li data-reveal style="--d:.48s">拷走就能用</li>
+          </ul>
+        </div>
+
+        <div class="cover-bottom" data-reveal style="--d:.58s">
+          <span class="scroll-hint"><span class="arrow">↓</span>向下滚动 / 空格继续</span>
+          <span class="scroll-hint" style="letter-spacing:.14em">本地优先 · 无锁定 · 随时带走</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- === 第 2 页 · 结构 + 合成公式 === -->
+<section class="slide" id="s2">
+  <div class="frame">
+    <div class="stage">
+      <div class="pad">
+        <p class="kicker" data-reveal>01 · 结构</p>
+        <h2 class="slide-title" data-reveal style="--d:.06s">一个文件夹，就是一座知识库</h2>
+        <p class="slide-sub" data-reveal style="--d:.12s">
+          Flowix 不建新的存储。它只管你指定的那个文件夹。
+        </p>
+
+        <div class="body-area">
+          <div class="flow">
+            <div class="node" data-reveal style="--d:.2s">
+              <span class="idx">Step 01</span>
+              <h3>你的本地文件夹</h3>
+              <p><code>~/Notes/project-x/</code></p>
+              <p>访达里直接打开，也能交给 iCloud、OneDrive 或 Git。</p>
+            </div>
+            <div class="arrow-cell" data-reveal style="--d:.3s">→</div>
+            <div class="node" data-reveal style="--d:.36s">
+              <span class="idx">Step 02</span>
+              <h3>Flowix 笔记本</h3>
+              <p>一个文件夹就是一个笔记本，一份<span class="nb">独立的上下文</span>。</p>
+              <p>换笔记本，就换了 Agent 的视野。</p>
+            </div>
+            <div class="arrow-cell" data-reveal style="--d:.46s">→</div>
+            <div class="node" data-reveal style="--d:.52s">
+              <span class="idx">Step 03</span>
+              <h3>Agent 直接读写</h3>
+              <p>内置 Agent、Claude Code、Codex，读写的都是同一批文件。</p>
+            </div>
+          </div>
+
+          <div class="equation" data-reveal style="--d:.62s">
+            <span>静态资料</span>
+            <span class="op">+</span>
+            <span>动态笔记（记忆）</span>
+            <span class="op">=</span>
+            <span class="out">完整的 AI 知识库</span>
+            <span class="as">素材不变，记忆在长</span>
+          </div>
+        </div>
+
+        <div class="slide-foot">
+          <span>结构 / Structure</span>
+          <span class="pagenum"><span class="num">02</span> / 05</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- === 第 3 页 · 内容模型：笔记与资料 === -->
+<section class="slide" id="s3">
+  <div class="frame">
+    <div class="stage">
+      <div class="pad">
+        <p class="kicker" data-reveal>02 · 内容</p>
+        <h2 class="slide-title" data-reveal style="--d:.06s">笔记是笔记，资料是资料</h2>
+        <p class="slide-sub" data-reveal style="--d:.12s">
+          可编辑的笔记，不可编辑的原件，在同一个文件夹里各走各的路。
+        </p>
+
+        <div class="body-area">
+          <div class="duo">
+            <div class="card" data-reveal style="--d:.2s">
+              <p class="kicker">理解笔记</p>
+              <h3>以 Markdown 保存的记忆</h3>
+              <p>
+                纯文本。人读得懂，AI 也读得懂。标题、列表、标签、属性本身就是<span class="nb">结构</span>，
+                Agent 不用解析，就能读、能改、能总结。
+              </p>
+              <ul class="chips">
+                <li>AI 友好</li>
+                <li>结构即语义</li>
+                <li>任何编辑器可开</li>
+                <li>能进 Git</li>
+              </ul>
+            </div>
+            <div class="card" data-reveal style="--d:.34s">
+              <p class="kicker">理解资料</p>
+              <h3>原样留在文件夹里的原件</h3>
+              <p>
+                原件不做格式转换，就那么放着。AI 需要时，自己去读里面的文字、表格和画面。
+              </p>
+              <ul class="chips">
+                <li>Word</li>
+                <li>Excel</li>
+                <li>PPT</li>
+                <li>PDF</li>
+                <li>网页</li>
+                <li>图片</li>
+                <li>视频</li>
+              </ul>
+            </div>
+          </div>
+
+          <p class="note-line" data-reveal style="--d:.5s">
+            笔记可读可改，资料只用不改格式——<b>放在同一个文件夹里，Agent 才拿得到完整上下文。</b>
+          </p>
+        </div>
+
+        <div class="slide-foot">
+          <span>内容 / Content model</span>
+          <span class="pagenum"><span class="num">03</span> / 05</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- === 第 4 页 · 三个理由（原安全/管理/价格三页合一） === -->
+<section class="slide" id="s4">
+  <div class="frame">
+    <div class="stage">
+      <div class="pad">
+        <p class="kicker" data-reveal>03 · 为什么</p>
+        <h2 class="slide-title" data-reveal style="--d:.06s">三件事，不必再交给别人</h2>
+        <p class="slide-sub" data-reveal style="--d:.12s">
+          数据在哪、Agent 怎么接、账单怎么算——这三件事，Flowix 都还给你。
+        </p>
+
+        <div class="body-area">
+          <div class="reasons">
+            <div class="reason" data-reveal style="--d:.2s">
+              <p class="kicker">01 · 安全优势</p>
+              <h3>文档全部<br>留在本地</h3>
+              <ul>
+                <li>只在本机磁盘，<b>不上传</b>；断网也能写、能搜。</li>
+                <li><b>明文 Markdown</b>，任何编辑器都打得开，没有专有格式可锁。</li>
+                <li>备份交给 iCloud、OneDrive、Git；想走，<b class="nb">拷走文件夹就行</b>。</li>
+              </ul>
+            </div>
+
+            <div class="reason" data-reveal style="--d:.3s">
+              <p class="kicker">02 · 管理优势</p>
+              <h3>任何 Agent<br>读写同一批文件</h3>
+              <ul>
+                <li>内置 Agent，也能接 <b>Claude Code、Codex、Hermes</b>。</li>
+                <li><b>CLI 与 MCP</b>：外部 Agent 读、搜、改，<span class="nb">用的是同一批文档</span>。</li>
+                <li>产出直接写回文档；换电脑、换工具只是一次<b>复制粘贴</b>。</li>
+              </ul>
+            </div>
+
+            <div class="reason" data-reveal style="--d:.4s">
+              <p class="kicker">03 · 价格优势</p>
+              <h3>AI 不用<br>再买一份</h3>
+              <ul>
+                <li>不自建 AI 计费，复用你已有的 <b class="nb">Codex / Claude</b> 订阅。</li>
+                <li><b>开源</b>，能力跟着你选的模型与 Agent 一起升级。</li>
+                <li>团队各接各的，<b>不必统一采购</b>一份 AI 套餐。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-foot">
+          <span>优势 / Why Flowix</span>
+          <span class="pagenum"><span class="num">04</span> / 05</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- === 第 5 页 · 三步开始 + 结尾 === -->
+<section class="slide is-dark" id="s5">
+  <div class="frame">
+    <div class="stage">
+      <div class="pad">
+        <p class="kicker" data-reveal>04 · 开始</p>
+        <h2 class="slide-title" data-reveal style="--d:.06s">三步开始</h2>
+        <p class="slide-sub" data-reveal style="--d:.12s">
+          从空文件夹，到一份能用的上下文。
+        </p>
+
+        <div class="body-area">
+          <div class="steps">
+            <div class="step" data-reveal style="--d:.2s">
+              <div class="step-num">01</div>
+              <h3>创建或注册文件夹</h3>
+              <p>新建一个文件夹，或指向已有的一个。Flowix <span class="nb">接管</span>里面的 Markdown。</p>
+            </div>
+            <div class="step" data-reveal style="--d:.3s">
+              <div class="step-num">02</div>
+              <h3>写清背景与目标</h3>
+              <p>背景、资料、目标、约束写进去。它就不只是<span class="nb">一篇笔记</span>，而是一份任务书。</p>
+            </div>
+            <div class="step" data-reveal style="--d:.4s">
+              <div class="step-num">03</div>
+              <h3>让 Agent 接手</h3>
+              <p>在文档里叫起 Agent，或用 MCP 接入你的<span class="nb">客户端</span>。产出，写回同一个文件夹。</p>
+            </div>
+          </div>
+
+          <div class="close-row">
+            <p class="modes-note" data-reveal style="--d:.52s">
+              进来之后两种界面随时切换：<b>简洁记录</b> 让屏幕上只剩正在写的这一篇，适合日记、待办、<span class="nb">速记</span>；<b>文件树管理</b> 把笔记、资料和 Agent 产出排在同一条树上，拖拽即可整理。
+            </p>
+            <ul class="links" data-reveal style="--d:.6s">
+              <li><a href="https://flowix-memo.com/" target="_blank" rel="noreferrer">官网</a></li>
+              <li><a href="https://flowix-memo.com/docs/" target="_blank" rel="noreferrer">帮助文档</a></li>
+              <li><a href="https://github.com/text2future/flowix" target="_blank" rel="noreferrer">GitHub</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="slide-foot">
+          <span>开始 / Quick start</span>
+          <span class="pagenum"><span class="num">05</span> / 05</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- === 导航：右侧进度点、左上编辑开关（页码在每页页脚内） === -->
+<nav class="rail" aria-label="幻灯片导航"></nav>
+<button class="edit-toggle" id="editToggle" type="button">编辑文本 · E</button>
+
+<script>
+  /* === 舞台缩放：宽度与高度双向适配，1600×900 到 3840×2160 都不变形 === */
+  (function fitStage() {
+    const RATIO = 16 / 9;
+    function apply() {
+      const w = Math.min(window.innerWidth, window.innerHeight * RATIO);
+      document.documentElement.style.setProperty('--frame-w', w + 'px');
+      document.documentElement.style.setProperty('--frame-h', (w / RATIO) + 'px');
+      document.documentElement.style.setProperty('--s', String(w / 1920));
+    }
+    apply();
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+  })();
+
+  /* === 进度 / 入场动效 === */
+  (function deck() {
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const rail = document.querySelector('.rail');
+    let current = -1;
+
+    // 右侧进度点
+    slides.forEach((slide, i) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.setAttribute('aria-label', '跳到第 ' + (i + 1) + ' 页');
+      dot.addEventListener('click', () => goTo(i));
+      rail.appendChild(dot);
+    });
+    const dots = Array.from(rail.children);
+
+    function setCurrent(index) {
+      if (index === current) return;
+      current = index;
+      dots.forEach((dot, i) => dot.classList.toggle('is-current', i === index));
+    }
+
+    // 激活页：只加不移，回看时不会重播动画
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) entry.target.classList.add('is-active');
+      });
+    }, { threshold: 0.55 });
+    slides.forEach((slide) => io.observe(slide));
+
+    // 当前页：按与视口顶部的距离取最近的一页
+    function nearest() {
+      const y = window.scrollY;
+      let best = 0;
+      let bestGap = Infinity;
+      slides.forEach((slide, i) => {
+        const gap = Math.abs(slide.offsetTop - y);
+        if (gap < bestGap) { bestGap = gap; best = i; }
+      });
+      return best;
+    }
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function goTo(index) {
+      const target = Math.max(0, Math.min(slides.length - 1, index));
+      const top = slides[target].offsetTop;
+      const from = window.scrollY;
+      window.scrollTo({ top, behavior: reduceMotion ? 'auto' : 'smooth' });
+      // 兜底：某些引擎里平滑滚动会被忽略，260ms 后仍未移动就直接跳转
+      window.setTimeout(() => {
+        if (Math.abs(window.scrollY - from) < 2 && Math.abs(top - from) > 2) {
+          window.scrollTo({ top, behavior: 'auto' });
+        }
+      }, 260);
+    }
+
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        setCurrent(nearest());
+        ticking = false;
+      });
+    }, { passive: true });
+
+    document.getElementById('s1').classList.add('is-active');
+    setCurrent(0);
+
+    /* === 键盘导航（编辑状态下让位给光标移动） === */
+    const isEditing = () => document.body.classList.contains('is-editing');
+    window.addEventListener('keydown', (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const key = event.key;
+      if (key === 'e' || key === 'E') {
+        toggleEditing();
+        return;
+      }
+      if (isEditing()) return;
+
+      if (key === 'ArrowDown' || key === 'PageDown' || key === ' ' || key === 'ArrowRight') {
+        event.preventDefault();
+        goTo(nearest() + 1);
+      } else if (key === 'ArrowUp' || key === 'PageUp' || key === 'ArrowLeft') {
+        event.preventDefault();
+        goTo(nearest() - 1);
+      } else if (key === 'Home') {
+        event.preventDefault();
+        goTo(0);
+      } else if (key === 'End') {
+        event.preventDefault();
+        goTo(slides.length - 1);
+      }
+    });
+  })();
+
+  /* === 内联文本编辑：E 键或左上角按钮切换，改完直接另存即可 === */
+  function toggleEditing() {
+    const editing = document.body.classList.toggle('is-editing');
+    document.querySelectorAll('.stage').forEach((stage) => {
+      stage.contentEditable = editing ? 'true' : 'false';
+      stage.spellcheck = false;
+    });
+    const button = document.getElementById('editToggle');
+    button.textContent = editing ? '完成编辑 · E' : '编辑文本 · E';
+    if (!editing) window.getSelection()?.removeAllRanges();
+  }
+
+  document.getElementById('editToggle').addEventListener('click', toggleEditing);
+</script>
+</body>
+</html>

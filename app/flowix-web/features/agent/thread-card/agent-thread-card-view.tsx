@@ -491,6 +491,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       getTypeKey: () => this.typeKey,
       getInstanceId: () => this.instanceId ?? undefined,
       getLanguage: () => this.language,
+      // 全屏卡片即"独立对话面"，空状态形态随之在创建与复用判定时重算。
+      getEmptyStatePresentation: () => (this.isFullscreen ? "expanded" : "inline-card"),
       t: (key, params) => this.t(key, params),
       isDestroyed: () => this.isDestroyed,
       isRunning: () => this.currentRuntimeView().isRunning,
@@ -1075,9 +1077,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private createExternalAgentEmptySettings(): HTMLElement {
-    return this.externalAgentSettings.createEmptySettings({
-      presentation: this.isFullscreen ? "expanded" : "inline-card",
-    });
+    return this.externalAgentSettings.createEmptySettings();
   }
 
   private refreshExternalAgentEmptySettings(): void {

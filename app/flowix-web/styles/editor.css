@@ -432,13 +432,16 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   line-height: var(--memo-title-line-height);
 }
 
+/* 标题占位(空笔记的默认标题): 在 --muted-foreground 基础上再融底 50%,
+ * 亮度差减半 (light: L 0.62 → ≈0.80), 让占位只作为提示存在, 不与正文标题
+ * 抢层级. 正文空块占位另一套规则见下方 p.is-empty::before (自带 opacity). */
 .memo-title-editor::placeholder {
-  color: var(--muted-foreground);
+  color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
 }
 
 .memo-title-editor--document-selection:empty::before {
   content: attr(data-placeholder);
-  color: var(--muted-foreground);
+  color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
   pointer-events: none;
 }
 

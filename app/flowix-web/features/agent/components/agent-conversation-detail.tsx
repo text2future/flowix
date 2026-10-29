@@ -466,6 +466,8 @@ function AgentConversationDetailContent({
       getTypeKey: () => typeKeyRef.current,
       getInstanceId: () => instanceRef.current?.instanceId,
       getLanguage: () => languageRef.current,
+      // 独立对话只有一个形态: 展开态空状态 (欢迎卡 / 技能 / 常用笔记)。
+      getEmptyStatePresentation: () => "expanded",
       t: (key, params) => tRef.current(key, params),
       isDestroyed: () => destroyedRef.current,
       isRunning: () => isLoadingRef.current || isDshCommandRunningRef.current || isCodexCommandRunningRef.current || submissionRef.current.isSubmitting,
@@ -557,7 +559,7 @@ function AgentConversationDetailContent({
       t: (key) => tRef.current(key),
         createThreadCacheSkeleton: () => createThreadCacheSkeleton(tRef.current('editor.threadCard.loadingThreadCache')),
         createExternalAgentEmptySettings: () =>
-          externalSettings.createEmptySettings({ presentation: "expanded" }),
+          externalSettings.createEmptySettings(),
         onForkMessage: forkFromMessage,
       },
       composerOptions: {

@@ -932,7 +932,7 @@
   position: relative;
   box-sizing: border-box;
   width: 100%;
-  padding: 24px 12px;
+  padding: 24px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 20px;
   background: color-mix(in srgb, var(--muted) 36%, transparent);
@@ -959,6 +959,18 @@
   pointer-events: auto;
 }
 
+/* 展开态欢迎卡里的可点击控件共用一份字体基线（取值与笔记卡片 __featured-note 一致）：
+   字体族 / 字号 / 字重只在这里声明一次，各控件按自身形态决定行高与尺寸。
+   button 不继承字体族与字重，必须在这里补回，否则会落到 UA 默认或用 font 简写隐式继承。
+   技能卡片把它当默认基准，标题（0.9375rem）在卡片内覆盖，描述沿用基准。 */
+.agent-conversation-surface .agent-thread-card__empty-welcome-action,
+.agent-conversation-surface .agent-thread-card__empty-prompt,
+.agent-conversation-surface .agent-thread-card__empty-skill {
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
 .agent-conversation-surface .agent-thread-card__empty-welcome-action {
   display: inline-flex;
   min-width: 52px;
@@ -970,10 +982,7 @@
   border-radius: 999px;
   background: #fff;
   color: var(--foreground);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 400;
-  line-height: 1;
+  line-height: 1.3;
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -1036,9 +1045,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--card) 78%, transparent);
   color: var(--foreground);
-  font: inherit;
-  font-size: 0.875rem;
-  line-height: 1.25;
+  line-height: 1.3;
   cursor: pointer;
   transition: color 120ms ease;
 }
@@ -1070,7 +1077,8 @@
 .agent-conversation-surface .agent-thread-card__empty-skill-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  min-height: 74px;
+  /* 与卡片最小高度保持一致，加载占位不多留空白。 */
+  min-height: 65px;
   gap: 8px;
 }
 
@@ -1097,7 +1105,7 @@
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 74px;
+  min-height: 65px;
   align-items: flex-start;
   justify-content: flex-start;
   gap: 8px;
@@ -1106,9 +1114,8 @@
   border-radius: 14px;
   background: color-mix(in srgb, var(--card) 78%, transparent);
   color: var(--foreground);
-  font: inherit;
-  font-size: 0.875rem;
-  line-height: 1.25;
+  /* 字体基线见上方欢迎卡按钮的统一声明；标题直接继承，描述单独降档。 */
+  line-height: 1.3;
   text-align: left;
   cursor: pointer;
   transition: color 120ms ease;
@@ -1123,6 +1130,8 @@
 
 .agent-conversation-surface .agent-thread-card__empty-skill-content {
   display: grid;
+  /* 轨道必须可收缩，否则 nowrap 的标题/副标题会把卡片撑宽、省略号永不触发。 */
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   gap: 6px;
 }
@@ -1132,8 +1141,8 @@
   min-width: 0;
   align-items: center;
   gap: 6px;
-  font-size: 0.875rem;
-  font-weight: 400;
+  /* 标题比卡片正文基准（0.875rem）高 1px：0.9375rem = 15px。 */
+  font-size: 0.9375rem;
   line-height: 1.3;
 }
 
@@ -1166,12 +1175,13 @@
 }
 
 .agent-conversation-surface .agent-thread-card__empty-skill-description {
-  display: -webkit-box;
+  /* 单行展示：超出用省略号截断。 */
+  min-width: 0;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  /* 副标题与卡片正文基准同档（0.875rem），仅收紧行高。 */
   line-height: 1.35;
 }
 
@@ -1630,7 +1640,7 @@
   flex: 0 0 auto;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 12px;

@@ -30,7 +30,7 @@ import {
   type FolderTreeController,
   type VisibleTreeNode,
 } from '@features/memo/components/use-folder-tree';
-import { ContentIcon } from '@features/content/public/content-api';
+import { ContentIcon, getFileIconKind } from '@features/content/public/content-api';
 import { useI18n } from '@/lib/i18n';
 import { fileTreeCreateFailureKey, fileTreeRenameFailureKey } from './file-tree-failure';
 
@@ -335,7 +335,10 @@ export function FolderFileTree({
                     />
                   )}
                   <span className="ml-1.5 min-w-0 flex-1 truncate">
-                    {item.type === 'document' && isTableDocumentFilename(item.name)
+                    {/* 表格文档与网页文件都不带后缀展示（网页文件已按网页图标渲染）；
+                        重命名输入框仍用 item.name，改名时保留真实后缀。 */}
+                    {item.type === 'document'
+                      && (isTableDocumentFilename(item.name) || getFileIconKind(item.name) === 'html')
                       ? displayTitleFromFilename(item.name)
                       : item.name}
                   </span>

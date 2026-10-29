@@ -17,6 +17,16 @@ export type AgentEmptyStatePresentation = "inline-card" | "expanded";
 interface AgentEmptyStateOptions {
   getTypeKey: () => AgentTypeKey;
   getInstanceId: () => string | undefined;
+  /**
+   * Presentation the host wants *right now*.
+   *
+   * The two presentations build different DOM (inline keeps the compact
+   * runtime controls, expanded keeps the welcome/skill/note guidance), so the
+   * surface cannot be reused across a presentation change — a Thread Card
+   * entering or leaving fullscreen has to rebuild it. Read lazily so the
+   * reuse check always compares against the host's current state.
+   */
+  getPresentation: () => AgentEmptyStatePresentation;
   getLanguage: () => AppLanguage;
   getNotebookId: () => string | null;
   getNotebookPath: () => string | null;
@@ -103,9 +113,12 @@ export class AgentEmptyStateController {
     }
   };
 
-  create(presentation: AgentEmptyStatePresentation): HTMLElement {
+  create(): HTMLElement {
     if (this.disposed) throw new Error("Cannot create an empty state after disposal");
     if (this.root) disposeEmptyState(this.root);
+    // Single source of truth: the host's live presentation getter. Callers no
+    // longer pass a shape in, so creation and the reuse check can never drift.
+    const presentation = this.options.getPresentation();
     const root = document.createElement("div");
     root.className = [
       "agent-thread-card__empty",
@@ -115,7 +128,12 @@ export class AgentEmptyStateController {
     this.root = root;
     const contextKey = this.getContextKey();
     registerEmptyStateLifecycle(root, {
-      canReuse: () => !this.isDestroyed() && this.root === root && contextKey === this.getContextKey(),
+      canReuse: () => (
+        !this.isDestroyed()
+        && this.root === root
+        && presentation === this.options.getPresentation()
+        && contextKey === this.getContextKey()
+      ),
       refresh: this.options.refreshRuntimeSettings,
       dispose: () => this.release(root),
     });

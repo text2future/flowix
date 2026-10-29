@@ -2139,6 +2139,165 @@ fn validate_file_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Read, rebase and rewrite one notebook's view preferences. Returns the new
+/// relative path when the stored default create folder actually moved.
+fn rebase_notebook_default_create_folder(
+    root: &Path,
+    previous_relative: &str,
+    next_relative: &str,
+) -> Result<Option<String>, String> {
+    let preferences = read_notebook_view_preferences(root);
+    let Some(current) = preferences.default_create_folder.as_deref() else {
+        return Ok(None);
+    };
+    let Some(rebased) =
+        flowix_core::memo_file::rebase_default_create_folder_path(current, previous_relative, next_relative)
+    else {
+        return Ok(None);
+    };
+    let path = notebook_preferences_path(root)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("create notebook config directory failed: {error}"))?;
+    }
+    let mut updated = preferences;
+    updated.default_create_folder = Some(rebased.clone());
+    let bytes = serde_json::to_vec_pretty(&updated)
+        .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
+    flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
+        .map_err(|error| format!("write notebook preferences failed: {error}"))?;
+    Ok(Some(rebased))
+}
+
+/// Resolve `path` the same way notebook roots are resolved. The rename *source*
+/// no longer exists once the move finished, so fall back to canonicalizing its
+/// parent and keeping the caller-provided name. Without this, a root and a
+/// rename target could disagree on trailing separators or symlinked prefixes and
+/// `strip_prefix` would silently skip the notebook.
+fn canonicalize_move_path(path: &Path) -> PathBuf {
+    if let Ok(resolved) = dunce::canonicalize(path) {
+        return resolved;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => match dunce::canonicalize(parent) {
+            Ok(resolved) => resolved.join(name),
+            Err(_) => path.to_path_buf(),
+        },
+        _ => path.to_path_buf(),
+    }
+}
+
+/// A folder rename inside a notebook changes the *notebook-relative* path that
+/// the "default note folder" preference stores. Without rebasing it, new notes
+/// silently fall back to the notebook root and the tree loses its default-folder
+/// marker. Unlike names, the preference is not derivable from disk, so every
+/// directory move (notebook tree and access space alike) has to repair it here.
+fn rebase_default_create_folder_for_move(
+    mf: &MemoFile,
+    source: &Path,
+    target: &Path,
+    app: &tauri::AppHandle,
+) {
+    if !target.is_dir() {
+        return;
+    }
+    let source = canonicalize_move_path(source);
+    let target = canonicalize_move_path(target);
+    let Ok(configs) = mf.read_notebook_configs() else {
+        crate::runtime_log::record_event(
+            "warn",
+            "notebook.default_create_folder.rebase",
+            format!("cannot read notebook registry for {} -> {}", source.display(), target.display()),
+        );
+        return;
+    };
+    let mut matched = 0usize;
+    for config in configs {
+        let Ok(root) = dunce::canonicalize(&config.path) else {
+            continue;
+        };
+        let (Ok(previous), Ok(next)) = (source.strip_prefix(&root), target.strip_prefix(&root))
+        else {
+            continue;
+        };
+        matched += 1;
+        let previous = previous.to_string_lossy().replace('\\', "/");
+        let next = next.to_string_lossy().replace('\\', "/");
+        // A rename already holds the notebook's shared lock, so the guarded
+        // write can be refused with "cannot upgrade notebook shared lock to
+        // exclusive". The preference file lives inside the notebook's own config
+        // directory, so fall back to writing it directly rather than leaving the
+        // default folder pointing at a name that no longer exists.
+        let outcome = mf.with_registered_path_change(
+            &[root.as_path()],
+            "rebase_default_create_folder",
+            || {
+                rebase_notebook_default_create_folder(&root, &previous, &next)
+                    .map_err(std::io::Error::other)
+            },
+        );
+        let rebased = match outcome {
+            Ok(rebased) => rebased,
+            Err(error) => {
+                crate::runtime_log::record_event(
+                    "warn",
+                    "notebook.default_create_folder.rebase",
+                    format!("guarded write refused for {}: {error}; writing directly", config.id),
+                );
+                match rebase_notebook_default_create_folder(&root, &previous, &next) {
+                    Ok(rebased) => rebased,
+                    Err(error) => {
+                        crate::runtime_log::record_event(
+                            "error",
+                            "notebook.default_create_folder.rebase",
+                            format!("cannot rebase {} ({previous} -> {next}): {error}", config.id),
+                        );
+                        continue;
+                    }
+                }
+            }
+        };
+        let Some(rebased) = rebased else {
+            crate::runtime_log::record_event(
+                "info",
+                "notebook.default_create_folder.rebase",
+                format!("{} does not track {previous} (move {previous} -> {next})", config.id),
+            );
+            continue;
+        };
+        // Surfaces that cache the preference (tree marker, note creation
+        // destination) only refresh on this event.
+        let emitted = app.emit(
+            "notebook-view-preferences-changed",
+            serde_json::json!({
+                "notebookPath": config.path,
+                "treeVisibilityChanged": false,
+                "defaultCreateFolderChanged": true,
+            }),
+        );
+        crate::runtime_log::record_event(
+            "info",
+            "notebook.default_create_folder.rebase",
+            format!(
+                "{}: {previous} -> {next} => {rebased} (notified={})",
+                config.id,
+                emitted.is_ok()
+            ),
+        );
+    }
+    if matched == 0 {
+        crate::runtime_log::record_event(
+            "warn",
+            "notebook.default_create_folder.rebase",
+            format!(
+                "no registered notebook covers {} -> {}",
+                source.display(),
+                target.display()
+            ),
+        );
+    }
+}
+
 fn rename_path_and_notify(
     source: &Path,
     target: &Path,
@@ -2151,6 +2310,9 @@ fn rename_path_and_notify(
     mf.rename_indexed_path(source, target)
         .map_err(file_mutation_error)?;
     crate::commands::external_document_watch::rebase_path(app, source, target);
+    // The default note folder is stored notebook-relative, so a directory move
+    // has to repair it before anything reads it back.
+    rebase_default_create_folder_for_move(&mf, source, target, app);
     if target.is_dir() {
         let configs = mf.read_notebook_configs().unwrap_or_default();
         if let Some(config) = configs.into_iter().find(|config| {
@@ -2555,6 +2717,12 @@ pub async fn rename_folder(
             };
             if let Some((_notebook_id, result)) = collection_move {
                 let path = Path::new(&result.notebook_path).join(&result.actual_relative_path);
+                {
+                    // Folder-placed collections rename through their own
+                    // mutation, which bypasses `rename_path_and_notify`.
+                    let memo = read_lock(&state.memo_file, "memo_file");
+                    rebase_default_create_folder_for_move(&memo, source, &path, &app);
+                }
                 return Ok(super::path_change::PathMutationResult {
                     path: path.parent().ok_or("INVALID_COLLECTION_PATH")?.to_string_lossy().into_owned(),
                     notebook_change: super::collection::path_change_for_result(&_notebook_id, &result),
@@ -2927,5 +3095,57 @@ mod tests {
         ] {
             assert!(file_mutation_error(std::io::Error::new(kind, "failure")).starts_with(code));
         }
+    }
+
+    fn write_view_preferences(root: &Path, json: &str) {
+        fs::create_dir_all(root.join(".flowix")).unwrap();
+        fs::write(root.join(".flowix/view-preferences.json"), json).unwrap();
+    }
+
+    #[test]
+    fn default_note_folder_follows_the_renamed_folder() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write_view_preferences(
+            root,
+            r#"{"defaultCreateFolder":"笔记/子","fileManagement":{"hiddenPaths":["scratch"]}}"#,
+        );
+
+        let rebased = rebase_notebook_default_create_folder(root, "笔记", "Notes").unwrap();
+
+        assert_eq!(rebased.as_deref(), Some("Notes/子"));
+        let saved = fs::read_to_string(root.join(".flowix/view-preferences.json")).unwrap();
+        assert!(
+            saved.contains("\"defaultCreateFolder\": \"Notes/子\""),
+            "preference not rewritten: {saved}"
+        );
+        // Unrelated preferences in the same file must survive the rewrite.
+        assert!(saved.contains("scratch"), "file management policy lost: {saved}");
+    }
+
+    #[test]
+    fn default_note_folder_ignores_unrelated_renames() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write_view_preferences(root, r#"{"defaultCreateFolder":"其他"}"#);
+
+        assert_eq!(
+            rebase_notebook_default_create_folder(root, "笔记", "Notes").unwrap(),
+            None
+        );
+        let saved = fs::read_to_string(root.join(".flowix/view-preferences.json")).unwrap();
+        assert!(saved.contains("\"defaultCreateFolder\":\"其他\""));
+    }
+
+    #[test]
+    fn default_note_folder_rebase_is_a_noop_without_a_preference() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+
+        assert_eq!(
+            rebase_notebook_default_create_folder(root, "笔记", "Notes").unwrap(),
+            None
+        );
+        assert!(!root.join(".flowix/view-preferences.json").exists());
     }
 }

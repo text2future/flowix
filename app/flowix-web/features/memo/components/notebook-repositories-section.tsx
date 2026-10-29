@@ -14,6 +14,7 @@ import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { ListSurfaceSpinner } from '@shared/ui/list-surface';
+import { TreeSectionEmptyState } from '@shared/ui/tree-section-empty-state';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSubmenu, ContextMenuTrigger } from '@shared/ui/context-menu';
 import { NotebookCopyContextMenu } from './notebook-copy-context-menu';
 import {
@@ -367,6 +368,7 @@ export function AgentRepositoriesSection({
   viewMode = 'tree',
   onOpenRepositoryList,
   hideSectionHeader = false,
+  onHideSection,
 }: {
   repositories: WorkspaceAgentRepository[];
   order: number;
@@ -383,6 +385,8 @@ export function AgentRepositoriesSection({
   viewMode?: 'tree' | 'links';
   onOpenRepositoryList?: () => void;
   hideSectionHeader?: boolean;
+  /** Empty-state escape hatch: hide the whole section from the file tree. */
+  onHideSection?: () => void;
 }) {
   const { t } = useI18n();
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -461,10 +465,12 @@ export function AgentRepositoriesSection({
               <span className="min-w-0 flex-1 truncate opacity-[0.82]">{repository.name}</span>
             </button>
           )) : (
-            <div className="flex h-7 items-center justify-center px-1.5 text-xs text-[var(--muted-foreground)] opacity-50"
-              style={{ marginLeft: TREE_EDGE_GUTTER, width: `calc(100% - ${TREE_EDGE_GUTTER * 2}px)` }}>
-              {t('memo.fileTree.repositoriesEmpty')}
-            </div>
+            <TreeSectionEmptyState
+              message={t('memo.fileTree.sectionEmpty')}
+              hideLabel={t('memo.fileTree.sectionEmptyHide')}
+              onHide={onHideSection}
+              edgeGutter={TREE_EDGE_GUTTER}
+            />
           )}
           {repositories.length > 0 && onOpenRepositoryList && (
             <button
@@ -492,12 +498,12 @@ export function AgentRepositoriesSection({
               onExpandRepository={onExpandRepository}
             />
           )) : (
-            <div
-              className="flex h-7 items-center justify-center px-1.5 text-xs text-[var(--muted-foreground)] opacity-50"
-              style={{ marginLeft: TREE_EDGE_GUTTER, width: `calc(100% - ${TREE_EDGE_GUTTER * 2}px)` }}
-            >
-              {t('memo.fileTree.repositoriesEmpty')}
-            </div>
+            <TreeSectionEmptyState
+              message={t('memo.fileTree.sectionEmpty')}
+              hideLabel={t('memo.fileTree.sectionEmptyHide')}
+              onHide={onHideSection}
+              edgeGutter={TREE_EDGE_GUTTER}
+            />
           )}
         </>
       )}

@@ -532,6 +532,7 @@ pub fn run() {
             commands::boot::get_startup_notebook_id,
             commands::boot::notify_startup_interactive,
             commands::boot::record_startup_stage,
+            commands::boot::record_frontend_error,
             commands::boot::wait_for_startup_ready,
             commands::cloud::cloud_get_state,
             commands::cloud::cloud_register,

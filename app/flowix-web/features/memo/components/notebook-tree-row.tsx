@@ -39,9 +39,10 @@ import folderIcon from '@/assets/folder-outline.svg?raw';
 import folderIconDefault from '@/assets/folder-outline-default.svg?raw';
 import { getPropertyIconOption } from '@features/document/properties/property-icons';
 import { useNoteMetadata } from '../hooks/use-note-metadata';
+import { noteMetadata } from '../services/note-metadata-service';
 import { resourceKindFromPath } from '@features/editor/code-file';
 import { ContentIcon, getFileIconKind, HtmlFileIcon } from '@features/content/public/content-api';
-import { IconValueInput } from '@features/document/public/property-display-api';
+import { TreeIconPicker } from './tree-icon-picker';
 import { setDocumentProperties } from '@features/document/public/path-properties';
 import { files, notes, product, type DocTreeItem } from '@platform/tauri/client';
 import { logNativeContextMenuError } from '@platform/tauri/native-context-menu';
@@ -49,6 +50,7 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
 
 const TREE_MENU_CLASS =
   'w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]';
+
 const TREE_MENU_ITEM_CLASS =
   'h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
 
@@ -227,6 +229,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     || (isMediaLibraryFilename(item.name) && !isTableDocumentFilename(item.name)));
   const isCollectionIndex = !isFolder && isCollectionIndexFilename(item.name);
   const isExtensionlessDocument = isNote || isTableDocument || isMediaLibrary || isCollectionIndex;
+  // 树行标题不带后缀的范围：笔记 / 表格 / 媒体库 / 集合索引，外加已按网页图标渲染的
+  // html。重命名输入框仍只认 isExtensionlessDocument —— 网页文件改名要保留后缀。
+  const showsTitleWithoutExtension = isExtensionlessDocument || isHtmlFile;
   const [pathNote, setPathNote] = useState<NoteListItem | null>(null);
   const storeNote = useNoteStore((state) => {
     const notebook = state.notebooks.find((candidate) => item.fullPath.toLowerCase().startsWith(`${candidate.path.replace(/[\\/]+$/, '').toLowerCase()}\\`)
@@ -245,10 +250,30 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     : null;
   /** 列表里选中图标后写回 frontmatter flowix_icon；保存后由 notebook-change 事件驱动 useNoteMetadata 刷新。 */
   const persistNoteIcon = useCallback((next: string) => {
-    void setDocumentProperties(item.fullPath, { flowix_icon: next }).catch((error: unknown) => {
-      console.error('[notebook-tree-row] 设置笔记图标失败', error);
-    });
-  }, [item.fullPath]);
+    void (async () => {
+      let saved = false;
+      try {
+        saved = await setDocumentProperties(item.fullPath, { flowix_icon: next });
+      } catch (error) {
+        console.error('[notebook-tree-row] 设置笔记图标失败', error);
+        toast.error(t('media.properties.saveFailed'));
+        return;
+      }
+      if (!saved) {
+        console.error('[notebook-tree-row] 设置笔记图标未落盘', item.fullPath);
+        toast.error(t('media.properties.saveFailed'));
+        return;
+      }
+      // 乐观更新本地投影，树行立即反馈；后端 resource-updated 事件随后以索引数据确认。
+      const key = canonicalPath(item.fullPath);
+      const current = noteMetadata.get(key).value;
+      noteMetadata.update(key, {
+        icon: next || null,
+        colors: current?.colors ?? [],
+        favorited: current?.favorited ?? false,
+      });
+    })();
+  }, [item.fullPath, t]);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(
@@ -537,32 +562,19 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               )} />
             </button>
           ) : isNote ? (
-            <IconValueInput
-              value={displayedIcon ?? ''}
-              onChange={persistNoteIcon}
-              trigger={(
-                <button
-                  type="button"
-                  aria-label={t('document.properties.icon.placeholder')}
-                  onClick={(event) => event.stopPropagation()}
-                  onDoubleClick={(event) => event.stopPropagation()}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  className={'relative flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]'}
-                >
-                  {noteIcon ? (
-                    <img
-                      src={noteIcon.src}
-                      alt=""
-                      aria-hidden="true"
-                      className="h-[18px] w-[18px] object-contain"
-                      draggable={false}
-                    />
-                  ) : (
-                    <ContentIcon content={{ kind: 'note' }} className="notebook-file-tree__default-file-icon h-[18px] w-[18px]" />
-                  )}
-                </button>
+            <TreeIconPicker value={displayedIcon ?? ''} onChange={persistNoteIcon}>
+              {noteIcon ? (
+                <img
+                  src={noteIcon.src}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-[18px] w-[18px] object-contain"
+                  draggable={false}
+                />
+              ) : (
+                <ContentIcon content={{ kind: 'note' }} className="notebook-file-tree__default-file-icon h-[18px] w-[18px]" />
               )}
-            />
+            </TreeIconPicker>
           ) : (
             <span className={'relative flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]'}>
               {isHtmlFile
@@ -595,7 +607,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               ? { opacity: (active || selected ? 1 : 0.82) * HIDDEN_FOLDER_LABEL_OPACITY }
               : undefined}
           >
-            {optimisticName ?? (isFolder || !isExtensionlessDocument
+            {optimisticName ?? (isFolder || !showsTitleWithoutExtension
               ? item.name
               : displayTitleFromFilename(item.name))}
           </span>

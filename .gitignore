@@ -73,3 +73,6 @@ appstoreconnect/
 
 # WorkBuddy agent workspace data
 .workbuddy/
+
+# Local verification build output (never commit)
+.verify-dist3/

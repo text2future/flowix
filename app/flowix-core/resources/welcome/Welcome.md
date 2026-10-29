@@ -1,6 +1,5 @@
 ---
-kind: guide
-status: overview
+status: 进行中
 flowix_icon: pizza
 keywords:
   - overview
@@ -9,10 +8,10 @@ keywords:
   - quickstart
   - setup
   - ai-agent
+flowix_property_types:
+  keywords: MultiSelect
 ---
-# Welcome
 
-&nbsp;
 
 Flowix Memo is **++a documentation workspace for AI agents++**. It helps solve common problems that come up when working with AI agents:
 

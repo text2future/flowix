@@ -46,10 +46,12 @@ afterEach(() => {
 });
 function mount(presentation: 'expanded' | 'inline-card' = 'expanded') {
   const context: { type: AgentTypeKey; language: AppLanguage } = { type: 'codex', language: 'zh-CN' };
+  const surface: { presentation: 'expanded' | 'inline-card' } = { presentation };
   const onNote = vi.fn(), onPrompt = vi.fn(), onSkill = vi.fn();
   const settings = new ExternalAgentSettingsController({
     popover: document.createElement('div'), getTypeKey: () => context.type,
     getInstanceId: () => undefined, getLanguage: () => context.language,
+    getEmptyStatePresentation: () => surface.presentation,
     t: key => key, isDestroyed: () => false,
     onSelectFeaturedNote: onNote, onSelectEmptyPrompt: onPrompt, onSelectEmptySkill: onSkill,
   });
@@ -64,12 +66,12 @@ function mount(presentation: 'expanded' | 'inline-card' = 'expanded') {
     body, loadingIndicator, messageViewport: viewport, getLanguage: () => context.language,
     getTypeKey: () => context.type, t: key => key,
     createThreadCacheSkeleton: () => Object.assign(document.createElement('div'), { className: 'agent-thread-card__skeleton' }),
-    createExternalAgentEmptySettings: () => settings.createEmptySettings({ presentation }),
+    createExternalAgentEmptySettings: () => settings.createEmptySettings(),
   });
   cleanups.push(() => { renderer.dispose(); settings.dispose(); viewport.dispose(); });
   const input = { messages: [], isLoading: false, shouldRenderMessages: true, isThreadCachePresentationHidden: false, isThreadCacheLoading: false };
   renderer.render(input);
-  return { body, renderer, settings, input, context, onNote, onPrompt, onSkill };
+  return { body, renderer, settings, input, context, surface, onNote, onPrompt, onSkill };
 }
 async function waitPanel(body: HTMLElement) {
   await vi.waitFor(() => expect(body.querySelector('.agent-thread-card__featured-note')).not.toBeNull());
@@ -127,6 +129,33 @@ it.each(['notebook', 'language', 'agent'] as const)('recreates the empty surface
   expect(body.querySelectorAll('.agent-thread-card__featured-notes')).toHaveLength(1);
   expect(document.querySelectorAll('.agent-thread-card__featured-notes-view-picker')).toHaveLength(1);
 });
+it.each(['expanded', 'inline-card'] as const)(
+  'rebuilds the empty surface when the presentation switches away from %s',
+  async from => {
+    const to = from === 'expanded' ? 'inline-card' : 'expanded';
+    const { body, renderer, input, surface } = mount(from);
+    if (from === 'expanded') await waitPanel(body);
+    const empty = body.querySelector('.agent-thread-card__empty')!;
+    surface.presentation = to;
+    renderer.render(input);
+    const next = body.querySelector('.agent-thread-card__empty')!;
+    expect(next).not.toBe(empty);
+    expect(next.classList.contains(`agent-thread-card__empty--${to}`)).toBe(true);
+    expect(next.classList.contains(`agent-thread-card__empty--${from}`)).toBe(false);
+    // 每种形态只保留自己的内容: 内联态是运行时设置行, 展开态是欢迎指引。
+    expect(next.querySelector('.agent-conversation__controls') !== null).toBe(to === 'inline-card');
+    expect(next.querySelector('.agent-thread-card__empty-welcome') !== null).toBe(to === 'expanded');
+    // 展开态的常用笔记面板跟随形态销毁/重建, 不留孤儿面板或弹层。
+    if (to === 'inline-card') {
+      expect(body.querySelector('.agent-thread-card__featured-notes')).toBeNull();
+      expect(document.querySelector('.agent-thread-card__featured-notes-view-picker')).toBeNull();
+      return;
+    }
+    await waitPanel(body);
+    expect(body.querySelectorAll('.agent-thread-card__featured-notes')).toHaveLength(1);
+    expect(document.querySelectorAll('.agent-thread-card__featured-notes-view-picker')).toHaveLength(1);
+  },
+);
 it('does not mount late results after leaving the empty state', async () => {
   let resolve!: (value: typeof stored) => void;
   mocks.getFilter.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
@@ -228,6 +257,7 @@ function mountEmptyContent(type: AgentTypeKey, notebookPath: string | null) {
     getTypeKey: () => type,
     getInstanceId: () => undefined,
     getLanguage: () => 'zh-CN',
+    getPresentation: () => 'expanded',
     getNotebookId: () => null,
     getNotebookPath: () => notebookPath,
     t: key => key,
@@ -239,7 +269,7 @@ function mountEmptyContent(type: AgentTypeKey, notebookPath: string | null) {
     clearRuntimeSettings: vi.fn(),
   });
   cleanups.push(() => controller.dispose());
-  const root = controller.create('expanded');
+  const root = controller.create();
   document.body.append(root);
   return { root, onSkill, onMore };
 }

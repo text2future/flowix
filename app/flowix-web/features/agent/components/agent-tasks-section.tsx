@@ -34,6 +34,7 @@ import { toast } from '@/lib/toast';
 import { createLogger } from '@/lib/logger';
 import { Input } from '@shared/ui/input';
 import { Button } from '@shared/ui/button';
+import { TreeSectionEmptyState } from '@shared/ui/tree-section-empty-state';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import {
   getRecentAgentConversationsLimit,
@@ -53,6 +54,7 @@ export function AgentTasksSection({
   onHeightChange,
   onShowAllConversations,
   sectionActions,
+  onHideSection,
 }: {
   notebookId: string;
   edgeGutter?: number;
@@ -60,6 +62,8 @@ export function AgentTasksSection({
   onHeightChange: (height: number) => void;
   onShowAllConversations: () => void;
   sectionActions?: ReactNode;
+  /** 空状态里的「隐藏模块」入口，由文件树注入。 */
+  onHideSection?: () => void;
 }) {
   const { t } = useI18n();
   const recentConversationLimit = useRecentAgentConversationsLimit();
@@ -461,12 +465,12 @@ export function AgentTasksSection({
           )}
         </div>
       ) : (
-        <div
-          className="flex h-7 items-center justify-center px-1.5 text-xs text-[var(--muted-foreground)] opacity-50"
-          style={{ marginLeft: edgeGutter, width }}
-        >
-          {t('memo.fileTree.agentsEmpty')}
-        </div>
+        <TreeSectionEmptyState
+          message={t('memo.fileTree.sectionEmpty')}
+          hideLabel={t('memo.fileTree.sectionEmptyHide')}
+          onHide={onHideSection}
+          edgeGutter={edgeGutter}
+        />
       ))}
       <Dialog open={conversationLimitDialogOpen} onOpenChange={setConversationLimitDialogOpen}>
         <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">

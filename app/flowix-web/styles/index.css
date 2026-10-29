@@ -1009,6 +1009,12 @@ html.flowix-drag-drop-active * {
   animation: agent-type-badge-running-border 1.2s ease-in-out infinite alternate;
 }
 
+/* 文件树空状态的隐藏操作在 hover / 键盘聚焦时浮出。 */
+[data-tree-section-empty-state]:is(:hover, :focus-within) .tree-section-empty-state__hide-action {
+  pointer-events: auto;
+  opacity: 0.48;
+}
+
 /* 对话列表标题不显示省略号: 末尾保留一小段向内渐隐, 避免文字在时间
  * 标签前突然截断。mask 只作用于标题文本, 不会覆盖 item 的背景或右侧操作。 */
 .agent-conversation-list__title {

@@ -203,6 +203,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
       getTypeKey: () => "pi",
       getInstanceId: () => undefined,
       getLanguage: () => "zh-CN",
+      getEmptyStatePresentation: () => "inline-card",
       t: (key) => {
         const labels: Record<string, string> = {
           "preferences.pi.cloudTitle": "会员模型",

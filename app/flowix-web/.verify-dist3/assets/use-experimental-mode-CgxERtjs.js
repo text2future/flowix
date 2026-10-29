@@ -1,1 +1,0 @@
-import{eq as a,aq as l}from"./index-Ds2nF888.js";let t,r=null;function s(){return t!==void 0?Promise.resolve(t):(r||(r=l.getFeatures().then(e=>e.experimental===!0).catch(()=>!1).then(e=>(t=e,e))),r)}function f(){const[e,o]=a.useState(t??!1);return a.useEffect(()=>{let n=!0;return s().then(i=>{n&&o(i)}),()=>{n=!1}},[]),e}export{f as u};

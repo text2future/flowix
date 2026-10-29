@@ -173,6 +173,7 @@ export interface ExternalAgentSettingsControllerOptions {
    */
   getInstanceId: () => string | undefined;
   getLanguage: () => AppLanguage;
+  getEmptyStatePresentation: () => AgentEmptyStatePresentation; // 形态变了必须重建空状态, 故参与复用判定
   t: (key: I18nKey, params?: I18nParams) => string;
   isDestroyed: () => boolean;
   isRunning?: () => boolean;
@@ -270,6 +271,7 @@ export class ExternalAgentSettingsController {
       getTypeKey: options.getTypeKey,
       getInstanceId: options.getInstanceId,
       getLanguage: options.getLanguage,
+      getPresentation: options.getEmptyStatePresentation,
       getNotebookId: () => this.getCurrentNotebookId(),
       getNotebookPath: () => this.getCurrentNotebookPath(),
       t: options.t,
@@ -551,10 +553,8 @@ export class ExternalAgentSettingsController {
     }
   }
 
-  createEmptySettings(
-    options: { presentation?: AgentEmptyStatePresentation } = {},
-  ): HTMLElement {
-    return this.emptyState.create(options.presentation ?? "inline-card");
+  createEmptySettings(): HTMLElement {
+    return this.emptyState.create();
   }
 
   private clearEmptyRuntimeSettings(empty: HTMLElement): void {

@@ -1161,6 +1161,7 @@ export function NotebookFileTree({
               edgeGutter={TREE_EDGE_GUTTER}
               order={sectionOrder.indexOf('agents') + 1}
               onHeightChange={handleAgentSectionHeightChange}
+              onHideSection={() => hideTreeSection('agents')}
               onShowAllConversations={handleShowAllAgentConversations}
               sectionActions={(
                 <NotebookTreeSectionMenu
@@ -1240,6 +1241,7 @@ export function NotebookFileTree({
               workDocuments={viewWorkDocuments}
               collapsed={viewsCollapsed}
               onToggleCollapsed={() => setViewsCollapsed((collapsed) => !collapsed)}
+              onHideSection={() => hideTreeSection('views')}
               sectionActions={(
                 <NotebookTreeSectionMenu
                   onHideSection={() => hideTreeSection('views')}
@@ -1464,6 +1466,7 @@ export function NotebookFileTree({
               repositories={agentRepositories}
               order={sectionOrder.indexOf('repositories') + 1}
               onHeightChange={handleRepositorySectionHeightChange}
+              onHideSection={() => hideTreeSection('repositories')}
               sectionActions={(
                 <NotebookTreeSectionMenu
                   onHideSection={() => hideTreeSection('repositories')}
