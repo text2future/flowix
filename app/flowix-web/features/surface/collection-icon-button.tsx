@@ -13,6 +13,8 @@ export interface CollectionIconPickerButtonProps {
   iconSrc?: string;
   /** 集合可编辑才允许点击换图标；否则只展示（缺集合 / 只读）。 */
   editable: boolean;
+  /** 标题左侧使用 38px 外框；头图下缘使用 45px 外框。 */
+  placement: 'banner' | 'title';
   /** 当前集合属性 `icon` 的值（属性图标 value），空 = 默认图标。 */
   value: string;
   /** 选中某个图标：写入集合属性 `icon`。 */
@@ -30,13 +32,15 @@ export interface CollectionIconPickerButtonProps {
  * 可编辑时点击打开属性图标 picker，写入集合属性 `icon`；不可编辑只展示。
  * 侧边栏和「全部」列表通过 CollectionResourceIcon 读取同一份集合属性。
  */
-export function CollectionIconPickerButton({ defaultIcon, iconSrc, editable, value, onChange, onReset, changeLabel, resetLabel, hintLabel }: CollectionIconPickerButtonProps) {
+export function CollectionIconPickerButton({ defaultIcon, iconSrc, editable, placement, value, onChange, onReset, changeLabel, resetLabel, hintLabel }: CollectionIconPickerButtonProps) {
   const [open, setOpen] = useState(false);
-  // 两种位置共用头图图标的 chip 样式：尺寸、描边、圆角和内部图标均一致。
-  const sizeClass = 'h-[45px] w-[45px] border border-[var(--border)]';
+  // 标题图标略小，其余 chip 样式及内部图标尺寸保持一致。
+  const sizeClass = placement === 'banner' ? 'h-[45px] w-[45px]' : 'h-[38px] w-[38px]';
   const containerBase = cn(
     'collection-header-icon-tint flex shrink-0 items-center justify-center rounded-xl text-[var(--muted-foreground)]',
     sizeClass,
+    placement === 'title' && '-translate-y-[2px]',
+    'border border-[var(--border)]',
   );
 
   if (!editable) {

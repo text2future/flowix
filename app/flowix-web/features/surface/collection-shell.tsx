@@ -269,6 +269,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       defaultIcon={defaultIcon}
       iconSrc={collectionIconSrc}
       editable={editable}
+      placement="banner"
       value={icon.value}
       onChange={icon.save}
       onReset={() => icon.save('')}
@@ -283,6 +284,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       defaultIcon={defaultIcon}
       iconSrc={collectionIconSrc}
       editable={editable}
+      placement="title"
       value={icon.value}
       onChange={icon.save}
       onReset={() => icon.save('')}
