@@ -25,6 +25,7 @@ import { formatUpdatedAt } from '@/lib/collection-updated-time';
 import { toast } from '@/lib/toast';
 import { displayTitleFromFilename } from '@/lib/utils';
 import folderIcon from '@/assets/folder-outline.svg?raw';
+import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import type { WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-contract';
 
 type SortField = 'name' | 'modifiedMs' | 'sizeBytes';
@@ -91,14 +92,24 @@ function HeaderTypeIcon({ kind }: { kind: 'note' | 'date' | 'number' }) {
 /**
  * 文件树 tab ── 单层列表，点文件夹进它自己的集合视图，不含任何集合配置。
  */
-export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host }: {
+export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host, reportPresentation }: {
   rootPath: string;
   notebookId: string | null;
   notebookPath: string | null;
   host: WorkspaceSurfaceRenderContext['host'];
+  reportPresentation?: (update: SurfacePresentationUpdate) => void;
 }) {
   const { t, language } = useI18n();
-  const [items, setItems] = useState<DocTreeItem[] | null>(null);
+  const [listing, setListing] = useState<{ rootPath: string; items: DocTreeItem[] } | null>(null);
+  const items = listing?.rootPath === rootPath ? listing.items : null;
+
+  // Only the active panel receives the reporter. Re-publish when a retained
+  // panel becomes active so another tab's loading state cannot linger.
+  useEffect(() => {
+    reportPresentation?.({ state: items === null
+      ? { status: 'loading', loadingMode: 'blocking', retainContent: true }
+      : { status: 'ready' } });
+  }, [items, reportPresentation]);
 
   const [sort, setSort] = useState<FileSort>(null);
   const sortedItems = useMemo(() => {
@@ -137,11 +148,11 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host }:
 
   useEffect(() => {
     let cancelled = false;
-    setItems(null);
+    setListing(null);
     setSort(null);
     files.getDirChildren(rootPath)
-      .then((next) => { if (!cancelled) setItems(next); })
-      .catch(() => { if (!cancelled) setItems([]); });
+      .then((next) => { if (!cancelled) setListing({ rootPath, items: next }); })
+      .catch(() => { if (!cancelled) setListing({ rootPath, items: [] }); });
     return () => { cancelled = true; };
   }, [rootPath]);
 

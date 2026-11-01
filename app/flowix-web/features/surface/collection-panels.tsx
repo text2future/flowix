@@ -33,7 +33,8 @@ export function CollectionPanels({ tabs, domains, filesRoot, notebookId, noteboo
     {/* 文件树随整页滚动：自己不设滚动容器、也不吃高度，表头 sticky 吸在 tab 条下沿。 */}
     {tabs.showFiles ? (
       <div className={tabs.active === 'files' ? 'flex flex-col' : 'hidden'}>
-        <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} />
+        <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host}
+          reportPresentation={tabs.active === 'files' ? reportPresentation : undefined} />
       </div>
     ) : null}
     {/* 图墙与列表都自然撑开，虚拟化和翻页订阅外壳滚动，不再创建内部滚动区。

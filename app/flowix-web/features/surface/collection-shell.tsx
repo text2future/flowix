@@ -386,7 +386,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
             onSelectNoteView={handleActiveViewChange}
             onAddNoteView={handleAddNoteView}
           />
-          {collectionMissing && folderPath ? <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} />
+          {collectionMissing && folderPath ? <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} reportPresentation={tableProps.reportPresentation} />
             : collectionMissing ? tableBody : !existing ? PANEL_FALLBACK : <>
               {tableReady ? <div className={activeHostTab === null ? 'flex flex-col' : 'hidden'}>{tableBody}</div> : null}
               {hostTabContent}

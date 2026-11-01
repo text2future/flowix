@@ -54,6 +54,47 @@ async function renderTab(props = baseProps): Promise<HTMLDivElement> {
 }
 
 describe('collection files tab', () => {
+  it('clears shell loading after files arrive and republishes ready when reactivated', async () => {
+    let finish!: (items: ReturnType<typeof item>[]) => void;
+    calls.getDirChildren.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const reportPresentation = vi.fn();
+    const node = await renderTab({ ...baseProps, reportPresentation });
+    expect(reportPresentation.mock.lastCall?.[0].state.status).toBe('loading');
+
+    await act(async () => { finish([item({ type: 'file', name: 'ready.md' })]); });
+    expect(node.querySelector('[data-file-name]')?.textContent).toBe('ready');
+    expect(reportPresentation.mock.lastCall?.[0].state.status).toBe('ready');
+
+    await act(async () => root?.render(<CollectionFilesTab {...baseProps} />));
+    reportPresentation.mockClear();
+    await act(async () => root?.render(<CollectionFilesTab {...baseProps} reportPresentation={reportPresentation} />));
+    expect(reportPresentation).toHaveBeenCalledExactlyOnceWith({ state: { status: 'ready' } });
+    expect(calls.getDirChildren).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish hidden panel completion and waits for the new folder after navigation', async () => {
+    let finish!: (items: ReturnType<typeof item>[]) => void;
+    calls.getDirChildren.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await renderTab();
+    await act(async () => { finish([]); });
+    const reportPresentation = vi.fn();
+    calls.getDirChildren.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await act(async () => root?.render(<CollectionFilesTab {...baseProps} rootPath="/book/other" reportPresentation={reportPresentation} />));
+    expect(reportPresentation.mock.calls.every(([update]) => update.state.status === 'loading')).toBe(true);
+    reportPresentation.mockClear();
+    await act(async () => root?.render(<CollectionFilesTab {...baseProps} rootPath="/book/other" />));
+    await act(async () => { finish([]); });
+    expect(reportPresentation).not.toHaveBeenCalled();
+  });
+
+  it.each(['empty', 'failed'])('finishes shell loading for a %s directory', async (result) => {
+    if (result === 'failed') calls.getDirChildren.mockRejectedValue(new Error('unreadable'));
+    else calls.getDirChildren.mockResolvedValue([]);
+    const reportPresentation = vi.fn();
+    await renderTab({ ...baseProps, reportPresentation });
+    expect(reportPresentation.mock.lastCall?.[0].state.status).toBe('ready');
+  });
+
   it('全部列表中的文件夹集合和集合文件共享默认图标，并优先使用集合保存的图标', async () => {
     const custom = PROPERTY_ICON_OPTIONS[0]!;
     calls.summaries.set('/book/日历/.index.yaml', { views: [{ domain: 'notes' }], properties: {} });
