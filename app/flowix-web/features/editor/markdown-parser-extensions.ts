@@ -15,6 +15,7 @@ import { FrontmatterMarkdownExtension } from '@features/editor/extensions/frontm
 import { TableReferenceMarkdownExtension } from '@features/multidimensional-table/table-reference-markdown';
 import { MediaLibraryReferenceMarkdownExtension } from '@features/media-library/media-library-reference-markdown';
 import { MarkdownEscape, LegacyAdjacentStrongMarkdown } from './markdown-parser-core-extensions';
+import { LiteralUnderscoreStrong } from '@features/editor/extensions/literal-underscore-markdown';
 import { MathBlockMarkdownExtension } from '@features/editor/extensions/math-block-markdown';
 import { WebCardMarkdownExtension } from '@features/editor/extensions/web-card-markdown';
 import { MarkdownParagraph, MarkdownTaskItem } from './markdown-parser-common-extensions';
@@ -59,6 +60,7 @@ export function createMarkdownParserExtensions() {
     MarkdownTaskItem,
     MarkdownEscape,
     LegacyAdjacentStrongMarkdown,
+    LiteralUnderscoreStrong,
     ...AttachmentMarkdownExtensions,
     MarkdownLinkParserExtension,
     CodeBlockShikiBase,

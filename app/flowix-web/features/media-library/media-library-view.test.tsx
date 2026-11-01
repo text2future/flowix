@@ -25,7 +25,11 @@ vi.mock('@platform/tauri/event-bus', () => ({
     return () => { mocks.subscriptions = mocks.subscriptions.filter((item) => item !== subscription); };
   },
 }));
-vi.mock('@features/collection/public/folder-api', () => ({ FolderCollectionSwitchConfirmDialog: () => null }));
+vi.mock('@features/collection/public/folder-api', async (importOriginal) => ({
+  // 取值范围换算（resolveCollectionScope）保持真实实现：它决定媒体记录过滤，用假的会掩盖问题。
+  ...(await importOriginal<typeof import('@features/collection/public/folder-api')>()),
+  FolderCollectionSwitchConfirmDialog: () => null,
+}));
 vi.mock('@features/memo/store/note-store', () => ({
   useNoteStore: (select: (state: { notebooks: unknown[] }) => unknown) => select({ notebooks: [] }),
 }));
@@ -144,4 +148,28 @@ describe('media library surface save barrier', () => {
     await act(async () => { tail.resolve(); await operation; });
     await expect(flush).resolves.toBe(true);
   });
+});
+
+it('switching asset tabs uses the selected view filter without rewriting the default', async () => {
+  const document = createMediaLibrary('Library');
+  const first = document.views.items[0];
+  document.views.items.push({ ...first, id: `view_${'b'.repeat(32)}`, name: 'Videos',
+    filter: { all: [{ field: 'kind', op: 'eq', value: 'video' }], any: [] } });
+  mocks.read.mockResolvedValue(serializeMediaLibrary(document));
+  await act(async () => { root.unmount(); root = createRoot(container); root.render(<MediaLibraryView
+    filePath="/book/library.lib.yaml" notebookPath="/book" notebookId="book" activeViewId={first.id} />); });
+  expect((mocks.actions as unknown as { mediaLibraryViewFilter: unknown }).mediaLibraryViewFilter).toEqual(first.filter);
+  await act(async () => root.render(<MediaLibraryView filePath="/book/library.lib.yaml" notebookPath="/book" notebookId="book"
+    activeViewId={document.views.items[1].id} />));
+  expect((mocks.actions as unknown as { mediaLibraryViewFilter: unknown }).mediaLibraryViewFilter).toEqual(document.views.items[1].filter);
+  expect(mocks.write).not.toHaveBeenCalled();
+});
+it('read-only media rejects mutations even when handlers are called directly', async () => {
+  await act(async () => root.render(<MediaLibraryView filePath="/book/library.lib.yaml"
+    notebookPath="/book" notebookId="book" editable={false} />));
+  expect(await mocks.actions!.onAddMedia()).toBe(false);
+  expect(await mocks.actions!.onMediaLibraryFilterChange({ file_type: 'image' })).toBe(false);
+  expect((mocks.actions as unknown as { libraryActionsDisabled: boolean }).libraryActionsDisabled).toBe(true);
+  expect(mocks.write).not.toHaveBeenCalled();
+  expect(mocks.importFiles).not.toHaveBeenCalled();
 });

@@ -4,8 +4,7 @@ import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
 
-export function WorkColumnTitlebarNavigation({ isWindows, sidebar, navigation, children }: {
-  isWindows: boolean;
+export function WorkColumnTitlebarNavigation({ sidebar, navigation, children }: {
   sidebar: { hidden: boolean; onToggle: () => void };
   navigation: {
     visible?: boolean;
@@ -21,8 +20,8 @@ export function WorkColumnTitlebarNavigation({ isWindows, sidebar, navigation, c
   return <div className="flex min-w-0 items-center gap-1">
     {sidebar.hidden && <button type="button" onClick={sidebar.onToggle}
       aria-label={t('document.titlebar.showSidebar')} title={t('document.titlebar.showSidebarTooltip')}
-      className={`flex h-5 w-5 shrink-0 items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors [-webkit-app-region:no-drag] ${isWindows ? 'rounded-lg' : 'rounded-xl'}`}>
-      <SidebarToggleIcon className={isWindows ? 'h-4 w-4' : 'h-5 w-5'} variant="collapsed" />
+      className={navClass}>
+      <SidebarToggleIcon className="h-4 w-4" variant="collapsed" />
     </button>}
     {navigation.visible !== false && <>
       <Tooltip content={t('document.titlebar.backTooltip')} shortcut="history.back">

@@ -313,3 +313,17 @@ html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-scrollabl
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-scrollable="false"] > .overlay-scrollbar-track--horizontal {
 	pointer-events: none;
 }
+
+/* 集合整页滚动的吸顶条（tab 条 `sticky z-30` + 不透明底）不能盖住滑块 ──
+ * 滑块默认 z-index 2、轨道 1，会被吸顶条整条遮掉右端那 6px。这里把滑块 /
+ * 轨道提到内容层之上（40 / 39），滚动时滑块能从 tab 条右端上方滑过，
+ * 命中区也一起提上来，鼠标落到右边缘仍能唤出滑块。 */
+html[data-platform="non-mac"] .collection-page-scroll-frame > .overlay-scrollbar-thumb--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac.collection-page-scroll-frame > .overlay-scrollbar-thumb--vertical {
+	z-index: 40;
+}
+
+html[data-platform="non-mac"] .collection-page-scroll-frame > .overlay-scrollbar-track--vertical,
+html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac.collection-page-scroll-frame > .overlay-scrollbar-track--vertical {
+	z-index: 39;
+}

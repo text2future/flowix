@@ -1,12 +1,15 @@
 import { createElement as createReactElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { translate, type I18nKey } from '@/lib/i18n';
+import { I18nProvider, translate, type I18nKey } from '@/lib/i18n';
 import { getPropertyTypeDefinition } from '@/lib/property-types';
 import { stableTextHue } from '@/lib/color';
 import { NOTE_COLORS, NOTE_COLOR_HEX } from '@features/memo/store/note-store';
 import type { NoteColor } from '@/types/note-item';
 import { isFrontmatterPropertyFlowSequence, normalizeTagInput, toFrontmatterPropertyInput } from '@features/document/properties/frontmatter-model';
-import { PROPERTY_ICON_OPTIONS, getPropertyIconOption } from '@features/document/properties/property-icons';
+import {
+  getPropertyIconOption,
+  PropertyIconPickerPanel,
+} from '@features/document/public/property-display-api';
 import { getAllPresets, PROPERTY_KINDS, resolvePropertyPreset, type PropertyKind } from '@features/document/properties/presets';
 import { PROPERTY_DATE_RE, resolvePropertyType } from '@features/document/properties/property-type';
 import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
@@ -498,33 +501,36 @@ export class FrontmatterPropertyEditor {
           }
         };
 
-        menu.setAttribute('role', 'listbox');
-        PROPERTY_ICON_OPTIONS.forEach((option) => {
-          const item = createElement('button', 'frontmatter-property__edit-icon-option');
-          item.type = 'button';
-          item.dataset.value = option.value;
-          item.setAttribute('role', 'option');
-          item.setAttribute('aria-label', option.label);
-          item.setAttribute('aria-selected', String(option.value === iconValue));
-          const image = createElement('img', 'frontmatter-property__edit-icon-image');
-          image.src = option.src;
-          image.alt = '';
-          image.draggable = false;
-          item.append(image);
-          item.addEventListener('click', () => {
-            iconValue = option.value;
-            menu.querySelectorAll<HTMLElement>('[role="option"]').forEach((entry) => {
-              entry.setAttribute('aria-selected', String(entry === item));
-            });
-            renderTrigger();
-            closeMenu();
-            trigger.focus();
-          });
-          menu.append(item);
-        });
+        // 菜单内容直接复用共享 React 面板 PropertyIconPickerPanel —— 与属性
+        // 面板/文件树/多维表格同一个实现, 不再维护第二份 DOM 渲染。编辑器是
+        // 原生 DOM 环境, 挂独立 React root; 面板用 useI18n 取文案, 这里套
+        // I18nProvider 提供当前语言, 否则 useContext 会回退默认语言。
+        const iconMenuHost = createElement('div', 'frontmatter-property__edit-icon-content');
+        const iconMenuRoot: Root = createRoot(iconMenuHost);
+        const renderIconMenu = () => {
+          iconMenuRoot.render(createReactElement(I18nProvider, {
+            language: getCurrentAppLanguage(),
+            children: createReactElement(PropertyIconPickerPanel, {
+              value: iconValue,
+              onSelect: (next: string) => {
+                iconValue = next;
+                renderTrigger();
+                closeMenu();
+                trigger.focus();
+              },
+            }),
+          }));
+        };
+        renderIconMenu();
+        menu.append(iconMenuHost);
 
         trigger.addEventListener('click', () => {
           const open = menu.hidden;
+          if (open) {
+            // 每次展开都用当前值重渲染: 清除 × 之后选中高亮要跟着清掉;
+            // 面板内部的包/分类浏览位置由组件 state 保留, 不受影响。
+            renderIconMenu();
+          }
           menu.hidden = !open;
           trigger.setAttribute('aria-expanded', String(open));
         });
@@ -542,6 +548,7 @@ export class FrontmatterPropertyEditor {
           focusTarget: trigger,
           getValue: () => iconValue,
           storageKind: 'Icon',
+          destroy: () => iconMenuRoot.unmount(),
         };
       }
 

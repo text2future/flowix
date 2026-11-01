@@ -1,3 +1,4 @@
+import { reportWorkspaceHeaderFullscreen, clearWorkspaceHeaderFullscreen } from '@features/workspace/public/header-api';
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { GapCursor } from "@tiptap/pm/gapcursor";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
@@ -123,8 +124,6 @@ const FULLSCREEN_EXIT_FALLBACK_MIN_TOP_PX = 24;
 const FULLSCREEN_EXIT_FALLBACK_MAX_TOP_PX = 160;
 const FULLSCREEN_EXIT_FALLBACK_TOP_RATIO = 0.28;
 const SCROLL_DELTA_EPSILON_PX = 0.5;
-const AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT =
-  "flowix:agent-thread-card-fullscreen-change";
 const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
   "flowix:agent-thread-card-request-fullscreen";
 const AGENT_THREAD_CARD_FULLSCREEN_RESTORE_CLASS =
@@ -1356,18 +1355,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     if (tr.docChanged) this.view.dispatch(tr);
   }
 
-  private dispatchFullscreenChange(): void {
-    window.dispatchEvent(
-      new CustomEvent(AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT, {
-        detail: {
-          active: this.isFullscreen,
-          element: this.dom,
-          threadId: this.threadId,
-        },
-      }),
-    );
-  }
-
   private setFullscreen(
     fullscreen: boolean,
     options: { persist?: boolean; fromRestore?: boolean } = {},
@@ -1389,7 +1376,6 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       this.persistFullscreenState(fullscreen);
     }
     this.renderFullscreenState();
-    this.dispatchFullscreenChange();
     this.chrome.renderBadgeHoverCard();
     // 下一帧同步 badge 位置 ── 布局(全屏 container 切换)在当帧不一定完成,
     // 立即 getBoundingClientRect 可能拿到旧值
@@ -1414,6 +1400,14 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private renderFullscreenState(): void {
+    const host = this.workspaceHost;
+    if (host) {
+      if (this.isFullscreen) reportWorkspaceHeaderFullscreen(host, this, {
+        title: this.title, typeKey: this.typeKey,
+        instanceId: this.instanceId, threadId: this.threadId,
+      });
+      else clearWorkspaceHeaderFullscreen(host, this);
+    }
     this.fullscreenButton.hidden = false;
     this.openInBrowserColumnButton.hidden = this.isFullscreen;
     this.actionsDivider.hidden = false;

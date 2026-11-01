@@ -1,4 +1,5 @@
 import { Extension, markPasteRule, nodePasteRule, PasteRule } from '@tiptap/core';
+import type { MarkType } from '@tiptap/pm/model';
 
 export const MarkdownPaste = Extension.create({
   name: 'markdownPaste',
@@ -6,28 +7,19 @@ export const MarkdownPaste = Extension.create({
 
   addPasteRules(): PasteRule[] {
     const schema = this.editor.schema;
-    const rules: PasteRule[] = [
-      markPasteRule({
-        find: /\*\*([^*]+)\*\*/g,
-        type: schema.marks.strong,
-      }),
-      markPasteRule({
-        find: /\*([^*]+)\*/g,
-        type: schema.marks.em,
-      }),
-      markPasteRule({
-        find: /_([^_]+)_/g,
-        type: schema.marks.em,
-      }),
-      markPasteRule({
-        find: /`([^`]+)`/g,
-        type: schema.marks.code,
-      }),
-      markPasteRule({
-        find: /~~([^~]+)~~/g,
-        type: schema.marks.strike,
-      }),
-    ];
+    const rules: PasteRule[] = [];
+
+    // Tiptap names these marks `bold` / `italic`. Resolving a mark that the
+    // schema does not contain used to reach `undefined.create()` inside the
+    // paste transaction, which broke the whole paste; skip it instead.
+    const addMarkRule = (find: RegExp, type: MarkType | undefined) => {
+      if (type) rules.push(markPasteRule({ find, type }));
+    };
+
+    addMarkRule(/\*\*([^*]+)\*\*/g, schema.marks.bold);
+    addMarkRule(/\*([^*]+)\*/g, schema.marks.italic);
+    addMarkRule(/`([^`]+)`/g, schema.marks.code);
+    addMarkRule(/~~([^~]+)~~/g, schema.marks.strike);
 
     if (schema.nodes.fileAttachment) {
       rules.push(nodePasteRule({

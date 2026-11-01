@@ -1117,7 +1117,7 @@ impl MemoFile {
             )
         };
         if !parent_relative_path.trim().is_empty()
-            && super::super::FileManagementPolicy::from_notebook_root(&base).is_ignored_at(&base, Path::new(parent_relative_path))
+            && super::super::FileManagementPolicy::from_notebook_root(&base).is_tree_hidden_at(&base, Path::new(parent_relative_path))
         {
             return Err("memo destination is an internal notebook directory".to_string());
         }
@@ -1227,7 +1227,7 @@ fn collect_markdown_paths(
             }
         };
         let path = entry.path();
-        if policy.is_index_ignored_at(base, path.strip_prefix(base).unwrap_or(&path)) {
+        if policy.is_index_hidden_at(base, path.strip_prefix(base).unwrap_or(&path)) {
             continue;
         }
         let file_type = match entry.file_type() {

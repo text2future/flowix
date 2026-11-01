@@ -1,5 +1,8 @@
 'use client';
 
+import { collectionIndexPathForFolder } from '@features/collection/public/folder-api';
+import { CollectionResourceIcon } from '@features/collection/public/appearance-api';
+
 import {
   memo,
   useCallback,
@@ -12,7 +15,6 @@ import {
 } from 'react';
 import {
   CopyIcon,
-  EyeSlashIcon,
   FolderOpenIcon,
   MapPinSimpleAreaIcon,
   PencilSimpleIcon,
@@ -23,8 +25,8 @@ import {
 import { ChevronRight, Loader2, MoreHorizontal } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
-import { cn, displayTitleFromFilename, isCollectionIndexFilename, isMediaLibraryFilename, isTableDocumentFilename } from '@/lib/utils';
-import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
+import { cn, displayTitleFromFilename, isCollectionIndexFilename } from '@/lib/utils';
+import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { useI18n } from '@/lib/i18n';
 import { MemoCardActions } from '@features/memo/components/memo-card-actions';
 import { NotebookCreateContextMenuItems } from '@features/memo/components/notebook-create-context-menu';
@@ -42,9 +44,11 @@ import { useNoteMetadata } from '../hooks/use-note-metadata';
 import { noteMetadata } from '../services/note-metadata-service';
 import { resourceKindFromPath } from '@features/editor/code-file';
 import { ContentIcon, getFileIconKind, HtmlFileIcon } from '@features/content/public/content-api';
+import { resolveRowCollectionType } from './collection-row-icon';
+import type { PinnedTreeItem } from './use-notebook-pinned-notes';
 import { TreeIconPicker } from './tree-icon-picker';
 import { setDocumentProperties } from '@features/document/public/path-properties';
-import { files, notes, product, type DocTreeItem } from '@platform/tauri/client';
+import { notes, product, type DocTreeItem } from '@platform/tauri/client';
 import { logNativeContextMenuError } from '@platform/tauri/native-context-menu';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 
@@ -65,16 +69,6 @@ export const FOLDER_SINGLE_CLICK_DELAY_MS = 300;
  */
 const HIDDEN_FOLDER_ICON_OPACITY_CLASS = 'opacity-50';
 const HIDDEN_FOLDER_LABEL_OPACITY = 0.8;
-
-const NOTEBOOK_AGENT_PROJECT_FOLDER_NAMES = new Set([
-  '.agent',
-  '.agents',
-  '.codex',
-  '.claude',
-  '.dsh',
-  '.opencode',
-  '.hermes',
-]);
 
 export const NotebookTreeRow = memo(function NotebookTreeRow({
   item,
@@ -114,10 +108,11 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onKeepAliveChange,
   favoritePath,
   onFavoriteChanged,
-  tableViewVisibility,
-  mediaLibraryViewVisibility,
+  pinned,
+  onTogglePinned,
+  tableDocumentIdentity,
+  mediaLibraryIdentity,
   workDocumentsCollection = false,
-  workDocumentsViewVisibility,
   tabIndex = 0,
   moveStatus,
 }: {
@@ -158,10 +153,17 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   onKeepAliveChange?: (path: string, active: boolean) => void;
   favoritePath?: string;
   onFavoriteChanged?: (itemId: string, favorited: boolean) => void;
-  tableViewVisibility?: { collectionId: string; inViews: boolean; identityConflict?: boolean; onChange: (inViews: boolean) => void; onMakeIdentityUnique?: () => void };
-  mediaLibraryViewVisibility?: { inViews: boolean; identityConflict?: boolean; onChange: (inViews: boolean) => void; onMakeIdentityUnique?: () => void };
+  /** Pin state for documents and collections; notes use `memoMeta.favorited`. */
+  pinned?: boolean;
+  onTogglePinned?: (nextPinned: boolean) => void | Promise<void>;
+  /**
+   * Presence marks the row as a known collection even when the filename is not
+   * conclusive; `identityConflict` is what surfaces the repair action, since the
+   * Views section no longer exists to hide rows from.
+   */
+  tableDocumentIdentity?: { identityConflict?: boolean; onMakeIdentityUnique?: () => void };
+  mediaLibraryIdentity?: { identityConflict?: boolean; onMakeIdentityUnique?: () => void };
   workDocumentsCollection?: boolean;
-  workDocumentsViewVisibility?: { inViews: boolean; disabled?: boolean; onChange: (inViews: boolean) => void };
   tabIndex?: number;
   moveStatus?: 'moving' | 'success';
 }) {
@@ -197,38 +199,46 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     && sourceFolderName.startsWith('.')
     && sourceFolderName !== '.'
     && sourceFolderName !== '..';
-  const isAgentProjectFolder = isFolder
-    && depth === 0
-    && NOTEBOOK_AGENT_PROJECT_FOLDER_NAMES.has(sourceFolderName);
   const actionParentPath = isFolder ? item.fullPath : parentPath;
-  const hideAgentProjectFolder = async () => {
-    const root = canonicalDirectoryPath(notebookPath);
-    const fullPath = canonicalDirectoryPath(item.fullPath);
-    const rootPrefix = root.endsWith('/') ? root : `${root}/`;
-    if (!fullPath.startsWith(rootPrefix)) return;
-    const relativePath = fullPath.slice(rootPrefix.length);
-    try {
-      const preferences = await files.getNotebookViewPreferences(notebookPath);
-      const includedPaths = preferences.fileManagement.includedPaths.filter(
-        (path) => canonicalPath(path) !== relativePath,
-      );
-      await files.setNotebookViewPreferences(notebookPath, {
-        ...preferences,
-        fileManagement: { ...preferences.fileManagement, includedPaths },
-      });
-    } catch {
-      toast.error(t('memo.fileTree.preferenceSaveFailed'));
-    }
-  };
   const resourceKind = isFolder ? null : item.resourceKind ?? resourceKindFromPath(item.name);
   const isNote = resourceKind === 'note';
+  // The backend is the only source of pin state; callers may override it for
+  // synthesized rows, but normally the row reads the item's own flag.
+  const isPinnedItem = pinned ?? item.pinned ?? false;
+  // Folders pin through view preferences, so the caller usually passes
+  // `onTogglePinnedFolder`; the pinned group instead reuses the shared toggle.
+  const isPinnedFolderItem = isPinnedFolder || (isFolder && item.pinned === true);
+  const toggleFolderPin = onTogglePinnedFolder
+    ? () => { void onTogglePinnedFolder(item.fullPath); }
+    : onTogglePinned
+      ? () => { void onTogglePinned(!isPinnedFolderItem); }
+      : null;
   const isHtmlFile = !isFolder && getFileIconKind(item.fullPath) === 'html';
-  const isTableDocument = !isFolder && (Boolean(tableViewVisibility)
-    || (isTableDocumentFilename(item.name) && !isMediaLibraryFilename(item.name)));
-  const isMediaLibrary = !isFolder && (Boolean(mediaLibraryViewVisibility)
-    || (isMediaLibraryFilename(item.name) && !isTableDocumentFilename(item.name)));
+  // Pinned titles omit extensions; their entry kind still identifies a collection
+  // even when its indexed type is unknown or stale.
+  const isPinnedCollection = (item as Partial<PinnedTreeItem>).pinnedEntryKind === 'collection';
+  const collectionRowType = isFolder ? undefined : resolveRowCollectionType({
+    collectionType: (item as Partial<PinnedTreeItem>).pinnedCollectionType,
+    fileName: item.name,
+    hasTableIdentity: Boolean(tableDocumentIdentity),
+    hasMediaLibraryIdentity: Boolean(mediaLibraryIdentity),
+    workDocumentsCollection,
+  });
+  const isTableDocument = collectionRowType === 'table';
+  const isMediaLibrary = collectionRowType === 'media_library';
   const isCollectionIndex = !isFolder && isCollectionIndexFilename(item.name);
-  const isExtensionlessDocument = isNote || isTableDocument || isMediaLibrary || isCollectionIndex;
+  const sidebarFolderDefault = <span className="flex h-[18px] w-[18px] items-center justify-center"
+    dangerouslySetInnerHTML={{ __html: isDefaultFolder ? folderIconDefault : folderIcon }} />;
+  const folderResourceIcon = isFolder ? <CollectionResourceIcon
+    filePath={collectionIndexPathForFolder(item.fullPath)} notebookPath={notebookPath}
+    className="h-[18px] w-[18px] object-contain"
+    fallback={sidebarFolderDefault} folderDefault={sidebarFolderDefault}
+  /> : null;
+  const collectionResourceIcon = collectionRowType || isCollectionIndex || isPinnedCollection
+    ? <CollectionResourceIcon filePath={item.fullPath} notebookPath={notebookPath} fallbackType={collectionRowType}
+      folderDefault={/^\.index\.ya?ml$/i.test(item.fullPath.split(/[\\/]/).pop() ?? '') ? sidebarFolderDefault : undefined}
+      className="h-[18px] w-[18px] object-contain" /> : null;
+  const isExtensionlessDocument = isNote || isTableDocument || isMediaLibrary || isCollectionIndex || isPinnedCollection;
   // 树行标题不带后缀的范围：笔记 / 表格 / 媒体库 / 集合索引，外加已按网页图标渲染的
   // html。重命名输入框仍只认 isExtensionlessDocument —— 网页文件改名要保留后缀。
   const showsTitleWithoutExtension = isExtensionlessDocument || isHtmlFile;
@@ -493,16 +503,14 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             )}
           >
             {isFolder ? (
-              <span
-                className="absolute inset-0 flex items-center justify-center"
-                dangerouslySetInnerHTML={{ __html: isDefaultFolder ? folderIconDefault : folderIcon }}
-              />
+              <span className="absolute inset-0 flex items-center justify-center">{folderResourceIcon}</span>
             ) : isNote ? (
               <ContentIcon content={{ kind: 'note' }} className="notebook-file-tree__default-file-icon h-[18px] w-[18px]" />
             ) : (
               isHtmlFile
                 ? <HtmlFileIcon className="h-[18px] w-[18px]" />
-                : <ContentIcon content={workDocumentsCollection ? { kind: 'work-documents' } : isMediaLibrary ? { kind: 'media-library' } : isTableDocument ? { kind: 'multidimensional-table' } : { kind: 'file', path: item.name }} className="h-[18px] w-[18px]" />
+                : collectionResourceIcon ? collectionResourceIcon
+                : <ContentIcon content={{ kind: 'file', path: item.name }} className="h-[18px] w-[18px]" />
             )}
           </span>
           <input
@@ -553,8 +561,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               )}>
                 <span
                   className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
-                  dangerouslySetInnerHTML={{ __html: isDefaultFolder ? folderIconDefault : folderIcon }}
-                />
+                >{folderResourceIcon}</span>
               </span>
               <ChevronRight className={cn(
                 'absolute left-1/2 top-1/2 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 opacity-0 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-focus-visible:opacity-100',
@@ -579,7 +586,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             <span className={'relative flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[color-mix(in_oklch,var(--foreground)_70%,black_30%)] [[data-theme="dark"]_&]:text-[var(--foreground)] [[data-theme="mist"]_&]:text-[var(--foreground)]'}>
               {isHtmlFile
                 ? <HtmlFileIcon className="h-[18px] w-[18px]" />
-                : <ContentIcon content={workDocumentsCollection ? { kind: 'work-documents' } : isMediaLibrary ? { kind: 'media-library' } : isTableDocument ? { kind: 'multidimensional-table' } : { kind: 'file', path: item.name }} className="h-[18px] w-[18px]" />}
+                : collectionResourceIcon ? collectionResourceIcon
+                : <ContentIcon content={{ kind: 'file', path: item.name }} className="h-[18px] w-[18px]" />}
             </span>
           )}
           {!isFolder && isNote && displayedColors.length > 0 && (
@@ -611,9 +619,6 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               ? item.name
               : displayTitleFromFilename(item.name))}
           </span>
-          {isFolder && isPinnedFolder && !renaming && (
-            <PushPin weight="fill" className="ml-1 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
-          )}
           {isFolder && isDefaultFolder && !renaming && (
             <span className="ml-2 shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 transition-opacity duration-150 group-hover:opacity-0">
               {t('memo.fileTree.defaultNoteFolderLabel')}
@@ -683,6 +688,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
           onCreateWorkDocuments={onCreateWorkDocuments ? () => onCreateWorkDocuments(actionParentPath) : undefined}
           onImportFiles={onImportFiles ? () => onImportFiles(actionParentPath) : undefined}
           onImportFolder={onImportFolder ? () => onImportFolder(actionParentPath) : undefined}
+          contentCreationBlocked={item.indexExcluded === true}
         />
         <ContextMenuItem
           onClick={() => {
@@ -695,6 +701,15 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
           <PencilSimpleIcon className="mr-2 h-4 w-4" />
           {t('memo.fileTree.rename')}
         </ContextMenuItem>
+        {!isFolder && !isNote && onTogglePinned && (
+          <ContextMenuItem
+            className={TREE_MENU_ITEM_CLASS}
+            onClick={() => { void onTogglePinned(!isPinnedItem); }}
+          >
+            <PushPin weight={isPinnedItem ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t(isPinnedItem ? 'memo.action.unpin' : 'memo.action.pin')}
+          </ContextMenuItem>
+        )}
         {!isFolder && (!isNote || !displayedMemo) && <NotebookCopyContextMenu path={item.fullPath} isNote={isNote} />}
         {isFolder && onDeleteFolder && (
           <ContextMenuItem
@@ -724,68 +739,32 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             {t(isDefaultFolder ? 'memo.fileTree.clearDefaultCreateFolder' : 'memo.fileTree.setDefaultCreateFolder')}
           </ContextMenuItem>
         )}
-        {isFolder && onTogglePinnedFolder && (
-          <ContextMenuItem onClick={() => onTogglePinnedFolder(item.fullPath)} className={TREE_MENU_ITEM_CLASS}>
-            <PushPin weight={isPinnedFolder ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(isPinnedFolder ? 'memo.fileTree.unpinFolder' : 'memo.fileTree.pinFolder')}
+        {isFolder && toggleFolderPin && (
+          <ContextMenuItem onClick={toggleFolderPin} className={TREE_MENU_ITEM_CLASS}>
+            <PushPin weight={isPinnedFolderItem ? 'fill' : 'regular'} className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t(isPinnedFolderItem ? 'memo.fileTree.unpinFolder' : 'memo.fileTree.pinFolder')}
           </ContextMenuItem>
         )}
-        {isTableDocument && tableViewVisibility && (
-          tableViewVisibility.identityConflict ? (
-            <ContextMenuItem onClick={tableViewVisibility.onMakeIdentityUnique} disabled={!tableViewVisibility.onMakeIdentityUnique} className={TREE_MENU_ITEM_CLASS}>
-              {t('multidimensionalTable.resolveIdentityConflict')}
-            </ContextMenuItem>
-          ) : <ContextMenuItem
-            onClick={() => tableViewVisibility.onChange(!tableViewVisibility.inViews)}
-            className={TREE_MENU_ITEM_CLASS}
-          >
-            <EyeSlashIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(tableViewVisibility.inViews ? 'multidimensionalTable.viewMembership.hide' : 'multidimensionalTable.viewMembership.add')}
+        {isTableDocument && tableDocumentIdentity?.identityConflict && (
+          <ContextMenuItem onClick={tableDocumentIdentity.onMakeIdentityUnique} disabled={!tableDocumentIdentity.onMakeIdentityUnique} className={TREE_MENU_ITEM_CLASS}>
+            {t('multidimensionalTable.resolveIdentityConflict')}
           </ContextMenuItem>
         )}
-        {workDocumentsCollection && workDocumentsViewVisibility && (
-          <ContextMenuItem
-            onClick={() => workDocumentsViewVisibility.onChange(!workDocumentsViewVisibility.inViews)}
-            disabled={workDocumentsViewVisibility.disabled}
-            className={TREE_MENU_ITEM_CLASS}
-          >
-            <EyeSlashIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(workDocumentsViewVisibility.inViews ? 'multidimensionalTable.viewMembership.hide' : 'multidimensionalTable.viewMembership.add')}
+        {isMediaLibrary && mediaLibraryIdentity?.identityConflict && (
+          <ContextMenuItem onClick={mediaLibraryIdentity.onMakeIdentityUnique} disabled={!mediaLibraryIdentity.onMakeIdentityUnique} className={TREE_MENU_ITEM_CLASS}>
+            {t('mediaLibrary.resolveIdentityConflict')}
           </ContextMenuItem>
         )}
-        {isMediaLibrary && mediaLibraryViewVisibility && (
-          mediaLibraryViewVisibility.identityConflict ? (
-            <ContextMenuItem onClick={mediaLibraryViewVisibility.onMakeIdentityUnique} disabled={!mediaLibraryViewVisibility.onMakeIdentityUnique} className={TREE_MENU_ITEM_CLASS}>
-              {t('mediaLibrary.resolveIdentityConflict')}
-            </ContextMenuItem>
-          ) : <ContextMenuItem
-            onClick={() => mediaLibraryViewVisibility.onChange(!mediaLibraryViewVisibility.inViews)}
-            className={TREE_MENU_ITEM_CLASS}
-          >
-            <EyeSlashIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-            {t(mediaLibraryViewVisibility.inViews ? 'mediaLibrary.viewMembership.hide' : 'mediaLibrary.viewMembership.show')}
-          </ContextMenuItem>
-        )}
-        {isFolder && (onDeleteFolder || isAgentProjectFolder) && (
+        {isFolder && onDeleteFolder && (
           <>
             <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-            {isAgentProjectFolder ? (
-              <ContextMenuItem
-                onClick={() => void hideAgentProjectFolder()}
-                className={TREE_MENU_ITEM_CLASS}
-              >
-                <EyeSlashIcon className="mr-2 h-4 w-4" />
-                {t('memo.fileTree.hideAgentProjectFolder')}
-              </ContextMenuItem>
-            ) : onDeleteFolder ? (
-              <ContextMenuItem
-                onClick={() => setConfirmDelete(true)}
-                className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
-              >
-                <TrashSimpleIcon className="mr-2 h-4 w-4" />
-                {t('memo.fileTree.delete')}
-              </ContextMenuItem>
-            ) : null}
+            <ContextMenuItem
+              onClick={() => setConfirmDelete(true)}
+              className={cn(TREE_MENU_ITEM_CLASS, 'hover:bg-transparent hover:text-[var(--destructive)]')}
+            >
+              <TrashSimpleIcon className="mr-2 h-4 w-4" />
+              {t('memo.fileTree.delete')}
+            </ContextMenuItem>
           </>
         )}
         {!isFolder && !isNote && onDeleteFile && (

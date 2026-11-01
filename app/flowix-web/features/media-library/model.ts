@@ -2,13 +2,16 @@ import { createCollectionMetadata, createUuidV7, parseCollectionDocumentV2, seri
 import { createUniqueNotebookFile } from '@features/collection/create-unique-notebook-file';
 export { createUuidV7 } from '@features/collection/model';
 import { sanitizeFileName } from '@/lib/export-utils';
-import { matchesDatasetFilter, type DatasetFilter } from '@features/collection/rule-filter';
+import { ASSET_KINDS, matchesAssetCollectionFilter, type AssetKind } from '@features/collection/public/asset-filter-api';
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
 
 export type MediaLibraryKind = 'image' | 'video';
 export interface MediaLibraryFileCondition {
   file_name_contains?: string;
+  /** 旧数据的单选类型条件；新写入统一用 `file_types`。 */
   file_type?: MediaLibraryKind;
+  /** 多选类型条件：空/缺省 = 面板类目内全部（图+视频）。落盘为 kind 的 `in` 规则。 */
+  file_types?: MediaLibraryKind[];
   path_contains?: string;
   path_scope?: 'all';
 }
@@ -33,9 +36,13 @@ export function hasMediaDatasetFilter(filter: Record<string, unknown> | null | u
 }
 
 export function normalizeMediaLibraryFileCondition(condition?: MediaLibraryFileCondition | null): MediaLibraryFileCondition {
+  const fileTypes = (condition?.file_types ?? (condition?.file_type ? [condition.file_type] : []))
+    .filter((kind): kind is MediaLibraryKind => kind === 'image' || kind === 'video');
+  // 去重 + 保持类目顺序，选满两类时等价于全部 → 不写条件。
+  const ordered = [...new Set(fileTypes)].sort((left, right) => (left === 'image' ? -1 : 1) - (right === 'image' ? -1 : 1));
   const normalized = {
     file_name_contains: condition?.file_name_contains?.trim() ?? '',
-    file_type: condition?.file_type ?? '',
+    file_types: ordered.length && ordered.length < 2 ? ordered : undefined,
     path_contains: condition?.path_contains?.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') ?? '',
     path_scope: condition?.path_scope === 'all' ? 'all' : '',
   };
@@ -46,7 +53,8 @@ export function mediaCollectionFilterFromCondition(condition?: MediaLibraryFileC
   const normalized = normalizeMediaLibraryFileCondition(condition);
   const conditions: Record<string, unknown>[] = [];
   if (normalized.file_name_contains) conditions.push({ field: 'file_name', op: 'contains', value: normalized.file_name_contains });
-  if (normalized.file_type) conditions.push({ field: 'kind', op: 'eq', value: normalized.file_type });
+  if (normalized.file_types?.length) conditions.push({ field: 'kind', op: 'in', value: normalized.file_types });
+  else if (normalized.file_type) conditions.push({ field: 'kind', op: 'eq', value: normalized.file_type });
   return {
     path: normalized.path_scope === 'all' ? '' : normalized.path_contains || null,
     match: 'all',
@@ -55,21 +63,7 @@ export function mediaCollectionFilterFromCondition(condition?: MediaLibraryFileC
 }
 
 export function matchesMediaCollectionFilter(relativePath: string, kind: MediaLibraryKind, filter?: Record<string, unknown> | null): boolean {
-  if (!filter) return true;
-  const path = relativePath.replace(/\\/g, '/');
-  const name = path.split('/').pop() ?? path;
-  const directory = path.split('/').slice(0, -1).join('/');
-  return matchesDatasetFilter(filter as unknown as DatasetFilter, (rule) => {
-    const actual = rule.field === 'file_name' ? name : rule.field === 'path' ? directory : rule.field === 'kind' ? kind : undefined;
-    if (actual === undefined) return false;
-    if (rule.op === 'in' && Array.isArray(rule.value)) return rule.value.some((value) => String(value).toLocaleLowerCase() === actual.toLocaleLowerCase());
-    if ((rule.op === 'eq' || rule.op === 'equals') && rule.value != null) return actual.toLocaleLowerCase() === String(rule.value).toLocaleLowerCase();
-    if (rule.op !== 'contains' || typeof rule.value !== 'string') return false;
-    const expected = rule.value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLocaleLowerCase();
-    const value = actual.toLocaleLowerCase();
-    if (rule.field === 'path' && expected === '') return true;
-    return rule.field === 'path' ? value === expected || value.startsWith(`${expected}/`) : value.includes(expected);
-  });
+  return matchesAssetCollectionFilter(relativePath, kind, filter);
 }
 
 export interface MediaLibraryDocument {
@@ -125,6 +119,11 @@ export function mediaLibraryFileCondition(document: MediaLibraryDocument): Media
     const rule = entry as Record<string, unknown>;
     if (rule.field === 'file_name' && rule.op === 'contains' && typeof rule.value === 'string') condition.file_name_contains = rule.value;
     if (rule.field === 'kind' && rule.op === 'eq' && (rule.value === 'image' || rule.value === 'video')) condition.file_type = rule.value;
+    if (rule.field === 'kind' && rule.op === 'in' && Array.isArray(rule.value)) {
+      const kinds = rule.value.filter((value): value is MediaLibraryKind => value === 'image' || value === 'video');
+      if (kinds.length === 1) condition.file_type = kinds[0];
+      else if (kinds.length === 2) condition.file_types = kinds;
+    }
   }
   return condition;
 }
@@ -139,7 +138,8 @@ export function canEditMediaLibraryFilter(document: MediaLibraryDocument): boole
       (rule.field === 'file_name' && rule.op === 'contains' && typeof rule.value === 'string')
       || (rule.field === 'kind' && rule.op === 'eq' && (rule.value === 'image' || rule.value === 'video'))
       || (rule.field === 'kind' && rule.op === 'in' && Array.isArray(rule.value)
-        && rule.value.length === 2 && rule.value.includes('image') && rule.value.includes('video'))
+        && rule.value.length > 0
+        && rule.value.every((value) => ASSET_KINDS.includes(value as AssetKind)))
     ));
   }
   const all = Array.isArray(filter.all) ? filter.all as Record<string, unknown>[] : null;
@@ -190,7 +190,7 @@ export function createMediaLibrary(name: string): MediaLibraryDocument {
       schema: { fields: [] }, records: { include: [], exclude: [] },
       filter: null,
     },
-    views: { default_id: viewId, items: [{ id: viewId, name: '媒体库', layout: 'waterfall',
+    views: { default_id: viewId, items: [{ id: viewId, name: '图墙', layout: 'waterfall',
       filter: { all: [], any: [] }, sort: [{ field: 'created_at', direction: 'desc' }], config: {} }] },
   };
 }

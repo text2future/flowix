@@ -451,7 +451,6 @@ export class FeaturedNotesController {
         detail: {
           notebookId,
           onCreated: async (selection: FeaturedNotesTableSelection) => {
-            await files.setTableDocumentInViews(notebookId, selection.collectionId, true);
             await writeFeaturedNotesTableSelection(notebookId, selection);
             onChange();
           },

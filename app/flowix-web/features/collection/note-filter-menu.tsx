@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { ChevronRight, Plus, X } from 'lucide-react';
-import { FunnelIcon } from '@phosphor-icons/react';
 import { files, type NotebookFolderOption } from '@platform/tauri/client';
 import { ResourceFolderIcon } from '@features/surface/resource-file-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
+import { CollectionDatasetMenu } from '@shared/ui/collection-dataset-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/ui/select';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
@@ -28,7 +28,7 @@ import {
 const EMPTY_FILTER_FIELDS: NoteFilterEditorField[] = [];
 const autoCollectValueFrameClassName = 'min-w-0 flex-1 rounded-lg px-2 ring-1 ring-inset ring-[var(--border)]';
 
-export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields = EMPTY_FILTER_FIELDS, config: autoCollectConfig = null, notebookId, notebookPath, fixedFolderPath, saving, t, onSave, onSavePath, open: controlledOpen, onOpenChange, children, ignoreOutside = false, filterOnly = false, embedded = false, folderLabel, folderPickerTitle, folderIcon, filterIcon, filterOpen, onFilterOpenChange }: {
+export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields = EMPTY_FILTER_FIELDS, config: autoCollectConfig = null, notebookId, notebookPath, fixedFolderPath, saving, t, onSave, onSavePath, open: controlledOpen, onOpenChange, children, assetFilter, ignoreOutside = false, filterOnly = false, embedded = false, folderLabel, folderPickerTitle, folderIcon, filterIcon, filterLabel, filterOpen, onFilterOpenChange }: {
   defaultFieldId?: string;
   fields?: NoteFilterEditorField[];
   config?: NoteFilterConfig | null;
@@ -43,6 +43,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children?: ReactNode;
+  assetFilter?: ReactNode;
   ignoreOutside?: boolean;
   filterOnly?: boolean;
   /** Render the existing data-condition row, supplied menu items, then location row inside another menu. */
@@ -51,6 +52,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
   folderPickerTitle?: string;
   folderIcon?: ReactNode;
   filterIcon?: ReactNode;
+  filterLabel?: string;
   filterOpen?: boolean;
   onFilterOpenChange?: (open: boolean) => void;
 }) {
@@ -356,7 +358,7 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
         <Popover open={autoCollectMenuOpen} onOpenChange={changeFilterOpen}>
           <PopoverTrigger asChild>
             <button type="button" disabled={saving} className={`group flex h-8 w-full items-center justify-between rounded-lg px-1.5 text-left text-sm disabled:opacity-50 ${embedded ? 'hover:bg-[var(--brand)] data-[state=open]:bg-[var(--brand)] hover:text-[var(--primary-foreground)] data-[state=open]:text-[var(--primary-foreground)]' : 'hover:bg-[var(--hover-bg)] data-[state=open]:bg-[var(--hover-bg)] hover:text-[var(--foreground)] data-[state=open]:text-[var(--foreground)]'}`}>
-              <span className="flex min-w-0 items-center gap-2">{filterIcon}<span className="truncate">{t('multidimensionalTable.autoCollect.dataConditions')}</span></span>
+              <span className="flex min-w-0 items-center gap-2">{filterIcon}<span className="truncate">{filterLabel ?? t('multidimensionalTable.autoCollect.dataConditions')}</span></span>
               <span className={`flex items-center gap-1 text-xs ${embedded ? 'text-[var(--muted-foreground)] group-hover:text-[var(--primary-foreground)] group-data-[state=open]:text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)]'}`}>
                 {dataSelectionConfigured ? '已设置' : '未设置'}
                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -564,12 +566,9 @@ export function NoteFilterMenu({ defaultFieldId = '', fields: autoCollectFields 
   </div>;
   if (filterOnly) return filterMenu;
   if (embedded) return <div className="space-y-0.5">{filterMenu}{children}{folderPathRow}</div>;
-  return <Popover open={open} onOpenChange={changeOpen}>
-    <PopoverTrigger asChild><button type="button" disabled={saving} title="数据集合" aria-label="管理数据集" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg p-0 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"><FunnelIcon size={14} weight="bold" aria-hidden="true" /></button></PopoverTrigger>
-    <PopoverContent align="end" side="bottom" sideOffset={0} style={{ zIndex: 150 }} ignorePopoverOutside={autoCollectMenuOpen || folderPickerOpen || ignoreOutside} ignoreSelectOutside className="max-h-[60vh] w-[220px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl p-1.5 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-      <OverlayScrollbar className="overlay-scrollbar-frame--edge-aligned max-h-[calc(60vh-14px)]" scrollerClassName="max-h-[calc(60vh-14px)] overflow-y-auto overflow-x-hidden">
-        <div className="space-y-0.5">{folderPathRow}{filterMenu}<div role="separator" aria-hidden="true" className="mx-2 h-px bg-[var(--border)]" />{children}</div>
-      </OverlayScrollbar>
-    </PopoverContent>
-  </Popover>;
+  return <CollectionDatasetMenu open={open} onOpenChange={changeOpen} disabled={saving}
+    ignoreOutside={autoCollectMenuOpen || folderPickerOpen || ignoreOutside}
+    location={folderPathRow} noteFilter={filterMenu} assetFilter={assetFilter}>
+    {children}
+  </CollectionDatasetMenu>;
 }

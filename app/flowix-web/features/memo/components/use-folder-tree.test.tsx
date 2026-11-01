@@ -114,6 +114,32 @@ describe('useFolderTree', () => {
     expect(lastState?.nodes.get('/root/sub')?.children?.[0].memoMeta?.icon).toBeNull();
   });
 
+  it('inserts the folder node when children load before any tree expansion reached it', async () => {
+    // 置顶分组可在文件树父链未加载时展开嵌套文件夹 (loadDirectory 不动
+    // expanded)。reconcile 必须补上父条目, 否则拍平逻辑在 nodes.get(父)
+    // 处断链, 展开渲染成空列表。
+    getTreeMock.mockResolvedValue([dir('/root/p', 'p')]);
+    getDirChildrenMock.mockImplementation(async (directory) => directory === '/root/p/训练营'
+      ? [file('/root/p/训练营/a.md', 'a.md'), dir('/root/p/训练营/b', 'b')]
+      : []);
+    mount('/root');
+    await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+    expect(lastState?.nodes.get('/root/p/训练营')).toBeUndefined();
+
+    await act(async () => { await lastState?.loadDirectory('/root/p/训练营'); });
+
+    const node = lastState?.nodes.get('/root/p/训练营');
+    expect(node?.type).toBe('folder');
+    expect(node?.fullPath).toBe('/root/p/训练营');
+    expect(node?.name).toBe('训练营');
+    expect(node?.children?.map((child) => child.fullPath)).toEqual([
+      '/root/p/训练营/a.md',
+      '/root/p/训练营/b',
+    ]);
+    // 保留子级缓存: 子文件夹占位不被后续 reconcile 丢弃。
+    expect(lastState?.nodes.get('/root/p/训练营/b')?.type).toBe('folder');
+  });
+
   it.each(['refresh', 'reload'] as const)('keeps confirmed metadata when a later %s has no indexed metadata', async (mode) => {
     const path = '/root/a.md';
     getTreeMock.mockResolvedValue([file(path, 'a.md')]);
@@ -534,7 +560,7 @@ describe('flattenVisibleTree', () => {
     ]);
   });
 
-  it('手工置顶的文件夹优先于隐藏文件夹置顶', () => {
+  it('置顶文件夹不再改变访问空间排序, 仍按排序规则就地排列', () => {
     const state: FolderTreeState = {
       rootChildren: [
         { ...dir('/root/notes', 'notes'), createdMs: 80 },
@@ -549,9 +575,13 @@ describe('flattenVisibleTree', () => {
       error: null,
     };
 
-    expect(
-      flattenVisibleTree(state, 'createdAt', ['/root/archive']).map(({ item }) => item.name),
-    ).toEqual(['archive', '.trash', 'notes']);
+    // archive 被置顶后, 访问空间仍把它排在隐藏组之后、按创建时间就地排序;
+    // 置顶只负责把它复制到「置顶」分组, 不参与这里的排序。
+    expect(flattenVisibleTree(state).map(({ item }) => item.name)).toEqual([
+      '.trash',
+      'notes',
+      'archive',
+    ]);
   });
 });
 

@@ -14,10 +14,11 @@ import { toast } from '@/lib/toast';
 import { findFileDisplayPath, type FileDisplayIdentity } from '@/lib/file-display-registry';
 import { parseTableDocumentAsync } from './parse-table-document';
 import { serializeTableDocument, parseTableDocument, validateTableDocument, type MultidimensionalTableDocument } from './model';
-import { isLegacyCollectionSource } from '@features/collection/model';
+import { isLegacyCollectionSource, collectionSourceDomain, collectionWriteContent, type CollectionDomain } from '@features/collection/model';
 import { bindTablePresetsFromSnapshot } from '@features/properties/property-preset-service';
 
 interface TableSessionOptions {
+  editable?: boolean;
   expectedCollectionId?: string | null;
   filePath: string;
   fileIdentity?: FileDisplayIdentity;
@@ -36,8 +37,9 @@ function normalizeTableSessionDocument(document: MultidimensionalTableDocument):
   };
 }
 
-export function useTableSession({ filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId, expectedCollectionId }: TableSessionOptions) {
+export function useTableSession({ filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId, expectedCollectionId, editable = true }: TableSessionOptions) {
   const { t } = useI18n();
+  const editableRef = useRef(editable); editableRef.current = editable;
   const notebookPath = rawNotebookPath ? canonicalDirectoryPath(rawNotebookPath) : null;
   const displayId = fileIdentity?.displayId;
   const sessionKey = collectionSessionKey({ filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId });
@@ -85,6 +87,8 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
   const sourceContentRef = useRef<{ sessionKey: string; content: string } | null>(null);
   const loadedSessionKeyRef = useRef<string | null>(null);
   const writeLocksRef = useRef(new Set<string>());
+  // hybrid 集合文档（v3）里本表格所在的数据域；v1/v2 单类型文件为 null。
+  const sourceDomainRef = useRef<CollectionDomain | null>(null);
   const pendingNotePropertiesRef = useRef(new Map<string, Set<string>>());
   const syncSequenceRef = useRef(0);
   const pendingTableSyncRef = useRef(false);
@@ -124,10 +128,11 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
     try {
       const source = await externalDocuments.read(getCurrentFilePath(), notebookPath);
       if (!isCurrentSession(sequence, key)) return;
+      sourceDomainRef.current = collectionSourceDomain(source, 'table');
       let next = await parseTableDocumentAsync(source);
       if (!isCurrentSession(sequence, key)) return;
       let sourceContent = source;
-      if (isLegacyCollectionSource(source)) {
+      if (editableRef.current && isLegacyCollectionSource(source)) {
         const migration = await externalDocuments.write({ filePath: getCurrentFilePath(), content: serializeTableDocument(next), expectedContent: source, scopePath: notebookPath });
         if (!isCurrentSession(sequence, key)) return;
         if (migration.status === 'saved') sourceContent = migration.content;
@@ -278,6 +283,7 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
       }
       const diskContent = await externalDocuments.read(getCurrentFilePath(), notebookPath);
       if (!isCurrent()) return;
+      sourceDomainRef.current = collectionSourceDomain(diskContent, 'table');
       const next = normalizeTableSessionDocument(await parseTableDocumentAsync(diskContent));
       if (!isCurrent()) return;
       const baseline = diskContent;
@@ -322,6 +328,7 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
     keepSaving = false,
     expectedSequence = loadSequenceRef.current,
   ): Promise<boolean> => {
+    if (!editableRef.current) return false;
     const sequence = expectedSequence;
     const key = sessionKey;
     if (!isCurrentSession(sequence, key)) return false;
@@ -340,9 +347,13 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
     setSaving(true);
     try {
       validateTableDocument(next);
+      // hybrid 文档按域合并写回（保留其它数据域）；v1/v2 走原 v2 序列化。
+      const content = collectionWriteContent({
+        source: source.content, domain: sourceDomainRef.current, document: next, serialize: serializeTableDocument,
+      });
       const result = await externalDocuments.write({
         filePath: getCurrentFilePath(),
-        content: serializeTableDocument(next),
+        content,
         expectedContent: source.content,
         scopePath: notebookPath,
       });

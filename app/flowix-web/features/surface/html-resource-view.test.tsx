@@ -34,7 +34,7 @@ let host: HTMLDivElement;
 let root: Root;
 let updates: SurfacePresentationUpdate[];
 const reportPresentation = (update: SurfacePresentationUpdate) => updates.push(update);
-const latest = () => updates[updates.length - 1]?.state;
+const latest = () => updates.filter((update) => update.state !== undefined).slice(-1)[0]?.state;
 async function render(path = '/book/index.html') {
   await act(async () => root.render(<HtmlResourceView filePath={path} scopePath="/book"
     documentProps={{ fileIdentity: { path, displayId: path }, transitionId: 7, onMetainfoData: mocks.metadata }} reportPresentation={reportPresentation} />));
@@ -66,6 +66,40 @@ afterEach(async () => {
 });
 
 describe('HTML preview lifecycle', () => {
+  it('accepts only the current preview background and clears it for source, retry and another file', async () => {
+    mocks.read.mockResolvedValue('<html></html>');
+    await render();
+    const frame = host.querySelector('iframe')!;
+    const latestColor = () => updates.reduce<string | null | undefined>((color, update) => (
+      'headerBackgroundColor' in update ? update.headerBackgroundColor : color
+    ), undefined);
+    const send = async (color: unknown, source: MessageEventSource | null = frame.contentWindow, url = frame.src) => {
+      await act(async () => window.dispatchEvent(new MessageEvent('message', {
+        source, data: { type: 'flowix:local-html-background', url, color },
+      })));
+    };
+    await message(frame);
+    await send('rgb(17, 34, 51)', window);
+    await send('rgb(17, 34, 51)', frame.contentWindow, 'asset://localhost/other.html');
+    await send('url(https://example.com/image)');
+    await send('rgb(999, 0, 0)');
+    expect(latestColor()).toBeNull();
+    await send('rgb(17, 34, 51)');
+    expect(latestColor()).toBe('rgb(17, 34, 51)');
+    await send('rgb(240, 241, 242)', frame.contentWindow, `${frame.src}#section`);
+    expect(latestColor()).toBe('rgb(240, 241, 242)');
+    await selectMode('source');
+    expect(latestColor()).toBeNull();
+    await selectMode('rich');
+    expect(latestColor()).toBeNull();
+    const next = host.querySelector('iframe')!;
+    await message(next);
+    await send('rgb(17, 34, 51)', next.contentWindow, next.src);
+    expect(latestColor()).toBe('rgb(17, 34, 51)');
+    await render('/book/other.html');
+    expect(latestColor()).toBeNull();
+  });
+
   it('routes only current-frame links to Browser, including after an in-page anchor change', async () => {
     mocks.read.mockResolvedValue('<html></html>');
     await render();

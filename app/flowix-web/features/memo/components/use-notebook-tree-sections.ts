@@ -4,35 +4,26 @@ import { subscribeNotebookChanges } from '@platform/tauri/notebook-change-events
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('notebook-tree-sections');
-export type NotebookTreeSection = 'agents' | 'pinned' | 'views' | 'files' | 'repositories' | 'more';
+export type NotebookTreeSection = 'agents' | 'pinned' | 'files' | 'repositories' | 'more';
 export type NotebookTreeHiddenSection = NotebookTreeSection;
 const sectionListeners = new Set<(notebookId: string, order: NotebookTreeSection[], hidden: NotebookTreeHiddenSection[]) => void>();
 const pinnedFolderListeners = new Set<(notebookId: string, pinnedFolders: string[]) => void>();
 
-const DEFAULT_TREE_SECTION_ORDER: NotebookTreeSection[] = ['agents', 'pinned', 'views', 'files', 'repositories', 'more'];
-const PREVIOUS_DEFAULT_TREE_SECTION_ORDER: NotebookTreeSection[] = ['agents', 'pinned', 'views', 'files', 'repositories'];
-const LEGACY_TREE_SECTION_ORDER: NotebookTreeSection[] = ['agents', 'pinned', 'views', 'files'];
-const PREVIOUS_LEGACY_TREE_SECTION_ORDER: NotebookTreeSection[] = ['agents', 'pinned', 'files', 'views'];
+const DEFAULT_TREE_SECTION_ORDER: NotebookTreeSection[] = ['agents', 'pinned', 'files', 'repositories', 'more'];
 
+/**
+ * Older builds stored a `views` section between `pinned` and `files`; collection
+ * documents now live in the access-space tree and the pinned group, so the entry
+ * is dropped here. Retired or unknown names never survive, and the surviving
+ * order is completed with any section the stored list predates.
+ */
 function normalizeTreeSectionOrder(value: unknown): NotebookTreeSection[] {
   if (!Array.isArray(value)) return DEFAULT_TREE_SECTION_ORDER;
   const order = value.filter((item, index, items): item is NotebookTreeSection => (
     DEFAULT_TREE_SECTION_ORDER.includes(item as NotebookTreeSection)
     && items.indexOf(item) === index
   ));
-  if (order.length === DEFAULT_TREE_SECTION_ORDER.length) return order;
-  if (order.length === PREVIOUS_DEFAULT_TREE_SECTION_ORDER.length) {
-    return [...order, ...DEFAULT_TREE_SECTION_ORDER.filter((item) => !order.includes(item))];
-  }
-  if (order.length === LEGACY_TREE_SECTION_ORDER.length) {
-    if (order.every((item, index) => item === LEGACY_TREE_SECTION_ORDER[index])
-      || order.every((item, index) => item === PREVIOUS_LEGACY_TREE_SECTION_ORDER[index])) {
-      return DEFAULT_TREE_SECTION_ORDER;
-    }
-    const legacyOrder = order.filter((item): item is 'files' | 'views' => item === 'files' || item === 'views');
-    if (legacyOrder.length === 2) return ['agents', 'pinned', ...legacyOrder, 'repositories', 'more'];
-  }
-  return [...DEFAULT_TREE_SECTION_ORDER.filter((item) => !order.includes(item)), ...order];
+  return [...order, ...DEFAULT_TREE_SECTION_ORDER.filter((item) => !order.includes(item))];
 }
 
 function normalizePinnedFolderPaths(value: unknown): string[] {

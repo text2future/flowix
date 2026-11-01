@@ -137,6 +137,18 @@ export function NotebookSelectorPopup({
     },
     [draggingId, dropTarget, notebooks, normalizedSearchQuery],
   );
+  const groupedNotebookIds = useMemo(
+    () => {
+      const pinned: string[] = [];
+      const others: string[] = [];
+      for (const id of previewNotebookIds) {
+        if (notebooksById.get(id)?.pinned) pinned.push(id);
+        else others.push(id);
+      }
+      return { pinned, others };
+    },
+    [previewNotebookIds, notebooksById],
+  );
 
   useLayoutEffect(() => {
     const nextRects = new Map<string, DOMRect>();
@@ -381,6 +393,146 @@ export function NotebookSelectorPopup({
 
   const sourceNotebook = ghost ? notebooks.find((notebook) => notebook.id === ghost.sourceId) : null;
 
+  const renderNotebookItem = (notebookId: string) => {
+    if (notebookId === draggingId) {
+      return (
+        <div
+          key={`placeholder-${notebookId}`}
+          aria-hidden="true"
+          className={cn(
+            NOTEBOOK_ITEM_CLASS,
+            'min-h-9',
+            'flowix-notebook-drop-placeholder rounded-lg border-2 border-dashed border-[color-mix(in_oklch,var(--primary)_62%,var(--border))] bg-[color-mix(in_oklch,var(--primary)_5%,transparent)]',
+          )}
+        />
+      );
+    }
+
+    const notebook = notebooksById.get(notebookId);
+    if (!notebook) return null;
+    const isActive = selectedNotebook?.id === notebook.id;
+    const isMissing = Boolean(notebook.missing);
+
+    return (
+      <div
+        key={notebook.id}
+        ref={(element) => {
+          if (element) itemRefs.current.set(notebook.id, element);
+          else itemRefs.current.delete(notebook.id);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-pressed={isActive}
+        onPointerDown={(event) => handleCardPointerDown(notebook, event)}
+        onKeyDown={(event) => handleCardKeyDown(notebook, event)}
+        className={cn(
+          NOTEBOOK_ITEM_CLASS,
+          'group relative flex cursor-pointer select-none items-center gap-0 rounded-lg px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
+          isActive
+            ? 'bg-[color-mix(in_oklch,var(--primary)_9%,var(--popover))]'
+            : 'bg-transparent hover:bg-[var(--muted)]',
+          isMissing && 'opacity-70',
+        )}
+        style={{ touchAction: 'none' }}
+      >
+        <NotebookIcon
+          icon={notebook.icon}
+          name={notebook.name}
+          className={cn(
+            'mr-3 h-7 w-7 shrink-0 rounded-md text-[15px] font-semibold transition-colors duration-150',
+            isActive
+              ? 'bg-[color-mix(in_oklch,var(--primary)_16%,var(--muted))] !text-[var(--primary)]'
+              : 'bg-[var(--muted)] !text-[var(--foreground)]',
+          )}
+          fallbackClassName={cn(
+            isActive
+              ? '!text-[color-mix(in_oklch,var(--primary)_25%,transparent)]'
+              : '!text-[color-mix(in_oklch,var(--foreground)_25%,transparent)]',
+          )}
+          imageClassName="h-[72%] w-[72%]"
+        />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            className={cn(
+              'block min-w-0 flex-1 truncate text-sm',
+              isMissing ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]',
+            )}
+            title={notebook.name}
+          >
+            {notebook.name}
+            {isMissing && ` ${t('status.invalid')}`}
+          </span>
+          <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)] group-hover:hidden group-focus-within:hidden">
+            {notebook.pinned && (
+              <span title={t('memo.list.notebookMenu.pin')}>
+                <StarIcon
+                  className="h-4 w-4 text-[var(--primary)]"
+                  aria-label={t('memo.list.notebookMenu.pin')}
+                  weight="fill"
+                />
+              </span>
+            )}
+            {cloudSyncedNotebookIds?.has(notebook.id) && (
+              <span className="flex h-4 w-3 shrink-0 items-center justify-center" aria-hidden="true">
+                <span
+                  className={cn(
+                    'h-2 w-2 rounded-full',
+                    cloudSyncAvailable ? 'bg-[var(--success)]' : 'bg-[var(--muted-foreground)]',
+                  )}
+                  aria-hidden="true"
+                />
+              </span>
+            )}
+            <span className="text-sm">
+              {notebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: notebook.memoCount })}
+            </span>
+          </span>
+        </div>
+        <div className="flex w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden opacity-0 transition-[width,opacity] duration-[37.5ms] group-hover:w-[76px] group-hover:opacity-100 group-focus-within:w-[76px] group-focus-within:opacity-100">
+          <button
+            type="button"
+            aria-label={t(notebook.pinned ? 'memo.list.notebookMenu.unpin' : 'memo.list.notebookMenu.pin')}
+            title={t(notebook.pinned ? 'memo.list.notebookMenu.unpin' : 'memo.list.notebookMenu.pin')}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              void toggleNotebookPinned(notebook);
+            }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+          >
+            <StarIcon className="h-4 w-4" weight={notebook.pinned ? 'fill' : 'regular'} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label={t('common.edit')}
+            title={t('common.edit')}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              closeThen(() => onEdit(notebook));
+            }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+          >
+            <PencilSimpleIcon className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label={t('dialog.delete')}
+            title={t('dialog.delete')}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              closeThen(() => onDelete(notebook));
+            }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
+          >
+            <TrashSimpleIcon className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -446,7 +598,7 @@ export function NotebookSelectorPopup({
           scrollerRef={listViewportRef}
           scrollerClassName="min-h-0 max-h-[calc(72vh-6.375rem)] overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-1 pb-1"
         >
-          <div className="flex flex-col space-y-0.5">
+          <div className="flex flex-col gap-1">
             {notebooks.length === 0 && (
               <div className="px-3 py-4 text-center text-sm text-[var(--muted-foreground)]">
                 {t('status.noNotebooks')}
@@ -457,145 +609,26 @@ export function NotebookSelectorPopup({
                 {t('status.noMatchingNotebooks')}
               </div>
             )}
-            {previewNotebookIds.map((notebookId) => {
-              if (notebookId === draggingId) {
-                return (
-                  <div
-                    key={`placeholder-${notebookId}`}
-                    aria-hidden="true"
-                    className={cn(
-                      NOTEBOOK_ITEM_CLASS,
-                      'min-h-9',
-                      'flowix-notebook-drop-placeholder rounded-lg border-2 border-dashed border-[color-mix(in_oklch,var(--primary)_62%,var(--border))] bg-[color-mix(in_oklch,var(--primary)_5%,transparent)]',
-                    )}
-                  />
-                );
-              }
-
-              const notebook = notebooksById.get(notebookId);
-              if (!notebook) return null;
-              const isActive = selectedNotebook?.id === notebook.id;
-              const isMissing = Boolean(notebook.missing);
-
-              return (
-                <div
-                  key={notebook.id}
-                  ref={(element) => {
-                    if (element) itemRefs.current.set(notebook.id, element);
-                    else itemRefs.current.delete(notebook.id);
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={isActive}
-                  onPointerDown={(event) => handleCardPointerDown(notebook, event)}
-                  onKeyDown={(event) => handleCardKeyDown(notebook, event)}
-                  className={cn(
-                    NOTEBOOK_ITEM_CLASS,
-                    'group relative flex cursor-pointer select-none items-center gap-0 rounded-lg px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
-                    isActive
-                      ? 'bg-[color-mix(in_oklch,var(--primary)_9%,var(--popover))]'
-                      : 'bg-transparent hover:bg-[var(--muted)]',
-                    isMissing && 'opacity-70',
-                  )}
-                  style={{ touchAction: 'none' }}
-                >
-                  <NotebookIcon
-                    icon={notebook.icon}
-                    name={notebook.name}
-                    className={cn(
-                      'mr-3 h-7 w-7 shrink-0 rounded-md text-[15px] font-semibold transition-colors duration-150',
-                      isActive
-                        ? 'bg-[color-mix(in_oklch,var(--primary)_16%,var(--muted))] !text-[var(--primary)]'
-                        : 'bg-[var(--muted)] !text-[var(--foreground)]',
-                    )}
-                    fallbackClassName={cn(
-                      isActive
-                        ? '!text-[color-mix(in_oklch,var(--primary)_25%,transparent)]'
-                        : '!text-[color-mix(in_oklch,var(--foreground)_25%,transparent)]',
-                    )}
-                    imageClassName="h-[72%] w-[72%]"
-                  />
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span
-                      className={cn(
-                        'block min-w-0 flex-1 truncate text-sm',
-                        isMissing ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]',
-                      )}
-                      title={notebook.name}
-                    >
-                      {notebook.name}
-                      {isMissing && ` ${t('status.invalid')}`}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)] group-hover:hidden group-focus-within:hidden">
-                      {notebook.pinned && (
-                        <span title={t('memo.list.notebookMenu.pin')}>
-                          <StarIcon
-                            className="h-4 w-4 text-[var(--primary)]"
-                            aria-label={t('memo.list.notebookMenu.pin')}
-                            weight="fill"
-                          />
-                        </span>
-                      )}
-                      {cloudSyncedNotebookIds?.has(notebook.id) && (
-                        <span className="flex h-4 w-3 shrink-0 items-center justify-center" aria-hidden="true">
-                          <span
-                            className={cn(
-                              'h-2 w-2 rounded-full',
-                              cloudSyncAvailable ? 'bg-[var(--success)]' : 'bg-[var(--muted-foreground)]',
-                            )}
-                            aria-hidden="true"
-                          />
-                        </span>
-                      )}
-                      <span className="text-sm">
-                        {notebook.memoCount === undefined ? '—' : t('status.notebookMemoCount', { count: notebook.memoCount })}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="flex w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden opacity-0 transition-[width,opacity] duration-[37.5ms] group-hover:w-[76px] group-hover:opacity-100 group-focus-within:w-[76px] group-focus-within:opacity-100">
-                    <button
-                      type="button"
-                      aria-label={t(notebook.pinned ? 'memo.list.notebookMenu.unpin' : 'memo.list.notebookMenu.pin')}
-                      title={t(notebook.pinned ? 'memo.list.notebookMenu.unpin' : 'memo.list.notebookMenu.pin')}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void toggleNotebookPinned(notebook);
-                      }}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
-                    >
-                      <StarIcon className="h-4 w-4" weight={notebook.pinned ? 'fill' : 'regular'} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t('common.edit')}
-                      title={t('common.edit')}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeThen(() => onEdit(notebook));
-                      }}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
-                    >
-                      <PencilSimpleIcon className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t('dialog.delete')}
-                      title={t('dialog.delete')}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeThen(() => onDelete(notebook));
-                      }}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
-                    >
-                      <TrashSimpleIcon className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </div>
+            {groupedNotebookIds.pinned.length > 0 && (
+              <>
+                <div className="px-2 pb-0.5 pt-1.5 text-xs font-medium text-[var(--muted-foreground)]">
+                  {t('status.notebookPinnedSection')}
                 </div>
-              );
-            })}
+                <div className="flex flex-col space-y-0.5">
+                  {groupedNotebookIds.pinned.map((id) => renderNotebookItem(id))}
+                </div>
+              </>
+            )}
+            {groupedNotebookIds.others.length > 0 && (
+              <>
+                <div className="px-2 pb-0.5 pt-1.5 text-xs font-medium text-[var(--muted-foreground)]">
+                  {t('status.notebookAllSection')}
+                </div>
+                <div className="flex flex-col space-y-0.5">
+                  {groupedNotebookIds.others.map((id) => renderNotebookItem(id))}
+                </div>
+              </>
+            )}
           </div>
         </OverlayScrollbar>
         <div className="shrink-0 p-2">

@@ -4,7 +4,7 @@ import type { ContentKind } from '@features/content/public/content-api';
 import { noteRepository } from '@features/memo/services/note-repository';
 import { documentIdentityFromFile, saveWorkspaceDocumentPath } from '@features/document/public/workspace-api';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
-import { useNotebookViewActions } from './use-notebook-view-actions';
+import { useCollectionIdentityRepair } from './use-collection-identity-repair';
 import { fileTreeCreateFailureKey } from './file-tree-failure';
 import { useNotebookTreeRename } from './use-notebook-tree-rename';
 
@@ -53,7 +53,7 @@ import { NotebookTreeFileIcon } from '@features/memo/components/notebook-tree-fi
 import { NotebookCreateContextMenuItems } from '@features/memo/components/notebook-create-context-menu';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
-import { NotebookPinnedSection, NotebookViewsSection } from '@features/memo/components/notebook-file-tree-sections';
+import { NotebookPinnedSection } from '@features/memo/components/notebook-file-tree-sections';
 import { useNotebookPinnedNotes } from '@features/memo/components/use-notebook-pinned-notes';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import folderIcon from '@/assets/folder-outline.svg?raw';
@@ -68,15 +68,21 @@ import { getWorkspaceAgentRepositories, type WorkspaceAgentRepository } from '@f
 import { useAgentWorkspaceStore } from '@features/agent/store/agent-workspace-store';
 import {
   files,
-  collections,
   dialogs,
-  type CollectionIndexItem,
   type DocTreeItem,
   type MediaLibraryListItem,
   type TableDocumentListItem,
 } from '@platform/tauri/client';
 import { useDynamicVirtualList } from '@features/memo/hooks/use-dynamic-virtual-list';
 import { useNotebookViewData } from './use-notebook-view-data';
+import { usePinnedEntryActions } from './use-pinned-entry-actions';
+import { usePinnedSectionItems } from './use-pinned-section-items';
+import {
+  buildNotebookTreeRenderRows,
+  type NotebookTreeDraftState,
+  type NotebookTreeRenderRow,
+} from './notebook-tree-render-rows';
+export { buildNotebookTreeRenderRows } from './notebook-tree-render-rows';
 import { AgentRepositoriesSection } from './notebook-repositories-section';
 import { useRepositoryFileOpen } from './use-repository-file-open';
 import { NotebookMoreSection } from './notebook-more-section';
@@ -105,58 +111,6 @@ const TREE_VIRTUAL_OVERSCAN = 20;
 const logger = createLogger('notebook-file-tree');
 // Row gutter (6px) + inline padding (6px) + half of the 12px caret.
 const FOLDER_CARET_CENTER_OFFSET = 12;
-
-function tableDocumentTreeItem(table: TableDocumentListItem, fullPath: string): DocTreeItem {
-  const name = table.relativePath.split(/[\\/]/).pop() ?? `${table.name}.table.yml`;
-  return {
-    id: `table-path:${table.relativePath}`,
-    fullPath,
-    name,
-    type: 'document',
-    parentId: null,
-    children: null,
-    sizeBytes: null,
-    modifiedMs: table.modifiedMs,
-    createdMs: null,
-    memoCreatedMs: null,
-    resourceKind: 'other',
-  };
-}
-
-function mediaLibraryTreeItem(library: MediaLibraryListItem, fullPath: string): DocTreeItem {
-  const name = library.relativePath.split(/[\\/]/).pop() ?? `${library.name}.lib.yaml`;
-  return {
-    id: `media-library-path:${library.relativePath}`,
-    fullPath,
-    name,
-    type: 'document',
-    parentId: null,
-    children: null,
-    sizeBytes: null,
-    modifiedMs: library.modifiedMs,
-    createdMs: null,
-    memoCreatedMs: null,
-    resourceKind: 'other',
-  };
-}
-
-
-function workDocumentsTreeItem(collection: CollectionIndexItem, fullPath: string): DocTreeItem {
-  return {
-    id: `work-documents-path:${collection.relativePath}`,
-    fullPath,
-    name: collection.relativePath.split(/[\\/]/).pop() ?? `${collection.name}.workdocs.yaml`,
-    type: 'document',
-    parentId: null,
-    children: null,
-    sizeBytes: collection.sizeBytes,
-    modifiedMs: collection.modifiedMs,
-    createdMs: null,
-    memoCreatedMs: null,
-    resourceKind: 'other',
-  };
-}
-
 
 export interface NotebookFolderCreateRequest {
   id: number;
@@ -188,107 +142,6 @@ interface NotebookFileTreeProps {
   onDeleteFile?: (item: DocTreeItem, options?: { silent?: boolean }) => Promise<boolean | void>;
   defaultCreateFolder?: string | null;
   onSetDefaultCreateFolder?: (folderPath: string) => void;
-}
-
-interface NotebookTreeDraftState {
-  requestId: number;
-  parentPath: string;
-  value: string;
-}
-
-interface NotebookTreeNodeRenderRow {
-  kind: 'node';
-  key: string;
-  item: DocTreeItem;
-  depth: number;
-  parentPath: string;
-  posInSet?: number;
-  setSize?: number;
-}
-
-interface NotebookTreeDraftRenderRow {
-  kind: 'draft';
-  key: string;
-  draft: NotebookTreeDraftState;
-  depth: number;
-  parentPath: string;
-}
-
-type NotebookTreeRenderRow = NotebookTreeNodeRenderRow | NotebookTreeDraftRenderRow;
-
-function attachTreeSiblingMetadata(rows: NotebookTreeRenderRow[]): NotebookTreeRenderRow[] {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    if (row.kind !== 'node') continue;
-    counts.set(row.parentPath, (counts.get(row.parentPath) ?? 0) + 1);
-  }
-  const positions = new Map<string, number>();
-  for (const row of rows) {
-    if (row.kind !== 'node') continue;
-    const position = (positions.get(row.parentPath) ?? 0) + 1;
-    positions.set(row.parentPath, position);
-    row.posInSet = position;
-    row.setSize = counts.get(row.parentPath);
-  }
-  return rows;
-}
-
-export function buildNotebookTreeRenderRows(
-  visibleItems: Array<{ item: DocTreeItem; depth: number }>,
-  notebookPath: string,
-  draft: NotebookTreeDraftState | null,
-): NotebookTreeRenderRow[] {
-  const root = canonicalDirectoryPath(notebookPath);
-  const rows: NotebookTreeRenderRow[] = visibleItems.map(({ item, depth }) => ({
-    kind: 'node',
-    key: `node:${canonicalPath(item.fullPath)}`,
-    item,
-    depth,
-    parentPath: parentDirectoryPath(item.fullPath, root),
-  }));
-  if (!draft) return attachTreeSiblingMetadata(rows);
-
-  const parentPath = canonicalDirectoryPath(draft.parentPath);
-  const parentIndex = parentPath === root
-    ? -1
-    : rows.findIndex((row) => row.kind === 'node' && samePath(row.item.fullPath, parentPath));
-  if (parentPath !== root && parentIndex < 0) return attachTreeSiblingMetadata(rows);
-
-  const parentDepth = parentIndex < 0 ? -1 : rows[parentIndex].depth;
-  const childDepth = parentDepth + 1;
-  const rangeStart = parentIndex + 1;
-  let rangeEnd = rows.length;
-  for (let index = rangeStart; index < rows.length; index += 1) {
-    if (rows[index].depth <= parentDepth) {
-      rangeEnd = index;
-      break;
-    }
-  }
-
-  let insertionIndex = -1;
-  for (let index = rangeStart; index < rangeEnd; index += 1) {
-    const row = rows[index];
-    if (
-      row.kind === 'node'
-      && row.depth === childDepth
-      && samePath(row.parentPath, parentPath)
-      && row.item.type === 'folder'
-    ) {
-      insertionIndex = index;
-      break;
-    }
-  }
-
-  if (insertionIndex < 0) insertionIndex = rangeStart;
-
-  rows.splice(insertionIndex, 0, {
-    kind: 'draft',
-    key: `draft:${draft.requestId}`,
-    draft,
-    depth: childDepth,
-    parentPath,
-  });
-  return attachTreeSiblingMetadata(rows);
 }
 
 
@@ -424,9 +277,18 @@ export function NotebookFileTree({
   const {
     openNewTableDialog, openNewMediaLibraryDialog, handleCreateMediaLibraryAtPath,
     openNewWorkDocumentsDialog, creationDialog,
-  } = useNotebookTreeCreation({ notebookId, notebookPath, defaultCreateFolder, refreshTables, refreshMediaLibraries, refreshWorkDocumentCollections });
-  const viewTableDocuments = useMemo(() => tableDocuments.filter((table) => table.inViews), [tableDocuments]);
-  const viewMediaLibraries = useMemo(() => mediaLibraries.filter((library) => library.inViews), [mediaLibraries]);
+  } = useNotebookTreeCreation({
+    notebookId,
+    notebookPath,
+    // Implicit destination: the folder being browsed in the Work column,
+    // otherwise the notebook's stored default note folder.
+    defaultCreateFolder: selectedFolderPath
+      ? relativeFolderPath(notebookPath, selectedFolderPath)
+      : defaultCreateFolder ?? null,
+    refreshTables,
+    refreshMediaLibraries,
+    refreshWorkDocumentCollections,
+  });
   const tableDocumentByPath = useMemo(() => {
     const byPath = new Map<string, TableDocumentListItem>();
     for (const table of tableDocuments) {
@@ -452,30 +314,12 @@ export function NotebookFileTree({
     ...Array.from(mediaLibraryByPath.keys(), (path) => [path, 'media-library'] as const),
     ...Array.from(workDocumentCollectionByPath.keys(), (path) => [path, 'work-documents'] as const),
   ]), [tableDocumentByPath, mediaLibraryByPath, workDocumentCollectionByPath]);
-  const viewWorkDocuments = useMemo(() => workDocumentCollections.filter((collection) =>
-    collection.inViews && collection.parseState === 'valid' && !collection.identityConflict && collection.collectionId,
-  ), [workDocumentCollections]);
-  const setWorkDocumentsInViews = useCallback(async (collectionId: string, inViews: boolean) => {
-    if (!notebookId) return;
-    try {
-      await collections.setInViews(notebookId, collectionId, inViews);
-      await refreshWorkDocumentCollections();
-    } catch (error) {
-      logger.warn('failed to update work documents view membership', { error, notebookId, collectionId });
-      toast.error(t('multidimensionalTable.viewMembership.saveFailed'));
-    }
-  }, [notebookId, refreshWorkDocumentCollections, t]);
-  const workDocumentsViewVisibilityByPath = useMemo(() => new Map([...workDocumentCollectionByPath].flatMap(([path, collection]) => {
-    const collectionId = collection.collectionId;
-    return collectionId ? [[path, {
-      inViews: collection.inViews,
-      disabled: collection.identityConflict || collection.parseState !== 'valid',
-      onChange: (inViews: boolean) => { void setWorkDocumentsInViews(collectionId, inViews); },
-    }] as const] : [];
-  })), [setWorkDocumentsInViews, workDocumentCollectionByPath]);
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
-  const [viewsCollapsed, setViewsCollapsed] = useState(false);
   const [filesCollapsed, setFilesCollapsed] = useState(false);
+  // 置顶分组与文件树是同一份数据的两个入口, 展开状态按入口各自持有:
+  // 在置顶里展开/收起文件夹不联动文件树, 反之亦然。目录数据缓存 (nodes)
+  // 仍然共享, 两个入口各自展开时按需加载, 不重复请求。
+  const [pinnedExpandedPaths, setPinnedExpandedPaths] = useState<Set<string>>(() => new Set());
   const [fileTreeSort, setFileTreeSort] = useState<FolderTreeSort>('createdAt');
   const [repositorySectionHeight, setRepositorySectionHeight] = useState(0);
   const [moreSectionHeight, setMoreSectionHeight] = useState(0);
@@ -499,14 +343,30 @@ export function NotebookFileTree({
     if (notebookId) void loadNotebookFilters(notebookId);
   }, [isActive, loadNotebookFilters, notebookId]);
 
+  const { rootChildren, nodes, expanded } = tree;
+  const pinnedFolderFullPaths = useMemo(() => pinnedFolders.flatMap((path) => {
+    const fullPath = joinNotebookMemoPath(notebookPath, path);
+    return fullPath ? [canonicalDirectoryPath(fullPath)] : [];
+  }), [notebookPath, pinnedFolders]);
+  const pinnedFolderPathSet = useMemo(() => new Set(pinnedFolderFullPaths), [pinnedFolderFullPaths]);
+  // Loading/error flags and controller callbacks do not change tree topology.
+  const loadedTreeItems = useMemo(
+    () => flattenLoadedTree({ rootChildren, nodes }),
+    [rootChildren, nodes],
+  );
+  // Pinned folders lead the pinned group with their subtree; entries follow.
+  // The pinned group keeps its own expand set, independent from the files tree.
+  const pinnedSectionItems = usePinnedSectionItems({
+    entries: pinnedItems, folderPaths: pinnedFolderFullPaths, loadedItems: loadedTreeItems,
+    nodes, expanded: pinnedExpandedPaths, sort: fileTreeSort,
+  });
   const visibleSectionOrder = useMemo(() => sectionOrder.filter((section) => (
     !hiddenSections.includes(section) && (section === 'files'
     || section === 'repositories'
     || section === 'more'
     || (section === 'agents' && Boolean(notebookId) && agentSectionHeight > 0)
-    || (section === 'pinned' && (pinnedItems.length > 0 || pinnedHasPrevious || pinnedHasMore))
-    || section === 'views')
-  )), [agentSectionHeight, hiddenSections, notebookId, pinnedHasMore, pinnedHasPrevious, pinnedItems.length, sectionOrder]);
+    || (section === 'pinned' && (pinnedSectionItems.length > 0 || pinnedHasPrevious || pinnedHasMore)))
+  )), [agentSectionHeight, hiddenSections, notebookId, pinnedHasMore, pinnedHasPrevious, pinnedSectionItems.length, sectionOrder]);
 
   const moveTreeSection = useCallback((section: NotebookTreeSection, direction: -1 | 1) => {
     if (!notebookId) return;
@@ -529,20 +389,9 @@ export function NotebookFileTree({
   const submittingDraftRef = useRef(false);
   const draftInputRef = useRef<HTMLInputElement | null>(null);
   const [keptAlivePaths, setKeptAlivePaths] = useState<Set<string>>(() => new Set());
-  const { rootChildren, nodes, expanded } = tree;
-  const pinnedFolderFullPaths = useMemo(() => pinnedFolders.flatMap((path) => {
-    const fullPath = joinNotebookMemoPath(notebookPath, path);
-    return fullPath ? [canonicalDirectoryPath(fullPath)] : [];
-  }), [notebookPath, pinnedFolders]);
-  const pinnedFolderPathSet = useMemo(() => new Set(pinnedFolderFullPaths), [pinnedFolderFullPaths]);
-  // Loading/error flags and controller callbacks do not change tree topology.
-  const loadedTreeItems = useMemo(
-    () => flattenLoadedTree({ rootChildren, nodes }),
-    [rootChildren, nodes],
-  );
   const visibleTreeItems = useMemo(
-    () => flattenVisibleTree({ rootChildren, nodes, expanded }, fileTreeSort, pinnedFolderFullPaths),
-    [rootChildren, nodes, expanded, fileTreeSort, pinnedFolderFullPaths],
+    () => flattenVisibleTree({ rootChildren, nodes, expanded }, fileTreeSort),
+    [rootChildren, nodes, expanded, fileTreeSort],
   );
   const renderRows = useMemo(
     () => buildNotebookTreeRenderRows(visibleTreeItems, notebookPath, draft),
@@ -551,14 +400,12 @@ export function NotebookFileTree({
   const moreSectionPosition = visibleSectionOrder.indexOf('more');
   const moreCompactTopSpacing = moreSectionPosition > 0
     && visibleSectionOrder[moreSectionPosition - 1] === 'repositories';
-  const pinnedSectionHeight = pinnedItems.length > 0 || pinnedHasPrevious || pinnedHasMore
-    ? TREE_HEADER_HEIGHT + (pinnedCollapsed ? 0 : pinnedItems.length * TREE_ROW_SIZE + (pinnedHasPrevious || pinnedHasMore ? TREE_ROW_SIZE : 0)) + 12
+  const pinnedSectionHeight = pinnedSectionItems.length > 0 || pinnedHasPrevious || pinnedHasMore
+    ? TREE_HEADER_HEIGHT + (pinnedCollapsed ? 0 : pinnedSectionItems.length * TREE_ROW_SIZE + (pinnedHasPrevious || pinnedHasMore ? TREE_ROW_SIZE : 0)) + 12
     : 0;
-  const viewsSectionHeight = TREE_HEADER_HEIGHT + (viewsCollapsed ? 0 : (viewTableDocuments.length + viewMediaLibraries.length) * TREE_ROW_SIZE) + 12;
   const sectionHeights: Record<NotebookTreeSection, number> = {
     agents: notebookId ? agentSectionHeight : 0,
     pinned: pinnedSectionHeight,
-    views: viewsSectionHeight,
     files: TREE_HEADER_HEIGHT,
     repositories: repositorySectionHeight,
     more: moreSectionHeight - (moreCompactTopSpacing ? 10 : 0),
@@ -786,19 +633,45 @@ export function NotebookFileTree({
 
   const handleRename = useNotebookTreeRename({ notebookId, notebookPath, tree, tableDocumentByPath, mediaLibraryByPath });
 
-  const { deleteItem: handleDeleteTableDocument, renameTable: handleRenameTableDocument, visibilityByPath: tableViewVisibilityByPath } = useNotebookViewActions({
-    kind: 'table', notebookId, notebookPath, itemsByPath: tableDocumentByPath,
-    refresh: refreshTables, updateIdentity: updateTableIdentity, onDeleteFile,
+  const tableDocumentIdentityByPath = useCollectionIdentityRepair({
+    kind: 'table', notebookId, itemsByPath: tableDocumentByPath,
+    refresh: refreshTables, updateIdentity: updateTableIdentity,
   });
-  const { deleteItem: handleDeleteMediaLibrary, visibilityByPath: mediaLibraryViewVisibilityByPath } = useNotebookViewActions({
-    kind: 'media-library', notebookId, notebookPath, itemsByPath: mediaLibraryByPath,
-    refresh: refreshMediaLibraries, updateIdentity: updateMediaLibraryIdentity, onDeleteFile,
+  const mediaLibraryIdentityByPath = useCollectionIdentityRepair({
+    kind: 'media-library', notebookId, itemsByPath: mediaLibraryByPath,
+    refresh: refreshMediaLibraries, updateIdentity: updateMediaLibraryIdentity,
   });
 
   const handleTogglePath = useCallback((path: string) => {
     if (shouldSuppressOpenPath(path)) return;
     tree.toggle(path);
   }, [shouldSuppressOpenPath, tree.toggle]);
+  /** 置顶分组的文件夹展开: 只翻置顶自己的集合, 数据加载复用 tree 缓存。 */
+  const handleTogglePinnedFolderPath = useCallback((path: string) => {
+    if (shouldSuppressOpenPath(path)) return;
+    const key = canonicalDirectoryPath(path);
+    setPinnedExpandedPaths((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    void tree.loadDirectory(path);
+  }, [shouldSuppressOpenPath, tree.loadDirectory]);
+  // 置顶取消或目录改名后, 旧路径不再属于任何置顶子树: 清掉展开残留,
+  // 避免重新置顶同名/同前缀路径时意外恢复上一次的展开态。
+  useEffect(() => {
+    if (pinnedFolderFullPaths.length === 0) {
+      setPinnedExpandedPaths((previous) => (previous.size === 0 ? previous : new Set()));
+      return;
+    }
+    const roots = pinnedFolderFullPaths.map((path) => canonicalPath(path));
+    setPinnedExpandedPaths((previous) => {
+      const next = new Set([...previous].filter((key) =>
+        roots.some((root) => key === root || key.startsWith(`${root}/`))));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [pinnedFolderFullPaths]);
   const handleOpenPath = useCallback((path: string, event?: ReactMouseEvent<HTMLDivElement>) => {
     if (shouldSuppressOpenPath(path)) return;
     selectNote(path, event);
@@ -807,6 +680,7 @@ export function NotebookFileTree({
     if (shouldSuppressOpenPath(path)) return;
     selectNote(path, event, 'pinned');
   }, [selectNote, shouldSuppressOpenPath]);
+
   const handleDeleteSelected = useCallback(async () => {
     const failedPaths: string[] = [];
     for (const path of selectedFilePaths) {
@@ -852,11 +726,11 @@ export function NotebookFileTree({
       toast.error(t('memo.fileTree.openFailed'));
     });
   }, [notebookId, notebookPath, setNavigationPolicy, t]);
-  const handleOpenMediaLibraryFromViews = useCallback((path: string) => {
+  const handleOpenMediaLibraryEntry = useCallback((path: string) => {
     updateSelection([], null);
     navigateToNote(path, 'preserve');
   }, [navigateToNote, updateSelection]);
-  const handleOpenWorkDocumentsFromViews = useCallback((path: string) => {
+  const handleOpenWorkDocumentsEntry = useCallback((path: string) => {
     if (!notebookId) return;
     setNavigationPolicy(path, 'preserve');
     void openWorkspaceSurface({
@@ -864,13 +738,11 @@ export function NotebookFileTree({
       target: { kind: 'external', path, scopePath: notebookPath, transitionId: null },
       options: { notebookId },
     }).catch((error) => {
-      logger.warn('failed to open work documents from Views', { error, path });
+      logger.warn('failed to open work documents collection', { error, path });
       toast.error(t('memo.fileTree.openFailed'));
     });
   }, [notebookId, notebookPath, setNavigationPolicy, t]);
-  const handleRetryDirectory = useCallback((path: string) => {
-    void tree.retryDirectory?.(path);
-  }, [tree.retryDirectory]);
+
   const handleTogglePinnedFolder = useCallback(async (folderPath: string) => {
     if (!notebookId) return;
     const relativePath = notebookRelativeDirectoryPath(notebookPath, folderPath);
@@ -886,6 +758,25 @@ export function NotebookFileTree({
       toast.error(t('memo.fileTree.pinnedFolderSaveFailed'));
     }
   }, [notebookId, notebookPath, t, updatePinnedFolders]);
+
+  // Documents and collections pin through the backend index; notes keep frontmatter.
+  // The pinned group and the files tree both route collections through `toggleCollectionPinned`.
+  const { treePinProps, openPinnedEntry, pinnedRowToggle } = usePinnedEntryActions({
+    notebookId, notebookPath, removePinnedItem, refreshDirectory: tree.refresh,
+    refreshTables, refreshMediaLibraries, refreshWorkDocumentCollections,
+    tableDocumentByPath, mediaLibraryByPath, workDocumentCollectionByPath,
+    toggleFolderPinned: handleTogglePinnedFolder,
+    openers: {
+      openTableDocument: handleOpenTableDocument,
+      openMediaLibrary: handleOpenMediaLibraryEntry,
+      openWorkDocuments: handleOpenWorkDocumentsEntry,
+      openPinnedPath: handleOpenPinnedPath,
+    },
+  });
+
+  const handleRetryDirectory = useCallback((path: string) => {
+    void tree.retryDirectory?.(path);
+  }, [tree.retryDirectory]);
   const removePinnedFolderSubtree = useCallback(async (folderPath: string) => {
     const relativePath = notebookRelativeDirectoryPath(notebookPath, folderPath);
     if (relativePath === null || relativePath === '') return;
@@ -903,7 +794,7 @@ export function NotebookFileTree({
     }
   }, [notebookPath, t, updatePinnedFolders]);
   const handleCreateViewAtPath = useCallback((parentPath: string, viewType?: TableViewType) => {
-    openNewTableDialog(false, parentPath, viewType);
+    openNewTableDialog(parentPath, viewType);
   }, [openNewTableDialog]);
   const handleAddRepository = useCallback(async () => {
     if (!notebookId) return;
@@ -913,8 +804,6 @@ export function NotebookFileTree({
       else if (result.code === 'save-failed') toast.error(t('agent.access.saveFailed'));
       return;
     }
-
-
   }, [notebookId, t]);
   const handleRemoveRepository = useCallback(async (repository: WorkspaceAgentRepository) => {
     if (!notebookId) return;
@@ -1012,8 +901,8 @@ export function NotebookFileTree({
     setSize?: number,
   ) => {
     const itemPath = canonicalPath(item.fullPath);
-    const tableViewVisibility = tableViewVisibilityByPath.get(itemPath);
-    const mediaLibraryViewVisibility = mediaLibraryViewVisibilityByPath.get(itemPath);
+    const tableDocumentIdentity = tableDocumentIdentityByPath.get(itemPath);
+    const mediaLibraryIdentity = mediaLibraryIdentityByPath.get(itemPath);
     const expanded = item.type === 'folder' && tree.expanded.has(canonicalPath(item.fullPath));
     const isDropTarget = item.type === 'folder'
       && dragOverFolderPath !== null
@@ -1082,10 +971,9 @@ export function NotebookFileTree({
           onCreateView={handleCreateViewAtPath}
           onCreateMediaLibrary={handleCreateMediaLibraryAtPath}
           onCreateWorkDocuments={openNewWorkDocumentsDialog}
-          tableViewVisibility={tableViewVisibility}
-          mediaLibraryViewVisibility={mediaLibraryViewVisibility}
+          tableDocumentIdentity={tableDocumentIdentity}
+          mediaLibraryIdentity={mediaLibraryIdentity}
           workDocumentsCollection={workDocumentCollectionByPath.has(itemPath)}
-          workDocumentsViewVisibility={workDocumentsViewVisibilityByPath.get(itemPath)}
           onRename={handleRename}
           tabIndex={treeFocusPath && samePath(treeFocusPath, item.fullPath) ? 0 : -1}
           onFocus={handleFocusPath}
@@ -1100,6 +988,7 @@ export function NotebookFileTree({
           isDefaultFolder={item.type === 'folder' && defaultCreateFolder === relativeFolderPath(notebookPath, item.fullPath)}
           isPinnedFolder={item.type === 'folder' && pinnedFolderPathSet.has(canonicalDirectoryPath(item.fullPath))}
           onTogglePinnedFolder={item.type === 'folder' && notebookId ? handleTogglePinnedFolder : undefined}
+          {...treePinProps(item, itemPath)}
           onKeepAliveChange={handleRowKeepAliveChange}
           onPointerDown={handlePointerDownItem}
         />
@@ -1176,10 +1065,10 @@ export function NotebookFileTree({
               )}
             />
           )}
-          {(pinnedItems.length > 0 || pinnedHasPrevious || pinnedHasMore) && !hiddenSections.includes('pinned') && (
+          {(pinnedSectionItems.length > 0 || pinnedHasPrevious || pinnedHasMore) && !hiddenSections.includes('pinned') && (
             <NotebookPinnedSection
               order={sectionOrder.indexOf('pinned') + 1}
-              items={pinnedItems}
+              items={pinnedSectionItems}
               hasPreviousPage={pinnedHasPrevious}
               hasMoreItems={pinnedHasMore}
               loadingMore={pinnedLoadingMore || pinnedLoadingInitial}
@@ -1199,158 +1088,45 @@ export function NotebookFileTree({
               )}
               renderItem={(item) => (
                 <NotebookTreeRow
-                  key={item.fullPath}
+                  key={item.id}
                   item={item}
                   notebookPath={notebookPath}
                   parentPath={parentDirectoryPath(item.fullPath, notebookPath)}
-                  depth={0}
-                  expanded={false}
-                  active={!selectedFolderPath && Boolean(activeFilePath) && samePath(item.fullPath, activeFilePath!)}
+                  depth={item.pinnedDepth ?? 0}
+                  expanded={item.pinnedExpanded === true}
+                  active={item.type === 'folder'
+                    ? Boolean(selectedFolderPath) && samePath(item.fullPath, selectedFolderPath!)
+                    : !selectedFolderPath && Boolean(activeFilePath) && samePath(item.fullPath, activeFilePath!)}
                   selected={selectedFilePathSet.has(canonicalPath(item.fullPath))}
                   onDeleteSelected={selectedFilePaths.length > 1 && selectedFilePathSet.has(canonicalPath(item.fullPath)) ? handleDeleteSelected : undefined}
-                  onToggle={handleTogglePath}
-                  onOpen={handleOpenPinnedPath}
-                  onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
+                  onToggle={handleTogglePinnedFolderPath}
+                  onSelectFolder={onFolderSelect}
+                  onOpen={(path, event) => openPinnedEntry(item, path, event)}
+                  onOpenInNewTab={
+                    item.pinnedEntryKind !== 'collection' && onNoteOpenInNewTab
+                      ? handleOpenPathInNewTab
+                      : undefined
+                  }
                   onCreateNote={handleCreateNoteAtPath}
                   onCreateFolder={handleCreateFolderAtPath}
                   onImportFiles={(path) => { void handleImportFiles(path); }}
                   onImportFolder={(path) => { void handleImportFolder(path); }}
-                  onCreateView={(parentPath, viewType) => openNewTableDialog(false, parentPath, viewType)}
-                  onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(false, parentPath)}
+                  onCreateView={(parentPath, viewType) => openNewTableDialog(parentPath, viewType)}
+                  onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(parentPath)}
                   onCreateWorkDocuments={(parentPath) => openNewWorkDocumentsDialog(parentPath)}
                   onRename={handleRename}
                   onDeleteFile={onDeleteFile}
                   onPointerDown={handlePointerDownItem}
                   onKeepAliveChange={handleRowKeepAliveChange}
                   workDocumentsCollection={workDocumentCollectionByPath.has(canonicalPath(item.fullPath))}
-                  workDocumentsViewVisibility={workDocumentsViewVisibilityByPath.get(canonicalPath(item.fullPath))}
                   favoritePath={item.fullPath}
                   onFavoriteChanged={(itemId, favorited) => {
                     if (!favorited) removePinnedItem(itemId);
                   }}
+                  onTogglePinned={pinnedRowToggle(item)}
                   tabIndex={0}
                 />
               )}
-            />
-          )}
-          {!hiddenSections.includes('views') && (
-            <NotebookViewsSection
-              order={sectionOrder.indexOf('views') + 1}
-              tables={viewTableDocuments}
-              mediaLibraries={viewMediaLibraries}
-              workDocuments={viewWorkDocuments}
-              collapsed={viewsCollapsed}
-              onToggleCollapsed={() => setViewsCollapsed((collapsed) => !collapsed)}
-              onHideSection={() => hideTreeSection('views')}
-              sectionActions={(
-                <NotebookTreeSectionMenu
-                  onHideSection={() => hideTreeSection('views')}
-                  canMoveUp={visibleSectionOrder.indexOf('views') > 0}
-                  canMoveDown={visibleSectionOrder.indexOf('views') < visibleSectionOrder.length - 1}
-                  onMoveUp={() => moveTreeSection('views', -1)}
-                  onMoveDown={() => moveTreeSection('views', 1)}
-                  onCreateTable={(viewType) => openNewTableDialog(true, undefined, viewType)}
-                  onCreateMediaLibrary={() => openNewMediaLibraryDialog(true)}
-                  onCreateWorkDocuments={() => openNewWorkDocumentsDialog()}
-                  onCustomizeDisplay={openCustomizeDisplay}
-                />
-              )}
-              renderTable={(table) => {
-                const tablePath = joinNotebookMemoPath(notebookPath, table.relativePath);
-                if (!tablePath) return null;
-                const active = Boolean(!selectedFolderPath && activeFilePath && samePath(activeFilePath, tablePath));
-                const tableItem = tableDocumentTreeItem(table, tablePath);
-                return (
-                  <NotebookTreeRow
-                    key={table.relativePath}
-                    item={tableItem}
-                    notebookPath={notebookPath}
-                    parentPath={parentDirectoryPath(tablePath, notebookPath)}
-                    depth={0}
-                    expanded={false}
-                    active={active}
-                    selected={active}
-                    onToggle={() => {}}
-                    onOpen={() => handleOpenTableDocument(table.relativePath)}
-                    onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
-                    onCreateNote={handleCreateNoteAtPath}
-                    onCreateFolder={handleCreateFolderAtPath}
-                    onCreateView={(parentPath, viewType) => openNewTableDialog(true, parentPath, viewType)}
-                    onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(true, parentPath)}
-                    onCreateWorkDocuments={(parentPath) => openNewWorkDocumentsDialog(parentPath)}
-                    tableViewVisibility={tableViewVisibilityByPath.get(canonicalPath(tablePath))}
-                    onRename={handleRenameTableDocument}
-                    onDeleteFile={handleDeleteTableDocument}
-                    onPointerDown={handlePointerDownItem}
-                    onFocus={handleFocusPath}
-                    tabIndex={0}
-                  />
-                );
-              }}
-              renderWorkDocuments={(collection) => {
-                const collectionPath = joinNotebookMemoPath(notebookPath, collection.relativePath);
-                if (!collectionPath) return null;
-                const active = Boolean(!selectedFolderPath && activeFilePath && samePath(activeFilePath, collectionPath));
-                return (
-                  <NotebookTreeRow
-                    key={collection.relativePath}
-                    item={workDocumentsTreeItem(collection, collectionPath)}
-                    notebookPath={notebookPath}
-                    parentPath={parentDirectoryPath(collectionPath, notebookPath)}
-                    depth={0}
-                    expanded={false}
-                    active={active}
-                    selected={active}
-                    onToggle={() => {}}
-                    onOpen={() => handleOpenWorkDocumentsFromViews(collectionPath)}
-                    onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
-                    onCreateNote={handleCreateNoteAtPath}
-                    onCreateFolder={handleCreateFolderAtPath}
-                    onCreateView={(parentPath, viewType) => openNewTableDialog(true, parentPath, viewType)}
-                    onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(true, parentPath)}
-                    onCreateWorkDocuments={(parentPath) => openNewWorkDocumentsDialog(parentPath)}
-                    workDocumentsCollection
-                    workDocumentsViewVisibility={workDocumentsViewVisibilityByPath.get(canonicalPath(collectionPath))}
-                    onRename={handleRename}
-                    onDeleteFile={onDeleteFile}
-                    onPointerDown={handlePointerDownItem}
-                    onFocus={handleFocusPath}
-                    tabIndex={0}
-                  />
-                );
-              }}
-              renderMediaLibrary={(library) => {
-                const libraryPath = joinNotebookMemoPath(notebookPath, library.relativePath);
-                if (!libraryPath) return null;
-                const active = Boolean(!selectedFolderPath && activeFilePath && samePath(activeFilePath, libraryPath));
-                const libraryItem = mediaLibraryTreeItem(library, libraryPath);
-                return (
-                  <NotebookTreeRow
-                    key={library.relativePath}
-                    item={libraryItem}
-                    notebookPath={notebookPath}
-                    parentPath={parentDirectoryPath(libraryPath, notebookPath)}
-                    depth={0}
-                    expanded={false}
-                    active={active}
-                    selected={active}
-                    onToggle={() => {}}
-                    onOpen={() => handleOpenMediaLibraryFromViews(libraryPath)}
-                    onOpenInNewTab={onNoteOpenInNewTab ? handleOpenPathInNewTab : undefined}
-                    onCreateNote={handleCreateNoteAtPath}
-                    onCreateFolder={handleCreateFolderAtPath}
-                    onCreateView={(parentPath, viewType) => openNewTableDialog(true, parentPath, viewType)}
-                    onCreateMediaLibrary={(parentPath) => openNewMediaLibraryDialog(true, parentPath)}
-                    onCreateWorkDocuments={(parentPath) => openNewWorkDocumentsDialog(parentPath)}
-                    mediaLibraryViewVisibility={mediaLibraryViewVisibilityByPath.get(canonicalPath(libraryPath))}
-                    onRename={handleRename}
-                    onDeleteFile={handleDeleteMediaLibrary}
-                    onPointerDown={handlePointerDownItem}
-                    onFocus={handleFocusPath}
-                    tabIndex={0}
-                  />
-                );
-              }}
             />
           )}
           {!hiddenSections.includes('files') && <section
@@ -1392,7 +1168,7 @@ export function NotebookFileTree({
                 onMoveDown={() => moveTreeSection('files', 1)}
                 onCreateFolder={onCreateFolder}
                 onCreateNote={() => { void createNoteAtPath(); }}
-                onCreateTable={(viewType) => openNewTableDialog(false, undefined, viewType)}
+                onCreateTable={(viewType) => openNewTableDialog(undefined, viewType)}
                 onCreateMediaLibrary={() => openNewMediaLibraryDialog()}
                 onCreateWorkDocuments={() => openNewWorkDocumentsDialog()}
                 onImportFiles={() => { void handleImportFiles(notebookPath); }}
@@ -1510,8 +1286,8 @@ export function NotebookFileTree({
               <NotebookCreateContextMenuItems
                 onCreateNote={() => handleCreateNoteAtPath(notebookPath)}
                 onCreateFolder={() => handleCreateFolderAtPath(notebookPath)}
-                onCreateTable={(viewType) => openNewTableDialog(false, notebookPath, viewType)}
-                onCreateMediaLibrary={() => openNewMediaLibraryDialog(false, notebookPath)}
+                onCreateTable={(viewType) => openNewTableDialog(notebookPath, viewType)}
+                onCreateMediaLibrary={() => openNewMediaLibraryDialog(notebookPath)}
                 onCreateWorkDocuments={() => openNewWorkDocumentsDialog(notebookPath)}
                 onImportFiles={() => { void handleImportFiles(notebookPath); }}
                 onImportFolder={() => { void handleImportFolder(notebookPath); }}

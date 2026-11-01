@@ -150,7 +150,10 @@ function referencedAsset(pattern, label, maxBytes) {
 }
 
 referencedAsset(/<script[^>]+src="([^"]+\.js)"/, 'entry JavaScript', 700_000);
-referencedAsset(/<link[^>]+href="([^"]+\.css)"/, 'entry CSS', 501_000);
+// 503_500: 图标 picker 按分类分页后新增 4 条 .frontmatter-property__edit-icon-*
+// 规则 (~0.6KB), 而原 501_000 只剩 77 字节余量。这里按当前实测体积
+// (502.8KB) 留出约 0.7KB 余量, 后续新增样式仍应先想能不能复用现有规则。
+referencedAsset(/<link[^>]+href="([^"]+\.css)"/, 'entry CSS', 503_500);
 
 const interFonts = readdirSync(join(DIST, 'assets')).filter((name) =>
   /^inter-.*\.(?:woff2?|ttf)$/i.test(name),

@@ -75,6 +75,8 @@ export interface SurfaceLifecycle {
 export interface SurfacePresentation {
   title: string;
   icon?: string;
+  /** Optional solid color beneath the host's existing titlebar gradient. */
+  headerBackgroundColor?: string | null;
   appearance: SurfaceAppearance;
   /** Content currently shown, which can differ from the source file in preview modes. */
   contentKind: WorkspaceSurfaceKind;
@@ -84,7 +86,7 @@ export interface SurfacePresentation {
 }
 /** Runtime values a renderer may publish after async resolution or mode changes. */
 export type SurfacePresentationUpdate = Partial<Pick<SurfacePresentation,
-  'title' | 'icon' | 'appearance' | 'contentKind' | 'capabilities' | 'actions' | 'state'>>;
+  'title' | 'icon' | 'headerBackgroundColor' | 'appearance' | 'contentKind' | 'capabilities' | 'actions' | 'state'>>;
 export interface ResolvedSurface<K extends WorkspaceSurfaceKind, D> {
   kind: K;
   identity: WorkspaceSurfaceIdentity;

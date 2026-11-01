@@ -120,9 +120,12 @@ pub(crate) fn notebook_note_address(
             continue;
         };
         let relative = Path::new(&relative_path);
+        // Only paths the file tree hides are refused here. Markdown inside a
+        // tree-visible hidden folder stays openable and savable; it is kept out
+        // of note indexes by the index policy instead of being unreadable.
         if memo_file
             .file_management_policy(&notebook.id)
-            .is_index_ignored_at(&root, relative)
+            .is_tree_hidden_at(&root, relative)
         {
             return Err("document path is inside an ignored notebook directory".into());
         }

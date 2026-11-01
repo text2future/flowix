@@ -5,7 +5,9 @@ import {
 } from './registry';
 import type { WorkColumnSurface, WorkColumnSurfaceKind } from './types';
 import { workspaceSurfaceRendererRegistry } from './workspace-surface-renderer-registry';
-import { workspaceSurfaceRegistry } from '@features/workspace/public/surface-api';
+import { collectionIndexPath } from './collection-frame';
+import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
+import { workspaceSurfaceUsesCollectionFrame, workspaceSurfaceRegistry } from '@features/workspace/public/surface-api';
 
 function fileIdentity(path: string) {
   return { path, displayId: `display:${path}` };
@@ -149,5 +151,23 @@ describe('Work surface adapter', () => {
     expect(getWorkColumnSurfaceDefinition(agent).chrome).toBe('agent');
     expect(surfaceSupports(agent, 'stream-conversation')).toBe(true);
     expect(surfaceSupports(agent, 'edit')).toBe(false);
+  });
+});
+
+
+describe('unified collection frame', () => {
+  it.each(['folder-collection', 'table-file', 'media-library-file', 'work-documents-file'] as const)(
+    '%s uses the same header underlap and display controls', (kind) => {
+      const value = surface(kind);
+      expect(workspaceSurfaceUsesCollectionFrame(workspaceSurfaceRendererDataFromWorkSurface(value).kind)).toBe(true);
+      expect(collectionIndexPath(value)).toBe(kind === 'folder-collection'
+        ? '/notebook/folder/.index.yaml'
+        : 'fileIdentity' in value ? value.fileIdentity.path : null);
+    },
+  );
+  it('ordinary documents do not inherit collection underlap or controls', () => {
+    expect(workspaceSurfaceUsesCollectionFrame('file-markdown')).toBe(false);
+    expect(workspaceSurfaceUsesCollectionFrame(null)).toBe(false);
+    expect(collectionIndexPath(surface('md'))).toBeNull();
   });
 });

@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { NotebookFolderOption } from '@platform/tauri/client';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { DropdownMenuLabel } from '@shared/ui/dropdown-menu';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/ui/select';
 import { useI18n } from '@/lib/i18n';
 import { ResourceFolderIcon } from '@features/surface/resource-file-icon';
 
 export function MediaLibraryFilterPanel({
   fileName,
-  fileType,
+  fileTypes,
   path,
   pathIsAll = false,
   fixedFolderPath,
@@ -23,9 +22,11 @@ export function MediaLibraryFilterPanel({
   autoFocus = false,
   showLocationMenu = true,
   locationOnly = false,
+  /** 类型行显隐（多选，空选=全部）；文件树 tab 的数据集合菜单只有位置行，不传即不显示。 */
+  showTypeSelect = true,
   kindOptions,
   onFileNameChange,
-  onFileTypeChange,
+  onFileTypesChange,
   onPathChange,
   onPathSelected,
   onFolderPickerOpenChange,
@@ -33,7 +34,8 @@ export function MediaLibraryFilterPanel({
   onApply,
 }: {
   fileName: string;
-  fileType: string;
+  /** 多选类型：空数组 = 全部（面板类目内）。 */
+  fileTypes: string[];
   path: string;
   pathIsAll?: boolean;
   /** Set for folder collections whose location cannot be changed. */
@@ -47,22 +49,33 @@ export function MediaLibraryFilterPanel({
   autoFocus?: boolean;
   showLocationMenu?: boolean;
   locationOnly?: boolean;
+  showTypeSelect?: boolean;
   onFileNameChange: (value: string) => void;
-  onFileTypeChange: (value: string) => void;
+  onFileTypesChange: (values: string[]) => void;
   onPathChange: (value: string) => void;
   onPathSelected?: (value: string | null) => Promise<boolean | void> | boolean | void;
   onFolderPickerOpenChange: (open: boolean) => void;
   onReset: () => void;
   onApply: () => void;
+  /** 面板类目内可选的类型；缺省 = 图片/视频（媒体库面板身份）。 */
   kindOptions?: Array<{ value: string; label: string }>;
 }) {
   const { t } = useI18n();
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const [typeSelectOpen, setTypeSelectOpen] = useState(false);
   const resolvedKindOptions = kindOptions ?? [
-    { value: 'any', label: t('mediaLibrary.all') },
     { value: 'image', label: t('mediaLibrary.images') },
     { value: 'video', label: t('mediaLibrary.videos') },
   ];
+  const selectedTypeLabels = resolvedKindOptions
+    .filter((option) => fileTypes.includes(option.value))
+    .map((option) => option.label);
+  const toggleFileType = (value: string) => {
+    const next = fileTypes.includes(value)
+      ? fileTypes.filter((item) => item !== value)
+      : [...fileTypes, value];
+    onFileTypesChange(next);
+  };
   useEffect(() => {
     if (fixedFolderPath !== undefined && folderPickerOpen) onFolderPickerOpenChange(false);
   }, [fixedFolderPath, folderPickerOpen, onFolderPickerOpenChange]);
@@ -169,7 +182,7 @@ export function MediaLibraryFilterPanel({
   return <>
     <div className="space-y-1">
       {showLocationMenu && locationMenu}
-      <p className="agent-thread-card__codex-settings-title">{t('multidimensionalTable.autoCollect.file')}</p>
+      <p className="agent-thread-card__codex-settings-title">{t('mediaLibrary.filterByType')}</p>
       <label className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
         <span className="px-0.5 text-sm text-[var(--foreground)]">{t('mediaLibrary.filterFileName')}</span>
         <input
@@ -182,17 +195,39 @@ export function MediaLibraryFilterPanel({
           className="h-8 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)] disabled:opacity-50"
         />
       </label>
-      <div className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+      {showTypeSelect && <div className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
         <span className="px-0.5 text-sm text-[var(--foreground)]">{t('mediaLibrary.filterType')}</span>
-        <Select value={fileType} disabled={busy} onValueChange={onFileTypeChange}>
-          <SelectTrigger className="h-8 min-w-0 w-full rounded-lg bg-transparent px-2 text-left text-sm">
-            <SelectValue>{resolvedKindOptions.find((option) => option.value === fileType)?.label ?? t('mediaLibrary.all')}</SelectValue>
-          </SelectTrigger>
-          <SelectContent align="start" fitViewport style={{ zIndex: 170 }} className="flowix-preferences-select-content">
-            {resolvedKindOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
+        <Popover open={typeSelectOpen} onOpenChange={setTypeSelectOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={busy}
+              className="flex h-8 min-w-0 w-full items-center justify-between gap-1 rounded-lg border border-[var(--border)] bg-transparent px-2 text-left text-sm disabled:opacity-50"
+            >
+              <span className="min-w-0 truncate">{selectedTypeLabels.length ? selectedTypeLabels.join('、') : t('mediaLibrary.all')}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" side="bottom" sideOffset={4} fitViewport style={{ zIndex: 170 }} className="w-[200px] max-w-[calc(100vw-16px)] rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+            {resolvedKindOptions.map((option) => {
+              const checked = fileTypes.includes(option.value);
+              return <button
+                key={option.value}
+                type="button"
+                role="checkbox"
+                aria-checked={checked}
+                onClick={() => toggleFileType(option.value)}
+                className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--muted)]"
+              >
+                <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-[var(--brand)] bg-[var(--brand)] text-[var(--primary-foreground)]' : 'border-[var(--border)]'}`}>
+                  {checked && <Check className="h-3 w-3" aria-hidden="true" />}
+                </span>
+                <span className="min-w-0 truncate">{option.label}</span>
+              </button>;
+            })}
+          </PopoverContent>
+        </Popover>
+      </div>}
     </div>
     <div className="mt-2 flex gap-2">
       <button type="button" disabled={busy} className="flex h-8 flex-1 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--muted)] px-2 text-sm text-[var(--foreground)] hover:bg-[var(--hover-bg)] disabled:cursor-not-allowed disabled:opacity-50" onClick={onReset}>{t('mediaLibrary.reset')}</button>

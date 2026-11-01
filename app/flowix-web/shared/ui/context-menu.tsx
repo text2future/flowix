@@ -297,6 +297,8 @@ interface ContextMenuItemProps {
 	disabled?: boolean;
 	inset?: boolean;
 	keepOpenOnClick?: boolean;
+	/** Native tooltip; use it to explain why a disabled row cannot be used. */
+	title?: string;
 }
 
 function ContextMenuItem({
@@ -308,6 +310,7 @@ function ContextMenuItem({
 	disabled,
 	inset,
 	keepOpenOnClick = false,
+	title,
 }: ContextMenuItemProps) {
 	const { setOpen } = useContextMenuContext();
 
@@ -326,6 +329,7 @@ function ContextMenuItem({
 			tabIndex={-1}
 			aria-describedby={ariaDescribedBy}
 			disabled={disabled}
+			title={title}
 			onClick={handleClick}
 			onMouseDown={(e) => {
 				e.stopPropagation();
@@ -346,10 +350,14 @@ function ContextMenuSubmenu({
 	label,
 	icon,
 	children,
+	disabled = false,
+	title,
 }: {
 	label: React.ReactNode;
 	icon?: React.ReactNode;
 	children: React.ReactNode;
+	disabled?: boolean;
+	title?: string;
 }) {
 	const { menuId } = useContextMenuContext();
 	const [open, setOpen] = React.useState(false);
@@ -426,16 +434,20 @@ function ContextMenuSubmenu({
 				tabIndex={-1}
 				aria-haspopup="menu"
 				aria-expanded={open}
-				onMouseEnter={(event) => show(event.currentTarget)}
+				disabled={disabled}
+				title={title}
+				onMouseEnter={(event) => { if (!disabled) show(event.currentTarget); }}
 				onFocus={(event) => {
+					if (disabled) return;
 					if (skipFocusOpenRef.current) {
 						skipFocusOpenRef.current = false;
 						return;
 					}
 					show(event.currentTarget);
 				}}
-				onClick={(event) => { event.stopPropagation(); show(event.currentTarget); }}
+				onClick={(event) => { event.stopPropagation(); if (!disabled) show(event.currentTarget); }}
 				onKeyDown={(event) => {
+					if (disabled) return;
 					if (event.key === "ArrowRight") {
 						event.preventDefault();
 						event.stopPropagation();
@@ -448,12 +460,12 @@ function ContextMenuSubmenu({
 					}
 				}}
 				onMouseDown={(event) => event.stopPropagation()}
-				className="flex h-7 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] outline-none hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] focus-visible:bg-[var(--brand)] focus-visible:text-[var(--primary-foreground)]"
+				className="flex h-7 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-[var(--foreground)] outline-none hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)] focus-visible:bg-[var(--brand)] focus-visible:text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--foreground)]"
 			>
 				<span className="flex min-w-0 items-center gap-2">{icon}{label}</span>
 				<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
 			</button>
-			{open && position && createPortal(
+			{open && position && !disabled && createPortal(
 				<div
 					ref={submenuRef}
 					data-context-menu-submenu="true"

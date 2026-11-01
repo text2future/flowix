@@ -1,4 +1,4 @@
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -91,6 +91,68 @@ describe('PopoverContent motion lifecycle', () => {
     });
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps ancestors open for portaled child and grandchild interactions but closes outside', async () => {
+    const parentChange = vi.fn();
+    const childChange = vi.fn();
+    const grandchildChange = vi.fn();
+    await act(async () => root.render(
+      <Popover open onOpenChange={parentChange}>
+        <PopoverTrigger asChild><button>Dataset</button></PopoverTrigger>
+        <PopoverContent>
+          <Popover open onOpenChange={childChange}>
+            <PopoverTrigger asChild><button>Asset filter</button></PopoverTrigger>
+            <PopoverContent aria-label="Asset conditions">
+              <input aria-label="Filename" />
+              <Popover open onOpenChange={grandchildChange}>
+                <PopoverTrigger asChild><button>Types</button></PopoverTrigger>
+                <PopoverContent><button>Image type</button></PopoverContent>
+              </Popover>
+            </PopoverContent>
+          </Popover>
+        </PopoverContent>
+      </Popover>,
+    ));
+    for (const target of [
+      document.querySelector('[aria-label="Asset conditions"]')!,
+      document.querySelector('[aria-label="Filename"]')!,
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Image type')!,
+    ]) {
+      parentChange.mockClear();
+      childChange.mockClear();
+      await act(async () => target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      expect(parentChange).not.toHaveBeenCalled();
+      expect(childChange).not.toHaveBeenCalled();
+    }
+    await act(async () => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    expect(parentChange).toHaveBeenCalledWith(false);
+    expect(childChange).toHaveBeenCalledWith(false);
+    expect(grandchildChange).toHaveBeenCalledWith(false);
+  });
+
+  it('registers child content opened after mount, including its delayed portal mount', async () => {
+    const parentChange = vi.fn();
+    function Menu() {
+      const [childOpen, setChildOpen] = useState(false);
+      return <Popover open onOpenChange={parentChange}>
+        <PopoverTrigger asChild><button>Dataset</button></PopoverTrigger>
+        <PopoverContent>
+          <Popover open={childOpen} onOpenChange={setChildOpen}>
+            <PopoverTrigger asChild><button>Open asset filter</button></PopoverTrigger>
+            <PopoverContent><input aria-label="Asset filename" /></PopoverContent>
+          </Popover>
+        </PopoverContent>
+      </Popover>;
+    }
+    await act(async () => root.render(<Menu />));
+    await act(async () => {
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Open asset filter')!.click();
+    });
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Asset filename"]')!;
+    expect(input).not.toBeNull();
+    await act(async () => { input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); });
+    expect(parentChange).not.toHaveBeenCalled();
   });
 
   it('anchors to the entire field row instead of its nested button', async () => {

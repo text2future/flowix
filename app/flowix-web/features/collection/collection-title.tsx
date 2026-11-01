@@ -1,87 +1,40 @@
-import type { RefObject } from 'react';
-import { LoaderCircle } from 'lucide-react';
-import { useI18n } from '@/lib/i18n';
 import { ContentIcon } from '@features/content/public/content-api';
+import { EditableCollectionName, type CollectionNameEditControls } from './editable-collection-name';
 
 type CollectionTitleKind = 'table' | 'work_documents';
 
+/**
+ * 集合名称的小标题（tab 条左侧）：`[图标] 名字`。
+ *
+ * 名字的编辑交互不在本组件里 ── `EditableCollectionName` 是唯一实现
+ * （大标题头 `CollectionNameHeader` 用的是同一个）。这里只管图标与排布。
+ */
 export function CollectionTitle({
   kind,
   title,
   inputLabel,
   renameLabel,
   renameHint,
-  editing,
-  draft,
-  setDraft,
-  inputRef,
-  captureCaret,
-  beginEdit,
-  commit,
-  cancel,
-  disabled = false,
-  busy = false,
+  edit,
 }: {
   kind: CollectionTitleKind;
   title: string;
   inputLabel: string;
   renameLabel: string;
   renameHint: string;
-  editing: boolean;
-  draft: string;
-  setDraft: (value: string) => void;
-  inputRef: RefObject<HTMLInputElement | null>;
-  captureCaret: (element: HTMLElement, x: number, y: number) => void;
-  beginEdit: () => void;
-  commit: (value: string) => void | Promise<void>;
-  cancel: () => void;
-  disabled?: boolean;
-  busy?: boolean;
+  edit: CollectionNameEditControls;
 }) {
-  const { t } = useI18n();
   const content = kind === 'table' ? { kind: 'multidimensional-table' as const } : { kind: 'work-documents' as const };
-  const unavailable = disabled || busy;
 
   return <div className="multidimensional-table__view-title flex min-w-0 max-w-[40%] shrink-0 -translate-x-[2px] items-center gap-1.5" title={title}>
     <ContentIcon content={content} className="h-5 w-5 shrink-0" />
-    {editing ? <input
-      ref={inputRef}
-      aria-label={inputLabel}
-      value={draft}
-      disabled={unavailable}
-      onChange={(event) => setDraft(event.currentTarget.value)}
-      onBlur={(event) => { void commit(event.currentTarget.value); }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          cancel();
-        }
-      }}
-      className="box-border h-[22px] min-w-[2em] max-w-full flex-[0_1_auto] rounded px-0.5 py-1 [field-sizing:content] border-0 bg-[var(--muted)] text-sm font-medium leading-none text-[var(--foreground)] outline-none"
-    /> : <button
-      type="button"
-      onDoubleClick={(event) => {
-        if (unavailable) return;
-        event.preventDefault();
-        captureCaret(event.currentTarget, event.clientX, event.clientY);
-        beginEdit();
-      }}
-      aria-label={`${renameLabel}：${title}`}
-      title={`${renameHint}：${title}`}
-      disabled={unavailable}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === 'F2') {
-          event.preventDefault();
-          beginEdit();
-        }
-      }}
-      className="min-w-[2em] flex-[0_1_auto] truncate rounded px-0.5 py-1 text-left text-sm font-medium leading-none text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] disabled:opacity-100"
-    >{title}</button>}
-    {busy && <span role="status" aria-label={t('memo.fileTree.renaming')} className="inline-flex shrink-0 items-center text-[var(--muted-foreground)]">
-      <LoaderCircle className="h-3.5 w-3.5 flowix-spin" aria-hidden="true" />
-    </span>}
+    <EditableCollectionName
+      title={title}
+      size="tab"
+      inputLabel={inputLabel}
+      renameLabel={renameLabel}
+      renameHint={renameHint}
+      edit={edit}
+    />
   </div>;
 }

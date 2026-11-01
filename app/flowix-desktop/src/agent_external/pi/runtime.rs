@@ -1341,6 +1341,10 @@ impl PiRpcManager {
         let config_dir = pi_config_dir()?;
         std::fs::create_dir_all(&config_dir)
             .map_err(|error| format!("cannot create Pi config directory: {error}"))?;
+        // Make the packages vendored into the bundle available in the user's
+        // Pi agent directory before any process reads it. Best-effort: a
+        // failed seed must not block launching Pi.
+        super::package_seed::seed_bundled_packages(app);
 
         let mut command = Command::new(resolve_pi_binary(app)?);
         // The bash tool reads its environment from this process, so the PATH
@@ -3484,18 +3488,13 @@ fn attach_pi_session_message_ids_impl(
 }
 
 pub(crate) fn resolve_pi_binary(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let platform = match std::env::consts::OS {
-        "macos" => "darwin",
-        "windows" => "windows",
-        "linux" => "linux",
-        other => return Err(format!("Pi runtime is not bundled for {other}")),
-    };
-    let arch = match std::env::consts::ARCH {
-        "aarch64" => "arm64",
-        "x86_64" => "x64",
-        other => return Err(format!("Pi runtime is not bundled for {platform}-{other}")),
-    };
-    let target = format!("{platform}-{arch}");
+    let target = pi_runtime_target().ok_or_else(|| {
+        format!(
+            "Pi runtime is not bundled for {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })?;
     let executable = if cfg!(windows) { "pi.exe" } else { "pi" };
     let mut roots = Vec::new();
 
@@ -3520,6 +3519,45 @@ pub(crate) fn resolve_pi_binary(app: &tauri::AppHandle) -> Result<PathBuf, Strin
     Err(format!(
         "Bundled Pi runtime is missing or not executable for {target}"
     ))
+}
+
+/// Bundled runtime target directory name, e.g. `darwin-arm64`.
+fn pi_runtime_target() -> Option<String> {
+    let platform = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "windows",
+        "linux" => "linux",
+        _ => return None,
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        _ => return None,
+    };
+    Some(format!("{platform}-{arch}"))
+}
+
+/// Directory of the Pi packages vendored next to the bundled runtime
+/// (`pi-agent` inside the staged Pi resource, written by
+/// `scripts/prepare-pi-bundle.mjs`). Returns `None` when the staged runtime
+/// predates package vendoring; in development re-run
+/// `npm run tauri:dev:pi` to restage.
+pub(super) fn resolve_pi_agent_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let target = pi_runtime_target()?;
+    let mut roots = Vec::new();
+    if let Ok(resources) = app.path().resource_dir() {
+        roots.push(resources.join("pi").join(&target));
+    }
+    #[cfg(debug_assertions)]
+    roots.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.build/pi-runtime/resources")
+            .join(&target),
+    );
+    roots
+        .into_iter()
+        .map(|root| root.join("pi-agent"))
+        .find(|dir| dir.is_dir())
 }
 
 #[cfg(test)]

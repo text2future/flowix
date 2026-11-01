@@ -1,0 +1,100 @@
+format: flowix.collection
+schema_version: 3
+collection:
+  id: col_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  type: hybrid
+  placement: folder
+  revision: 1
+  created_at: 2026-10-31T00:00:00Z
+  updated_at: 2026-10-31T00:00:00Z
+  properties: {}
+payload:
+  schema_version: 3
+  file_tree: true
+  domains:
+    notes:
+      source:
+        scope: containing_folder
+        depth: direct_children
+      schema:
+        primary_field_id: fld_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        fields:
+          - id: fld_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            type: primary
+            property_key: note
+      filter:
+        path: ''
+        match: all
+        conditions: []
+      records:
+        include: []
+        exclude: []
+    media:
+      source:
+        scope: containing_folder
+        depth: descendants
+      schema:
+        fields: []
+      filter:
+        path: ''
+        match: all
+        conditions: []
+      records:
+        include:
+          - id: rec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            updated_at: 2026-10-31T00:00:00Z
+            resource_id: nb_00000000000000000000000000000000::media/a.png
+            relative_path: media/a.png
+        exclude: []
+    work_documents:
+      source:
+        scope: containing_folder
+        depth: descendants
+      schema:
+        fields: []
+      filter:
+        path: ''
+        match: all
+        conditions: []
+      records:
+        include: []
+        exclude: []
+  views:
+    default_by_domain:
+      notes: view_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      media: view_cccccccccccccccccccccccccccccccc
+      work_documents: view_dddddddddddddddddddddddddddddddd
+    items:
+      - id: view_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        name: 表格
+        domain: notes
+        layout: table
+        filter:
+          all: []
+          any: []
+        sort: []
+        config:
+          visible_fields:
+            - fld_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - id: view_cccccccccccccccccccccccccccccccc
+        name: 图墙
+        domain: media
+        layout: waterfall
+        filter:
+          all: []
+          any: []
+        sort:
+          - field: created_at
+            direction: desc
+        config: {}
+      - id: view_dddddddddddddddddddddddddddddddd
+        name: 工作文档
+        domain: work_documents
+        layout: gallery
+        filter:
+          all: []
+          any: []
+        sort:
+          - field: modified_at
+            direction: desc
+        config: {}

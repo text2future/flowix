@@ -8,7 +8,7 @@ import {
   historyEntryFromWorkColumnTarget,
 } from '@features/workspace/public/note-navigation-api';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
-import { openFolderCollection } from '@features/workspace/public/main-window-api';
+import { openFolderCollection, openFolderCollectionFromFolder } from '@features/workspace/public/main-window-api';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 
 export type DocumentHistoryDirection = 'back' | 'forward';
@@ -45,6 +45,13 @@ async function openHistoryEntry(entry: DocumentHistoryEntry): Promise<DocumentHi
       options: { history: 'skip' },
     });
     return entry;
+  }
+  if (entry.kind === 'folder-collection') {
+    // 回放文件夹首页时 history 必须为 skip：栈的推进由 commitBack/ForwardNavigation 负责。
+    await openFolderCollectionFromFolder(entry.notebookId, entry.folderPath, 'main-third', { history: 'skip' });
+    const openedEntry = historyEntryFromWorkColumnTarget(useWorkColumnStore.getState().navigation.target);
+    if (!openedEntry) throw new Error('无法恢复文件夹历史记录');
+    return openedEntry;
   }
   if (entry.kind === 'document-list') {
     await openFolderCollection(entry.scope.notebookId ?? '', entry.scope.path, { history: 'skip' });

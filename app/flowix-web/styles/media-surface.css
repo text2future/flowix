@@ -7,13 +7,6 @@
  * (document-titlebar.tsx) and the browser column header
  * (browser-column-header.tsx) are the consumers, not Thread Cards. */
 
-/* Media resources share the same surface background as conversations, while
- * keeping their own semantic chrome type. */
-.media-surface-titlebar {
-  background-color: var(--agent-bg, var(--document-bg));
-  background-image: none;
-}
-
 /* WebView native video controls are painted inside the replaced element and
  * may ignore the element's border-radius at the corners. Clip the complete
  * rendered layer so the controls' gray overlay follows the same radius,

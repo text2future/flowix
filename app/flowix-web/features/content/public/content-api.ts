@@ -1,4 +1,5 @@
-export { ContentIcon, getFileIconKind, HtmlFileIcon, WorkDocumentsCollectionIcon } from '../components/content-icon';
+export { ContentIcon, getFileIconKind, HtmlFileIcon, NotebookTreeResourceIcon, WorkDocumentsCollectionIcon } from '../components/content-icon';
+export { NoteContentIcon } from '../components/note-content-icon';
 export type { ContentDescription, ContentKind, ContentFileIconKind } from '../components/content-icon';
 
 export {

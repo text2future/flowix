@@ -33,6 +33,7 @@ export interface MainListColumnSectionProps {
   memoColWidth: number;
   isDraggingListDivider: boolean;
   collapseMemoList: () => void;
+  expandSidebar: () => void;
   resizeMemoList: ReturnType<typeof useMainPanelController>['resizeMemoList'];
   setIsDraggingListDivider: (value: boolean) => void;
   handleToggleNoteNavigation: () => void;
@@ -67,6 +68,7 @@ export function MainListColumnSection({
   memoColWidth,
   isDraggingListDivider,
   collapseMemoList,
+  expandSidebar,
   resizeMemoList,
   setIsDraggingListDivider,
   handleToggleNoteNavigation,
@@ -103,6 +105,7 @@ export function MainListColumnSection({
       selectedNotebook={selectedNotebook}
       noteNavigationPhase={noteNavigationPhase}
       onCollapseMemoList={collapseMemoList}
+      onExpandSidebar={expandSidebar}
       onOpenPreferences={(tab) => void windows.openPreferences(tab)}
       onPreviewEnter={handleMemoListPreviewEnter}
       onPreviewLeave={handleMemoListPreviewLeave}

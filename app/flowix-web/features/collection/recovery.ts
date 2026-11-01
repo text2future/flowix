@@ -159,7 +159,7 @@ function recoveredMetadata(
 function fallbackCollectionName(filePath: string, type: CollectionType): string {
   const filename = filePath.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const withoutExtension = filename.replace(/(?:\.index\.ya?ml|\.(?:table|lib|workdocs)\.ya?ml)$/i, '').trim();
-  return withoutExtension || (type === 'table' ? '多维表格' : type === 'work_documents' ? '工作文档' : '媒体库');
+  return withoutExtension || (type === 'table' ? '多维表格' : type === 'work_documents' ? '列表' : '媒体库');
 }
 
 function createTemplate(
@@ -286,7 +286,7 @@ export async function repairCollectionFile(
   if (result.status === 'error') throw new Error(result.message);
   return {
     collectionId: verified.collection.id,
-    collectionType: verified.collection.type,
+    collectionType: verified.collection.type as CollectionType,
     placement: verified.collection.placement,
     name: collectionDisplayName(path, placement) || name,
   };

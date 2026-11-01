@@ -1,14 +1,18 @@
-import { lazy, Suspense } from 'react';
+import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
+import { lazy, Suspense, type CSSProperties } from 'react';
 
 import { isWindowsPlatform } from '@/lib/path';
 import { useI18n } from '@/lib/i18n';
+import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
 import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
+import { workspaceSurfaceUsesCollectionFrame } from '@features/workspace/public/surface-api';
 import {
   DocumentTitlebarWin,
   DocumentTitlebarMac,
   type DocumentTitlebarProps,
 } from '@features/document/public/shell-api';
 import {
+  collectionIndexPath,
   WorkColumnContentHost,
   type WorkColumnPresentation,
 } from '@features/surface/public/shell-api';
@@ -120,6 +124,26 @@ export function MainWorkColumns({
 }: MainWorkColumnsProps) {
   const { t } = useI18n();
   const selectionLabel = t('memo.fileTree.selectedDocumentCount', { count: accessSpaceSelectionCount });
+  /**
+   * 集合头图可见时，内容区上穿一个标题栏高度（mac h-12 / win h-9），让头图
+   * 顶部从标题栏下方经过；隐藏头图后撤掉上移，集合内容从标题栏下方正常开始。
+   * 集合内部的吸顶偏移（tab 条 / 表头）引用 `--work-titlebar-h`，随负 margin 一起开关。
+   */
+  const isCollectionShellSurface = workColumnPresentation.content.status === 'surface'
+    && workspaceSurfaceUsesCollectionFrame(workColumnPresentation.contentKind);
+  const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
+    ? workColumnPresentation.content.surface : null);
+  const collectionBanner = useCollectionBannerControl(collectionPath);
+  // Registry 尚未就绪时按默认可见处理，避免集合初次渲染时内容短暂跳位。
+  const collectionBannerVisible = !collectionBanner.available || collectionBanner.visible;
+  const workTitlebarH = isCollectionShellSurface && collectionBannerVisible
+    ? (isWindowsPlatform() ? '2.25rem' : '3rem')
+    : null;
+  const contentHostStyle: CSSProperties | undefined = hasMultipleDocumentsSelected
+    ? { display: 'none' }
+    : workTitlebarH
+      ? ({ marginTop: `-${workTitlebarH}`, '--work-titlebar-h': workTitlebarH } as CSSProperties)
+      : undefined;
   return (
     <>
     {/* Keep the drop overlay outside the scrolling columns so it covers the viewport. */}
@@ -179,6 +203,7 @@ export function MainWorkColumns({
               reserveWindowsControls={!browserColumnVisible}
               showTrafficLightSpacer={isMemoListHidden && noteNavigationPhase === 'closed'}
               className="agent-conversation-titlebar"
+              header={resolveWorkspaceHeaderModel({ chrome: 'agent' })}
             >
               {null}
             </WorkColumnTitlebar>
@@ -207,7 +232,7 @@ export function MainWorkColumns({
         <WorkColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
       )}
       <div className="relative isolate flex-1 min-w-0 overflow-hidden" hidden={hasMultipleDocumentsSelected}
-        style={hasMultipleDocumentsSelected ? { display: 'none' } : undefined}>
+        style={contentHostStyle}>
         {recentExportPath && workColumnPresentation.header.kind === 'document' && (
           <MainLayoutExportNotice
             recentExportPath={recentExportPath}

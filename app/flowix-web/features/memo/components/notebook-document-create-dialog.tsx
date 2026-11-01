@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
-import { files } from '@platform/tauri/client';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { createTableDocumentFile, type TableViewType } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibraryFile } from '@features/media-library/model';
@@ -14,7 +13,6 @@ export interface NotebookDocumentCreateRequest {
   notebook: { id: string; path: string };
   viewType?: TableViewType;
   parentFolder: () => Promise<string | null | undefined> | string | null | undefined;
-  inViews?: boolean;
   onTableCreated?: (selection: { relativePath: string; collectionId: string; viewId: string }) => void | Promise<void>;
   refresh?: () => Promise<void>;
 }
@@ -52,7 +50,6 @@ export function NotebookDocumentCreateDialog({ request, onClose }: {
       if (request.kind === 'table') {
         const created = await createTableDocumentFile(notebook.path, parent, name, type);
         filePath = created.filePath;
-        if (request.inViews) await files.setTableDocumentInViews(notebook.id, created.table.collection.id, true);
         if (request.onTableCreated) {
           const view = created.table.views.items[0];
           if (!view) throw new Error('新建多维表格没有可用视图');
@@ -61,7 +58,6 @@ export function NotebookDocumentCreateDialog({ request, onClose }: {
       } else if (request.kind === 'media-library') {
         const created = await createMediaLibraryFile(notebook.path, parent, name);
         filePath = created.filePath;
-        if (request.inViews) await files.setMediaLibraryInViews(notebook.id, created.document.collection.id, true);
       } else {
         filePath = (await createWorkDocumentsCollectionFile(notebook.path, parent, name)).filePath;
       }

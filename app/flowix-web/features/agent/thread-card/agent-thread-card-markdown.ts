@@ -1,5 +1,6 @@
 import { Marked } from "marked";
 import { createLogger } from "@/lib/logger";
+import { literalUnderscoreTokenizer } from "@/lib/markdown-literal-underscore";
 import { normalizeAgentTypeKey } from "@/lib/agent-types";
 import { sanitizeLinkHref } from "@/lib/safe-link";
 import type { AgentThreadCardInputAttachment } from "@features/agent/thread-card/composer/composer-attachment-types";
@@ -462,6 +463,12 @@ const cardMarked = new Marked({
 
 cardMarked.use({
   extensions: [
+    {
+      // Same policy as the note editor and export renderer: `__text__` is a
+      // literal identifier (`__pycache__`, `__init__.py`), never bold. The
+      // tokenizer emits a plain `text` token, so it carries no child tokens.
+      ...literalUnderscoreTokenizer,
+    },
     {
       name: "agentCjkStrong",
       level: "inline",

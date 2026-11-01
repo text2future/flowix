@@ -331,7 +331,7 @@ pub fn catalog(app: &AppHandle) -> Result<PiModelCatalog, String> {
         .map_err(|error| format!("invalid PI provider catalog {}: {error}", path.display()))
 }
 
-fn read_json(path: &Path) -> Result<Value, String> {
+pub(super) fn read_json(path: &Path) -> Result<Value, String> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|error| format!("invalid {}: {error}", path.display())),
@@ -340,7 +340,7 @@ fn read_json(path: &Path) -> Result<Value, String> {
     }
 }
 
-fn write_json(path: &Path, value: &Value) -> Result<(), String> {
+pub(super) fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     let parent = path.parent().ok_or("Pi config path has no parent")?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));

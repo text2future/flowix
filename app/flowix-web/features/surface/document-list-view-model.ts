@@ -10,6 +10,7 @@ export interface DocumentListViewContext {
   workDocumentsFilter?: {
     file_name_contains?: string;
     file_type?: string;
+    file_types?: string[];
     path_contains?: string;
     path_scope?: 'all';
   };

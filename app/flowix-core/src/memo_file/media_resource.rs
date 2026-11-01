@@ -151,7 +151,7 @@ pub fn media_resource_id(notebook_id: &str, relative_path: &str) -> std::io::Res
     resource_catalog_id(notebook_id, relative_path)
 }
 
-fn normalize_resource_relative_path(relative_path: &str) -> std::io::Result<String> {
+pub(crate) fn normalize_resource_relative_path(relative_path: &str) -> std::io::Result<String> {
     let normalized = relative_path.replace('\\', "/");
     if normalized.is_empty()
         || normalized.starts_with('/')
@@ -163,7 +163,7 @@ fn normalize_resource_relative_path(relative_path: &str) -> std::io::Result<Stri
     Ok(normalized)
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
@@ -1120,7 +1120,7 @@ impl MemoFile {
         let relative = Path::new(relative_path);
         if self
             .file_management_policy(notebook_id)
-            .is_ignored_at(&root, relative)
+            .is_index_hidden_at(&root, relative)
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -1202,8 +1202,8 @@ impl MemoFile {
             .memo_base_for_notebook_id_result(notebook_id)
             .map_err(std::io::Error::other)?;
         let policy = self.file_management_policy(notebook_id);
-        if policy.is_ignored_at(&root, Path::new(&old_relative_path))
-            || policy.is_ignored_at(&root, Path::new(&new_relative_path))
+        if policy.is_index_hidden_at(&root, Path::new(&old_relative_path))
+            || policy.is_index_hidden_at(&root, Path::new(&new_relative_path))
         {
             return Ok(false);
         }
@@ -1594,7 +1594,7 @@ impl MemoFile {
                     return false;
                 }
                 entry.path().strip_prefix(&root)
-                    .is_ok_and(|relative| relative.as_os_str().is_empty() || !policy.is_ignored_at(&root, relative))
+                    .is_ok_and(|relative| relative.as_os_str().is_empty() || !policy.is_index_hidden_at(&root, relative))
             })
         {
             if !keep_running() { return Err(std::io::Error::from(std::io::ErrorKind::Interrupted)); }
@@ -1672,7 +1672,7 @@ impl MemoFile {
             if !keep_running() { return Err(std::io::Error::from(std::io::ErrorKind::Interrupted)); }
             if !root.is_dir() { return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "notebook unavailable")); }
             if !seen.contains(&relative) {
-                if policy.is_ignored_at(&root, Path::new(&relative)) {
+                if policy.is_index_hidden_at(&root, Path::new(&relative)) {
                     continue;
                 }
                 // A file can reappear after its directory was enumerated. A

@@ -237,7 +237,7 @@ fn should_ignore_path_for_event(path: &Path, lease: &WatchLease, directory_event
     if directory_event {
         policy.is_tree_hidden_directory(&relative)
     } else {
-        policy.is_ignored_at(&lease.root_path, &relative)
+        policy.is_tree_hidden_at(&lease.root_path, &relative)
     }
 }
 
@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn dot_directories_are_watched_and_system_paths_are_filtered() {
+    fn every_user_folder_is_watched_and_only_system_paths_are_filtered() {
         let temp = tempdir().expect("create temp directory");
         let root = temp.path().join("notebook");
         let hidden = root.join(".agent").join("skills").join("skill.md");
@@ -519,31 +519,29 @@ mod tests {
             root_path: root.clone(),
         };
 
-        assert!(!should_ignore_path(&hidden, &notebook_lease));
-        assert!(!should_ignore_path(&hidden, &browser_lease));
-        assert!(!should_ignore_path(
-            &root.join(".vscode/settings.json"),
-            &notebook_lease
-        ));
-        assert!(should_ignore_path(&cache, &notebook_lease));
-        assert!(should_ignore_path(
-            &root.join(".unrelated/note.md"),
-            &browser_lease
-        ));
-        assert!(should_ignore_path(
-            &root.join("attachments-cache/file.png"),
-            &browser_lease
-        ));
-        assert!(!should_ignore_path_for_event(
-            &root.join(".agent"),
-            &browser_lease,
-            true
-        ));
-        assert!(should_ignore_path_for_event(
-            &root.join(".cache"),
-            &browser_lease,
-            true
-        ));
+        // The file tree lists every folder on disk, so its watcher must keep
+        // reporting changes inside dot folders and the dependency blacklist.
+        for path in [
+            hidden.clone(),
+            cache.clone(),
+            root.join(".vscode/settings.json"),
+            root.join(".unrelated/note.md"),
+            root.join("attachments-cache/file.png"),
+        ] {
+            assert!(
+                !should_ignore_path(&path, &notebook_lease),
+                "{} must stay watched",
+                path.display()
+            );
+            assert!(!should_ignore_path(&path, &browser_lease));
+        }
+        for folder in [".agent", ".cache", "node_modules"] {
+            assert!(!should_ignore_path_for_event(
+                &root.join(folder),
+                &browser_lease,
+                true
+            ));
+        }
         let internal = browser_lease.root_path.join(".flowix").join("notebook.db");
         assert!(should_ignore_path(&internal, &notebook_lease));
         assert!(should_ignore_path(&internal, &browser_lease));

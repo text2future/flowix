@@ -11,11 +11,13 @@ import { LazyPluginDocumentView, LazyPluginWorkbench } from '@features/plugin/pu
 
 import type { WorkspaceSurfaceRendererData, WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-registry';
 import { WorkspaceSurfaceStateView } from './workspace-surface-state-view';
+import { usePathIndexExcluded } from './use-path-index-excluded';
 import { useWorkspaceSurfaceLifecycleBridge } from './workspace-surface-lifecycle-bridge';
+import { CollectionShell } from './collection-shell';
 import type { DocumentContentStatus } from '@features/document/components/session/types';
-import { openFolderCollection } from '@features/workspace/public/main-window-api';
 import { notes } from '@platform/tauri/client';
 import { toast } from '@/lib/toast';
+import { useI18n } from '@/lib/i18n';
 
 const NO_SURFACE_ACTIONS: readonly [] = [];
 
@@ -68,11 +70,7 @@ const DocumentContainer = lazy(() => import('@features/document/components/docum
 const UnavailableFileView = lazy(() => import('@features/document/components/document-container').then((module) => ({ default: module.UnavailableFileView })));
 const DocxPreview = lazy(() => import('@features/document/components/docx-preview').then((module) => ({ default: module.DocxPreview })));
 const CsvPreview = lazy(() => import('@features/document/components/csv-preview').then((module) => ({ default: module.CsvPreview })));
-const TableDocumentView = lazy(() => import('@features/multidimensional-table/public/surface-api').then((module) => ({ default: module.TableDocumentView })));
-const MediaLibraryView = lazy(() => import('@features/media-library/media-library-view').then((module) => ({ default: module.MediaLibraryView })));
 const MediaResourceView = lazy(() => import('./media-resource-view').then((module) => ({ default: module.MediaResourceView })));
-const WorkDocumentsView = lazy(() => import('./work-documents-view').then((module) => ({ default: module.WorkDocumentsView })));
-const WorkDocumentsCollectionView = lazy(() => import('./work-documents-collection-view').then((module) => ({ default: module.WorkDocumentsCollectionView })));
 const MarkdownDocumentSurface = lazy(() => import('./markdown-document-surface').then((module) => ({ default: module.MarkdownDocumentSurface })));
 const HtmlResourceView = lazy(() => import('./html-resource-view').then((module) => ({ default: module.HtmlResourceView })));
 const CodeSurfaceFileBrowser = lazy(() => import('./work-file-browser-view').then((module) => ({ default: module.CodeSurfaceFileBrowser })));
@@ -143,37 +141,34 @@ export function VideoRenderer({ surface, context }: RendererProps<'file-video'>)
     reportPresentation={context.reportPresentation} />;
 }
 
-export function TableRenderer({ surface, context }: RendererProps<'file-table'>) {
-  const props = useWorkspaceSurfaceLifecycleBridge(surface.props, context.registerLifecycle);
-  return <TableDocumentView {...props} fileIdentity={surface.fileIdentity} reportPresentation={context.reportPresentation} />;
-}
-
-export function MediaLibraryRenderer({ surface, context }: RendererProps<'file-media-library'>) {
-  const lifecycleProps = useWorkspaceSurfaceLifecycleBridge({}, context.registerLifecycle);
-  return <MediaLibraryView
-    {...lifecycleProps}
-    filePath={surface.fileIdentity.path}
+/** All collection file kinds use the same shell, including legacy single-domain files. */
+function CollectionFileRenderer({ surface, context }: RendererProps<'file-table' | 'file-media-library' | 'file-work-documents'>) {
+  const surfaceProps = surface.kind === 'file-table' ? surface.props : {
+    filePath: surface.fileIdentity.path,
+    notebookPath: surface.notebookPath,
+    notebookId: surface.notebookId,
+    expectedCollectionId: surface.expectedCollectionId,
+  };
+  const props = useWorkspaceSurfaceLifecycleBridge(surfaceProps, context.registerLifecycle);
+  return <CollectionShell
+    {...props}
+    editable={!context.readOnly && (surface.kind === 'file-table' ? surface.props.editable ?? true : true)}
     fileIdentity={surface.fileIdentity}
-    expectedCollectionId={surface.expectedCollectionId}
-    notebookPath={surface.notebookPath}
-    notebookId={surface.notebookId}
-    workspaceHost={context.host}
+    host={context.host}
     reportPresentation={context.reportPresentation}
   />;
 }
 
-export function WorkDocumentsCollectionRenderer({ surface, context }: RendererProps<'file-work-documents'>) {
-  const lifecycleProps = useWorkspaceSurfaceLifecycleBridge({}, context.registerLifecycle);
-  return <WorkDocumentsCollectionView
-    {...lifecycleProps}
-    filePath={surface.fileIdentity.path}
-    fileIdentity={surface.fileIdentity}
-    notebookPath={surface.notebookPath}
-    notebookId={surface.notebookId}
-    expectedCollectionId={surface.expectedCollectionId}
-    workspaceHost={context.host}
-    reportPresentation={context.reportPresentation}
-  />;
+export function TableRenderer(props: RendererProps<'file-table'>) {
+  return <CollectionFileRenderer {...props} />;
+}
+
+export function MediaLibraryRenderer(props: RendererProps<'file-media-library'>) {
+  return <CollectionFileRenderer {...props} />;
+}
+
+export function WorkDocumentsCollectionRenderer(props: RendererProps<'file-work-documents'>) {
+  return <CollectionFileRenderer {...props} />;
 }
 
 export function HtmlRenderer({ surface, context }: RendererProps<'file-html'>) {
@@ -266,41 +261,31 @@ export function PluginWorkbenchRenderer({ surface, context }: RendererProps<'plu
 }
 
 export function CollectionRenderer({ surface, context }: RendererProps<'collection'>) {
-  useEffect(() => {
-    if (surface.viewMode === 'work-documents') return;
-    context.reportPresentation?.({ state: { status: 'ready' } });
-  }, [context.reportPresentation, surface.viewMode]);
+  const { t } = useI18n();
+  // Ask before offering the chooser: every index skips these folders, so both
+  // choices would open a view that can never list anything.
+  const indexExcluded = usePathIndexExcluded(surface.folderPath);
 
-  if (surface.viewMode === 'work-documents') {
-    return <WorkDocumentsView notebookId={surface.notebookId} notebookPath={surface.notebookPath} context={context} />;
+  useEffect(() => {
+    context.reportPresentation?.({ state: { status: 'ready' } });
+  }, [context.reportPresentation]);
+
+  if (indexExcluded === null) return null;
+  if (indexExcluded) {
+    return <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-auto p-6 text-center">
+      <p className="text-sm font-medium text-[var(--foreground)]">{t('memo.fileTree.hiddenFolderTitle')}</p>
+      <p className="text-sm text-[var(--muted-foreground)]">{t('memo.fileTree.hiddenFolderNoPreview')}</p>
+    </div>;
   }
 
-  const choose = async (initialType: 'notes' | 'media') => {
-    try {
-      await openFolderCollection(surface.notebookId, surface.folderPath, {
-        initialType,
-        destination: context.host,
-      });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '无法打开文件夹集合');
-    }
-  };
-
-  return <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6">
-    <section className="w-full max-w-xl">
-      <h1 className="mb-5 text-xl font-semibold text-[var(--foreground)]">如何显示当前文件夹？</h1>
-      <div className="mb-2 grid grid-cols-1 gap-3">
-        <button type="button" onClick={() => { void choose('notes'); }}
-          className="flex flex-col items-start justify-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-left transition-colors hover:bg-[var(--muted)]">
-          <span className="text-sm font-medium">显示笔记</span>
-          <span className="text-sm text-[var(--muted-foreground)]">支持表格 / 日历 / 看板 / 画廊</span>
-        </button>
-        <button type="button" onClick={() => { void choose('media'); }}
-          className="flex flex-col items-start justify-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-left transition-colors hover:bg-[var(--muted)]">
-          <span className="text-sm font-medium">显示图/视频</span>
-          <span className="text-sm text-[var(--muted-foreground)]">支持图片墙 / 瀑布流</span>
-        </button>
-      </div>
-    </section>
-  </div>;
+  // 文件夹入口与集合文件入口是同一套外壳：这里只多给一个 folderPath，
+  // 它既表示「集合缺失时就地建齐」，也表示这是文件夹类型的集合（多一个文件树 tab）。
+  return <CollectionShell
+    folderPath={surface.folderPath}
+    editable={!context.readOnly}
+    reportPresentation={context.reportPresentation}
+    notebookId={surface.notebookId}
+    notebookPath={surface.notebookPath}
+    host={context.host}
+  />;
 }

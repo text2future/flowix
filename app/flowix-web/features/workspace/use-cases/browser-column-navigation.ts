@@ -1,7 +1,7 @@
 import type { BrowserColumnNavigationResult } from '../model/surface-opening';
 import { collections, externalDocuments, notebooks } from '@platform/tauri/client';
 import { collectionNotebookId } from '@features/collection/mutations';
-import { parseCollectionDocumentV2 } from '@features/collection/model';
+import { parseCollectionDocumentV2, type CollectionType } from '@features/collection/model';
 import { inspectCollectionRecoveryType } from '@features/collection/recovery';
 import { ensureCollectionDisplay, bindCollectionDisplayPath } from '@/lib/collection-display-registry';
 import { captureFileBrowserContext, resolveFileBrowserContext } from './file-browser-context';
@@ -35,9 +35,7 @@ function targetContentTitle(target: BrowserColumnTarget): string {
 
   switch (target.kind) {
     case 'folder-collection':
-      return target.viewMode === 'work-documents'
-        ? '工作文档'
-        : target.folderName || target.folderPath.split(/[\\/]/).filter(Boolean).pop() || '文件夹集合';
+      return target.folderName || target.folderPath.split(/[\\/]/).filter(Boolean).pop() || '文件夹集合';
     case 'media':
       return filenameFromPath(target.filePath);
     case 'file-browser':
@@ -263,7 +261,7 @@ async function prepareCollectionBrowserTarget(target: BrowserColumnTarget): Prom
   let item: Awaited<ReturnType<typeof collections.resolve>>;
   try { item = await collections.resolve(notebookId, collectionId); }
   catch {
-    return { ...target, notebookId, scopePath: root, collectionType: target.collectionType ?? envelope?.collection.type ?? 'table', collectionUnavailableReason: '集合不存在或暂时无法读取' };
+    return { ...target, notebookId, scopePath: root, collectionType: target.collectionType ?? (envelope?.collection.type as CollectionType | undefined) ?? 'table', collectionUnavailableReason: '集合不存在或暂时无法读取' };
   }
   if (item.identityConflict) throw new Error('集合身份冲突或格式暂不可用');
   if (item.parseState !== 'valid') return { ...target, notebookId, scopePath: root, collectionType: item.collectionType, collectionUnavailableReason: '集合文件格式无效' };

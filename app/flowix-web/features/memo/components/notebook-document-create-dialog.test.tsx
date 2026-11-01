@@ -6,7 +6,6 @@ import { NotebookDocumentCreateDialog, type NotebookDocumentCreateRequest } from
 import { createTableDocumentFile } from '@features/multidimensional-table/public/create-api';
 import { createMediaLibraryFile } from '@features/media-library/model';
 import { createWorkDocumentsCollectionFile } from '@features/work-documents/model';
-import { files } from '@platform/tauri/client';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { toast } from '@/lib/toast';
 
@@ -15,7 +14,6 @@ vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@features/multidimensional-table/public/create-api', () => ({ createTableDocumentFile: vi.fn() }));
 vi.mock('@features/media-library/model', () => ({ createMediaLibraryFile: vi.fn() }));
 vi.mock('@features/work-documents/model', () => ({ createWorkDocumentsCollectionFile: vi.fn() }));
-vi.mock('@platform/tauri/client', () => ({ files: { setTableDocumentInViews: vi.fn(), setMediaLibraryInViews: vi.fn() } }));
 vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface: vi.fn() }));
 vi.mock('@shared/ui/dialog', () => {
   const Surface = ({ children }: { children: ReactNode }) => <div>{children}</div>;
@@ -48,13 +46,12 @@ async function submit() {
 }
 
 describe('notebook document creation', () => {
-  it('uses the requested notebook, directory and view type, then reports the created view before opening', async () => {
+  it.each(['table', 'calendar', 'kanban', 'gallery'] as const)('creates %s through the same collection opening flow', async (viewType) => {
     const onTableCreated = vi.fn();
     const refresh = vi.fn();
-    await render({ kind: 'table', notebook, viewType: 'kanban', parentFolder: async () => 'sub', inViews: true, onTableCreated, refresh });
+    await render({ kind: 'table', notebook, viewType, parentFolder: async () => 'sub', onTableCreated, refresh });
     await submit();
-    expect(createTableDocumentFile).toHaveBeenCalledWith('/other', 'sub', 'memo.create.kanbanDefaultName', 'kanban');
-    expect(files.setTableDocumentInViews).toHaveBeenCalledWith('other-notebook', 'collection-1', true);
+    expect(createTableDocumentFile).toHaveBeenCalledWith('/other', 'sub', `memo.create.${viewType}DefaultName`, viewType);
     expect(onTableCreated).toHaveBeenCalledWith({ relativePath: 'sub/new.table.yml', collectionId: 'collection-1', viewId: 'view-1' });
     expect(onTableCreated.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(openWorkspaceSurface).mock.invocationCallOrder[0]);
     expect(refresh).toHaveBeenCalledOnce();
@@ -62,12 +59,12 @@ describe('notebook document creation', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('adds media libraries to Views when requested', async () => {
+  it('creates media libraries in the resolved folder', async () => {
     vi.mocked(createMediaLibraryFile).mockResolvedValue({ filePath: '/other/library.lib.yaml', document: { collection: { id: 'library-1' } } } as Awaited<ReturnType<typeof createMediaLibraryFile>>);
-    await render({ kind: 'media-library', notebook, parentFolder: () => 'media', inViews: true });
+    await render({ kind: 'media-library', notebook, parentFolder: () => 'media' });
     await submit();
     expect(createMediaLibraryFile).toHaveBeenCalledWith('/other', 'media', 'memo.create.mediaLibraryDefaultName');
-    expect(files.setMediaLibraryInViews).toHaveBeenCalledWith(notebook.id, 'library-1', true);
+    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ path: '/other/library.lib.yaml' }) }));
   });
 
   it('creates work documents in the resolved default folder', async () => {
@@ -75,8 +72,6 @@ describe('notebook document creation', () => {
     await render({ kind: 'work-documents', notebook, parentFolder: async () => 'work' });
     await submit();
     expect(createWorkDocumentsCollectionFile).toHaveBeenCalledWith('/other', 'work', 'memo.create.workDocuments');
-    expect(files.setTableDocumentInViews).not.toHaveBeenCalled();
-    expect(files.setMediaLibraryInViews).not.toHaveBeenCalled();
   });
 
   it('keeps the form open and permits retry when creation fails', async () => {
@@ -103,21 +98,32 @@ describe('notebook document creation', () => {
 
 
 describe('file tree creation entry points', () => {
-  it.each([false, true])('resolves folder context versus Views defaults (inViews=%s)', async (inViews) => {
+  it('resolves the named parent folder for a new table', async () => {
     let controller!: ReturnType<typeof useNotebookTreeCreation>;
     const refreshTables = vi.fn(async () => {});
     const refreshMediaLibraries = vi.fn(async () => {});
     function Harness() {
-      controller = useNotebookTreeCreation({ notebookId: notebook.id, notebookPath: notebook.path, defaultCreateFolder: 'default', refreshTables, refreshMediaLibraries });
+      controller = useNotebookTreeCreation({ notebookId: notebook.id, notebookPath: notebook.path, refreshTables, refreshMediaLibraries });
       return controller.creationDialog;
     }
     await act(async () => root.render(<Harness />));
-    await act(async () => controller.openNewTableDialog(inViews, '/other/sub', 'gallery'));
+    await act(async () => controller.openNewTableDialog('/other/sub', 'gallery'));
     await submit();
-    expect(createTableDocumentFile).toHaveBeenCalledWith('/other', inViews ? 'default' : 'sub', 'memo.create.galleryDefaultName', 'gallery');
+    expect(createTableDocumentFile).toHaveBeenCalledWith('/other', 'sub', 'memo.create.galleryDefaultName', 'gallery');
     expect(refreshTables).toHaveBeenCalledOnce();
     expect(refreshMediaLibraries).not.toHaveBeenCalled();
-    expect(files.setTableDocumentInViews).toHaveBeenCalledTimes(inViews ? 1 : 0);
     expect(host.querySelector('form')).toBeNull();
+  });
+
+  it('falls back to the notebook root when no parent folder is named', async () => {
+    let controller!: ReturnType<typeof useNotebookTreeCreation>;
+    function Harness() {
+      controller = useNotebookTreeCreation({ notebookId: notebook.id, notebookPath: notebook.path, refreshTables: async () => {}, refreshMediaLibraries: async () => {} });
+      return controller.creationDialog;
+    }
+    await act(async () => root.render(<Harness />));
+    await act(async () => controller.openNewTableDialog(undefined, 'gallery'));
+    await submit();
+    expect(createTableDocumentFile).toHaveBeenCalledWith('/other', null, 'memo.create.galleryDefaultName', 'gallery');
   });
 });

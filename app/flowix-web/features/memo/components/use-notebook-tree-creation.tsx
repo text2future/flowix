@@ -15,25 +15,31 @@ export function relativeFolderPath(notebookPath: string, folderPath: string): st
 export function useNotebookTreeCreation({ notebookId, notebookPath, defaultCreateFolder, refreshTables, refreshMediaLibraries, refreshWorkDocumentCollections = refreshNothing }: {
   notebookId: string | null;
   notebookPath: string;
+  /**
+   * Implicit destination when the create action does not name a parent
+   * folder. Callers pass the folder the user is currently browsing in the
+   * Work column (notebook-relative, or null for the notebook root); the
+   * former stored `defaultCreateFolder` preference feeds the same slot.
+   */
   defaultCreateFolder?: string | null;
   refreshTables: () => Promise<void>;
   refreshMediaLibraries: () => Promise<void>;
   refreshWorkDocumentCollections?: () => Promise<void>;
 }) {
   const [request, setRequest] = useState<NotebookDocumentCreateRequest | null>(null);
-  const open = useCallback((kind: NotebookDocumentCreateRequest['kind'], inViews = false, parentPath?: string, viewType?: TableViewType) => {
+  const open = useCallback((kind: NotebookDocumentCreateRequest['kind'], parentPath?: string, viewType?: TableViewType) => {
     if (!notebookId) return;
     setRequest({
-      kind, notebook: { id: notebookId, path: notebookPath }, inViews, viewType,
-      parentFolder: () => parentPath === undefined || (kind === 'table' && inViews) ? defaultCreateFolder : relativeFolderPath(notebookPath, parentPath),
+      kind, notebook: { id: notebookId, path: notebookPath }, viewType,
+      parentFolder: () => parentPath === undefined ? defaultCreateFolder ?? null : relativeFolderPath(notebookPath, parentPath),
       refresh: kind === 'table' ? refreshTables : kind === 'media-library' ? refreshMediaLibraries : refreshWorkDocumentCollections,
     });
   }, [notebookId, notebookPath, defaultCreateFolder, refreshTables, refreshMediaLibraries, refreshWorkDocumentCollections]);
   const actions = useMemo(() => ({
-    openNewTableDialog: (inViews = false, parentPath?: string, viewType?: TableViewType) => open('table', inViews, parentPath, viewType),
-    openNewMediaLibraryDialog: (inViews = false, parentPath?: string) => open('media-library', inViews, parentPath),
-    handleCreateMediaLibraryAtPath: (parentPath: string) => open('media-library', false, parentPath),
-    openNewWorkDocumentsDialog: (parentPath?: string) => open('work-documents', false, parentPath),
+    openNewTableDialog: (parentPath?: string, viewType?: TableViewType) => open('table', parentPath, viewType),
+    openNewMediaLibraryDialog: (parentPath?: string) => open('media-library', parentPath),
+    handleCreateMediaLibraryAtPath: (parentPath: string) => open('media-library', parentPath),
+    openNewWorkDocumentsDialog: (parentPath?: string) => open('work-documents', parentPath),
   }), [open]);
   return {
     ...actions,

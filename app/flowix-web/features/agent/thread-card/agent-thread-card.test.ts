@@ -1,3 +1,4 @@
+import { getWorkspaceHeaderFullscreen } from '@features/workspace/public/header-api';
 import type { AgentAccessConfig } from "@/lib/types/agent-workspace.test-support";
 import { Editor } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
@@ -2618,10 +2619,12 @@ describe("AgentThreadCard NodeView streaming", () => {
     button?.click();
 
     expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(true);
+    expect(getWorkspaceHeaderFullscreen('main-third')?.instanceId).toBe('instance-fullscreen-persist');
 
     button?.click();
 
     expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(false);
+    expect(getWorkspaceHeaderFullscreen('main-third')).toBeNull();
   });
 
   it("does not exit a Browser Column fullscreen card when main-third leaves agent view", async () => {
@@ -2661,6 +2664,9 @@ describe("AgentThreadCard NodeView streaming", () => {
     const card = host.querySelector<HTMLElement>(".agent-thread-card");
     expect(card?.classList.contains("agent-thread-card--fullscreen")).toBe(true);
     expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(true);
+    expect(getWorkspaceHeaderFullscreen('browser-column')?.title).toBe(card?.dataset.title);
+    expect(getWorkspaceHeaderFullscreen('browser-column')?.instanceId).toBe('instance-browser-column-fullscreen');
+    expect(getWorkspaceHeaderFullscreen('main-third')).toBeNull();
 
     window.dispatchEvent(
       new CustomEvent("flowix:agent-thread-card-request-fullscreen", {

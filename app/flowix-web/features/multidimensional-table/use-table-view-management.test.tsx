@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { addTableView, createTableDocument } from './model';
 import { useTableViewManagement } from './use-table-view-management';
+import { useHostTabActions, type CollectionHostTab } from '@features/collection/public/tab-api';
 import { toast } from '@/lib/toast';
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn() } }));
 
@@ -72,5 +73,37 @@ it.each(['cancel', 'blur-first', 'close-first'] as const)('handles %s without du
     await act(async () => controller.requestDeleteView(added.view));
     await act(async () => controller.cancelDeleteView());
     expect(controller.viewPendingDelete).toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
+
+it('宿主 tab 与表格视图 tab 共用同一个就地输入框：开一个就顶掉另一个', async () => {
+  const original = createTableDocument();
+  const added = addTableView(original, 'gallery');
+  const session = { document: added.document, saving: false, loadSequenceRef: { current: 1 }, isCurrentSession: () => true };
+  const renameHostTab = vi.fn();
+  let controller!: ReturnType<typeof useTableViewManagement>;
+  let hostActions!: ReturnType<typeof useHostTabActions>;
+  function Probe() {
+    controller = useTableViewManagement({ session, save: vi.fn().mockResolvedValue(true), editable: true, canDeleteViews: true, activeViewId: added.view.id, activateView: vi.fn() });
+    hostActions = useHostTabActions({ edit: controller.tabEdit, renameHostTab, editable: true, saving: false });
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Probe />));
+
+    await act(async () => controller.beginRenameView(added.view, 90));
+    expect(controller.tabEdit.editingId).toBe(added.view.id);
+
+    const mediaTab: CollectionHostTab = { key: 'media:v1', label: '图墙', placement: 'after', removable: true, domain: 'media', viewId: 'v1' };
+    await act(async () => hostActions.beginRenameHostTab(mediaTab, 80));
+    expect(controller.tabEdit.editingId).toBe('host:media:v1');
+    expect(controller.tabEdit.name).toBe('图墙');
+    expect(controller.tabEdit.width).toBe(80);
+
+    // 宿主 tab 的改名照样落在外壳，不写表格文档。
+    await act(async () => hostActions.commitHostTabRename('media:v1', '项目图墙'));
+    expect(renameHostTab).toHaveBeenCalledWith('media:v1', '项目图墙');
+    expect(controller.tabEdit.editingId).toBeNull();
   } finally { await act(async () => root.unmount()); }
 });

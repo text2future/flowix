@@ -24,6 +24,9 @@ pub struct DocumentPageItem {
     pub full_path: String,
     pub name: String,
     pub resource_kind: String,
+    /// Indexed asset category; distinct from the generic file preview kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asset_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_directory: Option<bool>,
     pub size_bytes: Option<u64>,
@@ -104,12 +107,20 @@ fn remove_table_document_note_records(source: &str, note_path: &str) -> Option<S
         .ok()?
         .normalized_v2()
         .ok()?;
-    if document.collection.kind != flowix_core::collection::CollectionType::Table {
-        return None;
-    }
     let normalized_note_path = note_path.replace('\\', "/");
-    let dataset = document.payload.get_mut("dataset")?;
-    let records = dataset.get_mut("records")?;
+    let records = match document.collection.kind {
+        flowix_core::collection::CollectionType::Table => document
+            .payload
+            .get_mut("dataset")?
+            .get_mut("records")?,
+        // Hybrid collections keep their note records in the notes domain.
+        flowix_core::collection::CollectionType::Hybrid => document
+            .payload
+            .get_mut("domains")?
+            .get_mut("notes")?
+            .get_mut("records")?,
+        _ => return None,
+    };
     let mut changed = false;
     for key in ["include", "exclude"] {
         let Some(items) = records
@@ -154,8 +165,11 @@ pub(crate) fn remove_table_note_records(memo_file: &MemoFile, notebook_id: &str,
     };
 
     for item in documents.into_iter().filter(|item| {
-        item.collection_type == flowix_core::collection::CollectionType::Table
-            && item.parse_state == "valid"
+        matches!(
+            item.collection_type,
+            flowix_core::collection::CollectionType::Table
+                | flowix_core::collection::CollectionType::Hybrid
+        ) && item.parse_state == "valid"
     }) {
         let path = root.join(&item.relative_path);
         for _ in 0..2 {
@@ -332,11 +346,12 @@ pub async fn list_document_page(
     };
     let folder = dunce::canonicalize(&request.folder_path).map_err(|error| error.to_string())?;
     let policy = FileManagementPolicy::from_notebook_root(&root);
+    let visibility = super::file::tree_visibility_for(state.inner(), true);
     if !folder.is_dir()
         || !folder.starts_with(&root)
         || folder
             .strip_prefix(&root)
-            .is_ok_and(|relative| policy.is_ignored_at(&root, relative))
+            .is_ok_and(|relative| policy.is_tree_hidden_at(&root, relative))
     {
         return Err("INVALID_NOTEBOOK_FOLDER".into());
     }
@@ -356,16 +371,16 @@ pub async fn list_document_page(
                 Err(error) => { tracing::debug!(path = %entry.path().display(), "skip unreadable document entry: {error}"); continue; }
             };
             let path = entry.path();
-            if entry.file_name().to_string_lossy().eq_ignore_ascii_case(".index.yaml") {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // 展示口径与文件树一致：文件夹看目录规则，文件看文件通配表。
+            // `.index.yaml` 因此不再需要单独特判。
+            if visibility.hides_entry(&name, file_type.is_dir()) {
                 continue;
             }
             let relative = match path.strip_prefix(&root) {
                 Ok(relative) => relative,
                 Err(_) => continue,
             };
-            if policy.is_ignored_at(&root, relative) {
-                continue;
-            }
             if file_type.is_dir() {
                 if cursor.is_none() {
                     let metadata = match entry.metadata() {
@@ -375,9 +390,10 @@ pub async fn list_document_page(
                     let modified = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map(|duration| duration.as_millis().min(u64::MAX as u128) as u64);
                     let created = metadata.created().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map(|duration| duration.as_millis().min(u64::MAX as u128) as u64);
                     folders.push(DocumentPageItem {
-                        name: entry.file_name().to_string_lossy().into_owned(),
+                        name,
                         full_path: path.to_string_lossy().into_owned(),
                         resource_kind: "folder".into(),
+                        asset_kind: None,
                         is_directory: Some(true),
                         size_bytes: None,
                         modified_ms: modified,
@@ -427,6 +443,7 @@ pub async fn list_document_page(
                 name: full_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
                 full_path: full_path.to_string_lossy().into_owned(),
                 resource_kind: entry.resource_kind,
+                asset_kind: None,
                 is_directory: Some(false),
                 modified_ms: Some(entry.modified_ms.max(0) as u64),
                 created_ms: entry.created_ms.map(|value| value.max(0) as u64),
@@ -444,7 +461,7 @@ pub async fn list_work_documents_page(
     notebook_id: String,
     cursor: Option<String>,
     limit: Option<usize>,
-    resource_kind: Option<String>,
+    resource_kinds: Option<Vec<String>>,
     path: Option<String>,
     file_name_contains: Option<String>,
     app: AppHandle,
@@ -456,7 +473,7 @@ pub async fn list_work_documents_page(
             .get_notebook_config_by_id(&notebook_id)
             .ok_or("NOTEBOOK_NOT_FOUND")?;
         let root = dunce::canonicalize(&config.path).map_err(|error| error.to_string())?;
-        let policy = FileManagementPolicy::from_notebook_root(&root);
+        let visibility = super::file::tree_visibility_for(state.inner(), true);
         let all_kinds = [
             ResourceKind::Document,
             ResourceKind::Spreadsheet,
@@ -465,15 +482,30 @@ pub async fn list_work_documents_page(
             ResourceKind::Archive,
             ResourceKind::Database,
         ];
-        let selected_kinds = match resource_kind.as_deref() {
-            None | Some("any") => all_kinds.to_vec(),
-            Some("document") => vec![ResourceKind::Document],
-            Some("spreadsheet") => vec![ResourceKind::Spreadsheet],
-            Some("presentation") => vec![ResourceKind::Presentation],
-            Some("web") => vec![ResourceKind::Web],
-            Some("archive") => vec![ResourceKind::Archive],
-            Some("database") => vec![ResourceKind::Database],
-            Some(_) => return Err("INVALID_WORK_DOCUMENT_KIND".into()),
+        let parse_kind = |kind: &str| match kind {
+            "document" => Some(ResourceKind::Document),
+            "spreadsheet" => Some(ResourceKind::Spreadsheet),
+            "presentation" => Some(ResourceKind::Presentation),
+            "web" => Some(ResourceKind::Web),
+            "archive" => Some(ResourceKind::Archive),
+            "database" => Some(ResourceKind::Database),
+            _ => None,
+        };
+        let selected_kinds = match resource_kinds.as_deref() {
+            None => all_kinds.to_vec(),
+            // 空选/全选等价：列表面板类目内全部。
+            Some(kinds) => {
+                let parsed: Option<Vec<ResourceKind>> = kinds
+                    .iter()
+                    .filter(|kind| kind.as_str() != "any")
+                    .map(|kind| parse_kind(kind))
+                    .collect();
+                match parsed {
+                    None => return Err("INVALID_WORK_DOCUMENT_KIND".into()),
+                    Some(kinds) if kinds.is_empty() => all_kinds.to_vec(),
+                    Some(kinds) => kinds,
+                }
+            }
         };
         let selected_path = path
             .unwrap_or_default()
@@ -507,7 +539,7 @@ pub async fn list_work_documents_page(
                             std::path::Component::ParentDir | std::path::Component::CurDir
                         )
                     })
-                    || policy.is_ignored_at(&root, relative)
+                    || visibility.hides_file_path(relative)
                 {
                     continue;
                 }
@@ -553,6 +585,7 @@ pub async fn list_work_documents_page(
                     name,
                     full_path: canonical.to_string_lossy().into_owned(),
                     resource_kind: "other".into(),
+                    asset_kind: Some(resource.kind.as_str().into()),
                     is_directory: Some(resource.is_directory),
                     size_bytes: Some(resource.size_bytes),
                     modified_ms: Some(resource.modified_ms),

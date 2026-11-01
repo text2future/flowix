@@ -244,7 +244,7 @@
   },
   "app/flowix-web/features/document/components/document-titlebar.tsx": {
     "no-restricted-imports": {
-      "count": 3
+      "count": 2
     }
   },
   "app/flowix-web/features/document/components/lazy-code-editor.tsx": {
@@ -379,7 +379,7 @@
   },
   "app/flowix-web/features/editor/extensions/frontmatter-property-editor.ts": {
     "no-restricted-imports": {
-      "count": 9
+      "count": 8
     }
   },
   "app/flowix-web/features/editor/extensions/frontmatter-property-error.ts": {
@@ -499,7 +499,7 @@
   },
   "app/flowix-web/features/media-library/model.ts": {
     "no-restricted-imports": {
-      "count": 5
+      "count": 4
     }
   },
   "app/flowix-web/features/media-library/rename-media-library.ts": {
@@ -749,6 +749,11 @@
       "count": 1
     }
   },
+  "app/flowix-web/features/multidimensional-table/use-table-note-drop.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "app/flowix-web/features/multidimensional-table/use-table-note-linking.ts": {
     "no-restricted-imports": {
       "count": 5
@@ -835,11 +840,6 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/preferences/sections/file-management.tsx": {
-    "no-restricted-imports": {
-      "count": 5
-    }
-  },
   "app/flowix-web/features/preferences/sections/format.tsx": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
@@ -922,14 +922,6 @@
   },
   "app/flowix-web/features/surface/code-surface-view.tsx": {
     "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/flowix-web/features/surface/document-list-view.tsx": {
-    "no-restricted-imports": {
-      "count": 5
-    },
-    "prefer-const": {
       "count": 1
     }
   },
@@ -1043,7 +1035,7 @@
       "count": 1
     },
     "no-restricted-imports": {
-      "count": 3
+      "count": 2
     }
   },
   "app/flowix-web/lib/safe-link.ts": {
@@ -1059,11 +1051,6 @@
   "app/flowix-web/shared/ui/popover.tsx": {
     "prefer-const": {
       "count": 2
-    }
-  },
-  "app/flowix-web/features/multidimensional-table/use-table-note-drop.ts": {
-    "no-restricted-imports": {
-      "count": 1
     }
   }
 }

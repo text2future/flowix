@@ -17,12 +17,20 @@
 
   const ATTR = 'data-flowix-overlay-scroll';
   const LAYER_ID = 'flowix-overlay-scroll-layer';
+  const STYLE_ID = 'flowix-overlay-scroll-style';
   const THUMB_CLASS = 'flowix-overlay-thumb';
   const CONFIG_TYPE = 'flowix:web-frame-scrollbar';
   const READY_TYPE = 'flowix:web-frame-scrollbar-ready';
+  const STATUS_TYPE = 'flowix:web-frame-scrollbar-status';
   const HIDE_DELAY = 700;
   const MIN_THUMB = 24;
   const EDGE = 2;
+  /** Collapsing the viewport bar is confirmed over several passes: a layout
+   * read taken right after the sheet lands can still report the bar that is
+   * about to disappear, and acting on that first read is what used to restore
+   * the full-width native bar for the rest of the document's life. */
+  const VERIFY_PASSES = 4;
+  const VERIFY_RETRY_MS = 150;
 
   let mac = true;
   let enabled = true;
@@ -31,8 +39,16 @@
   let styleNode = null;
   let styleSheet = null;
   let scheduled = 0;
+  let verifyTimer = 0;
   let started = false;
-  let suppressed = false;
+  /** The viewport bar alone refused to collapse. Element scrollers are still
+   * adopted, so the document keeps its bars instead of losing them twice. */
+  let rootSuppressed = false;
+  /** Some hosts paint the viewport bar from a source no stylesheet can reach
+   * (a native "thin" scroller, for instance). Scrolling then moves to <body>,
+   * where the bar is an ordinary element scrollbar and always collapses. */
+  let bodyScroller = false;
+  let reported = '';
   const entries = new Map();
 
   function requestFrame(callback) {
@@ -42,16 +58,25 @@
 
   /** The document scroller is the only place WebKit can refuse to collapse the
    * native bar, so success is measured rather than assumed. */
-  function nativeBarConsumesWidth() {
-    return window.innerWidth - document.documentElement.clientWidth > 1;
+  function rootGutter() {
+    return window.innerWidth - document.documentElement.clientWidth;
   }
 
+  /** The element the document actually scrolls by. WebKit keeps reporting
+   * `document.scrollingElement === html` even after overflow moves to body, so
+   * the scroller is derived from measurements instead of the property. */
   function rootElement() {
-    return document.scrollingElement || document.documentElement;
+    const doc = document.documentElement;
+    const body = document.body;
+    if (bodyScroller && body) return body;
+    if (doc && doc.scrollHeight - doc.clientHeight > 1) return doc;
+    if (body && body.scrollHeight - body.clientHeight > 1) return body;
+    return document.scrollingElement || doc;
   }
 
   function isRoot(element) {
-    return element === document.scrollingElement || element === document.documentElement;
+    return element === document.scrollingElement || element === document.documentElement
+      || element === document.body || element === rootElement();
   }
 
   function barSize() {
@@ -62,15 +87,21 @@
     return `
       /* The document scroller is covered unconditionally: WebKit decides whether
        * the viewport bar belongs to html or body from how overflow propagates,
-       * and getting that wrong is what leaves a gutter beside the content. */
-      :root, body { scrollbar-width: none !important; -ms-overflow-style: none !important; }
-      :root::-webkit-scrollbar, body::-webkit-scrollbar {
+       * and getting that wrong is what leaves a gutter beside the content.
+       * \`scrollbar-gutter: auto\` matters too — a page that reserves a stable
+       * gutter keeps the empty strip after the bar itself is gone. */
+      :root, body { scrollbar-width: none !important; -ms-overflow-style: none !important; scrollbar-gutter: auto !important; }
+      [${ATTR}] { scrollbar-width: none !important; -ms-overflow-style: none !important; scrollbar-gutter: auto !important; }
+      /* Doubled selectors outrank page rules that style the bar through a class,
+       * an !important, or a sheet loaded later. WebKit paints scrollbars with
+       * native NSScroller; display:none is the only declaration that reliably
+       * removes the bar there, so width/height are emitted alongside it.
+       * Body is covered through attribute selectors: a bare pseudo-class typo
+       * like body:body invalidates the whole rule, scrollbar included. */
+      :root:root::-webkit-scrollbar, body[${ATTR}][${ATTR}]::-webkit-scrollbar,
+      [${ATTR}][${ATTR}]::-webkit-scrollbar {
         display: none !important; width: 0 !important; height: 0 !important;
       }
-      /* WebKit paints scrollbars with native NSScroller; display:none is the only
-       * declaration that reliably removes the bar there, so both are emitted. */
-      [${ATTR}] { scrollbar-width: none !important; -ms-overflow-style: none !important; }
-      [${ATTR}]::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       #${LAYER_ID} { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; }
       #${LAYER_ID} > .${THUMB_CLASS} {
         position: fixed; top: 0; left: 0; margin: 0; padding: 0; border: 0;
@@ -78,6 +109,91 @@
         transition: opacity 120ms ease-out; pointer-events: auto; touch-action: none;
       }
     `;
+  }
+
+  /** Last resort when the viewport bar ignores every stylesheet: take the
+   * scrollbar away from the viewport entirely. <body> becomes the scroller,
+   * and an element scrollbar always collapses under `::-webkit-scrollbar`.
+   * The rules are ALSO inlined on the elements: an inline !important beats
+   * any author rule and survives a sheet or <style> node being dropped. */
+  function viewportFallbackCss() {
+    return `
+      :root:root {
+        overflow: hidden !important; height: 100% !important;
+        scrollbar-gutter: auto !important;
+      }
+      body[${ATTR}][${ATTR}] {
+        position: fixed !important; inset: 0 !important; margin: 0 !important;
+        overflow-y: auto !important; overflow-x: auto !important;
+        scrollbar-width: none !important; scrollbar-gutter: auto !important;
+      }
+      body[${ATTR}][${ATTR}]::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+    `;
+  }
+
+  /** The inline !important overrides that demote the viewport and promote
+   * <body> to the scroller. One table drives the applied styles, their
+   * cleanup, and documents what the fallback CSS mirrors. Both axes stay
+   * scrollable: body's bars are hidden by the overlay stylesheet, and the
+   * horizontal thumb needs the overflow to survive. */
+  const FALLBACK_INLINE = {
+    documentElement: [['overflow', 'hidden'], ['height', '100%'], ['scrollbar-gutter', 'auto']],
+    body: [
+      ['position', 'fixed'], ['inset', '0'], ['margin', '0'],
+      ['overflow-y', 'auto'], ['overflow-x', 'auto'],
+      ['scrollbar-width', 'none'], ['scrollbar-gutter', 'auto'],
+    ],
+  };
+
+  function inlineFallbackStyles() {
+    const root = document.documentElement;
+    const body = document.body;
+    if (!root || !body) return;
+    for (const [property, value] of FALLBACK_INLINE.documentElement) root.style.setProperty(property, value, 'important');
+    for (const [property, value] of FALLBACK_INLINE.body) body.style.setProperty(property, value, 'important');
+  }
+
+  function clearInlineFallbackStyles() {
+    for (const [element, keys] of [[document.documentElement, FALLBACK_INLINE.documentElement], [document.body, FALLBACK_INLINE.body]]) {
+      if (!element) continue;
+      for (const [property] of keys) element.style.removeProperty(property);
+    }
+  }
+
+  function applyViewportFallback() {
+    bodyScroller = true;
+    inlineFallbackStyles();
+    const css = overlayCss() + viewportFallbackCss();
+    if (styleNode && styleNode.isConnected) styleNode.textContent = css;
+    else appendStyleNode(css);
+    if (styleSheet) {
+      try {
+        styleSheet.replaceSync(css);
+      } catch {
+        // Detached documents reject stylesheet updates; the sheet dies with them.
+      }
+    }
+    const stale = [document.documentElement, document.body];
+    for (const element of stale) {
+      const entry = element && entries.get(element);
+      if (entry) forget(entry);
+    }
+    document.documentElement.setAttribute(ATTR, '');
+    if (document.body) document.body.setAttribute(ATTR, '');
+    sync(ensureEntry(rootElement()), false);
+  }
+
+  /** Last-child-of-<html> sheet: author order beats a page rule that also uses
+   * !important, and it survives engines that ignore constructed sheets. */
+  function appendStyleNode(css) {
+    if (styleNode && styleNode.isConnected) return;
+    // An init script runs before `<html>` exists; without a root to append to,
+    // leave the node uncreated — start() calls ensureStyle() again later.
+    if (!document.documentElement) return;
+    styleNode = document.createElement('style');
+    styleNode.id = STYLE_ID;
+    styleNode.textContent = css;
+    document.documentElement.appendChild(styleNode);
   }
 
   /** Constructed stylesheets first: they are unaffected by however the document
@@ -98,10 +214,7 @@
         styleSheet = null;
       }
     }
-    styleNode = document.createElement('style');
-    styleNode.id = 'flowix-overlay-scroll-style';
-    styleNode.textContent = css;
-    (document.head || document.documentElement).appendChild(styleNode);
+    appendStyleNode(css);
   }
 
   function ensureLayer() {
@@ -115,20 +228,21 @@
 
   function measure(element) {
     if (isRoot(element)) {
-      const doc = document.documentElement;
-      const body = document.body;
-      const width = doc.clientWidth || window.innerWidth;
-      const height = doc.clientHeight || window.innerHeight;
+      // Whichever element owns the scroll this document actually uses: the
+      // viewport (html) normally, <body> when the fallback moved it there.
+      const scroller = rootElement();
+      const width = scroller.clientWidth || window.innerWidth;
+      const height = scroller.clientHeight || window.innerHeight;
       return {
         root: true,
         left: 0,
         top: 0,
         right: width,
         bottom: height,
-        scrollTop: window.pageYOffset || doc.scrollTop || 0,
-        scrollLeft: window.pageXOffset || doc.scrollLeft || 0,
-        scrollHeight: Math.max(doc.scrollHeight, body ? body.scrollHeight : 0),
-        scrollWidth: Math.max(doc.scrollWidth, body ? body.scrollWidth : 0),
+        scrollTop: scroller.scrollTop || (scroller === document.documentElement ? (window.pageYOffset || 0) : 0),
+        scrollLeft: scroller.scrollLeft || (scroller === document.documentElement ? (window.pageXOffset || 0) : 0),
+        scrollHeight: scroller.scrollHeight,
+        scrollWidth: scroller.scrollWidth,
         clientHeight: height,
         clientWidth: width,
       };
@@ -175,9 +289,20 @@
     }
   }
 
+  function hideThumbs(entry) {
+    if (entry.vThumb) entry.vThumb.style.display = 'none';
+    if (entry.hThumb) entry.hThumb.style.display = 'none';
+  }
+
   function paint(entry) {
     const metrics = entry.metrics;
     if (!metrics) return;
+    // A bar that cannot be collapsed stays native; painting an overlay beside it
+    // would be the double-scrollbar bug.
+    if (metrics.root && rootSuppressed) {
+      hideThumbs(entry);
+      return false;
+    }
     const bar = barSize();
 
     const vertical = bounds(metrics, true);
@@ -249,7 +374,9 @@
       const delta = (vertical ? moveEvent.clientY : moveEvent.clientX) - start;
       const next = area.travel > 0 ? startScroll + (delta / area.travel) * area.max : startScroll;
       if (metrics.root) {
-        window.scrollTo(vertical ? window.pageXOffset : next, vertical ? next : window.pageYOffset);
+        const scroller = rootElement();
+        scroller.scrollTop = vertical ? next : scroller.scrollTop;
+        scroller.scrollLeft = vertical ? scroller.scrollLeft : next;
       } else if (vertical) {
         entry.el.scrollTop = next;
       } else {
@@ -312,7 +439,7 @@
     if (!enabled) return;
     const target = event.target;
     let element = null;
-    if (target === document || target === window || target === document.scrollingElement) {
+    if (target === document || target === window || isRoot(target)) {
       element = rootElement();
     } else if (target instanceof Element) {
       element = target;
@@ -322,8 +449,90 @@
     scheduleFlush();
   }
 
+  /** Host-side diagnosis lives up there in the dark: report what this document
+   * measured so a bar that stays native is visible in the host console. */
+  function report() {
+    const scroller = rootElement();
+    const root = document.documentElement;
+    const computed = typeof getComputedStyle === 'function' ? getComputedStyle(root) : null;
+    const status = {
+      gutter: rootGutter(),
+      styled: Boolean(styleNode || styleSheet),
+      escalated: Boolean(styleNode),
+      scrollers: entries.size,
+      suppressed: rootSuppressed,
+      // Which strategy is carrying the document, and what the engine says about
+      // the bar it refuses to collapse.
+      mode: bodyScroller ? 'body-scroller' : 'viewport',
+      scroller: scroller === document.body ? 'body' : 'html',
+      overflowY: computed ? computed.overflowY : 'n/a',
+      scrollbarWidth: computed ? (computed.scrollbarWidth || 'n/a') : 'n/a',
+      innerWidth: window.innerWidth,
+      clientWidth: root.clientWidth,
+      htmlWidth: Math.round(root.getBoundingClientRect().width),
+      bodyWidth: document.body ? Math.round(document.body.getBoundingClientRect().width) : 0,
+      visualWidth: window.visualViewport ? Math.round(window.visualViewport.width) : 0,
+      zoom: window.outerWidth ? Math.round((window.outerWidth / window.innerWidth) * 100) / 100 : 1,
+      dpr: window.devicePixelRatio,
+      rules: styleNode && styleNode.sheet ? styleNode.sheet.cssRules.length : 0,
+    };
+    const key = JSON.stringify(status);
+    if (key === reported) return;
+    reported = key;
+    try {
+      window.parent.postMessage({ type: STATUS_TYPE, ...status }, '*');
+    } catch {
+      // Detached frames cannot reach the host; nothing to report.
+    }
+  }
+
+  function scheduleVerify(pass) {
+    clearTimeout(verifyTimer);
+    verifyTimer = setTimeout(() => verify(pass), pass === 0 ? 0 : VERIFY_RETRY_MS);
+  }
+
+  function verify(pass) {
+    if (!started) return;
+    const scroller = rootElement();
+    // Both axes count: a horizontally-wide document deserves the same
+    // gutter-free treatment as a tall one.
+    const scrolling = scroller.scrollHeight > scroller.clientHeight + 1
+      || scroller.scrollWidth > scroller.clientWidth + 1;
+    if (!scrolling || rootGutter() <= 1) {
+      if (rootSuppressed) {
+        // The bar collapsed after all (window resize, late layout): take the
+        // viewport back without waiting for a reload.
+        rootSuppressed = false;
+        const root = entries.get(rootElement());
+        if (root) sync(root, false);
+      }
+      report();
+      return;
+    }
+    if (pass < VERIFY_PASSES - 1) {
+      // The constructed sheet is what some engines quietly ignore; the author
+      // sheet is re-added as the escalation before giving up on the viewport.
+      if (pass === 1) appendStyleNode(overlayCss());
+      scheduleVerify(pass + 1);
+      return;
+    }
+    // Stylesheets exhausted. Hand the scroll to <body>, whose bar is an element
+    // scrollbar and therefore always collapses, then measure again.
+    if (!bodyScroller) {
+      applyViewportFallback();
+      scheduleVerify(pass);
+      return;
+    }
+    // Keep the stylesheet (element scrollers still benefit) and the listener, so
+    // a later resize or a shorter document can still recover.
+    rootSuppressed = true;
+    const root = entries.get(rootElement());
+    if (root) sync(root, false);
+    report();
+  }
+
   function start() {
-    if (started || !enabled || suppressed) return;
+    if (started || !enabled) return;
     started = true;
     ensureStyle();
     ensureLayer();
@@ -346,26 +555,25 @@
     }
 
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
-    window.addEventListener('resize', scheduleFlush);
+    window.addEventListener('resize', onResize);
 
-    // Measure instead of assuming: a bar that would not collapse means the
-    // engine ignored the styling, and drawing an overlay beside it would be the
-    // double-scrollbar bug. Fall back to the native bar alone.
-    requestFrame(() => {
-      if (!started) return;
-      const scrolling = document.documentElement.scrollHeight > window.innerHeight + 1;
-      if (scrolling && nativeBarConsumesWidth()) {
-        suppressed = true;
-        teardown();
-      }
-    });
+    scheduleVerify(0);
+  }
+
+  function onResize() {
+    scheduleFlush();
+    if (rootSuppressed) scheduleVerify(0);
   }
 
   function teardown() {
+    clearTimeout(verifyTimer);
+    verifyTimer = 0;
     for (const entry of [...entries.values()]) forget(entry);
     entries.clear();
     if (layer) layer.remove();
     if (styleNode) styleNode.remove();
+    if (bodyScroller) clearInlineFallbackStyles();
+    bodyScroller = false;
     if (styleSheet) {
       try {
         document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== styleSheet);
@@ -377,9 +585,11 @@
     styleNode = null;
     styleSheet = null;
     started = false;
+    rootSuppressed = false;
+    reported = '';
     document.removeEventListener('scroll', onScroll, { capture: true });
     document.removeEventListener('readystatechange', scheduleFlush);
-    window.removeEventListener('resize', scheduleFlush);
+    window.removeEventListener('resize', onResize);
   }
 
   function onMessage(event) {
@@ -400,7 +610,6 @@
       color = config.color;
       if (layer) layer.style.color = color;
     }
-    if (suppressed) return;
     if (started) scheduleFlush();
     else start();
   }
@@ -411,6 +620,12 @@
     if (!event.persisted) teardown();
   });
 
+  // The hiding stylesheet lands at document start: an init script runs before
+  // the engine paints anything, so the native bar and its gutter never get a
+  // frame. Waiting for DOMContentLoaded (or the host's config) let them flash
+  // for the whole parse of a large document. Thumbs and measurement stay in
+  // start(); this only needs to exist, not to measure.
+  ensureStyle();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
   } else {

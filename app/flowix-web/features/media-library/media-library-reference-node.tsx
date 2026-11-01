@@ -36,6 +36,7 @@ import {
   type MediaLibraryReferenceAttrs,
 } from './media-library-reference-markdown';
 import { canEditMediaLibraryFilter, hasMediaDatasetFilter, mediaCollectionFilterForSave, mediaLibraryFileCondition, matchesMediaCollectionFilter, normalizeMediaLibraryFileCondition, parseMediaLibrary, serializeMediaLibrary, type MediaLibraryDocument, type MediaLibraryKind, type MediaLibraryRecord } from './model';
+import { collectionSourceDomain, collectionWriteContent } from '@features/collection/public/hybrid-api';
 
 const EMBED_RESOURCE_LIMIT = PHOTO_WALL_CANDIDATE_LIMIT;
 
@@ -164,7 +165,7 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [fileName, setFileName] = useState('');
-  const [fileType, setFileType] = useState<'any' | MediaLibraryKind>('any');
+  const [fileTypes, setFileTypes] = useState<string[]>([]);
   const [path, setPath] = useState('');
   const [pathIsAll, setPathIsAll] = useState(false);
   const [folderOptions, setFolderOptions] = useState<NotebookFolderOption[]>([]);
@@ -178,10 +179,10 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
       return;
     }
     setFileName(condition.file_name_contains ?? '');
-    setFileType(condition.file_type ?? 'any');
+    setFileTypes(condition.file_types ?? (condition.file_type ? [condition.file_type] : []));
     setPath(condition.path_contains ?? '');
     setPathIsAll(condition.path_scope === 'all');
-  }, [open, condition.file_name_contains, condition.file_type, condition.path_contains, condition.path_scope]);
+  }, [open, condition.file_name_contains, condition.file_type, condition.file_types, condition.path_contains, condition.path_scope]);
 
   useEffect(() => {
     if (!folderPickerOpen || !notebook) return;
@@ -203,7 +204,7 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
     }
     const nextCondition = normalizeMediaLibraryFileCondition({
       file_name_contains: fileName.trim(),
-      file_type: fileType === 'any' ? undefined : fileType,
+      file_types: fileTypes.length && fileTypes.length < 2 ? fileTypes as MediaLibraryKind[] : undefined,
       path_contains: pathOverride === null ? undefined : (pathOverride ?? path).trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''),
       path_scope: pathOverride === null || (pathOverride === undefined && pathIsAll) ? 'all' : undefined,
     });
@@ -221,7 +222,10 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
           views: { ...current.views, items: current.views.items.map((view) => view.id === current.views.default_id
             ? { ...view, filter: { all: [], any: [] } } : view) },
         };
-        const result = await externalDocuments.write({ filePath, content: serializeMediaLibrary(next), expectedContent: source, scopePath: notebook.path });
+        const writeDomain = collectionSourceDomain(source, 'media_library');
+        const result = await externalDocuments.write({ filePath,
+          content: collectionWriteContent({ source, domain: writeDomain, document: next, serialize: serializeMediaLibrary }),
+          expectedContent: source, scopePath: notebook.path });
         if (result.status === 'saved') {
           onSaved(next);
           if (closeOnSave) setOpen(false);
@@ -240,9 +244,9 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
       setSaving(false);
     }
     return false;
-  }, [document, fileName, filePath, fileType, notebook, onSaved, path, pathIsAll, saving]);
+  }, [document, fileName, filePath, fileTypes, notebook, onSaved, path, pathIsAll, saving]);
 
-  const activeCount = Number(Boolean(condition.file_name_contains)) + Number(Boolean(condition.file_type)) + Number(Boolean(condition.path_contains) || condition.path_scope === 'all');
+  const activeCount = Number(Boolean(condition.file_name_contains)) + Number(Boolean(condition.file_type || condition.file_types?.length)) + Number(Boolean(condition.path_contains) || condition.path_scope === 'all');
   return <Popover open={open} onOpenChange={(next) => {
     setOpen(next);
     if (!next) {
@@ -259,7 +263,7 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
       <div className="space-y-0.5">
         <MediaLibraryFilterPanel
           fileName={fileName}
-          fileType={fileType}
+          fileTypes={fileTypes}
           path={path}
           pathIsAll={pathIsAll}
           folderPickerOpen={folderPickerOpen}
@@ -271,7 +275,7 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
           locationOnly
           showLocationMenu={false}
           onFileNameChange={setFileName}
-          onFileTypeChange={(value) => setFileType(value as 'any' | MediaLibraryKind)}
+          onFileTypesChange={setFileTypes}
           onPathChange={setPath}
           onPathSelected={async (selectedPath) => {
             const saved = await save(selectedPath, false);
@@ -289,9 +293,9 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
           <div className={`rounded-lg transition-colors ${filterMenuOpen ? 'bg-[var(--hover-bg)]' : 'hover:bg-[var(--hover-bg)]'}`}>
             <PopoverTrigger asChild>
               <button type="button" className="flex h-8 w-full items-center justify-between rounded-lg px-1.5 text-left text-sm hover:text-[var(--foreground)] data-[state=open]:text-[var(--foreground)]">
-                <span>过滤</span>
+                <span>资料筛选</span>
                 <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
-                  {fileName.trim() || fileType !== 'any' ? '已设置' : '未设置'}
+                  {fileName.trim() || fileTypes.length ? '已设置' : '未设置'}
                   <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </span>
               </button>
@@ -301,7 +305,7 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
             <div className="space-y-1">
               <MediaLibraryFilterPanel
                 fileName={fileName}
-                fileType={fileType}
+                fileTypes={fileTypes}
                 path={path}
                 pathIsAll={pathIsAll}
                 folderPickerOpen={folderPickerOpen}
@@ -312,10 +316,10 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
                 applying={saving}
                 showLocationMenu={false}
                 onFileNameChange={setFileName}
-                onFileTypeChange={(value) => setFileType(value as 'any' | MediaLibraryKind)}
+                onFileTypesChange={setFileTypes}
                 onPathChange={setPath}
                 onFolderPickerOpenChange={setFolderPickerOpen}
-                onReset={() => { setFileName(''); setFileType('any'); }}
+                onReset={() => { setFileName(''); setFileTypes([]); }}
                 onApply={() => { void save(); }}
               />
             </div>
@@ -505,10 +509,12 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
         persist: async (mutate) => {
           let expectedContent = sourceContent;
           let baseline = latestDocument;
+          const writeDomain = collectionSourceDomain(sourceContent, 'media_library');
           for (let attempt = 0; attempt < 2; attempt += 1) {
             const next = mutate(baseline);
             const write = await externalDocuments.write({
-              filePath: resolved.filePath, content: serializeMediaLibrary(next),
+              filePath: resolved.filePath,
+              content: collectionWriteContent({ source: expectedContent, domain: writeDomain, document: next, serialize: serializeMediaLibrary }),
               expectedContent, scopePath: notebook.path,
             });
             if (write.status === 'saved') {

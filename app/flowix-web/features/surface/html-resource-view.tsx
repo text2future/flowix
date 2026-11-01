@@ -81,7 +81,9 @@ function HtmlPreview({ filePath, scopePath, documentProps, reportPresentation, r
       toast.error(error instanceof Error ? error.message : String(error));
     });
   }, [documentProps.notebookId, filePath, scopePath]);
-  const { iframeRef, src, content, phase, onLoad } = useLocalHtmlPreview(filePath, scopePath, onLink);
+  const { iframeRef, src, content, phase, backgroundColor, onLoad } = useLocalHtmlPreview(
+    filePath, scopePath, onLink, documentProps.notebookId ?? null,
+  );
   const focused = useWorkspaceFocusStore((state) => state.focusedHostId === (documentProps.workspaceHost ?? 'main-third'));
   const documentKey = documentIdentityKey(documentIdentityFromFile(documentProps.fileIdentity));
   const charCount = useMemo(() => content === null ? 0 : countTextUnits(extractBodyContent(content)), [content]);
@@ -101,6 +103,10 @@ function HtmlPreview({ filePath, scopePath, documentProps, reportPresentation, r
   }, [charCount, content, documentKey, focused]);
   const waiting = phase === 'reading' || phase === 'loading';
   const failed = phase === 'error' || phase === 'timeout';
+  useEffect(() => {
+    reportPresentation?.({ headerBackgroundColor: phase === 'ready' ? backgroundColor : null });
+    return () => reportPresentation?.({ headerBackgroundColor: null });
+  }, [backgroundColor, phase, reportPresentation]);
   useEffect(() => {
     reportPresentation?.({ state: waiting
       ? { status: 'loading', loadingMode: 'background', retainContent: true }

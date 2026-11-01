@@ -26,9 +26,10 @@ function isWindowsPlatform(): boolean {
 }
 
 const LEGACY_TAB_REDIRECTS: Readonly<Record<string, ActiveSettingsTab>> = {
-	templates: 'noteSettings',
-	documentProperties: 'noteSettings',
-	fileDisplayRules: 'noteSettings',
+	// 「笔记设置」已拆为侧边栏「笔记」组（模板 / 属性 / 笔记设置）。历史入口全部
+	// 指向属性预设管理，故落到 documentProperties；旧的显示规则落到「笔记设置」。
+	noteSettings: 'documentProperties',
+	fileDisplayRules: 'noteOther',
 	theme: 'general',
 	cli: 'mcp',
 	agent: 'aiAgent',
@@ -113,17 +114,19 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 			{isWindowsPlatform() ? <PreferencesTitlebarWin /> : <PreferencesTitlebarMac />}
 			<div className="flex-1 flex min-h-0">
 				{/* Left sidebar */}
+				{/* 左栏横向内缩 6px、行内条目 px-1.5，与文件树行（TREE_EDGE_GUTTER=6 / h-8 /
+				    rounded-lg / px-1.5）同一套行规范：纵向 gap 才不会显得比横向留白小太多。 */}
 				<OverlayScrollbar
 					className="flex h-full w-[204px] min-h-0 shrink-0 border-r border-solid border-[var(--divider)] bg-[var(--card)]"
-					scrollerClassName="h-full min-h-0 px-2 pt-5 pb-2"
+					scrollerClassName="h-full min-h-0 w-full px-1.5 pt-5 pb-2"
 				>
-					<nav aria-label={title} className="flex min-h-full flex-col gap-4">
+					<nav aria-label={title} className="flex min-h-full flex-col gap-2">
 						{visibleTabGroups.map((group) => (
 							<div key={group.labelKey} className="space-y-1">
-								<div className="px-2 pb-1 text-xs font-medium text-[var(--muted-foreground)]">
+								<div className="px-1.5 text-xs font-medium text-[var(--muted-foreground)]">
 									{t(group.labelKey)}
 								</div>
-								<div className="space-y-0.5">
+								<div className="flex flex-col gap-0.5">
 									{group.tabs.map((tab) => (
 										<Button
 											key={tab.id}
@@ -132,8 +135,11 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 											variant="ghost"
 											size="sm"
 											aria-current={activeTab === tab.id ? 'page' : undefined}
+											// 行高统一 h-8（32px），覆盖 size="sm" 的 h-7。不要再加 py-*：
+											// padding 与固定高度在 border-box 下会互相撑高（py-4 + h-7 曾把盒子
+											// 顶到 32px，多出来的 4px 看起来像 item 间距）。
 											className={cn(
-												'w-full justify-start gap-1.5 py-4 rounded-lg',
+												'w-full justify-start gap-1.5 h-8 px-1.5 rounded-lg',
 												activeTab === tab.id &&
 													'bg-muted hover:bg-muted dark:bg-[color-mix(in_oklch,var(--muted)_50%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--muted)_50%,transparent)]'
 											)}

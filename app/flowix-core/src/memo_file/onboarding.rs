@@ -135,7 +135,7 @@ fn contains_markdown_files(base: &Path) -> std::io::Result<bool> {
             let entry = entry?;
             let path = entry.path();
             let relative = path.strip_prefix(base).unwrap_or(&path);
-            if policy.is_index_ignored_at(base, relative) {
+            if policy.is_index_hidden_at(base, relative) {
                 continue;
             }
             let file_type = entry.file_type()?;

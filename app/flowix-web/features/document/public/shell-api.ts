@@ -8,6 +8,7 @@ import { captureLatestDocumentContent } from '@features/document/store';
 export { resolveDocumentTitlebarTarget } from '../components/document-titlebar-model';
 export {
   DOCUMENT_TITLEBAR_ICON_BUTTON_MAC,
+  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS,
   DOCUMENT_TITLEBAR_ICON_BUTTON_WIN,
   type DocumentTitlebarTarget,
   type DocumentTitlebarProps,

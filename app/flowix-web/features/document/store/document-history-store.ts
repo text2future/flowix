@@ -39,9 +39,18 @@ export type MediaHistoryEntry = {
 
 export type CollectionHistoryEntry = CollectionDisplayDescriptor & { kind: 'collection'; relativePathHint?: string; openedAt: number };
 
+/** 文件夹首页（folder-home）。一个文件夹一条记录：tab 切换不产生导航，键按 folderPath 归一。 */
+export type FolderCollectionHistoryEntry = {
+  kind: 'folder-collection';
+  folderPath: string;
+  notebookId: string;
+  openedAt: number;
+};
+
 export type DocumentHistoryEntry =
   | CollectionHistoryEntry
   | LegacyFolderListHistoryEntry
+  | FolderCollectionHistoryEntry
   | ExternalHistoryEntry
   | AgentConversationHistoryEntry
   | WebHistoryEntry
@@ -67,6 +76,7 @@ const MAX_HISTORY_ENTRIES = 30;
 export function documentHistoryEntryKey(entry: DocumentHistoryEntry | null): string | null {
   if (!entry) return null;
   if (entry.kind === 'collection' || entry.kind === 'document-list') return entry.displayId;
+  if (entry.kind === 'folder-collection') return `folder-collection:${fileLocatorKey(entry.folderPath)}`;
   if (entry.kind === 'agent-conversation') return `agent-conversation:${entry.instanceId}`;
   if (entry.kind === 'web') {
     const url = canonicalUrl(entry.url);

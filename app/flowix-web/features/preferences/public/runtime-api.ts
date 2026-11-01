@@ -41,6 +41,22 @@ export function useMemoListViewPreference() {
   return useUserSettingsStore((state) => state.settings.memoListView);
 }
 
+/**
+ * 「访问空间」文件树的显示口径：是否展示点开头的隐藏文件夹、是否展示
+ * attachments / node_modules 等系统文件夹。两个值都只影响列举显示，不改变
+ * 索引、watcher 与访问鉴权。过滤本身在 Rust 侧完成（读 `boot/preference.json`），
+ * 前端拿到的是已经筛过的树；值变化时需要让树重新拉一次。
+ */
+export function useSpaceTreeVisibility() {
+  const showHiddenFolders = useUserSettingsStore(
+    (state) => state.settings.spaceShowHiddenFolders,
+  );
+  const showSystemFolders = useUserSettingsStore(
+    (state) => state.settings.spaceShowSystemFolders,
+  );
+  return { showHiddenFolders, showSystemFolders };
+}
+
 export function getMemoListViewPreference() {
   return useUserSettingsStore.getState().settings.memoListView;
 }

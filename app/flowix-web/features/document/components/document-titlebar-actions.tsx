@@ -7,6 +7,7 @@ import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@shared/ui/dialog';
 import { FontSizeSwitcher } from '@shared/ui/font-size-switcher';
 import { FolderCollectionSwitchConfirmDialog } from '@features/collection/public/folder-api';
+import { CollectionDisplayMenuItems } from '@features/collection/public/title-api';
 import { useI18n, type I18nParams } from '@/lib/i18n';
 import { EditorFontSwitcher } from './editor-font-switcher';
 import { NoteColorPicker } from './document-titlebar-controls';
@@ -21,6 +22,7 @@ export function DocumentTitlebarActions({
   capabilities,
   actions,
   folderCollectionViewType,
+  collectionDisplayIndexPath,
   showEditorFontSwitcher = false,
   showEditorModeToggle = false,
   editorMode = 'rich',
@@ -33,6 +35,7 @@ export function DocumentTitlebarActions({
   capabilities: DocumentTitlebarProps['contentCapabilities'];
   actions: DocumentTitlebarProps['actions'];
   folderCollectionViewType?: DocumentTitlebarProps['folderCollectionViewType'];
+  collectionDisplayIndexPath?: string;
   showEditorFontSwitcher?: boolean;
   showEditorModeToggle?: boolean;
   editorMode?: DocumentEditorMode;
@@ -83,6 +86,10 @@ export function DocumentTitlebarActions({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        {collectionDisplayIndexPath && <>
+          <CollectionDisplayMenuItems indexPath={collectionDisplayIndexPath} />
+          <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
+        </>}
         {folderCollectionViewType ? (
           <>
             <div className="flex shrink-0 items-center justify-between gap-2 px-2 py-1 text-xs font-normal uppercase tracking-wider text-[var(--muted-foreground)]">

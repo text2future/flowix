@@ -907,53 +907,26 @@ html.frontmatter-property--dragging .markdown-editor .frontmatter-property__disp
   color: var(--foreground);
 }
 
-.frontmatter-property__edit-icon-option .frontmatter-property__edit-icon-image {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
+/* 图标菜单: 只负责弹层壳 (定位/宽度/边框/圆角/阴影/padding)。内容是共享
+   React 面板 PropertyIconPickerPanel (自带 300px 定高、包条、分类、网格、
+   OverlayScrollbar), 与属性面板/文件树/多维表格同一个实现。 */
 .frontmatter-property__edit-icon-menu {
   position: absolute;
   top: calc(100% + 0.35rem);
   right: 0;
   z-index: 2;
-  display: grid;
   width: min(17.5rem, calc(100vw - 2rem));
-  max-height: 15rem;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.2rem;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid var(--border-popup);
   border-radius: 0.75rem;
   background: var(--card);
   box-shadow: 0 4px 24px -3px rgb(0 0 0 / 24%);
-  padding: 0.25rem;
+  padding: 0.5rem;
 }
 
 .frontmatter-property__edit-icon-menu[hidden] {
   display: none;
-}
-
-.frontmatter-property__edit-icon-option {
-  display: flex;
-  aspect-ratio: 1;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  border-radius: 0.5rem;
-  background: transparent;
-  cursor: pointer;
-  outline: none;
-  padding: 0.3rem;
-}
-
-.frontmatter-property__edit-icon-option:hover,
-.frontmatter-property__edit-icon-option:focus-visible,
-.frontmatter-property__edit-icon-option[aria-selected='true'] {
-  border-color: var(--border);
-  background: var(--hover-bg);
 }
 
 .frontmatter-property__edit-checkbox-label {

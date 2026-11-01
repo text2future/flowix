@@ -1,7 +1,10 @@
 import YAML from 'yaml';
+import { datasetLocation, shareDatasetLocation } from './shared-dataset-location';
 
 /** Runtime names stay stable while schema v2 uses the user-facing dataset names. */
 export type CollectionType = 'table' | 'media_library' | 'work_documents';
+/** 集合身份里的类型：v3 hybrid 额外允许 'hybrid'。 */
+export type CollectionMetadataType = CollectionType | 'hybrid';
 export type CollectionPlacement = 'standalone' | 'folder';
 export type CollectionDepth = 'direct_children' | 'descendants';
 export interface CollectionSource {
@@ -17,7 +20,7 @@ export interface CollectionProperty {
 }
 export interface CollectionMetadata {
   id: string;
-  type: CollectionType;
+  type: CollectionMetadataType;
   placement: CollectionPlacement;
   /** Legacy name retained when reading old files; the path is authoritative. */
   name?: string;
@@ -33,6 +36,47 @@ export interface CollectionDocumentV2 {
   payload: { schema_version: 2; dataset: Record<string, unknown>; views: Record<string, unknown> };
 }
 
+/** v3 hybrid 数据域。notes=多维表格，media=图墙（媒体域），work_documents=列表。 */
+export type CollectionDomain = 'notes' | 'media' | 'work_documents';
+export const COLLECTION_DOMAINS: readonly CollectionDomain[] = ['notes', 'media', 'work_documents'];
+const DOMAIN_RUNTIME_TYPES: Record<CollectionDomain, CollectionType> = {
+  notes: 'table', media: 'media_library', work_documents: 'work_documents',
+};
+const RUNTIME_TYPE_DOMAINS: Record<CollectionType, CollectionDomain> = {
+  table: 'notes', media_library: 'media', work_documents: 'work_documents',
+};
+export function collectionDomainType(domain: CollectionDomain): CollectionType {
+  return DOMAIN_RUNTIME_TYPES[domain];
+}
+export function collectionTypeDomain(type: CollectionType): CollectionDomain {
+  return RUNTIME_TYPE_DOMAINS[type];
+}
+
+export interface HybridCollectionView {
+  id: string;
+  name: string;
+  domain: CollectionDomain;
+  layout: string;
+  filter?: Record<string, unknown>;
+  sort?: unknown[];
+  config: Record<string, unknown>;
+}
+export interface HybridCollectionPayload {
+  schema_version: 3;
+  file_tree: boolean;
+  domains: Partial<Record<CollectionDomain, Record<string, unknown>>>;
+  views: {
+    default_by_domain: Partial<Record<CollectionDomain, string>>;
+    items: HybridCollectionView[];
+  };
+}
+export interface HybridCollectionDocument {
+  format: 'flowix.collection';
+  schema_version: 3;
+  collection: CollectionMetadata;
+  payload: HybridCollectionPayload;
+}
+
 export function createUuidV7(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   let timestamp = Date.now();
@@ -46,7 +90,7 @@ export function createUuidV7(): string {
 }
 export const createCollectionId = () => `col_${createUuidV7()}`;
 export function createCollectionMetadata(
-  type: CollectionType,
+  type: CollectionMetadataType,
   _name: string,
   placement: CollectionPlacement = 'standalone',
 ): CollectionMetadata {
@@ -81,7 +125,7 @@ function validateRuleFilter(filter: unknown, depth = 0): filter is { all: Record
     return typeof raw.value === 'string' || typeof raw.value === 'number' || typeof raw.value === 'boolean';
   }));
 }
-function ruleFilterMatchesCollectionType(filter: unknown, type: CollectionType): boolean {
+function ruleFilterMatchesCollectionType(filter: unknown, type: CollectionMetadataType, sharedAssetKinds = false): boolean {
   if (!validateRuleFilter(filter)) return false;
   return filterRules(filter).every((rule) => {
     const field = rule.field;
@@ -92,6 +136,11 @@ function ruleFilterMatchesCollectionType(filter: unknown, type: CollectionType):
       return rule.op === 'eq' || rule.op === 'equals' || rule.op === 'contains' || rule.op === 'in' || rule.op === 'gt' || rule.op === 'lt';
     }
     if (field === 'file_name' || field === 'path') return rule.op === 'contains' && typeof rule.value === 'string';
+    if (field === 'kind' && sharedAssetKinds && (type === 'media_library' || type === 'work_documents')) {
+      const kinds = ['image', 'video', 'document', 'spreadsheet', 'presentation', 'web', 'archive', 'database'];
+      return (rule.op === 'eq' && kinds.includes(String(rule.value)))
+        || (rule.op === 'in' && Array.isArray(rule.value) && rule.value.every((kind) => kinds.includes(String(kind))));
+    }
     if (field === 'kind' && type === 'media_library') return (rule.op === 'eq' && (rule.value === 'image' || rule.value === 'video'))
       || (rule.op === 'in' && Array.isArray(rule.value) && rule.value.every((kind) => kind === 'image' || kind === 'video'));
     if (field === 'kind' && type === 'work_documents') {
@@ -103,7 +152,7 @@ function ruleFilterMatchesCollectionType(filter: unknown, type: CollectionType):
     return false;
   });
 }
-function datasetFilterMatchesCollectionType(filter: unknown, type: CollectionType): boolean {
+function datasetFilterMatchesCollectionType(filter: unknown, type: CollectionMetadataType): boolean {
   if (!isRecord(filter) || !hasOnlyKeys(filter, ['path', 'match', 'conditions'])) {
     return ruleFilterMatchesCollectionType(filter, type);
   }
@@ -114,7 +163,7 @@ function datasetFilterMatchesCollectionType(filter: unknown, type: CollectionTyp
   if (type === 'media_library' && filter.match !== 'all') return false;
   const legacyShape = { all: filter.conditions, any: [] };
   if (!filter.conditions.every((condition) => isRecord(condition) && condition.field !== 'path')) return false;
-  return ruleFilterMatchesCollectionType(legacyShape, type);
+  return ruleFilterMatchesCollectionType(legacyShape, type, true);
 }
 export function hasOnlyKeys(value: object, keys: readonly string[]): boolean {
   return Object.keys(value).every((key) => keys.includes(key));
@@ -139,7 +188,7 @@ export function validateCollectionMetadata(value: unknown, type?: CollectionType
     : undefined;
   if (!isRecord(value) || !hasOnlyKeys(value, ['id', 'type', 'placement', 'name', 'revision', 'created_at', 'updated_at', 'properties'])
     || typeof value.id !== 'string' || !/^col_[0-9a-f]{32}$/.test(value.id)
-    || !['table', 'media_library', 'work_documents'].includes(String(normalizedType)) || (type && normalizedType !== type)
+    || !['table', 'media_library', 'work_documents', 'hybrid'].includes(String(normalizedType)) || (type && normalizedType !== type)
     || (value.placement !== undefined && !['standalone', 'folder'].includes(String(value.placement)))
     || (value.name !== undefined && (typeof value.name !== 'string' || !value.name.trim() || value.name !== value.name.trim()))
     || !Number.isSafeInteger(value.revision) || Number(value.revision) < 0
@@ -220,6 +269,192 @@ function validateV2Envelope(value: Record<string, unknown>): { collection: Colle
   return { collection, payload: value.payload };
 }
 
+/** 校验 v3 hybrid 信封。每个数据域复用 v2 校验器（合成单类型文档），与
+ *  Rust `validate_collection_hybrid` 的伪文档策略逐条对齐。 */
+function validateHybridEnvelope(value: Record<string, unknown>): { collection: CollectionMetadata; payload: HybridCollectionPayload } {
+  if (!isRecord(value.collection) || !isRecord(value.payload)
+    || !hasOnlyKeys(value.payload, ['schema_version', 'file_tree', 'domains', 'views'])
+    || value.payload.schema_version !== 3) {
+    throw new Error('集合混合文档格式无效');
+  }
+  const collection = validateCollectionMetadata(value.collection);
+  if (collection.type !== 'hybrid') throw new Error('集合混合文档格式无效');
+  const fileTree = value.payload.file_tree;
+  if (typeof fileTree !== 'boolean' || (fileTree && collection.placement !== 'folder')) {
+    throw new Error('集合文件树标记无效');
+  }
+  const rawDomains = value.payload.domains;
+  if (!isRecord(rawDomains)) throw new Error('集合数据域无效');
+  const domainKeys = Object.keys(rawDomains).filter((key): key is CollectionDomain =>
+    (COLLECTION_DOMAINS as readonly string[]).includes(key));
+  if (domainKeys.length === 0 || domainKeys.length !== Object.keys(rawDomains).length
+    || domainKeys.some((key) => !isRecord(rawDomains[key]))) {
+    throw new Error('集合数据域无效');
+  }
+  const rawViews = value.payload.views;
+  const defaultsByKey = isRecord(rawViews) && isRecord(rawViews.default_by_domain) ? rawViews.default_by_domain : null;
+  if (!isRecord(rawViews) || !hasOnlyKeys(rawViews, ['default_by_domain', 'items'])
+    || defaultsByKey === null || !Array.isArray(rawViews.items) || rawViews.items.length === 0) {
+    throw new Error('集合视图格式无效');
+  }
+  const viewsByDomain = new Map<CollectionDomain, HybridCollectionView[]>();
+  const seenIds = new Set<string>();
+  for (const view of rawViews.items) {
+    if (!isRecord(view) || !hasOnlyKeys(view, ['id', 'name', 'domain', 'layout', 'filter', 'sort', 'config'])
+      || typeof view.id !== 'string' || !/^view_[0-9a-f]{32}$/.test(view.id) || seenIds.has(view.id)
+      || typeof view.name !== 'string' || !view.name.trim() || typeof view.layout !== 'string'
+      || !isRecord(view.config) || (view.filter !== undefined && !isRecord(view.filter))
+      || (view.sort !== undefined && !Array.isArray(view.sort))) {
+      throw new Error('集合视图格式无效');
+    }
+    seenIds.add(view.id);
+    if (!(COLLECTION_DOMAINS as readonly string[]).includes(String(view.domain))
+      || !domainKeys.includes(view.domain as CollectionDomain)) {
+      throw new Error('集合视图数据域无效');
+    }
+    const domain = view.domain as CollectionDomain;
+    const list = viewsByDomain.get(domain) ?? [];
+    list.push(view as unknown as HybridCollectionView);
+    viewsByDomain.set(domain, list);
+  }
+  // 域存在 ⇔ 该域 views 非空，且 default_by_domain 与域键一一对应。
+  if (viewsByDomain.size !== domainKeys.length
+    || !domainKeys.every((key) => typeof defaultsByKey[key] === 'string')
+    || Object.keys(defaultsByKey).some((key) => !domainKeys.includes(key as CollectionDomain))) {
+    throw new Error('集合数据域与默认视图不匹配');
+  }
+  for (const domain of domainKeys) {
+    const items = (viewsByDomain.get(domain) ?? []).map(({ domain: _domain, ...rest }) => rest);
+    validateV2Envelope({
+      collection: { ...collection, type: DOMAIN_RUNTIME_TYPES[domain] },
+      payload: {
+        schema_version: 2,
+        dataset: rawDomains[domain],
+        views: { default_id: defaultsByKey[domain], items },
+      },
+    });
+  }
+  return {
+    collection,
+    payload: {
+      schema_version: 3,
+      file_tree: fileTree,
+      domains: rawDomains as HybridCollectionPayload['domains'],
+      views: {
+        default_by_domain: defaultsByKey as HybridCollectionPayload['views']['default_by_domain'],
+        items: rawViews.items as unknown as HybridCollectionView[],
+      },
+    },
+  };
+}
+
+/** 解析 v3 hybrid 集合文档（完整校验，不投影）。 */
+export function parseHybridCollection(source: string): { collection: CollectionMetadata; payload: HybridCollectionPayload } {
+  const value: unknown = YAML.parse(source);
+  if (!isRecord(value) || !hasOnlyKeys(value, ['format', 'schema_version', 'collection', 'payload'])
+    || value.format !== 'flowix.collection') throw new Error('不支持的集合文件格式或版本');
+  return validateHybridEnvelope(value);
+}
+
+export function serializeHybridCollectionDocument(document: { collection: CollectionMetadata; payload: HybridCollectionPayload }): string {
+  validateHybridEnvelope({ collection: { ...document.collection }, payload: document.payload });
+  const checked = validateCollectionMetadata(document.collection);
+  const wireCollection = {
+    id: checked.id,
+    type: 'hybrid',
+    placement: checked.placement,
+    revision: checked.revision,
+    created_at: checked.created_at,
+    updated_at: checked.updated_at,
+    properties: checked.properties,
+  };
+  return YAML.stringify({ format: 'flowix.collection', schema_version: 3, collection: wireCollection, payload: document.payload }, { lineWidth: 0, indent: 2 });
+}
+
+/** 各域视图运行时的扁平文档形态（表格 / 媒体库 / 工作文档模型共用）。 */
+export interface ProjectedCollectionDocument {
+  collection: CollectionMetadata;
+  dataset: Record<string, unknown>;
+  views: { default_id: string; items: unknown[] };
+}
+
+/** 把投影出的单类型文档写回来源。
+ *  来源是 hybrid → 只替换该域并保留其余域；来源是 v1/v2 → 走原 v2 序列化。 */
+export function serializeProjectedCollectionDocument(source: string, document: ProjectedCollectionDocument, domain: CollectionDomain | null): string {
+  if (domain === null) {
+    return serializeCollectionDocumentV2({ format: 'flowix.collection', schema_version: 2,
+      collection: document.collection, payload: { schema_version: 2, dataset: document.dataset, views: document.views } });
+  }
+  const value: unknown = YAML.parse(source);
+  if (!isRecord(value) || !hasOnlyKeys(value, ['format', 'schema_version', 'collection', 'payload'])
+    || value.format !== 'flowix.collection') throw new Error('不支持的集合文件格式或版本');
+  const parsed = validateHybridEnvelope(value);
+  if (!parsed.payload.domains[domain]) throw new Error('集合不包含该数据域');
+  const payload: HybridCollectionPayload = {
+    schema_version: 3,
+    file_tree: parsed.payload.file_tree,
+    domains: { ...parsed.payload.domains, [domain]: document.dataset },
+    views: {
+      default_by_domain: { ...parsed.payload.views.default_by_domain, [domain]: document.views.default_id },
+      items: [
+        ...parsed.payload.views.items.filter((view) => view.domain !== domain),
+        ...document.views.items.map((view) => ({ ...(view as Record<string, unknown>), domain } as unknown as HybridCollectionView)),
+      ],
+    },
+  };
+  const previousDataset = parsed.payload.domains[domain]!;
+  if (datasetLocation(previousDataset) !== datasetLocation(document.dataset)
+    || JSON.stringify(previousDataset.source) !== JSON.stringify(document.dataset.source)) {
+    payload.domains = shareDatasetLocation(payload.domains, document.dataset);
+  }
+  return serializeHybridCollectionDocument({
+    collection: {
+      ...parsed.collection,
+      revision: document.collection.revision,
+      updated_at: document.collection.updated_at,
+    },
+    payload,
+  });
+}
+
+/**
+ * 集合文件的**写回内容**，唯一一处决定「v2 序列化 还是 按域合并」。
+ *
+ * 调用方都各自持有本类型的 v2 序列化（会做类型自己的归一化），所以 `domain === null`
+ * 必须走 `serialize`，不能退化成通用 v2 分支；hybrid 必须按域合并，直接 v2 序列化
+ * 会把其它数据域整块抹掉。这条不变式只在这里写一次，避免 6 个调用点各写一份再漂移。
+ */
+export function collectionWriteContent<T>(params: {
+  /** 磁盘上的现有内容（hybrid 合并的基线，保留其它域）。 */
+  source: string;
+  /** 本域在来源里的位置；null = v1/v2 单类型文件。 */
+  domain: CollectionDomain | null;
+  document: T;
+  /** 本类型的 v2 序列化；hybrid 时不调用。 */
+  serialize: (document: T) => string;
+}): string {
+  const { source, domain, document, serialize } = params;
+  if (domain === null) return serialize(document);
+  return serializeProjectedCollectionDocument(source, document as unknown as ProjectedCollectionDocument, domain);
+}
+
+/** 判断集合来源文本是否为 v3 hybrid 文档。需要完整 YAML 解析（无廉价探测途径），
+ *  不要在热路径上对同一来源反复调用。 */
+export function isHybridCollectionSource(source: string): boolean {
+  const value: unknown = YAML.parse(source);
+  return isRecord(value) && value.format === 'flowix.collection'
+    && value.schema_version === 3 && isRecord(value.payload) && value.payload.schema_version === 3;
+}
+
+/** 判断来源中与期望集合类型对应的数据域。v1/v2 返回 null；hybrid 缺域返回 null。 */
+export function collectionSourceDomain(source: string, fallback: CollectionType): CollectionDomain | null {
+  const value: unknown = YAML.parse(source);
+  if (!isRecord(value) || value.format !== 'flowix.collection' || !isRecord(value.payload)) return null;
+  if (value.schema_version !== 3 || value.payload.schema_version !== 3) return null;
+  const domain = RUNTIME_TYPE_DOMAINS[fallback];
+  return isRecord(value.payload.domains) && domain in value.payload.domains ? domain : null;
+}
+
 /** Read v1 files once and normalize them into the canonical v2 document. */
 export function parseCollectionDocumentV2(source: string, type?: CollectionType): CollectionDocumentV2 {
   const value: unknown = YAML.parse(source);
@@ -246,6 +481,27 @@ export function parseCollectionDocumentV2(source: string, type?: CollectionType)
       payload: payload as CollectionDocumentV2['payload'] };
     validateV2Envelope({ collection: { ...collection }, payload });
     return document;
+  }
+  if (value.schema_version === 3 && value.payload.schema_version === 3) {
+    // v3 hybrid：按请求类型投影出对应数据域的 v2 视图。写回必须走
+    // serializeProjectedCollectionDocument（按域合并），不得直接 v2 序列化。
+    const hybrid = validateHybridEnvelope(value);
+    const domain = type ? RUNTIME_TYPE_DOMAINS[type]
+      : (COLLECTION_DOMAINS.find((candidate) => candidate in hybrid.payload.domains) ?? null);
+    const dataset = domain === null ? undefined : hybrid.payload.domains[domain];
+    if (domain === null || !dataset) throw new Error('集合不包含该数据域');
+    const items = hybrid.payload.views.items
+      .filter((view) => view.domain === domain)
+      .map(({ domain: _domain, ...rest }) => rest);
+    const collection = { ...hybrid.collection, type: DOMAIN_RUNTIME_TYPES[domain] };
+    const payload = {
+      schema_version: 2 as const,
+      dataset,
+      views: { default_id: hybrid.payload.views.default_by_domain[domain], items },
+    };
+    validateV2Envelope({ collection, payload });
+    return { format: 'flowix.collection' as const, schema_version: 2 as const, collection,
+      payload: payload as CollectionDocumentV2['payload'] };
   }
   if (value.schema_version === 2 && value.payload.schema_version === 2) {
     // v2 集合文件不存 name：后端 `CollectionMetadata.name` 是标注了
@@ -377,7 +633,7 @@ function migrateLegacyPayload(collection: CollectionMetadata, legacy: Record<str
       default_id: typeof legacy.defaultViewId === 'string' ? legacy.defaultViewId : view.id,
       items: [{
         id: view.id,
-        name: viewSetting(view.id).name ?? '媒体库',
+        name: viewSetting(view.id).name ?? '图墙',
         layout: view.layout,
         filter: viewSetting(view.id).filter ?? legacyMediaFilter,
         sort: viewSetting(view.id).sort ?? [view.sort ?? { field: 'created_at', direction: 'desc' }],

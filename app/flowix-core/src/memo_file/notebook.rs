@@ -158,22 +158,6 @@ impl MemoFile {
             return Ok(existing);
         }
         fs::create_dir_all(root.join(".flowix"))?;
-        // Preserve preferences written by the release that accidentally shared
-        // notebook.json with the manifest before restoring the identity file.
-        let legacy_preferences = root.join(".flowix/notebook.json");
-        let preferences_path = root.join(".flowix/view-preferences.json");
-        if !preferences_path.exists() {
-            if let Ok(bytes) = fs::read(&legacy_preferences) {
-                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    if value.get("hiddenListFolders").is_some()
-                        && value.get("formatVersion").is_none()
-                        && value.get("notebookId").is_none()
-                    {
-                        atomic_write_bytes(&preferences_path, &bytes)?;
-                    }
-                }
-            }
-        }
         let manifest = NotebookManifest {
             format_version: Self::NOTEBOOK_MANIFEST_VERSION,
             notebook_id: config.id.clone(),

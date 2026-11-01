@@ -116,3 +116,9 @@ export function workspaceSurfaceContentPresentation(kind: WorkspaceSurfaceKind) 
     capabilities: workspaceSurfaceCapabilities(kind),
   };
 }
+
+/** Collection chrome applies to folders and every collection file domain. */
+export function workspaceSurfaceUsesCollectionFrame(kind: WorkspaceSurfaceKind | null): boolean {
+  return kind === 'collection' || kind === 'file-table'
+    || kind === 'file-media-library' || kind === 'file-work-documents';
+}

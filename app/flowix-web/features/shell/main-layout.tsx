@@ -489,6 +489,7 @@ export function MainLayout({
             memoColWidth={memoColWidth}
             isDraggingListDivider={isDraggingListDivider}
             collapseMemoList={collapseMemoList}
+            expandSidebar={handleToggleMemoList}
             resizeMemoList={resizeMemoList}
             setIsDraggingListDivider={setIsDraggingListDivider}
             handleToggleNoteNavigation={handleToggleNoteNavigation}

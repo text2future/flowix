@@ -12,8 +12,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
-import { PROPERTY_ICON_OPTIONS } from '@features/document/public/property-display-api';
+import { PropertyIconPickerPanel } from '@features/document/public/property-display-api';
 
 /**
  * 文件树专用的笔记图标 picker（样式对齐 IconValueInput 的弹层）。
@@ -21,8 +20,9 @@ import { PROPERTY_ICON_OPTIONS } from '@features/document/public/property-displa
  * 刻意不复用 IconValueInput + Popover 的实现：树行（虚拟列表 + ContextMenu）
  * 宿主环境里，共享弹层选项的 React 合成 click 在真实 WKWebView 中不触发
  * （jsdom 无法复现），因此这里改为：
- * - 选项点击用原生事件委托（addEventListener），不经过 React 合成事件；
- * - 弹层仍 portal 到 body 保证不被树的 overflow 裁剪，定位自行计算。
+ * - 弹层 portal 到 body 保证不被树的 overflow 裁剪，定位自行计算；
+ * - 选项/分类点击由 PropertyIconPickerPanel 内部用原生事件委托处理
+ *   （同一套机制），本组件只负责开关与关闭。
  */
 export function TreeIconPicker({
   value,
@@ -41,26 +41,6 @@ export function TreeIconPicker({
   const panelRef = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-
-  // 选项点击：原生事件委托，绕开 React 合成事件链路。
-  useEffect(() => {
-    if (!open) return;
-    const panel = panelRef.current;
-    if (!panel) return;
-    const handleClick = (event: MouseEvent) => {
-      const target = event.target;
-      const button = target instanceof Element
-        ? target.closest<HTMLButtonElement>('button[data-icon-option]')
-        : null;
-      if (!button || button.disabled) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onChangeRef.current(button.dataset.iconOption ?? '');
-      setOpen(false);
-    };
-    panel.addEventListener('click', handleClick);
-    return () => panel.removeEventListener('click', handleClick);
-  }, [open]);
 
   // 点击弹层与触发器之外关闭；Escape 关闭。
   useEffect(() => {
@@ -143,35 +123,13 @@ export function TreeIconPicker({
           // 重定向到树行，导致选项收不到 click（onChange 不触发）且文档被打开。
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <div className="max-h-[240px] overflow-y-auto [scrollbar-gutter:stable]">
-            <div className="grid grid-cols-5 gap-1">
-              {PROPERTY_ICON_OPTIONS.map((option) => {
-                const active = option.value === value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    data-icon-option={option.value}
-                    aria-label={option.label}
-                    title={option.label}
-                    className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-lg border transition-colors',
-                      active
-                        ? 'border-[var(--primary)] bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]'
-                        : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--muted)]/60',
-                    )}
-                  >
-                    <img
-                      src={option.src}
-                      alt=""
-                      className="h-6 w-6 object-contain"
-                      draggable={false}
-                    />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <PropertyIconPickerPanel
+            value={value}
+            onSelect={(next) => {
+              onChangeRef.current(next);
+              setOpen(false);
+            }}
+          />
         </div>,
         document.body,
       )}

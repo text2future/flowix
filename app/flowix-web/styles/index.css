@@ -38,6 +38,8 @@
 /* Media resource surfaces (video/image/pdf chrome) live outside the Agent tree
  * even though they share its surface color. */
 @import './media-surface.css';
+@import './collection-banner.css';
+@import './collection-tab-bar.css';
 @import './onboarding.css';
 
 /* 主题色板单一真源在 css/theme, JS 只通过 data-theme 切换;
@@ -473,8 +475,13 @@ html.flowix-drag-drop-active * {
 }
 
 :root {
-	/* Shared fade for editor titlebars and Agent conversation headers. */
-	--titlebar-gradient: linear-gradient(to bottom, var(--bg-titlebar), transparent);
+	/* Shared fade for editor titlebars and Agent conversation headers.
+	 * 起点色 = 品牌色 5% 叠加文字前景色 1%（嵌套 color-mix，均为对 transparent
+	 * 的 alpha 混合），向下渐变到 0%；不再取 --bg-titlebar 的中性白/黑，
+	 * 品牌色相随主题（--brand-hue）自动切换。 */
+	--titlebar-gradient: linear-gradient(to bottom,
+		color-mix(in oklab, var(--brand) 5%, color-mix(in oklab, var(--foreground) 1%, transparent)),
+		transparent);
 	--flowix-hand-check-mask: url("data:image/svg+xml,%3Csvg viewBox='-1 -1 16 13' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M1.15 5.9c.16-.22.44-.28.72-.16 1.32.56 2.42 1.2 3.36 2.06C6.72 5.38 9.12 2.86 12.35.88c.32-.2.72-.16.9.09.18.24.05.6-.26.84-3.45 2.76-5.56 5.4-7.1 8.23-.14.25-.41.4-.71.4-.28 0-.53-.13-.68-.35-.88-1.18-1.95-2.12-3.19-3.12-.29-.23-.38-.75-.16-1.07Z'/%3E%3C/svg%3E");
 }
 
@@ -525,6 +532,14 @@ html.flowix-drag-drop-active * {
 		 * are intentionally NOT routed through these tokens. */
 		--flowix-motion-duration: 180ms;
 		--flowix-motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+
+		/* 集合外壳版式（非颜色 token）。
+		 * tab 条高度 = tab 高 h-7 (1.75rem) + 上下 py-1 (0.5rem)；
+		 * composer 净空 = 滚动区底部留白 pb-24。
+		 * 文件树表头的 sticky 偏移、自带滚动面板的可用高度都从这里换算，
+		 * 不要在 TS 里另写 36 / 96。 */
+		--collection-tab-bar-h: 2.25rem;
+		--collection-composer-clearance: 6rem;
 
 		/* Agent 面板等宽字体 — 非颜色, 不参与主题 */
 		--agent-font: 'Flowix Small Emoji', 'Anonymous Pro', 'PingFang SC', 'Microsoft YaHei', 'Inter', -apple-system, monospace;

@@ -4,11 +4,10 @@ import { createLogger } from '@/lib/logger';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { product } from '@platform/tauri/client';
-import type { WorkColumnTarget } from '@features/workspace/public/shell-api';
 
 const logger = createLogger('use-media-actions');
 
-type MediaTarget = Extract<WorkColumnTarget, { kind: 'media' }>;
+type MediaTarget = { filePath: string; notebookPath: string | null };
 
 /**
  * Titlebar actions for media surfaces: copy the file path, reveal the file in

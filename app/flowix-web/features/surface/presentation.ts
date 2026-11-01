@@ -1,3 +1,4 @@
+import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { getWorkColumnSurfaceDefinition } from './registry';
 import { resolveWorkColumnContent } from './resolver';
 import type {
@@ -8,12 +9,6 @@ import type {
   DocumentSurfaceIdentity,
 } from './types';
 import type { SurfacePresentationUpdate, WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
-
-const DOCUMENT_ACTION_CAPABILITIES = [
-  'memo-colors',
-  'properties',
-  'version-history',
-] as const satisfies readonly WorkColumnSurfaceCapability[];
 
 export interface WorkColumnDocumentHeaderPresentation {
   externalFilePath: string | null;
@@ -44,21 +39,12 @@ export function resolveWorkColumnRuntimePresentation(
   runtime: Readonly<SurfacePresentationUpdate>,
   identity: DocumentSurfaceIdentity | null | undefined,
 ): WorkColumnPresentation {
-  const contentKind = runtime.contentKind ?? initial.contentKind;
-  const rendererCapabilities = runtime.capabilities ?? initial.capabilities;
-  const isIndexedMarkdownNote = initial.content.status === 'surface'
-    && initial.content.surface.kind === 'md'
-    && contentKind === 'file-markdown'
-    && identity?.indexable === true;
-
-  return {
-    ...initial,
-    contentKind,
-    chrome: runtime.appearance?.headerStyle ?? initial.chrome,
-    capabilities: isIndexedMarkdownNote
-      ? [...rendererCapabilities, ...DOCUMENT_ACTION_CAPABILITIES]
-      : rendererCapabilities,
-  };
+  const header = resolveWorkspaceHeaderModel({
+    chrome: initial.chrome, contentKind: initial.contentKind,
+    capabilities: initial.capabilities, runtime,
+    indexable: initial.content.status === 'surface' && initial.content.surface.kind === 'md' && identity?.indexable === true,
+  });
+  return { ...initial, contentKind: header.contentKind, chrome: header.chrome, capabilities: header.capabilities };
 }
 
 function documentHeaderPresentation(

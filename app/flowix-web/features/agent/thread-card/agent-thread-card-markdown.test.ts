@@ -41,6 +41,17 @@ describe("agent thread card Markdown math", () => {
     expect(html).toContain("&lt;div&gt;literal&lt;/div&gt;");
   });
 
+  it("keeps dunder identifiers literal like the note editor", () => {
+    const html = renderAgentThreadCardMarkdownToHtml(
+      "删除 __pycache__ 目录，改 __init__.py 和 __repr__",
+    );
+
+    expect(html).not.toContain("<strong>");
+    expect(html).toContain("__pycache__");
+    expect(html).toContain("__init__.py");
+    expect(html).toContain("__repr__");
+  });
+
   it("rejects entity-encoded dangerous protocols in raw anchors", () => {
     const container = document.createElement("div");
     container.innerHTML = renderAgentThreadCardMarkdownToHtml(

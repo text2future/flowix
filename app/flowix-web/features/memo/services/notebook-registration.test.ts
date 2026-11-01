@@ -19,7 +19,6 @@ describe('notebook registration critical path', () => {
     vi.resetAllMocks();
     files.getNotebookViewPreferences.mockResolvedValue({
       defaultCreateFolder: null,
-      fileManagement: { includedPaths: [], hiddenPaths: [], excludedIndexPaths: [] },
     });
   });
 

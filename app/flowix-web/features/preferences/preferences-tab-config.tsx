@@ -1,11 +1,13 @@
 import { lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import {
   CloudIcon,
+  DotsThreeCircleIcon,
   FadersHorizontalIcon,
   InfoIcon,
   KeyboardIcon,
-  RulerIcon,
+  ListChecksIcon,
   StarFourIcon,
+  SwatchesIcon,
   TextAUnderlineIcon,
   UserIcon,
 } from '@phosphor-icons/react';
@@ -63,11 +65,6 @@ export const PREFERENCE_TAB_GROUPS = [
         ...lazyPreferenceTab(() => import('@features/preferences/tab-pages/format').then((module) => ({ default: module.FormatPreferencesTab }))),
       },
       {
-        id: 'noteSettings', labelKey: 'preferences.tabs.noteSettings',
-        icon: <RulerIcon className="w-4 h-4" />, contentWidth: 'normal',
-        ...lazyPreferenceTab(() => import('@features/preferences/sections/note-settings').then((module) => ({ default: module.NoteSettingsSection }))),
-      },
-      {
         id: 'shortcuts', labelKey: 'preferences.tabs.shortcuts',
         icon: <KeyboardIcon className="w-4 h-4" />, contentWidth: 'normal',
         ...lazyPreferenceTab(() => import('@features/preferences/sections/shortcuts').then((module) => ({ default: module.ShortcutsSection }))),
@@ -82,6 +79,26 @@ export const PREFERENCE_TAB_GROUPS = [
         id: 'productIntro', labelKey: 'preferences.tabs.productIntro',
         icon: <InfoIcon className="w-4 h-4" weight="regular" />, contentWidth: 'wide',
         ...lazyPreferenceTab(() => import('@features/preferences/sections/product-intro').then((module) => ({ default: module.ProductIntroSection }))),
+      },
+    ],
+  },
+  {
+    labelKey: 'preferences.groups.notes',
+    tabs: [
+      {
+        id: 'templates', labelKey: 'preferences.tabs.templates',
+        icon: <SwatchesIcon className="w-4 h-4" />, contentWidth: 'normal',
+        ...lazyPreferenceTab(() => import('@features/preferences/sections/templates').then((module) => ({ default: module.TemplatesSection }))),
+      },
+      {
+        id: 'documentProperties', labelKey: 'preferences.tabs.documentProperties',
+        icon: <ListChecksIcon className="w-4 h-4" />, contentWidth: 'normal',
+        ...lazyPreferenceTab(() => import('@features/preferences/sections/document-properties').then((module) => ({ default: module.DocumentPropertiesSection }))),
+      },
+      {
+        id: 'noteOther', labelKey: 'preferences.tabs.noteOther',
+        icon: <DotsThreeCircleIcon className="w-4 h-4" />, contentWidth: 'normal',
+        ...lazyPreferenceTab(() => import('@features/preferences/tab-pages/note-other').then((module) => ({ default: module.NoteOtherPreferencesTab }))),
       },
     ],
   },

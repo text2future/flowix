@@ -87,6 +87,9 @@ fn collection_path_matches_placement(
                     CollectionType::WorkDocuments => {
                         has_nonempty_stem(".workdocs.yaml") || has_nonempty_stem(".workdocs.yml")
                     }
+                    // Standalone hybrid collections have no filename convention yet;
+                    // folder-placement hybrids live in `.index.yaml` and match above.
+                    CollectionType::Hybrid => false,
                 }
         }
     }
@@ -136,6 +139,10 @@ pub struct CollectionIndexItem {
     pub parse_state: String,
     pub error_code: Option<String>,
     pub in_views: bool,
+    /// Pinned collections share the tree's pinned section with pinned notes
+    /// and pinned documents. Stored on `collection_state.pinned` so a rename
+    /// keeps the flag, because the state row is keyed by collection identity.
+    pub pinned: bool,
     pub identity_conflict: bool,
 }
 fn serialize_index_collection_type<S>(
@@ -212,17 +219,7 @@ impl CollectionCatalog {
             Err(error) => return Err(error.to_string()),
         };
         let policy = FileManagementPolicy::from_notebook_root(root);
-        let folder_index = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case(".index.yaml"));
-        let ignored = if folder_index {
-            path.parent()
-                .is_none_or(|parent| policy.is_ignored_at(root, parent))
-        } else {
-            policy.is_ignored_at(root, path)
-        };
-        if !parent.starts_with(root) || ignored {
+        if !parent.starts_with(root) || policy.is_tree_hidden_at(root, path) {
             return Err("PATH_OUTSIDE_NOTEBOOK".into());
         }
         if let Ok(meta) = fs::symlink_metadata(&result) {
@@ -275,6 +272,7 @@ impl CollectionCatalog {
             parse_state: "invalid".into(),
             error_code: None,
             in_views: false,
+            pinned: false,
             identity_conflict: false,
         };
         match source
@@ -346,16 +344,7 @@ impl CollectionCatalog {
                 let path = entry.path();
                 let kind = entry.file_type().map_err(|e| e.to_string())?;
                 let relative = path.strip_prefix(&self.root).map_err(|e| e.to_string())?;
-                let folder_index = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.eq_ignore_ascii_case(".index.yaml"))
-                    && relative
-                        .parent()
-                        .is_some_and(|parent| !policy.is_tree_hidden_at(&self.root, parent));
-                if kind.is_symlink()
-                    || (policy.is_tree_hidden_at(&self.root, relative) && !folder_index)
-                {
+                if kind.is_symlink() || policy.is_index_hidden_at(&self.root, relative) {
                     continue;
                 }
                 if kind.is_dir() {
@@ -396,17 +385,9 @@ impl CollectionCatalog {
         for path in paths {
             if let Ok(relative) = path.strip_prefix(&root) {
                 let relative = relative.to_string_lossy().replace('\\', "/");
-                let relative_path = Path::new(&relative);
-                let hidden = policy.is_tree_hidden_at(&root, relative_path);
-                let visible_folder_index = relative_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.eq_ignore_ascii_case(".index.yaml"))
-                    && relative_path
-                        .parent()
-                        .is_some_and(|parent| !policy.is_tree_hidden_at(&root, parent));
+                let hidden = policy.is_index_hidden_at(&root, Path::new(&relative));
                 let item = if exact_path_exists_checked(path)?
-                    && (!hidden || visible_folder_index)
+                    && !hidden
                     && collection_type_for_path(path).is_some()
                 {
                     Some(Self::inspect_at_root(&root, path)?)
@@ -429,18 +410,20 @@ impl CollectionCatalog {
         Ok(sequence)
     }
     pub fn list(&self, kind: Option<CollectionType>) -> Result<Vec<CollectionIndexItem>, String> {
-        let mut statement = self.conn.prepare("SELECT d.relative_path,d.collection_id,d.collection_type,d.name,d.schema_version,d.payload_schema_version,d.revision,d.properties_json,d.created_at,d.updated_at,d.modified_ms,d.size_bytes,d.content_hash,d.parse_state,d.error_code,COALESCE(s.in_views,0),(SELECT COUNT(*)>1 FROM collection_documents x WHERE x.collection_id=d.collection_id),(SELECT value FROM collection_catalog_meta WHERE key='sequence') FROM collection_documents d LEFT JOIN collection_state s ON s.collection_id=d.collection_id WHERE (?1 IS NULL OR d.collection_type=?1) ORDER BY d.name COLLATE NOCASE,d.relative_path").map_err(|e| e.to_string())?;
+        let mut statement = self.conn.prepare("SELECT d.relative_path,d.collection_id,d.collection_type,d.name,d.schema_version,d.payload_schema_version,d.revision,d.properties_json,d.created_at,d.updated_at,d.modified_ms,d.size_bytes,d.content_hash,d.parse_state,d.error_code,COALESCE(s.in_views,0),COALESCE(s.pinned,0),(SELECT COUNT(*)>1 FROM collection_documents x WHERE x.collection_id=d.collection_id),(SELECT value FROM collection_catalog_meta WHERE key='sequence') FROM collection_documents d LEFT JOIN collection_state s ON s.collection_id=d.collection_id WHERE (?1 IS NULL OR d.collection_type=?1) ORDER BY d.name COLLATE NOCASE,d.relative_path").map_err(|e| e.to_string())?;
         let rows = statement
             .query_map([kind.map(CollectionType::as_str)], |row| {
                 let kind: String = row.get(2)?;
                 Ok(CollectionIndexItem {
-                    index_sequence: row.get(17)?,
+                    index_sequence: row.get(18)?,
                     relative_path: row.get(0)?,
                     collection_id: row.get(1)?,
                     collection_type: if kind == "table" {
                         CollectionType::Table
                     } else if kind == "work_documents" {
                         CollectionType::WorkDocuments
+                    } else if kind == "hybrid" {
+                        CollectionType::Hybrid
                     } else {
                         CollectionType::MediaLibrary
                     },
@@ -458,7 +441,8 @@ impl CollectionCatalog {
                     parse_state: row.get(13)?,
                     error_code: row.get(14)?,
                     in_views: row.get::<_, i64>(15)? != 0,
-                    identity_conflict: row.get(16)?,
+                    pinned: row.get::<_, i64>(16)? != 0,
+                    identity_conflict: row.get(17)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -499,6 +483,7 @@ impl CollectionCatalog {
                 }
                 let mut next = inspected;
                 next.in_views = item.in_views;
+                next.pinned = item.pinned;
                 next.index_sequence = self
                     .conn
                     .query_row(
@@ -1172,7 +1157,9 @@ fn mutate_locked(
             operation_id: operation.operation_id,
             status: status.into(),
             collection_id: request.collection_id.clone(),
-            actual_name: actual.collection.name,
+            // `collection.name` is deprecated (names derive from the path),
+            // so report the path-derived display name.
+            actual_name: display_name_for_path(&actual_path, actual.collection.placement),
             previous_relative_path: item.relative_path.clone(),
             notebook_path: catalog.root.to_string_lossy().into_owned(),
             actual_relative_path: actual_path
@@ -1395,6 +1382,48 @@ pub async fn set_collection_display_state(
     })}).await.map_err(|e|e.to_string())?
 }
 #[tauri::command]
+pub async fn set_collection_pinned(
+    notebook_id: String,
+    collection_id: String,
+    pinned: bool,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let memo = state.memo_file.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let memo = read_lock(&memo, "memo_file");
+        let _guard = memo
+            .operation_locks()
+            .notebook_read(&notebook_id, "set_collection_pinned")
+            .map_err(|error| error.to_string())?;
+        with_catalog(&memo, &notebook_id, |catalog| {
+            let item = catalog.resolve(&collection_id)?;
+            if item.parse_state != "valid" {
+                return Err("COLLECTION_NOT_EDITABLE".into());
+            }
+            // The state row is keyed by identity, so the pin survives renames.
+            // `in_views` is untouched: the upsert only writes the pin column.
+            catalog
+                .conn
+                .execute(
+                    "INSERT INTO collection_state(collection_id,pinned) VALUES(?1,?2)
+                     ON CONFLICT(collection_id) DO UPDATE SET pinned=excluded.pinned",
+                    params![collection_id, pinned],
+                )
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        })?;
+        let _ = app.emit(
+            "notebook-pinned-changed",
+            serde_json::json!({ "notebookId": notebook_id }),
+        );
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn make_collection_identity_unique(
     notebook_id: String,
     relative_path: String,
@@ -1480,6 +1509,9 @@ mod tests {
             }
             CollectionType::WorkDocuments => {
                 panic!("work document collections use their dedicated v2 fixture")
+            }
+            CollectionType::Hybrid => {
+                panic!("hybrid collections use their dedicated v3 fixture")
             }
         };
         CollectionDocument::parse(&serde_yaml::to_string(&serde_json::json!({"format":"flowix.collection","schema_version":1,"collection":{"id":format!("col_{}",uuid::Uuid::now_v7().simple()),"type":kind,"name":"Old","revision":0,"created_at":"2026-10-07T00:00:00Z","updated_at":"2026-10-07T00:00:00Z","properties":{"owner":{"type":"Text","value":"张三"}}},"payload":payload})).unwrap()).unwrap()
@@ -1928,8 +1960,8 @@ mod tests {
         let mut catalog = CollectionCatalog::open(&memo, &book).unwrap();
         assert_eq!(catalog.list(None).unwrap().len(), 1);
         let mut unsupported = document(CollectionType::MediaLibrary);
-        unsupported.schema_version = 3;
-        unsupported.payload["schema_version"] = serde_json::json!(3);
+        unsupported.schema_version = 4;
+        unsupported.payload["schema_version"] = serde_json::json!(4);
         fs::write(
             root.join("Future.lib.yaml"),
             serde_yaml::to_string(&unsupported).unwrap(),

@@ -3,7 +3,6 @@
 import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
-import { CaretDoubleLeftIcon } from '@phosphor-icons/react';
 import searchIcon from '@/assets/search.svg?raw';
 import { NotebookIconMenu } from './notebook-icon-menu';
 import type { Notebook } from '../store';
@@ -12,6 +11,7 @@ interface MemoListTitlebarMacProps {
   isPreview?: boolean;
   selectedNotebook: Notebook | null;
   onCollapseMemoList: () => void;
+  onExpandSidebar: () => void;
   onOpenPreferences: (tab?: string) => void;
 }
 
@@ -19,6 +19,7 @@ export function MemoListTitlebarMac({
   isPreview = false,
   selectedNotebook,
   onCollapseMemoList,
+  onExpandSidebar,
   onOpenPreferences,
 }: MemoListTitlebarMacProps) {
   const { t } = useI18n();
@@ -67,14 +68,14 @@ export function MemoListTitlebarMac({
           </Tooltip>
         )}
         {isPreview && (
-          <Tooltip content={t("memo.list.collapseMemoListTooltip")}>
+          <Tooltip content={t("document.titlebar.showSidebarTooltip")}>
             <button
               type="button"
-              onClick={onCollapseMemoList}
-              aria-label={t("memo.list.collapseMemoList")}
-              className="w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors [-webkit-app-region:no-drag]"
+              onClick={onExpandSidebar}
+              aria-label={t("document.titlebar.showSidebar")}
+              className="-mt-2.5 w-5 h-5 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors [-webkit-app-region:no-drag]"
             >
-              <CaretDoubleLeftIcon className="h-4 w-4" weight="regular" />
+              <SidebarToggleIcon className="h-4 w-4" variant="collapsed" />
             </button>
           </Tooltip>
         )}

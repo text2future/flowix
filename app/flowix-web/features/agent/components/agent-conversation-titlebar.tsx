@@ -1,5 +1,7 @@
 'use client';
 
+import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
+
 import { useCallback, useState } from 'react';
 import {
   FileTextIcon,
@@ -10,6 +12,7 @@ import { useI18n } from '@/lib/i18n';
 import { isWindowsPlatform } from '@features/shortcuts';
 import {
   DOCUMENT_TITLEBAR_ICON_BUTTON_MAC,
+  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS,
   DOCUMENT_TITLEBAR_ICON_BUTTON_WIN,
 } from '@features/document/components/document-titlebar-model';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
@@ -52,7 +55,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
     : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC;
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 items-center gap-2 pl-3">
+    <div className="relative flex h-full min-w-0 flex-1 items-center gap-2 pl-1">
       <AgentConversationIdentity
         instanceId={instance.instanceId}
         title={presentation.title}
@@ -63,7 +66,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
         renameRequest={renameRequest}
         className="h-full flex-1 pl-0"
       />
-      <div className={`ml-auto flex shrink-0 items-center ${isWindows ? 'gap-2 pr-3' : 'gap-3 pr-3'}`}>
+      <div className={`ml-auto flex shrink-0 items-center ${isWindows ? 'gap-2 pr-3' : 'gap-1 pr-2'}`}>
         {presentation.hasSourceDocument ? (
           <button
             type="button"
@@ -84,7 +87,9 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
             <LinkBreakIcon className="agent-thread-card__fullscreen-icon" aria-hidden="true" />
           </span>
         )}
-        <WorkColumnBrowserExpandButton iconButtonClass={actionButtonClass} />
+        <WorkColumnBrowserExpandButton
+          iconButtonClass={isWindows ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS}
+        />
         <AgentConversationMoreMenu
           instance={instance}
           iconButtonClass={actionButtonClass}
@@ -124,9 +129,9 @@ export function AgentConversationTitlebar({
       reserveWindowsControls={reserveWindowsControls}
       showTrafficLightSpacer={isMiddleColumnCollapsed && !isSidebarVisible}
       className="agent-conversation-titlebar"
+      header={resolveWorkspaceHeaderModel({ chrome: 'agent' })}
     >
       <WorkColumnTitlebarNavigation
-        isWindows={isWindows}
         sidebar={{ hidden: isMiddleColumnCollapsed, onToggle: onExpandSidebar }}
         navigation={{ canNavigateBack, canNavigateForward, onNavigateBack, onNavigateForward }}
       />

@@ -19,6 +19,8 @@ import { NoteMention, WikiNoteMention } from '@features/editor/extensions/note-m
 import { TagMention } from '@features/editor/extensions/tag-mention';
 import { CodeBlockShikiBase } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki-base';
 import { MarkdownEscape, LegacyAdjacentStrongMarkdown } from './markdown-parser-core-extensions';
+import { AsteriskOnlyBold } from '@features/editor/extensions/asterisk-only-bold';
+import { LiteralUnderscoreStrong } from '@features/editor/extensions/literal-underscore-markdown';
 import { MathBlock } from '@features/editor/extensions/math-block';
 import { WebCard } from '@features/editor/extensions/web-card';
 import { TableReference } from '@features/multidimensional-table/table-reference-node';
@@ -316,7 +318,12 @@ export function createMarkdownEditorExtensions({
       paragraph: false,
       listItem: false,
       orderedList: false,
+      // Registered below as an asterisk-only mark: the stock underscore rules
+      // would eat `__pycache__` and other identifiers.
+      bold: false,
     }),
+    AsteriskOnlyBold,
+    LiteralUnderscoreStrong,
     PreservedParagraph,
     PreservedListItem,
     FlowixOrderedList,

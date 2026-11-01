@@ -179,7 +179,7 @@ export function ContentIcon({ content, className }: { content: ContentDescriptio
   if (kind === 'note') return <NoteContentIcon className={className} />;
   if (kind === 'media-library') return <MediaLibraryIcon className={className} />;
   if (kind === 'multidimensional-table') return <TableDocumentIcon className={className} />;
-  if (kind === 'work-documents') return <WorkDocumentsCollectionIcon className={className} />;
+  if (kind === 'work-documents') return <MediaLibraryIcon className={className} />;
   return <FileKindIcon kind={kind} className={className} />;
 }
 

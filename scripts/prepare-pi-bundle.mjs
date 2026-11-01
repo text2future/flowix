@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import path from 'node:path'
@@ -10,6 +10,22 @@ import { copyFile } from 'node:fs/promises'
 const repoRoot = path.resolve(import.meta.dirname, '..')
 const stageRoot = path.join(repoRoot, '.build', 'pi-runtime')
 const downloadCache = path.join(repoRoot, '.build', 'pi-downloads')
+const piVersion = '1.1.0'
+
+// Vendored Pi packages installed into every staged resource so the packaged
+// app ships them without a runtime `pi install` (which would require npm and
+// network access on the user's machine). Pin versions explicitly; the
+// installed agent directory is platform independent and reused across all
+// staged targets. The desktop runtime seeds it into the user's Pi agent
+// directory on first use (agent_external/pi/package_seed.rs).
+const vendoredPackages = ['npm:pi-subagents@0.79.2']
+const skipVendoredPackages = process.env.FLOWIX_PI_SKIP_PACKAGES === '1'
+// The cache key includes the Pi version so a runtime upgrade that changes the
+// package install layout cannot reuse a stale vendored agent directory.
+const piAgentCache = path.join(
+  downloadCache,
+  `pi-agent-${createHash('sha256').update([piVersion, ...vendoredPackages].join('\n')).digest('hex').slice(0, 16)}`,
+)
 const platformArg = process.argv.indexOf('--platform')
 const platform = platformArg >= 0 ? process.argv[platformArg + 1] : process.platform
 const archValue = process.arch
@@ -17,9 +33,9 @@ const archArg = process.argv.indexOf('--arch')
 const requestedArch = archArg >= 0 ? process.argv[archArg + 1] : undefined
 const arches = requestedArch ? [requestedArch] : platform === 'darwin' ? ['arm64', 'x64'] : [archValue]
 const platformName = { darwin: 'darwin', win32: 'windows', linux: 'linux' }[platform]
-if (!platformName) throw new Error(`Pi v1.1.0 has no release for ${platform}`)
+if (!platformName) throw new Error(`Pi v${piVersion} has no release for ${platform}`)
 if (arches.some(arch => !['arm64', 'x64'].includes(arch))) {
-  throw new Error(`Pi v1.1.0 has no release for ${platform}-${arches.join(',')}`)
+  throw new Error(`Pi v${piVersion} has no release for ${platform}-${arches.join(',')}`)
 }
 
 const checksums = {
@@ -42,15 +58,16 @@ if (catalogBuild.error) throw catalogBuild.error
 if (catalogBuild.status !== 0) throw new Error('Could not generate the PI provider catalog')
 const catalogPath = path.join(stageRoot, 'provider-catalog.json')
 const resources = {}
+const hostRuntimes = []
 for (const arch of arches) {
   const target = `${platformName}-${arch}`
   const extension = platform === 'win32' ? 'zip' : 'tar.gz'
   const archive = `pi-${target}.${extension}`
   const digest = checksums[target]
-  if (!digest) throw new Error(`Pi v1.1.0 does not provide a ${target} package`)
+  if (!digest) throw new Error(`Pi v${piVersion} does not provide a ${target} package`)
   const archivePath = path.join(stageRoot, archive)
   const cachedArchivePath = path.join(downloadCache, archive)
-  const url = `https://github.com/earendil-works/pi/releases/download/v1.1.0/pi-${target}.${extension}`
+  const url = `https://github.com/earendil-works/pi/releases/download/v${piVersion}/pi-${target}.${extension}`
   const hashFile = async filePath => {
     const hash = createHash('sha256')
     for await (const chunk of createReadStream(filePath)) hash.update(chunk)
@@ -120,7 +137,64 @@ for (const arch of arches) {
   await rename(packageDir, resourceDir)
   await copyFile(catalogPath, path.join(resourceDir, 'provider-catalog.json'))
   resources[path.resolve(resourceDir)] = `pi/${target}`
+  // The executable moves with the rename above, so record its post-rename
+  // location for the vendored-package install.
+  hostRuntimes.push({
+    target,
+    binary: path.join(resourceDir, path.relative(packageDir, resolvedBinaryPath)),
+  })
+}
+
+// Vendor the pinned Pi packages into every staged resource. The install runs
+// once with a binary that matches the host machine; the resulting agent
+// directory (extensions/, skills/, prompts/, npm/ cache, settings.json) is
+// platform independent and copied into each target unchanged.
+if (skipVendoredPackages) {
+  process.stdout.write('Skipping vendored Pi packages (FLOWIX_PI_SKIP_PACKAGES=1).\n')
+} else {
+  const hostTarget = `${platformName}-${process.arch}`
+  const hostRuntime = hostRuntimes.find(entry => entry.target === hostTarget)
+  if (!hostRuntime) {
+    throw new Error(
+      `Cannot vendor Pi packages: no staged runtime matches this machine (${hostTarget}). ` +
+        'Re-run without --platform/--arch overrides or set FLOWIX_PI_SKIP_PACKAGES=1.',
+    )
+  }
+  await stageVendoredPiAgent(hostRuntime.binary)
+  for (const resourceDir of Object.keys(resources)) {
+    const destination = path.join(resourceDir, 'pi-agent')
+    await rm(destination, { recursive: true, force: true })
+    await cp(piAgentCache, destination, { recursive: true })
+  }
+  process.stdout.write(`Vendored Pi packages (${vendoredPackages.join(', ')}) into staged resources.\n`)
 }
 await mkdir(stageRoot, { recursive: true })
 await writeFile(path.join(stageRoot, 'resources.json'), `${JSON.stringify(resources, null, 2)}\n`)
-process.stdout.write(`Staged Pi v1.1.0 (${arches.join(', ')}) for ${platformName}.\n`)
+process.stdout.write(`Staged Pi v${piVersion} (${arches.join(', ')}) for ${platformName}.\n`)
+
+async function stageVendoredPiAgent(hostBinary) {
+  if (
+    (await stat(piAgentCache).catch(() => null))?.isDirectory() &&
+    (await stat(path.join(piAgentCache, 'settings.json')).catch(() => null))?.isFile()
+  ) {
+    return
+  }
+  const staging = path.join(downloadCache, `.pi-agent-stage-${process.pid}`)
+  await rm(staging, { recursive: true, force: true })
+  await mkdir(staging, { recursive: true })
+  const install = spawnSync(hostBinary, ['install', ...vendoredPackages], {
+    stdio: 'inherit',
+    cwd: repoRoot,
+    env: { ...process.env, PI_CODING_AGENT_DIR: staging },
+    timeout: 5 * 60_000,
+  })
+  if (install.error) throw install.error
+  if (install.status !== 0) {
+    throw new Error(`pi install failed for ${vendoredPackages.join(', ')}`)
+  }
+  if (!(await stat(path.join(staging, 'settings.json')).catch(() => null))?.isFile()) {
+    throw new Error('pi install did not produce a Pi agent settings.json')
+  }
+  await rm(piAgentCache, { recursive: true, force: true })
+  await rename(staging, piAgentCache)
+}

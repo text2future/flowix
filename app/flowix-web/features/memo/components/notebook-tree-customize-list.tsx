@@ -30,7 +30,6 @@ export function NotebookTreeCustomizeList({ sectionOrder, hiddenSections, onChan
         const labels: Record<NotebookTreeSection, string> = {
           agents: t('memo.fileTree.agentsSectionTitle'),
           pinned: t('memo.fileTree.pinnedSectionTitle'),
-          views: t('memo.fileTree.viewsSectionTitle'),
           files: t('memo.fileTree.sectionTitle'),
           repositories: t('memo.fileTree.repositoriesTitle'),
           more: t('memo.fileTree.moreTitle'),

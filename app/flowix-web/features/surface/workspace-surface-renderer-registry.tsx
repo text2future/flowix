@@ -148,7 +148,7 @@ function initialSurfaceSkeleton(surface: WorkspaceSurfaceRendererData): InitialS
   if (surface.kind === 'file-table') return 'table';
   if (surface.kind === 'file-media-library') return 'media-library';
   if (surface.kind === 'file-work-documents') return 'work-documents';
-  if (surface.kind === 'collection') return surface.viewMode === 'work-documents' ? 'work-documents' : null;
+  if (surface.kind === 'collection') return null;
   if (surface.kind !== 'file-browser' || !surface.props.activeFilePath) return null;
   const fileKind = surface.props.collectionType === 'table' ? 'table'
     : surface.props.collectionType === 'media_library' ? 'media-library'

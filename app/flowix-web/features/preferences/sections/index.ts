@@ -3,10 +3,8 @@
 // barrel here would pull every section into the preference-window entry chunk.
 export { GeneralSection } from '@features/preferences/sections/general';
 export { EnvironmentConfigSection } from '@features/preferences/sections/environment-config';
-export { FileDisplayRulesSection } from '@features/preferences/sections/file-display-rules';
 export { FormatSection } from '@features/preferences/sections/format';
 export { ThemeSection } from '@features/preferences/sections/theme';
-export { NoteSettingsSection } from '@features/preferences/sections/note-settings';
 export { TemplatesSection } from '@features/preferences/sections/templates';
 export { DocumentPropertiesSection } from '@features/preferences/sections/document-properties';
 export { AgentSection } from '@features/preferences/sections/agent';

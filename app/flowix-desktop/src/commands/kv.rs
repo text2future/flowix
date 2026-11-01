@@ -16,7 +16,9 @@ use crate::system_data::{
 
 const FEATURED_NOTES_ALLOWED_OPERATORS: [&str; 3] = ["equals", "contains", "excludes"];
 const CUSTOM_VIEW_ALLOWED_OPERATORS: [&str; 2] = ["equals", "contains"];
-const FILE_TREE_SECTIONS: [&str; 6] = ["agents", "pinned", "views", "files", "repositories", "more"];
+// 「视图」分组已并入访问空间与置顶，顺序表不再包含 `views`；旧偏好里的该项
+// 由前端归一化时丢弃，写回时只带这五个分区。
+const FILE_TREE_SECTIONS: [&str; 5] = ["agents", "pinned", "files", "repositories", "more"];
 
 #[tauri::command]
 pub fn get_tag_system_metadata(
@@ -155,7 +157,7 @@ pub fn set_notebook_file_tree_section_order(
             .iter()
             .any(|section| section_order.iter().filter(|item| item.as_str() == *section).count() != 1)
     {
-        return Err("file tree section order must contain agents, pinned, views, files, repositories, and more once each".to_string());
+        return Err("file tree section order must contain agents, pinned, files, repositories, and more once each".to_string());
     }
     if let Some(hidden) = &hidden_sections {
         if hidden.iter().any(|section| {

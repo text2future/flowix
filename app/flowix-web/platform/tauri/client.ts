@@ -6,6 +6,7 @@ export type { ChatMessage } from '@/types/agent';
 export * from './client/agent';
 export * from './client/cloud';
 export * from './client/desktop';
+export * from './client/pinned';
 export * from './client/plugin';
 export * from './client/general';
 export * from './client/properties';

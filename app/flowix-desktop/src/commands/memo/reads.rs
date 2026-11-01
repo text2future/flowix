@@ -83,7 +83,7 @@ pub async fn resolve_markdown_location(
             let markdown = relative.extension().and_then(|ext| ext.to_str())
                 .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown"));
             let policy = memo_file.file_management_policy(&notebook.id);
-            let indexable = markdown && !policy.is_index_ignored_at(&canonical_root, relative);
+            let indexable = markdown && !policy.is_index_hidden_at(&canonical_root, relative);
             return Ok(MarkdownLocation {
                 path: path.to_string_lossy().into_owned(),
                 notebook_id: Some(notebook.id),

@@ -1,0 +1,41 @@
+/**
+ * 集合 tab 条 ── 吸顶行 + 可横向滚动的 tab 组 + 两侧溢出渐隐。
+ *
+ * 结构与类名只由 `shared/ui/collection-tab-bar.tsx` 产出；这里只放 Tailwind 表达
+ * 不出来的部分（伪元素阴影、纵向滚动屏蔽）。行高与底部净空在 index.css 的
+ * `:root` 里作为非颜色 token 定义，其它地方（文件树表头 sticky 偏移、自带滚动
+ * 面板的高度换算）都必须引用那两个变量，不要写字面量。
+ */
+
+.collection-tab-strip::before,
+.collection-tab-strip::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.collection-tab-strip::before {
+  left: 0;
+  box-shadow: inset 6px 0 8px -7px color-mix(in oklch, var(--foreground) 28%, transparent);
+}
+
+.collection-tab-strip::after {
+  right: 0;
+  box-shadow: inset -6px 0 8px -7px color-mix(in oklch, var(--foreground) 28%, transparent);
+}
+
+.collection-tab-strip[data-overflow-left='true']::before,
+.collection-tab-strip[data-overflow-right='true']::after {
+  opacity: 1;
+}
+
+.collection-tab-strip__scroller {
+  overflow-y: hidden;
+  overscroll-behavior-y: none;
+}

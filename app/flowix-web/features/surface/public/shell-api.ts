@@ -50,3 +50,7 @@ export {
   waitForWorkspaceSurfaceStartup,
   useWorkspaceSurfacePresentation,
 } from '@features/surface/workspace-surface-runtime';
+/** 资源文件夹图标（seti 主题）：供跨 feature 的文件夹选择器等 surface 复用。 */
+export { ResourceFolderIcon } from '@features/surface/resource-file-icon';
+
+export { collectionIndexPath, browserCollectionIndexPath } from '../collection-frame';

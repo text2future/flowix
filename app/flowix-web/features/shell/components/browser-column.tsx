@@ -141,6 +141,8 @@ export const BrowserColumn = memo(function BrowserColumn({
         webAddressBarVisible={webAddressBarVisible}
         onToggleWebAddressBar={() => setAddressBarSurfaceId(webAddressBarVisible ? null : current?.id ?? null)}
         activeSurfaceChrome={activeSurfaceChrome}
+        surfaceContentKind={activeSurfaceRuntime.contentKind ?? activeSurfaceDefinition?.contentKind}
+        headerBackgroundColor={activeSurfaceRuntime.headerBackgroundColor}
         surfaceCapabilities={activeSurfaceCapabilities}
         onToggleMemoEditorMode={handleToggleMemoEditorMode}
         onOpenInWorkColumn={(surfaceId) => { void openBrowserColumnContentInWorkColumn(surfaceId); }}

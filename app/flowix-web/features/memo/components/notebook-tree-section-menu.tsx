@@ -33,7 +33,6 @@ import {
 import type { FolderTreeSort } from './use-folder-tree';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 import { MEMO_CREATE_VIEW_OPTIONS } from './memo-create-view-options';
-import { WorkDocumentsIcon } from './work-documents-icon';
 
 export function getPopupOriginRect(target: HTMLElement): DOMRect {
   const rect = (target.closest('[role="menu"]') ?? target).getBoundingClientRect();
@@ -203,17 +202,16 @@ export function NotebookTreeSectionMenu({
                     <GalleryHorizontalEnd className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>{t('memo.create.mediaLibraryMenuLabel')}</span>
                     <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)]">
-                      {t('memo.create.mediaLibraryShort')}
+                      {t('memo.create.assetShort')}
                     </span>
                   </DropdownMenuItem>
                 )}
                 {onCreateWorkDocuments && (
                   <DropdownMenuItem onClick={onCreateWorkDocuments} className={itemClassName}>
-                    {/* 图形占 18×18 视框 ~76%：元素盒保持 h-3.5 对齐文字列，scale-[1.2] 光学放大到与 lucide 等大 */}
-                    <WorkDocumentsIcon className="h-3.5 w-3.5 opacity-100 scale-[1.2]" />
+                    <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>{t('memo.create.workDocumentsMenuLabel')}</span>
                     <span className="ml-auto text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)]">
-                      {t('memo.create.workDocumentsTypes')}
+                      {t('memo.create.assetShort')}
                     </span>
                   </DropdownMenuItem>
                 )}

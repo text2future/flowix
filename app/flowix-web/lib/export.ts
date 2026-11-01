@@ -2,6 +2,7 @@
 
 import { Marked } from 'marked';
 import { translate, type AppLanguage } from '@/lib/i18n';
+import { LITERAL_UNDERSCORE_MARKED_EXTENSION } from '@/lib/markdown-literal-underscore';
 
 const FRONTMATTER_PATTERN = /^\uFEFF?(?:[ \t]*\r?\n)*---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 const MAX_FILE_NAME_LENGTH = 120;
@@ -11,11 +12,16 @@ const MAX_FILE_NAME_LENGTH = 120;
 // and crash `marked.parse()`. A fresh instance keeps the default GFM task
 // list support and is untouched by anything `marked.use(...)` did to the
 // singleton.
-const exportMarked = new Marked({
-  gfm: true,
-  breaks: false,
-  async: false,
-});
+const exportMarked = new Marked(
+  {
+    gfm: true,
+    breaks: false,
+    async: false,
+  },
+  // `__pycache__` and friends stay literal, exactly like the editor renders
+  // them; without this the export would turn them into bold text.
+  LITERAL_UNDERSCORE_MARKED_EXTENSION,
+);
 
 const ESCAPE_MAP: Record<string, string> = {
   '&': '&amp;',

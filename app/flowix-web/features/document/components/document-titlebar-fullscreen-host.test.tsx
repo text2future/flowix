@@ -1,3 +1,5 @@
+import { reportWorkspaceHeaderFullscreen, clearWorkspaceHeaderFullscreen } from '@features/workspace/public/header-api';
+import { normalizeAgentTypeKey } from '@/lib/agent-types';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,7 +10,7 @@ import {
   useFullscreenAgentThreadCardInfo,
 } from '@features/document/components/document-titlebar-shared';
 
-const FULLSCREEN_CHANGE_EVENT = 'flowix:agent-thread-card-fullscreen-change';
+const fullscreenOwners = new Map<'main-third' | 'browser-column', object>();
 
 // 仓库测试惯例 (无 @testing-library): createRoot 挂 probe 组件, hook 状态
 // 写到外层变量。这里同时探针两个 host 的 active / info, 断言互不串扰。
@@ -43,9 +45,7 @@ function buildWorkspaceHosts(): {
   return { mainThird, browserColumn };
 }
 
-// 全屏卡片 position: fixed 但 DOM 仍在原列内 ── 这里按真实结构挂到
-// host → .document-container → card, dataset 字段与 AgentThreadCardView
-// 的 renderFullscreenState 写入一致。
+// Publish the same owner-bound snapshot as the real AgentThreadCardView.
 function mountFullscreenCard(
   host: HTMLElement,
   attrs: Partial<Record<'title' | 'agentType' | 'instanceId' | 'threadId', string>>,
@@ -59,11 +59,13 @@ function mountFullscreenCard(
   }
   container.appendChild(card);
   host.appendChild(container);
+  const hostId = host.dataset.workspaceHost as 'main-third' | 'browser-column';
+  fullscreenOwners.set(hostId, card);
+  act(() => reportWorkspaceHeaderFullscreen(hostId, card, {
+    title: attrs.title ?? '', typeKey: normalizeAgentTypeKey(attrs.agentType),
+    instanceId: attrs.instanceId ?? null, threadId: attrs.threadId ?? null,
+  }));
   return card;
-}
-
-function notifyFullscreenChange(): void {
-  window.dispatchEvent(new CustomEvent(FULLSCREEN_CHANGE_EVENT));
 }
 
 describe('AgentThreadCard fullscreen host scoping', () => {
@@ -81,6 +83,10 @@ describe('AgentThreadCard fullscreen host scoping', () => {
   });
 
   afterEach(() => {
+    act(() => {
+      for (const [host, owner] of fullscreenOwners) clearWorkspaceHeaderFullscreen(host, owner);
+    });
+    fullscreenOwners.clear();
     act(() => root?.unmount());
     mainThird?.remove();
     browserColumn?.remove();
@@ -138,18 +144,17 @@ describe('AgentThreadCard fullscreen host scoping', () => {
     });
   });
 
-  it('fullscreen-change 事件驱动 hook 状态更新', () => {
+  it('owner snapshots update hooks and clear when the card exits', () => {
     mountProbe();
     expect(probeState?.mainThirdActive).toBe(false);
     expect(probeState?.browserColumnActive).toBe(false);
 
     const card = mountFullscreenCard(browserColumn!, { title: '后来全屏' });
-    act(() => notifyFullscreenChange());
     expect(probeState?.browserColumnActive).toBe(true);
     expect(probeState?.browserColumnInfo?.title).toBe('后来全屏');
 
     card.remove();
-    act(() => notifyFullscreenChange());
+    act(() => clearWorkspaceHeaderFullscreen('browser-column', card));
     expect(probeState?.browserColumnActive).toBe(false);
     expect(probeState?.browserColumnInfo).toBeNull();
   });
@@ -171,7 +176,6 @@ describe('AgentThreadCard fullscreen host scoping', () => {
 
     // 换成浏览器列卡片全屏: 浏览器列退出按钮出现
     mountFullscreenCard(browserColumn!, { title: '浏览器列对话' });
-    act(() => notifyFullscreenChange());
     renderExitButton('browser-column');
     const button = container?.querySelector('button.agent-thread-card-fullscreen-exit-btn');
     expect(button).not.toBeNull();

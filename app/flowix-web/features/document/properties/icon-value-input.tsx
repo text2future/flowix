@@ -3,10 +3,8 @@ import type { MouseEvent, ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { useI18n } from '@/lib/i18n';
-import {
-  PROPERTY_ICON_OPTIONS,
-  getPropertyIconOption,
-} from '@features/document/properties/property-icons';
+import { getPropertyIconOption } from '@features/document/properties/property-icons';
+import { PropertyIconPickerPanel } from '@features/document/properties/icon-picker-panel';
 import { cn } from '@/lib/utils';
 
 interface IconValueInputProps {
@@ -96,42 +94,16 @@ export function IconValueInput({
         align="start"
         sideOffset={6}
         keepParentMenuOpen={keepParentMenuOpen}
-        className={cn('z-[150] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]', variant === 'table' ? '!z-[170] p-1' : 'p-2')}
+        className={cn('z-[150] w-[280px] rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)] p-2', variant === 'table' && '!z-[170]')}
       >
-        <div className="max-h-[240px] overflow-y-auto [scrollbar-gutter:stable]">
-          <div className="grid grid-cols-5 gap-1">
-          {PROPERTY_ICON_OPTIONS.map((option) => {
-            const active = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  if (disabled) return;
-                  onChange(option.value);
-                  changeOpen(false);
-                }}
-                className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-lg border transition-colors',
-                  active
-                    ? 'border-[var(--primary)] bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]'
-                    : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--muted)]/60'
-                )}
-                title={option.label}
-                aria-label={option.label}
-              >
-                <img
-                  src={option.src}
-                  alt=""
-                  className="h-6 w-6 object-contain"
-                  draggable={false}
-                />
-              </button>
-            );
-          })}
-          </div>
-        </div>
+        <PropertyIconPickerPanel
+          value={value}
+          disabled={disabled}
+          onSelect={(next) => {
+            onChange(next);
+            changeOpen(false);
+          }}
+        />
       </PopoverContent>
     </Popover>
   );

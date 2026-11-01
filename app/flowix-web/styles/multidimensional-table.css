@@ -25,38 +25,8 @@
   }
 }
 
-.multidimensional-table__view-tabs-scroller::before,
-.multidimensional-table__view-tabs-scroller::after {
-  content: '';
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  width: 10px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.multidimensional-table__view-tabs-scroller::before {
-  left: 0;
-  box-shadow: inset 6px 0 8px -7px color-mix(in oklch, var(--foreground) 28%, transparent);
-}
-
-.multidimensional-table__view-tabs-scroller::after {
-  right: 0;
-  box-shadow: inset -6px 0 8px -7px color-mix(in oklch, var(--foreground) 28%, transparent);
-}
-
-.multidimensional-table__view-tabs-scroller[data-overflow-left='true']::before,
-.multidimensional-table__view-tabs-scroller[data-overflow-right='true']::after {
-  opacity: 1;
-}
-
-.multidimensional-table__view-tabs-scroll-area {
-  overflow-y: hidden;
-  overscroll-behavior-y: none;
-}
+/* tab 条的结构与样式统一在 styles/collection-tab-bar.css（`.collection-tab-strip`），
+ * 这里只管表格自己的 nav 语义（标题让位、操作区 hover 显隐）。 */
 
 .multidimensional-table thead,
 .multidimensional-table thead th {
@@ -143,6 +113,77 @@
 html[data-platform="non-mac"] .multidimensional-table__scrollbar--bottom-clearance .overlay-scrollbar-track--vertical,
 html[data-platform="mac"] .multidimensional-table__scrollbar--bottom-clearance.overlay-scrollbar-frame--custom-mac .overlay-scrollbar-track--vertical {
   bottom: 1rem;
+}
+
+/* ── 集合整页滚动（CollectionShell 的 pageScroll） ─────────────────────────
+ * 头图 / 标题 / tab 条 / 记录区同处**一个**滚动容器，滚上去后 tab 条吸顶。
+ * 记录区在这里的角色**按版式分**：
+ *   - table / gallery：流式内容，记录区不再是滚动容器（放开 frame 裁剪，
+ *     高度交给内容），宽表横向溢出交给整页滚动容器 —— 这样 thead 的 sticky
+ *     才绑在整页滚动上、吸在 tab 条（2.25rem = h-7 + py-1）下沿。
+ *   - calendar / kanban：锁在可见高度里自己滚。日历是等高网格、看板要横向
+ *     滚泳道，都不能把整页（连头图、tab 条）撑出横向滚动。 */
+.multidimensional-table__surface[data-page-scroll="true"] {
+  --collection-tabbar-h: 2.25rem;
+}
+
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-table,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-table .overlay-scrollbar,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-gallery,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-gallery .overlay-scrollbar {
+  height: auto;
+  flex: none;
+  overflow: visible;
+}
+
+/* 记录区已经不是滚动容器：把它的自绘滑块彻底关掉，避免它和整页滚动条
+ * 在同一个右边缘叠出一条（frame 仍会按 scrollHeight 计算可滚动性）。 */
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-table > .overlay-scrollbar-thumb--vertical,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-table > .overlay-scrollbar-track--vertical,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-gallery > .overlay-scrollbar-thumb--vertical,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-gallery > .overlay-scrollbar-track--vertical {
+  display: none;
+}
+
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-calendar {
+  height: var(--collection-content-h, calc(100vh - 8rem));
+  flex: none;
+  min-height: 0;
+}
+
+/* 看板：高度交给内容（纵向随整页滚），但**横向**保留自己的滚动区 ——
+ * 泳道再宽也只在这块里横滚，不会把整页（头图 / tab 条）一起拖走。 */
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-kanban {
+  height: auto;
+  flex: none;
+}
+
+/* 看板下滚轮要能滚整页 ── records 仍是横向滚动容器，但纵向必须让路：
+ * 1) 内层 scroller 的 `overflow-y` 关掉，它不再是一个能「吃掉」滚轮的元素；
+ * 2) `.overlay-scrollbar` 默认带 `overscroll-behavior: contain`，会把滚轮
+ *    拦在容器里不往整页传（泳道 hover 滚不动就是这么来的），这里改回 auto。
+ * 横向滚动不受影响（x 仍是 auto）。 */
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-kanban > .overlay-scrollbar {
+  overflow-y: hidden;
+  overscroll-behavior: auto;
+}
+
+/* 泳道不再各自纵向滚动：卡片区随内容长高，滚轮一路交给整页。
+ * 原来 800px 的封顶会裁掉卡片，还会把滚轮锁在泳道里（整页纹丝不动）。 */
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-kanban .multidimensional-table__kanban-lane,
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-kanban .multidimensional-table__kanban-lane-content {
+  max-height: none;
+  overflow: visible;
+}
+
+/* 日历同理：它锁着可见高度，内部若不可滚也不能把滚轮据住。 */
+.multidimensional-table__surface[data-page-scroll="true"] .multidimensional-table__records--layout-calendar > .overlay-scrollbar {
+  overscroll-behavior: auto;
+}
+
+.multidimensional-table__surface[data-page-scroll="true"] thead {
+  /* 吸在 tab 条下沿；集合内容上穿 Work 标题栏时，偏移要加上标题栏高度。 */
+  top: calc(var(--work-titlebar-h, 0px) + var(--collection-tabbar-h));
 }
 
 .multidimensional-table__kanban-lane {
@@ -887,4 +928,8 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
   background: var(--document-bg);
   color: var(--foreground);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+.multidimensional-table.collection-files-table :is(th, td):last-child::before {
+  display: none;
 }

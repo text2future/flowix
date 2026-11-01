@@ -281,7 +281,7 @@ async function performWorkspaceSurfaceOpen(
   };
   switch (target.kind) {
     case 'folder-collection':
-      await openFolderCollectionChooserTarget(target, workRequestId);
+      await openFolderCollectionChooserTarget(target, workRequestId, options?.history ?? 'push');
       return finishWorkOpen();
     case 'external': {
       if (!await flushBrowserViewBeforeOpeningWork({ kind: 'external', path: target.path })) {

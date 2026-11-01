@@ -15,6 +15,7 @@ import {
   type NotebookMoveSource,
 } from '@features/memo/components/notebook-file-tree';
 import { useFolderTree } from '@features/memo/components/use-folder-tree';
+import { useSpaceTreeVisibility } from '@features/preferences/public/runtime-api';
 import { updateNoteLinksAfterMove } from '@features/memo/services/note-link-rewriter';
 import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
 import { openFolderCollectionFromFolder } from '@features/workspace/public/main-window-api';
@@ -60,6 +61,20 @@ export function NotebookFolderView({
   const tree = useFolderTree(notebook.path, {
     enabled: isActive,
   });
+  // 隐藏 / 系统文件夹的过滤在 Rust 侧（读全局 preference.json）完成，所以开关
+  // 变化后必须重新拉整棵树。用 ref 记住「已经应用到树上的口径」：首帧只记录不
+  // 重拉（树自己会加载），不可见期间也不更新，等切回可见时再补一次 reload。
+  const { showHiddenFolders, showSystemFolders } = useSpaceTreeVisibility();
+  const reloadTree = tree.reload;
+  const visibilityKey = `${showHiddenFolders}:${showSystemFolders}`;
+  const appliedVisibilityRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isActive) return;
+    const applied = appliedVisibilityRef.current;
+    appliedVisibilityRef.current = visibilityKey;
+    if (applied === null || applied === visibilityKey) return;
+    void reloadTree();
+  }, [isActive, visibilityKey, reloadTree]);
   const target = useWorkColumnStore((state) => state.navigation.target);
   const activeFilePath = workColumnTargetFilePath(target);
   const activeFileRevealRatio = target.kind === 'external' && target.treeReveal === 'created-note'
@@ -72,15 +87,6 @@ export function NotebookFolderView({
   useEffect(() => subscribe<{ notebookId: string; operationId?: string }>('file-management-changed', ({ notebookId, operationId }) => {
     if (isActive && notebookId === notebook.id && !operationId) void tree.refresh();
   }), [isActive, notebook.id, tree.refresh]);
-
-  useEffect(() => subscribe<{ notebookPath: string; treeVisibilityChanged: boolean }>(
-    'notebook-view-preferences-changed',
-    ({ notebookPath, treeVisibilityChanged }) => {
-      if (isActive && treeVisibilityChanged && canonicalDirectoryPath(notebookPath) === canonicalDirectoryPath(notebook.path)) {
-        void tree.reload();
-      }
-    },
-  ), [isActive, notebook.path, tree.reload]);
 
   useEffect(() => {
     if (!isActive) return;

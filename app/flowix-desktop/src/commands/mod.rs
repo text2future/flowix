@@ -25,6 +25,7 @@ pub mod media;
 pub mod memo;
 pub mod notebook;
 pub mod notebook_setup;
+pub mod pinned;
 pub mod plugin;
 pub mod product;
 pub mod recovery;

@@ -16,7 +16,7 @@ use crate::config::path_is_inside;
 use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{
     media_kind_for_path, FileManagementPolicy, MediaResourceKind,
-    NoteColor, MemoFile,
+    NoteColor, MemoFile, TreeVisibility,
 };
 use sha2::{Digest, Sha256};
 use tokio::sync::{Notify, Semaphore};
@@ -68,6 +68,14 @@ pub struct DocTreeItem {
     pub memo_meta: Option<DocTreeMemoMeta>,
     /// Resource classification for document nodes. Folders use `None`.
     pub resource_kind: Option<DocTreeResourceKind>,
+    /// True when this row sits in a folder that every index and the watcher
+    /// skip. Such rows stay browsable, but creating a note there would hide it
+    /// from every list, so the row menu offers no note creation.
+    pub index_excluded: bool,
+    /// True when the row is pinned. Notes mirror `memo_meta.favorited`;
+    /// documents read the resource catalog flag, so one field drives the row
+    /// menu for every kind of entry.
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +196,39 @@ fn canonical_path(path: &Path) -> std::path::PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Resolve the innermost registered notebook that contains `path`.
+fn enclosing_notebook(memo_file: &MemoFile, path: &Path) -> Option<(String, PathBuf)> {
+    let canonical = canonical_path(path);
+    let config = memo_file
+        .read_notebook_configs()
+        .ok()?
+        .into_iter()
+        .filter(|config| path_is_inside(&canonical, Path::new(&config.path)))
+        .max_by_key(|config| Path::new(&config.path).components().count())?;
+    let root = canonical_path(Path::new(&config.path));
+    Some((config.id, root))
+}
+
+/// True when `path` sits in a notebook folder that every index and the watcher
+/// skip, so content created there would never show up in a list.
+fn index_excluded_for_path(memo_file: &MemoFile, path: &Path) -> bool {
+    let Some((_, root)) = enclosing_notebook(memo_file, path) else { return false; };
+    let canonical = canonical_path(path);
+    let Ok(relative) = canonical.strip_prefix(&root) else { return false; };
+    FileManagementPolicy::from_notebook_root(&root).is_index_hidden_at(&root, relative)
+}
+
+/// Backend truth for "the indexes and the watcher skip this path". Folder
+/// surfaces ask before offering a note/media chooser: a folder outside the
+/// index can never list its own contents, so the chooser would only promise
+/// views that stay empty. Ancestors count too, so a visible subfolder of a
+/// hidden folder reports the same answer as its parent.
+#[tauri::command]
+pub fn is_path_index_excluded(file_path: String, state: State<AppState>) -> bool {
+    let memo_file = read_lock(&state.memo_file, "memo_file");
+    index_excluded_for_path(&memo_file, Path::new(&file_path))
+}
+
 /// Hydrate only the visible direct children found by the filesystem listing.
 /// The core query uses exact primary keys and decodes only tree-row metadata.
 fn populate_memo_tree_metadata(
@@ -197,12 +238,7 @@ fn populate_memo_tree_metadata(
     notebook_background: &Arc<crate::app::notebook_background::NotebookBackground>,
 ) {
     let memo_file = read_lock(memo_file_store, "memo_file");
-    let canonical_directory = canonical_path(directory_path);
-    let Some(config) = memo_file.read_notebook_configs().ok().and_then(|configs| configs
-        .into_iter()
-        .filter(|config| path_is_inside(&canonical_directory, Path::new(&config.path)))
-        .max_by_key(|config| Path::new(&config.path).components().count())) else { return; };
-    let notebook_root = canonical_path(Path::new(&config.path));
+    let Some((notebook_id, notebook_root)) = enclosing_notebook(&memo_file, directory_path) else { return; };
     // Resolve only listed notes, preserving metadata for in-notebook symlinks.
     let relative_path_for = |item: &DocTreeItem| {
         canonical_path(Path::new(&item.full_path)).strip_prefix(&notebook_root).ok()
@@ -213,10 +249,10 @@ fn populate_memo_tree_metadata(
         .filter_map(|(index, item)| relative_path_for(item).map(|path| (index, path)))
         .collect();
     let relative_paths: Vec<_> = listed_notes.iter().map(|(_, path)| path.clone()).collect();
-    let metadata = match memo_file.read_note_tree_metadata_for_paths(&config.id, &relative_paths) {
+    let metadata = match memo_file.read_note_tree_metadata_for_paths(&notebook_id, &relative_paths) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-            notebook_background.request(&config.id, true, false);
+            notebook_background.request(&notebook_id, true, false);
             return;
         }
         Err(_) => return,
@@ -226,10 +262,33 @@ fn populate_memo_tree_metadata(
         let item = &mut items[index];
         if let Some(entry) = by_path.get(&relative_path) {
             item.memo_created_ms = u64::try_from(entry.created_at).ok();
+            item.pinned = entry.favorited;
             item.memo_meta = Some(DocTreeMemoMeta {
                 icon: entry.icon.clone(), colors: entry.colors.clone(), favorited: entry.favorited,
             });
         }
+    }
+    // Non-note documents have no frontmatter, so their pin lives in the
+    // resource catalog. One query covers the whole listing.
+    let listed_documents: Vec<(usize, String)> = items.iter().enumerate()
+        .filter(|(_, item)| {
+            item.item_type == "document"
+                && !matches!(item.resource_kind, Some(DocTreeResourceKind::Note))
+        })
+        .filter_map(|(index, item)| relative_path_for(item).map(|path| (index, path)))
+        .collect();
+    if listed_documents.is_empty() {
+        return;
+    }
+    let paths: Vec<String> = listed_documents.iter().map(|(_, path)| path.clone()).collect();
+    let Ok(pinned) = memo_file.read_pinned_resource_paths(&notebook_id, &paths) else {
+        return;
+    };
+    if pinned.is_empty() {
+        return;
+    }
+    for (index, relative_path) in listed_documents {
+        items[index].pinned = pinned.contains(&relative_path);
     }
 }
 
@@ -237,21 +296,25 @@ fn read_dir_single_level(
     dir_path: &Path,
     memo_metadata: Option<&HashMap<std::path::PathBuf, MemoTreeMetadata>>,
 ) -> Vec<DocTreeItem> {
-    read_dir_single_level_with_policy(dir_path, memo_metadata, None)
+    read_dir_single_level_with_policy(
+        dir_path,
+        memo_metadata,
+        None,
+        TreeVisibility::default(),
+    )
 }
 
-fn is_legacy_media_property_sidecar(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("yaml"))
-        && path.file_stem().is_some_and(|stem| {
-            media_kind_for_path(Path::new(stem)).is_some()
-        })
-}
-
+/// One-level listing shared by the tree and the folder lists.
+///
+/// 过滤只走展示口径 [`TreeVisibility::hides_entry`]：文件夹看目录规则，文件看
+/// 文件通配表，两条规则互不牵连。访问 / 索引 / watcher 的判定属于
+/// `FileManagementPolicy`，不在这里做——所以 `.index.yaml` 不出现在树里，但
+/// 集合的读写与重命名照旧可用。
 fn read_dir_single_level_with_policy(
     dir_path: &Path,
     memo_metadata: Option<&HashMap<std::path::PathBuf, MemoTreeMetadata>>,
     policy: Option<(&Path, &FileManagementPolicy)>,
+    visibility: TreeVisibility,
 ) -> Vec<DocTreeItem> {
     let mut items = Vec::new();
 
@@ -269,22 +332,9 @@ fn read_dir_single_level_with_policy(
             let meta = fs::metadata(&path).ok();
             let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
 
-            if let Some((root, rules)) = policy {
-                if path
-                    .strip_prefix(root)
-                    .is_ok_and(|relative| rules.is_tree_hidden_at(root, relative))
-                {
-                    continue;
-                }
-            } else if FileManagementPolicy::default()
-                .is_tree_hidden_at(dir_path, Path::new(&name))
-            {
-                continue;
-            }
-
-            // External file-browser roots use the default file exclusions too,
-            // but do not load notebook-specific visibility preferences.
-            if policy.is_none() && is_legacy_media_property_sidecar(&path) {
+            // 全局「访问空间显示隐藏文件夹 / 显示系统文件夹」开关（两个都默认开）
+            // 只作用在目录上；文件永远按通配表过滤。
+            if visibility.hides_entry(&name, is_dir) {
                 continue;
             }
 
@@ -309,6 +359,10 @@ fn read_dir_single_level_with_policy(
             } else {
                 None
             };
+            let index_excluded = policy.is_some_and(|(root, rules)| {
+                path.strip_prefix(root)
+                    .is_ok_and(|relative| rules.is_index_hidden_at(root, relative))
+            });
             let item = DocTreeItem {
                 id: generate_stable_id(&path.to_string_lossy()),
                 full_path: path.to_string_lossy().to_string(),
@@ -326,6 +380,8 @@ fn read_dir_single_level_with_policy(
                 memo_created_ms: memo_metadata.and_then(|metadata| metadata.created_ms),
                 memo_meta: memo_metadata.map(|metadata| metadata.memo.clone()),
                 resource_kind,
+                index_excluded,
+                pinned: memo_metadata.and_then(|metadata| Some(metadata.memo.favorited)).unwrap_or(false),
             };
 
             items.push(item);
@@ -362,15 +418,20 @@ fn notebook_policy_for_path(
     Some((root, policy))
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotebookViewPreferences {
-    #[serde(default)]
-    pub default_create_folder: Option<String>,
-    #[serde(default)]
-    pub file_management: FileManagementPolicy,
-    #[serde(default, skip_deserializing, skip_serializing_if = "is_false")]
-    pub refresh_pending: bool,
+/// Global «访问空间» display switches for a notebook-scoped listing.
+///
+/// 只属于展示口径：文件树和文件夹列表共用同一个来源，避免「树里关掉了点目录、
+/// 列表里还留着」。外部文件夹浏览（非笔记本范围）没有这项偏好，一律用默认值。
+/// 访问 / 索引 / watcher 不得读这个函数。
+pub(crate) fn tree_visibility_for(state: &AppState, scoped: bool) -> TreeVisibility {
+    if !scoped {
+        return TreeVisibility::default();
+    }
+    let preference = state.user_config.get_preference();
+    TreeVisibility {
+        show_hidden: preference.space_show_hidden_folders,
+        show_system: preference.space_show_system_folders,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -380,19 +441,15 @@ pub struct NotebookFolderOption {
     pub depth: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// Notebook-local view preferences. The former `fileManagement` policy
+/// (user-configured index exclusions) has been removed; only the default
+/// note folder remains. Unknown keys in existing `view-preferences.json`
+/// files are ignored on read and dropped on the next write.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NotebookSettingsTreeEntry {
-    pub relative_path: String,
-    pub is_directory: bool,
-    pub locked: bool,
-    pub hidden: bool,
-    pub default_hidden: bool,
-    pub collapsed: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
+pub struct NotebookViewPreferences {
+    #[serde(default)]
+    pub default_create_folder: Option<String>,
 }
 
 fn notebook_preferences_path(root: &Path) -> Result<std::path::PathBuf, String> {
@@ -450,181 +507,25 @@ fn with_registered_notebook_change<T>(
         .map_err(|error| error.to_string())?
 }
 
-fn normalize_relative_folder_paths(folders: Vec<String>) -> Result<Vec<String>, String> {
-    let mut normalized = Vec::new();
-    for folder in folders {
-        let trimmed = folder.trim_matches('/');
-        if trimmed.is_empty() || trimmed.contains('\\') || trimmed.contains('\0') {
-            return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
-        }
-        let path = Path::new(trimmed);
-        if path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-        {
-            return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
-        }
-        let value = path.to_string_lossy().replace('\\', "/");
-        if !normalized.contains(&value) {
-            normalized.push(value);
-        }
+fn normalize_default_create_folder(folder: Option<String>) -> Result<Option<String>, String> {
+    let Some(folder) = folder else {
+        return Ok(None);
+    };
+    let trimmed = folder.trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(None);
     }
-    Ok(normalized)
-}
-
-fn normalize_excluded_index_paths(folders: Vec<String>) -> Result<Vec<String>, String> {
-    let mut normalized: Vec<String> = Vec::new();
-    for folder in folders {
-        if folder.is_empty() {
-            if !normalized.iter().any(|path| path.is_empty()) {
-                normalized.push(folder);
-            }
-        } else {
-            normalized.extend(normalize_relative_folder_paths(vec![folder])?);
-        }
+    if trimmed.contains('\\') || trimmed.contains('\0') {
+        return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
     }
-    Ok(normalized)
-}
-
-#[tauri::command]
-pub fn get_notebook_view_preferences(
-    notebook_path: String,
-    state: State<AppState>,
-    app: AppHandle,
-) -> Result<NotebookViewPreferences, String> {
-    let root = Path::new(&notebook_path);
-    if !is_registered_notebook_root(root, &state) {
-        return Err("NOTEBOOK_NOT_REGISTERED".to_string());
-    }
-    if root
-        .join(".flowix/file-management-refresh-pending")
-        .exists()
+    let path = Path::new(trimmed);
+    if path
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_)))
     {
-        if let Ok(canonical_root) = fs::canonicalize(root) {
-            let _ = refresh_file_management_indexes(&canonical_root, &state, &app);
-        }
+        return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
     }
-    let mut preferences = read_notebook_view_preferences(root);
-    preferences.refresh_pending = root
-        .join(".flowix/file-management-refresh-pending")
-        .exists();
-    Ok(preferences)
-}
-
-fn refresh_file_management_indexes(
-    root: &Path,
-    state: &AppState,
-    app: &AppHandle,
-) -> Result<(), String> {
-    let memo_file = read_lock(&state.memo_file, "memo_file");
-    let refresh_marker = root.join(".flowix/file-management-refresh-pending");
-    let marker_before = fs::read(&refresh_marker).ok();
-    let notebook = memo_file
-        .read_notebook_configs()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|notebook| fs::canonicalize(&notebook.path).ok().as_deref() == Some(root))
-        .ok_or("NOTEBOOK_NOT_REGISTERED")?;
-    memo_file
-        .reconcile_note_index(&notebook.id)
-        .map_err(|error| format!("refresh note index failed: {error}"))?;
-    memo_file
-        .reconcile_resources(&notebook.id)
-        .map_err(|error| format!("refresh resource catalog failed: {error}"))?;
-    crate::commands::document_list::refresh_view_document_catalog_checked(
-        &memo_file,
-        &notebook.id,
-        root,
-    )?;
-    if let Some(marker_before) = marker_before {
-        memo_file
-            .with_registered_path_change(&[root], "finish_file_management_refresh", || {
-                if fs::read(&refresh_marker).ok().as_deref() == Some(marker_before.as_slice()) {
-                    fs::remove_file(&refresh_marker)?;
-                }
-                Ok(())
-            })
-            .map_err(|error| format!("clear index refresh marker failed: {error}"))?;
-    }
-    let _ = app.emit(
-        "file-management-changed",
-        serde_json::json!({
-            "notebookId": notebook.id,
-            "notebookPath": root.to_string_lossy(),
-        }),
-    );
-    Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileManagementCandidate {
-    relative_path: String,
-    is_directory: bool,
-    locked: bool,
-}
-
-/// Show concrete ignored entries. Descendants of an ignored directory become
-/// discoverable after that directory is included, avoiding scans of .git and
-/// dependency trees just to render Preferences.
-#[tauri::command]
-pub fn get_file_management_candidates(
-    notebook_path: String,
-    state: State<AppState>,
-) -> Result<Vec<FileManagementCandidate>, String> {
-    let root = Path::new(&notebook_path);
-    if !is_registered_notebook_root(root, &state) {
-        return Err("NOTEBOOK_NOT_REGISTERED".to_string());
-    }
-    let policy = read_notebook_view_preferences(root).file_management;
-    let defaults = FileManagementPolicy::default();
-    let mut pending = vec![root.to_path_buf()];
-    let mut candidates = [".flowix", ".plugin-output"]
-        .into_iter()
-        .filter(|name| *name == ".flowix" || root.join(name).exists())
-        .map(|name| FileManagementCandidate {
-            relative_path: name.to_string(),
-            is_directory: root.join(name).is_dir(),
-            locked: true,
-        })
-        .collect::<Vec<_>>();
-    while let Some(directory) = pending.pop() {
-        let entries = fs::read_dir(&directory).map_err(|error| error.to_string())?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(relative) = path.strip_prefix(root) else {
-                continue;
-            };
-            let Ok(metadata) = fs::symlink_metadata(&path) else {
-                continue;
-            };
-            if metadata.file_type().is_symlink() {
-                continue;
-            }
-            let is_directory = metadata.is_dir();
-            let name = Path::new(entry.file_name().as_os_str()).to_path_buf();
-            let own_name_ignored = if is_directory {
-                defaults.is_ignored_at(root, relative)
-            } else {
-                defaults.is_ignored(&name)
-            };
-            if FileManagementPolicy::is_locked_name(&entry.file_name().to_string_lossy()) {
-                continue;
-            }
-            if own_name_ignored {
-                candidates.push(FileManagementCandidate {
-                    relative_path: relative.to_string_lossy().replace('\\', "/"),
-                    is_directory,
-                    locked: false,
-                });
-            }
-            if is_directory && !policy.is_ignored_at(root, relative) {
-                pending.push(path);
-            }
-        }
-    }
-    candidates.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-    Ok(candidates)
+    Ok(Some(path.to_string_lossy().replace('\\', "/")))
 }
 
 fn collect_notebook_folders(
@@ -642,11 +543,12 @@ fn collect_notebook_folders(
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             continue;
         }
-        let name = entry.file_name().to_string_lossy().to_string();
         let Ok(relative) = path.strip_prefix(root) else {
             continue;
         };
-        if policy.is_ignored_at(root, relative) {
+        // Only indexable folders can host new notes: anything the index skips
+        // would make the created note disappear from every list.
+        if policy.is_index_hidden_at(root, relative) {
             continue;
         }
         let relative_path = relative.to_string_lossy().replace('\\', "/");
@@ -669,85 +571,23 @@ pub fn get_notebook_folder_options(
     if !is_registered_notebook_root(root, &state) {
         return Err("NOTEBOOK_NOT_REGISTERED".to_string());
     }
-    let policy = read_notebook_view_preferences(root).file_management;
+    let policy = FileManagementPolicy::from_notebook_root(root);
     let mut folders = Vec::new();
     collect_notebook_folders(root, root, &policy, &mut folders)?;
     folders.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     Ok(folders)
 }
 
-fn collect_notebook_settings_tree(
-    root: &Path,
-    directory: &Path,
-    policy: &FileManagementPolicy,
-    entries: &mut Vec<NotebookSettingsTreeEntry>,
-) -> Result<(), String> {
-    let children = fs::read_dir(directory).map_err(|error| error.to_string())?;
-    for child in children.flatten() {
-        let path = child.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            continue;
-        };
-        if metadata.file_type().is_symlink() {
-            continue;
-        }
-        let Ok(relative) = path.strip_prefix(root) else {
-            continue;
-        };
-        let relative_path = relative.to_string_lossy().replace('\\', "/");
-        let hidden = policy.is_tree_hidden_at(root, relative);
-        let default_hidden = FileManagementPolicy::default().is_ignored_at(root, relative);
-        if metadata.is_dir() {
-            let is_flowix_dir = relative_path == ".flowix";
-            let collapsed = is_flowix_dir || default_hidden || hidden;
-            let locked = relative_path == ".flowix"
-                || relative_path == ".plugin-output"
-                || relative_path.starts_with(".flowix/")
-                || relative_path.starts_with(".plugin-output/");
-            entries.push(NotebookSettingsTreeEntry {
-                relative_path,
-                is_directory: true,
-                locked,
-                hidden,
-                default_hidden,
-                collapsed,
-            });
-            if !collapsed {
-                collect_notebook_settings_tree(root, &path, policy, entries)?;
-            }
-        } else if relative.components().count() == 1
-            && matches!(
-                child.file_name().to_string_lossy().as_ref(),
-                "AGENTS.md" | ".DS_Store"
-            )
-        {
-            entries.push(NotebookSettingsTreeEntry {
-                relative_path,
-                is_directory: false,
-                locked: false,
-                hidden,
-                default_hidden,
-                collapsed: false,
-            });
-        }
-    }
-    Ok(())
-}
-
 #[tauri::command]
-pub fn get_notebook_settings_tree(
+pub fn get_notebook_view_preferences(
     notebook_path: String,
     state: State<AppState>,
-) -> Result<Vec<NotebookSettingsTreeEntry>, String> {
+) -> Result<NotebookViewPreferences, String> {
     let root = Path::new(&notebook_path);
     if !is_registered_notebook_root(root, &state) {
         return Err("NOTEBOOK_NOT_REGISTERED".to_string());
     }
-    let policy = read_notebook_view_preferences(root).file_management;
-    let mut entries = Vec::new();
-    collect_notebook_settings_tree(root, root, &policy, &mut entries)?;
-    entries.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    Ok(entries)
+    Ok(read_notebook_view_preferences(root))
 }
 
 #[tauri::command]
@@ -763,116 +603,40 @@ pub fn set_notebook_view_preferences(
     }
     let root = fs::canonicalize(root)
         .map_err(|error| format!("resolve notebook directory failed: {error}"))?;
-    let (tree_visibility_changed, default_create_folder_changed, refresh_marker) =
-        with_registered_notebook_change(
-            &root,
-            &read_lock(&state.memo_file, "memo_file"),
-            "set_notebook_view_preferences",
-            || {
-                let previous_preferences = read_notebook_view_preferences(&root);
-                let previous_policy = previous_preferences.file_management.clone();
-                let path = notebook_preferences_path(&root)?;
-                let parent = path
-                    .parent()
-                    .expect("notebook preferences have a parent directory");
-                fs::create_dir_all(parent)
-                    .map_err(|error| format!("create notebook config directory failed: {error}"))?;
-                let preferences = NotebookViewPreferences {
-                    default_create_folder: normalize_default_create_folder(
-                        preferences.default_create_folder,
-                    )?,
-                    file_management: FileManagementPolicy {
-                        included_paths: normalize_relative_folder_paths(
-                            preferences.file_management.included_paths,
-                        )?,
-                        hidden_paths: normalize_relative_folder_paths(
-                            preferences.file_management.hidden_paths,
-                        )?,
-                        excluded_index_paths: normalize_excluded_index_paths(
-                            preferences.file_management.excluded_index_paths,
-                        )?,
-                    },
-                    refresh_pending: false,
-                };
-                let bytes = serde_json::to_vec_pretty(&preferences)
-                    .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
-                let tree_visibility_changed =
-                    previous_policy.hidden_paths != preferences.file_management.hidden_paths;
-                let default_create_folder_changed =
-                    previous_preferences.default_create_folder != preferences.default_create_folder;
-                let refresh_marker = root.join(".flowix/file-management-refresh-pending");
-                if previous_policy.included_paths != preferences.file_management.included_paths
-                    || previous_policy.excluded_index_paths
-                        != preferences.file_management.excluded_index_paths
-                {
-                    flowix_core::memo_file::atomic_write_bytes(
-                        &refresh_marker,
-                        uuid::Uuid::new_v4().to_string().as_bytes(),
-                    )
-                    .map_err(|error| format!("mark index refresh pending failed: {error}"))?;
-                }
-                flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
-                    .map_err(|error| format!("write notebook preferences failed: {error}"))?;
-                Ok((
-                    tree_visibility_changed,
-                    default_create_folder_changed,
-                    refresh_marker,
-                ))
-            },
-        )?;
-    if tree_visibility_changed || default_create_folder_changed {
+    let default_create_folder_changed = with_registered_notebook_change(
+        &root,
+        &read_lock(&state.memo_file, "memo_file"),
+        "set_notebook_view_preferences",
+        || {
+            let previous_preferences = read_notebook_view_preferences(&root);
+            let path = notebook_preferences_path(&root)?;
+            let parent = path
+                .parent()
+                .expect("notebook preferences have a parent directory");
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("create notebook config directory failed: {error}"))?;
+            let preferences = NotebookViewPreferences {
+                default_create_folder: normalize_default_create_folder(
+                    preferences.default_create_folder,
+                )?,
+            };
+            let bytes = serde_json::to_vec_pretty(&preferences)
+                .map_err(|error| format!("serialize notebook preferences failed: {error}"))?;
+            flowix_core::memo_file::atomic_write_bytes(&path, &bytes)
+                .map_err(|error| format!("write notebook preferences failed: {error}"))?;
+            Ok(previous_preferences.default_create_folder != preferences.default_create_folder)
+        },
+    )?;
+    if default_create_folder_changed {
         let _ = app.emit(
             "notebook-view-preferences-changed",
             serde_json::json!({
                 "notebookPath": notebook_path,
-                "treeVisibilityChanged": tree_visibility_changed,
-                "defaultCreateFolderChanged": default_create_folder_changed,
+                "defaultCreateFolderChanged": true,
             }),
         );
     }
-    let refresh_indexes = refresh_marker.exists();
-    if refresh_indexes {
-        refresh_file_management_indexes(&root, &state, &app)?;
-    }
-    if tree_visibility_changed && !refresh_indexes {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        if let Some(notebook) = memo_file
-            .read_notebook_configs()
-            .unwrap_or_default()
-            .into_iter()
-            .find(|notebook| {
-                dunce::canonicalize(&notebook.path).ok().as_deref() == Some(root.as_path())
-            })
-        {
-            crate::commands::document_list::refresh_view_document_catalog_checked(
-                &memo_file,
-                &notebook.id,
-                &root,
-            )?;
-        }
-    }
     Ok(())
-}
-
-fn normalize_default_create_folder(folder: Option<String>) -> Result<Option<String>, String> {
-    let Some(folder) = folder else {
-        return Ok(None);
-    };
-    let trimmed = folder.trim_matches('/');
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    if trimmed.contains('\\') || trimmed.contains('\0') {
-        return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
-    }
-    let path = Path::new(trimmed);
-    if path
-        .components()
-        .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        return Err("INVALID_NOTEBOOK_FOLDER_PREFERENCE".to_string());
-    }
-    Ok(Some(path.to_string_lossy().replace('\\', "/")))
 }
 
 // ==================== IPC ====================
@@ -884,7 +648,7 @@ pub async fn get_file_tree(
 ) -> Option<Vec<DocTreeItem>> {
     let path = Path::new(&space_path).to_path_buf();
     // Filesystem enumeration and index reads stay off the command thread.
-    let (memo_file, notebook_background, notebook_policy) = {
+    let (memo_file, notebook_background, notebook_policy, tree_visibility) = {
         let state = app.state::<AppState>();
         if !path.exists()
             || is_internal_notebook_path(&path, &state)
@@ -892,10 +656,13 @@ pub async fn get_file_tree(
         {
             return None;
         }
+        let notebook_policy = notebook_policy_for_path(&state, &path);
+        let tree_visibility = tree_visibility_for(&state, notebook_policy.is_some());
         (
             state.memo_file.clone(),
             state.notebook_background.clone(),
-            notebook_policy_for_path(&state, &path),
+            notebook_policy,
+            tree_visibility,
         )
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -905,6 +672,7 @@ pub async fn get_file_tree(
             notebook_policy
                 .as_ref()
                 .map(|(root, policy)| (root.as_path(), policy)),
+            tree_visibility,
         );
         populate_memo_tree_metadata(&path, &mut items, &memo_file, &notebook_background);
         items
@@ -916,7 +684,7 @@ pub async fn get_file_tree(
 #[tauri::command]
 pub async fn get_dir_children(dir_path: String, app: AppHandle) -> Vec<DocTreeItem> {
     let path = Path::new(&dir_path).to_path_buf();
-    let (memo_file, notebook_background, notebook_policy) = {
+    let (memo_file, notebook_background, notebook_policy, tree_visibility) = {
         let state = app.state::<AppState>();
         if !path.exists()
             || is_internal_notebook_path(&path, &state)
@@ -924,10 +692,13 @@ pub async fn get_dir_children(dir_path: String, app: AppHandle) -> Vec<DocTreeIt
         {
             return vec![];
         }
+        let notebook_policy = notebook_policy_for_path(&state, &path);
+        let tree_visibility = tree_visibility_for(&state, notebook_policy.is_some());
         (
             state.memo_file.clone(),
             state.notebook_background.clone(),
-            notebook_policy_for_path(&state, &path),
+            notebook_policy,
+            tree_visibility,
         )
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -937,6 +708,7 @@ pub async fn get_dir_children(dir_path: String, app: AppHandle) -> Vec<DocTreeIt
             notebook_policy
                 .as_ref()
                 .map(|(root, policy)| (root.as_path(), policy)),
+            tree_visibility,
         );
         populate_memo_tree_metadata(&path, &mut items, &memo_file, &notebook_background);
         items
@@ -1486,7 +1258,8 @@ pub async fn get_media_thumbnail(
     let actual_kind = media_kind_for_path(&path);
     let is_image = kind == "image" && actual_kind == Some(MediaResourceKind::Image);
     let is_video = kind == "video" && actual_kind == Some(MediaResourceKind::Video);
-    if !is_image && !is_video {
+    let is_document = kind == "document" && is_document_preview_path(&path);
+    if !is_image && !is_video && !is_document {
         return Err("unsupported media thumbnail kind".to_string());
     }
 
@@ -1510,7 +1283,7 @@ pub async fn get_media_thumbnail(
         .app_cache_dir()
         .map_err(|error| error.to_string())?
         .join("media-thumbnails");
-    let cache_extension = if is_image { "png" } else { "jpg" };
+    let cache_extension = if is_video { "jpg" } else { "png" };
     let cache_path = cache_root.join(format!("{digest}.{cache_extension}"));
     if cache_path.is_file() {
         return Ok(Some(cache_path.to_string_lossy().into_owned()));
@@ -1554,8 +1327,11 @@ pub async fn get_media_thumbnail(
         fs::create_dir_all(&cache_root).map_err(|error| error.to_string())?;
         let generated = if is_image {
             write_image_thumbnail(&path, &output, &worker_cancellation)
-        } else {
+        } else if is_video {
             write_video_thumbnail(&path, &output, &worker_cancellation)
+        } else {
+            // 文档预览（pdf/html/office…）走系统 Quick Look；失败返回 false，前端回落文件图标。
+            write_system_thumbnail(&path, &output, &worker_cancellation, false)
         }?;
         if generated {
             let writes = MEDIA_PREVIEW_CACHE_WRITES.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1666,6 +1442,21 @@ fn write_video_thumbnail(
     cancellation: &MediaPreviewCancellation,
 ) -> Result<bool, String> {
     write_system_thumbnail(source, output, cancellation, false)
+}
+
+/// Extensions that Quick Look can reasonably turn into a document preview thumbnail.
+/// Unsupported platforms (no `qlmanage`) or failures simply yield no preview.
+fn is_document_preview_path(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "pdf" | "html" | "htm" | "rtf" | "epub"
+            | "doc" | "docx" | "ppt" | "pptx" | "pps" | "ppsx"
+            | "xls" | "xlsx" | "key" | "pages" | "numbers"
+            | "odt" | "ods" | "odp"
+    )
 }
 
 fn write_system_thumbnail(
@@ -2271,7 +2062,6 @@ fn rebase_default_create_folder_for_move(
             "notebook-view-preferences-changed",
             serde_json::json!({
                 "notebookPath": config.path,
-                "treeVisibilityChanged": false,
                 "defaultCreateFolderChanged": true,
             }),
         );
@@ -2792,6 +2582,8 @@ pub fn create_folder(
         memo_created_ms: None,
         memo_meta: None,
         resource_kind: None,
+        index_excluded: index_excluded_for_path(&memo_file, &target_path),
+        pinned: false,
     })
 }
 
@@ -2852,6 +2644,8 @@ pub fn create_document(
         memo_created_ms: None,
         memo_meta: None,
         resource_kind: Some(DocTreeResourceKind::Note),
+        index_excluded: index_excluded_for_path(&memo_file, &target_path),
+        pinned: false,
     })
 }
 
@@ -3014,7 +2808,7 @@ mod tests {
     }
 
     #[test]
-    fn notebook_policy_shows_known_user_dot_directories_but_hides_unrelated_ones() {
+    fn notebook_policy_lists_every_dot_directory_but_keeps_dot_files_out() {
         let directory = tempfile::tempdir().unwrap();
         let hidden = directory.path().join(".codex");
         fs::create_dir(&hidden).unwrap();
@@ -3023,22 +2817,95 @@ mod tests {
         fs::create_dir(directory.path().join(".cache")).unwrap();
         fs::create_dir(directory.path().join(".unrelated")).unwrap();
         fs::write(directory.path().join(".gitignore"), "ignored").unwrap();
+        fs::write(directory.path().join(".index.yaml"), "collection: {}").unwrap();
+        fs::create_dir(directory.path().join("notes")).unwrap();
+        fs::write(directory.path().join("notes/note.md"), "note").unwrap();
+        fs::write(directory.path().join("notes/.index.yaml"), "collection: {}").unwrap();
 
         let policy = FileManagementPolicy::default();
         let items = read_dir_single_level_with_policy(
             directory.path(),
             None,
             Some((directory.path(), &policy)),
+            TreeVisibility::default(),
         );
         let mut names = items
             .iter()
             .map(|item| item.name.as_str())
             .collect::<Vec<_>>();
         names.sort_unstable();
-        assert_eq!(names, vec![".agent", ".codex"]);
+        // Every folder on disk is browsable; only file noise stays hidden —
+        // including a folder collection's own `.index.yaml`.
+        assert_eq!(names, vec![".agent", ".cache", ".codex", ".unrelated", "notes"]);
+        // 隐藏只发生在展示口径：集合文件的访问、重命名与恢复仍走这条路径。
+        assert!(!policy.is_tree_hidden_at(directory.path(), Path::new(".index.yaml")));
+        assert!(!policy.is_tree_hidden_at(directory.path(), Path::new("notes/.index.yaml")));
+        // The row flag mirrors the index rule, so the row menu can refuse to
+        // create notes where they would never show up.
+        let excluded = |name: &str| {
+            items.iter().find(|item| item.name == name).unwrap().index_excluded
+        };
+        assert!(excluded(".codex"));
+        assert!(excluded(".agent"));
+        assert!(!excluded("notes"));
         let hidden_children =
-            read_dir_single_level_with_policy(&hidden, None, Some((directory.path(), &policy)));
+            read_dir_single_level_with_policy(
+                &hidden,
+                None,
+                Some((directory.path(), &policy)),
+                TreeVisibility::default(),
+            );
         assert_eq!(hidden_children[0].name, "skill.md");
+        assert!(hidden_children[0].index_excluded);
+    }
+
+    /// 全局显示开关只影响列举：关掉「隐藏文件夹」后点目录不再下发，关掉「系统
+    /// 文件夹」后黑名单目录不再下发，而应用内部目录（`.flowix`）始终不下发。
+    #[test]
+    fn tree_visibility_switches_drop_hidden_and_system_folders() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir(root.join(".trash")).unwrap();
+        fs::create_dir(root.join("node_modules")).unwrap();
+        fs::create_dir(root.join("attachments")).unwrap();
+        fs::create_dir(root.join(".flowix")).unwrap();
+        fs::create_dir(root.join("notes")).unwrap();
+
+        let policy = FileManagementPolicy::default();
+        let list = |visibility: TreeVisibility| -> Vec<String> {
+            let mut names: Vec<String> = read_dir_single_level_with_policy(
+                root,
+                None,
+                Some((root, &policy)),
+                visibility,
+            )
+            .into_iter()
+            .map(|item| item.name)
+            .collect();
+            names.sort_unstable();
+            names
+        };
+
+        // 默认全显示（应用内部目录 `.flowix` 例外，永远不下发）。
+        assert_eq!(
+            list(TreeVisibility::default()),
+            vec![".trash", "attachments", "node_modules", "notes"],
+        );
+        // 关掉「隐藏文件夹」：点目录消失。
+        assert_eq!(
+            list(TreeVisibility { show_hidden: false, show_system: true }),
+            vec!["attachments", "node_modules", "notes"],
+        );
+        // 关掉「系统文件夹」：黑名单目录消失，点目录保留。
+        assert_eq!(
+            list(TreeVisibility { show_hidden: true, show_system: false }),
+            vec![".trash", "notes"],
+        );
+        // 两个都关。
+        assert_eq!(
+            list(TreeVisibility { show_hidden: false, show_system: false }),
+            vec!["notes"],
+        );
     }
 
     #[cfg(unix)]
@@ -3106,10 +2973,7 @@ mod tests {
     fn default_note_folder_follows_the_renamed_folder() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        write_view_preferences(
-            root,
-            r#"{"defaultCreateFolder":"笔记/子","fileManagement":{"hiddenPaths":["scratch"]}}"#,
-        );
+        write_view_preferences(root, r#"{"defaultCreateFolder":"笔记/子"}"#);
 
         let rebased = rebase_notebook_default_create_folder(root, "笔记", "Notes").unwrap();
 
@@ -3119,8 +2983,6 @@ mod tests {
             saved.contains("\"defaultCreateFolder\": \"Notes/子\""),
             "preference not rewritten: {saved}"
         );
-        // Unrelated preferences in the same file must survive the rewrite.
-        assert!(saved.contains("scratch"), "file management policy lost: {saved}");
     }
 
     #[test]

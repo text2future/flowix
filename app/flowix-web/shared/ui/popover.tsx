@@ -5,6 +5,8 @@ import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-clic
 
 // Context for managing popover state
 interface PopoverContextValue {
+	parent: PopoverContextValue | null;
+	descendantContents: React.RefObject<Set<HTMLElement>>;
 	open: boolean;
 	setOpen: (open: boolean) => void;
 	triggerRef: React.RefObject<HTMLElement | null>;
@@ -35,6 +37,8 @@ interface PopoverProps {
 }
 
 function Popover({ children, open: controlledOpen, onOpenChange, anchorElement = null, anchorRect = null, cellPopup = false }: PopoverProps) {
+	const parent = React.useContext(PopoverContext);
+	const descendantContents = React.useRef(new Set<HTMLElement>());
 	const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
 	const triggerRef = React.useRef<HTMLElement>(null);
 	const [triggerAnchorRect, setTriggerAnchorRect] = React.useState<DOMRect | null>(null);
@@ -52,7 +56,7 @@ function Popover({ children, open: controlledOpen, onOpenChange, anchorElement =
 	);
 
 	return (
-		<PopoverContext.Provider value={{ open, setOpen, triggerRef, anchorRect: triggerAnchorRect ?? anchorRect, setTriggerAnchorRect, cellAnchorRect, setCellAnchorRect, cellPopup }}>
+		<PopoverContext.Provider value={{ parent, descendantContents, open, setOpen, triggerRef, anchorRect: triggerAnchorRect ?? anchorRect, setTriggerAnchorRect, cellAnchorRect, setCellAnchorRect, cellPopup }}>
 			<div className="relative">{children}</div>
 		</PopoverContext.Provider>
 	);
@@ -177,7 +181,7 @@ function PopoverContent({
 	alignToAnchorOrigin = false,
 	keepParentMenuOpen = false,
 }: PopoverContentProps) {
-	const { open, setOpen, triggerRef, anchorRect, cellAnchorRect, cellPopup } = usePopoverContext();
+	const { parent, descendantContents, open, setOpen, triggerRef, anchorRect, cellAnchorRect, cellPopup } = usePopoverContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
 	const [position, setPosition] = React.useState({ top: 0, left: 0 });
 	const [present, setPresent] = React.useState(open);
@@ -314,6 +318,21 @@ function PopoverContent({
 		return () => window.removeEventListener("flowix:multidimensional-table-scroll", closeOnTableScroll);
 	}, [open, cellAnchorRect, setOpen]);
 
+	// Portaled child content is outside the parent's DOM subtree, but still
+	// belongs to the same interaction. Register it with each ancestor popover.
+	React.useEffect(() => {
+		const content = contentRef.current;
+		if (!open || !content) return;
+		const ancestors: PopoverContextValue[] = [];
+		for (let ancestor = parent; ancestor; ancestor = ancestor.parent) {
+			ancestor.descendantContents.current.add(content);
+			ancestors.push(ancestor);
+		}
+		return () => {
+			for (const ancestor of ancestors) ancestor.descendantContents.current.delete(content);
+		};
+	}, [open, present, parent]);
+
 	// Close on pointerdown outside. Capture matches DropdownMenu's behavior and
 	// makes the close reliable when an ancestor stops propagation (for example
 	// the native drag-region handling in the desktop title bar).
@@ -324,6 +343,7 @@ function PopoverContent({
 			const target = e.target as Node;
 			if (
 				contentRef.current?.contains(target) ||
+				[...descendantContents.current].some((content) => content.contains(target)) ||
 				triggerRef.current?.contains(target) ||
 				(ignoreSelectOutside && target instanceof Element && target.closest('[data-flowix-surface="select"]')) ||
 				(ignorePopoverOutside && target instanceof Element && target.closest('[data-flowix-surface="popover"]'))
@@ -339,7 +359,7 @@ function PopoverContent({
 
 		document.addEventListener("pointerdown", handlePointerDownOutside, true);
 		return () => document.removeEventListener("pointerdown", handlePointerDownOutside, true);
-	}, [open, setOpen, anchorRect, cellPopup, ignoreSelectOutside, ignorePopoverOutside]);
+	}, [open, setOpen, anchorRect, cellPopup, ignoreSelectOutside, ignorePopoverOutside, descendantContents]);
 
 	// Close on escape
 	React.useEffect(() => {

@@ -183,6 +183,83 @@ function resolveTerminalInlineAtomCaret(
   return { found: true, rect: null };
 }
 
+interface TextRunEdge {
+  text: Text;
+  from: number;
+  to: number;
+}
+
+function trailingTextRun(
+  view: Pick<EditorView, 'domAtPos'>,
+  position: number,
+): TextRunEdge | null {
+  let node: Node;
+  let offset: number;
+  try {
+    ({ node, offset } = view.domAtPos(position, -1));
+  } catch {
+    return null;
+  }
+  // `nodeType` is used instead of `instanceof Text` so editors mounted in
+  // another realm (frame/shadow root) resolve the same way.
+  if (!node || node.nodeType !== 3) return null;
+  const text = node as Text;
+  if (!offset || offset !== text.data.length) return null;
+  // Step over the low surrogate of a trailing astral character so the range
+  // spans a whole code point instead of half of one.
+  let from = offset - 1;
+  const unit = text.data.charCodeAt(from);
+  if (from > 0 && unit >= 0xdc00 && unit <= 0xdfff) from -= 1;
+  return { text, from, to: offset };
+}
+
+function lastGlyphRect(edge: TextRunEdge): DOMRect | null {
+  try {
+    const range = edge.text.ownerDocument.createRange();
+    range.setStart(edge.text, edge.from);
+    range.setEnd(edge.text, edge.to);
+    const rect = range.getBoundingClientRect();
+    // A collapsed trailing space, or a node without a layout box, reports an
+    // empty rect at the origin. Drawing from it would send the caret to the
+    // top-left corner, so keep the browser geometry instead.
+    return rect.height > 0 ? rect : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns the caret geometry for a position at the end of a padded inline box
+ * (inline code, `==highlight==`), or null to keep the reported geometry.
+ *
+ * `coordsAtPos` describes such a position with the inline element's border
+ * box, so the caret is drawn outside the padding and border instead of right
+ * after the last glyph (measured: 58.34px for the box edge against 52.55px for
+ * the glyph, i.e. one `0.3rem` padding plus the 1px border). Measuring the
+ * last glyph gives the in-box edge. The measurement only wins when the
+ * reported edge sits more than a pixel to the right of that glyph — exactly
+ * the gap the caret must not cross — so plain text, unpadded marks and
+ * positions inside a text run keep the browser geometry. The leading edge
+ * needs no such help: the browser already reports the first glyph there.
+ *
+ * Right-to-left boxes fall back to the reported geometry: the border-box
+ * answer is direction-ambiguous there and no editor surface ships RTL inline
+ * code.
+ */
+export function getTrailingGlyphCaretRect(
+  view: Pick<EditorView, 'dom' | 'domAtPos'>,
+  position: number,
+  reported: CaretRect,
+): CaretRect | null {
+  const edge = trailingTextRun(view, position);
+  if (!edge) return null;
+  if (getComputedStyle(edge.text.parentElement ?? view.dom).direction === 'rtl') return null;
+  const glyph = lastGlyphRect(edge);
+  if (!glyph) return null;
+  if (glyph.right >= reported.left - 1) return null;
+  return { left: glyph.right, top: glyph.top, bottom: glyph.bottom };
+}
+
 /**
  * Returns geometry for a selection immediately after a terminal inline atom.
  *
@@ -375,7 +452,11 @@ class StableCaretView {
         this.hide();
         return;
       }
-      const rect = boundaryRect ?? terminalAtom.rect ?? this.view.coordsAtPos(selection.head);
+      let rect: CaretRect | null = boundaryRect ?? terminalAtom.rect;
+      if (!rect) {
+        const reported = this.view.coordsAtPos(selection.head);
+        rect = getTrailingGlyphCaretRect(this.view, selection.head, reported) ?? reported;
+      }
       const clipsOwnContent = /^(auto|scroll|hidden|clip)$/.test(getComputedStyle(this.view.dom).overflowY);
       const scrollViewport = (this.layer && this.scope === 'composer') || clipsOwnContent
         ? this.view.dom

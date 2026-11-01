@@ -1,0 +1,23 @@
+/* 集合头图占位 ── 没有可用图片时铺一条同高（220px）的浅色纯色带。
+ * 色相由标题派生（见 features/surface/collection-banner-tint.ts），
+ * 明度/彩度在这里按主题分档，所以换主题不需要重算、也不落库。
+ *
+ * 纯色不做渐变：整条带子一个色，只在标题之间换色相，不跟集合标题、tab 抢视觉。 */
+.collection-banner-placeholder {
+	/* 亮色主题：高明度 + 极低彩度 → 一眼是底、不是内容。 */
+	background-color: oklch(0.966 0.024 var(--banner-hue));
+}
+
+/* 深色主题（dark / mist）压到低明度，避免整条浅色带在暗色窗口里发亮。 */
+[data-theme="dark"] .collection-banner-placeholder,
+[data-theme="mist"] .collection-banner-placeholder {
+	background-color: oklch(0.300 0.024 var(--banner-hue));
+}
+
+/* 集合方块图标（头图下缘那枚 + 头图隐藏时标题行内的回退位）：
+ * 背景 = 1% 前景色混入表面底色，中性浅灰底，跨主题自动适配
+ * （不再跟标题派生色相，统一成产品通用的「图标 chip」观感）；
+ * 外框走产品通用的下拉窗描边色（--border-popup），与 PopoverContent 一致。 */
+.collection-header-icon-tint {
+	background-color: color-mix(in srgb, var(--foreground) 1%, var(--background));
+}

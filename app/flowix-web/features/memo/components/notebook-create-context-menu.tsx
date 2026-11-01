@@ -4,7 +4,6 @@ import { useI18n } from '@/lib/i18n';
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuSubmenu } from '@shared/ui/context-menu';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 import { MEMO_CREATE_VIEW_OPTIONS } from './memo-create-view-options';
-import { WorkDocumentsIcon } from './work-documents-icon';
 
 const MENU_ITEM_CLASS =
   'group h-7 items-center justify-start rounded-lg px-2 py-0 text-left transition-colors hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
@@ -19,6 +18,7 @@ export function NotebookCreateContextMenuItems({
   onCreateWorkDocuments,
   onImportFiles,
   onImportFolder,
+  contentCreationBlocked = false,
 }: {
   onCreateNote: () => void;
   onCreateFolder: () => void;
@@ -27,12 +27,24 @@ export function NotebookCreateContextMenuItems({
   onCreateWorkDocuments?: () => void;
   onImportFiles?: () => void;
   onImportFolder?: () => void;
+  /**
+   * Folder is skipped by every index, so notes and views created here would
+   * never appear in any list. Entries stay visible to explain why. Folder
+   * creation and file import stay enabled: those are not indexed content.
+   */
+  contentCreationBlocked?: boolean;
 }) {
   const { t } = useI18n();
+  const blockedHint = contentCreationBlocked ? t('memo.fileTree.contentCreationBlocked') : undefined;
 
   return (
     <>
-      <ContextMenuItem onClick={onCreateNote} className={MENU_ITEM_CLASS}>
+      <ContextMenuItem
+        onClick={onCreateNote}
+        disabled={contentCreationBlocked}
+        title={blockedHint}
+        className={MENU_ITEM_CLASS}
+      >
         <FileIcon className="mr-2 h-4 w-4" aria-hidden="true" />
         {t('memo.fileTree.newNote')}
       </ContextMenuItem>
@@ -40,7 +52,12 @@ export function NotebookCreateContextMenuItems({
         <FolderSimplePlusIcon className="mr-2 h-4 w-4" aria-hidden="true" />
         {t('memo.fileTree.newFolder')}
       </ContextMenuItem>
-      <ContextMenuSubmenu label={t('memo.create.newView')} icon={<PlusIcon className="h-4 w-4" aria-hidden="true" />}>
+      <ContextMenuSubmenu
+        label={t('memo.create.newView')}
+        icon={<PlusIcon className="h-4 w-4" aria-hidden="true" />}
+        disabled={contentCreationBlocked}
+        title={blockedHint}
+      >
         {MEMO_CREATE_VIEW_OPTIONS.map(({ type, labelKey }) => (
           <ContextMenuItem key={type} onClick={() => onCreateTable(type)} className={VIEW_MENU_ITEM_CLASS}>
             <span className="flex min-w-0 items-center gap-2">
@@ -55,15 +72,14 @@ export function NotebookCreateContextMenuItems({
             <GalleryHorizontalEnd className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="mention-note-title">{t('memo.create.mediaLibraryMenuLabel')}</span>
           </span>
-          <span className="mention-note-notebook justify-self-end text-right opacity-50">{t('memo.create.mediaLibraryShort')}</span>
+          <span className="mention-note-notebook justify-self-end text-right opacity-50">{t('memo.create.assetShort')}</span>
         </ContextMenuItem>
         {onCreateWorkDocuments && <ContextMenuItem onClick={onCreateWorkDocuments} className={VIEW_MENU_ITEM_CLASS}>
           <span className="flex min-w-0 items-center gap-2">
-            {/* 图形占 18×18 视框 ~76%：元素盒保持 h-4 对齐文字列，scale-[1.2] 光学放大到与 lucide 等大 */}
-            <WorkDocumentsIcon className="h-4 w-4 shrink-0 opacity-100 scale-[1.2]" />
+            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="mention-note-title">{t('memo.create.workDocumentsMenuLabel')}</span>
           </span>
-          <span className="mention-note-notebook justify-self-end text-right opacity-50">{t('memo.create.workDocumentsTypes')}</span>
+          <span className="mention-note-notebook justify-self-end text-right opacity-50">{t('memo.create.assetShort')}</span>
         </ContextMenuItem>}
       </ContextMenuSubmenu>
       {(onImportFiles || onImportFolder) && <ContextMenuSubmenu label={t('memo.fileTree.import')} icon={<DownloadSimpleIcon className="h-4 w-4" aria-hidden="true" />}>

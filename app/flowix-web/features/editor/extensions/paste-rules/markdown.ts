@@ -22,8 +22,10 @@ const MARKDOWN_BLOCK_PATTERNS: RegExp[] = [
 ];
 
 const MARKDOWN_INLINE_PATTERNS: RegExp[] = [
-  /(^|[^\\])(?:\*\*|__)[^\r\n]+?(?:\*\*|__)/,
-  /(^|[^\\])(?:\*|_)[^\r\n]+?(?:\*|_)/,
+  // Underscore emphasis is deliberately absent: `__pycache__` and `__init__.py`
+  // are identifiers, and the parser keeps two underscores literal anyway.
+  /(^|[^\\])\*\*[^\r\n]+?\*\*/,
+  /(^|[^\\])\*[^\r\n]+?\*/,
   /(^|[^\\])`[^`\r\n]+`/,
   /(^|[^\\])~~[^~\r\n]+~~/,
   /!?\[[^\]\r\n]+\]\([^\)\r\n]+\)/,

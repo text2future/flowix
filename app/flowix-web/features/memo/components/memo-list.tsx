@@ -93,7 +93,6 @@ import { COLOR_LABEL_KEYS } from './memo-list/color-filter-submenu';
 import { MemoNavigationDropdown, MemoNavigationSubmenu } from './memo-navigation-dropdown';
 import { MemoListNavigationDrawer } from './memo-list-navigation-drawer';
 import { MEMO_CREATE_VIEW_OPTIONS } from './memo-create-view-options';
-import { WorkDocumentsIcon } from './work-documents-icon';
 import { NotebookFolderView } from './notebook-folder-view';
 import { useMemoListPagination } from './memo-list/use-memo-list-pagination';
 import { MemoListRows, type MemoRowKeepAliveChange } from './memo-list/memo-list-rows';
@@ -242,7 +241,20 @@ export function MemoList({
       requestEvent.preventDefault();
       setDocumentCreateRequest({
         kind: 'table', notebook,
-        parentFolder: async () => (await fileApi.getNotebookViewPreferences(notebook.path)).defaultCreateFolder,
+        parentFolder: async () => {
+          // Follow the currently browsed Work folder; fall back to the
+          // notebook's default note folder, then the root.
+          const target = useWorkColumnStore.getState().navigation.target;
+          if (target.kind === 'folder-collection' && (!target.notebookId || target.notebookId === notebook.id)) {
+            return notebookRelativeDirectoryPath(notebook.path, target.folderPath);
+          }
+          if ((target.kind === 'collection' || target.kind === 'table' || target.kind === 'media-library')
+            && (!target.notebookId || target.notebookId === notebook.id)) {
+            const parentPath = parentDirectoryPath(target.filePath, notebook.path);
+            return notebookRelativeDirectoryPath(notebook.path, parentPath);
+          }
+          return (await fileApi.getNotebookViewPreferences(notebook.path)).defaultCreateFolder;
+        },
         onTableCreated: requestEvent.detail.onCreated,
       });
     };
@@ -967,9 +979,15 @@ export function MemoList({
     handleCreateTypeMenuOpenChange(false);
     setDocumentCreateRequest({
       kind, notebook, viewType,
-      parentFolder: async () => defaultCreateFolderReady
-        ? defaultCreateFolder
-        : (await fileApi.getNotebookViewPreferences(notebook.path)).defaultCreateFolder,
+      parentFolder: async () => {
+        if (workTargetParentPath !== null) {
+          const relative = notebookRelativeDirectoryPath(notebook.path, workTargetParentPath);
+          if (relative !== null) return relative;
+        }
+        return defaultCreateFolderReady
+          ? defaultCreateFolder
+          : (await fileApi.getNotebookViewPreferences(notebook.path)).defaultCreateFolder;
+      },
     });
   };
 
@@ -1059,7 +1077,7 @@ export function MemoList({
                 ? <Table2 className="h-4 w-4 shrink-0" aria-hidden="true" />
                 : <span className="h-4 w-4 shrink-0" aria-hidden="true" />}
               <span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
-              <span className="shrink-0 text-xs opacity-50">{t('memo.create.viewShort')}</span>
+              <span className="shrink-0 text-xs opacity-50">{t('memo.create.note')}</span>
             </DropdownMenuItem>
           ))}
           <DropdownMenuItem
@@ -1071,7 +1089,7 @@ export function MemoList({
           >
             <GalleryHorizontalEnd className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.mediaLibraryMenuLabel')}</span>
-            <span className="shrink-0 text-xs opacity-50">{t('memo.create.mediaLibraryShort')}</span>
+            <span className="shrink-0 text-xs opacity-50">{t('memo.create.assetShort')}</span>
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!selectedNotebook || selectedNotebook.missing}
@@ -1080,11 +1098,9 @@ export function MemoList({
             }}
             className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
           >
-            {/* 图形只占 18×18 视框的 ~76%（lucide 占 ~83–92%）：元素盒保持 h-4 与其他项对齐文字列，
-                用 scale-[1.2] 光学放大（不占布局），使图形与旁边 lucide 图标视觉等大。 */}
-            <WorkDocumentsIcon className="h-4 w-4 shrink-0 opacity-100 scale-[1.2]" />
+            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.workDocumentsMenuLabel')}</span>
-            <span className="shrink-0 text-xs opacity-50">{t('memo.create.workDocumentsTypes')}</span>
+            <span className="shrink-0 text-xs opacity-50">{t('memo.create.assetShort')}</span>
           </DropdownMenuItem>
         </>
       )}

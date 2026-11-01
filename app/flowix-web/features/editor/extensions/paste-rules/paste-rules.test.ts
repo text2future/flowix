@@ -100,8 +100,15 @@ describe('paste rule helpers', () => {
   it('detects Markdown syntax that previously bypassed the block heuristic', () => {
     expect(looksLikeMarkdown('Setext heading\n===')).toBe(true);
     expect(looksLikeMarkdown('    indented code')).toBe(true);
-    expect(looksLikeMarkdown('__strong__')).toBe(true);
+    expect(looksLikeMarkdown('**strong**')).toBe(true);
     expect(looksLikeMarkdown('* * *')).toBe(true);
+  });
+
+  it('treats underscore emphasis as literal text, not Markdown', () => {
+    expect(looksLikeMarkdown('__strong__')).toBe(false);
+    expect(looksLikeMarkdown('__pycache__')).toBe(false);
+    expect(looksLikeMarkdown('src/__pycache__/module.py')).toBe(false);
+    expect(looksLikeMarkdown('__init__.py')).toBe(false);
   });
 
   it('detects and converts TSV tables without forcing a header row', () => {

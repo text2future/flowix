@@ -141,6 +141,18 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
       setNextCursor(null);
       return () => { cancelled = true; requestGenerationRef.current += 1; };
     }
+    loadingRef.current = true;
+    setLoading(true);
+    setLoadingLinkedItems(mediaLibrary && hasLinkedMedia);
+    setLoadingMore(false);
+    setMoreError(false);
+    setError(false);
+    // 共享资料筛选的空子集：该面板类目内没有可展示的类型 → 查询直接给空页
+    // （Rust 侧 kinds 为空数组=不过滤，语义不同，必须在前端拦截；显式记录仍正常加载）。
+    const mediaKindsEmpty = mediaLibrary && (listContext.filters.resourceKinds?.length === 0);
+    const workKindsEmpty = workDocuments && (listContext.workDocumentsFilter?.file_types?.length === 0);
+    const emptyMediaPage = { resources: [], nextCursor: null, hasMore: false } satisfies MediaResourcePage;
+    const emptyDocumentPage = { folders: [], nextCursor: null, hasMore: false, items: [] } satisfies DocumentPage;
     if (workDocuments && !hasWorkDocumentsDataset) {
       loadingRef.current = false;
       setLoading(false);
@@ -171,15 +183,19 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     setHasMore(false);
     setNextCursor(null);
     const pageRequest = workDocuments
-      ? files.listWorkDocumentsPage(listContext.notebookId, null, MEDIA_LIBRARY_PAGE_SIZE, {
-        fileNameContains: listContext.workDocumentsFilter?.file_name_contains,
-        resourceKind: listContext.workDocumentsFilter?.file_type,
-        path: listContext.workDocumentsFilter?.path_scope === 'all' ? '' : listContext.workDocumentsFilter?.path_contains,
-      })
+      ? (workKindsEmpty
+        ? Promise.resolve(emptyDocumentPage)
+        : files.listWorkDocumentsPage(listContext.notebookId, null, MEDIA_LIBRARY_PAGE_SIZE, {
+          fileNameContains: listContext.workDocumentsFilter?.file_name_contains,
+          resourceKinds: listContext.workDocumentsFilter?.file_types,
+          path: listContext.workDocumentsFilter?.path_scope === 'all' ? '' : listContext.workDocumentsFilter?.path_contains,
+        }))
       : mediaLibrary
       ? hasMediaDataset
-        ? mediaResources.listPage(listContext.notebookPath, (listContext.filters.resourceKinds ?? ['image', 'video']).filter((kind): kind is 'image' | 'video' => kind === 'image' || kind === 'video'), null, MEDIA_LIBRARY_PAGE_SIZE, listContext.mediaScope?.relativePath ?? null, listContext.mediaScope?.depth)
-        : Promise.resolve({ resources: [], nextCursor: null, hasMore: false } satisfies MediaResourcePage)
+        ? (mediaKindsEmpty
+          ? Promise.resolve(emptyMediaPage)
+          : mediaResources.listPage(listContext.notebookPath, (listContext.filters.resourceKinds ?? ['image', 'video']).filter((kind): kind is 'image' | 'video' => kind === 'image' || kind === 'video'), null, MEDIA_LIBRARY_PAGE_SIZE, listContext.mediaScope?.relativePath ?? null, listContext.mediaScope?.depth))
+        : Promise.resolve(emptyMediaPage)
       : files.listDocumentPage({ notebookId: listContext.notebookId, folderPath: listContext.folderPath, resourceKinds: listContext.filters.resourceKinds });
     const nextLinkedItems: DocumentPageItem[] = [];
     const linkedRequest = mediaLibrary
@@ -235,7 +251,7 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
       }
     });
     return () => { cancelled = true; requestGenerationRef.current += 1; };
-  }, [hasMediaDataset, hasLinkedMedia, hasWorkDocumentsDataset, refreshPaused, mediaLibrary, workDocuments, mediaLibraryRecords, revision, listContext.displayId, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_type, listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope, resourceKindsKey]);
+  }, [hasMediaDataset, hasLinkedMedia, hasWorkDocumentsDataset, refreshPaused, mediaLibrary, workDocuments, mediaLibraryRecords, revision, listContext.displayId, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_types?.join(' '), listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope, resourceKindsKey]);
   const loadMore = useCallback(() => {
     if (!listContext.notebookId || refreshPausedRef.current || (mediaLibrary && !hasMediaDataset) || (workDocuments && !hasWorkDocumentsDataset) || !nextCursor || loading || loadingMore || !hasMore) return;
     const generation = requestGenerationRef.current;
@@ -244,7 +260,7 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     const pageRequest = workDocuments
       ? files.listWorkDocumentsPage(listContext.notebookId, nextCursor, MEDIA_LIBRARY_PAGE_SIZE, {
         fileNameContains: listContext.workDocumentsFilter?.file_name_contains,
-        resourceKind: listContext.workDocumentsFilter?.file_type,
+        resourceKinds: listContext.workDocumentsFilter?.file_types,
         path: listContext.workDocumentsFilter?.path_scope === 'all' ? '' : listContext.workDocumentsFilter?.path_contains,
       })
       : mediaLibrary
@@ -264,7 +280,7 @@ export function useDocumentListData({ listContext, mediaLibrary, workDocuments =
     }).finally(() => {
       if (generation === requestGenerationRef.current) setLoadingMore(false);
     });
-  }, [hasMediaDataset, hasWorkDocumentsDataset, hasMore, loading, loadingMore, mediaLibrary, workDocuments, nextCursor, resourceKindsKey, listContext.filters.resourceKinds, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_type, listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope]);
+  }, [hasMediaDataset, hasWorkDocumentsDataset, hasMore, loading, loadingMore, mediaLibrary, workDocuments, nextCursor, resourceKindsKey, listContext.filters.resourceKinds, listContext.folderPath, listContext.mediaScope?.relativePath, listContext.mediaScope?.depth, listContext.mediaDatasetActive, listContext.notebookId, listContext.notebookPath, listContext.workDocumentsFilter?.file_name_contains, listContext.workDocumentsFilter?.file_types?.join(' '), listContext.workDocumentsFilter?.path_contains, listContext.workDocumentsFilter?.path_scope]);
   return { items, linkedItems, folders, loading, loadingLinkedItems, loadingMore, moreError, hasMore,
     hasMediaDataset, hasLinkedMedia, error, loadMore, refresh: requestRefresh };
 }

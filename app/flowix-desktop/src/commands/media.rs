@@ -9,8 +9,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use flowix_core::memo_file::{
-    media_kind_for_path, notebook_relative_path, MediaResource, MediaResourceKind,
-    MediaResourcePage, MemoFile,
+    media_kind_for_path, notebook_relative_path, resource_kind_for_path, MediaResource,
+    MediaResourceKind, MediaResourcePage, MemoFile,
 };
 
 use crate::app::state::AppState;
@@ -217,4 +217,49 @@ pub async fn delete_media_resource(
         }
         Ok(true)
     }).await?
+}
+
+/// Pin or unpin an indexed document (html, pdf, docx, xlsx, ...).
+///
+/// Notes keep the flag in their frontmatter. Documents have no writable
+/// sidecar, so it lives in the notebook-local resource catalog, which is also
+/// where the catalog's own rebuilds preserve user properties.
+#[tauri::command]
+pub async fn set_document_pinned(
+    file_path: String,
+    notebook_path: String,
+    pinned: bool,
+    app: AppHandle,
+) -> Result<bool, String> {
+    crate::document_io::run("set_document_pinned", move || {
+        let state = app.state::<AppState>();
+        let file = dunce::canonicalize(&file_path).map_err(|error| error.to_string())?;
+        let notebook = Path::new(&notebook_path);
+        if !can_access_scoped_file(&file, Some(notebook_path.as_str()), &state) {
+            return Err("pinned path is outside the notebook scope".to_string());
+        }
+        if !file.is_file() {
+            return Err("only files can be pinned".to_string());
+        }
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        let (notebook_id, root) = registered_notebook_for_path(&memo_file, notebook)?;
+        let relative = notebook_relative_path(&root, &file)?;
+        let kind = resource_kind_for_path(&file)
+            .ok_or_else(|| "unsupported document type".to_string())?;
+        // Register first: a document reached from the tree may not have a
+        // catalog row yet when it sits in a folder the index has not scanned.
+        memo_file
+            .ensure_indexed_resource(&notebook_id, &relative, kind, &file)
+            .map_err(|error| error.to_string())?;
+        let updated = memo_file
+            .set_indexed_resource_favorite(&notebook_id, &relative, pinned)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "document disappeared from the index".to_string())?;
+        let _ = app.emit(
+            "notebook-pinned-changed",
+            serde_json::json!({ "notebookId": notebook_id, "relativePath": updated.relative_path }),
+        );
+        Ok(pinned)
+    })
+    .await?
 }

@@ -193,72 +193,46 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
   });
 
-  it.each(['empty', 'configured'] as const)('a later note click retires an unfinished %s folder read', async (kind) => {
-    let finishRead!: (source: string | null) => void;
-    mocks.readFolderIndex.mockImplementationOnce(() => new Promise<string | null>(resolve => { finishRead = resolve; }));
+  it('a later note click retires a folder view before it finishes mounting', async () => {
     await click(3);
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
     await click(1);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
-    await act(async () => finishRead(kind === 'empty' ? null : createFolderCollectionContent('notes', 'Folder', 'folder')));
     expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
-    expect(mocks.readFolderIndex).toHaveBeenCalledTimes(1);
     expect(mocks.resolveCollection).not.toHaveBeenCalled();
   });
 
-  it('a later note click also retires a configured folder waiting on its second read', async () => {
-    const source = createFolderCollectionContent('notes', 'Folder', 'folder');
-    let finishRead!: (source: string) => void;
-    mocks.readFolderIndex.mockResolvedValueOnce(source)
-      .mockImplementationOnce(() => new Promise<string>(resolve => { finishRead = resolve; }));
-    await click(3);
-    expect(mocks.readFolderIndex).toHaveBeenCalledTimes(2);
-    await click(1);
-    await act(async () => finishRead(source));
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'external', path: '/notes/b.md' });
-    expect(mocks.resolveCollection).not.toHaveBeenCalled();
-  });
-
-  it('clearing Work retires a folder waiting on metadata', async () => {
-    let finishRead!: (source: null) => void;
-    mocks.readFolderIndex.mockImplementationOnce(() => new Promise<null>(resolve => { finishRead = resolve; }));
+  it('clearing Work clears an open folder view', async () => {
     await click(3);
     await act(async () => { await clearWorkspaceDocument(); });
-    await act(async () => finishRead(null));
     expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
   });
 
-  it('switching notebook retires a folder waiting on metadata', async () => {
-    let finishRead!: (source: null) => void;
-    mocks.readFolderIndex.mockImplementationOnce(() => new Promise<null>(resolve => { finishRead = resolve; }));
+  it('switching notebook clears an open folder view', async () => {
     await click(3);
     const nextNotebook = { ...notebook, id: 'next', path: '/next' };
     await act(async () => { await selectNotebook(nextNotebook); });
-    await act(async () => finishRead(null));
+    await act(async () => {});
     expect(mocks.memoState.selectedNotebook?.id).toBe('next');
     expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
   });
 
-  it('folder intent retires an older note loader before its metadata finishes', async () => {
+  it('folder intent retires an older note loader and lands on the folder view', async () => {
     let finishOpen!: () => void;
     mocks.openExternalDocument.mockImplementationOnce(() => new Promise<void>(resolve => { finishOpen = resolve; }));
     await click(1);
     const oldRequestId = useWorkColumnStore.getState().navigation.requestId;
-    let finishRead!: (source: null) => void;
-    mocks.readFolderIndex.mockImplementationOnce(() => new Promise<null>(resolve => { finishRead = resolve; }));
     await click(3);
     expect(useWorkColumnStore.getState().isCurrentNavigation(oldRequestId)).toBe(false);
     await act(async () => finishOpen());
-    expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
-    await act(async () => finishRead(null));
     expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
   });
 
-  it('a configured folder opens Work after both metadata reads', async () => {
+  it('a configured folder still opens the folder home (never the collection directly)', async () => {
     mocks.readFolderIndex.mockResolvedValue(createFolderCollectionContent('notes', 'Folder', 'folder'));
     await click(3);
-    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'collection', filePath: '/notes/folder/.index.yaml' });
-    expect(mocks.resolveCollection).toHaveBeenCalledOnce();
+    expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
+    expect(mocks.resolveCollection).not.toHaveBeenCalled();
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
   });
 

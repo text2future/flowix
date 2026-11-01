@@ -106,6 +106,13 @@ export interface UserSettings {
   /** Maximum number of conversations shown in the notebook file tree. */
   recentAgentConversationsLimit: number;
   /**
+   * 访问空间（文件树）是否展示点开头的隐藏文件夹。
+   * 只影响列举显示，不影响索引 / watcher / 鉴权口径。
+   */
+  spaceShowHiddenFolders: boolean;
+  /** 访问空间（文件树）是否展示 attachments / node_modules 等系统文件夹。 */
+  spaceShowSystemFolders: boolean;
+  /**
    * 快捷键用户覆盖层 — actionId → chord 字符串 (e.g. 'Mod+Shift+K')。
    * 只存与 ActionDefinition.defaultBinding 不同的部分, 缺省走默认。
    * 持久化到后端 ~/.flowix/preference.json 的 `shortcuts` 字段 (camelCase),
@@ -240,6 +247,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   memoListView: 'folders',
   autoOpenCreatedNotesInBrowser: true,
   recentAgentConversationsLimit: 6,
+  // 与文件树历史行为一致：所有磁盘上存在的文件夹都显示。
+  spaceShowHiddenFolders: true,
+  spaceShowSystemFolders: true,
   // 启动时无任何用户覆盖, 所有 action 走 ActionDefinition.defaultBinding。
   shortcuts: {},
   agents: {

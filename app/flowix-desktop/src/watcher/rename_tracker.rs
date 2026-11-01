@@ -88,7 +88,7 @@ impl RenameTracker {
                 entry
                     .path()
                     .strip_prefix(&root.root)
-                    .is_ok_and(|relative| !policy.is_index_ignored_at(&root.root, relative))
+                    .is_ok_and(|relative| !policy.is_index_hidden_at(&root.root, relative))
             })
             .filter_map(Result::ok)
         {

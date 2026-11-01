@@ -38,7 +38,7 @@ fn is_markdown_path(path: &Path) -> bool {
 fn indexable_relative_path(ctx: &NotebookWatchContext, path: &Path) -> Result<String, String> {
     let relative_path = notebook_relative_path(&ctx.root, path)?;
     let relative = Path::new(&relative_path);
-    if !is_markdown_path(relative) || FileManagementPolicy::from_notebook_root(&ctx.root).is_index_ignored_at(&ctx.root, relative) {
+    if !is_markdown_path(relative) || FileManagementPolicy::from_notebook_root(&ctx.root).is_index_hidden_at(&ctx.root, relative) {
         return Err("not an indexable Markdown path".to_string());
     }
     Ok(relative_path)
@@ -173,7 +173,7 @@ fn record_confirmed_cloud_move(
 fn refresh_resource_path(memo_file: &MemoFile, ctx: &NotebookWatchContext, path: &Path) -> Result<(), String> {
     let relative_path = notebook_relative_path(&ctx.root, path)?;
     if FileManagementPolicy::from_notebook_root(&ctx.root)
-        .is_ignored_at(&ctx.root, Path::new(&relative_path)) {
+        .is_index_hidden_at(&ctx.root, Path::new(&relative_path)) {
         return Ok(());
     }
     memo_file.refresh_indexed_resource_path(&ctx.notebook_id, &relative_path)
@@ -365,7 +365,7 @@ impl PathNoteEventProcessor {
         if event.rename_from.is_none()
             && is_under_attachments_dir(ctx, &event.path)
             && FileManagementPolicy::from_notebook_root(&ctx.root)
-                .is_ignored_at(&ctx.root, Path::new("attachments")) { return; }
+                .is_index_hidden_at(&ctx.root, Path::new("attachments")) { return; }
         if let (Some(old_path), Some(old_notebook_id), Some(old_root)) = (
             event.rename_from.as_ref(),
             event.rename_from_notebook_id.as_ref(),

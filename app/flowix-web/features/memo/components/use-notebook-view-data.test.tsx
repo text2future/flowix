@@ -104,8 +104,8 @@ describe('notebook view catalogs', () => {
       data().updateTableIdentity('Renamed.flowix', 'new-table');
       data().updateMediaLibraryIdentity('Library.media', 'new-library');
     });
-    expect(data().tableDocuments[0]).toMatchObject({ collectionId: 'new-table', inViews: false, identityConflict: false });
-    expect(data().mediaLibraries[0]).toMatchObject({ collectionId: 'new-library', inViews: false, identityConflict: false });
+    expect(data().tableDocuments[0]).toMatchObject({ collectionId: 'new-table', identityConflict: false });
+    expect(data().mediaLibraries[0]).toMatchObject({ collectionId: 'new-library', identityConflict: false });
   });
 
   it('ignores late initial snapshots after switching notebooks', async () => {

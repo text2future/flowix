@@ -274,7 +274,7 @@ impl MemoFile {
         } else {
             if self
                 .file_management_policy(notebook_id)
-                .is_ignored_at(&root, Path::new(&parent_relative))
+                .is_tree_hidden_at(&root, Path::new(&parent_relative))
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -532,7 +532,7 @@ impl MemoFile {
             let relative = Path::new(&parent_relative);
             if self
                 .file_management_policy(notebook_id)
-                .is_ignored_at(&root, relative)
+                .is_tree_hidden_at(&root, relative)
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -711,8 +711,12 @@ impl MemoFile {
     ) -> io::Result<std::path::PathBuf> {
         let normalized = relative_path.replace('\\', "/");
         let relative = Path::new(&normalized);
+        // Only tree-hidden paths are refused. Markdown inside a hidden folder
+        // the tree still shows stays writable; the index refresh below keeps it
+        // out of note projections.
         if normalized != relative_path
-            || super::FileManagementPolicy::from_notebook_root(root).is_index_ignored_at(root, relative)
+            || super::FileManagementPolicy::from_notebook_root(root)
+                .is_tree_hidden_at(root, relative)
             || !is_markdown_note_path(relative)
         {
             return Err(io::Error::new(
@@ -1495,7 +1499,7 @@ impl MemoFile {
                     || entry
                         .path()
                         .strip_prefix(&root)
-                        .map(|relative| !policy.is_index_ignored_at(&root, relative))
+                        .map(|relative| !policy.is_index_hidden_at(&root, relative))
                         .unwrap_or(false)
             })
         {
@@ -1538,7 +1542,7 @@ impl MemoFile {
             .map(|config| std::path::PathBuf::from(config.path))
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "notebook not found"))?;
         let policy = self.file_management_policy(notebook_id);
-        if policy.is_index_ignored_at(&root, relative) || !is_markdown_note_path(relative) {
+        if policy.is_index_hidden_at(&root, relative) || !is_markdown_note_path(relative) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "not a notebook note path",
@@ -1660,7 +1664,7 @@ impl MemoFile {
                         .path()
                         .strip_prefix(&root)
                         .map(|relative| {
-                            !policy.is_index_ignored_at(&root, relative)
+                            !policy.is_index_hidden_at(&root, relative)
                         })
                         .unwrap_or(false)
             })
@@ -1796,7 +1800,7 @@ impl MemoFile {
             Err(error) if error.kind() == io::ErrorKind::NotFound => true,
             Err(error) => return Err(error),
         };
-        if missing || policy.is_index_ignored_at(root, Path::new(&relative)) {
+        if missing || policy.is_index_hidden_at(root, Path::new(&relative)) {
             if !root.is_dir() {
                 return Err(io::Error::new(io::ErrorKind::NotFound, "notebook directory unavailable"));
             }

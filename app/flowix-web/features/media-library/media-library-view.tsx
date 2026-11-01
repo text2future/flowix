@@ -1,19 +1,20 @@
 'use client';
 
+import type { CollectionActionsHost } from '@shared/ui/collection-actions';
+
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
-import { createSaveBarrier } from '@/lib/save-barrier';
 import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
-import { collectionSessionKey } from '@/lib/collection-session-key';
+import { useCollectionDocumentSession, type CollectionDocumentCodec } from '@features/collection/public/collection-session-api';
 import { reuseCollectionValue } from '@features/collection/content-equality';
-import { FolderCollectionSwitchConfirmDialog } from '@features/collection/public/folder-api';
-import { collectionDisplayName, isLegacyCollectionSource } from '@features/collection/model';
+import { FolderCollectionSwitchConfirmDialog, resolveCollectionScope, setCollectionAssetFilter, assetConditionFromFilter, assetKindsForUniverse, normalizeAssetFilterCondition, MEDIA_ASSET_KINDS, type AssetFilterCondition, type AssetFilterSaveOptions } from '@features/collection/public/folder-api';
+import { collectionDisplayName, collectionSourceDomain } from '@features/collection/model';
 import { collectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { subscribe } from '@platform/tauri/event-bus';
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
-import { externalDocuments, files, notebooks as notebookClient, type CollectionChangedEvent } from '@platform/tauri/client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { notebooks as notebookClient, type CollectionChangedEvent } from '@platform/tauri/client';
 import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useNotebookMediaMaintenanceStore } from '@features/memo/store/notebook-media-maintenance-store';
@@ -23,37 +24,67 @@ import { findFileDisplayPath, type FileDisplayIdentity } from '@/lib/file-displa
 import { displayTitleFromFilename } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
-import { canEditMediaLibraryFilter, hasMediaDatasetFilter, mediaCollectionFilterForSave, mediaLibraryDefaultView, mediaLibraryFileCondition, parseMediaLibrary, serializeMediaLibrary, type MediaLibraryDocument, type MediaLibraryFileCondition, type MediaLibraryKind } from './model';
+import { canEditMediaLibraryFilter, hasMediaDatasetFilter, mediaCollectionFilterForSave, mediaLibraryDefaultView, parseMediaLibrary, serializeMediaLibrary, type MediaLibraryDocument, type MediaLibraryKind } from './model';
 import { renameMediaLibrary } from './rename-media-library';
 import { useMediaLibraryActions } from './use-media-library-actions';
-import { useMediaLibraryRefresh } from './use-media-library-refresh';
 import { MediaLibraryLoadingSkeleton } from '@shared/ui/media-library-loading-skeleton';
 
-export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'main-third' }: { onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void; reportPresentation?: (update: SurfacePresentationUpdate) => void; filePath: string; fileIdentity?: FileDisplayIdentity; notebookPath: string | null; notebookId?: string | null; expectedCollectionId?: string | null; workspaceHost?: 'main-third' | 'browser-column' }) {
-  const notebookPath = rawNotebookPath ? canonicalDirectoryPath(rawNotebookPath) : null;
-  const sessionKey = collectionSessionKey({ filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId });
+/**
+ * 图墙的集合文件格式：v2 单类型文件 或 hybrid（v3）文档里的 media 域。
+ * 读写、身份校验、旧格式迁移、冲突处理都在会话里（`useCollectionDocumentSession`），
+ * 这里只声明「这种文件长什么样」。
+ */
+const MEDIA_LIBRARY_CODEC: CollectionDocumentCodec<MediaLibraryDocument> = {
+  parse: parseMediaLibrary,
+  serialize: serializeMediaLibrary,
+  collectionId: (document) => document.collection.id,
+  revision: (document) => document.collection.revision,
+  sourceDomain: (content) => collectionSourceDomain(content, 'media_library'),
+  // v1/v2 旧格式补默认视图后就地升级（身份与修订号由会话校验）。
+  migrate: (document) => serializeMediaLibrary(document),
+  // 外部变更就地替换：未变的部分保留引用，图墙不因刷新丢掉滚动与选中。
+  reuse: (current, next) => ({
+    ...next,
+    dataset: { ...next.dataset, records: reuseCollectionValue(current.dataset.records, next.dataset.records) },
+    views: reuseCollectionValue(current.views, next.views),
+  }),
+};
+
+export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'main-third', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false }: { onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void; reportPresentation?: (update: SurfacePresentationUpdate) => void; filePath: string; fileIdentity?: FileDisplayIdentity; notebookPath: string | null; notebookId?: string | null; expectedCollectionId?: string | null; workspaceHost?: 'main-third' | 'browser-column'; /** 集合外壳里的 tab 面板：只把操作区 portal 进 nav 右侧操作槽（见 DocumentListView）。 */ editable?: boolean; activeViewId?: string | null; actionsHost?: CollectionActionsHost; onOpenNoteFilter?: () => void; onDatasetFilterOpenChange?: (open: boolean) => void; pageScroll?: boolean }) {
   const { t } = useI18n();
+  const notebookPath = rawNotebookPath ? canonicalDirectoryPath(rawNotebookPath) : null;
   const notebooks = useNoteStore((state) => state.notebooks);
   const notebook = notebooks.find((candidate) => canonicalDirectoryPath(candidate.path) === (notebookPath ?? ''));
   const resolvedNotebookId = notebookId ?? notebook?.id ?? null;
   const mediaMaintenance = useNotebookMediaMaintenanceStore((state) => resolvedNotebookId ? state.statuses[resolvedNotebookId] : undefined);
-  const [renamedFilePath, setRenamedFilePath] = useState<string | null>(null);
-  const [document, setDocument] = useState<MediaLibraryDocument | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const [saving, setSavingState] = useState(false);
   const [retryingMaintenance, setRetryingMaintenance] = useState(false);
-  const savingStateRef = useRef(false);
-  const saveBarrier = useMemo(createSaveBarrier, [sessionKey]);
-  const setSaving = useCallback((action: SetStateAction<boolean>) => {
-    const next = typeof action === 'function' ? action(savingStateRef.current) : action;
-    saveBarrier.setSaving(next);
-    savingStateRef.current = next;
-    setSavingState(next);
-  }, [saveBarrier]);
+  const [confirmFolderSwitch, setConfirmFolderSwitch] = useState(false);
+  const displayId = fileIdentity?.displayId;
+  // 集合文件会话：读盘 / 迁移 / 身份校验 / 按域写回 / 冲突重放 / 保存闸 / 就地刷新。
+  const session = useCollectionDocumentSession<MediaLibraryDocument>({
+    filePath,
+    fileIdentity,
+    notebookPath: rawNotebookPath,
+    notebookId,
+    expectedCollectionId,
+    editable,
+    codec: MEDIA_LIBRARY_CODEC,
+    loadErrorKey: 'errors.friendly.mediaLoad',
+    saveErrorKey: 'errors.friendly.tableViewSave',
+    missingScopeMessage: '无法确定媒体库所属的笔记本',
+    missingFileMessage: '无法读取媒体库文件',
+    // 路径可能被复用：按显示身份认集合，避免打开到「同名替代文件」。
+    identityCollectionId: () => (displayId ? collectionDisplayDescriptor(displayId)?.collectionId ?? null : null),
+  });
+  const {
+    document, setDocument, loading, error, retryLoad,
+    saving, setSaving, saveInFlightRef, sourceContentRef,
+    reportSaveFailure, flush, runSaveLocked, applyRename, persistMutation,
+    currentFilePath, refreshContent, refreshError, retryRefresh, sessionKey,
+  } = session;
+
   const retryMediaMaintenance = useCallback(async () => {
-    if (!resolvedNotebookId || retryingMaintenance) return;
+    if (!editable || !resolvedNotebookId || retryingMaintenance) return;
     setRetryingMaintenance(true);
     try {
       await notebookClient.retryMediaMaintenance(resolvedNotebookId);
@@ -62,87 +93,12 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
     } finally {
       setRetryingMaintenance(false);
     }
-  }, [resolvedNotebookId, retryingMaintenance, t]);
-  const reportSaveFailure = useCallback(() => saveBarrier.fail(), [saveBarrier]);
-  const [confirmFolderSwitch, setConfirmFolderSwitch] = useState(false);
-  const sourceContentRef = useRef<string | null>(null);
-  const saveInFlightRef = useRef(false);
-  const displayId = fileIdentity?.displayId;
-  const currentFilePath = (displayId ? findFileDisplayPath(displayId) : null) ?? renamedFilePath ?? filePath;
-
-  const currentSessionKeyRef = useRef(sessionKey);
-  currentSessionKeyRef.current = sessionKey;
-  const retryLoad = useCallback(() => setLoadAttempt((attempt) => attempt + 1), []);
-  useEffect(() => {
-    onSurfaceLifecycleReady?.({ status: 'ready', flush: async () => {
-      const saved = await saveBarrier.flush();
-      return saved && currentSessionKeyRef.current === sessionKey;
-    } });
-    return () => {
-      onSurfaceLifecycleReady?.(null);
-    };
-  }, [onSurfaceLifecycleReady, saveBarrier, sessionKey]);
-  useEffect(() => () => saveBarrier.cancel(), [saveBarrier]);
-  const acceptContent = useCallback((content: string) => {
-    if (currentSessionKeyRef.current !== sessionKey) return false;
-    const next = parseMediaLibrary(content);
-    const current = sourceContentRef.current ? parseMediaLibrary(sourceContentRef.current) : null;
-    const expectedId = expectedCollectionId ?? (displayId ? collectionDisplayDescriptor(displayId)?.collectionId : null);
-    if ((expectedId && next.collection.id !== expectedId) || (current && (current.collection.id !== next.collection.id
-      || current.collection.revision > next.collection.revision))) return false;
-    sourceContentRef.current = content;
-    setDocument((current) => current ? { ...next,
-      dataset: { ...next.dataset, records: reuseCollectionValue(current.dataset.records, next.dataset.records) },
-      views: reuseCollectionValue(current.views, next.views),
-    } : next);
-    return true;
-  }, [displayId, expectedCollectionId, sessionKey]);
-  const { error: refreshError, refreshContent, retryRefresh } = useMediaLibraryRefresh({
-    sessionKey, notebookPath, currentFilePath, saving, saveInFlightRef, acceptContent,
-  });
-
-  useEffect(() => setRenamedFilePath(null), [filePath]);
+  }, [resolvedNotebookId, retryingMaintenance, t, editable]);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    if (saveInFlightRef.current) {
-      setLoading(false);
-      return;
-    }
-    if (!notebookPath) {
-      setError('无法确定媒体库所属的笔记本');
-      setLoading(false);
-      return;
-    }
-    sourceContentRef.current = null;
-    void files.read(currentFilePath, notebookPath).then(async (source) => {
-      if (cancelled) return;
-      if (!source) throw new Error('无法读取媒体库文件');
-      let parsed = parseMediaLibrary(source);
-      const expectedId = expectedCollectionId ?? (displayId ? collectionDisplayDescriptor(displayId)?.collectionId : null);
-      if (expectedId && parsed.collection.id !== expectedId) throw new Error('集合身份已变化，不能打开路径中的替代文件');
-      let currentSource = source;
-      if (isLegacyCollectionSource(source)) {
-        const migration = await externalDocuments.write({ filePath: currentFilePath, content: serializeMediaLibrary(parsed), expectedContent: source, scopePath: notebookPath });
-        if (migration.status === 'saved') currentSource = migration.content;
-        else if (migration.status === 'conflict') {
-          const latest = parseMediaLibrary(migration.diskContent);
-          if (latest.collection.id !== parsed.collection.id) throw new Error('集合身份已变化，无法迁移旧格式');
-          parsed = latest;
-          currentSource = migration.diskContent;
-        } else if (migration.status === 'error') throw new Error(migration.message);
-      }
-      sourceContentRef.current = currentSource;
-      setDocument(parsed);
-    }).catch((reason) => {
-      if (!cancelled) setError(friendlyErrorMessage(reason, t, 'errors.friendly.mediaLoad'));
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [displayId ?? currentFilePath, expectedCollectionId, loadAttempt, notebookPath]);
+    onSurfaceLifecycleReady?.({ status: 'ready', flush });
+    return () => onSurfaceLifecycleReady?.(null);
+  }, [flush, onSurfaceLifecycleReady]);
 
   useEffect(() => {
     const refresh = (event: Partial<CollectionChangedEvent> & Pick<CollectionChangedEvent, 'notebookId'>) => {
@@ -164,9 +120,7 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       const eventPath = event.relativePath
         ? `${root}/${event.relativePath}`
         : (displayId ? findFileDisplayPath(displayId) : null) ?? currentFilePath;
-      const path = movedPath ?? eventPath;
-      // Events with an authoritative path can replace a queued readiness refresh.
-      refreshContent(path, Boolean(event.relativePath));
+      refreshContent(movedPath ?? eventPath);
     };
     const stopCollection = subscribe<CollectionChangedEvent>('collection-changed', refresh);
     const stopCatalog = subscribe<{ notebookId: string; operationId?: string }>('file-management-changed', (event) => {
@@ -175,71 +129,28 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
     return () => { stopCollection(); stopCatalog(); };
   }, [currentFilePath, displayId, document?.collection.id, notebook?.id, notebookId, notebookPath, refreshContent, sessionKey]);
 
-  const persistMutation = useCallback(async (
-    mutate: (current: MediaLibraryDocument) => MediaLibraryDocument,
-    targetPath = currentFilePath,
-    lockAlreadyHeld = false,
-    initialDocument?: MediaLibraryDocument,
-  ): Promise<boolean> => {
-    if (!document || !notebookPath || !sourceContentRef.current
-      || (saveInFlightRef.current && !lockAlreadyHeld)) return false;
-    if (!lockAlreadyHeld) {
-      saveInFlightRef.current = true;
-      setSaving(true);
-    }
-    try {
-      let baseline = initialDocument ?? document;
-      let expectedContent = sourceContentRef.current;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        if (baseline.collection.id !== document.collection.id) throw new Error('集合身份已变化，已取消保存');
-        const next = mutate(baseline);
-        const result = await externalDocuments.write({
-          filePath: targetPath,
-          content: serializeMediaLibrary(next),
-          expectedContent,
-          scopePath: notebookPath,
-        });
-        if (result.status === 'saved') {
-          sourceContentRef.current = result.content;
-          setDocument(next);
-          return true;
-        }
-        if (result.status === 'conflict') {
-          const latest = parseMediaLibrary(result.diskContent);
-          if (latest.collection.id !== baseline.collection.id) throw new Error('集合身份已变化，已取消保存');
-          expectedContent = result.diskContent;
-          sourceContentRef.current = result.diskContent;
-          if (attempt === 0) {
-            baseline = latest;
-            continue;
-          }
-          setDocument(latest);
-          reportSaveFailure();
-          toast.error('媒体库配置再次发生变化，已载入最新版本，请重试');
-          return false;
-        }
-        throw new Error(result.status === 'error' ? result.message : '媒体库文件已不存在');
-      }
-      reportSaveFailure();
-      return false;
-    } catch (reason) {
-      reportSaveFailure();
-      toast.error(friendlyErrorMessage(reason, t, 'errors.friendly.tableViewSave'));
-      return false;
-    } finally {
-      if (!lockAlreadyHeld) {
-        saveInFlightRef.current = false;
-        setSaving(false);
+  const updateFilterCondition = useCallback(async (fileCondition: AssetFilterCondition, options?: AssetFilterSaveOptions) => {
+    if (!editable || saving || !notebookPath) return false;
+    // 共享「资料筛选」：hybrid 集合里图墙 / 列表同一份配置，单次读改写同时双写两个数据域，
+    // 两个面板经 collection-changed 事件各自刷新。
+    if (collectionSourceDomain(sourceContentRef.current ?? '', 'media_library') !== null && currentFilePath) {
+      try {
+        await setCollectionAssetFilter(currentFilePath, notebookPath, normalizeAssetFilterCondition(fileCondition), options);
+        return true;
+      } catch (error) {
+        toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableViewSave'));
+        return false;
       }
     }
-  }, [currentFilePath, document, notebookPath, reportSaveFailure, setSaving]);
-
-  const updateFilterCondition = useCallback(async (fileCondition: MediaLibraryFileCondition) => {
-    if (saving || !notebookPath) return false;
     if (document && !canEditMediaLibraryFilter(document)) {
       toast.error('当前媒体库包含编辑器不支持的筛选，未保存以保留原条件');
       return false;
     }
+    // 独立媒体库文件：只落媒体类目子集。
+    const mediaCondition = {
+      ...normalizeAssetFilterCondition(fileCondition),
+      file_types: assetKindsForUniverse(fileCondition, MEDIA_ASSET_KINDS) as MediaLibraryKind[],
+    };
     return persistMutation((current) => ({
       ...current,
       collection: {
@@ -247,11 +158,11 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
         revision: current.collection.revision + 1,
         updated_at: new Date().toISOString(),
       },
-      dataset: { ...current.dataset, filter: mediaCollectionFilterForSave(current, fileCondition, currentFilePath, notebookPath) },
-      views: { ...current.views, items: current.views.items.map((view) => view.id === current.views.default_id
+      dataset: { ...current.dataset, filter: mediaCollectionFilterForSave(current, mediaCondition, currentFilePath, notebookPath) },
+      views: { ...current.views, items: current.views.items.map((view) => view.id === (activeViewId ?? current.views.default_id)
         ? { ...view, filter: { all: [], any: [] } } : view) },
     }));
-  }, [currentFilePath, document, notebookPath, persistMutation, saving]);
+  }, [currentFilePath, document, notebookPath, persistMutation, saving, sourceContentRef, t, editable, activeViewId]);
 
   const renameLibrary = useCallback(async (rawTitle: string) => {
     const title = rawTitle.trim();
@@ -260,37 +171,42 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
     const currentTitle = isFolderCollection
       ? previousPath.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '').split(/[\\/]/).pop() ?? ''
       : displayTitleFromFilename(previousPath);
-    if (!title || title === currentTitle || saving || !notebookPath || !document || saveInFlightRef.current) return;
+    if (!editable || !title || title === currentTitle || saving || !notebookPath || !document || saveInFlightRef.current) return;
     if (/[\\/]/.test(title)) {
       toast.error('文件名不能包含路径分隔符');
       return;
     }
-    try {
-      saveInFlightRef.current = true;
-      setSaving(true);
-      const result = await renameMediaLibrary({
-        notebookPath, notebookId: notebookId ?? notebook?.id,
-        collectionId: document.collection.id, title,
-      });
-      if (!acceptContent(result.content)) { reportSaveFailure(); return; }
-      setRenamedFilePath(result.filePath);
-      if (result.errorCode) { console.warn('Collection follow-up failed', result.errorCode); toast.error(t('errors.friendly.collectionPartial')); };
-    } catch (reason) {
-      reportSaveFailure();
-      toast.error(friendlyErrorMessage(reason, t, 'errors.friendly.mediaRename'));
-    } finally {
-      saveInFlightRef.current = false;
-      setSaving(false);
-    }
-  }, [acceptContent, currentFilePath, displayId, document, notebook?.id, notebookId, notebookPath, reportSaveFailure, saving, setSaving]);
+    await runSaveLocked(async () => {
+      try {
+        const result = await renameMediaLibrary({
+          notebookPath, notebookId: notebookId ?? notebook?.id,
+          collectionId: document.collection.id, title,
+        });
+        if (!applyRename(result)) { reportSaveFailure(); return false; }
+        if (result.errorCode) { console.warn('Collection follow-up failed', result.errorCode); toast.error(t('errors.friendly.collectionPartial')); }
+        return true;
+      } catch (reason) {
+        reportSaveFailure();
+        toast.error(friendlyErrorMessage(reason, t, 'errors.friendly.mediaRename'));
+        return false;
+      }
+    });
+  }, [applyRename, currentFilePath, displayId, document, notebook?.id, notebookId, notebookPath, reportSaveFailure, runSaveLocked, saveInFlightRef, saving, t, editable]);
 
   const { addMedia, deleteMedia } = useMediaLibraryActions({
-    document, setDocument, notebookPath, notebookId: notebookId ?? notebook?.id ?? null, currentFilePath, saving, setSaving,
+    document, setDocument, notebookPath, notebookId: notebookId ?? notebook?.id ?? null, currentFilePath, saving, editable, setSaving,
     sourceContentRef, saveInFlightRef, persistMutation, reportSaveFailure, t,
   });
 
-  const selectedKind = document ? mediaLibraryFileCondition(document).file_type : undefined;
-  const resourceKinds = useMemo<MediaLibraryKind[]>(() => selectedKind ? [selectedKind] : ['image', 'video'], [selectedKind]);
+  /**
+   * 共享「资料筛选」：图墙 / 列表同一份配置。媒体库面板的类目固定为**图片与视频**，
+   * 从共享条件里取自己的子集（空子集 = 本面板无内容）；空共享条件 = 全类目。
+   */
+  const browseCondition = useMemo(() => (document ? assetConditionFromFilter(document.dataset.filter) : {}), [document]);
+  const resourceKinds = useMemo(
+    () => assetKindsForUniverse(browseCondition, MEDIA_ASSET_KINDS),
+    [browseCondition],
+  );
   const activeCollectionId = document?.collection.id;
   const libraryDisplayName = document ? collectionDisplayName(currentFilePath, document.collection.placement) : '媒体库';
   useEffect(() => {
@@ -314,17 +230,12 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       } });
     }
   }, [document, error, libraryDisplayName, loading, reportPresentation, retryLoad]);
+  const datasetSource = document?.dataset.source;
   const mediaScope = useMemo(() => {
-    if (!document || !notebookPath) return undefined;
-    const source = document.dataset.source;
-    if (!source || source.scope === 'notebook') return undefined;
-    if (source.scope === 'folder') return { relativePath: source.path ?? '', depth: source.depth };
-    const root = canonicalDirectoryPath(notebookPath).replace(/\/$/, '');
-    const folder = canonicalDirectoryPath(currentFilePath.replace(/[\\/][^\\/]*$/, '')).replace(/\/$/, '');
-    if (folder === root) return { relativePath: '', depth: source.depth };
-    if (!folder.startsWith(`${root}/`)) return undefined;
-    return { relativePath: folder.slice(root.length + 1).replace(/\\/g, '/'), depth: source.depth };
-  }, [currentFilePath, document?.dataset.source.scope, document?.dataset.source.path, document?.dataset.source.depth, notebookPath]);
+    if (!notebookPath) return undefined;
+    // 取值范围换算只有一份（`resolveCollectionScope`）：图片导览等也要按它取内容。
+    return resolveCollectionScope(datasetSource, currentFilePath, notebookPath);
+  }, [currentFilePath, datasetSource, notebookPath]);
   const mediaLibraryRecords = useMemo(() => {
     const records = document?.dataset.records.include ?? [];
     if (!mediaScope) return records;
@@ -343,7 +254,6 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
     const resolvedNotebookId = notebookId ?? notebook?.id;
     if (!resolvedNotebookId || !notebookPath || !activeCollectionId) return null;
     const libraryIdentity = `media-library:${resolvedNotebookId}:${activeCollectionId}`;
-    const browseCondition = mediaLibraryFileCondition(document);
     return {
       displayId: displayId ?? libraryIdentity,
       folderPath: notebookPath,
@@ -353,17 +263,17 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       ...(mediaScope ? { mediaScope } : {}),
       ...((mediaScope || hasMediaDatasetFilter(document?.dataset.filter)
         || browseCondition.path_scope === 'all' || browseCondition.path_contains
-        || browseCondition.file_name_contains || browseCondition.file_type)
+        || browseCondition.file_name_contains || browseCondition.file_types)
         ? { mediaDatasetActive: true } : {}),
     };
-  }, [activeCollectionId, displayId, document?.dataset.filter, mediaScope, notebook?.id, notebookId, notebookPath, resourceKinds]);
+  }, [activeCollectionId, browseCondition, displayId, document, mediaScope, notebook?.id, notebookId, notebookPath, resourceKinds]);
 
   if (loading) return reportPresentation ? <MediaLibraryLoadingSkeleton /> : <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">正在打开媒体库…</div>;
   if (error) return reportPresentation ? null : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[var(--destructive)]">{error}</div>;
   if (!document && reportPresentation) return null;
   if (!document || !listContext) return <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">媒体库不可用</div>;
 
-  return <div className="relative h-full min-h-0">
+  return <div className={`relative ${pageScroll ? '' : 'h-full min-h-0'}`}>
     {saving && <span className="pointer-events-none absolute right-5 top-4 z-10 text-[11px] text-[var(--muted-foreground)]">保存中…</span>}
     {refreshError && <div role="alert" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 px-3 py-2 text-xs text-[var(--foreground)]">
       <span className="min-w-0 truncate">{t('errors.friendly.mediaRefresh')}</span>
@@ -373,7 +283,7 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
     </div>}
     {mediaMaintenance?.state === 'failed' && <div role="alert" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 px-3 py-2 text-xs text-[var(--foreground)]">
       <span className="min-w-0 truncate">{mediaMaintenance.message || t('mediaLibrary.maintenanceFailed')}</span>
-      <button type="button" disabled={retryingMaintenance} onClick={() => void retryMediaMaintenance()} className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs hover:bg-[var(--hover-bg)] disabled:opacity-50">
+      <button type="button" disabled={!editable || retryingMaintenance} onClick={() => void retryMediaMaintenance()} className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs hover:bg-[var(--hover-bg)] disabled:opacity-50">
         {retryingMaintenance ? t('mediaLibrary.maintenanceRunning') : t('error.retry')}
       </button>
     </div>}
@@ -390,18 +300,22 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       mediaLibraryFolderPath={document.collection.placement === 'folder'
         ? mediaScope?.relativePath || notebook?.name || ''
         : undefined}
-      mediaLibraryFilter={mediaLibraryFileCondition(document)}
+      mediaLibraryFilter={browseCondition}
       mediaLibraryRecords={mediaLibraryRecords}
       mediaLibraryExcludedPaths={mediaLibraryExcludedPaths}
       mediaLibraryDatasetFilter={resolveDatasetFilterForLocation(document.dataset.filter, document.collection.placement, currentFilePath, notebookPath)}
-      mediaLibraryViewFilter={mediaLibraryDefaultView(document).filter}
+      mediaLibraryViewFilter={(document.views.items.find((view) => view.id === activeViewId) ?? mediaLibraryDefaultView(document)).filter}
       onAddMedia={addMedia}
       onDeleteMedia={deleteMedia}
-      libraryActionsDisabled={saving}
+      libraryActionsDisabled={saving || !editable}
       refreshPaused={saving}
       onMediaLibraryFilterChange={updateFilterCondition}
+      onOpenNoteFilter={onOpenNoteFilter}
+      onDatasetFilterOpenChange={onDatasetFilterOpenChange}
       onRenameLibrary={renameLibrary}
       onSwitchToTable={document.collection.placement === 'folder' ? () => setConfirmFolderSwitch(true) : undefined}
+      actionsHost={actionsHost}
+      pageScroll={pageScroll}
     />
     <FolderCollectionSwitchConfirmDialog open={confirmFolderSwitch} onOpenChange={setConfirmFolderSwitch} confirmDisabled={saving} onConfirm={() => {
       setConfirmFolderSwitch(false);

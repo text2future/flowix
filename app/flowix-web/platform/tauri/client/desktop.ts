@@ -50,12 +50,19 @@ export interface DocTreeItem {
   memoCreatedMs: number | null;
   memoMeta?: DocTreeMemoMeta | null;
   resourceKind?: DocTreeResourceKind | null;
+  /** Row lives in a folder that indexes and the watcher skip. */
+  indexExcluded?: boolean;
+  /** Notes mirror `memoMeta.favorited`; documents read the resource catalog. */
+  pinned?: boolean;
 }
 
+/**
+ * Notebook-local view preferences. Only the default note folder remains after
+ * the file-management policy (user-configured index exclusions) was removed;
+ * unknown keys from older `view-preferences.json` files are ignored.
+ */
 export interface NotebookViewPreferences {
   defaultCreateFolder: string | null;
-  fileManagement: { includedPaths: string[]; hiddenPaths: string[]; excludedIndexPaths: string[]; legacySkipDirs?: string[]; legacySkipFiles?: string[]; legacyWatcherMigrated?: boolean };
-  refreshPending?: boolean;
 }
 
 export interface NotebookFolderOption {
@@ -63,19 +70,12 @@ export interface NotebookFolderOption {
   depth: number;
 }
 
-export interface NotebookSettingsTreeEntry {
-  relativePath: string;
-  isDirectory: boolean;
-  locked: boolean;
-  hidden: boolean;
-  defaultHidden: boolean;
-  collapsed: boolean;
-}
-
 export interface DocumentPageItem {
   fullPath: string;
   name: string;
   resourceKind: 'note' | 'image' | 'video' | 'other' | 'folder';
+  /** Canonical indexed asset category, supplied for work-document results. */
+  assetKind?: 'image' | 'video' | 'audio' | 'document' | 'spreadsheet' | 'presentation' | 'web' | 'archive' | 'database';
   isDirectory?: boolean;
   sizeBytes: number | null;
   modifiedMs: number | null;
@@ -96,6 +96,7 @@ export interface TableDocumentListItem {
   modifiedMs: number;
   fileRevision: number;
   inViews: boolean;
+  pinned?: boolean;
   identityConflict?: boolean;
 }
 
@@ -105,6 +106,7 @@ export interface MediaLibraryListItem {
   name: string;
   modifiedMs: number;
   inViews: boolean;
+  pinned?: boolean;
   identityConflict?: boolean;
 }
 
@@ -126,6 +128,7 @@ export interface CollectionIndexItem {
   parseState: 'valid' | 'invalid' | 'unsupported';
   errorCode: string | null;
   inViews: boolean;
+  pinned?: boolean;
   identityConflict: boolean;
 }
 export interface CollectionMutationRequest {
@@ -184,6 +187,8 @@ export const collections = {
     }),
   setInViews: (notebookId: string, collectionId: string, inViews: boolean) =>
     invoke<void>('set_collection_display_state', { notebookId, collectionId, inViews }),
+  setPinned: (notebookId: string, collectionId: string, pinned: boolean) =>
+    invoke<void>('set_collection_pinned', { notebookId, collectionId, pinned }),
   makeIdentityUnique: (notebookId: string, relativePath: string) =>
     invoke<string>('make_collection_identity_unique', { notebookId, relativePath }),
 };
@@ -204,24 +209,31 @@ export const files = {
   }) => invoke<DocumentPage>('list_document_page', { request }),
   listWorkDocumentsPage: (notebookId: string, cursor?: string | null, limit?: number, filter?: {
     fileNameContains?: string;
-    resourceKind?: string;
+    /** 多选类型；undefined/空 = 类目内全部。 */
+    resourceKinds?: string[];
     path?: string;
   }) => invoke<DocumentPage>('list_work_documents_page', {
     notebookId, cursor, limit,
     fileNameContains: filter?.fileNameContains,
-    resourceKind: filter?.resourceKind,
+    resourceKinds: filter?.resourceKinds,
     path: filter?.path,
   }),
   listTableDocuments: async (notebookId: string): Promise<TableDocumentListItem[]> =>
     (await collections.list(notebookId, 'table')).filter((item) => item.collectionId !== null && item.relativePath.split('/').pop()?.toLocaleLowerCase() !== '.index.yaml').map((item) => ({
       relativePath: item.relativePath, collectionId: item.collectionId!, name: item.name,
-      modifiedMs: item.modifiedMs, fileRevision: item.revision ?? 0, inViews: item.inViews, identityConflict: item.identityConflict,
+      modifiedMs: item.modifiedMs, fileRevision: item.revision ?? 0, inViews: item.inViews,
+      pinned: item.pinned ?? false, identityConflict: item.identityConflict,
     })),
   setTableDocumentInViews: collections.setInViews,
+  setCollectionPinned: collections.setPinned,
+  /** Notes pin through their frontmatter; documents pin through the catalog. */
+  setDocumentPinned: (filePath: string, notebookPath: string, pinned: boolean) =>
+    invoke<boolean>('set_document_pinned', { filePath, notebookPath, pinned }),
   listMediaLibraries: async (notebookId: string): Promise<MediaLibraryListItem[]> =>
     (await collections.list(notebookId, 'media_library')).filter((item) => item.collectionId !== null && item.relativePath.split('/').pop()?.toLocaleLowerCase() !== '.index.yaml').map((item) => ({
       relativePath: item.relativePath, collectionId: item.collectionId!, name: item.name,
-      modifiedMs: item.modifiedMs, inViews: item.inViews, identityConflict: item.identityConflict,
+      modifiedMs: item.modifiedMs, inViews: item.inViews,
+      pinned: item.pinned ?? false, identityConflict: item.identityConflict,
     })),
   setMediaLibraryInViews: collections.setInViews,
   makeViewDocumentIdentityUnique: collections.makeIdentityUnique,
@@ -231,12 +243,12 @@ export const files = {
     invoke<DocTreeItem[]>('get_dir_children', { dirPath }),
   getNotebookViewPreferences: (notebookPath: string) =>
     invoke<NotebookViewPreferences>('get_notebook_view_preferences', { notebookPath }),
-  getFileManagementCandidates: (notebookPath: string) =>
-    invoke<Array<{ relativePath: string; isDirectory: boolean; locked: boolean }>>('get_file_management_candidates', { notebookPath }),
   getNotebookFolderOptions: (notebookPath: string) =>
     invoke<NotebookFolderOption[]>('get_notebook_folder_options', { notebookPath }),
-  getNotebookSettingsTree: (notebookPath: string) =>
-    invoke<NotebookSettingsTreeEntry[]>('get_notebook_settings_tree', { notebookPath }),
+  // Authoritative answer for "indexes and watcher skip this path", including
+  // ancestors. Folder surfaces must never re-derive it from folder names.
+  isIndexExcluded: (filePath: string) =>
+    invoke<boolean>('is_path_index_excluded', { filePath }),
   setNotebookViewPreferences: (notebookPath: string, preferences: NotebookViewPreferences) =>
     invoke<void>('set_notebook_view_preferences', { notebookPath, preferences }),
   watchRoot: (rootPath: string) =>
@@ -291,7 +303,7 @@ export const mediaResources = {
     'get_media_resource',
     { filePath, notebookPath },
   ),
-  thumbnail: (filePath: string, notebookPath: string, kind: 'image' | 'video', requestId: string) =>
+  thumbnail: (filePath: string, notebookPath: string, kind: 'image' | 'video' | 'document', requestId: string) =>
     invoke<string | null>('get_media_thumbnail', { filePath, spacePath: notebookPath, kind, requestId }),
   cancelThumbnail: (requestId: string) =>
     invoke<void>('cancel_media_thumbnail', { requestId }),

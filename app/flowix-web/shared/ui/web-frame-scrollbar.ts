@@ -1,5 +1,13 @@
 const CONFIG_TYPE = 'flowix:web-frame-scrollbar';
 const READY_TYPE = 'flowix:web-frame-scrollbar-ready';
+const STATUS_TYPE = 'flowix:web-frame-scrollbar-status';
+
+/** The frame reports what it measured once per document. A bar that stayed
+ * native is the only case worth surfacing: it means the viewport refused to
+ * collapse and the content keeps that gutter. */
+function reportStatus(data: Record<string, unknown>) {
+  if (data.suppressed === true) console.warn('[web-frame-scrollbar] native viewport bar kept', data);
+}
 
 /**
  * Remote pages cannot be reached through `contentDocument`, so the shell ships a
@@ -25,9 +33,9 @@ export function connectWebFrameScrollbar(iframe: HTMLIFrameElement): () => void 
   };
 
   const onMessage = (event: MessageEvent) => {
-    if (event.source === iframe.contentWindow && event.data?.type === READY_TYPE) {
-      sync();
-    }
+    if (event.source !== iframe.contentWindow) return;
+    if (event.data?.type === READY_TYPE) sync();
+    else if (event.data?.type === STATUS_TYPE) reportStatus(event.data);
   };
 
   ownerWindow.addEventListener('message', onMessage);

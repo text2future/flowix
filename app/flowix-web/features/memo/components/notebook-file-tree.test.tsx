@@ -3,9 +3,9 @@ import { FOLDER_SINGLE_CLICK_DELAY_MS } from './notebook-tree-row';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { collections, files, notes, type CollectionIndexItem, type DocTreeItem } from '@platform/tauri/client';
+import { collections, files, notes, type DocTreeItem } from '@platform/tauri/client';
+import { pinnedEntries, type PinnedEntry } from '@platform/tauri/client/pinned';
 import { toast } from '@/lib/toast';
-import { noteRepository } from '@features/memo/services/note-repository';
 import { EXTERNAL_FILE_DROP_EVENT } from '@features/document/components/use-external-file-drop';
 import type { FolderTreeController } from './use-folder-tree';
 import * as folderTreeModule from './use-folder-tree';
@@ -20,6 +20,10 @@ import {
 } from './notebook-file-tree';
 
 const repositoryTreeTestState = vi.hoisted(() => ({ loadComplete: false }));
+const pinnedNote = (relativePath: string, title: string): PinnedEntry => ({
+  entryKind: 'note', relativePath, title, createdAt: 1, modifiedMs: 1,
+  kind: 'note', collectionId: null, sizeBytes: 0,
+});
 const translationTestState = vi.hoisted(() => ({ t: (key: string) => key }));
 
 vi.mock('@/lib/i18n', async (importOriginal) => ({
@@ -68,7 +72,10 @@ vi.mock('@features/memo/components/file-type-icon', () => ({
   NotebookTreeResourceIcon: () => null,
 }));
 vi.mock('@features/memo/components/memo-card-actions', () => ({ MemoCardActions: () => null }));
-vi.mock('@features/memo/services/note-repository', () => ({ noteRepository: { listByPath: vi.fn(async () => ({ notes: [] })) } }));
+vi.mock('@platform/tauri/client/pinned', () => ({
+  pinnedEntries: { list: vi.fn(async () => ({ entries: [], nextCursor: null, hasMore: false })) },
+  listenToPinnedChanges: () => Promise.resolve(() => {}),
+}));
 vi.mock('@features/agent/public/workspace-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('@features/agent/public/workspace-api')>(),
   getWorkspaceAgentRepositories: () => [{ path: '/repos/project', name: 'project', missing: false }],
@@ -383,14 +390,13 @@ describe('NotebookFileTree pointer dragging', () => {
     }
   });
 
-  it('uses the notebook default destination when creating from the files section header', async () => {
+  it('creates from the files section header without a fixed destination', async () => {
     const { root, tree } = await mount(successfulMove);
     const onCreateNote = vi.fn(async () => {});
     try {
       await act(async () => root.render(
         <NotebookFileTree notebookPath="/notes" notebookName="Notes" tree={tree}
-          onNoteSelect={vi.fn()} onCreateNote={onCreateNote} onMoveNote={successfulMove}
-          defaultCreateFolder="drafts" />,
+          onNoteSelect={vi.fn()} onCreateNote={onCreateNote} onMoveNote={successfulMove} />,
       ));
       const header = Array.from(host.querySelectorAll<HTMLElement>('.notebook-file-tree__section-header'))
         .find((element) => element.textContent?.includes('memo.fileTree.sectionTitle'));
@@ -453,12 +459,8 @@ describe('NotebookFileTree pointer dragging', () => {
   it('opens a pinned note using its complete nested notebook path', async () => {
     const { root, tree } = await mount(successfulMove);
     const onNoteSelect = vi.fn();
-    vi.mocked(noteRepository.listByPath).mockResolvedValueOnce({
-      notes: [{
-        relativePath: 'projects/nested/note.md', title: 'note', preview: '', thumbnail: null,
-        tags: [], todos: [], agents: [], createdAt: 1, updatedAt: 1,
-        favorited: true, icon: null, colors: [], properties: {},
-      }],
+    vi.mocked(pinnedEntries.list).mockResolvedValueOnce({
+      entries: [pinnedNote('projects/nested/note.md', 'note')],
       nextCursor: null, hasMore: false,
     });
     try {
@@ -582,104 +584,6 @@ describe('NotebookFileTree pointer dragging', () => {
     const repositoryTop = repositoryButton.parentElement!.getBoundingClientRect().top;
     expect(repositoryTop - scroller.getBoundingClientRect().top).toBe(36);
     await act(async () => root.unmount());
-  });
-
-  it('renders view items with the same more and context menu actions as access-space items', async () => {
-    vi.spyOn(files, 'listTableDocuments').mockResolvedValue([{
-      relativePath: 'views/Project.table.yml',
-      collectionId: 'tbl_project',
-      name: 'Project',
-      modifiedMs: 1_700_000_000_000,
-      fileRevision: 1,
-      inViews: true,
-    }]);
-    const tree = {
-      rootChildren: [],
-      nodes: new Map(),
-      expanded: new Set<string>(),
-      loading: false,
-      error: null,
-      toggle: vi.fn(),
-      expandTo: vi.fn(async () => {}),
-      collapseAll: vi.fn(),
-      refresh: vi.fn(async () => {}),
-      refreshDirectories: vi.fn(async () => {}),
-      reload: vi.fn(async () => {}),
-    } as unknown as FolderTreeController;
-    const root = createRoot(host);
-    await act(async () => root.render(
-      <NotebookFileTree
-        notebookId="notebook-1"
-        notebookPath="/notes"
-        notebookName="Notes"
-        tree={tree}
-        onNoteSelect={vi.fn()}
-        onCreateNote={vi.fn()}
-        onMoveNote={successfulMove}
-      />,
-    ));
-
-    await vi.waitFor(() => expect(host.querySelector('[data-notebook-tree-kind="other"]')).not.toBeNull());
-    const viewRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="other"]')!;
-    expect(viewRow.textContent).toContain('Project');
-    expect(viewRow.querySelector('button[aria-label="memo.fileTree.moreActions"]')).not.toBeNull();
-    expect(host.textContent).toContain('memo.fileTree.newNote');
-    expect(host.textContent).toContain('memo.fileTree.newFolder');
-    expect(host.textContent).toContain('memo.fileTree.rename');
-    expect(host.textContent).toContain('memo.fileTree.delete');
-    await act(async () => root.unmount());
-  });
-
-  it.each([false, true])('updates work-document Views membership through the context menu (save fails: %s)', async (saveFails) => {
-    let inViews = false;
-    const collection: CollectionIndexItem = {
-      indexSequence: 1, relativePath: 'Resources.index.yaml', collectionId: 'col_resources',
-      collectionType: 'work_documents', name: 'Resources', schemaVersion: 2,
-      payloadSchemaVersion: 1, revision: 1, properties: {}, createdAt: null, updatedAt: null,
-      modifiedMs: 1, sizeBytes: 0, contentHash: null, parseState: 'valid', errorCode: null,
-      inViews: false, identityConflict: false,
-    };
-    vi.spyOn(files, 'listTableDocuments').mockResolvedValue([]);
-    vi.spyOn(files, 'listMediaLibraries').mockResolvedValue([]);
-    vi.spyOn(collections, 'list').mockImplementation(async () => [{ ...collection, inViews }]);
-    const setInViews = vi.spyOn(collections, 'setInViews').mockImplementation(async (_notebookId, _collectionId, next) => {
-      if (saveFails) throw new Error('save failed');
-      inViews = next;
-    });
-    const resource = { ...item('/notes/Resources.index.yaml', 'document'), resourceKind: 'other' as const };
-    const tree = {
-      rootChildren: [resource], nodes: new Map([[resource.fullPath, resource]]),
-      expanded: new Set<string>(), loading: false, error: null,
-      toggle: vi.fn(), expandTo: vi.fn(async () => {}), collapseAll: vi.fn(),
-      refresh: vi.fn(async () => {}), refreshDirectories: vi.fn(async () => {}), reload: vi.fn(async () => {}),
-    } as unknown as FolderTreeController;
-    const root = createRoot(host);
-    try {
-      await act(async () => root.render(
-        <NotebookFileTree notebookId="notebook-1" notebookPath="/notes" notebookName="Notes"
-          tree={tree} onNoteSelect={vi.fn()} onCreateNote={vi.fn()} onMoveNote={successfulMove} />,
-      ));
-      const views = () => host.querySelector('[data-notebook-views-section="true"]')!;
-      const action = (key: string, scope: ParentNode = host) => Array.from(scope.querySelectorAll<HTMLElement>('[role="menu"] div'))
-        .find((node) => node.textContent === key)!;
-      expect(views().querySelector('[data-notebook-tree-kind]')).toBeNull();
-      await act(async () => action('multidimensionalTable.viewMembership.add').click());
-      expect(setInViews).toHaveBeenCalledWith('notebook-1', 'col_resources', true);
-      if (saveFails) {
-        expect(views().querySelector('[data-notebook-tree-kind]')).toBeNull();
-        expect(toast.error).toHaveBeenCalledWith('multidimensionalTable.viewMembership.saveFailed');
-        expect(action('multidimensionalTable.viewMembership.add')).toBeDefined();
-      } else {
-        expect(views().querySelector('[data-notebook-tree-kind]')).not.toBeNull();
-        expect(views().textContent).toContain('Resources');
-        await act(async () => action('multidimensionalTable.viewMembership.hide', views()).click());
-        expect(setInViews).toHaveBeenLastCalledWith('notebook-1', 'col_resources', false);
-        expect(views().querySelector('[data-notebook-tree-kind]')).toBeNull();
-        expect(action('multidimensionalTable.viewMembership.add')).toBeDefined();
-      }
-    } finally {
-      await act(async () => root.unmount());
-    }
   });
 
   it('captures a drag on the clicked row so a normal click can still open it', async () => {
@@ -1233,12 +1137,9 @@ describe('NotebookFileTree pointer dragging', () => {
   it('selects and drags a range from the pinned list', async () => {
     const onMoveNote = vi.fn<TestMoveNote>(successfulMove);
     const { root, tree } = await mount(onMoveNote);
-    vi.mocked(noteRepository.listByPath).mockResolvedValueOnce({
-      notes: ['a', 'b', 'c'].map(name => ({
-        relativePath: `pinned/${name}.md`, title: name, preview: '', thumbnail: null,
-        tags: [], todos: [], agents: [], createdAt: 1, updatedAt: 1,
-        favorited: true, icon: null, colors: [], properties: {},
-      })), nextCursor: null, hasMore: false,
+    vi.mocked(pinnedEntries.list).mockResolvedValueOnce({
+      entries: ['a', 'b', 'c'].map(name => pinnedNote(`pinned/${name}.md`, name)),
+      nextCursor: null, hasMore: false,
     });
     const render = (activeFilePath?: string) => root.render(
       <NotebookFileTree notebookId="notebook-1" notebookPath="/notes" notebookName="Notes" tree={tree}

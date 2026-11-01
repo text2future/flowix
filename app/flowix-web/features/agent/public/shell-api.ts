@@ -12,9 +12,11 @@ import { useAgentSessionStore } from '@features/agent/store/agent-session-store'
 export { isAgentRuntimeInstalledState, normalizeAgentRuntimeStatus } from '@features/agent/runtime/agent-runtime-status';
 export {
   createAndOpenAgentConversation,
+  createAndOpenAgentConversationWithPrompt,
   createAndOpenPiConversation,
   createBrowserColumnAgentConversation,
   discardUnopenedBrowserColumnAgentConversation,
+  listSelectableAgentTypes,
   requestNewConversationAgentSelection,
 } from '@features/agent/use-cases/new-conversation';
 

@@ -193,13 +193,6 @@ pub fn filename_from_notebook_relative_path(relative: &str) -> String {
         .to_string()
 }
 
-/// Returns true when a notebook-relative path is excluded by the default
-/// file-management policy. User-configured ignore rules and notebook
-/// exceptions are applied by `FileManagementPolicy` at call sites.
-pub fn is_ignored_notebook_relative_path(path: &Path) -> bool {
-    super::FileManagementPolicy::default().is_ignored(path)
-}
-
 /// 跟 `flowix-desktop::fs_watcher::normalize_for_compare` 同口径的路径归一。
 fn normalize_for_compare(path: &Path) -> PathBuf {
     if let Ok(canon) = dunce::canonicalize(path) {

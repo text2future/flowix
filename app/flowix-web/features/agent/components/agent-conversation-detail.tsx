@@ -13,7 +13,7 @@ import { agent } from '@platform/tauri/client/agent';
 import { useAgentConversationSurface } from './use-agent-conversation-surface';
 import { isInitialConversationHistoryLoading } from './agent-conversation-history-loading';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
-import { createAndOpenAgentConversation } from '@features/agent/use-cases/new-conversation';
+import { consumeAgentConversationInitialPrompt, createAndOpenAgentConversation } from '@features/agent/use-cases/new-conversation';
 import { canActOnQueuedMessage } from '@features/agent/store/follow-up-queue-slice';
 import type { AgentConversationInstance } from '@features/agent/store/agent-conversation-types';
 import { useNoteStore } from '@features/memo/store/note-store';
@@ -680,6 +680,18 @@ function AgentConversationDetailContent({
     composerAttachmentsControllerRef.current = composerAttachmentsController;
     addMenuRef.current = addMenu;
     composerController.updateMultiLineState();
+    // 入口（集合底部输入框等）会把输入框草稿随「新建会话」带过来：一次性消费。
+    // autoSend 为假时只预填，用户保留编辑与撤回的机会；为真时下一帧提交，
+    // 等 composer 完成首帧布局与发送按钮状态计算。
+    const initialPrompt = consumeAgentConversationInitialPrompt(instanceId);
+    if (initialPrompt) {
+      composerController.setHistoryValue(initialPrompt.prompt, { persistDraft: true });
+      if (initialPrompt.autoSend) {
+        requestAnimationFrame(() => {
+          if (!destroyedRef.current) submitRef.current();
+        });
+      }
+    }
     // Paint the selected thread's initial state in the same layout pass. The
     // history request starts in a passive effect, so waiting for the normal
     // subscription effect would leave one blank frame between item selection

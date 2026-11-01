@@ -1,6 +1,9 @@
 import zhCNMessages from './messages.zh-CN';
 import fileTreeZhCN from './messages.file-tree.zh-CN';
 import piSettingsZhCN from './messages.pi-settings.zh-CN';
+import preferencesNoteZhCN from './messages.preferences-note.zh-CN';
+import collectionZhCN from './messages.collection.zh-CN';
+import propertyIconsZhCN from './messages.property-icons.zh-CN';
 
 export const APP_LANGUAGES = ["zh-CN", "en-US"] as const;
 
@@ -27,7 +30,7 @@ export function sanitizeAppLanguage(value: unknown): AppLanguage {
 // 主表 (messages.zh-CN / messages.en-US) 被千行闸门冻结, 新增文案放分片 (如
 // messages.file-tree.*) 后与主表合并。I18nKey 从合并结果派生; 主表与分片各自用
 // Record<...> 约束 key 集合一致, en-US 合并后再按 MessageMap 校验一次完整性。
-const zhCN = { ...zhCNMessages, ...fileTreeZhCN, ...piSettingsZhCN };
+const zhCN = { ...zhCNMessages, ...fileTreeZhCN, ...piSettingsZhCN, ...preferencesNoteZhCN, ...collectionZhCN, ...propertyIconsZhCN };
 
 export type I18nKey = keyof typeof zhCN;
 export type MessageMap = Record<I18nKey, string>;
@@ -61,8 +64,11 @@ export function loadLanguage(lang: AppLanguage): Promise<MessageMap> {
         import('./messages.en-US'),
         import('./messages.file-tree.en-US'),
         import('./messages.pi-settings.en-US'),
-      ]).then(([module, fileTree, piSettings]) => {
-        const msgs: MessageMap = { ...module.default, ...fileTree.default, ...piSettings.default };
+        import('./messages.preferences-note.en-US'),
+        import('./messages.collection.en-US'),
+        import('./messages.property-icons.en-US'),
+      ]).then(([module, fileTree, piSettings, preferencesNote, collection, propertyIcons]) => {
+        const msgs: MessageMap = { ...module.default, ...fileTree.default, ...piSettings.default, ...preferencesNote.default, ...collection.default, ...propertyIcons.default };
         loadedMessages["en-US"] = msgs;
         return msgs;
       });

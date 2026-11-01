@@ -79,7 +79,28 @@ function reconcileDirectoryChildren(
     return reconciled;
   });
 
-  if (parent) next.set(parentKey, { ...parent, children: reconciledChildren });
+  if (parent) {
+    next.set(parentKey, { ...parent, children: reconciledChildren });
+  } else {
+    // The parent entry can be missing while its children are being fetched:
+    // a fresh session only holds root-level nodes, and the pinned group may
+    // expand a nested folder before the files tree ever loads its ancestors.
+    // Without an entry, flattening stops at `nodes.get(parent)?.children` and
+    // the expansion renders as an empty list even though the children above
+    // were just fetched. Insert a minimal folder node carrying them.
+    next.set(parentKey, {
+      id: `folder:${parentKey}`,
+      fullPath: parentKey,
+      name: parentKey.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? parentKey,
+      type: 'folder',
+      parentId: null,
+      children: reconciledChildren,
+      sizeBytes: null,
+      modifiedMs: 0,
+      createdMs: null,
+      memoCreatedMs: null,
+    });
+  }
   return next;
 }
 
@@ -779,6 +800,8 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     ...state,
     loadedRootPath,
     toggle,
+    /** Load a directory's children into `nodes` without touching `expanded`. */
+    loadDirectory: loadChildren,
     expandTo,
     collapseAll,
     refresh,
@@ -789,7 +812,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     renameFolder,
     ignoreCollectionPathEvents,
     updateNoteMetadata,
-  }), [updateNoteMetadata,ignoreCollectionPathEvents, loadedRootPath, state, toggle, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory, rebasePath, renameFolder]);
+  }), [updateNoteMetadata,ignoreCollectionPathEvents, loadedRootPath, state, toggle, loadChildren, expandTo, collapseAll, refresh, refreshDirectories, loadRoot, retryDirectory, rebasePath, renameFolder]);
 }
 
 export type FolderTreeController = ReturnType<typeof useFolderTree>;
@@ -883,18 +906,39 @@ function compareTreeItems(
 export function flattenVisibleTree(
   state: Pick<FolderTreeState, 'rootChildren' | 'nodes' | 'expanded'>,
   sort: FolderTreeSort = 'createdAt',
+): VisibleTreeNode[] {
+  return flattenFolderSubtrees(state, state.rootChildren, state.expanded, sort);
+}
+
+/**
+ * Flatten the subtrees rooted at `roots`. The pinned section reuses this to show
+ * the same folder nodes a second time outside the filesystem listing, so it goes
+ * through the one sort comparator and the same expand semantics, while passing
+ * its own expand set (per-surface UI state over the shared node cache). Only
+ * the pinned group asks for `pinnedFolderPaths`; 访问空间 keeps the plain sort
+ * order. `ownRootKeys` names folders that render as a root of their own: their
+ * nested occurrence is skipped so each pinned folder shows exactly once, at top
+ * level.
+ */
+export function flattenFolderSubtrees(
+  state: { nodes: ReadonlyMap<string, DocTreeItem> },
+  roots: readonly DocTreeItem[],
+  expanded: ReadonlySet<string>,
+  sort: FolderTreeSort = 'createdAt',
   pinnedFolderPaths: readonly string[] = [],
+  ownRootKeys: ReadonlySet<string> = new Set<string>(),
 ): VisibleTreeNode[] {
   const out: VisibleTreeNode[] = [];
   const pinnedFolderOrder = new Map<string, number>(
     pinnedFolderPaths.map((path, index): [string, number] => [canonicalDirectoryPath(path), index]),
   );
-  const walk = (items: DocTreeItem[], depth: number) => {
+  const walk = (items: readonly DocTreeItem[], depth: number) => {
     for (const item of [...items].sort((a, b) => compareTreeItems(sort, a, b, pinnedFolderOrder))) {
+      if (item.type === 'folder' && depth > 0 && ownRootKeys.has(canonicalPath(item.fullPath))) continue;
       out.push({ item, depth });
       if (item.type !== 'folder') continue;
       const key = canonicalPath(item.fullPath);
-      if (!state.expanded.has(key)) continue;
+      if (!expanded.has(key)) continue;
       const node = state.nodes.get(key);
       const children = node?.children;
       if (children && children.length > 0) {
@@ -902,6 +946,6 @@ export function flattenVisibleTree(
       }
     }
   };
-  walk(state.rootChildren, 0);
+  walk(roots, 0);
   return out;
 }

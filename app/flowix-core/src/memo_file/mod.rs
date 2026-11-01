@@ -23,6 +23,7 @@ mod database_layout;
 mod storage_repair;
 mod derivation;
 mod file_management;
+mod file_rules;
 mod file_io;
 pub(crate) mod frontmatter;
 mod index_store;
@@ -35,10 +36,12 @@ mod notebook_registry;
 mod onboarding;
 mod operation_locks;
 mod ops;
+mod pinned_entry;
 mod registration;
 pub(crate) mod time;
 pub mod types;
 mod note_index;
+mod tree_display;
 mod versions;
 
 pub use note_index::{
@@ -61,6 +64,8 @@ pub use file_io::{
 pub use file_management::{
     default_create_folder_for_notebook, rebase_default_create_folder_path, FileManagementPolicy,
 };
+pub use file_rules::EXCLUDED_DIRECTORY_NAMES;
+pub use tree_display::TreeVisibility;
 pub use frontmatter::{
     extract_body_content, extract_document_metadata, extract_frontmatter_properties,
     merge_frontmatter,
@@ -79,9 +84,10 @@ pub use media_resource::{
     media_kind_for_path, media_resource_id, resource_catalog_id, resource_kind_for_path, IndexedResource,
     IndexedResourcePage, MediaResource, MediaResourceKind, MediaResourcePage, ResourceKind,
 };
+pub use pinned_entry::{PinnedEntry, PinnedEntryPage};
 pub use migration::{DataMigrationReport, NotebookMigrationReport, LATEST_DATA_MIGRATION_VERSION};
 pub use ops::{
-    base_filename, filename_from_notebook_relative_path, is_ignored_notebook_relative_path,
+    base_filename, filename_from_notebook_relative_path,
     notebook_path_from_relative, notebook_relative_path, resolve_filename_conflict,
     resolve_relative_filename_conflict, sanitize_filename_component, IsMd,
 };

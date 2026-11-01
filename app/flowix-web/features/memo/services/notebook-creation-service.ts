@@ -120,7 +120,7 @@ async function ensureDefaultNoteFolder(notebook: Notebook): Promise<void> {
     // create_folder maps to fs::create_dir_all — idempotent when the folder
     // already exists (e.g. seeded by a template or pre-existing directory).
     await files.createFolder(notebook.path, folderName);
-    // Read-modify-write to preserve the notebook's file-management policy.
+    // Read-modify-write to keep any other stored preference fields.
     const preferences = await files.getNotebookViewPreferences(notebook.path);
     if ((preferences.defaultCreateFolder ?? null) !== folderName) {
       await files.setNotebookViewPreferences(notebook.path, {

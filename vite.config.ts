@@ -78,6 +78,13 @@ export default defineConfig(({ command }) => {
     build: {
       outDir: resolve(__dirname, ".build/web-dist"),
       emptyOutDir: true,
+      // 属性图标 (assets/property-icons/<包>/<分类>/*.svg) 有上千张, 默认
+      // assetsInlineLimit (4KB) 会把它们全部内联成 data URI 塞进 JS chunk
+      // (164 张时就已经占 260KB)。这里对这批文件关掉内联, 让它们作为独立
+      // 资源产出 —— picker 只渲染当前分类, 未展示的图标根本不会被请求。
+      assetsInlineLimit: (filePath) => (
+        filePath.includes("/assets/property-icons/") ? false : undefined
+      ),
       // The bundle budget follows the desktop startup graph through this
       // manifest instead of looking only at index.html.
       manifest: true,

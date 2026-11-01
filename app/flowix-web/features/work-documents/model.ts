@@ -7,6 +7,7 @@ import {
   type CollectionSource,
 } from '@features/collection/model';
 import { createUniqueNotebookFile } from '@features/collection/create-unique-notebook-file';
+import { ASSET_KINDS, type AssetKind } from '@features/collection/public/asset-filter-api';
 import { sanitizeFileName } from '@/lib/export-utils';
 
 export const WORK_DOCUMENT_KINDS = ['document', 'spreadsheet', 'presentation', 'web', 'archive', 'database'] as const;
@@ -19,7 +20,10 @@ export function workDocumentsResourceKindsChanged(resourceKinds?: readonly strin
 
 export interface WorkDocumentsFilterCondition {
   file_name_contains?: string;
+  /** 旧数据的单选类型条件；新写入统一用 `file_types`。 */
   file_type?: WorkDocumentsKind;
+  /** 多选类型条件：空/缺省 = 面板类目内全部。落盘为 kind 的 `in` 规则。 */
+  file_types?: WorkDocumentsKind[];
   path_contains?: string;
   path_scope?: 'all';
 }
@@ -38,7 +42,7 @@ export interface WorkDocumentsDocument {
       id: string;
       name: string;
       layout: 'gallery';
-      filter: { all: []; any: [] };
+      filter: Record<string, unknown>;
       sort: Array<{ field: 'modified_at'; direction: 'desc' }>;
       config: Record<string, never>;
     }>;
@@ -46,9 +50,12 @@ export interface WorkDocumentsDocument {
 }
 
 export function normalizeWorkDocumentsCondition(condition?: WorkDocumentsFilterCondition | null): WorkDocumentsFilterCondition {
+  const fileTypes = [...new Set((condition?.file_types ?? (condition?.file_type ? [condition.file_type] : []))
+    .filter((kind): kind is WorkDocumentsKind => WORK_DOCUMENT_KINDS.includes(kind as WorkDocumentsKind)))]
+    .sort((left, right) => WORK_DOCUMENT_KINDS.indexOf(left) - WORK_DOCUMENT_KINDS.indexOf(right));
   const normalized = {
     file_name_contains: condition?.file_name_contains?.trim() ?? '',
-    file_type: condition?.file_type ?? '',
+    file_types: fileTypes.length && fileTypes.length < WORK_DOCUMENT_KINDS.length ? fileTypes : undefined,
     path_contains: condition?.path_contains?.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') ?? '',
     path_scope: condition?.path_scope === 'all' ? 'all' : '',
   };
@@ -59,7 +66,9 @@ export function workDocumentsFilterFromCondition(condition?: WorkDocumentsFilter
   const normalized = normalizeWorkDocumentsCondition(condition);
   const conditions: Record<string, unknown>[] = [];
   if (normalized.file_name_contains) conditions.push({ field: 'file_name', op: 'contains', value: normalized.file_name_contains });
-  if (normalized.file_type) conditions.push({ field: 'kind', op: 'eq', value: normalized.file_type });
+  if (normalized.file_types?.length === 1) conditions.push({ field: 'kind', op: 'eq', value: normalized.file_types[0] });
+  else if (normalized.file_types?.length) conditions.push({ field: 'kind', op: 'in', value: normalized.file_types });
+  else if (normalized.file_type) conditions.push({ field: 'kind', op: 'eq', value: normalized.file_type });
   const path = normalized.path_scope === 'all' ? '' : normalized.path_contains || null;
   if (path === null && conditions.length === 0) return null;
   return { path, match: 'all', conditions };
@@ -75,6 +84,11 @@ export function workDocumentsConditionFromFilter(filter?: Record<string, unknown
     const rule = entry as Record<string, unknown>;
     if (rule.field === 'file_name' && rule.op === 'contains' && typeof rule.value === 'string') result.file_name_contains = rule.value;
     if (rule.field === 'kind' && rule.op === 'eq' && WORK_DOCUMENT_KINDS.includes(rule.value as WorkDocumentsKind)) result.file_type = rule.value as WorkDocumentsKind;
+    if (rule.field === 'kind' && rule.op === 'in' && Array.isArray(rule.value)) {
+      const kinds = rule.value.filter((value): value is WorkDocumentsKind => WORK_DOCUMENT_KINDS.includes(value as WorkDocumentsKind));
+      if (kinds.length === 1) result.file_type = kinds[0];
+      else if (kinds.length > 1) result.file_types = kinds;
+    }
   }
   return normalizeWorkDocumentsCondition(result);
 }
@@ -96,8 +110,11 @@ export function canEditWorkDocumentsFilter(filter?: Record<string, unknown> | nu
       || seenFields.has(rule.field)) return false;
     seenFields.add(rule.field);
     if (rule.field === 'file_name') return rule.op === 'contains' && typeof rule.value === 'string';
-    if (rule.field === 'kind') return rule.op === 'eq'
-      && WORK_DOCUMENT_KINDS.includes(rule.value as WorkDocumentsKind);
+    if (rule.field === 'kind') {
+      if (rule.op === 'eq' && WORK_DOCUMENT_KINDS.includes(rule.value as WorkDocumentsKind)) return true;
+      return rule.op === 'in' && Array.isArray(rule.value) && rule.value.length > 0
+        && rule.value.every((value) => ASSET_KINDS.includes(value as AssetKind));
+    }
     return false;
   });
 }
@@ -113,7 +130,7 @@ export function createWorkDocumentsCollection(name: string): WorkDocumentsDocume
       filter: null,
     },
     views: { default_id: viewId, items: [{
-      id: viewId, name: '工作文档', layout: 'gallery', filter: { all: [], any: [] },
+      id: viewId, name: '列表', layout: 'gallery', filter: { all: [], any: [] },
       sort: [{ field: 'modified_at', direction: 'desc' }], config: {},
     }] },
   };

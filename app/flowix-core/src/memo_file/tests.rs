@@ -1343,7 +1343,7 @@ fn reconcile_registers_root_and_nested_markdown_files() {
 }
 
 #[test]
-fn reconcile_indexes_user_and_agent_hidden_folders_but_skips_unrelated_directories() {
+fn reconcile_skips_every_hidden_folder_but_the_file_tree_keeps_showing_them() {
     let (mf, base) = fresh_memo_file();
     for directory in [
         ".agent",
@@ -1369,9 +1369,9 @@ fn reconcile_indexes_user_and_agent_hidden_folders_but_skips_unrelated_directori
     fs::write(base.join("docs/public/Visible.md"), "# Visible\n").unwrap();
 
     let report = mf.reconcile_with_disk_bidirectional().unwrap();
-    // Common user configuration and Agent folders are indexed; unrelated dot
-    // directories, dependency folders and attachment storage stay excluded.
-    assert_eq!(report.added, 7);
+    // Every dot-prefixed folder is invisible to the note index, including the
+    // user/agent workspaces the file tree still shows.
+    assert_eq!(report.added, 3);
     let indexed_paths = mf
         .read_all_memos()
         .into_iter()
@@ -1380,19 +1380,72 @@ fn reconcile_indexes_user_and_agent_hidden_folders_but_skips_unrelated_directori
     assert!(indexed_paths.contains("AGENTS.md"));
     assert!(indexed_paths.contains("docs/AGENTS.md"));
     assert!(indexed_paths.contains("docs/public/Visible.md"));
-    assert!(indexed_paths.contains(".agent/Ignored.md"));
-    assert!(indexed_paths.contains(".agents/Ignored.md"));
-    assert!(indexed_paths.contains(".vscode/Ignored.md"));
-    assert!(indexed_paths.contains("docs/.agents/Ignored.md"));
-    assert!(!indexed_paths.contains(".unrelated/Ignored.md"));
-    assert!(!indexed_paths.contains("docs/.drafts/Ignored.md"));
-    assert!(!indexed_paths.contains(".git/Ignored.md"));
-    assert!(!indexed_paths.contains("node_modules/pkg/Ignored.md"));
-    assert!(!indexed_paths.contains("attachments/Ignored.md"));
-    assert!(!indexed_paths.contains("attachments-cache/Ignored.md"));
-    assert!(!indexed_paths.contains("bower_components/Ignored.md"));
-    assert!(!indexed_paths.contains("__pycache__/Ignored.md"));
-    assert!(!indexed_paths.contains(".hidden-note.md"));
+    for excluded in [
+        ".agent/Ignored.md",
+        ".agents/Ignored.md",
+        ".vscode/Ignored.md",
+        "docs/.agents/Ignored.md",
+        ".unrelated/Ignored.md",
+        "docs/.drafts/Ignored.md",
+        ".git/Ignored.md",
+        "node_modules/pkg/Ignored.md",
+        "attachments/Ignored.md",
+        "attachments-cache/Ignored.md",
+        "bower_components/Ignored.md",
+        "__pycache__/Ignored.md",
+        ".hidden-note.md",
+    ] {
+        assert!(
+            !indexed_paths.contains(excluded),
+            "{excluded} must stay out of the note index"
+        );
+    }
+}
+
+#[test]
+fn hidden_folders_stay_in_the_file_tree_after_leaving_the_note_index() {
+    use super::FileManagementPolicy;
+    use std::path::Path;
+
+    let (mf, base) = fresh_memo_file();
+    fs::create_dir_all(base.join(".agents")).unwrap();
+    fs::write(base.join(".agents/Guide.md"), "# Guide\n").unwrap();
+    mf.reconcile_with_disk_bidirectional().unwrap();
+    let policy = FileManagementPolicy::from_notebook_root(&base);
+
+    // The file tree lists every folder on disk, so this Markdown can still be
+    // opened; it never becomes a note index row.
+    assert!(!policy.is_tree_hidden_at(&base, Path::new(".agents")));
+    assert!(!policy.is_tree_hidden_at(&base, Path::new(".agents/Guide.md")));
+    assert!(policy.is_index_hidden_at(&base, Path::new(".agents")));
+    assert!(policy.is_index_hidden_at(&base, Path::new(".agents/Guide.md")));
+    assert!(mf.read_all_memos().is_empty());
+}
+
+#[test]
+fn file_tree_lists_blacklist_folders_while_the_index_skips_them() {
+    use super::FileManagementPolicy;
+    use std::path::Path;
+
+    let (_mf, base) = fresh_memo_file();
+    let policy = FileManagementPolicy::default();
+    for name in super::EXCLUDED_DIRECTORY_NAMES {
+        let relative = Path::new(name);
+        fs::create_dir_all(base.join(relative)).unwrap();
+        assert!(
+            !policy.is_tree_hidden_at(&base, relative),
+            "{name} must stay browsable in the file tree"
+        );
+        assert!(
+            policy.is_index_hidden_at(&base, relative),
+            "{name} must stay out of the note index"
+        );
+    }
+    // App internals are the only folders the tree hides.
+    for name in [".flowix", ".plugin-output"] {
+        assert!(policy.is_tree_hidden_at(&base, Path::new(name)));
+        assert!(policy.is_index_hidden_at(&base, Path::new(name)));
+    }
 }
 
 #[test]

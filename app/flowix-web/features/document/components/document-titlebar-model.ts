@@ -41,9 +41,12 @@ export function resolveDocumentTitlebarTarget(
 
 /** Shared titlebar action button classes used by document and Agent titlebars. */
 export const DOCUMENT_TITLEBAR_ICON_BUTTON_MAC =
-  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors bg-[var(--bg-titlebar)] border border-[var(--border)]';
+  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors bg-[color-mix(in_srgb,var(--bg-titlebar)_72%,transparent)] border border-[var(--border)]';
 export const DOCUMENT_TITLEBAR_ICON_BUTTON_WIN =
   'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg transition-colors';
+/** macOS variant without the outer frame (no bg/border), used by the browser-column expand button. */
+export const DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS =
+  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors';
 
 export interface DocumentTitlebarProps {
   webAddressBarVisible?: boolean;
@@ -51,6 +54,7 @@ export interface DocumentTitlebarProps {
   reserveWindowsControls?: boolean;
   /** Surface-specific titlebar skin for non-editable document-like views. */
   surfaceChrome?: 'document' | 'media';
+  headerBackgroundColor?: string | null;
   /** Show Markdown editor typography controls in the More menu. */
   showEditorFontSwitcher?: boolean;
   /** Show the document source/rich or HTML source/preview toggle in the More menu. */
@@ -102,4 +106,9 @@ export interface DocumentTitlebarProps {
     isDefaultFolder: boolean;
     onToggleDefaultFolder: () => void;
   };
+  /**
+   * 当前 Work 面是集合时给出集合体地址：有文档/媒体操作菜单时将显示标题/头图并入该菜单；
+   * 文件夹入口没有其它操作菜单时，标题栏单独渲染集合显示菜单。
+   */
+  collectionDisplay?: { indexPath: string } | null;
 }

@@ -9,7 +9,7 @@ import { openWorkspaceSurface } from '@features/workspace/public/open-surface-ap
 import { setCollectionActiveView } from '@features/workspace/use-cases/collection-view-state';
 import { useBrowserColumnStore, type BrowserColumnEntry, type BrowserColumnWebRuntime } from '@features/workspace/store/browser-column-store';
 import { canonicalUrl } from '@features/workspace/store/workspace-content-identity';
-import type { WorkspaceSurfaceCapability, SurfaceAppearance, SurfaceHeaderStyle } from '@features/workspace/public/surface-api';
+import type { WorkspaceSurfaceCapability, SurfaceAppearance, SurfaceHeaderStyle, WorkspaceSurfaceKind } from '@features/workspace/public/surface-api';
 import type { FileBrowserViewSurface } from './file-browser-view';
 import { getWorkspaceSurfaceRendererDefinition, WorkspaceSurfaceRendererView } from './workspace-surface-renderer-registry';
 import type { ExternalDocumentProps, WorkspaceSurfaceRendererData, WorkspaceWebNavigationPort } from './workspace-surface-renderer-contract';
@@ -79,6 +79,7 @@ export type BrowserColumnSurfaceKind = BrowserColumnSurface['kind'];
 export type BrowserColumnSurfaceChrome = SurfaceHeaderStyle;
 
 export interface BrowserColumnSurfaceDefinition {
+  contentKind: WorkspaceSurfaceKind;
   appearance: Readonly<SurfaceAppearance>;
   chrome: BrowserColumnSurfaceChrome;
   capabilities: readonly BrowserColumnSurfaceCapability[];
@@ -237,7 +238,7 @@ function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible =
 /** Browser provides view data and navigation ports; all kinds use the common registry. */
 export function getBrowserColumnSurfaceDefinition(surface: BrowserColumnSurface): BrowserColumnSurfaceDefinition {
   const definition = getWorkspaceSurfaceRendererDefinition(browserSurfaceData(surface));
-  return { appearance: definition.appearance, chrome: definition.appearance.headerStyle,
+  return { contentKind: definition.kind, appearance: definition.appearance, chrome: definition.appearance.headerStyle,
     capabilities: definition.capabilities, render: () => <BrowserRegisteredSurfaceView surface={surface} focused={false} /> };
 }
 

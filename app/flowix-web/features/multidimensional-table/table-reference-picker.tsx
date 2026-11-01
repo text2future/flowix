@@ -19,6 +19,7 @@ import {
   type CollectionReferenceInsertRange,
   type CollectionReferencePickerAnchor,
 } from '@features/collection/reference-picker';
+import { collectionSourceDomain, collectionWriteContent } from '@features/collection/public/hybrid-api';
 
 function TableReferencePicker({ editor, replaceRange, generation, preferredViewType, ownerNotebookId }: {
   editor: Editor;
@@ -153,9 +154,10 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
           targetDocument = addedView.document;
           view = addedView.view;
         }
+        const writeDomain = collectionSourceDomain(source, 'table');
         const result = await externalDocuments.write({
           filePath,
-          content: serializeTableDocument(targetDocument),
+          content: collectionWriteContent({ source, domain: writeDomain, document: targetDocument, serialize: serializeTableDocument }),
           expectedContent: source,
           scopePath: candidate.notebookPath,
         });

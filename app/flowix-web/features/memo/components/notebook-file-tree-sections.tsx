@@ -5,8 +5,7 @@ import { ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
-import { TreeSectionEmptyState } from '@shared/ui/tree-section-empty-state';
-import type { CollectionIndexItem, DocTreeItem, MediaLibraryListItem, TableDocumentListItem } from '@platform/tauri/client';
+import type { PinnedTreeItem } from './use-notebook-pinned-notes';
 import { TREE_EDGE_GUTTER } from './notebook-tree-layout';
 
 interface SectionFrameProps {
@@ -42,8 +41,8 @@ function SectionHeader({ collapsed, onToggleCollapsed, sectionActions, title, to
 }
 
 interface NotebookPinnedSectionProps extends SectionFrameProps {
-  items: DocTreeItem[];
-  renderItem: (item: DocTreeItem) => ReactNode;
+  items: PinnedTreeItem[];
+  renderItem: (item: PinnedTreeItem) => ReactNode;
   hasPreviousPage: boolean;
   hasMoreItems: boolean;
   loadingMore: boolean;
@@ -103,60 +102,6 @@ export function NotebookPinnedSection({
           </div>
         )}
       </div>}
-    </section>
-  );
-}
-
-interface NotebookViewsSectionProps extends SectionFrameProps {
-  tables: TableDocumentListItem[];
-  mediaLibraries: MediaLibraryListItem[];
-  workDocuments?: CollectionIndexItem[];
-  renderWorkDocuments?: (item: CollectionIndexItem) => ReactNode;
-  renderTable: (item: TableDocumentListItem) => ReactNode;
-  renderMediaLibrary: (item: MediaLibraryListItem) => ReactNode;
-  onHideSection: () => void;
-}
-
-export function NotebookViewsSection({
-  order,
-  collapsed,
-  onToggleCollapsed,
-  sectionActions,
-  tables,
-  mediaLibraries,
-  renderTable,
-  renderMediaLibrary,
-  workDocuments = [],
-  renderWorkDocuments,
-  onHideSection,
-}: NotebookViewsSectionProps) {
-  const { t } = useI18n();
-  const isEmpty = tables.length === 0 && mediaLibraries.length === 0 && workDocuments.length === 0;
-
-  return (
-    <section
-      className="pb-3"
-      aria-label={t('memo.fileTree.viewsSectionTitle')}
-      data-notebook-views-section="true"
-      style={{ order }}
-    >
-      <SectionHeader collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} sectionActions={sectionActions}
-        title={t('memo.fileTree.viewsSectionTitle')}
-        toggleLabel={t(collapsed ? 'memo.fileTree.expandViews' : 'memo.fileTree.collapseViews')} />
-      {!collapsed && (isEmpty ? (
-        <TreeSectionEmptyState
-          message={t('memo.fileTree.sectionEmpty')}
-          hideLabel={t('memo.fileTree.sectionEmptyHide')}
-          onHide={onHideSection}
-          edgeGutter={TREE_EDGE_GUTTER}
-        />
-      ) : (
-        <div className="space-y-0.5">
-          {tables.map(renderTable)}
-          {mediaLibraries.map(renderMediaLibrary)}
-          {renderWorkDocuments && workDocuments.map(renderWorkDocuments)}
-        </div>
-      ))}
     </section>
   );
 }

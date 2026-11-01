@@ -4,7 +4,7 @@ import { getNotebookVideoPreview } from './video-preview-cache';
 const MAX_ACTIVE_PREVIEWS = 2;
 const MAX_REMEMBERED_RESULTS = 256;
 
-type PreviewKind = 'image' | 'video';
+type PreviewKind = 'image' | 'video' | 'document';
 type JobState = 'queued' | 'running' | 'complete';
 
 interface PreviewJob {
@@ -42,6 +42,15 @@ async function loadPreview(job: PreviewJob): Promise<string | null> {
       job.notebookPath,
       job.requestId,
     );
+  }
+  // 文档预览（pdf/html/office…）：Rust 端走系统 Quick Look，出不了图返回 null，由卡片回落文件图标。
+  if (job.kind === 'document') {
+    try {
+      const cachedFile = await mediaResources.thumbnail(job.filePath, job.notebookPath, 'document', job.requestId);
+      return cachedFile ? files.toAssetUrl(cachedFile) : null;
+    } catch {
+      return null;
+    }
   }
   const extension = job.filePath.split('.').pop()?.toLowerCase();
   // SVG is rendered by the browser; the raster thumbnail encoder cannot decode it.

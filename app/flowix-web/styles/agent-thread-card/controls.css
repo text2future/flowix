@@ -350,15 +350,6 @@ html[data-platform="mac"] .agent-thread-card__body-frame > .agent-thread-card__b
   background: var(--agent-bg, var(--document-bg));
 }
 
-/* Standalone, Browser Column and fullscreen Agent titlebars share the
- * conversation surface color and the editor's titlebar fade. */
-.agent-conversation-titlebar,
-.agent-surface-titlebar {
-  background-color: var(--agent-bg, var(--document-bg));
-  background-image: var(--titlebar-gradient);
-}
-
-
 /* Keep the relocated control's shape identical to the Thread Card's former
  * fullscreen button: transparent, borderless, and 28px square. Its error
  * color makes the exit action easier to spot in the titlebar. */

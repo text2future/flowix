@@ -1,8 +1,7 @@
+import { useWorkspaceHeaderFullscreen } from '@features/workspace/public/header-api';
 import { useEffect, useState } from 'react';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
-import { normalizeAgentTypeKey } from '@/lib/agent-types';
-import type { AgentTypeKey } from '@/types/agent';
 import type { WorkspaceHostId } from '@features/workspace/public/host-api';
 import { ICON_FULLSCREEN_EXIT_PATH } from '@features/agent/thread-card/agent-thread-card-icons';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
@@ -10,99 +9,20 @@ import type { AgentConversationInstance } from '@features/agent/store/agent-conv
 import { AgentConversationMoreMenu } from '@features/agent/components/agent-conversation-more-menu';
 import { AgentConversationIdentity } from '@features/agent/components/agent-conversation-identity';
 
-const AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT =
-  'flowix:agent-thread-card-fullscreen-change';
 const AGENT_THREAD_CARD_FULLSCREEN_RENAME_EVENT =
   'flowix:agent-thread-card-fullscreen-rename';
 const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
   'flowix:agent-thread-card-request-fullscreen';
 
-interface AgentThreadCardFullscreenInfo {
-  title: string;
-  typeKey: AgentTypeKey;
-  /** Agent conversation instance id — used to look up runtime info (sessionId, cwd) for the badge hover card. */
-  instanceId: string | null;
-  /** Provider/external thread id, when the conversation has been bound to one. */
-  threadId: string | null;
-}
-
-/**
- * Which workspace column's chrome should react to a fullscreen Thread Card.
- * A fullscreen card is `position: fixed` but keeps its DOM position, so the
- * hosting column resolves reliably through the closest [data-workspace-host]
- * ancestor — each column only reacts to its own cards.
- */
+/** Fullscreen state is published by its owning card, scoped to one host. */
 export type AgentThreadCardFullscreenHost = WorkspaceHostId;
 
-function getFullscreenAgentThreadCard(
-  host: AgentThreadCardFullscreenHost,
-): HTMLElement | null {
-  if (typeof document === 'undefined') return null;
-  // Only the active browser-column tab stays mounted, so at most one card per
-  // host can be fullscreen; the first host match wins.
-  const cards = document.querySelectorAll<HTMLElement>('.agent-thread-card--fullscreen');
-  for (const card of cards) {
-    if (card.closest(`[data-workspace-host="${host}"]`)) return card;
-  }
-  return null;
+export function useAgentThreadCardFullscreenActive(host: AgentThreadCardFullscreenHost = 'main-third'): boolean {
+  return useWorkspaceHeaderFullscreen(host) !== null;
 }
 
-function hasFullscreenAgentThreadCard(host: AgentThreadCardFullscreenHost): boolean {
-  return getFullscreenAgentThreadCard(host) !== null;
-}
-
-function getFullscreenAgentThreadCardInfo(
-  host: AgentThreadCardFullscreenHost,
-): AgentThreadCardFullscreenInfo | null {
-  const card = getFullscreenAgentThreadCard(host);
-  if (!card) return null;
-
-  const instanceId = card.dataset.instanceId?.trim() || null;
-  const threadId = card.dataset.threadId?.trim() || null;
-  return {
-    title: card.dataset.title?.trim() ?? '',
-    typeKey: normalizeAgentTypeKey(card.dataset.agentType),
-    instanceId,
-    threadId,
-  };
-}
-
-export function useAgentThreadCardFullscreenActive(
-  host: AgentThreadCardFullscreenHost = 'main-third',
-): boolean {
-  const [active, setActive] = useState(false);
-
-  useEffect(() => {
-    const update = () => setActive(hasFullscreenAgentThreadCard(host));
-    update();
-
-    window.addEventListener(AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT, update);
-
-    return () => {
-      window.removeEventListener(AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT, update);
-    };
-  }, [host]);
-
-  return active;
-}
-
-export function useFullscreenAgentThreadCardInfo(
-  host: AgentThreadCardFullscreenHost = 'main-third',
-): AgentThreadCardFullscreenInfo | null {
-  const [info, setInfo] = useState<AgentThreadCardFullscreenInfo | null>(null);
-
-  useEffect(() => {
-    const update = () => setInfo(getFullscreenAgentThreadCardInfo(host));
-    update();
-
-    window.addEventListener(AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT, update);
-
-    return () => {
-      window.removeEventListener(AGENT_THREAD_CARD_FULLSCREEN_CHANGE_EVENT, update);
-    };
-  }, [host]);
-
-  return info;
+export function useFullscreenAgentThreadCardInfo(host: AgentThreadCardFullscreenHost = 'main-third') {
+  return useWorkspaceHeaderFullscreen(host);
 }
 
 /** The exit affordance for an embedded fullscreen Thread Card. */

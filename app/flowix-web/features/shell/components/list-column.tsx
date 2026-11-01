@@ -19,6 +19,7 @@ interface ListColumnProps {
   selectedNotebook: Notebook | null;
   noteNavigationPhase: NoteNavigationDrawerPhase;
   onCollapseMemoList: () => void;
+  onExpandSidebar: () => void;
   onOpenPreferences: (tab?: string) => void;
   onPreviewEnter: () => void;
   onPreviewLeave: () => void;
@@ -30,18 +31,21 @@ function ListColumnTitlebar({
   previewVisible,
   selectedNotebook,
   onCollapseMemoList,
+  onExpandSidebar,
   onOpenPreferences,
 }: Pick<
   ListColumnProps,
   | 'previewVisible'
   | 'selectedNotebook'
   | 'onCollapseMemoList'
+  | 'onExpandSidebar'
   | 'onOpenPreferences'
 >) {
   const props = {
     isPreview: previewVisible,
     selectedNotebook,
     onCollapseMemoList,
+    onExpandSidebar,
     onOpenPreferences,
   };
 
@@ -64,6 +68,7 @@ export function ListColumn({
   selectedNotebook,
   noteNavigationPhase,
   onCollapseMemoList,
+  onExpandSidebar,
   onOpenPreferences,
   onPreviewEnter,
   onPreviewLeave,
@@ -172,10 +177,11 @@ export function ListColumn({
         <ListColumnTitlebar
           previewVisible={previewVisible}
           selectedNotebook={selectedNotebook}
-          // In the hover preview the same control closes the popover. The
-          // memo list is already hidden, so collapsing it again would not
-          // dismiss the preview.
-          onCollapseMemoList={previewVisible ? onPreviewLeave : onCollapseMemoList}
+          onCollapseMemoList={onCollapseMemoList}
+          // The preview's top-right button expands the docked sidebar. Once
+          // the list is visible again the preview dismisses on its own (the
+          // hover-preview hook is disabled while the list is docked).
+          onExpandSidebar={onExpandSidebar}
           onOpenPreferences={onOpenPreferences}
         />
         <div className="relative min-h-0 flex-1">

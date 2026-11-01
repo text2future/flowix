@@ -1,3 +1,4 @@
+mod package_seed;
 mod runtime;
 mod shell;
 mod skill_resources;

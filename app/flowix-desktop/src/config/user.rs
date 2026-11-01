@@ -222,6 +222,13 @@ pub struct PreferenceFile {
     /// Maximum number of recent agent conversations shown in the notebook file tree.
     #[serde(default = "default_recent_agent_conversations_limit")]
     pub recent_agent_conversations_limit: u8,
+    /// 访问空间（文件树）是否展示点开头的隐藏文件夹。只影响列举，不影响索引。
+    #[serde(default = "default_true")]
+    pub space_show_hidden_folders: bool,
+    /// 访问空间（文件树）是否展示 attachments / node_modules 等系统文件夹。
+    /// 默认关闭：这些目录绝大多数情况下是噪音，需要在偏好设置里显式打开。
+    #[serde(default)]
+    pub space_show_system_folders: bool,
     /// User shortcut overrides keyed by action id.
     #[serde(default)]
     pub shortcuts: HashMap<String, String>,
@@ -263,6 +270,8 @@ impl Default for PreferenceFile {
             memo_list_view: "folders".to_string(),
             auto_open_created_notes_in_browser: true,
             recent_agent_conversations_limit: 6,
+            space_show_hidden_folders: true,
+            space_show_system_folders: false,
             shortcuts: HashMap::default(),
             properties: PropertiesConfig::default(),
             agents: AgentsConfig::default(),

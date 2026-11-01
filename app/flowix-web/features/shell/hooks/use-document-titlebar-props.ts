@@ -1,3 +1,4 @@
+import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { useState } from 'react';
 
 import { canonicalPath, notebookRelativeDirectoryPath, parentDirectoryPath } from '@/lib/path';
@@ -8,6 +9,7 @@ import {
 } from '@features/document/public/shell-api';
 import {
   resolveWorkColumnRuntimePresentation,
+  collectionIndexPath,
   useWorkspaceSurfacePresentation,
   type WorkColumnPresentation,
 } from '@features/surface/public/shell-api';
@@ -107,19 +109,26 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     && workColumnPresentation.content.surface.kind === 'web'
     ? workColumnPresentation.content.surface.instanceKey : null;
   const workWebAddressBarVisible = workWebSurfaceId !== null && addressBarWorkSurfaceId === workWebSurfaceId;
+  const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
+    ? workColumnPresentation.content.surface : null);
+
+  const source = workColumnPresentation.content.status === 'surface' ? workColumnPresentation.content.surface : null;
+  const header = resolveWorkspaceHeaderModel({
+    chrome: workHeaderStyle, contentKind: workRuntimePresentation.contentKind ?? workColumnPresentation.contentKind,
+    sourceKind: source?.kind === 'md' ? 'file-markdown' : source?.kind === 'html-file' ? 'file-html' : null,
+    capabilities: workCapabilities,
+  });
 
   return {
+    headerBackgroundColor: workRuntimePresentation.headerBackgroundColor,
     webAddressBarVisible: workWebAddressBarVisible,
     onToggleWebAddressBar: workWebSurfaceId === null ? undefined : () => {
       setAddressBarWorkSurfaceId(workWebAddressBarVisible ? null : workWebSurfaceId);
     },
     reserveWindowsControls: !browserColumnVisible,
     surfaceChrome: workHeaderStyle === 'media' ? 'media' as const : 'document' as const,
-    showEditorFontSwitcher: workColumnPresentation.content.status === 'surface'
-      && workCapabilities.includes('edit')
-      && workColumnPresentation.content.surface.kind === 'md',
-    showEditorModeToggle: workColumnPresentation.content.status === 'surface'
-      && (workColumnPresentation.content.surface.kind === 'md' || workColumnPresentation.content.surface.kind === 'html-file'),
+    showEditorFontSwitcher: header.showEditorFontSwitcher,
+    showEditorModeToggle: header.showEditorModeToggle,
     editorMode: mainEditorMode,
     onSetEditorMode: handleSetMainEditorMode,
     document: {
@@ -147,13 +156,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
       title: workRuntimePresentation.title,
       icon: workRuntimePresentation.icon,
     },
-    contentCapabilities: {
-      copyFullText: workCapabilities.includes('copy-content'),
-      memoColors: workCapabilities.includes('memo-colors'),
-      exportContent: workCapabilities.includes('export-content'),
-      saveAsTemplate: workCapabilities.includes('save-template'),
-      versionHistory: workCapabilities.includes('version-history'),
-    },
+    contentCapabilities: header.documentControls,
     actions: {
       onCopyLink: handleCopyLink,
       onCopyFullText: handleCopyFullText,
@@ -169,6 +172,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
       },
     },
     mediaActions,
+    collectionDisplay: collectionPath ? { indexPath: collectionPath } : null,
     folderCollectionViewType: navigationState.target.kind === 'collection'
       && canonicalPath(navigationState.target.filePath).endsWith('/.index.yaml')
       && navigationState.target.notebookId

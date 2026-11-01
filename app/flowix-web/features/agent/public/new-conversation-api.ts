@@ -28,3 +28,15 @@ export function createAndOpenPiConversation(): void {
     'agent:create-and-open-pi-conversation',
   );
 }
+
+export function createAndOpenAgentConversationWithPrompt(
+  typeKey: AgentTypeKey,
+  notebookId: string | null,
+  prompt: string,
+): void {
+  fireAndForget(
+    import('@features/agent/use-cases/new-conversation')
+      .then((module) => module.createAndOpenAgentConversationWithPrompt(typeKey, notebookId, prompt)),
+    'agent:create-and-open-conversation-with-prompt',
+  );
+}

@@ -19,9 +19,9 @@ vi.mock('@platform/tauri/notebook-change-events', () => ({
 }));
 
 it('syncs preferences for the same notebook and ignores stale reads after an edit', async () => {
-  // 'more' 是新增的 section；顺序数组必须与 DEFAULT_TREE_SECTION_ORDER 等长，
-  // 否则归一化会补位，导致 update 后的期望值与实际值长度不一致。
-  const order: NotebookTreeSection[] = ['agents', 'pinned', 'views', 'files', 'repositories', 'more'];
+  // 顺序数组必须与 DEFAULT_TREE_SECTION_ORDER 等长，否则归一化会补位，
+  // 导致 update 后的期望值与实际值长度不一致。
+  const order: NotebookTreeSection[] = ['agents', 'pinned', 'files', 'repositories', 'more'];
   let resolveRead!: (preferences: { sectionOrder: NotebookTreeSection[]; hiddenSections: NotebookTreeHiddenSection[] }) => void;
   const staleRead = new Promise<{ sectionOrder: NotebookTreeSection[]; hiddenSections: NotebookTreeHiddenSection[] }>((resolve) => { resolveRead = resolve; });
   system.getNotebookFileTreePreferences.mockImplementation((id: string) => id === 'first'

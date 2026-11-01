@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useCollectionTitleVisibility } from '@/lib/collection-title-visibility';
 import { useI18n } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
@@ -9,8 +10,6 @@ import { mutateCollectionFile } from '@features/collection/mutations';
 import { useTitleEditCaret } from '@shared/hooks/use-title-edit-caret';
 import type { useTableSession } from './use-table-session';
 
-const TABLE_TITLE_VISIBILITY_STORAGE_KEY = 'flowix:multidimensional-table:title-visible';
-const TABLE_TITLE_VISIBILITY_EVENT = 'flowix:multidimensional-table:title-visibility-changed';
 const logger = createLogger('table-title');
 
 interface Options {
@@ -25,36 +24,8 @@ interface Options {
 export function useTableTitle({ session, filePath: currentFilePath, setFilePath: setCurrentFilePath, notebookPath, editable, onFilePathChange }: Options) {
   const { t } = useI18n();
   const { document, saving, setSaving, reportSaveFailure, setNotes, resolvedNotebookId, acceptContent, loadSequenceRef, isCurrentSession } = session;
-  const [showTableTitle, setShowTableTitle] = useState(true);
-  useEffect(() => {
-    const readVisibility = () => {
-      try {
-        setShowTableTitle(window.localStorage.getItem(TABLE_TITLE_VISIBILITY_STORAGE_KEY) !== 'false');
-      } catch {
-        setShowTableTitle(true);
-      }
-    };
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === TABLE_TITLE_VISIBILITY_STORAGE_KEY || event.key === null) readVisibility();
-    };
-    readVisibility();
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener(TABLE_TITLE_VISIBILITY_EVENT, readVisibility);
-    return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener(TABLE_TITLE_VISIBILITY_EVENT, readVisibility);
-    };
-  }, []);
-  const toggleTableTitleVisibility = useCallback(() => {
-    const next = !showTableTitle;
-    setShowTableTitle(next);
-    try {
-      window.localStorage.setItem(TABLE_TITLE_VISIBILITY_STORAGE_KEY, String(next));
-      window.dispatchEvent(new Event(TABLE_TITLE_VISIBILITY_EVENT));
-    } catch {
-      // Keep the visibility toggle usable when local storage is unavailable.
-    }
-  }, [showTableTitle]);
+  // 集合名称的显示偏好由外壳与表格共用（见 lib/collection-title-visibility）。
+  const { titleVisible: showTableTitle, toggleTitleVisibility: toggleTableTitleVisibility } = useCollectionTitleVisibility();
   const [editingTableName, setEditingTableName] = useState(false);
   const [tableNameDraft, setTableNameDraft] = useState('');
   const [renamingTable, setRenamingTable] = useState(false);

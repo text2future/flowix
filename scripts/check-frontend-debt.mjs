@@ -22,14 +22,14 @@ const MAX_DIRECT_CONSOLE_CALLS = 106;
 // 搬迁（如 T2 domain 下沉的纯 git mv）需同步更新这里的路径，行数不变不算增长。
 const MAX_NEW_FILE_LINES = 1000;
 const FROZEN_FILES = {
-  'features/multidimensional-table/table-document-view.tsx': 2024,
+  'features/multidimensional-table/table-document-view.tsx': 1890,
   'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2457,
   'lib/i18n/messages.en-US.ts': { lines: 2374, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2346, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
   'features/agent/thread-card/agent-thread-card-view.tsx': 2076,
-  'features/memo/components/notebook-file-tree.tsx': 1657,
-  'features/memo/components/notebook-file-tree.test.tsx': 1567,
+  'features/memo/components/notebook-file-tree.tsx': 1419,
+  'features/memo/components/notebook-file-tree.test.tsx': 1499,
   'features/memo/components/memo-list.tsx': 1450,
   'features/workspace/use-cases/workspace-navigation.ts': 1358,
   'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1261,

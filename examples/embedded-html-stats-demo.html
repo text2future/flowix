@@ -1,0 +1,255 @@
+<!--
+  Flowix 嵌入 HTML 数据框架示例
+  =====================================================
+  框架已实装（数据桥），用法分两种：
+
+  1) 声明式（推荐，零 JS）：
+     <meta name="flowix-data" content="stats views">
+     content 为数据源列表，key 对应：
+       stats        -> notebook-stats   （笔记/标签统计）
+       views        -> notebook-views   （集合与视图）
+       custom-views -> notebook-custom-views（自定义视图过滤器）
+     桥自动拉取、合并为 { stats, views, ... } 并解析模板。
+
+  2) 命令式：window.flowix.request(kind, params?) -> Promise<payload>
+       request('notebook-stats')
+       request('notebook-views')
+       request('view-data', { relativePath, viewId?, limit? })
+         -> 按集合文件+视图 id 读取视图数据行：
+            表格/媒体库 => 行含 title/tags/properties（frontmatter 字段值，
+                           fields[].propertyKey 指明列到属性的映射）
+            文件夹集合  => 目录内文档列表
+       window.flowix.render(root) 手动渲染，onData(cb) 订阅更新
+
+  模板语法：
+    data-fx-text="stats.totalMemos"             文本插值
+    data-fx-attr="style:item.barWidth"          属性绑定
+    <template data-fx-each="views.collections"> 列表循环（可嵌套）
+    data-fx-if="views.collections.length > 0"   条件显示（==/!=/>/</>=/<=）
+
+  本文件在 Flowix 中预览时走真实数据；直接用浏览器打开时
+  走底部 MOCK 降级（同一套 data-fx 约定），便于离线调试样式。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="flowix-data" content="stats views">
+<title>笔记本统计仪表盘</title>
+<style>
+  :root {
+    --fx-bg: #ffffff;
+    --fx-fg: #2c2c2a;
+    --fx-muted: #888780;
+    --fx-surface: #f1efe8;
+    --fx-accent: #378add;
+    --fx-accent-soft: #e1f5ee;
+    --fx-chip-bg: #cecbf6;
+    --fx-chip-fg: #3c3489;
+    --fx-radius: 10px;
+  }
+  body { font-family: -apple-system, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; background: var(--fx-bg); color: var(--fx-fg); }
+  h1 { font-size: 18px; } h2 { font-size: 14px; color: var(--fx-muted); }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .card { background: var(--fx-surface); border-radius: var(--fx-radius); padding: 12px; }
+  .card b { display: block; font-size: 22px; }
+  .card span { font-size: 12px; color: var(--fx-muted); }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .bar-bg { flex: 1; height: 8px; background: #ececec; border-radius: 4px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--fx-accent); }
+  .view { background: var(--fx-accent-soft); border-radius: 8px; padding: 8px 12px; margin: 6px 0; font-size: 13px; }
+  .tag { display: inline-block; background: var(--fx-chip-bg); color: var(--fx-chip-fg); border-radius: 4px; padding: 1px 8px; margin-right: 6px; font-size: 12px; }
+  .pill { display: inline-block; background: #ececec; border-radius: 4px; padding: 1px 8px; margin-right: 6px; font-size: 12px; color: var(--fx-muted); }
+  #rows .line { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid #f0efeb; font-size: 13px; }
+  #rows .line b { flex: 1; font-weight: 400; }
+</style>
+</head>
+<body>
+
+<h1>📊 笔记本统计</h1>
+<div class="cards">
+  <div class="card"><b data-fx-text="stats.totalMemos">–</b><span>备忘总数</span></div>
+  <div class="card"><b data-fx-text="stats.todoMemos">–</b><span>待办</span></div>
+  <div class="card"><b data-fx-text="stats.agentMemos">–</b><span>Agent 备忘</span></div>
+  <div class="card"><b data-fx-text="stats.memoCount">–</b><span>索引笔记数</span></div>
+</div>
+
+<h2>标签用量</h2>
+<template data-fx-each="stats.topTags">
+  <div class="row">
+    <span class="tag" data-fx-text="item.name">tag</span>
+    <div class="bar-bg"><div class="bar" data-fx-attr="style:item.barWidth"></div></div>
+    <span data-fx-text="item.count">0</span>
+  </div>
+</template>
+
+<h2>集合视图</h2>
+<template data-fx-each="views.collections">
+  <div class="view">
+    <b data-fx-text="item.name">视图</b>
+    <span class="pill" data-fx-text="item.type">table</span>
+    <template data-fx-each="item.views">
+      <span class="pill" data-fx-text="view.name">视图</span>
+      <span class="pill" data-fx-text="view.layout">layout</span>
+    </template>
+  </div>
+</template>
+
+<p data-fx-if="views.collections.length == 0" style="color: var(--fx-muted); font-size: 13px;">
+  当前笔记本还没有集合视图。
+</p>
+
+<h2>视图数据（命令式 request('view-data')）</h2>
+<div id="rows" style="color: var(--fx-muted); font-size: 13px;">加载中…</div>
+
+<script>
+// ---------- 共用 MOCK（浏览器直开降级） ----------
+const MOCK = {
+  'notebook-stats': {
+    totalMemos: 128, todoMemos: 23, agentMemos: 9, memoCount: 128,
+    topTags: [
+      { name: '#进行中', count: 42, barWidth: '100%' },
+      { name: '#idea', count: 31, barWidth: '74%' },
+      { name: '#阅读', count: 18, barWidth: '43%' }
+    ]
+  },
+  'notebook-views': {
+    collections: [
+      { name: '产品文档', type: 'table', relativePath: 'docs.index.yaml', inViews: true, defaultViewId: 'v1',
+        views: [ { id: 'v1', name: '全部', layout: 'table' }, { id: 'v2', name: '按状态', layout: 'board' } ] },
+      { name: '设计素材', type: 'media_library', relativePath: 'assets.lib.yaml', inViews: true, defaultViewId: 'w1',
+        views: [ { id: 'w1', name: '瀑布流', layout: 'waterfall' } ] },
+      { name: '工作文档', type: 'work_documents', relativePath: 'work.index.yaml', inViews: false, views: [] }
+    ]
+  },
+  'view-data': {
+    collection: { name: '产品文档', type: 'table', relativePath: 'docs.index.yaml' },
+    viewId: 'v1',
+    fields: [ { id: 'f1', name: '状态', type: 'text', propertyKey: 'status' } ],
+    rows: [
+      { id: 'r1', notePath: 'notes/a.md', title: '白板功能 PRD', updatedAt: 1799990000000, tags: ['#进行中'], properties: { status: '评审中' } },
+      { id: 'r2', notePath: 'notes/b.md', title: 'Agent OS 调研', updatedAt: 1799980000000, tags: ['#idea'], properties: { status: '草稿' } },
+      { id: 'r3', notePath: 'notes/c.md', title: '咖啡品牌视觉稿', updatedAt: 1799970000000, tags: [], properties: { status: '已发布' } }
+    ],
+    truncated: false
+  }
+};
+
+// ---------- 浏览器直开降级：与桥同一套 data-fx 语义 ----------
+if (!window.flowix) {
+  const getPath = (scope, path) => String(path ?? '').trim().split('.')
+    .reduce((v, k) => (v == null ? v : v[k]), scope);
+  const CONDITION = /^([\w.$]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/;
+  const evaluate = (expr, lookup) => {
+    const text = String(expr ?? '').trim();
+    const match = text.match(CONDITION);
+    if (!match) { const v = lookup(text); return Array.isArray(v) ? v.length > 0 : Boolean(v); }
+    const left = lookup(match[1]);
+    const raw = match[3].trim().replace(/^["']|["']$/g, '');
+    const num = Number(raw);
+    const right = raw !== '' && !Number.isNaN(num) ? num : raw;
+    switch (match[2]) {
+      case '==': return left === right;
+      case '!=': return left !== right;
+      case '>=': return left >= right;
+      case '<=': return left <= right;
+      case '>': return left > right;
+      case '<': return left < right;
+      default: return false;
+    }
+  };
+  const bind = (fragment, local, root) => {
+    const lookup = (path) => { const v = getPath(local, path); return v === undefined ? getPath(root, path) : v; };
+    fragment.querySelectorAll('template[data-fx-each]').forEach((tpl) => {
+      const list = lookup(tpl.getAttribute('data-fx-each'));
+      let node = tpl.nextElementSibling;
+      while (node && node.hasAttribute('data-fx-rendered')) { const n = node.nextElementSibling; node.remove(); node = n; }
+      if (!Array.isArray(list)) return;
+      let cursor = tpl;
+      for (const item of list) {
+        const clone = tpl.content.cloneNode(true);
+        bind(clone, { ...local, item }, root);
+        let child = clone.firstElementChild;
+        while (child) { child.setAttribute('data-fx-rendered', ''); child = child.nextElementSibling; }
+        const last = clone.lastElementChild;
+        cursor.parentNode.insertBefore(clone, cursor.nextSibling);
+        if (last) cursor = last;
+      }
+    });
+    fragment.querySelectorAll('[data-fx-text]').forEach((el) => {
+      if (el.closest('[data-fx-rendered]')) return;
+      const value = lookup(el.getAttribute('data-fx-text'));
+      el.textContent = value == null ? '' : String(value);
+    });
+    fragment.querySelectorAll('[data-fx-attr]').forEach((el) => {
+      if (el.closest('[data-fx-rendered]')) return;
+      const d = String(el.getAttribute('data-fx-attr') ?? ''); const i = d.indexOf(':');
+      if (i <= 0) return;
+      el.setAttribute(d.slice(0, i).trim(), lookup(d.slice(i + 1)) ?? '');
+    });
+    fragment.querySelectorAll('[data-fx-if]').forEach((el) => {
+      if (el.closest('[data-fx-rendered]')) return;
+      el.hidden = !evaluate(el.getAttribute('data-fx-if'), lookup);
+    });
+  };
+  const root = { stats: MOCK['notebook-stats'], views: MOCK['notebook-views'] };
+  const start = () => bind(document, {}, root);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+}
+
+// ---------- 视图数据：命令式 request('view-data') ----------
+(async () => {
+  const container = document.getElementById('rows');
+  const renderRows = (data) => {
+    container.textContent = '';
+    container.style.color = '';
+    const statusKey = data.fields.find((f) => f.propertyKey)?.propertyKey;
+    for (const row of data.rows) {
+      const line = document.createElement('div');
+      line.className = 'line';
+      const title = document.createElement('b');
+      title.textContent = row.title || row.notePath;
+      line.appendChild(title);
+      for (const tag of row.tags.slice(0, 3)) {
+        const chip = document.createElement('span');
+        chip.className = 'tag';
+        chip.textContent = tag;
+        line.appendChild(chip);
+      }
+      const status = statusKey ? row.properties[statusKey] : null;
+      if (status != null) {
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.textContent = String(status);
+        line.appendChild(pill);
+      }
+      container.appendChild(line);
+    }
+    if (data.truncated) {
+      const more = document.createElement('div');
+      more.style.color = 'var(--fx-muted)';
+      more.textContent = '…仅显示前一部分数据行';
+      container.appendChild(more);
+    }
+    if (!data.rows.length) container.textContent = '该视图暂无数据行。';
+  };
+
+  if (!window.flowix) { renderRows(MOCK['view-data']); return; }
+  try {
+    const views = await window.flowix.request('notebook-views');
+    const target = (views.collections ?? []).find((entry) => entry.views?.length > 0);
+    if (!target) { container.textContent = '当前笔记本没有包含视图的集合。'; return; }
+    const data = await window.flowix.request('view-data', {
+      relativePath: target.relativePath,
+      viewId: target.views[0].id,
+      limit: 20,
+    });
+    renderRows(data);
+  } catch (error) {
+    container.textContent = '读取失败：' + (error?.message ?? error);
+  }
+})();
+</script>
+</body>
+</html>

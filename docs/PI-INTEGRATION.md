@@ -35,6 +35,24 @@ Pi session with the persisted Pi session ID and the updated runtime settings.
   runtime in each app. Release CI prepares the runtime for each target before
   generating its Tauri resource configuration.
 
+## Vendored Pi packages
+
+The staging script installs a pinned list of Pi packages
+(`npm:pi-subagents@0.79.2`, the sub-agent capability) into every staged
+resource as `pi/<target>/pi-agent`, so the packaged app ships them without a
+runtime `pi install` (which would require npm and network access on the user's
+machine). Set `FLOWIX_PI_SKIP_PACKAGES=1` to stage without vendored packages.
+
+On the first RPC launch of each process, Flowix seeds the vendored tree into
+the user's Pi agent directory (`agent_external/pi/package_seed.rs`): files are
+copied (never overwriting user-owned files such as `auth.json`, `mcp.json`, or
+`sessions`), and the vendored `packages` declarations are merged into
+`settings.json` without touching other user settings. A digest marker at
+`packages-seed.json` makes repeat launches a no-op until the bundled tree
+changes. Seeding is best-effort: failures are logged to the runtime log and
+never block launching Pi, which stays fully functional without the vendored
+packages.
+
 Production packages always include Pi. Their updater endpoint remains the
 regular platform endpoint unless `FLOWIX_UPDATER_ENDPOINT_PI_MACOS`,
 `FLOWIX_UPDATER_ENDPOINT_PI_WINDOWS`, or `FLOWIX_UPDATER_ENDPOINT_PI_LINUX` is

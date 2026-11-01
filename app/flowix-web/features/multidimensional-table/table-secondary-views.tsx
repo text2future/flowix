@@ -17,6 +17,7 @@ import { useTableNoteDropTarget, type TableNoteDropTargetRejection } from './use
 import { KANBAN_UNASSIGNED_GROUP_ID } from './view-index';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
+import { formatUpdatedAgo } from '@/lib/collection-updated-time';
 import { beginDragSession, cancelDragSession, endDragSession, moveDragSession, registerDropTarget, suppressTextSelectionForDrag } from '@shared/drag-drop/drag-drop-coordinator';
 import type { DragPayload, DropPreview } from '@shared/drag-drop/drag-drop-coordinator';
 import { isMarkdownNoteDragResource, type NotebookNoteDragResource } from '@features/memo/public/drag-resource-api';
@@ -41,22 +42,6 @@ function calendarCardColorStyle(color?: string): CSSProperties | undefined {
     '--multidimensional-table-calendar-card-background': `color-mix(in oklch, ${color} 20%, transparent)`,
     '--multidimensional-table-calendar-card-hover-background': `color-mix(in oklch, ${color} 30%, transparent)`,
   } as CSSProperties;
-}
-
-function formatGalleryUpdatedAt(timestamp: string): string {
-  const updatedAt = Date.parse(timestamp);
-  if (!Number.isFinite(updatedAt)) return '更新时间未知';
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
-  if (elapsedSeconds < 60) return '更新 刚刚';
-  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-  if (elapsedMinutes < 60) return `更新 ${elapsedMinutes}分钟前`;
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `更新 ${elapsedHours}小时前`;
-  const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays < 30) return `更新 ${elapsedDays}天前`;
-  const elapsedMonths = Math.floor(elapsedDays / 30);
-  if (elapsedMonths < 12) return `更新 ${elapsedMonths}个月前`;
-  return `更新 ${Math.floor(elapsedMonths / 12)}年前`;
 }
 
 export function TableGalleryView({ records, titleField, fields, renderValue, imageUrl, noteThumbnail, onOpenRecord, onCreateBlankNote, onChooseData, recordStatus, noteIcon, canAddData = true, dropNotebookId, canDropExternal = false, previewExternalNoteDrop, nextRecordId, dropAreaRef, onExternalNoteDrop }: {
@@ -159,7 +144,7 @@ export function TableGalleryView({ records, titleField, fields, renderValue, ima
   const renderedRecords = dropPreview?.records ?? records;
 
   return <div ref={galleryRef} className="multidimensional-table__gallery relative flex-1 px-5">
-    <div className="multidimensional-table__gallery-grid grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,160px),1fr))] items-stretch gap-3.5 pt-3">
+    <div className="multidimensional-table__gallery-grid grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,160px),1fr))] items-stretch gap-3.5">
       {renderedRecords.length === 0 && (onCreateBlankNote || onChooseData) ? <div className="col-span-full flex min-h-10 items-center justify-start gap-2 text-sm text-[var(--muted-foreground)]">
         {onCreateBlankNote && <button
           type="button"
@@ -236,7 +221,7 @@ export function TableGalleryView({ records, titleField, fields, renderValue, ima
                 <span className={`block min-w-0 truncate text-sm font-medium leading-5 ${missing ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]'}`}>{renderValue(record, titleField)}</span>
               </span>
               <span className="mt-0.5 block truncate text-xs leading-4 text-[var(--muted-foreground)]">
-                {formatGalleryUpdatedAt(record.updated_at)}
+                {formatUpdatedAgo(record.updated_at, t)}
               </span>
             </span>
           </span>
@@ -843,8 +828,8 @@ export function TableCalendarView({ cursor, onCursorChange, days, groups, dateFi
     resetDrag();
   };
 
-  return <div ref={calendarRef} className="multidimensional-table__calendar mx-0 flex min-h-0 flex-1 flex-col pt-0">
-    <header className={`flex shrink-0 items-center justify-between pb-1 ${embeddedInEditor ? '' : 'px-4'}`}>
+  return <div ref={calendarRef} className={`multidimensional-table__calendar mx-0 flex min-h-0 flex-1 flex-col pt-0 ${embeddedInEditor ? '' : 'px-4'}`}>
+    <header className="flex shrink-0 items-center justify-between pb-1">
       <div className="flex min-w-0 items-center gap-2">
           <DropdownMenu onOpenChange={(open) => { if (!open) setWeekStartMenuOpen(false); }}>
             <DropdownMenuTrigger asChild>

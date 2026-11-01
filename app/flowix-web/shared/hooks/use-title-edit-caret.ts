@@ -34,6 +34,11 @@ export function useTitleEditCaret(editing: boolean) {
     let closestOffset = 0;
     let closestDistance = Infinity;
     const range = doc.createRange();
+    // 少数环境（服务端渲染/测试文档）没有 Range 几何信息：退回「光标放到末尾」。
+    if (typeof range.getBoundingClientRect !== 'function') {
+      pendingOffset.current = null;
+      return;
+    }
     for (const character of text.textContent ?? '') {
       const end = index + character.length;
       range.setStart(text, index);

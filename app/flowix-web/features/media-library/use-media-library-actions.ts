@@ -9,9 +9,7 @@ import { importMediaLibraryFiles } from './media-import';
 
 type PersistMutation = (
   mutate: (current: MediaLibraryDocument) => MediaLibraryDocument,
-  targetPath?: string,
-  lockAlreadyHeld?: boolean,
-  initialDocument?: MediaLibraryDocument,
+  options?: { baseline?: MediaLibraryDocument; lockAlreadyHeld?: boolean },
 ) => Promise<boolean>;
 
 interface MediaLibraryActionsOptions {
@@ -21,6 +19,7 @@ interface MediaLibraryActionsOptions {
   notebookId: string | null;
   currentFilePath: string;
   saving: boolean;
+  editable?: boolean;
   setSaving: Dispatch<SetStateAction<boolean>>;
   sourceContentRef: MutableRefObject<string | null>;
   saveInFlightRef: MutableRefObject<boolean>;
@@ -30,11 +29,11 @@ interface MediaLibraryActionsOptions {
 }
 
 export function useMediaLibraryActions({
-  document, setDocument, notebookPath, notebookId, currentFilePath, saving, setSaving,
+  document, setDocument, notebookPath, notebookId, currentFilePath, saving, editable = true, setSaving,
   sourceContentRef, saveInFlightRef, persistMutation, reportSaveFailure, t,
 }: MediaLibraryActionsOptions) {
   const addMedia = useCallback(async (): Promise<boolean> => {
-    if (!document || !notebookPath || !notebookId || saving || saveInFlightRef.current) return false;
+    if (!editable || !document || !notebookPath || !notebookId || saving || saveInFlightRef.current) return false;
     const selectedPaths = await dialogs.selectFiles({ accept: 'media/*', multiple: true });
     if (!selectedPaths?.length) return false;
     if (saveInFlightRef.current) {
@@ -56,7 +55,7 @@ export function useMediaLibraryActions({
     try {
       const result = await importMediaLibraryFiles({
         paths: validPaths, notebookId, notebookPath, filePath: currentFilePath, document: latestDocument,
-        persist: (mutate) => persistMutation(mutate, currentFilePath, true, latestDocument),
+        persist: (mutate) => persistMutation(mutate, { baseline: latestDocument, lockAlreadyHeld: true }),
         readLatest: async () => parseMediaLibrary(await externalDocuments.read(currentFilePath, notebookPath)),
       });
       if (result.recordSaveFailed) toast.error(result.cleanupFailed
@@ -74,10 +73,10 @@ export function useMediaLibraryActions({
       saveInFlightRef.current = false;
       setSaving(false);
     }
-  }, [currentFilePath, document, notebookId, notebookPath, persistMutation, reportSaveFailure, saving, setSaving, t]);
+  }, [currentFilePath, document, notebookId, notebookPath, persistMutation, reportSaveFailure, saveInFlightRef, saving, setSaving, sourceContentRef, t, editable]);
 
   const deleteMedia = useCallback(async (item: DocumentPageItem): Promise<boolean> => {
-    if (!document || !notebookPath || saving || saveInFlightRef.current) return false;
+    if (!editable || !document || !notebookPath || saving || saveInFlightRef.current) return false;
     const root = canonicalDirectoryPath(notebookPath);
     const filePath = canonicalPath(item.fullPath);
     const rootPrefix = root === '/' ? '/' : `${root}/`;
@@ -102,7 +101,7 @@ export function useMediaLibraryActions({
             include: current.dataset.records.include.filter((record) => record.relative_path.toLocaleLowerCase() !== relativePath.toLocaleLowerCase()),
           } },
         });
-        const saved = await persistMutation(removeRecord, currentFilePath, true, latestDocument);
+        const saved = await persistMutation(removeRecord, { baseline: latestDocument, lockAlreadyHeld: true });
         if (!saved) {
           const latest = sourceContentRef.current ? parseMediaLibrary(sourceContentRef.current) : latestDocument;
           setDocument(removeRecord(latest));
@@ -118,7 +117,7 @@ export function useMediaLibraryActions({
       saveInFlightRef.current = false;
       setSaving(false);
     }
-  }, [currentFilePath, document, notebookPath, persistMutation, reportSaveFailure, saving, setSaving, t]);
+  }, [document, notebookPath, persistMutation, reportSaveFailure, saveInFlightRef, saving, setDocument, setSaving, sourceContentRef, t, editable]);
 
   return { addMedia, deleteMedia };
 }

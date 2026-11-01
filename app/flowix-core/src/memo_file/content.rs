@@ -88,7 +88,7 @@ impl MemoFile {
                     &entry.relative_path
                 };
                 let relative = std::path::Path::new(relative_path);
-                !policy.is_index_ignored_at(root, relative)
+                !policy.is_index_hidden_at(root, relative)
             })
             .map(MemoFile::index_entry_to_memo)
             .collect();
@@ -255,7 +255,7 @@ impl MemoFile {
         list.memos
             .into_iter()
             .filter(|e| !e.relative_path.is_empty())
-            .filter(|entry| !policy.is_index_ignored_at(&base, std::path::Path::new(&entry.relative_path)))
+            .filter(|entry| !policy.is_index_hidden_at(&base, std::path::Path::new(&entry.relative_path)))
             .map(|entry| {
                 let path = super::notebook_path_from_relative(&base, &entry.relative_path)
                     .unwrap_or_else(|_| base.join(&entry.filename));

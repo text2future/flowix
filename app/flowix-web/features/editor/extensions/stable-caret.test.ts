@@ -493,6 +493,60 @@ describe.each(['composer', 'document'] as const)('%s local caret layer', (scope)
     expect(frames.size).toBe(0);
   });
 
+  it('keeps the caret inside a padded inline box instead of on its border', () => {
+    const { coords } = mount();
+    editor.commands.setContent('<p><code>hah</code></p>');
+    const glyph = { left: 160, right: 190, top: 50, bottom: 76, width: 30, height: 26 };
+    vi.spyOn(document, 'createRange').mockImplementation(() => ({
+      setStart: () => {},
+      setEnd: () => {},
+      getBoundingClientRect: () => glyph,
+    }) as unknown as Range);
+    // coordsAtPos describes the inline element's border box: one padding+border
+    // gap to the right of the last glyph.
+    coords.mockReturnValue({ left: 196, right: 196, top: 50, bottom: 76 });
+    editor.commands.setTextSelection(4);
+    flush();
+    expect(caret.style.left).toBe('150px');
+  });
+
+  it('keeps the reported geometry when the last glyph has no layout box', () => {
+    const { coords } = mount();
+    editor.commands.setContent('<p><code>hah </code></p>');
+    vi.spyOn(document, 'createRange').mockImplementation(() => ({
+      setStart: () => {},
+      setEnd: () => {},
+      getBoundingClientRect: () => ({ left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }),
+    }) as unknown as Range);
+    coords.mockReturnValue({ left: 196, right: 196, top: 50, bottom: 76 });
+    editor.commands.setTextSelection(5);
+    flush();
+    expect(caret.style.left).toBe('156px');
+  });
+
+  it('keeps the reported geometry inside a text run and at plain glyph edges', () => {
+    const { coords } = mount();
+    editor.commands.setContent('<p><code>hah</code> tail</p>');
+    const glyph = { left: 160, right: 190, top: 50, bottom: 76, width: 30, height: 26 };
+    const createRange = vi.spyOn(document, 'createRange').mockImplementation(() => ({
+      setStart: () => {},
+      setEnd: () => {},
+      getBoundingClientRect: () => glyph,
+    }) as unknown as Range);
+    coords.mockReturnValue({ left: 196, right: 196, top: 50, bottom: 76 });
+    // Mid-run: the browser already reports the next glyph.
+    editor.commands.setTextSelection(2);
+    flush();
+    expect(createRange).not.toHaveBeenCalled();
+    expect(caret.style.left).toBe('156px');
+    // End of the code box with trailing text: the reported edge is the next
+    // character, one padding+border gap past the last glyph.
+    coords.mockReturnValue({ left: 200, right: 200, top: 50, bottom: 76 });
+    editor.commands.setTextSelection(4);
+    flush();
+    expect(caret.style.left).toBe('150px');
+  });
+
   it('releases observers, pending frames and the layer when destroyed', async () => {
     const { input, coords } = mount();
     resize(input);

@@ -60,6 +60,26 @@ describe('remote page scrollbar host', () => {
     );
   });
 
+  it('reports a viewport bar that stayed native and stays quiet otherwise', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    disconnect = connectWebFrameScrollbar(iframe);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: window, data: { type: 'flowix:web-frame-scrollbar-status', suppressed: true, gutter: 15 },
+    }));
+    expect(warn).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: iframe.contentWindow, data: { type: 'flowix:web-frame-scrollbar-status', suppressed: true, gutter: 15 },
+    }));
+    expect(warn).toHaveBeenCalledOnce();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: iframe.contentWindow, data: { type: 'flowix:web-frame-scrollbar-status', suppressed: false, gutter: 0 },
+    }));
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
   it('uses the stronger macOS weight and stops after disconnect', () => {
     document.documentElement.dataset.os = 'mac';
     const post = vi.spyOn(iframe.contentWindow!, 'postMessage');
@@ -150,16 +170,35 @@ describe('remote page scrollbar runtime', () => {
     expect(css).toContain(`[${overlayAttribute}] { scrollbar-width: none !important;`);
   });
 
-  it('falls back to the native bar when it refuses to collapse', async () => {
+  it('keeps the overlay when the viewport bar refuses to collapse', async () => {
+    vi.useFakeTimers();
     Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 4000 });
     Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: 768 });
     Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: 1009 });
-    window.eval(runtime);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(content.hasAttribute(overlayAttribute)).toBe(false);
-    expect(document.getElementById('flowix-overlay-scroll-layer')).toBeNull();
-    Reflect.deleteProperty(document.documentElement, 'scrollHeight');
-    Reflect.deleteProperty(document.documentElement, 'clientWidth');
+    try {
+      window.eval(runtime);
+      await vi.advanceTimersByTimeAsync(1200);
+      // The stylesheet and the layer stay: element scrollers keep their collapsed
+      // bars. The viewport itself is demoted — scrolling moves to <body>, whose
+      // element scrollbar always collapses, so the document never keeps a gutter.
+      expect(document.getElementById('flowix-overlay-scroll-style')).not.toBeNull();
+      expect(content.hasAttribute(overlayAttribute)).toBe(true);
+      expect(document.getElementById('flowix-overlay-scroll-layer')).not.toBeNull();
+      const css = document.getElementById('flowix-overlay-scroll-style')?.textContent ?? '';
+      expect(css).toContain('position: fixed !important');
+      // The demotion keeps both axes scrollable: the horizontal thumb still
+      // has overflow to track after <body> becomes the scroller.
+      expect(css).toContain('overflow-x: auto !important');
+      expect(parent.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'flowix:web-frame-scrollbar-status', mode: 'body-scroller' }),
+        '*',
+      );
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document.documentElement, 'scrollHeight');
+      Reflect.deleteProperty(document.documentElement, 'clientHeight');
+      Reflect.deleteProperty(document.documentElement, 'clientWidth');
+    }
   });
 
   it('reveals the thumb on scroll and hides it after the delay', async () => {
@@ -175,6 +214,25 @@ describe('remote page scrollbar runtime', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(thumb('v')!.style.opacity).toBe('0');
     vi.useRealTimers();
+  });
+
+  it('paints and reveals the horizontal thumb like the vertical one', () => {
+    const wide = document.createElement('div');
+    scrollable(wide, 200, 200);
+    Object.defineProperty(wide, 'scrollWidth', { configurable: true, value: 1000 });
+    document.body.append(wide);
+    try {
+      window.eval(runtime);
+      // Adopted during start()'s sweep, so the paint already ran.
+      const horizontal = thumb('h')!;
+      expect(horizontal.style.display).toBe('');
+      expect(horizontal.style.height).toBe('6px');
+      expect(horizontal.style.width).not.toBe('');
+      wide.dispatchEvent(new Event('scroll'));
+      expect(horizontal.style.opacity).toBe('1');
+    } finally {
+      wide.remove();
+    }
   });
 
   it('adopts containers that only become scrollable after load', () => {

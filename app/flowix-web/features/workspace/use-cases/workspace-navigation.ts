@@ -2,8 +2,7 @@ import { flushBrowserViewBeforeOpeningWork } from './prepare-browser-document-fo
 import { NavigationCancelledError } from '@/lib/navigation-cancelled-error';
 import { ensureCollectionDisplay, bindCollectionDisplayPath, findCollectionDisplayPath } from '@/lib/collection-display-registry';
 import { collections, externalDocuments, files, notebooks } from '@platform/tauri/client';
-import { collectionDisplayName, parseCollectionDocumentV2 } from '@features/collection/model';
-import { createFolderCollectionContent } from '@features/collection/folder-collection';
+import { parseCollectionDocumentV2 } from '@features/collection/model';
 import { repairCollectionFile, inspectCollectionRecoveryType } from '@features/collection/recovery';
 import { captureFileBrowserContext } from './file-browser-context';
 import { notes as notesClient, type PluginDescriptor, type MarkdownLocation } from '@platform/tauri/client';
@@ -430,74 +429,54 @@ async function openCollectionFile(filePath: string, notebookPath: string | null,
   }
   await openCollectionTarget({ notebookId: notebook.id, collectionId: envelope.collection.id, filePath }, options);
 }
+/**
+ * 打开文件夹集合 ── **旧入口，只服务历史回放里的 `document-list` 条目**。
+ *
+ * 它以前自己写 `.index.yaml`（v2 单类型模板），而「点文件夹 → 文件夹首页」
+ * （`openFolderCollectionFromFolder`）在缺集合时是点域 tab 才 ensure 成 v3 hybrid：
+ * 同一个动作有两条建集合路径，产出两种文件，首次打开的头图与文件树操作区也因此
+ * 各走一套渲染。现在统一走后者 —— 这里不再写盘，建集合只剩
+ * `ensureFolderCollection` 一条路径（模板唯一：v3 hybrid）。
+ */
 export async function openFolderCollection(
   notebookId: string,
   path: string,
-  options?: { history?: 'push' | 'skip'; initialType?: 'notes' | 'media'; destination?: 'main-third' | 'browser-column'; restoreRequestId?: number },
+  options?: { history?: 'push' | 'skip'; restoreRequestId?: number },
 ): Promise<void> {
   if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
-  const workspace = getWorkspaceMemoState();
   const folderPath = canonicalDirectoryPath(path);
-  const notebook = notebookId
-    ? workspace.notebooks.find((item) => item.id === notebookId)
-    : workspace.notebooks.find((item) => notebookRelativeDirectoryPath(item.path, folderPath) !== null);
-  if (!notebook) {
-    throw new Error('无法确定文件夹所属笔记本');
-  }
-  const relativeFolder = notebookRelativeDirectoryPath(notebook.path, folderPath);
-  if (relativeFolder === null) throw new Error('文件夹不属于当前笔记本');
+  const workspace = getWorkspaceMemoState();
+  const notebook = (notebookId ? workspace.notebooks.find((item) => item.id === notebookId) : undefined)
+    ?? workspace.notebooks.find((item) => notebookRelativeDirectoryPath(item.path, folderPath) !== null);
+  if (!notebook) throw new Error('无法确定文件夹所属笔记本');
+  if (notebookRelativeDirectoryPath(notebook.path, folderPath) === null) throw new Error('文件夹不属于当前笔记本');
   const indexPath = `${folderPath}/.index.yaml`;
-  let source = await files.read(indexPath, notebook.path);
+  // 已有但损坏的集合保留「格式无效 + 修复入口」这一条诊断（不再顺带建文件）。
+  const source = await files.read(indexPath, notebook.path);
   if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
-  if (source === null) {
-    const folderName = folderPath.split('/').filter(Boolean).pop() ?? notebook.name;
-    const content = createFolderCollectionContent(options?.initialType ?? 'notes', folderName, relativeFolder);
-    try {
-      if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
-      await files.create(indexPath, content, notebook.path);
-      source = content;
-    } catch (error) {
-      // Another click may have created the same index while this one was waiting.
-      source = await files.read(indexPath, notebook.path);
-      if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
-      if (source === null) throw error;
+  if (source !== null) {
+    try { parseCollectionDocumentV2(source); }
+    catch {
+      await openCollectionFileDirectly(
+        indexPath, notebook.path, notebook.id, inspectCollectionRecoveryType(source, indexPath),
+        '集合文件格式无效', options?.history ?? 'push',
+      );
+      return;
     }
   }
-  let envelope: ReturnType<typeof parseCollectionDocumentV2>;
-  try { envelope = parseCollectionDocumentV2(source); }
-  catch {
-    await openCollectionFileDirectly(indexPath, notebook.path, notebook.id, inspectCollectionRecoveryType(source, indexPath), '集合文件格式无效', options?.history ?? 'push');
-    return;
-  }
-  if (envelope.collection.placement !== 'folder') throw new Error('文件夹 .index.yaml 必须声明 placement: folder');
-  if (options?.destination === 'browser-column') {
-    const viewId = (envelope.payload.views as { default_id?: string }).default_id ?? null;
-    const descriptor = ensureCollectionDisplay({ notebookId: notebook.id, collectionId: envelope.collection.id, viewId });
-    bindCollectionDisplayPath(descriptor.displayId, indexPath);
-    const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
-    if (!isRestoreRequestCurrent(options?.restoreRequestId)) return;
-    await openWorkspaceSurface({
-      host: 'browser-column',
-      target: {
-        kind: 'collection',
-        ...descriptor,
-        filePath: indexPath,
-        notebookPath: canonicalDirectoryPath(notebook.path),
-        collectionType: envelope.collection.type,
-        name: collectionDisplayName(indexPath, envelope.collection.placement),
-      },
-    });
-    return;
-  }
-  await openCollectionTarget({
-    notebookId: notebook.id,
-    collectionId: envelope.collection.id,
-    viewId: (envelope.payload.views as { default_id?: string }).default_id,
-    filePath: indexPath,
-  }, { history: options?.history, restoreRequestId: options?.restoreRequestId });
+  const folderName = folderPath.split(/[\\/]/).filter(Boolean).pop() ?? notebook.name;
+  await openFolderCollectionChooserTarget(
+    { kind: 'folder-collection', folderPath, notebookId: notebook.id, notebookPath: notebook.path, folderName },
+    options?.restoreRequestId,
+    options?.history ?? 'skip',
+  );
 }
 
-export async function openFolderCollectionChooserTarget(target: FolderCollectionSurfaceTarget, restoreRequestId?: number): Promise<void> {
+export async function openFolderCollectionChooserTarget(
+  target: FolderCollectionSurfaceTarget,
+  restoreRequestId?: number,
+  history: 'push' | 'skip' = 'skip',
+): Promise<void> {
   if (!isRestoreRequestCurrent(restoreRequestId)) return;
   const notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === target.notebookId);
   if (!notebook || notebookRelativeDirectoryPath(notebook.path, target.folderPath) === null) {
@@ -510,37 +489,20 @@ export async function openFolderCollectionChooserTarget(target: FolderCollection
     if (isCurrentNavigation(requestId)) useWorkColumnStore.getState().failNavigation(requestId, error);
     throw error;
   }
-  if (isCurrentNavigation(requestId)) commitNavigation(requestId, target, 'skip');
+  if (isCurrentNavigation(requestId)) commitNavigation(requestId, target, history);
 }
 
 export async function openFolderCollectionFromFolder(
   notebookId: string,
   path: string,
   host: WorkspaceHostId = 'main-third',
+  options?: { history?: 'push' | 'skip' },
 ): Promise<void> {
   const folderPath = canonicalDirectoryPath(path);
   const notebook = getWorkspaceMemoState().notebooks.find((item) => item.id === notebookId);
   if (!notebook) throw new Error('无法确定文件夹所属笔记本');
-  // Folder metadata is part of the click's navigation intent. Reserve before
-  // reading so newer opens, clears and notebook switches retire this request.
-  const requestId = host === 'main-third'
-    ? useWorkColumnStore.getState().reserveNavigationIntent() : undefined;
-  const indexPath = `${folderPath}/.index.yaml`;
-  const source = await files.read(indexPath, notebook.path);
-  if (!isRestoreRequestCurrent(requestId)) return;
-  let hasReadableFolderCollection = false;
-  if (source !== null) {
-    try {
-      const envelope = parseCollectionDocumentV2(source);
-      hasReadableFolderCollection = envelope.collection.placement === 'folder';
-    } catch {
-      // Unreadable or malformed folder metadata falls through to the chooser.
-    }
-  }
-  if (hasReadableFolderCollection) {
-    await openFolderCollection(notebookId, folderPath, { destination: host, restoreRequestId: requestId });
-    return;
-  }
+  // 任意文件夹点击统一进「文件夹首页」（FolderHomeView），不再因为存在可读的
+  // .index.yaml 就直接跳进集合视图；集合入口由首页里的笔记 / 媒体库 tab 提供。
   const folderName = folderPath.split(/[\\/]/).filter(Boolean).pop() ?? notebook.name;
   const target: FolderCollectionSurfaceTarget = {
     kind: 'folder-collection', folderPath, notebookId, notebookPath: notebook.path, folderName,
@@ -549,7 +511,8 @@ export async function openFolderCollectionFromFolder(
     const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
     await openWorkspaceSurface({ host, target });
   } else {
-    await openFolderCollectionChooserTarget(target, requestId);
+    // 用户点击默认入栈（历史前进/后退可回到文件夹首页）；恢复流程显式传 'skip'。
+    await openFolderCollectionChooserTarget(target, undefined, options?.history ?? 'push');
   }
 }
 
@@ -646,6 +609,8 @@ export function historyEntryFromWorkColumnTarget(
   target: WorkColumnTarget,
 ): DocumentHistoryEntry | null {
   switch (target.kind) {
+    case 'folder-collection':
+      return { kind: 'folder-collection', folderPath: target.folderPath, notebookId: target.notebookId, openedAt: Date.now() };
     case 'collection':
       return { kind: 'collection', displayId: target.displayId, notebookId: target.notebookId, collectionId: target.collectionId, viewId: target.viewId, relativePathHint: target.filePath.startsWith(`${target.notebookPath}/`) ? target.filePath.slice(target.notebookPath.length + 1) : undefined, openedAt: Date.now() };
     case 'external': {

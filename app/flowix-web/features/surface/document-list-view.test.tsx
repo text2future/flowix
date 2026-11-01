@@ -1,3 +1,4 @@
+import { CollectionScrollContext } from '@shared/ui/collection-scroll-context';
 import { Component, act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,11 +9,12 @@ import type { DocumentListViewContext } from './document-list-view-model';
 const probe = vi.hoisted(() => ({
   read: vi.fn<(request: unknown) => Promise<DocumentPage>>(),
   mediaRead: vi.fn<(...args: unknown[]) => Promise<MediaResourcePage>>(),
+  intersectionRoots: [] as Array<IntersectionObserverInit['root']>,
   listeners: new Map<string, Set<(payload: unknown) => void>>(),
 }));
 vi.mock('@platform/tauri/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@platform/tauri/client')>();
-  return { ...actual, files: { ...actual.files, listDocumentPage: probe.read }, mediaResources: { ...actual.mediaResources, listPage: probe.mediaRead } };
+  return { ...actual, files: { ...actual.files, listDocumentPage: probe.read, listWorkDocumentsPage: probe.read }, mediaResources: { ...actual.mediaResources, listPage: probe.mediaRead } };
 });
 vi.mock('@platform/tauri/event-bus', () => ({ subscribe: (event: string, listener: (payload: unknown) => void) => {
   const listeners = probe.listeners.get(event) ?? new Set();
@@ -47,8 +49,12 @@ describe('DocumentListView folder loading', () => {
     probe.read.mockReset();
     probe.mediaRead.mockReset();
     probe.listeners.clear();
+    probe.intersectionRoots = [];
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} unobserve() {} });
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(_callback: IntersectionObserverCallback, options?: IntersectionObserverInit) { probe.intersectionRoots.push(options?.root); }
+      observe() {} disconnect() {} unobserve() {}
+    });
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
       () => new DOMRect(0, 0, 600, 600),
     );
@@ -86,6 +92,23 @@ describe('DocumentListView folder loading', () => {
     ));
   }
 
+  it('列表按所选视图筛选文件，切换视图不混入媒体专用类型限制', async () => {
+    probe.read.mockResolvedValue({ ...emptyPage, items: [
+      { name: 'report.pdf', fullPath: '/notes/empty/report.pdf', resourceKind: 'other', assetKind: 'document', sizeBytes: 4, modifiedMs: 1, createdMs: 1 },
+      { name: 'sheet.xlsx', fullPath: '/notes/empty/sheet.xlsx', resourceKind: 'other', assetKind: 'spreadsheet', sizeBytes: 4, modifiedMs: 1, createdMs: 1 },
+    ] });
+    const context = { ...listContext, workDocumentsFilter: { path_scope: 'all' as const } };
+    const props = { listContext: context, workDocuments: true };
+    await act(async () => root.render(<DocumentListView {...props}
+      assetViewFilter={{ all: [{ field: 'kind', op: 'eq', value: 'document' }], any: [] }} />));
+    expect(host.textContent).toContain('report');
+    expect(host.textContent).not.toContain('sheet');
+    await act(async () => root.render(<DocumentListView {...props}
+      assetViewFilter={{ all: [{ field: 'kind', op: 'eq', value: 'spreadsheet' }], any: [] }} />));
+    expect(host.textContent).toContain('sheet');
+    expect(host.textContent).not.toContain('report');
+  });
+
   it('requests an empty folder once and exits loading when it resolves', async () => {
     let resolve!: (page: DocumentPage) => void;
     respondWith(new Promise<DocumentPage>((done) => { resolve = done; }));
@@ -98,6 +121,53 @@ describe('DocumentListView folder loading', () => {
     expect(host.textContent).not.toContain('正在整理文件列表');
     await render();
     expect(probe.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('嵌入集合时等待操作槽，不回退为第二行标题，并跟随槽位替换', async () => {
+    respondWith(Promise.resolve(emptyPage));
+    const show = async (target: HTMLElement | null) => {
+      await act(async () => root.render(<DocumentListView listContext={listContext} actionsHost={{ target }} />));
+    };
+    const firstSlot = document.createElement('div');
+    const nextSlot = document.createElement('div');
+    document.body.append(firstSlot, nextSlot);
+    try {
+      await show(null);
+      expect(host.querySelector('button')).toBeNull();
+      await show(firstSlot);
+      expect(firstSlot.querySelector('button')).not.toBeNull();
+      expect(host.querySelector('button')).toBeNull();
+      await show(nextSlot);
+      expect(firstSlot.childElementCount).toBe(0);
+      expect(nextSlot.querySelector('button')).not.toBeNull();
+      await show(null);
+      expect(nextSlot.childElementCount).toBe(0);
+      expect(host.querySelector('button')).toBeNull();
+      expect(probe.read).toHaveBeenCalledTimes(1);
+    } finally {
+      await show(null);
+      firstSlot.remove();
+      nextSlot.remove();
+    }
+  });
+
+  it('集合 tab 操作区隐藏媒体条数，独立列表仍保留统计', async () => {
+    probe.mediaRead.mockResolvedValue(mediaPage('counts'));
+    const scopedSurface: DocumentListViewContext = {
+      ...listContext, displayId: 'counted-library', filters: { resourceKinds: ['image'] },
+      mediaScope: { relativePath: 'counts', depth: 'descendants' },
+    };
+    const actionsSlot = document.createElement('div');
+    document.body.append(actionsSlot);
+    try {
+      await act(async () => root.render(<DocumentListView listContext={scopedSurface} mediaLibrary actionsHost={{ target: actionsSlot }} />));
+      expect(actionsSlot.textContent).not.toContain('1 项');
+
+      await act(async () => root.render(<DocumentListView listContext={scopedSurface} mediaLibrary />));
+      expect(host.textContent).toContain('1 项');
+    } finally {
+      actionsSlot.remove();
+    }
   });
 
   it('renders directory entries and reloads when the selected folder changes', async () => {
@@ -194,7 +264,7 @@ describe('DocumentListView folder loading', () => {
     expect(host.querySelector('[title="photo.png"]')).not.toBeNull();
   });
 
-  it('mounts only nearby cards for a large media library', async () => {
+  it.each([false, true])('mounts only nearby cards for a large media library (pageScroll=%s)', async (pageScroll) => {
     probe.mediaRead.mockResolvedValue({
       ...mediaPage('large'),
       resources: Array.from({ length: 1000 }, (_, index) => ({
@@ -218,7 +288,13 @@ describe('DocumentListView folder loading', () => {
       mediaScope: { relativePath: 'large', depth: 'descendants' },
     };
 
-    await act(async () => root.render(<DocumentListView listContext={scopedSurface} mediaLibrary />));
+    await act(async () => root.render(<CollectionScrollContext value={host}>
+      <DocumentListView listContext={scopedSurface} mediaLibrary pageScroll={pageScroll} />
+    </CollectionScrollContext>));
+    if (pageScroll) {
+      expect(host.querySelector('.overflow-auto')).toBeNull();
+      expect(probe.intersectionRoots).toContain(host);
+    }
 
     const mountedCards = host.querySelectorAll('[title$=".png"]');
     expect(mountedCards.length).toBeGreaterThan(0);

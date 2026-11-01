@@ -5,6 +5,31 @@ import { TableDatasetMenu } from './table-dataset-menu';
 import { TableFieldHeader } from './table-field-header';
 import type { TableField } from './model';
 
+it('keeps note and asset filters together before field actions in the dataset menu', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<TableDatasetMenu open saving={false}
+      t={(key) => key} onSave={async () => true} filterLabel="笔记筛选"
+      assetFilter={<button type="button">资料筛选</button>}>
+      <button type="button">展示字段</button>
+    </TableDatasetMenu>));
+    const asset = [...document.querySelectorAll('button')].find((button) => button.textContent === '资料筛选')!;
+    const menu = asset.parentElement!;
+    const rows = [...menu.children];
+    expect(rows[0]?.textContent).toContain('multidimensionalTable.autoCollect.browseAndSave');
+    expect(rows[1]?.textContent).toContain('笔记筛选');
+    expect(rows[2]).toBe(asset);
+    expect(rows[3]?.getAttribute('role')).toBe('separator');
+    expect(rows[4]?.textContent).toBe('展示字段');
+    expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(1);
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+  }
+});
+
 it.each((['Select', 'MultiSelect'] as const).flatMap((type) =>
   (['outside', 'parent'] as const).map((close) => ({ type, close })),
 ))('saves reordered $type options when real nested popovers close via $close', async ({ type, close }) => {

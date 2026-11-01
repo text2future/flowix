@@ -10,6 +10,9 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "memo.fileTree.openInLeft": "Open in main workspace",
   "memo.fileTree.sectionEmpty": "List is empty",
   "memo.fileTree.sectionEmptyHide": "Hide",
+  "memo.fileTree.contentCreationBlocked": "This folder is excluded from the note index, so notes and views created here would not appear in any list.",
+  "memo.fileTree.hiddenFolderTitle": "This is a hidden folder",
+  "memo.fileTree.hiddenFolderNoPreview": "Its contents cannot be shown here.",
 };
 
 export default enUS;

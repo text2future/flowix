@@ -745,8 +745,7 @@ mod notebook_template_content_tests {
         validate_notebook_template_path, NotebookTemplateIndex,
     };
     use flowix_core::memo_file::{
-        atomic_write_bytes, is_ignored_notebook_relative_path, MemoFile,
-        NotebookConfig,
+        atomic_write_bytes, FileManagementPolicy, MemoFile, NotebookConfig,
     };
     use flowix_core::NoteService;
     use std::fs;
@@ -788,6 +787,7 @@ mod notebook_template_content_tests {
             .expect("register test notebook");
         memo_file.set_current_notebook(Some("nb_template_test".to_string()));
         let notebook_root = fs::canonicalize(&notebook_root).expect("resolve notebook root");
+        let policy = FileManagementPolicy::from_notebook_root(&notebook_root);
 
         let expected_note_count = files
             .iter()
@@ -796,7 +796,7 @@ mod notebook_template_content_tests {
                 path.extension()
                     .and_then(|extension| extension.to_str())
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
-                    && !is_ignored_notebook_relative_path(path)
+                    && !policy.is_index_hidden_at(&notebook_root, path)
             })
             .count();
         let mut created_notes = Vec::with_capacity(expected_note_count);
@@ -815,7 +815,7 @@ mod notebook_template_content_tests {
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
 
-            if is_markdown && !is_ignored_notebook_relative_path(&relative) {
+            if is_markdown && !policy.is_index_hidden_at(&notebook_root, &relative) {
                 let title = relative
                     .file_stem()
                     .and_then(|title| title.to_str())
@@ -1185,7 +1185,7 @@ fn initialize_notebook_template_inner(
                 .extension()
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
-            if is_markdown && !file_management_policy.is_ignored_at(&notebook_root, &relative) {
+            if is_markdown && !file_management_policy.is_index_hidden_at(&notebook_root, &relative) {
                 let content = match std::str::from_utf8(&file.content) {
                     Ok(content) => content,
                     Err(error) => {

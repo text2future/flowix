@@ -1,212 +1,135 @@
 use std::path::{Component, Path};
 
-use serde::{Deserialize, Serialize};
+use super::file_rules::{
+    is_internal_directory_name, matches_hidden_file_pattern, EXCLUDED_DIRECTORY_NAMES,
+};
 
-/// Notebook-local exceptions to default exclusions. All paths use `/` and
-/// are relative to the notebook root.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileManagementPolicy {
-    #[serde(default)]
-    pub included_paths: Vec<String>,
-    /// Explicit paths hidden from the notebook file tree, including folders
-    /// with descendants that should also remain hidden.
-    #[serde(default)]
-    pub hidden_paths: Vec<String>,
-    /// Folder subtrees that remain visible in the notebook but are skipped by
-    /// the Markdown note index.
-    #[serde(default)]
-    pub excluded_index_paths: Vec<String>,
-}
+/// The built-in access rules: what may be read, written, indexed and watched.
+///
+/// 这是**访问口径**，不是展示口径。「访问空间」里画不画某一行由
+/// [`super::tree_display::TreeVisibility`] 决定，两者刻意分开：
+/// `.index.yaml` 在这里必须放行（集合的读写、重命名与恢复都靠它），在展示
+/// 口径里则作为文件夹元数据被隐藏。
+///
+/// The former notebook-local `fileManagement` overrides (user-configured index
+/// exclusions in `.flowix/view-preferences.json`) have been removed; this type
+/// now carries only static rules, but stays a type so every scope check keeps a
+/// single entry point. The `defaultCreateFolder` preference that lives in the
+/// same file is unrelated to the policy and is handled by the note-creation
+/// layer.
+#[derive(Debug, Clone, Default)]
+pub struct FileManagementPolicy;
 
 impl FileManagementPolicy {
-    fn is_always_excluded_name(name: &str) -> bool {
-        matches!(name, ".flowix" | ".plugin-output")
-    }
-
+    /// Directory names skipped by every index and by the watcher: app
+    /// internals, all dot-prefixed folders and [`EXCLUDED_DIRECTORY_NAMES`].
+    /// This is the strict scope only; the tree's own row filter lives in
+    /// [`super::tree_display`].
     fn is_excluded_directory_name(name: &str) -> bool {
-        matches!(
-            name,
-            ".git"
-                | "node_modules"
-                | "attachments"
-                | "attachments-cache"
-                | "bower_components"
-                | "__pycache__"
-        ) || (name.starts_with('.') && !Self::is_user_visible_hidden_directory(name))
-    }
-
-    /// Dot-prefixed folders that users commonly work with directly. Other
-    /// dot-prefixed directories are treated as application or tool internals.
-    fn is_user_visible_hidden_directory(name: &str) -> bool {
-        matches!(
-            name,
-            ".agent"
-                | ".agents"
-                | ".codex"
-                | ".claude"
-                | ".dsh"
-                | ".opencode"
-                | ".hermes"
-                | ".continue"
-                | ".aider"
-                | ".roo"
-                | ".amazonq"
-                | ".gemini"
-                | ".qwen"
-                | ".kiro"
-                | ".amp"
-                | ".goose"
-                | ".crush"
-                | ".factory"
-                | ".junie"
-                | ".github"
-                | ".gitlab"
-                | ".vscode"
-                | ".idea"
-                | ".obsidian"
-                | ".husky"
-                | ".devcontainer"
-                | ".changeset"
-                | ".storybook"
-                | ".cursor"
-                | ".windsurf"
-                | ".zed"
-                | ".config"
-                | ".circleci"
-                | ".buildkite"
-                | ".docker"
-                | ".run"
-                | ".fleet"
-                | ".settings"
-                | ".project"
-        )
+        is_internal_directory_name(name)
+            || name.starts_with('.')
+            || EXCLUDED_DIRECTORY_NAMES.contains(&name)
     }
 
     pub fn is_locked_name(name: &str) -> bool {
-        matches!(name, ".flowix" | ".plugin-output") || name.eq_ignore_ascii_case(".index.yaml")
+        is_internal_directory_name(name) || name.eq_ignore_ascii_case(".index.yaml")
     }
 
-    pub fn from_notebook_root(root: &Path) -> Self {
-        std::fs::read(root.join(".flowix/view-preferences.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .and_then(|value| value.get("fileManagement").cloned())
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or_default()
+    /// Kept for call-site stability: the policy no longer reads any
+    /// notebook-local configuration file.
+    pub fn from_notebook_root(_root: &Path) -> Self {
+        Self
     }
 
-    pub fn is_ignored(&self, path: &Path) -> bool {
-        let mut relative = String::new();
-        let components: Vec<_> = path.components().collect();
+    /// Lenient access scope: only app internals and file noise are hidden, so
+    /// every folder that exists on disk stays browsable and every collection
+    /// file stays readable. **Not** the tree's display filter — that one is
+    /// [`super::tree_display::TreeVisibility::hides_entry`], which additionally
+    /// drops `.index.yaml`.
+    pub fn is_tree_hidden_at(&self, root: &Path, relative: &Path) -> bool {
+        self.is_hidden_for(root, Self::scope_anchor(relative), false)
+    }
+
+    /// Lenient access scope for a directory that may already be gone from disk.
+    pub fn is_tree_hidden_directory(&self, relative: &Path) -> bool {
+        Self::is_hidden_directory_for(relative, false)
+    }
+
+    /// Index and watcher scope for a path resolved against `root`. Every index
+    /// and the watcher share this entry point, so they cannot disagree about
+    /// what is monitorable.
+    pub fn is_index_hidden_at(&self, root: &Path, relative: &Path) -> bool {
+        let anchor = Self::scope_anchor(relative);
+        self.is_hidden_for(root, anchor, true)
+    }
+
+    /// Index and watcher scope for a path already known to be a directory,
+    /// including directories that no longer exist on disk.
+    pub fn is_index_hidden_directory(&self, relative: &Path) -> bool {
+        Self::is_hidden_directory_for(relative, true)
+    }
+
+    /// `.index.yaml` describes the folder that contains it, so access checks
+    /// resolve to that folder instead of the dot-file noise rule. A root-level
+    /// `.index.yaml` resolves to the notebook root, which is always visible.
+    /// Callers must not special-case this file name again.
+    ///
+    /// 注意这个豁免只属于访问口径。展示口径（[`super::tree_display`]）不走
+    /// 这里，`.index.yaml` 在树里由文件通配 `.*` 隐藏。
+    fn scope_anchor(relative: &Path) -> &Path {
+        let is_folder_descriptor = relative
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case(".index.yaml"));
+        match (is_folder_descriptor, relative.parent()) {
+            (true, Some(parent)) => parent,
+            _ => relative,
+        }
+    }
+
+    fn is_hidden_for(&self, root: &Path, relative: &Path, for_index: bool) -> bool {
+        let mut current = root.to_path_buf();
+        current.push(relative);
+        if std::fs::symlink_metadata(&current).is_ok_and(|metadata| metadata.is_dir()) {
+            return Self::is_hidden_directory_for(relative, for_index);
+        }
+        self.is_hidden_path_for(relative, for_index)
+    }
+
+    fn is_hidden_path_for(&self, relative: &Path, for_index: bool) -> bool {
+        let components: Vec<_> = relative.components().collect();
         for (index, component) in components.iter().enumerate() {
             let Component::Normal(name) = component else { return true; };
-            let name = name.to_string_lossy();
-            if !relative.is_empty() { relative.push('/'); }
-            relative.push_str(&name);
-            if Self::is_always_excluded_name(&name) {
-                return true;
+            if index + 1 == components.len() {
+                break;
             }
-            if index + 1 < components.len()
-                && Self::is_excluded_directory_name(&name)
-                && !self.included_paths.iter().any(|included| included == &relative)
-            {
+            if Self::skips_directory_name(&name.to_string_lossy(), for_index) {
                 return true;
             }
         }
 
-        let Some(name) = path.file_name() else { return true; };
-        let name = name.to_string_lossy();
-        let legacy_media_sidecar = Path::new(name.as_ref())
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("yaml"))
-            && Path::new(name.as_ref())
-                .file_stem()
-                .is_some_and(|stem| super::media_kind_for_path(Path::new(stem)).is_some());
-        let ignored_file = name.starts_with('.')
-            || name.eq_ignore_ascii_case(".index.yaml")
-            || legacy_media_sidecar
-            || matches!(name.as_ref(), "Thumbs.db" | "ehthumbs.db" | "desktop.ini")
-            || name.ends_with(".tmp")
-            || name.ends_with(".swp")
-            || name.ends_with(".bak")
-            || name.ends_with(".lock")
-            || name.ends_with('~');
-        ignored_file && !self.included_paths.iter().any(|included| included == &relative)
+        let Some(name) = relative.file_name() else { return true; };
+        matches_hidden_file_pattern(&name.to_string_lossy())
     }
 
-    /// Evaluate a path known to represent a directory, including removed
-    /// directory paths that no longer exist on disk.
-    pub fn is_ignored_directory(&self, relative: &Path) -> bool {
-        let mut key = String::new();
+    fn is_hidden_directory_for(relative: &Path, for_index: bool) -> bool {
         for component in relative.components() {
             let Component::Normal(name) = component else { return true; };
-            let name = name.to_string_lossy();
-            if !key.is_empty() { key.push('/'); }
-            key.push_str(&name);
-            if Self::is_always_excluded_name(&name) {
-                return true;
-            }
-            if Self::is_excluded_directory_name(&name)
-                && !self.included_paths.iter().any(|included| included == &key)
-            {
+            if Self::skips_directory_name(&name.to_string_lossy(), for_index) {
                 return true;
             }
         }
         false
     }
 
-    /// Evaluate file exclusions and excluded directory names against an
-    /// existing notebook path. The relative path is always scoped to `root`.
-    pub fn is_ignored_at(&self, root: &Path, relative: &Path) -> bool {
-        let mut current = root.to_path_buf();
-        current.push(relative);
-        if std::fs::symlink_metadata(&current).is_ok_and(|metadata| metadata.is_dir()) {
-            return self.is_ignored_directory(relative);
+    /// `for_index` selects the strict rule; the lenient access scope only drops
+    /// app internals.
+    fn skips_directory_name(name: &str, for_index: bool) -> bool {
+        if for_index {
+            Self::is_excluded_directory_name(name)
+        } else {
+            is_internal_directory_name(name)
         }
-        self.is_ignored(relative)
-    }
-
-    /// Return whether a path should be omitted from the notebook file tree.
-    pub fn is_tree_hidden_at(&self, root: &Path, relative: &Path) -> bool {
-        if self.is_ignored_at(root, relative) { return true; }
-        self.is_configured_hidden(relative)
-    }
-
-    /// Return whether a directory should be omitted from the notebook file
-    /// tree, even if the directory has already been removed from disk.
-    pub fn is_tree_hidden_directory(&self, relative: &Path) -> bool {
-        self.is_ignored_directory(relative) || self.is_configured_hidden(relative)
-    }
-
-    fn is_configured_hidden(&self, relative: &Path) -> bool {
-        let key = relative.to_string_lossy().replace('\\', "/");
-        self.hidden_paths.iter().any(|hidden| {
-            key == hidden.as_str()
-                || key.strip_prefix(hidden.as_str()).is_some_and(|suffix| suffix.starts_with('/'))
-        })
-    }
-
-    /// Return whether a relative path belongs to a folder subtree excluded
-    /// from the note index. This does not hide the path from the file tree.
-    pub fn is_index_excluded_at(&self, root: &Path, relative: &Path) -> bool {
-        let default_policy = FileManagementPolicy::default();
-        if default_policy.is_ignored_at(root, relative) {
-            return true;
-        }
-        if self.excluded_index_paths.iter().any(|excluded| excluded.is_empty()) {
-            return true;
-        }
-        let key = relative.to_string_lossy().replace('\\', "/");
-        self.excluded_index_paths.iter().any(|excluded| {
-            key == excluded.as_str()
-                || key.strip_prefix(excluded.as_str()).is_some_and(|suffix| suffix.starts_with('/'))
-        })
-    }
-
-    /// Resolve index participation independently from tree visibility.
-    pub fn is_index_ignored_at(&self, root: &Path, relative: &Path) -> bool {
-        self.is_ignored_at(root, relative) || self.is_index_excluded_at(root, relative)
     }
 }
 

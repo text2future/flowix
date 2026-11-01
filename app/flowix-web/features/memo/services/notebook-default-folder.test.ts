@@ -19,14 +19,11 @@ vi.mock('@features/preferences/public/runtime-api', () => runtime);
 
 import { createNotebookRegistration } from './notebook-creation-service';
 
-const FILE_MANAGEMENT = { includedPaths: [], hiddenPaths: [], excludedIndexPaths: [] };
-
 describe('default note folder on notebook creation', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     files.getNotebookViewPreferences.mockResolvedValue({
       defaultCreateFolder: null,
-      fileManagement: FILE_MANAGEMENT,
     });
   });
 
@@ -39,7 +36,6 @@ describe('default note folder on notebook creation', () => {
     expect(files.createFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', '笔记');
     expect(files.setNotebookViewPreferences).toHaveBeenCalledExactlyOnceWith('/tmp/Book', {
       defaultCreateFolder: '笔记',
-      fileManagement: FILE_MANAGEMENT,
     });
   });
 
@@ -52,7 +48,6 @@ describe('default note folder on notebook creation', () => {
     expect(files.createFolder).toHaveBeenCalledExactlyOnceWith('/tmp/Book', 'Notes');
     expect(files.setNotebookViewPreferences).toHaveBeenCalledExactlyOnceWith('/tmp/Book', {
       defaultCreateFolder: 'Notes',
-      fileManagement: FILE_MANAGEMENT,
     });
   });
 
@@ -73,7 +68,6 @@ describe('default note folder on notebook creation', () => {
     runtime.getCurrentAppLanguage.mockReturnValue('zh-CN');
     files.getNotebookViewPreferences.mockResolvedValue({
       defaultCreateFolder: '笔记',
-      fileManagement: FILE_MANAGEMENT,
     });
     repository.create.mockResolvedValue({ id: 'n3', path: '/tmp/Book' });
 

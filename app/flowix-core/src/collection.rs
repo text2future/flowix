@@ -12,6 +12,10 @@ pub enum CollectionType {
     MediaLibrary,
     #[serde(rename = "work_documents")]
     WorkDocuments,
+    /// v3 multi-domain collection: notes / media / work_documents datasets and
+    /// domain-tagged views share one document (see `validate_collection_hybrid`).
+    #[serde(rename = "hybrid")]
+    Hybrid,
 }
 impl CollectionType {
     pub fn as_str(self) -> &'static str {
@@ -19,6 +23,7 @@ impl CollectionType {
             Self::Table => "table",
             Self::MediaLibrary => "media_library",
             Self::WorkDocuments => "work_documents",
+            Self::Hybrid => "hybrid",
         }
     }
 }
@@ -153,7 +158,7 @@ impl CollectionDocument {
         validate_properties(&metadata.properties)
     }
     pub fn supported(&self) -> bool {
-        matches!(self.schema_version, 1 | 2)
+        matches!(self.schema_version, 1 | 2 | 3)
             && self.payload["schema_version"] == self.schema_version
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -161,22 +166,34 @@ impl CollectionDocument {
         if !self.supported() {
             return Err("UNSUPPORTED_COLLECTION_VERSION".into());
         }
-        if self.schema_version == 2 {
+        if self.schema_version == 3 {
+            if self.collection.kind != CollectionType::Hybrid {
+                return Err("UNSUPPORTED_COLLECTION_VERSION".into());
+            }
+            validate_collection_hybrid(self)?;
+        } else if self.schema_version == 2 {
+            if self.collection.kind == CollectionType::Hybrid {
+                return Err("UNSUPPORTED_COLLECTION_VERSION".into());
+            }
             validate_collection_v2(self)?;
         } else {
-            if self.collection.kind == CollectionType::WorkDocuments {
+            if matches!(self.collection.kind, CollectionType::WorkDocuments | CollectionType::Hybrid) {
                 return Err("UNSUPPORTED_COLLECTION_VERSION".into());
             }
             let keys: &[&str] = match self.collection.kind {
                 CollectionType::Table => &["schema_version", "table", "records"],
                 CollectionType::MediaLibrary => &["schema_version", "view", "records"],
-                CollectionType::WorkDocuments => return Err("UNSUPPORTED_COLLECTION_VERSION".into()),
+                CollectionType::WorkDocuments | CollectionType::Hybrid => {
+                    return Err("UNSUPPORTED_COLLECTION_VERSION".into())
+                }
             };
             only_keys(&self.payload, keys)?;
             match self.collection.kind {
                 CollectionType::Table => validate_table(&self.payload)?,
                 CollectionType::MediaLibrary => validate_media_library(&self.payload)?,
-                CollectionType::WorkDocuments => return Err("UNSUPPORTED_COLLECTION_VERSION".into()),
+                CollectionType::WorkDocuments | CollectionType::Hybrid => {
+                    return Err("UNSUPPORTED_COLLECTION_VERSION".into())
+                }
             }
         }
         Ok(())
@@ -186,9 +203,10 @@ impl CollectionDocument {
         serde_yaml::to_string(self).map_err(|e| e.to_string())
     }
     /// Convert a validated legacy file for an edit. Reading alone never rewrites it.
+    /// v2 and v3 documents are already canonical and pass through unchanged.
     pub fn normalized_v2(&self) -> Result<Self, String> {
         self.validate()?;
-        if self.schema_version == 2 {
+        if self.schema_version >= 2 {
             return Ok(self.clone());
         }
         let source = match self.collection.placement {
@@ -241,14 +259,16 @@ impl CollectionDocument {
                         "filter":if rules.is_empty() { Value::Null } else { serde_json::json!({"all":rules,"any":[]}) }
                     },
                     "views":{"default_id":view["id"],"items":[{
-                        "id":view["id"],"name":"媒体库","layout":"waterfall",
+                        "id":view["id"],"name":"图墙","layout":"waterfall",
                         "filter":{"all":rules,"any":[]},
                         "sort":[view.get("sort").cloned().unwrap_or_else(|| serde_json::json!({"field":"created_at","direction":"desc"}))],
                         "config":{}
                     }]}
                 })
             }
-            CollectionType::WorkDocuments => return Err("UNSUPPORTED_COLLECTION_VERSION".into()),
+            CollectionType::WorkDocuments | CollectionType::Hybrid => {
+                return Err("UNSUPPORTED_COLLECTION_VERSION".into())
+            }
         };
         let normalized = Self {
             format: self.format.clone(),
@@ -274,36 +294,29 @@ impl CollectionDocument {
     /// Set media resource references to the canonical notebook-and-path ID.
     /// Collection row IDs remain collection-local record identities.
     pub fn normalize_media_resource_ids(&mut self, notebook_id: &str) -> Result<bool, String> {
+        if self.collection.kind == CollectionType::Hybrid {
+            let mut changed = false;
+            if let Some(domains) = self.payload.get_mut("domains") {
+                for domain in ["media", "work_documents"] {
+                    if let Some(records) = domains
+                        .get_mut(domain)
+                        .and_then(|dataset| dataset.get_mut("records"))
+                    {
+                        changed |= normalize_media_resource_records(records, notebook_id)?;
+                    }
+                }
+            }
+            return Ok(changed);
+        }
         if self.collection.kind != CollectionType::MediaLibrary {
             return Ok(false);
         }
-        let Some(records) = self
+        let records = self
             .payload
             .get_mut("dataset")
             .and_then(|dataset| dataset.get_mut("records"))
-        else {
-            return Err("INVALID_MEDIA_LIBRARY_RECORDS".into());
-        };
-        let mut changed = false;
-        for key in ["include", "exclude"] {
-            let entries = records
-                .get_mut(key)
-                .and_then(Value::as_array_mut)
-                .ok_or("INVALID_MEDIA_LIBRARY_RECORDS")?;
-            for record in entries {
-                let path = record
-                    .get("relative_path")
-                    .and_then(Value::as_str)
-                    .ok_or("INVALID_MEDIA_LIBRARY_PATH")?;
-                let id = crate::memo_file::media_resource_id(notebook_id, path)
-                    .map_err(|error| error.to_string())?;
-                if record.get("resource_id").and_then(Value::as_str) != Some(id.as_str()) {
-                    record["resource_id"] = Value::String(id);
-                    changed = true;
-                }
-            }
-        }
-        Ok(changed)
+            .ok_or("INVALID_MEDIA_LIBRARY_RECORDS")?;
+        normalize_media_resource_records(records, notebook_id)
     }
 
     /// Rebase file references and update media resource identities in one edit.
@@ -356,38 +369,50 @@ impl CollectionDocument {
         let previous = previous.trim_matches('/');
         let next = next.trim_matches('/');
         if previous.is_empty() || next.is_empty() || previous == next { return false; }
-        let Some(dataset) = self.payload.get_mut("dataset") else { return false; };
-        let mut changed = false;
-        if let Some(records) = dataset.get_mut("records") {
-            for kind in ["include", "exclude"] {
-                if let Some(items) = records.get_mut(kind).and_then(Value::as_array_mut) {
-                    for record in items {
-                        for key in ["note_path", "relative_path"] {
-                            if let Some(path) = record.get(key).and_then(Value::as_str) {
-                                if let Some(path) = rebase(path, previous, next) {
-                                    record[key] = Value::String(path);
-                                    changed = true;
+        /// Rebase records, source scope path and dataset filter of one dataset.
+        fn rebase_dataset(dataset: &mut Value, previous: &str, next: &str) -> bool {
+            let mut changed = false;
+            if let Some(records) = dataset.get_mut("records") {
+                for kind in ["include", "exclude"] {
+                    if let Some(items) = records.get_mut(kind).and_then(Value::as_array_mut) {
+                        for record in items {
+                            for key in ["note_path", "relative_path"] {
+                                if let Some(path) = record.get(key).and_then(Value::as_str) {
+                                    if let Some(path) = rebase(path, previous, next) {
+                                        record[key] = Value::String(path);
+                                        changed = true;
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        if let Some(path) = dataset.get("source").and_then(|source| source.get("path")).and_then(Value::as_str) {
-            if let Some(path) = rebase(path, previous, next) {
-                dataset["source"]["path"] = Value::String(path);
-                changed = true;
-            }
-        }
-        if let Some(filter) = dataset.get_mut("filter") {
-            if let Some(path) = filter.get("path").and_then(Value::as_str) {
+            if let Some(path) = dataset.get("source").and_then(|source| source.get("path")).and_then(Value::as_str) {
                 if let Some(path) = rebase(path, previous, next) {
-                    filter["path"] = Value::String(path);
+                    dataset["source"]["path"] = Value::String(path);
                     changed = true;
                 }
             }
-            changed |= rules(filter, previous, next);
+            if let Some(filter) = dataset.get_mut("filter") {
+                if let Some(path) = filter.get("path").and_then(Value::as_str) {
+                    if let Some(path) = rebase(path, previous, next) {
+                        filter["path"] = Value::String(path);
+                        changed = true;
+                    }
+                }
+                changed |= rules(filter, previous, next);
+            }
+            changed
+        }
+        let mut changed = false;
+        if self.collection.kind == CollectionType::Hybrid {
+            let Some(domains) = self.payload.get_mut("domains").and_then(Value::as_object_mut) else { return false; };
+            for dataset in domains.values_mut() {
+                changed |= rebase_dataset(dataset, previous, next);
+            }
+        } else if let Some(dataset) = self.payload.get_mut("dataset") {
+            changed = rebase_dataset(dataset, previous, next);
         }
         if let Some(views) = self.payload.get_mut("views").and_then(|views| views.get_mut("items")).and_then(Value::as_array_mut) {
             for view in views {
@@ -446,6 +471,128 @@ fn legacy_table_filter(auto: &Value) -> Result<Value, String> {
     any.extend(files);
     Ok(serde_json::json!({"all":paths,"any":any}))
 }
+fn hybrid_domain_type(domain: &str) -> Option<CollectionType> {
+    match domain {
+        "notes" => Some(CollectionType::Table),
+        "media" => Some(CollectionType::MediaLibrary),
+        "work_documents" => Some(CollectionType::WorkDocuments),
+        _ => None,
+    }
+}
+
+fn normalize_media_resource_records(records: &mut Value, notebook_id: &str) -> Result<bool, String> {
+    let mut changed = false;
+    for key in ["include", "exclude"] {
+        let entries = records
+            .get_mut(key)
+            .and_then(Value::as_array_mut)
+            .ok_or("INVALID_MEDIA_LIBRARY_RECORDS")?;
+        for record in entries {
+            let path = record
+                .get("relative_path")
+                .and_then(Value::as_str)
+                .ok_or("INVALID_MEDIA_LIBRARY_PATH")?;
+            let id = crate::memo_file::media_resource_id(notebook_id, path)
+                .map_err(|error| error.to_string())?;
+            if record.get("resource_id").and_then(Value::as_str) != Some(id.as_str()) {
+                record["resource_id"] = Value::String(id);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
+}
+
+/// v3 hybrid validation. Each domain dataset is validated by reusing the v2
+/// validator on a synthetic single-type document, so domain rules stay in one
+/// place (the v2 validator) and stay in lockstep with the frontend projection.
+fn validate_collection_hybrid(document: &CollectionDocument) -> Result<(), String> {
+    let payload = &document.payload;
+    only_keys(payload, &["schema_version", "file_tree", "domains", "views"])?;
+    match payload.get("file_tree") {
+        Some(Value::Bool(false)) => {}
+        // The file tree tab only renders for folder collections anchored to a path.
+        Some(Value::Bool(true)) if document.collection.placement == CollectionPlacement::Folder => {}
+        _ => return Err("INVALID_COLLECTION_FILE_TREE".into()),
+    }
+    let domains = payload
+        .get("domains")
+        .and_then(Value::as_object)
+        .ok_or("INVALID_COLLECTION_DOMAINS")?;
+    if domains.is_empty() {
+        return Err("INVALID_COLLECTION_DOMAINS".into());
+    }
+    let views = payload.get("views").ok_or("MISSING_COLLECTION_VIEWS")?;
+    only_keys(views, &["default_by_domain", "items"])?;
+    let items = array(views, "items")?;
+    if items.is_empty() {
+        return Err("COLLECTION_REQUIRES_VIEW".into());
+    }
+    let mut ids = HashSet::new();
+    let mut views_by_domain: BTreeMap<&str, Vec<Value>> = BTreeMap::new();
+    for view in items {
+        only_keys(view, &["id", "name", "domain", "layout", "filter", "sort", "config"])?;
+        id(view, "view_", &mut ids)?;
+        let domain = view
+            .get("domain")
+            .and_then(Value::as_str)
+            .ok_or("INVALID_COLLECTION_VIEW_DOMAIN")?;
+        if !domains.contains_key(domain) {
+            return Err("INVALID_COLLECTION_VIEW_DOMAIN".into());
+        }
+        let mut stripped = view.as_object().cloned().unwrap_or_default();
+        stripped.remove("domain");
+        views_by_domain
+            .entry(domain)
+            .or_default()
+            .push(Value::Object(stripped));
+    }
+    // A domain exists exactly when it owns at least one view, and every view
+    // tag points back at an existing domain key.
+    for key in domains.keys() {
+        if hybrid_domain_type(key).is_none() || !views_by_domain.contains_key(key.as_str()) {
+            return Err("INVALID_COLLECTION_DOMAINS".into());
+        }
+    }
+    if views_by_domain.len() != domains.len() {
+        return Err("INVALID_COLLECTION_DOMAINS".into());
+    }
+    let defaults = views
+        .get("default_by_domain")
+        .and_then(Value::as_object)
+        .ok_or("INVALID_DEFAULT_VIEW")?;
+    if defaults.len() != domains.len() || defaults.keys().any(|key| !domains.contains_key(key)) {
+        return Err("INVALID_DEFAULT_VIEW".into());
+    }
+    for (key, dataset) in domains {
+        let kind = hybrid_domain_type(key).unwrap_or(CollectionType::Table);
+        let pseudo = CollectionDocument {
+            format: "flowix.collection".into(),
+            schema_version: 2,
+            collection: CollectionMetadata {
+                id: document.collection.id.clone(),
+                kind,
+                placement: document.collection.placement,
+                name: String::new(),
+                revision: document.collection.revision,
+                created_at: document.collection.created_at.clone(),
+                updated_at: document.collection.updated_at.clone(),
+                properties: BTreeMap::new(),
+            },
+            payload: serde_json::json!({
+                "schema_version": 2,
+                "dataset": dataset,
+                "views": {
+                    "default_id": defaults.get(key).cloned().unwrap_or(Value::Null),
+                    "items": views_by_domain.get(key.as_str()).cloned().unwrap_or_default(),
+                },
+            }),
+        };
+        validate_collection_v2(&pseudo)?;
+    }
+    Ok(())
+}
+
 fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
     let payload = &document.payload;
     only_keys(payload, &["schema_version", "dataset", "views"])?;
@@ -585,7 +732,7 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
                         return Err("DUPLICATE_MEDIA_RECORD".into());
                     }
                 }
-                CollectionType::WorkDocuments => return Err("WORK_DOCUMENTS_RECORDS_UNSUPPORTED".into()),
+                CollectionType::WorkDocuments | CollectionType::Hybrid => return Err("WORK_DOCUMENTS_RECORDS_UNSUPPORTED".into()),
             }
         }
     }
@@ -609,6 +756,7 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
             CollectionType::Table => matches!(layout, "table" | "kanban" | "calendar" | "gallery"),
             CollectionType::MediaLibrary => layout == "waterfall",
             CollectionType::WorkDocuments => layout == "gallery",
+            CollectionType::Hybrid => false,
         };
         if view["name"]
             .as_str()
@@ -668,7 +816,7 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
     Ok(())
 }
 fn validate_rule_filter(filter: &Value, collection_type: CollectionType) -> Result<(), String> {
-  validate_rule_filter_depth(filter, collection_type, 0)
+  validate_rule_filter_depth(filter, collection_type, 0, false)
 }
 fn validate_dataset_filter(filter: &Value, collection_type: CollectionType) -> Result<(), String> {
     if filter.get("conditions").is_none() && filter.get("match").is_none() {
@@ -692,15 +840,15 @@ fn validate_dataset_filter(filter: &Value, collection_type: CollectionType) -> R
             return Err("INVALID_COLLECTION_FILTER_CONDITION".into());
         }
     }
-    validate_rule_filter(&serde_json::json!({"all":array(filter, "conditions")?,"any":[]}), collection_type)
+    validate_rule_filter_depth(&serde_json::json!({"all":array(filter, "conditions")?,"any":[]}), collection_type, 0, true)
 }
-fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, depth: usize) -> Result<(), String> {
+fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, depth: usize, shared_asset_kinds: bool) -> Result<(), String> {
     only_keys(filter, &["all", "any"])?;
     for key in ["all", "any"] {
         for rule in array(filter, key)? {
             if rule.get("all").is_some() || rule.get("any").is_some() {
                 if depth != 0 { return Err("INVALID_COLLECTION_FILTER_DEPTH".into()); }
-                validate_rule_filter_depth(rule, collection_type, depth + 1)?;
+                validate_rule_filter_depth(rule, collection_type, depth + 1, shared_asset_kinds)?;
                 continue;
             }
             only_keys(rule, &["field", "op", "value"])?;
@@ -730,6 +878,15 @@ fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, d
                 _ => {}
             }
             let field = rule["field"].as_str().unwrap_or_default();
+            if shared_asset_kinds && field == "kind"
+                && matches!(collection_type, CollectionType::MediaLibrary | CollectionType::WorkDocuments) {
+                let asset_kind = |value: &Value| matches!(value.as_str(), Some("image" | "video" | "document" | "spreadsheet" | "presentation" | "web" | "archive" | "database"));
+                if (rule["op"] == "eq" && asset_kind(&rule["value"]))
+                    || (rule["op"] == "in" && rule["value"].as_array().is_some_and(|values| !values.is_empty() && values.iter().all(asset_kind))) {
+                    continue;
+                }
+                return Err("INVALID_COLLECTION_FILTER_RULE".into());
+            }
             let valid_for_type = match collection_type {
                 CollectionType::Table => match field {
                     "file_name" | "path" => rule["op"] == "contains",
@@ -763,6 +920,7 @@ fn validate_rule_filter_depth(filter: &Value, collection_type: CollectionType, d
                             })),
                     _ => false,
                 },
+                CollectionType::Hybrid => false,
             };
             if !valid_for_type {
                 return Err("INVALID_COLLECTION_FILTER_RULE".into());
@@ -1101,6 +1259,102 @@ fn validate_media_library(payload: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod builtin_field_tests {
     use super::*;
+
+    #[test]
+    fn shared_asset_dataset_accepts_all_asset_kinds_but_views_keep_their_domain() {
+        let rule = serde_json::json!({"field":"kind","op":"in","value":["image","document"]});
+        let filter = serde_json::json!({"path":"项目","match":"all","conditions":[rule.clone()]});
+        for kind in [CollectionType::MediaLibrary, CollectionType::WorkDocuments] {
+            assert!(validate_dataset_filter(&filter, kind).is_ok());
+            assert!(validate_rule_filter(&serde_json::json!({"all":[rule.clone()],"any":[]}), kind).is_err());
+        }
+        assert!(validate_dataset_filter(&filter, CollectionType::Table).is_err());
+    }
+
+    #[test]
+    fn hybrid_folder_round_trips_and_validates_domains() {
+        let source = include_str!("../../fixtures/collections/hybrid-folder.yaml");
+        let document = CollectionDocument::parse(source).unwrap();
+        document.validate().unwrap();
+        assert_eq!(document.collection.kind, CollectionType::Hybrid);
+        assert_eq!(document.collection.kind.as_str(), "hybrid");
+        let restored = CollectionDocument::parse(&document.serialize().unwrap()).unwrap();
+        assert_eq!(restored.payload, document.payload);
+        // v2 single-type files stay rejected when re-typed as hybrid at v2.
+        let mut swapped = CollectionDocument::parse(source).unwrap();
+        swapped.schema_version = 2;
+        swapped.payload["schema_version"] = serde_json::json!(2);
+        assert_eq!(swapped.validate().unwrap_err(), "UNSUPPORTED_COLLECTION_VERSION");
+    }
+
+    #[test]
+    fn hybrid_requires_views_for_every_domain_and_rejects_unknown_domains() {
+        let source = include_str!("../../fixtures/collections/hybrid-folder.yaml");
+        let mut document = CollectionDocument::parse(source).unwrap();
+        document.payload["views"]["items"].as_array_mut().unwrap().retain(|view| view["domain"] != "media");
+        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_DOMAINS");
+        let mut document = CollectionDocument::parse(source).unwrap();
+        document.payload["views"]["items"][1]["domain"] = serde_json::json!("bookmarks");
+        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_VIEW_DOMAIN");
+        let mut document = CollectionDocument::parse(source).unwrap();
+        document.payload["domains"]["bookmarks"] = serde_json::json!({"source":{"scope":"containing_folder","depth":"descendants"},"schema":{"fields":[]},"records":{"include":[],"exclude":[]},"filter":null});
+        document.payload["views"]["default_by_domain"]["bookmarks"] = serde_json::json!("view_cccccccccccccccccccccccccccccccc");
+        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_DOMAINS");
+    }
+
+    #[test]
+    fn hybrid_file_tree_flag_requires_folder_placement() {
+        let source = include_str!("../../fixtures/collections/hybrid-folder.yaml");
+        let mut document = CollectionDocument::parse(source).unwrap();
+        document.collection.placement = CollectionPlacement::Standalone;
+        // containing_folder scope is folder-only, so also relax the source to notebook.
+        for dataset in document.payload["domains"].as_object_mut().unwrap().values_mut() {
+            dataset["source"] = serde_json::json!({"scope":"notebook","depth":"descendants"});
+        }
+        assert_eq!(document.validate().unwrap_err(), "INVALID_COLLECTION_FILE_TREE");
+        document.payload["file_tree"] = serde_json::json!(false);
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn hybrid_rebase_and_media_normalization_cover_every_domain() {
+        let source = include_str!("../../fixtures/collections/hybrid-folder.yaml");
+        let mut document = CollectionDocument::parse(source).unwrap();
+        // The rebase uses standalone `folder` scopes, which require a standalone
+        // placement; the file tree flag is folder-only.
+        document.collection.placement = CollectionPlacement::Standalone;
+        document.payload["file_tree"] = serde_json::json!(false);
+        for key in ["media", "work_documents"] {
+            document.payload["domains"][key]["source"] = serde_json::json!({"scope":"notebook","depth":"descendants"});
+        }
+        document.payload["domains"]["notes"]["source"] = serde_json::json!({"scope":"folder","path":"Old","depth":"descendants"});
+        document.payload["domains"]["notes"]["records"] = serde_json::json!({
+            "include":[{"id":"rec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","updated_at":"2026-10-31T00:00:00Z","note_path":"Old/note.md"}],
+            "exclude":[]
+        });
+        document.payload["domains"]["media"]["records"] = serde_json::json!({
+            "include":[
+                {"id":"rec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","updated_at":"2026-10-31T00:00:00Z","resource_id":"old","relative_path":"Old/a.png"},
+                {"id":"rec_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","updated_at":"2026-10-31T00:00:00Z","resource_id":"old","relative_path":"Old/b.png"}
+            ],
+            "exclude":[]
+        });
+        document.payload["domains"]["media"]["filter"] = serde_json::json!({"all":[{"field":"path","op":"contains","value":"Old/sub"}],"any":[]});
+        // work_documents records may not be handwritten; rebase still covers its filter.
+        document.payload["domains"]["work_documents"]["filter"] = serde_json::json!({"all":[{"field":"path","op":"contains","value":"Old"}],"any":[]});
+        document.payload["views"]["items"][0]["filter"] = serde_json::json!({"all":[],"any":[{"field":"path","op":"contains","value":"Old"}]});
+        assert!(document.rebase_paths("Old", "New"));
+        assert_eq!(document.payload["domains"]["notes"]["records"]["include"][0]["note_path"], "New/note.md");
+        assert_eq!(document.payload["domains"]["notes"]["source"]["path"], "New");
+        assert_eq!(document.payload["domains"]["media"]["records"]["include"][0]["relative_path"], "New/a.png");
+        assert_eq!(document.payload["domains"]["media"]["filter"]["all"][0]["value"], "New/sub");
+        assert_eq!(document.payload["domains"]["work_documents"]["filter"]["all"][0]["value"], "New");
+        assert_eq!(document.payload["views"]["items"][0]["filter"]["any"][0]["value"], "New");
+        assert!(document.validate().is_ok());
+        assert!(document.normalize_media_resource_ids("nb_00000000000000000000000000000000").unwrap());
+        assert_eq!(document.payload["domains"]["media"]["records"]["include"][0]["resource_id"], "nb_00000000000000000000000000000000::New/a.png");
+        document.validate().unwrap();
+    }
 
     #[test]
     fn calendar_date_preset_contract_round_trips() {

@@ -121,6 +121,10 @@ function mergeSettings(base: UserSettings, updates: UserSettingsUpdate): UserSet
     recentAgentConversationsLimit: normalizeRecentAgentConversationsLimit(
       updates.recentAgentConversationsLimit ?? base.recentAgentConversationsLimit,
     ),
+    spaceShowHiddenFolders:
+      updates.spaceShowHiddenFolders ?? base.spaceShowHiddenFolders,
+    spaceShowSystemFolders:
+      updates.spaceShowSystemFolders ?? base.spaceShowSystemFolders,
     shortcuts: { ...base.shortcuts, ...(updates.shortcuts ?? {}) },
     agents: {
       enabledByType: {
@@ -191,6 +195,9 @@ function sanitizeSettings(settings: UserSettings): UserSettings {
     memoListView: normalizeMemoListView(settings.memoListView),
     autoOpenCreatedNotesInBrowser: settings.autoOpenCreatedNotesInBrowser !== false,
     recentAgentConversationsLimit: normalizeRecentAgentConversationsLimit(settings.recentAgentConversationsLimit),
+    // 老 preference.json 没有这两个键：缺省视为开启，避免升级后文件树突然少一半。
+    spaceShowHiddenFolders: settings.spaceShowHiddenFolders !== false,
+    spaceShowSystemFolders: settings.spaceShowSystemFolders !== false,
     shortcuts: { ...DEFAULT_USER_SETTINGS.shortcuts, ...(settings.shortcuts ?? {}) },
     agents: sanitizeAgentsConfig(settings.agents),
     productUpdates: sanitizeProductUpdatesConfig(settings.productUpdates),
@@ -255,6 +262,10 @@ export interface UserSettingsUpdate {
   memoListView?: MemoListView;
   autoOpenCreatedNotesInBrowser?: boolean;
   recentAgentConversationsLimit?: number;
+  /** 访问空间是否展示隐藏（点开头）文件夹。 */
+  spaceShowHiddenFolders?: boolean;
+  /** 访问空间是否展示系统（attachments / node_modules 等）文件夹。 */
+  spaceShowSystemFolders?: boolean;
   productUpdates?: Partial<ProductUpdatesConfig>;
   /**
    * 快捷键覆盖的浅合并 — 传入的字段会覆盖现有覆盖, 未提及的字段保留。

@@ -142,12 +142,12 @@ export function useNotebookViewData({
 
   const updateTableIdentity = useCallback((relativePath: string, collectionId: string) => {
     setTableDocuments((current) => current.map((table) => table.relativePath === relativePath
-      ? { ...table, collectionId, inViews: false, identityConflict: false }
+      ? { ...table, collectionId, identityConflict: false }
       : table));
   }, []);
   const updateMediaLibraryIdentity = useCallback((relativePath: string, collectionId: string) => {
     setMediaLibraries((current) => current.map((library) => library.relativePath === relativePath
-      ? { ...library, collectionId, inViews: false, identityConflict: false }
+      ? { ...library, collectionId, identityConflict: false }
       : library));
   }, []);
 

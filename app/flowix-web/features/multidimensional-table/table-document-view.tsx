@@ -1,10 +1,17 @@
 'use client';
 
+import { createPortal } from 'react-dom';
+import { CollectionNoteFilterSlot } from '@shared/ui/collection-note-filter-slot';
+
+import type { CollectionPanelControls } from '@features/collection/public/panel-api';
+import { noteViewOptions, calendarDateChoices } from './note-view-options';
+import { CollectionActionsPortal, type CollectionActionsHost } from '@shared/ui/collection-actions';
 import { resolveTableView } from './view-selection';
 import { useTableViewManagement } from './use-table-view-management';
 import { useTableTitle } from './use-table-title';
 import { notePropertyEditorValue, isCalendarCreateWritableField } from './table-note-properties';
 import { normalizeNoteFilterCondition } from '@features/collection/public/note-filter-api';
+import { subscribeCollectionDatasetFilter } from '@features/collection/public/dataset-filter-api';
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
 import { NotePropertyImageValue, propertyImagePaths as imagePaths } from '@features/document/properties/image-value-input';
 import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
@@ -22,11 +29,10 @@ import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
 import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 
-import { FolderCollectionSwitchConfirmDialog } from '@features/collection/public/folder-api';
 import { reviseCollection } from '@features/collection/model';
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, LoaderCircle, Plus, MousePointerClick, Table2 } from 'lucide-react';
-import { DotsThreeIcon, EyeIcon, EyeSlashIcon, PencilSimpleIcon, TrashIcon } from '@phosphor-icons/react';
+import { useContext, useCallback, useEffect, useImperativeHandle, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import { ChevronRight, LoaderCircle, Plus, MousePointerClick, Table2 } from 'lucide-react';
+import { EyeIcon, EyeSlashIcon } from '@phosphor-icons/react';
 import { collections, windows, type NoteEntry } from '@platform/tauri/client';
 import { NOTE_COLOR_HEX } from '@features/memo/store';
 import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
@@ -43,8 +49,7 @@ import { collectionDisplayName } from '@features/collection/model';
 import { Button } from '@shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@shared/ui/context-menu';
+import { Popover, PopoverContent } from '@shared/ui/popover';
 import { useI18n } from '@/lib/i18n';
 import { getPropertyTypeDefinition } from '@/lib/property-types';
 import {
@@ -52,7 +57,6 @@ import {
   addKanbanView,
   addCalendarDateView,
   addTableView,
-  findKanbanStatusField,
   type MultidimensionalTableDocument,
   type TableField,
   type TableRecord,
@@ -90,6 +94,9 @@ import { TableTagValueInput } from './table-tag-value-input';
 import { TableTextValueInput } from './table-text-value-input';
 import { NOTE_CALENDAR_DATE_FIELDS, useCalendarController } from './use-calendar-controller';
 import { TableFieldEditorForm, TableFieldHeader, TablePresetMenu } from './table-field-header';
+import { CollectionViewMenu as TableViewMenu, useViewAddWizard } from '@features/collection/public/view-menu-api';
+import { TabStripItem } from '@features/collection/public/tab-api';
+import { CollectionTabBar, CollectionTabStrip } from '@shared/ui/collection-tab-bar';
 import { useTableSession } from './use-table-session';
 import { useTableCellWriter, type TableCellSaveStatus } from './use-table-cell-writer';
 import { useTableViewSelection } from './use-table-view-selection';
@@ -100,6 +107,7 @@ import { useTableNoteDrop } from './use-table-note-drop';
 import { useTableFieldEdits } from './use-table-field-edits';
 import { useTableCalendarNotes } from './use-table-calendar-notes';
 import { useTableKanban } from './use-table-kanban';
+import { CollectionTrackReporter } from './collection-track-reporter';
 import {
   calendarDateKey,
   calendarDateTimeForTimestamp,
@@ -131,6 +139,17 @@ export interface TableDocumentViewProps {
   expectedCollectionId?: string | null;
   initialViewId?: string | null;
   onActiveViewChange?: (viewId: string) => void;
+  /** Collection shells own the only tab bar and receive note dataset actions here. */
+  showNavigation?: boolean;
+  collectionActionsHost?: CollectionActionsHost;
+  /** Open the collection's asset filter from the shared dataset menu. */
+  onOpenAssetFilter?: () => void;
+  assetFilterMenu?: ReactNode;
+  /** Collection shell routing hook for keeping the note filter action visible while it is open. */
+  onDatasetFilterOpenChange?: (open: boolean) => void;
+  panelControlsRef?: Ref<CollectionPanelControls>;
+  /** 是否渲染 nav 里的集合名称；外壳自带标题头时置 false，避免一个集合出现两个名字。 */
+  showNavTitle?: boolean;
   editable?: boolean;
   canCreateFields?: boolean;
   canCreateRecords?: boolean;
@@ -145,6 +164,22 @@ export interface TableDocumentViewProps {
   trailingActions?: (datasetAction: ReactNode) => ReactNode;
   /** Called after the table file has been renamed. */
   onFilePathChange?: (filePath: string) => void;
+  /** 集合头图是否展示（无图时是占位）；null = 该入口不提供头图开关。 */
+  bannerVisible?: boolean | null;
+  /** 切换头图显示 / 隐藏（写入集合属性 banner_hidden）。 */
+  onToggleBannerVisibility?: () => void;
+  /**
+   * 整页滚动模式：集合外壳把「头图 → 标题 → tab 条 → 列表」放进同一个滚动容器，
+   * 此时 nav 吸顶（钉在头部）、各层容器不再裁切，表头 thead 吸在 nav 下沿，
+   * 宽表的横向滚动交给外层滚动容器承担。
+   */
+  pageScroll?: boolean;
+  /**
+   * 当前激活视图的版式（table / gallery / calendar / kanban）与它需要的横向宽度。
+   * 外壳用它决定整页滚动轨道要多宽：只有表格需要横向余量（宽表整页横滚），
+   * 画廊/日历是流式内容，撑宽了会凭空多出一条横向滚动条。
+   */
+  onActiveLayoutChange?: (layout: string | null, contentWidth: number | null) => void;
 }
 
 const EMPTY_CELL_STATUSES: ReadonlyMap<string, TableCellSaveStatus> = new Map();
@@ -154,7 +189,8 @@ export function TableDocumentView(props: TableDocumentViewProps) {
   return <TableDocumentViewSession key={sessionKey} {...props} />;
 }
 
-function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, initialViewId, onActiveViewChange, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange }: TableDocumentViewProps) {
+function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, initialViewId, onActiveViewChange, showNavigation = true, collectionActionsHost, assetFilterMenu, onOpenAssetFilter, onDatasetFilterOpenChange, panelControlsRef, showNavTitle = true, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange, bannerVisible = null, onToggleBannerVisibility, pageScroll = false, onActiveLayoutChange }: TableDocumentViewProps) {
+  const noteFilterSlot = useContext(CollectionNoteFilterSlot);
   const tablePageSize = embeddedInEditor ? EMBEDDED_TABLE_PAGE_SIZE : SCROLL_PAGE_SIZE;
   const valueTypography = useMemo(() => propertyValueTypography(
     embeddedInEditor ? 'var(--editor-font-size, 16px)' : 'var(--font-size, 16px)',
@@ -171,7 +207,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       system: presets.filter((preset) => preset.source === 'builtin'),
     };
   }, [propertyFields, t]);
-  const tableSession = useTableSession({ filePath: currentFilePath, fileIdentity, notebookPath, notebookId, expectedCollectionId });
+  const tableSession = useTableSession({ filePath: currentFilePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, editable });
   const {
     document, loadError, saving, saveFailed, setSaving, reportSaveFailure, notes, setNotes, resolvedNotebookId,
     notesLoadError, load, save: saveSession, flush: flushSession, loadSequenceRef, loadGeneration, isCurrentSession, pendingNotePropertiesRef,
@@ -211,53 +247,43 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     document, initialViewId, editable, saving, save, onActiveViewChange,
   });
   const {
-    editingViewId, editingViewName, setEditingViewName, editingViewWidth,
-    editingViewInputRef, editingViewMeasureRef, managingViewId, cancelManageViewRename,
+    tabEdit,
+    managingViewId, cancelManageViewRename,
     managingViewName, setManagingViewName, manageViewRenameInputRef, closeViewManagement,
     viewPendingDelete, cancelDeleteView, beginRenameView, renameView,
     beginManageViewRename, finishManageViewRename, requestDeleteView, confirmDeleteView,
   } = useTableViewManagement({ session: tableSession,
     save, editable, canDeleteViews, activeViewId, activateView });
+  /** 右键菜单打开中的 tab（笔记视图 id 或宿主 tab key）：菜单存续期间给 tab 上背景提示。 */
+  const [tabMenuKey, setTabMenuKey] = useState<string | null>(null);
+  /** 最近一次右键的 tab 宽度：右键 → 重命名时输入框与原 tab 同宽（双击路径直接现场量）。 */
+  const tabEditWidthRef = useRef(48);
   const { showTableTitle, toggleTableTitleVisibility, editingTableName, setEditingTableName,
     tableNameDraft, setTableNameDraft, renamingTable, tableNameInputRef, captureTableTitleCaret,
     commitTableTitle, beginEditTableTitle } = useTableTitle({ session: tableSession, filePath: currentFilePath,
       setFilePath: setCurrentFilePath, notebookPath, editable, onFilePathChange });
-  const [viewAddOpen, setViewAddOpen] = useState(false);
-  const viewTabsScrollerRef = useRef<HTMLDivElement | null>(null);
-  const [viewTabsOverflow, setViewTabsOverflow] = useState({ left: false, right: false });
-  useLayoutEffect(() => {
-    const scroller = viewTabsScrollerRef.current;
-    if (!scroller) return;
-
-    const updateOverflow = () => {
-      const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
-      setViewTabsOverflow((current) => {
-        const left = scroller.scrollLeft > 1;
-        const right = maxScrollLeft - scroller.scrollLeft > 1;
-        return current.left === left && current.right === right ? current : { left, right };
-      });
-    };
-
-    updateOverflow();
-    scroller.addEventListener('scroll', updateOverflow, { passive: true });
-    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateOverflow);
-    resizeObserver?.observe(scroller);
-    if (scroller.firstElementChild) resizeObserver?.observe(scroller.firstElementChild);
-    return () => {
-      scroller.removeEventListener('scroll', updateOverflow);
-      resizeObserver?.disconnect();
-    };
-  }, [document?.views.items, editingViewName]);
-  const [folderMediaSwitchConfirmOpen, setFolderMediaSwitchConfirmOpen] = useState(false);
+  /** 「添加视图」的向导状态机（类型 → 选字段 → 保存），收敛成一个对象。 */
+  const viewWizard = useViewAddWizard({ onClose: closeViewManagement });
+  /** 建视图流程只读这三项；改名/打开等动作都走 `viewWizard`。 */
+  const { pendingType: pendingViewType, configuringViewId } = viewWizard;
   const [headerMenuFieldId, setHeaderMenuFieldId] = useState<string | null>(null);
   const [fieldPanelHeaderId, setFieldPanelHeaderId] = useState<string | null>(null);
   const [pendingKanbanOption, setPendingKanbanOption] = useState<TableFieldOption | null>(null);
   const [matchingOpen, setMatchingOpen] = useState(false);
   const [datasetFilterOpen, setDatasetFilterOpen] = useState(false);
-  const [viewAddStep, setViewAddStep] = useState<'kind' | 'field' | 'manage'>('kind');
-  const [pendingViewType, setPendingViewType] = useState<'calendar' | 'kanban' | null>(null);
-  const [configuringViewId, setConfiguringViewId] = useState<string | null>(null);
-  const [viewFieldPickerAnchorRect, setViewFieldPickerAnchorRect] = useState<DOMRect | null>(null);
+  const previousDatasetMenuOpenRef = useRef(matchingOpen);
+  useEffect(() => {
+    if (previousDatasetMenuOpenRef.current === matchingOpen) return;
+    previousDatasetMenuOpenRef.current = matchingOpen;
+    onDatasetFilterOpenChange?.(matchingOpen);
+  }, [matchingOpen, onDatasetFilterOpenChange]);
+  useEffect(() => subscribeCollectionDatasetFilter(currentFilePath, 'notes', () => {
+    setMatchingOpen(true);
+    setDatasetFilterOpen(true);
+  }), [currentFilePath]);
+  useImperativeHandle(panelControlsRef, () => ({ openFieldManager() {
+    setHeaderMenuFieldId(null); setFieldPanelHeaderId(null); setDatasetFilterOpen(false); setMatchingOpen(true);
+  } }), []);
   const [tablePage, setTablePage] = useState(0);
   const [galleryPage, setGalleryPage] = useState(0);
   const recordsScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -273,6 +299,27 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     setNotes,
     pendingNotePropertiesRef,
   });
+  const cellSaveStatuses = [...cellStatusesByRecord.values()].flatMap((statuses) => [...statuses.values()]);
+  const hasSaveError = saveFailed || cellSaveStatuses.some((status) => status.error);
+  const isSaving = saving || renamingTable || cellSaveStatuses.some((status) => status.saving);
+  const [showSavedStatus, setShowSavedStatus] = useState(false);
+  const wasSavingRef = useRef(isSaving);
+  useEffect(() => {
+    if (isSaving) {
+      wasSavingRef.current = true;
+      setShowSavedStatus(false);
+      return;
+    }
+    const wasSaving = wasSavingRef.current;
+    wasSavingRef.current = false;
+    if (!wasSaving || hasSaveError) {
+      if (hasSaveError) setShowSavedStatus(false);
+      return;
+    }
+    setShowSavedStatus(true);
+    const timer = window.setTimeout(() => setShowSavedStatus(false), 1000);
+    return () => window.clearTimeout(timer);
+  }, [hasSaveError, isSaving]);
   useEffect(() => {
     onSurfaceLifecycleReady?.({ status: 'ready', flush: async () => {
       const [sessionSaved, cellsSaved] = await Promise.all([flushSession(), flushCells()]);
@@ -612,6 +659,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }, [activeView?.layout, scrollPageCount]);
   useTableScrollLoading({
     enabled: !embeddedInEditor && (activeView?.layout === 'table' || activeView?.layout === 'gallery'),
+    viewportRoot: pageScroll,
     scrollerRef: recordsScrollerRef, sentinelRef: loadMoreRecordsRef,
     page: scrollPage, pageCount: scrollPageCount, onLoadMore: loadMoreRecords,
   });
@@ -757,15 +805,12 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         : addTableView(document, pendingViewType, fieldId);
       if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
         activateView(added.view.id);
-        setViewAddOpen(false);
-        setViewAddStep('kind');
-        setPendingViewType(null);
-        setViewFieldPickerAnchorRect(null);
+        viewWizard.close();
       }
     } catch (error) {
       toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableView'));
     }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, pendingViewType, save, saving]);
+  }, [document, isCurrentSession, loadSequenceRef, activateView, pendingViewType, save, saving, viewWizard]);
 
   const saveConfiguredViewField = useCallback(async (
     viewId: string,
@@ -799,16 +844,12 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         dataset = added.document.dataset;
       }
       if (await saveConfiguredViewField(configuringViewId, pendingViewType, fieldId, dataset)) {
-        setViewAddOpen(false);
-        setViewAddStep('kind');
-        setPendingViewType(null);
-        setConfiguringViewId(null);
-        setViewFieldPickerAnchorRect(null);
+        viewWizard.close();
       }
     } catch (error) {
       toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableViewSave'));
     }
-  }, [configuringViewId, createViewForField, document, pendingViewType, saveConfiguredViewField, saving]);
+  }, [configuringViewId, createViewForField, document, pendingViewType, saveConfiguredViewField, saving, viewWizard]);
 
   const createKanbanViewForStatus = useCallback(async () => {
     if (!document || pendingViewType !== 'kanban' || saving) return;
@@ -817,15 +858,12 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       const added = addKanbanView(document);
       if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
         activateView(added.view.id);
-        setViewAddOpen(false);
-        setViewAddStep('kind');
-        setPendingViewType(null);
-        setViewFieldPickerAnchorRect(null);
+        viewWizard.close();
       }
     } catch (error) {
       toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableView'));
     }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, pendingViewType, save, saving]);
+  }, [document, isCurrentSession, loadSequenceRef, activateView, pendingViewType, save, saving, viewWizard]);
 
   const chooseKanbanStatusField = useCallback(async () => {
     if (!configuringViewId) return createKanbanViewForStatus();
@@ -833,16 +871,12 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     try {
       const added = addKanbanView(document);
       if (await saveConfiguredViewField(configuringViewId, 'kanban', added.field.id, added.document.dataset)) {
-        setViewAddOpen(false);
-        setViewAddStep('kind');
-        setPendingViewType(null);
-        setConfiguringViewId(null);
-        setViewFieldPickerAnchorRect(null);
+        viewWizard.close();
       }
     } catch (error) {
       toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableViewSave'));
     }
-  }, [configuringViewId, createKanbanViewForStatus, document, saveConfiguredViewField, saving]);
+  }, [configuringViewId, createKanbanViewForStatus, document, saveConfiguredViewField, saving, viewWizard]);
 
   const createGalleryView = useCallback(async () => {
     if (!document || saving) return;
@@ -850,12 +884,9 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     const added = addTableView(document, 'gallery');
     if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
       activateView(added.view.id);
-      setViewAddOpen(false);
-      setViewAddStep('kind');
-      setPendingViewType(null);
-      setViewFieldPickerAnchorRect(null);
+      viewWizard.close();
     }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, save, saving]);
+  }, [document, isCurrentSession, loadSequenceRef, activateView, save, saving, viewWizard]);
 
   const createDataTableView = useCallback(async () => {
     if (!document || saving) return;
@@ -863,9 +894,9 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     const added = addTableView(document, 'table');
     if (await save(added.document, false, sequence) && isCurrentSession(sequence)) {
       activateView(added.view.id);
-      setViewAddOpen(false);
+      viewWizard.close();
     }
-  }, [document, isCurrentSession, loadSequenceRef, activateView, save, saving]);
+  }, [document, isCurrentSession, loadSequenceRef, activateView, save, saving, viewWizard]);
 
   const toggleTableFieldVisibility = useCallback(async (fieldId: string) => {
     if (!editable || !document || saving) return;
@@ -996,6 +1027,17 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     noteForRecord, createNoteInNotebook, renameLinkedNote,
     setPendingKanbanOption, setMatchingOpen, setFieldPanelHeaderId,
   });
+  // Keep row props stable when loading another batch or updating unrelated UI state.
+  const tableViewFields = useMemo(() => {
+    const fields = document?.dataset.schema.fields ?? [];
+    return activeView?.layout === 'table'
+      ? fields.filter((field) => field.id === document?.dataset.schema.primary_field_id
+        || (activeView.config.visible_fields as string[]).includes(field.id))
+      : fields;
+  }, [document?.dataset.schema, activeView]);
+  const visibleBuiltinFields = useMemo(() => activeView?.layout === 'table'
+    ? BUILTIN_TABLE_FIELDS.filter((field) => (activeView.config.visible_fields as string[]).includes(field.id))
+    : [], [activeView]);
   if (loadError) {
     if (reportPresentation) return null;
     return <div className={`flex h-full min-h-0 flex-col items-center justify-center gap-3 p-8 text-center ${embeddedInEditor ? 'rounded-lg border border-[var(--border)] bg-[var(--editor-block-bg)]' : ''}`}>
@@ -1021,34 +1063,14 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }
 
   const titleField = document.dataset.schema.fields.find((field) => field.id === document.dataset.schema.primary_field_id);
-  const tableViewFields = activeView?.layout === 'table'
-    ? document.dataset.schema.fields.filter((field) => field.id === document.dataset.schema.primary_field_id
-      || (activeView.config.visible_fields as string[]).includes(field.id))
-    : document.dataset.schema.fields;
-  const visibleBuiltinFields = activeView?.layout === 'table'
-    ? BUILTIN_TABLE_FIELDS.filter((field) => (activeView.config.visible_fields as string[]).includes(field.id))
-    : [];
   const calendarTitleFieldId = activeView?.layout === 'calendar' ? activeView.config.title_field as string : document.dataset.schema.primary_field_id;
   const galleryFields = activeView?.layout === 'gallery'
     ? document.dataset.schema.fields.filter((field) => field.type !== 'primary'
       && (activeView.config.visible_fields as string[]).includes(field.id))
     : [];
-  const statusField = findKanbanStatusField(document);
-  const viewFieldChoices = pendingViewType === 'calendar'
-    ? document.dataset.schema.fields.filter((field) => field.type === 'Date'
-      && field.id !== NOTE_CALENDAR_DATE_FIELD_ID
-      && canonicalizePropertyKey(field.property_key ?? '').toLocaleLowerCase() !== 'calendar_date')
-    : pendingViewType === 'kanban'
-      ? [
-        ...(statusField?.type === 'Select' ? [statusField] : []),
-        ...document.dataset.schema.fields.filter((field) => field.type === 'Select' && field.id !== statusField?.id),
-      ]
-      : [];
+  const { statusField, viewFieldChoices } = noteViewOptions(document, pendingViewType);
   const showAssociateNoteButton = canCreateRecords || showAssociateNoteAction;
   const tableDisplayName = collectionDisplayName(currentFilePath, document.collection.placement);
-  const cellSaveStatuses = [...cellStatusesByRecord.values()].flatMap((statuses) => [...statuses.values()]);
-  const isSaving = saving || renamingTable || cellSaveStatuses.some((status) => status.saving);
-  const saveStatusText = saveFailed || cellSaveStatuses.some((status) => status.error) ? '未保存' : '已保存';
   const datasetTableViews = document.views.items.filter((view) => view.layout === 'table');
   const datasetFieldChecked = (fieldId: string) => datasetTableViews.length > 0
     && datasetTableViews.every((view) => (view.config.visible_fields as string[]).includes(fieldId));
@@ -1132,11 +1154,12 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       dataset: { ...document.dataset, schema: { ...document.dataset.schema, field_order: ids } } });
   };
   const datasetAction = <div className="flex shrink-0 items-center gap-2">
-    <span role="status" aria-label={isSaving ? '保存中' : saveStatusText} className="inline-flex items-center whitespace-nowrap text-xs text-[var(--muted-foreground)]">
-      {isSaving ? <LoaderCircle className="h-3.5 w-3.5 flowix-spin" aria-hidden="true" /> : saveStatusText}
-    </span>
+    {(isSaving || hasSaveError || showSavedStatus) && <span role="status" aria-label={isSaving ? '保存中' : hasSaveError ? '未保存' : '已保存'} className="inline-flex items-center whitespace-nowrap text-xs text-[var(--muted-foreground)]">
+      {isSaving ? <LoaderCircle className="h-3.5 w-3.5 flowix-spin" aria-hidden="true" /> : hasSaveError ? '未保存' : '已保存'}
+    </span>}
     <TableDatasetMenu
       {...datasetMenuProps}
+      filterLabel={collectionActionsHost ? t('collection.filter.notes') : undefined}
       open={matchingOpen}
       onOpenChange={(open) => {
         setMatchingOpen(open);
@@ -1145,6 +1168,14 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       filterOpen={datasetFilterOpen}
       onFilterOpenChange={setDatasetFilterOpen}
       ignoreOutside={fieldPanelHeaderId !== null || newFieldOpen || datasetPresetMenuOpen}
+      assetFilter={assetFilterMenu ?? (onOpenAssetFilter && <button type="button" onClick={() => {
+          setDatasetFilterOpen(false);
+          setMatchingOpen(false);
+          onOpenAssetFilter();
+        }} className="flex h-8 w-full items-center justify-between rounded-lg px-1.5 text-left text-sm hover:bg-[var(--hover-bg)]">
+          <span>{t('collection.filter.assets')}</span>
+          <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
+        </button>)}
       children={<div className="w-full min-w-0 max-w-full space-y-0.5 overflow-x-hidden">
         <p className="agent-thread-card__codex-settings-title truncate whitespace-nowrap px-2 py-1.5">展示字段</p>
         <TableFieldList ids={fieldOrder} primaryId={document.dataset.schema.primary_field_id} activeId={fieldPanelHeaderId} disabled={!editable || saving}
@@ -1263,8 +1294,104 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
   }
   const orderedTableWidths = sortFields(tableFieldWidths, (field) => field.fieldId, columnDrag.order);
   const tableMinWidth = tableFieldWidths.reduce((total, { width }) => total + width, TABLE_ACTION_COLUMN_MIN_WIDTH);
+  /** 表格两侧的留白（外层 `pl-4 pr-4`），算进给外壳的轨道宽度。 */
+  const TABLE_SIDE_INSET = 32;
+  /**
+   * 版式与「表格实际需要的横向宽度」上抛给外壳（整页滚动用）：
+   * 表格区带 `container-type: inline-size`，不再向父级贡献 max-content 宽度，
+   * 外壳自己量不出来，只能由这里算好传上去。
+   */
+  const activeLayout = activeView?.layout ?? null;
+  const trackContentWidth = activeLayout === 'table' ? tableMinWidth + TABLE_SIDE_INSET : null;
+  const viewMenu = <TableViewMenu
+          hideTrigger={!showNavigation}
+          editable={editable}
+          saving={saving}
+          canDeleteViews={canDeleteViews}
+          wizard={viewWizard}
+          display={{
+            titleVisible: showTableTitle,
+            onToggleTitleVisibility: toggleTableTitleVisibility,
+            bannerVisible,
+            onToggleBannerVisibility,
+          }}
+          hostTabs={[]}
+          canAddDomainTab={false}
+          domainAdditionsDisabled={saving || !notebookPath || !notebookId}
+          viewFieldChoices={viewFieldChoices}
+          calendarDateChoices={calendarDateChoices}
+          onSelectCalendarDateField={(fieldId) => void selectViewField(fieldId)}
+          statusField={statusField}
+          fieldLabelOf={(field) => fieldLabel(field, propertyFields, t)}
+          onCreateTableView={() => void createDataTableView()}
+          onCreateGalleryView={() => void createGalleryView()}
+          onChooseKanbanStatusField={() => void chooseKanbanStatusField()}
+          onCreateKanbanViewForStatus={() => void createKanbanViewForStatus()}
+          onSelectViewField={(field) => void selectViewField(field)}
+          onOpenDatasetFieldManager={openDatasetFieldManager}
+          views={document.views.items}
+          managingViewId={managingViewId}
+          managingViewName={managingViewName}
+          onManagingViewNameChange={setManagingViewName}
+          manageViewRenameInputRef={manageViewRenameInputRef}
+          onFinishManageViewRename={(view, name) => void finishManageViewRename(view, name)}
+          onCancelManageViewRename={cancelManageViewRename}
+          onBeginManageViewRename={beginManageViewRename}
+          onRequestDeleteView={requestDeleteView}
+        />;
+  const navigation = <CollectionTabBar
+        pinned={pageScroll}
+        label={t('collection.tabsLabel')}
+        dataTitleVisible={showNavTitle && showTableTitle}
+        className={`multidimensional-table__view-nav${embeddedInEditor ? ' px-0' : ''}`}
+      >
+        {showNavTitle ? <><CollectionTitle kind="table"
+          title={tableDisplayName}
+          inputLabel="多维表格名称"
+          renameLabel="重命名多维表格"
+          renameHint="双击重命名"
+          edit={{ editing: editingTableName, draft: tableNameDraft, setDraft: setTableNameDraft,
+            inputRef: tableNameInputRef, captureCaret: captureTableTitleCaret,
+            beginEdit: beginEditTableTitle, commit: commitTableTitle,
+            cancel: () => { setEditingTableName(false); setTableNameDraft(tableDisplayName); },
+            disabled: !editable || saving || !notebookPath, busy: renamingTable }} />
+        <span role="separator" aria-orientation="vertical" className="multidimensional-table__view-nav-separator" /></> : null}
+        {/* 宿主 tab 与表格视图 tab 同处一条组：文件树在前，图墙/列表在后。 */}
+        <CollectionTabStrip>
+          {document.views.items.map((view) => (
+            <TabStripItem
+              key={view.id}
+              label={view.name}
+              editId={view.id}
+              active={view.id === activeView?.id}
+              menuActive={tabMenuKey === view.id}
+              editable={editable}
+              saving={saving}
+              disabled={saving}
+              edit={tabEdit}
+              onMenuOpenChange={(open) => setTabMenuKey(open ? view.id : null)}
+              widthRef={tabEditWidthRef}
+              onSelect={() => { void selectView(view.id); }}
+              onBeginRename={(width) => beginRenameView(view, width)}
+              onCommitRename={(name) => void renameView(view, name)}
+              onRequestDelete={() => requestDeleteView(view)}
+              deleteDisabled={!editable || !canDeleteViews || saving || document.views.items.length <= 1}
+            />
+          ))}
+        </CollectionTabStrip>
+        {/* 「···」更多菜单紧跟在 tab 组之后、滚动区之外：tab 再多也固定可见，
+            菜单项仍是添加视图 / 管理全部 tab / 显示标题 / 显示头图。 */}
+        {viewMenu}
+        {/* 剩余空间由这个空块吸收：tab 少时按钮贴着 tab，右端操作区仍靠窗口右侧。 */}
+        <div aria-hidden="true" className="min-w-0 flex-1" />
+        {/* 内嵌表格的操作区；工作区集合通过 collectionActionsHost 接收操作。 */}
+        {!embeddedInEditor && datasetAction}{trailingActions ? trailingActions(datasetAction) : embeddedInEditor ? datasetAction : null}
+      </CollectionTabBar>;
   return <PropertyValueTypographyContext.Provider value={valueTypography}>
-    <div className="multidimensional-table__surface flex h-full min-h-0 flex-col bg-transparent" style={valueTypography} aria-readonly={!editable}>
+    {noteFilterSlot?.target && createPortal(<TableDatasetMenu {...datasetMenuProps}
+      filterOnly embedded filterLabel={t('collection.filter.notes')} />, noteFilterSlot.target)}
+    {onActiveLayoutChange ? <CollectionTrackReporter layout={activeLayout} contentWidth={trackContentWidth} onChange={onActiveLayoutChange} /> : null}
+    <div className={`multidimensional-table__surface ${pageScroll ? 'flex flex-col' : 'flex h-full min-h-0 flex-col'} bg-transparent`} data-page-scroll={pageScroll ? 'true' : undefined} style={valueTypography} aria-readonly={!editable}>
     <DeletePresetDialog
       preset={pendingDeleteTarget?.preset ?? null}
       tableCount={pendingDeleteTableCount}
@@ -1272,205 +1399,16 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       onCancel={() => { if (!deletingFieldBusy) setPendingDeleteTarget(null); }}
       onConfirm={() => { void confirmDeleteField(); }}
     />
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <nav data-title-visible={showTableTitle} className="multidimensional-table__view-nav sticky top-0 z-10 flex min-w-0 shrink-0 items-center gap-1 px-4 py-1" aria-label="表格视图">
-        <CollectionTitle
-          kind="table"
-          title={tableDisplayName}
-          inputLabel="多维表格名称"
-          renameLabel="重命名多维表格"
-          renameHint="双击重命名"
-          editing={editingTableName}
-          draft={tableNameDraft}
-          setDraft={setTableNameDraft}
-          inputRef={tableNameInputRef}
-          captureCaret={captureTableTitleCaret}
-          beginEdit={beginEditTableTitle}
-          commit={commitTableTitle}
-          cancel={() => { setEditingTableName(false); setTableNameDraft(tableDisplayName); }}
-          disabled={!editable || saving || !notebookPath}
-          busy={renamingTable}
-        />
-        <span role="separator" aria-orientation="vertical" className="multidimensional-table__view-nav-separator" />
-        <div
-          className="multidimensional-table__view-tabs-scroller relative h-7 min-w-0 flex-1 overflow-hidden"
-          data-overflow-left={viewTabsOverflow.left ? 'true' : 'false'}
-          data-overflow-right={viewTabsOverflow.right ? 'true' : 'false'}
-        >
-          <div ref={viewTabsScrollerRef} className="multidimensional-table__view-tabs-scroll-area scrollbar-hide flex h-full min-w-0 items-center overflow-x-auto">
-          <div className="flex w-max min-w-max shrink-0 items-center gap-1.5 pr-2">
-          {document.views.items.map((view) => (
-            <ContextMenu key={view.id}>
-              {editingViewId === view.id ? (
-                <div className="relative inline-flex shrink-0">
-                  <input
-                    ref={editingViewInputRef}
-                    aria-label={t('multidimensionalTable.view.name')}
-                    value={editingViewName}
-                    disabled={!editable || saving}
-                    onChange={(event) => setEditingViewName(event.currentTarget.value)}
-                    onBlur={(event) => void renameView(view, event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                    }}
-                    style={{ width: `${editingViewWidth}px` }}
-                    className={`h-7 shrink-0 whitespace-nowrap rounded-md border border-[var(--primary)] bg-[var(--background)] px-2.5 text-sm text-[var(--foreground)] outline-none ${view.id === activeView?.id ? 'font-medium' : ''}`}
-                  />
-                  <span ref={editingViewMeasureRef} aria-hidden="true" className={`pointer-events-none invisible absolute left-0 top-0 -z-10 whitespace-pre px-2.5 text-sm ${view.id === activeView?.id ? 'font-medium' : ''}`}>
-                    {editingViewName || ' '}
-                  </span>
-                </div>
-              ) : (
-                <ContextMenuTrigger asChild>
-                  <button type="button" disabled={saving} onClick={() => { void selectView(view.id); }} onDoubleClick={() => beginRenameView(view)} className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-sm disabled:opacity-50 ${view.id === activeView?.id ? 'bg-[var(--muted)] font-medium text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)]/60'}`}>
-                    {view.name}
-                  </button>
-                </ContextMenuTrigger>
-              )}
-              <ContextMenuContent className="w-[160px] space-y-0.5 rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-                <ContextMenuItem disabled={!editable || saving} onSelect={() => beginRenameView(view)}>{t('multidimensionalTable.view.rename')}</ContextMenuItem>
-                <ContextMenuItem disabled={!editable || !canDeleteViews || saving || document.views.items.length <= 1} className="text-[var(--destructive)]" onSelect={() => requestDeleteView(view)}>{t('multidimensionalTable.view.delete')}</ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          ))}
-          <div className="shrink-0">
-            <Popover open={viewAddOpen} anchorRect={viewFieldPickerAnchorRect} onOpenChange={(open) => {
-              setViewAddOpen(open);
-              if (!open) {
-                void closeViewManagement();
-                setViewAddStep('kind');
-                setPendingViewType(null);
-                setConfiguringViewId(null);
-                setViewFieldPickerAnchorRect(null);
-              }
-            }}>
-              <PopoverTrigger asChild>
-                <button type="button" disabled={!editable || saving} aria-label="更多视图" title="更多视图" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
-                  <DotsThreeIcon size={16} weight="bold" aria-hidden="true" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent key={viewAddStep} align="start" side="bottom" sideOffset={5} fitViewport className={`${viewAddStep === 'manage' ? 'w-[220px]' : 'w-[190px]'} rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
-                {viewAddStep === 'kind' ? <div className="space-y-0.5">
-                  <div className="px-2 py-1 text-xs text-[var(--muted-foreground)]">添加笔记视图</div>
-                  <button type="button" disabled={saving} onClick={() => void createDataTableView()} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">表格</button>
-                  <button type="button" disabled={saving} onClick={() => { setConfiguringViewId(null); setPendingViewType('calendar'); setViewFieldPickerAnchorRect(null); setViewAddStep('field'); }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    日历<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-                  </button>
-                  <button type="button" disabled={saving} onClick={() => { setConfiguringViewId(null); setPendingViewType('kanban'); setViewFieldPickerAnchorRect(null); setViewAddStep('field'); }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    看板<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-                  </button>
-                  <button type="button" disabled={saving} onClick={() => void createGalleryView()} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    画廊
-                  </button>
-                  {document.collection.placement === 'folder' && <>
-                    <button type="button" disabled={saving || !notebookPath || !notebookId} onClick={() => {
-                      setViewAddOpen(false);
-                      setFolderMediaSwitchConfirmOpen(true);
-                    }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                      <span>媒体库</span>
-                      <span className="text-xs text-[var(--muted-foreground)]">图/视频</span>
-                    </button>
-                  </>}
-                  <div role="separator" aria-hidden="true" className="mx-2 my-1 h-px bg-[var(--border)]" />
-                  <button type="button" disabled={saving} onClick={() => setViewAddStep('manage')} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    <span>管理视图</span>
-                    <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-                  </button>
-                  <button type="button" aria-label={showTableTitle ? '隐藏标题' : '显示标题'} aria-pressed={showTableTitle} onClick={toggleTableTitleVisibility} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)]">
-                    <span>显示标题</span>
-                    {showTableTitle
-                      ? <EyeIcon size={16} weight="bold" className="text-[var(--brand)]" aria-hidden="true" />
-                      : <EyeSlashIcon size={16} weight="bold" className="text-[var(--muted-foreground)]" aria-hidden="true" />}
-                  </button>
-                </div> : viewAddStep === 'manage' ? <div className="space-y-0.5">
-                  <div className="flex min-w-0 items-center gap-0.5 px-1.5 py-[0.35rem]">
-                    <button type="button" aria-label="返回视图类型" className="inline-flex min-h-4 shrink-0 items-center gap-0.5 rounded px-0 text-xs leading-[1.2] text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none" onClick={() => setViewAddStep('kind')}>
-                      <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span className="min-w-0 truncate text-xs leading-[1.2] text-[var(--muted-foreground)]">管理视图</span>
-                    </button>
-                  </div>
-                  <div className="max-h-[min(60vh,420px)] space-y-0.5 overflow-y-auto">
-                    {document.views.items.map((view) => <div key={view.id} className="flex h-8 w-full min-w-0 items-center gap-1 rounded-lg px-1">
-                      {managingViewId === view.id ? <input
-                        ref={manageViewRenameInputRef}
-                        aria-label={`重命名视图：${view.name}`}
-                        value={managingViewName}
-                        disabled={!editable || saving}
-                        onChange={(event) => setManagingViewName(event.currentTarget.value)}
-                        onBlur={(event) => void finishManageViewRename(view, event.currentTarget.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            event.currentTarget.blur();
-                          } else if (event.key === 'Escape') {
-                            event.preventDefault();
-                            cancelManageViewRename();
-                          }
-                        }}
-                        className="h-7 min-w-0 flex-1 rounded-md border border-[var(--primary)] bg-[var(--background)] px-2 text-sm text-[var(--foreground)] outline-none"
-                      /> : <span className="min-w-0 flex-1 truncate px-1.5 text-sm text-[var(--foreground)]">{view.name}</span>}
-                      {managingViewId === view.id ? <button
-                        type="button"
-                        disabled={!editable || saving}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => finishManageViewRename(view, managingViewName)}
-                        className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--primary)] hover:bg-[var(--muted)] disabled:opacity-40"
-                      >保存</button> : <button type="button" aria-label={`重命名视图：${view.name}`} title="重命名" disabled={!editable || saving || managingViewId !== null} onClick={() => beginManageViewRename(view)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
-                        <PencilSimpleIcon size={15} aria-hidden="true" />
-                      </button>}
-                      {managingViewId !== view.id && <button type="button" aria-label={`删除视图：${view.name}`} title={canDeleteViews ? '删除' : '此处不可删除视图'} disabled={!editable || !canDeleteViews || saving || document.views.items.length <= 1 || managingViewId !== null} onClick={() => requestDeleteView(view)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-40">
-                        <TrashIcon size={15} aria-hidden="true" />
-                      </button>}
-                    </div>)}
-                  </div>
-                </div> : <div className="space-y-0.5">
-                  <div className="flex min-w-0 items-center gap-0.5 px-1.5 py-[0.35rem]">
-                    {configuringViewId ? <span className="min-w-0 truncate px-0.5 text-xs leading-[1.2] text-[var(--muted-foreground)]">{pendingViewType === 'calendar' ? '选择日期字段' : '选择单选字段'}</span> : <button type="button" aria-label="返回视图类型" className="inline-flex min-h-4 shrink-0 items-center gap-0.5 rounded px-0 text-xs leading-[1.2] text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none" onClick={() => { setViewAddStep('kind'); setPendingViewType(null); setViewFieldPickerAnchorRect(null); }}>
-                      <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span className="min-w-0 truncate text-xs leading-[1.2] text-[var(--muted-foreground)]">{pendingViewType === 'calendar' ? '选择日期字段' : '选择单选字段'}</span>
-                    </button>}
-                  </div>
-                  {pendingViewType === 'kanban' && !statusField && <button type="button" disabled={saving} title={configuringViewId ? '创建状态字段并设置为当前看板分组' : '创建状态字段并建立看板视图'} onClick={() => void chooseKanbanStatusField()} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    状态
-                  </button>}
-                  {pendingViewType === 'kanban' && statusField && statusField.type !== 'Select' && <p className="px-2 py-2 text-xs leading-5 text-[var(--muted-foreground)]">状态字段不是单选类型，请先修改字段类型或选择其他单选属性</p>}
-                  {viewFieldChoices.map((field) => <button type="button" key={field.id} disabled={saving} onClick={() => void (field.property_key === 'status' && !configuringViewId ? createKanbanViewForStatus() : selectViewField(field))} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    {fieldLabel(field, propertyFields, t)}
-                  </button>)}
-                  {pendingViewType === 'kanban' && viewFieldChoices.length === 0 && !statusField && <p className="px-2 py-2 text-xs leading-5 text-[var(--muted-foreground)]">可添加单选属性，作为看板分组</p>}
-                  {pendingViewType === 'calendar' && <button type="button" disabled={saving} onClick={() => void selectViewField(NOTE_CALENDAR_DATE_FIELD_ID)} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    日期
-                  </button>}
-                  {pendingViewType === 'calendar' && NOTE_CALENDAR_DATE_FIELDS.map((field) => <button type="button" key={field.id} disabled={saving} onClick={() => void selectViewField(field.id)} className="flex h-8 w-full items-center gap-1 rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    <span>{field.label}</span>
-                    <span title="创建时间和更新时间由系统维护，不能通过拖动修改" className="shrink-0 rounded-md border border-[var(--border)] bg-[var(--muted)] px-1 py-px text-xs font-normal text-[var(--muted-foreground)]">只读</span>
-                  </button>)}
-                  <div role="separator" aria-hidden="true" className="mx-2 my-1 h-px bg-[var(--border)]" />
-                  <button type="button" disabled={saving} onClick={() => {
-                    setViewAddOpen(false);
-                    setViewAddStep('kind');
-                    setPendingViewType(null);
-                    setConfiguringViewId(null);
-                    setViewFieldPickerAnchorRect(null);
-                    openDatasetFieldManager();
-                  }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    <span>字段管理</span>
-                    <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-                  </button>
-                </div>}
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-        </div>
-        </div>
-        {!embeddedInEditor && datasetAction}
-        {trailingActions ? trailingActions(datasetAction) : embeddedInEditor ? datasetAction : null}
-      </nav>
-      <OverlayScrollbar scrollerRef={recordsScrollerRef} horizontalScrollbar={activeView?.layout === 'table' || activeView?.layout === 'kanban'} className="multidimensional-table__scrollbar--bottom-clearance min-h-0 flex-1" scrollerClassName="min-h-0 flex h-full flex-col" onScroll={() => {
+    <div className={pageScroll ? 'flex flex-col' : 'flex min-h-0 flex-1 flex-col overflow-hidden'}>
+      {showNavigation ? navigation : <>
+        {viewWizard.open ? viewMenu : null}
+        {collectionActionsHost ? <CollectionActionsPortal host={collectionActionsHost}>{datasetAction}</CollectionActionsPortal> : null}
+      </>}
+      {/* 整页滚动下**按版式**决定这块的滚动角色（见 multidimensional-table.css）：
+          表格 / 画廊是流式内容，交给整页滚动（thead 才能吸在 tab 条下沿）；
+          日历 / 看板锁在可见区域里自己滚 —— 看板的横向滚动必须留在内部，
+          否则整页（连头图、tab 条）会跟着一起横滚。 */}
+      <OverlayScrollbar scrollerRef={recordsScrollerRef} horizontalScrollbar={activeView?.layout === 'kanban' || (!pageScroll && activeView?.layout === 'table')} className={`multidimensional-table__scrollbar--bottom-clearance min-h-0 flex-1 ${pageScroll ? `multidimensional-table__records--page-scroll multidimensional-table__records--layout-${activeLayout ?? 'none'}` : ''}`} scrollerClassName="min-h-0 flex h-full flex-col" onScroll={() => {
         window.dispatchEvent(new Event('flowix:multidimensional-table-scroll'));
         setHeaderMenuFieldId(null);
         setNewFieldOpen(false);
@@ -1648,11 +1586,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       {activeView?.layout === 'kanban' && groupField?.type !== 'Select' && <IncompatibleViewEmptyState
         title={t('multidimensionalTable.view.incompatibleTitle')}
         titleAction={editable && <button type="button" disabled={saving} onClick={(event) => {
-          setConfiguringViewId(activeView.id);
-          setPendingViewType('kanban');
-          setViewAddStep('field');
-          setViewFieldPickerAnchorRect(event.currentTarget.getBoundingClientRect());
-          setViewAddOpen(true);
+          viewWizard.configureView(activeView.id, 'kanban', event.currentTarget.getBoundingClientRect());
         }} className="inline-flex items-center gap-1 text-sm text-[var(--primary)] hover:underline disabled:opacity-50">
           选择分组<ChevronRight className="size-4" aria-hidden="true" />
         </button>}
@@ -1707,11 +1641,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
       {activeView?.layout === 'calendar' && (!calendarDateFieldId || (!calendarDateMetadata && calendarField?.type !== 'Date')) && <IncompatibleViewEmptyState
         title={t('multidimensionalTable.view.incompatibleTitle')}
         titleAction={editable && <button type="button" disabled={saving} onClick={(event) => {
-          setConfiguringViewId(activeView.id);
-          setPendingViewType('calendar');
-          setViewAddStep('field');
-          setViewFieldPickerAnchorRect(event.currentTarget.getBoundingClientRect());
-          setViewAddOpen(true);
+          viewWizard.configureView(activeView.id, 'calendar', event.currentTarget.getBoundingClientRect());
         }} className="inline-flex items-center gap-1 text-sm text-[var(--primary)] hover:underline disabled:opacity-50">
           选择日期<ChevronRight className="size-4" aria-hidden="true" />
         </button>}
@@ -1992,33 +1922,21 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         />
       </PopoverContent>
     </Popover>
-    <Dialog open={viewPendingDelete !== null} onOpenChange={(open) => { if (!open) cancelDeleteView(); }}>
+    {/* 内嵌表格的视图删除；工作区集合统一由外壳管理。 */}
+    <Dialog open={viewPendingDelete !== null} onOpenChange={(open) => { if (!open) { cancelDeleteView(); } }}>
       <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
         <DialogHeader>
           <DialogTitle>{t('multidimensionalTable.view.delete')}</DialogTitle>
           <DialogDescription>
-            {viewPendingDelete ? t('multidimensionalTable.view.deleteConfirm', { name: viewPendingDelete.name }) : ''}
+            {t('multidimensionalTable.view.deleteConfirm', { name: viewPendingDelete?.name ?? '' })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={cancelDeleteView}>{t('dialog.cancel')}</Button>
-          <Button type="button" variant="destructive" onClick={confirmDeleteView}>{t('dialog.delete')}</Button>
+          <Button type="button" variant="ghost" onClick={() => { cancelDeleteView(); }}>{t('dialog.cancel')}</Button>
+          <Button type="button" variant="destructive" onClick={() => { confirmDeleteView(); }}>{t('dialog.delete')}</Button>
         </div>
       </DialogContent>
     </Dialog>
-    <FolderCollectionSwitchConfirmDialog
-      open={folderMediaSwitchConfirmOpen}
-      onOpenChange={setFolderMediaSwitchConfirmOpen}
-      confirmDisabled={saving}
-      onConfirm={() => {
-        setFolderMediaSwitchConfirmOpen(false);
-        if (notebookPath && notebookId) {
-          window.dispatchEvent(new CustomEvent('flowix:request-switch-folder-collection-type', {
-            detail: { filePath: currentFilePath, notebookPath, notebookId, type: 'media_library' },
-          }));
-        }
-      }}
-    />
     </div>
   </PropertyValueTypographyContext.Provider>;
 }

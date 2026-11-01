@@ -66,7 +66,10 @@ fn read_by_path(
     raw_path: &str,
 ) -> Result<(PathBuf, CollectionDocument), CliError> {
     let relative = normalize_relative_path(raw_path)?;
-    if policy.is_ignored_at(root, &relative) && !is_visible_folder_index(root, policy, &relative) {
+    // Access scope, not display scope: a collection's `.index.yaml` is hidden
+    // from the file tree yet must stay readable here. Catalog scans below use
+    // index scope instead.
+    if policy.is_tree_hidden_at(root, &relative) {
         return Err(CliError::NotFound(format!(
             "collection not found: {raw_path}"
         )));
@@ -89,7 +92,7 @@ fn read_by_path(
     let canonical_relative = canonical
         .strip_prefix(root)
         .map_err(|error| CliError::Other(error.to_string()))?;
-    if policy.is_ignored_at(root, canonical_relative) && !is_visible_folder_index(root, policy, canonical_relative) {
+    if policy.is_tree_hidden_at(root, canonical_relative) {
         return Err(CliError::NotFound(format!(
             "collection not found: {raw_path}"
         )));
@@ -182,7 +185,7 @@ fn read_matching_collection(
     if relative_path
         .components()
         .any(|component| !matches!(component, Component::Normal(_)))
-        || (policy.is_ignored_at(root, relative_path) && !is_visible_folder_index(root, policy, relative_path))
+        || policy.is_tree_hidden_at(root, relative_path)
     {
         return None;
     }
@@ -222,7 +225,7 @@ fn collect_collection_files(
         let relative = path
             .strip_prefix(root)
             .map_err(|error| CliError::Other(error.to_string()))?;
-        if policy.is_ignored_at(root, relative) && !is_visible_folder_index(root, policy, relative) {
+        if policy.is_index_hidden_at(root, relative) {
             continue;
         }
         let file_type = entry.file_type()?;
@@ -289,6 +292,8 @@ fn validate_file_type(
                     CollectionType::WorkDocuments => {
                         has_nonempty_stem(".workdocs.yaml") || has_nonempty_stem(".workdocs.yml")
                     }
+                    // Standalone hybrid collections have no filename convention yet.
+                    CollectionType::Hybrid => false,
                 }
         }
     };
@@ -296,9 +301,4 @@ fn validate_file_type(
         return Err(CliError::Other("COLLECTION_TYPE_EXTENSION_MISMATCH".into()));
     }
     Ok(())
-}
-
-fn is_visible_folder_index(root: &Path, policy: &FileManagementPolicy, relative: &Path) -> bool {
-    relative.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.eq_ignore_ascii_case(".index.yaml"))
-        && relative.parent().is_some_and(|parent| !policy.is_ignored_at(root, parent))
 }
