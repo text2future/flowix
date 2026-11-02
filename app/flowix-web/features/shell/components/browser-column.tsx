@@ -2,7 +2,7 @@ import { useSessionAddressBar } from '@features/workspace/public/session-header-
 import { useSessionHostEnvironment } from './session-host-environment';
 import { ColumnResizeHandle } from './column-resize-handle';
 import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import {
   BROWSER_COLUMN_MIN_WIDTH,
   hideBrowserColumn,
@@ -18,6 +18,8 @@ import { createShellNote, createShellNoteFromTemplate, useShellSelectedNotebook 
 import { createBrowserColumnAgentConversation, discardUnopenedBrowserColumnAgentConversation } from '@features/agent/public/shell-api';
 import type { AgentTypeKey } from '@/types/agent';
 import { workspaceSurfaceAppearance } from '@features/workspace/public/surface-api';
+import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
+import { isWindowsPlatform } from '@/lib/path';
 import {
   captureLatestDocumentContent,
   getDocumentEditorMode,
@@ -31,6 +33,7 @@ import {
   useWorkspaceSurfacePresentation,
   resolveBrowserColumnSurface,
   WorkspaceSurfaceStateView,
+  browserCollectionIndexPath,
 } from '@features/surface/public/shell-api';
 
 export interface BrowserColumnProps {
@@ -121,6 +124,16 @@ export const BrowserColumn = memo(function BrowserColumn({
     : null, [current, webRuntime, toolbarCollapsed, onToolbarCollapsedChange]);
   const activeSurfaceRuntime = useWorkspaceSurfacePresentation(activeSurface?.surfaceId ?? '');
   const activeSurfaceDefinition = activeSurface ? getBrowserColumnSurfaceDefinition(activeSurface) : null;
+  const collectionPath = browserCollectionIndexPath(current);
+  const collectionBanner = useCollectionBannerControl(collectionPath);
+  // Match the main Work column: visible collection banners slide under the titlebar,
+  // while sticky collection tabs and table headers use the same titlebar offset.
+  const collectionTitlebarH = collectionPath && (!collectionBanner.available || collectionBanner.visible)
+    ? (isWindowsPlatform() ? '2.25rem' : '3rem')
+    : null;
+  const collectionContentStyle: CSSProperties | undefined = collectionTitlebarH
+    ? ({ marginTop: `-${collectionTitlebarH}`, '--work-titlebar-h': collectionTitlebarH } as CSSProperties)
+    : undefined;
   const activeSurfaceChrome = activeSurfaceRuntime.appearance?.headerStyle
     ?? activeSurfaceDefinition?.chrome
     ?? 'document';
@@ -160,7 +173,7 @@ export const BrowserColumn = memo(function BrowserColumn({
         onCreateNote={() => { void handleCreateNote(); }}
         onCreateAgentConversation={(typeKey) => { void handleCreateAgentConversation(typeKey); }}
       />
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden" style={collectionContentStyle}>
         {activeSurface ? (
           <BrowserColumnSurfaceHost
             key={activeSurface.instanceKey}

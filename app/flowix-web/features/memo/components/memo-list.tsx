@@ -21,6 +21,8 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDownUp,
   Check,
+  ChevronDown,
+  ChevronUp,
   SwatchBook,
   Loader2,
   SquarePen,
@@ -185,6 +187,7 @@ export function MemoList({
   const showFolderView = memoListView === 'folders' && Boolean(selectedNotebook);
   const NotebookLoadingState = memoListView === 'folders' ? FileTreeLoadingSkeleton : ListSurfaceLoadingState;
   const [createTypeMenuOpen, setCreateTypeMenuOpen] = useState(false);
+  const [createViewsExpanded, setCreateViewsExpanded] = useState(false);
   const [documentCreateRequest, setDocumentCreateRequest] = useState<NotebookDocumentCreateRequest | null>(null);
   const [createTemplates, setCreateTemplates] = useState<NoteTemplate[]>([]);
   // A stale Zustand snapshot can survive a Vite HMR update with this field
@@ -232,6 +235,7 @@ export function MemoList({
   }, [selectedNotebookId]);
   const handleCreateTypeMenuOpenChange = useCallback((open: boolean) => {
     setCreateTypeMenuOpen(open);
+    if (!open) setCreateViewsExpanded(false);
   }, []);
   useEffect(() => {
     const handleOpenCreateTableDialog = (event: Event) => {
@@ -1033,6 +1037,9 @@ export function MemoList({
       : activeSort === 'filenameDesc'
         ? t('memo.list.sortFilenameDesc')
         : t('memo.list.sortCreated');
+  const visibleCreateViewOptions = createViewsExpanded
+    ? MEMO_CREATE_VIEW_OPTIONS
+    : MEMO_CREATE_VIEW_OPTIONS.slice(0, 1);
   const createTypeMenuContent = (
     <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
       <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
@@ -1059,12 +1066,24 @@ export function MemoList({
           <span className="min-w-0 truncate">{template.name}</span>
         </DropdownMenuItem>
       ))}
+      {memoListView === 'folders' && newConversationSelection.options.length > 0 && (
+        <>
+          <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
+            {t('memo.create.conversations')}
+          </DropdownMenuLabel>
+          <AgentConversationTypeMenuItems
+            options={newConversationSelection.options}
+            disabled={!selectedNotebook}
+            onSelect={handleCreateAgentConversation}
+          />
+        </>
+      )}
       {memoListView === 'folders' && (
         <>
           <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
             {t('memo.create.newView')}
           </DropdownMenuLabel>
-          {MEMO_CREATE_VIEW_OPTIONS.map(({ type, labelKey }) => (
+          {visibleCreateViewOptions.map(({ type, labelKey }) => (
             <DropdownMenuItem
               key={type}
               disabled={!selectedNotebook}
@@ -1077,43 +1096,46 @@ export function MemoList({
                 ? <Table2 className="h-4 w-4 shrink-0" aria-hidden="true" />
                 : <span className="h-4 w-4 shrink-0" aria-hidden="true" />}
               <span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
-              <span className="shrink-0 text-xs opacity-50">{t('memo.create.note')}</span>
+              <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">{t('memo.create.note')}</span>
             </DropdownMenuItem>
           ))}
+          {createViewsExpanded && (
+            <>
+              <DropdownMenuItem
+                disabled={!selectedNotebook}
+                onClick={() => {
+                  openDocumentCreateDialog('media-library');
+                }}
+                className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                <GalleryHorizontalEnd className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.mediaLibraryMenuLabel')}</span>
+                <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">{t('memo.create.assetShort')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!selectedNotebook || selectedNotebook.missing}
+                onClick={() => {
+                  openDocumentCreateDialog('work-documents');
+                }}
+                className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+              >
+                <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.workDocumentsMenuLabel')}</span>
+                <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">{t('memo.create.assetShort')}</span>
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuItem
-            disabled={!selectedNotebook}
-            onClick={() => {
-              openDocumentCreateDialog('media-library');
-            }}
-            className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+            keepOpenOnClick
+            onClick={() => setCreateViewsExpanded((expanded) => !expanded)}
+            title={t(createViewsExpanded ? 'memo.create.collapseViews' : 'memo.create.expandViews')}
+            className="group h-5 justify-center rounded-lg px-2 py-0 text-[var(--muted-foreground)] hover:text-[color-mix(in_oklch,var(--brand)_65%,white)]"
           >
-            <GalleryHorizontalEnd className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.mediaLibraryMenuLabel')}</span>
-            <span className="shrink-0 text-xs opacity-50">{t('memo.create.assetShort')}</span>
+            {createViewsExpanded
+              ? <ChevronUp className="h-4 w-4" aria-hidden="true" />
+              : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
+            <span className="sr-only">{t(createViewsExpanded ? 'memo.create.collapseViews' : 'memo.create.expandViews')}</span>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!selectedNotebook || selectedNotebook.missing}
-            onClick={() => {
-              openDocumentCreateDialog('work-documents');
-            }}
-            className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-          >
-            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.workDocumentsMenuLabel')}</span>
-            <span className="shrink-0 text-xs opacity-50">{t('memo.create.assetShort')}</span>
-          </DropdownMenuItem>
-        </>
-      )}
-      {memoListView === 'folders' && newConversationSelection.options.length > 0 && (
-        <>
-          <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
-            {t('memo.create.conversations')}
-          </DropdownMenuLabel>
-          <AgentConversationTypeMenuItems
-            options={newConversationSelection.options}
-            disabled={!selectedNotebook}
-            onSelect={handleCreateAgentConversation}
-          />
         </>
       )}
     </DropdownMenuContent>

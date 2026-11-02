@@ -80,6 +80,12 @@ const zhCN = {
   "collection.menu.addNoteViews": "添加笔记视图",
   "collection.menu.addAssetViews": "添加资料视图",
   "collection.menu.mediaHint": "图/视频",
+  "collection.menu.viewDescription.table": "使用表格视图展示位置内的 Markdown 文档，并按属性筛选阅读、管理。",
+  "collection.menu.viewDescription.gallery": "使用画廊视图展示位置内的 Markdown 文档，并以卡片形式浏览封面、图片和摘要。",
+  "collection.menu.viewDescription.kanban": "使用看板视图展示位置内的 Markdown 文档，并按单选属性分组、拖动卡片更新状态。",
+  "collection.menu.viewDescription.calendar": "使用日历视图展示位置内的 Markdown 文档，并按日期属性安排和回顾日程。",
+  "collection.menu.viewDescription.media": "使用图墙视图展示位置内的图片和视频，并以缩略图浏览媒体资料。",
+  "collection.menu.viewDescription.files": "使用列表视图展示位置内的其他文件资料，并查看名称、更新时间和大小。",
   // 「···」菜单的其余两步：管理已添加的 tab、从向导回到类型列表
   "collection.menu.manageViews": "管理视图",
   "collection.menu.backToViewTypes": "返回视图类型",

@@ -1408,6 +1408,8 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "memo.create.table": "Table",
     "memo.create.more": "New view",
     "memo.create.newView": "New view",
+    "memo.create.expandViews": "Expand views",
+    "memo.create.collapseViews": "Collapse views",
     "memo.fileTree.import": "Import",
     "memo.fileTree.importFiles": "Import files…",
     "memo.fileTree.importFolder": "Import folder…",

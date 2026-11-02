@@ -1386,6 +1386,8 @@ const zhCN = {
     "memo.create.table": "表格",
     "memo.create.more": "新建视图",
     "memo.create.newView": "新建视图",
+    "memo.create.expandViews": "展开视图",
+    "memo.create.collapseViews": "收起视图",
     "memo.fileTree.import": "导入",
     "memo.fileTree.importFiles": "导入文件…",
     "memo.fileTree.importFolder": "导入文件夹…",

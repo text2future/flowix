@@ -28,6 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 import { DotsThreeIcon, EyeIcon, EyeSlashIcon, PencilSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
+import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
 import { hostTabEditId, type CollectionHostTab } from './collection-host-tab';
 import type { ViewAddWizard } from './use-view-add-wizard';
@@ -221,34 +222,46 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
     <PopoverContent key={step} align="end" side="bottom" sideOffset={5} fitViewport className={`${step === 'manage' ? 'w-[220px]' : 'w-[190px]'} rounded-xl p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]`}>
       {step === 'kind' ? <div className="space-y-0.5">
         <div className="px-2 py-1 text-xs text-[var(--muted-foreground)]">{t('collection.menu.addNoteViews')}</div>
-        <button type="button" disabled={!editable || saving} onClick={onCreateTableView} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">{t('collection.viewType.table')}</button>
-        <button type="button" disabled={!editable || saving} onClick={() => wizard.chooseType('calendar')} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-          {t('collection.viewType.calendar')}<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-        </button>
-        <button type="button" disabled={!editable || saving} onClick={() => wizard.chooseType('kanban')} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-          {t('collection.viewType.kanban')}<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-        </button>
-        <button type="button" disabled={!editable || saving} onClick={onCreateGalleryView} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-          {t('collection.viewType.gallery')}
-        </button>
+        <Tooltip content={t('collection.menu.viewDescription.table')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
+          <button type="button" disabled={!editable || saving} onClick={onCreateTableView} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">{t('collection.viewType.table')}</button>
+        </Tooltip>
+        <Tooltip content={t('collection.menu.viewDescription.gallery')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
+          <button type="button" disabled={!editable || saving} onClick={onCreateGalleryView} className="flex h-8 w-full items-center rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
+            {t('collection.viewType.gallery')}
+          </button>
+        </Tooltip>
+        <Tooltip content={t('collection.menu.viewDescription.kanban')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
+          <button type="button" disabled={!editable || saving} onClick={() => wizard.chooseType('kanban')} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
+            {t('collection.viewType.kanban')}<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
+          </button>
+        </Tooltip>
+        <Tooltip content={t('collection.menu.viewDescription.calendar')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
+          <button type="button" disabled={!editable || saving} onClick={() => wizard.chooseType('calendar')} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
+            {t('collection.viewType.calendar')}<ChevronRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
+          </button>
+        </Tooltip>
         {/* 数据域视图（添加资料视图）：图墙 / 列表按视图实例创建，与笔记视图平行——
             已有几个都还可以再加；缺失的域由外壳补域（首个视图随域一起建）。 */}
         {canAddDomainTab && onRequestAddAssetView && <>
           <div role="separator" aria-hidden="true" className="mx-2 my-1 h-px bg-[var(--border)]" />
           <div className="px-2 py-1 text-xs text-[var(--muted-foreground)]">{t('collection.menu.addAssetViews')}</div>
-          <button type="button" disabled={domainAdditionsDisabled} onClick={() => {
-            wizard.setOpen(false);
-            onRequestAddAssetView('media_library');
-          }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-            <span>{t('collection.mediaView')}</span>
-            <span className="text-xs text-[var(--muted-foreground)]">{t('collection.menu.mediaHint')}</span>
-          </button>
-          <button type="button" disabled={domainAdditionsDisabled} onClick={() => {
-            wizard.setOpen(false);
-            onRequestAddAssetView('work_documents');
-          }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-            <span>{t('collection.workView')}</span>
-          </button>
+          <Tooltip content={t('collection.menu.viewDescription.media')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
+            <button type="button" disabled={domainAdditionsDisabled} onClick={() => {
+              wizard.setOpen(false);
+              onRequestAddAssetView('media_library');
+            }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
+              <span>{t('collection.mediaView')}</span>
+              <span className="text-xs text-[var(--muted-foreground)]">{t('collection.menu.mediaHint')}</span>
+            </button>
+          </Tooltip>
+          <Tooltip content={t('collection.menu.viewDescription.files')} side="right" align="start" sideOffset={0} className="w-[160px] whitespace-normal leading-5">
+            <button type="button" disabled={domainAdditionsDisabled} onClick={() => {
+              wizard.setOpen(false);
+              onRequestAddAssetView('work_documents');
+            }} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
+              <span>{t('collection.workView')}</span>
+            </button>
+          </Tooltip>
         </>}
         <div role="separator" aria-hidden="true" className="mx-2 my-1 h-px bg-[var(--border)]" />
         <button type="button" disabled={!editable || saving} onClick={() => wizard.setStep('manage')} className="flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
