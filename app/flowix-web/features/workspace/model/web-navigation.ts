@@ -30,3 +30,18 @@ export function moveWorkspaceWebHistory(current: WorkspaceWebRuntime, direction:
 export function reloadWorkspaceWebRuntime(current: WorkspaceWebRuntime): WorkspaceWebRuntime {
   return { ...current, reloadToken: current.reloadToken + 1, isLoading: true, error: null };
 }
+
+/** Restore serializable navigation state; live loading/error handles are recreated. */
+export function restoreWorkspaceWebRuntime(value: unknown): WorkspaceWebRuntime | null {
+  if (!value || typeof value !== 'object' || !('history' in value) || !Array.isArray(value.history)
+    || !value.history.every((url) => typeof url === 'string')
+    || !('historyIndex' in value) || typeof value.historyIndex !== 'number'
+    || !Number.isInteger(value.historyIndex) || value.historyIndex < 0 || value.historyIndex >= value.history.length
+    || !('currentUrl' in value) || typeof value.currentUrl !== 'string'
+    || value.history[value.historyIndex] !== value.currentUrl) return null;
+  // Keep the active location even if the retained history is capped.
+  const start = Math.max(0, value.historyIndex - 99);
+  const history = value.history.slice(start, start + 200);
+  return { currentUrl: value.currentUrl, history, historyIndex: value.historyIndex - start,
+    reloadToken: 0, isLoading: true, error: null };
+}

@@ -355,25 +355,38 @@ impl MemoFile {
         content: &str,
         expected_content: Option<&str>,
     ) -> io::Result<NoteWriteResult> {
+        // Stage timings feed the slow-save log line; sampling only, no logic.
+        let profile_started = Instant::now();
         let root = self.notebook_root_for_note(notebook_id)?;
         let path = self.validate_note_path(&root, relative_path, true)?;
         super::frontmatter::extract_document_metadata_tolerant(content)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
-        match self.write_file_if_matches_for_notebook(
+        let prepare = profile_started.elapsed();
+
+        let file_write_started = Instant::now();
+        let outcome = self.write_file_if_matches_for_notebook(
             notebook_id,
             &path,
             content,
             expected_content,
-        )? {
+        )?;
+        let file_write = file_write_started.elapsed();
+
+        match outcome {
             super::FileWriteOutcome::Conflict { disk_content } => {
                 Ok(NoteWriteResult::Conflict { disk_content })
             }
             super::FileWriteOutcome::Saved => {
-                let index_entry = match self.refresh_note_path_with_content(
+                let index_started = Instant::now();
+                let refresh_result = self.refresh_note_path_with_content(
                     notebook_id,
                     relative_path,
                     content,
-                ) {
+                );
+                let index_refresh = index_started.elapsed();
+
+                let read_back_started = Instant::now();
+                let index_entry = match refresh_result {
                     Ok(()) => self
                         .read_indexed_note_entry_by_path(notebook_id, relative_path)
                         .ok()
@@ -388,6 +401,17 @@ impl MemoFile {
                         None
                     }
                 };
+                let read_back = read_back_started.elapsed();
+
+                super::save_probe::record(super::save_probe::SaveProfile {
+                    prepare,
+                    file_write,
+                    index_refresh,
+                    read_back,
+                    total: profile_started.elapsed(),
+                    bytes: content.len(),
+                });
+
                 Ok(NoteWriteResult::Saved {
                     content: content.to_string(),
                     index_entry,
@@ -1969,8 +1993,18 @@ impl MemoFile {
         let mut conn = Connection::open(path).map_err(io::Error::other)?;
         conn.busy_timeout(std::time::Duration::from_secs(10))
             .map_err(io::Error::other)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
-            .map_err(io::Error::other)?;
+        // `synchronous` is per-connection, so it has to be set on every open.
+        // This database is a rebuildable projection (see module docs): note
+        // bytes always come from Markdown, and the index is discarded and
+        // rebuilt when unreadable. Under WAL, NORMAL cannot corrupt the file;
+        // a power loss can only roll back the last few transactions, which the
+        // next reconcile scan repairs. FULL costs one device barrier per
+        // commit (measured ~4-6ms on a real barrier vs ~0.06ms for NORMAL),
+        // and a note save commits once per autosave.
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
+        )
+        .map_err(io::Error::other)?;
         if !run_legacy_migrations && note_schema_is_current(&conn, notebook_id)? {
             return Ok(conn);
         }

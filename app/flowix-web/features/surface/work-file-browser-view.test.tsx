@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeSurfaceFileBrowser } from './work-file-browser-view';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openWorkspaceSurface as openSessionSurface } from '@features/workspace/public/session-opening-api';
 import type { CodeSurfaceFileTree } from './code-surface-view';
 
+vi.mock('@features/workspace/public/session-opening-api', () => ({ openWorkspaceSurface: vi.fn().mockResolvedValue(null) }));
 vi.mock('@features/workspace/public/open-surface-api', () => ({ openWorkspaceSurface: vi.fn().mockResolvedValue(null) }));
 vi.mock('./code-surface-view', () => ({ CodeSurfaceView: ({ fileTree }: { fileTree: CodeSurfaceFileTree }) => <>
   <button onClick={() => fileTree.onSelectFile('/book/report.docx')}>docx</button>
@@ -35,7 +37,7 @@ describe('Work file tree open destination', () => {
   it.each(['docx', 'unsupported'])('keeps %s selection in Work', async (label) => {
     const button = [...host.querySelectorAll('button')].find((item) => item.textContent === label)!;
     await act(async () => button.click());
-    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ host: 'main-third', target: expect.objectContaining({ kind: 'external' }) }));
+    expect(openSessionSurface).toHaveBeenCalledWith(expect.objectContaining({ host: 'main-third', target: expect.objectContaining({ kind: 'external' }) }));
   });
   it('opens Browser when explicitly requested', async () => {
     const button = [...host.querySelectorAll('button')].find((item) => item.textContent === 'browser')!;

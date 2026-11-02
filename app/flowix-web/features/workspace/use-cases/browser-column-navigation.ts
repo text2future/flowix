@@ -1,3 +1,4 @@
+import { navigateWorkspaceSession } from './session-navigation';
 import type { BrowserColumnNavigationResult } from '../model/surface-opening';
 import { collections, externalDocuments, notebooks } from '@platform/tauri/client';
 import { collectionNotebookId } from '@features/collection/mutations';
@@ -30,10 +31,11 @@ import { useWorkColumnStore } from '@features/workspace/store/work-column-store'
 export type BrowserColumnOpenResult = NonNullable<BrowserColumnNavigationResult>;
 export type BrowserTargetOpenResult = BrowserColumnOpenResult;
 
-function targetContentTitle(target: BrowserColumnTarget): string {
+export function targetContentTitle(target: BrowserColumnTarget): string {
   const filenameFromPath = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
   switch (target.kind) {
+    case 'plugin-workbench': return target.plugin.manifest.name;
     case 'folder-collection':
       return target.folderName || target.folderPath.split(/[\\/]/).filter(Boolean).pop() || '文件夹集合';
     case 'media':
@@ -51,7 +53,7 @@ function targetContentTitle(target: BrowserColumnTarget): string {
   }
 }
 
-function targetContentIcon(target: BrowserColumnTarget): string | null {
+export function targetContentIcon(target: BrowserColumnTarget): string | null {
   if (target.kind !== 'web') return null;
   try {
     const parsed = new URL(target.url);
@@ -61,17 +63,17 @@ function targetContentIcon(target: BrowserColumnTarget): string | null {
   }
 }
 
-export function openBrowserColumnTarget(target: BrowserColumnTarget): Promise<BrowserColumnNavigationResult> {
+export function openBrowserColumnTarget(target: BrowserColumnTarget, options?: { history?: 'push' | 'skip'; navigationEntryId?: string }): Promise<BrowserColumnNavigationResult> {
   return enqueueBrowserColumnNavigation(async () => {
     target = await prepareCollectionBrowserTarget(target);
     const alreadyOpen = !!findWorkspaceContentLocations(browserColumnTargetIdentity(target)).browserColumn;
-    const id = `browser:${crypto.randomUUID()}`;
+    const id = options?.navigationEntryId ?? `browser:${crypto.randomUUID()}`;
     const surfaceId = useBrowserColumnStore.getState().openContent({
       id,
       title: targetContentTitle(target),
       icon: targetContentIcon(target),
       target,
-    });
+    }, options);
     return { host: 'browser-column', surfaceId, alreadyOpen };
   });
 }
@@ -98,15 +100,7 @@ export function selectBrowserColumnFile(surfaceId: string, filePath: string | nu
 
 /** History movement crosses exactly the same save and target-resolution barrier as opens. */
 export function navigateBrowserColumnHistory(direction: 'back' | 'forward'): Promise<boolean | null> {
-  return enqueueBrowserColumnNavigation(async () => {
-    const state = useBrowserColumnStore.getState();
-    const stack = direction === 'back' ? state.backStack : state.forwardStack;
-    const entry = stack[stack.length - 1];
-    if (!entry) return false;
-    const target = await prepareCollectionBrowserTarget(entry.target);
-    state.restoreHistoryEntry({ ...entry, target }, direction);
-    return true;
-  });
+  return navigateWorkspaceSession('secondary-session', direction);
 }
 
 export function openBrowserColumnMarkdown(filePath: string): Promise<BrowserColumnOpenResult | null> {
@@ -240,7 +234,7 @@ export function removeBrowserColumnContentByPath(path: string): string[] {
 }
 
 /** Resolve identity before a browser surface can mount. */
-async function prepareCollectionBrowserTarget(target: BrowserColumnTarget): Promise<BrowserColumnTarget> {
+export async function prepareCollectionBrowserTarget(target: BrowserColumnTarget): Promise<BrowserColumnTarget> {
   if (target.kind === 'file-browser') {
     target = { ...target, ...resolveFileBrowserContext(target.activeFilePath, target) };
   }

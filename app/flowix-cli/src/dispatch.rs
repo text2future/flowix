@@ -40,9 +40,79 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             path_store::print(path_store::create(&notebook, &content)?, json)
         }
         cli::Cli::Delete { id, json } => path_store::print(path_store::delete(&id)?, json),
-        cli::Cli::CollectionRead { notebook, collection_id, path, json } => {
+        cli::Cli::CollectionRead {
+            notebook,
+            collection_id,
+            path,
+            json,
+        } => {
             let data = operation::execute(operation::FlowixOperation::CollectionRead {
-                notebook, collection_id, path,
+                notebook,
+                collection_id,
+                path,
+            })?;
+            path_store::print(data, json)
+        }
+        cli::Cli::CollectionList {
+            notebook,
+            collection_type,
+            domain,
+            query,
+            limit,
+            offset,
+            snapshot,
+            json,
+        } => {
+            let data = operation::execute(operation::FlowixOperation::CollectionList {
+                notebook,
+                collection_type,
+                domain,
+                query,
+                limit,
+                offset,
+                snapshot,
+            })?;
+            path_store::print(data, json)
+        }
+        cli::Cli::CollectionDescribe {
+            notebook,
+            collection_id,
+            path,
+            json,
+        } => {
+            let data = operation::execute(operation::FlowixOperation::CollectionDescribe {
+                notebook,
+                collection_id,
+                path,
+            })?;
+            path_store::print(data, json)
+        }
+        cli::Cli::CollectionQuery {
+            notebook,
+            collection_id,
+            path,
+            domain,
+            view_id,
+            query,
+            fields,
+            sort,
+            limit,
+            offset,
+            snapshot,
+            json,
+        } => {
+            let data = operation::execute(operation::FlowixOperation::CollectionQuery {
+                notebook,
+                collection_id,
+                path,
+                domain,
+                view_id,
+                query,
+                fields,
+                sort,
+                limit,
+                offset,
+                snapshot,
             })?;
             path_store::print(data, json)
         }
@@ -52,7 +122,10 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
             tag,
             limit,
             json,
-        } => path_store::print(path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit)?, json),
+        } => path_store::print(
+            path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit)?,
+            json,
+        ),
         cli::Cli::Edit {
             id,
             old,
@@ -67,9 +140,13 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
                 path_store::read_input(None, true, "edit")?
             } else if let Some(file) = new_file {
                 path_store::read_input(Some(&file), false, "edit")?
-            } else { new.ok_or_else(|| CliError::Usage("edit requires --new, --new-file or --new-stdin".into()))? };
+            } else {
+                new.ok_or_else(|| {
+                    CliError::Usage("edit requires --new, --new-file or --new-stdin".into())
+                })?
+            };
             path_store::print(path_store::edit(&id, &old, &replacement, dry_run)?, json)
-        },
+        }
         cli::Cli::Write {
             id,
             file,
@@ -78,7 +155,7 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
         } => {
             let content = path_store::read_input(file.as_deref(), stdin, "write")?;
             path_store::print(path_store::write(&id, &content)?, json)
-        },
+        }
         cli::Cli::PluginList { json } => plugin::cmd_list(json),
         cli::Cli::PluginDescribe { plugin_id, json } => plugin::cmd_describe(&plugin_id, json),
         cli::Cli::PluginCreate {

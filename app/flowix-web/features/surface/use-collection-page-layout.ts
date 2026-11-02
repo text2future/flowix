@@ -1,3 +1,4 @@
+import { useSessionScrollRecovery } from '@features/workspace/public/session-view-state-api';
 import { reportWorkspaceHeaderScrolled, clearWorkspaceHeaderScrolled } from '@features/workspace/public/header-api';
 import { useCallback, useEffect, useState } from 'react';
 import type { WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-contract';
@@ -19,6 +20,7 @@ export function useCollectionPageLayout(host: WorkspaceSurfaceRenderContext['hos
   const pageScrollsHorizontally = tableActive && activeLayout === 'table';
   /** 滚动容器自身尺寸写回 CSS 变量：头图 / tab 条靠它保持「面板宽」并横向钉住。 */
   const [pageScroller, setPageScroller] = useState<HTMLDivElement | null>(null);
+  useSessionScrollRecovery(pageScroller, 'collection-page');
   useEffect(() => {
     if (!pageScroller) return;
     const sync = () => {

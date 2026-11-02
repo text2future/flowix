@@ -1,5 +1,6 @@
 'use client';
 
+import { useSessionWebRuntimeStore } from '@features/workspace/public/session-web-api';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ArrowUpRight, ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
 import { canonicalUrl } from '@/lib/url';
@@ -49,14 +50,16 @@ function isValidSkillArchive(value: unknown, id: string, origin: string): value 
 }
 
 /** Work owns a view-local web session; Browser injects its tab runtime port. */
-function useLocalWebNavigation(url: string) {
-  const [runtime, setRuntime] = useState(() => createWorkspaceWebRuntime(url));
+function useLocalWebNavigation(url: string, viewId: string) {
+  const initial = useMemo(() => createWorkspaceWebRuntime(url), [url]);
+  const runtime = useSessionWebRuntimeStore((state) => state.runtimes[viewId] ?? initial);
   const current = useRef(runtime);
+  current.current = runtime;
   const port = useMemo<WorkspaceWebNavigationPort>(() => {
     const commit = (next: WorkspaceWebRuntime | null) => {
       if (!next) return;
       current.current = next;
-      setRuntime(next);
+      useSessionWebRuntimeStore.getState().setRuntime(viewId, next);
     };
     return {
       getRuntime: () => current.current,
@@ -67,7 +70,7 @@ function useLocalWebNavigation(url: string) {
       reload: () => commit(reloadWorkspaceWebRuntime(current.current)),
       updateMetadata: () => {},
     };
-  }, []);
+  }, [viewId]);
   return { runtime, port };
 }
 
@@ -97,7 +100,7 @@ export function WebRenderer({ surface, context }: {
   context: WorkspaceSurfaceRenderContext;
 }) {
   const { language } = useI18n();
-  const local = useLocalWebNavigation(surface.url);
+  const local = useLocalWebNavigation(surface.url, context.viewId);
   const port = context.webNavigation ?? local.port;
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const embedTimeoutRef = useRef<number | null>(null);

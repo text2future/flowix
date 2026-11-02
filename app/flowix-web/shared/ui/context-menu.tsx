@@ -7,6 +7,7 @@ import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
 interface ContextMenuTriggerChildProps extends React.HTMLAttributes<HTMLElement> {}
 
 type ContextMenuCloseReason = 'select' | 'escape' | 'outside' | 'scroll' | 'resize' | 'replace' | 'tab';
+type ContextMenuFocusOrigin = 'pointer' | 'keyboard';
 
 // Context for managing context-menu state. Position is captured at the moment
 // of the right-click, so the menu opens exactly at the cursor.
@@ -14,9 +15,10 @@ interface ContextMenuContextValue {
 	open: boolean;
 	position: { x: number; y: number } | null;
 	setOpen: (open: boolean) => void;
-	openAt: (x: number, y: number, trigger?: HTMLElement) => void;
+	openAt: (x: number, y: number, trigger?: HTMLElement, focusOrigin?: ContextMenuFocusOrigin) => void;
 	triggerRef: React.RefObject<HTMLElement | null>;
 	menuId: string;
+	focusOrigin: ContextMenuFocusOrigin;
 	close: (reason: ContextMenuCloseReason) => void;
 }
 
@@ -39,6 +41,7 @@ interface ContextMenuProps {
 function ContextMenu({ children, onOpenChange }: ContextMenuProps) {
 	const [open, setOpen] = React.useState(false);
 	const [position, setPosition] = React.useState<{ x: number; y: number } | null>(null);
+	const [focusOrigin, setFocusOrigin] = React.useState<ContextMenuFocusOrigin>('pointer');
 	const ownerRef = React.useRef({});
 	const triggerRef = React.useRef<HTMLElement | null>(null);
 	const menuId = React.useId();
@@ -74,11 +77,12 @@ function ContextMenu({ children, onOpenChange }: ContextMenuProps) {
 		return () => document.removeEventListener(CONTEXT_MENU_OPEN_EVENT, handleAnotherMenuOpen);
 	}, [close]);
 
-	const openAt = React.useCallback((x: number, y: number, trigger?: HTMLElement) => {
+	const openAt = React.useCallback((x: number, y: number, trigger?: HTMLElement, nextFocusOrigin: ContextMenuFocusOrigin = 'pointer') => {
 		document.dispatchEvent(new CustomEvent(CONTEXT_MENU_OPEN_EVENT, {
 			detail: ownerRef.current,
 		}));
 		triggerRef.current = trigger ?? null;
+		setFocusOrigin(nextFocusOrigin);
 		setPosition({ x, y });
 		updateOpen(true);
 	}, [updateOpen]);
@@ -88,7 +92,7 @@ function ContextMenu({ children, onOpenChange }: ContextMenuProps) {
 	}, [close]);
 
 	return (
-		<ContextMenuContext.Provider value={{ open, position, setOpen: setMenuOpen, openAt, triggerRef, menuId, close }}>
+		<ContextMenuContext.Provider value={{ open, position, setOpen: setMenuOpen, openAt, triggerRef, menuId, focusOrigin, close }}>
 			{children}
 		</ContextMenuContext.Provider>
 	);
@@ -110,7 +114,8 @@ function ContextMenuTrigger({ children, className, onContextMenu, asChild, ...pr
 		if (e.defaultPrevented) return;
 		e.preventDefault();
 		e.stopPropagation();
-		openAt(e.clientX, e.clientY, e.currentTarget);
+		const focusOrigin = e.button === 2 || e.ctrlKey ? 'pointer' : 'keyboard';
+		openAt(e.clientX, e.clientY, e.currentTarget, focusOrigin);
 	};
 
 	if (asChild && React.Children.count(children) === 1) {
@@ -161,7 +166,7 @@ function navigateMenu(event: React.KeyboardEvent<HTMLDivElement>) {
 }
 
 function ContextMenuContent({ children, className, style }: ContextMenuContentProps) {
-	const { open, position, triggerRef, menuId, close } = useContextMenuContext();
+	const { open, position, triggerRef, menuId, focusOrigin, close } = useContextMenuContext();
 	const contentRef = React.useRef<HTMLDivElement>(null);
 	React.useLayoutEffect(() => {
 		if (open) contentRef.current?.focus({ preventScroll: true });
@@ -269,6 +274,7 @@ function ContextMenuContent({ children, className, style }: ContextMenuContentPr
 			tabIndex={-1}
 			data-context-menu-owner={menuId}
 			data-flowix-surface="context-menu"
+			data-flowix-focus-origin={focusOrigin}
 			onKeyDown={navigateMenu}
 			onPointerDown={(event) => event.stopPropagation()}
 			onMouseDown={(event) => event.stopPropagation()}

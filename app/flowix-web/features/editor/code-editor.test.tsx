@@ -1,4 +1,6 @@
-﻿import { act, createRef } from 'react';
+﻿import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
+import { useWorkspaceSessionStore } from '@features/workspace/store/workspace-session-store';
+import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
@@ -53,6 +55,25 @@ describe('CodeEditor', () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+
+  it('restores selection after destroying and recreating a session editor', async () => {
+    useWorkspaceSessionStore.getState().reset();
+    useWorkspaceSessionStore.getState().commitTarget('primary-session', { kind: 'external', path: '/project/test.txt', scopePath: '/project', transitionId: null });
+    const entryId = useWorkspaceSessionStore.getState().sessions['primary-session'].navigation.current!.id;
+    const renderEditor = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 'primary-session', entryId }}>
+      <CodeEditor filePath="/project/test.txt" content="hello world" onChange={vi.fn()} />
+    </SessionViewRecoveryContext.Provider>;
+    await act(async () => root.render(renderEditor()));
+    const first = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!)!;
+    act(() => first.dispatch({ selection: { anchor: 8, head: 2 } }));
+    await act(async () => root.render(null));
+    useWorkspaceSessionStore.getState().swap();
+    await act(async () => root.render(renderEditor()));
+    const next = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!)!;
+    expect(next).not.toBe(first);
+    expect(next.state.selection.main.anchor).toBe(8);
+    expect(next.state.selection.main.head).toBe(2);
+  });
   it('renders text content and synchronizes authoritative content without emitting an edit', async () => {
     const editorRef = createRef<CodeEditorHandle>();
     const onChange = vi.fn();

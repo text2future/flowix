@@ -1,12 +1,19 @@
 import type { MarkdownLocation } from '@platform/tauri/client';
 import type { WorkWorkspaceSurfaceTarget, BrowserWorkspaceSurfaceTarget } from './surface-target';
 
-export type WorkspaceContentLocation =
+export type RuntimeWorkspaceContentLocation =
   | { host: 'main-third'; state: 'active' | 'pending' }
   | { host: 'browser-column'; surfaceId: string };
 
+/** Physical placement plus the stable runtime address used by legacy editor ports. */
+export type WorkspaceContentLocation = RuntimeWorkspaceContentLocation & {
+  runtimeLocation?: RuntimeWorkspaceContentLocation;
+};
+
 export interface WorkspaceOpenNavigationOptions {
   history?: 'push' | 'skip';
+  /** Replay an existing session entry without changing its Surface identity. */
+  navigationEntryId?: string;
   /** Re-resolve and commit an already-open collection after its backing file changes. */
   refresh?: boolean;
 }
@@ -15,9 +22,7 @@ export interface WorkWorkspaceSurfaceOptions extends WorkspaceOpenNavigationOpti
   markdownLocation?: MarkdownLocation | null;
   initialFocus?: 'title' | 'body';
 }
-export interface BrowserWorkspaceSurfaceOptions {
-  notebookId?: string | null;
-}
+export type BrowserWorkspaceSurfaceOptions = WorkWorkspaceSurfaceOptions;
 export type WorkspaceNavigationSource = 'notebook-tree' | 'notebook-tree-new-tab' | 'agent-message' | 'html-link';
 
 export interface WorkWorkspaceSurfaceRequest {

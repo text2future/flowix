@@ -10,8 +10,8 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
 import type { CollectionHostTabsState } from './use-collection-surface-state';
 
 /**
- * 集合 tab 条 ── 一条 strip 上有三段，顺序由 `collectionTabList` 唯一决定：
- * 文件树（前置）→ 笔记视图 → 资料视图。宿主 tab 与笔记视图共用同一套渲染与
+ * 集合 tab 条 ── 固定文件夹 tab 在首位，其余笔记与资料视图按集合顺序排列。
+ * `collectionTabList` 同时提供管理菜单顺序。宿主 tab 与笔记视图共用同一套渲染与
  * 就地改名（`HostTabButtons` → `TabStripItem`），也共用同一个 `edit` 实例：
  * 一条 strip 同一时刻只能有一个输入框。
  *
@@ -19,7 +19,7 @@ import type { CollectionHostTabsState } from './use-collection-surface-state';
  * `useHostTabActions` 统一处理校验与删除确认；「···」菜单复用同一条改名提交，
  * 不与 tab 条各写一套。
  */
-export function CollectionHostNavigation({ tabs, actions, editable, bannerVisible, onToggleBanner, titleVisible, onToggleTitle, noteViews = [], activeNoteViewId, onSelectNoteView, onAddNoteView, source, onOpenFieldManager, busy = false }: {
+export function CollectionHostNavigation({ tabs, actions, editable, bannerVisible, onToggleBanner, titleVisible, onToggleTitle, noteViews = [], viewOrder, activeNoteViewId, onSelectNoteView, onAddNoteView, source, onOpenFieldManager, busy = false }: {
   tabs: CollectionHostTabsState;
   source?: string;
   onOpenFieldManager?: () => void;
@@ -31,6 +31,7 @@ export function CollectionHostNavigation({ tabs, actions, editable, bannerVisibl
   titleVisible: boolean;
   onToggleTitle: () => void;
   noteViews?: readonly { id: string; name: string }[];
+  viewOrder?: readonly string[];
   activeNoteViewId?: string | null;
   onSelectNoteView?: (viewId: string) => void;
   onAddNoteView: (layout: TableViewType, fieldId?: string) => void;
@@ -40,7 +41,7 @@ export function CollectionHostNavigation({ tabs, actions, editable, bannerVisibl
   const [menuKey, setMenuKey] = useState<string | null>(null);
   const widthRef = useRef(0);
   const host = useHostTabActions({ edit, renameHostTab: tabs.renameTab, removeHostTab: tabs.removeTab, editable, saving: busy });
-  const sections = collectionTabList(tabs.list, noteViews);
+  const sections = collectionTabList(tabs.list, noteViews, viewOrder);
   const viewScope = tabs.activeDomain !== null
     ? t('collection.viewScope.assets')
     : tabs.active === null ? t('collection.viewScope.notes') : null;
@@ -61,16 +62,14 @@ export function CollectionHostNavigation({ tabs, actions, editable, bannerVisibl
   return <>
     <CollectionTabBar pinned label={t('collection.tabsLabel')}>
       <CollectionTabStrip>
-        <HostTabButtons tabs={sections.before} {...bindings} />
-        <HostTabButtons tabs={sections.notes} {...bindings} />
-        <HostTabButtons tabs={sections.after} {...bindings} />
+        <HostTabButtons tabs={sections.all} {...bindings} />
       </CollectionTabStrip>
       <CollectionViewMenu tabs={tabs} editable={editable}
         bannerVisible={bannerVisible} onToggleBanner={onToggleBanner}
         titleVisible={titleVisible} onToggleTitle={onToggleTitle}
         onAddNoteView={onAddNoteView} onRequestDelete={host.requestDeleteHostTab}
         onCommitHostTabRename={host.commitHostTabRename}
-        source={source} noteViews={noteViews} onOpenFieldManager={onOpenFieldManager} busy={busy} />
+        source={source} noteViews={noteViews} viewOrder={viewOrder} onOpenFieldManager={onOpenFieldManager} busy={busy} />
       <div aria-hidden="true" className="min-w-0 flex-1" />
       {viewScope ? (
         <span className="shrink-0 px-1 py-1 text-xs text-[var(--muted-foreground)]" data-view-scope={tabs.activeDomain !== null ? 'assets' : 'notes'} aria-label={`${t('collection.viewScope.label')}: ${viewScope}`}>

@@ -322,17 +322,7 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/document/store/document-history-store.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/document/use-cases/agent-location-navigation.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/flowix-web/features/document/use-cases/document-navigation.ts": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -900,11 +890,6 @@
       "count": 3
     }
   },
-  "app/flowix-web/features/shell/components/workspace-column-context-menu.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/shell/use-cases/finish-onboarding.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -913,11 +898,6 @@
   "app/flowix-web/features/shortcuts/actions.ts": {
     "no-restricted-imports": {
       "count": 2
-    }
-  },
-  "app/flowix-web/features/surface/browser-column-registry.tsx": {
-    "no-restricted-imports": {
-      "count": 6
     }
   },
   "app/flowix-web/features/surface/code-surface-view.tsx": {

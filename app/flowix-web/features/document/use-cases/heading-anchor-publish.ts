@@ -7,7 +7,8 @@ import { publishAgentLocationRequest } from './agent-location-navigation';
  * The public surface-open result is normalized to WorkspaceContentLocation
  * before it reaches this helper.
  */
-export function locationViewId(opened: { host: string; surfaceId?: string }): string {
+export function locationViewId(opened: { host: string; surfaceId?: string; runtimeLocation?: { host: string; surfaceId?: string } }): string {
+  opened = opened.runtimeLocation ?? opened;
   return opened.host === 'browser-column' ? (opened.surfaceId ?? opened.host) : opened.host;
 }
 
@@ -31,7 +32,7 @@ export function publishHeadingAnchorRequest(
   const slug = new GithubSlugger().slug(raw);
   if (!slug) return;
   if (!opened) return;
-  const location = opened;
+  const location = opened.runtimeLocation ?? opened;
   publishAgentLocationRequest({
     path,
     anchor: slug,

@@ -1,3 +1,6 @@
+import { useSessionHostEnvironment } from './session-host-environment';
+import { hideBrowserColumn } from '@features/workspace/public/browser-column-api';
+import { SidebarToggleIconRight } from '@shared/icons/sidebar-toggle-icon';
 import type { ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SidebarToggleIcon } from '@shared/icons/sidebar-toggle-icon';
@@ -16,9 +19,14 @@ export function WorkColumnTitlebarNavigation({ sidebar, navigation, children }: 
   children?: ReactNode;
 }) {
   const { t } = useI18n();
+  const environment = useSessionHostEnvironment();
   const navClass = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-35 [-webkit-app-region:no-drag]';
   return <div className="flex min-w-0 items-center gap-1">
-    {sidebar.hidden && <button type="button" onClick={sidebar.onToggle}
+    {environment?.host === 'browser-column' && <button type="button" className={navClass}
+      aria-label={t('tabWindow.closeColumn')} onClick={hideBrowserColumn}>
+      <SidebarToggleIconRight className="h-4 w-4" variant="expanded" />
+    </button>}
+    {environment?.host !== 'browser-column' && sidebar.hidden && <button type="button" onClick={sidebar.onToggle}
       aria-label={t('document.titlebar.showSidebar')} title={t('document.titlebar.showSidebarTooltip')}
       className={navClass}>
       <SidebarToggleIcon className="h-4 w-4" variant="collapsed" />

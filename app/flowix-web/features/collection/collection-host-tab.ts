@@ -4,7 +4,7 @@
  * 外壳（`features/surface`）同时渲染文件树、笔记视图与资料视图三类 tab，它们的键
  * 语法只在 `lib/collection-tab-key.ts` 定义一次；本文件只回答两件事：
  *   - 一个 tab 长什么样（`CollectionHostTab`）；
- *   - 「宿主 tab + 笔记视图」怎么排成 tab 条上的三段（`collectionTabList`）。
+ *   - 文件夹固定 tab + 按集合视图顺序排列的笔记/资料 tab（`collectionTabList`）。
  *
  * tab 条与「管理视图」弹窗必须用同一份排列，否则两侧的顺序与可删条件会各说各话。
  */
@@ -26,7 +26,7 @@ export interface CollectionHostTab {
   viewId?: string;
 }
 
-/** tab 条上的三段（顺序即渲染顺序）。 */
+/** tab 条上的分组与完整顺序；外壳按 `all` 渲染，文件夹 tab 固定在前。 */
 export interface CollectionTabSections {
   /** 文件树（外壳自身，只属于文件夹类型的集合）。 */
   before: CollectionHostTab[];
@@ -49,25 +49,41 @@ export function filesHostTab(label: string): CollectionHostTab {
  * 笔记视图的 tab 键（`notes:<viewId>`）在这里才第一次生成：数据来自集合 summary 的
  * `views`，键来自语法表 —— 两处都不该自己拼字符串。
  *
- * `deleteDisabled` 的口径是「别把集合删空」：笔记视图看**笔记视图个数**（删掉最后一个
- * 笔记视图会让表格没有视图），资料视图看**全部视图个数**（删掉最后一个视图会让集合
- * 变成没有视图的空壳）。
+ * 删除规则看当前集合里实际可用的 tab 总数：固定文件夹 tab 不可删除；普通 tab 可以删除，
+ * 直到只剩一个有效 tab。这样文件夹列表本身也能作为文件夹集合最后一个可用 tab。
  */
 export function collectionTabList(
   hostTabs: readonly CollectionHostTab[],
   noteViews: readonly { id: string; name: string }[],
+  viewOrder?: readonly string[],
 ): CollectionTabSections {
   const before = hostTabs.filter((tab) => tab.placement === 'before');
   const after = hostTabs.filter((tab) => tab.placement !== 'before');
-  const notes = noteViews.map<CollectionHostTab>((view) => ({
-    key: noteTabKey(view.id),
-    label: view.name,
-    placement: 'after',
-    removable: true,
-    deleteDisabled: noteViews.length <= 1,
-    viewId: view.id,
+  const order = viewOrder ? new Map(viewOrder.map((id, index) => [id, index])) : null;
+  const orderedViews: CollectionHostTab[] = [
+    ...noteViews.map<CollectionHostTab>((view) => ({
+      key: noteTabKey(view.id), label: view.name, placement: 'after' as const,
+      removable: true, viewId: view.id,
+    })),
+    ...after,
+  ].sort((left, right) => {
+    if (!order) return Number(Boolean(left.domain)) - Number(Boolean(right.domain));
+    return (order.get(left.viewId ?? '') ?? Number.MAX_SAFE_INTEGER)
+      - (order.get(right.viewId ?? '') ?? Number.MAX_SAFE_INTEGER);
+  });
+  const effectiveTabCount = before.length + noteViews.length + after.length;
+  const orderedAfter = orderedViews.filter((tab) => tab.domain !== undefined);
+  const removableAfter = orderedAfter.map((tab) => tab.removable
+    ? { ...tab, deleteDisabled: effectiveTabCount <= 1 }
+    : tab);
+  const notes = orderedViews.filter((tab) => tab.domain === undefined).map((tab) => ({
+    ...tab,
+    deleteDisabled: effectiveTabCount <= 1,
   }));
-  return { before, notes, after, all: [...before, ...notes, ...after] };
+  const allAfter = orderedViews.map((tab) => tab.domain === undefined
+    ? notes.find((note) => note.key === tab.key)!
+    : removableAfter.find((asset) => asset.key === tab.key)!);
+  return { before, notes, after: removableAfter, all: [...before, ...allAfter] };
 }
 
 /** 宿主 tab 与表格视图 tab 共用一条 tab 条上的就地改名输入框，靠这个前缀区分走哪条提交。 */

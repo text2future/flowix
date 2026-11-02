@@ -11,6 +11,7 @@ import {
 } from '@features/document/store/document-identity';
 import { clearRecoveryDraftThrough } from '@features/document/store/recovery-draft-store';
 import { pinFileDisplayId } from '@/lib/file-display-registry';
+import { perfCount, perfEnabled, perfMark } from '@/lib/perf-probe';
 
 
 let currentPath: string | null = null;
@@ -35,8 +36,17 @@ export function notifyDocumentBufferChanged(
   reason: DocumentBufferChangeReason,
 ): void {
   const normalized = normalizeDocumentIdentity(identity);
+  const probeStartedAt = perfEnabled() ? performance.now() : 0;
+  let delivered = 0;
   for (const listener of [...documentBufferChangeListeners]) {
     listener(normalized, reason);
+    delivered += 1;
+  }
+  if (probeStartedAt !== 0) {
+    perfMark('buffer-fanout-ms', performance.now() - probeStartedAt, {
+      reason, listeners: delivered,
+    });
+    perfCount(`buffer-fanout-count:${reason}`, 1, { listeners: delivered });
   }
 }
 

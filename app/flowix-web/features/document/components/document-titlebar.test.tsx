@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({ hideBrowser: vi.fn(), transfer: vi.fn() }));
 vi.mock('@features/workspace/public/shell-api', () => ({
   useWorkColumnTransferViewModel: () => ({ canOpenInBrowserColumn: true, openInBrowserColumn: mocks.transfer }),
 }));
-vi.mock('@features/workspace/public/browser-column-api', () => ({ hideBrowserColumn: mocks.hideBrowser, toggleBrowserColumn: mocks.hideBrowser, useBrowserColumnVisible: () => true }));
+vi.mock('@features/workspace/public/browser-column-api', () => ({ hideBrowserColumn: mocks.hideBrowser, toggleBrowserColumn: mocks.hideBrowser, useBrowserColumnVisible: () => true, useCanSwapWorkspaceColumnContent: () => false, swapWorkspaceColumnContent: vi.fn() }));
 vi.mock('@/lib/i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/i18n')>(),
   useI18n: () => ({ t: (key: string) => key, language: 'zh-CN' }),

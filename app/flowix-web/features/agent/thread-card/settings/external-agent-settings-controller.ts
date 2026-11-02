@@ -779,16 +779,22 @@ export class ExternalAgentSettingsController {
     const valueEl = this.composerModelButton.querySelector<HTMLElement>(
       ".agent-composer__model-value",
     );
-    if (valueEl && display.effort) {
+    if (valueEl) {
       const model = document.createElement("span");
       model.className = "agent-composer__model-name";
-      model.textContent = display.model;
-      const effort = document.createElement("span");
-      effort.className = "agent-composer__model-effort";
-      effort.textContent = display.effort;
-      valueEl.replaceChildren(model, effort);
-    } else if (valueEl) {
-      valueEl.textContent = label;
+      // Codex already needs a separate model-name span so it can ellipsize
+      // while keeping reasoning effort visible. Keep other agents' labels in
+      // the same constrained element; otherwise Pi's long model IDs render as
+      // an unbreakable text node and can cover adjacent composer controls.
+      model.textContent = display.effort ? display.model : label;
+      const children: HTMLElement[] = [model];
+      if (display.effort) {
+        const effort = document.createElement("span");
+        effort.className = "agent-composer__model-effort";
+        effort.textContent = display.effort;
+        children.push(effort);
+      }
+      valueEl.replaceChildren(...children);
     }
     this.composerModelButton.title = `${this.t("agent.model.title")}: ${label}`;
     this.composerModelButton.setAttribute(

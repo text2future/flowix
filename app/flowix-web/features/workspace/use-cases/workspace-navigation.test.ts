@@ -208,7 +208,7 @@ describe('workspace navigation', () => {
     expect(mocks.commitNavigation).toHaveBeenCalledWith(1, {
       kind: 'plugin-workbench',
       plugin: { manifest: { id: 'plugin-b' } },
-    });
+    }, 'push');
     expect(mocks.memoState.setActiveFilter).toHaveBeenCalledWith('all');
     expect(mocks.memoState.setActivePluginId).toHaveBeenCalledWith('plugin-b');
   });

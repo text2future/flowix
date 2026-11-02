@@ -5,7 +5,7 @@
   放 Flowix 特有的:
     - CFBundleURLTypes: 注册 `flowix://` URL scheme, 让 OS 把浏览器 / 终端里
       `flowix://memo/<id>` 链接路由到 Flowix (launchd / LaunchServices 机制)
-    - 文件打开关联由 fileAssociations 声明，包括 Markdown 和 public.data 通用文件
+    - Markdown 文件打开关联由 fileAssociations 声明
 
   dev (`tauri dev`) 不会把它作为 app bundle plist 读取；`build.rs` 会把其中的
   本地化字段嵌入调试二进制。打包后由 `tauri-build` 合并进 app bundle。跟

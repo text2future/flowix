@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { openWorkspaceSurface as openSessionSurface } from '@features/workspace/public/session-opening-api';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { CodeSurfaceView } from './code-surface-view';
 import type { FileBrowserContext } from '@features/workspace/store/file-browser-target';
@@ -40,12 +41,12 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
       if (current.phase === 'loading' || current.target.kind !== 'external' || current.target.path !== target.path) return;
       const fileKind = externalFileViewKind(path);
       if ((fileKind === 'image' || fileKind === 'video') && context.scopePath) {
-        await openWorkspaceSurface({
+        await openSessionSurface({
           host: 'main-third',
           target: { kind: 'media', filePath: path, notebookId: context.notebookId, notebookPath: context.scopePath, resourceKind: fileKind },
         });
       } else {
-        await openWorkspaceSurface({
+        await openSessionSurface({
           host: 'main-third',
           target: { kind: 'external', path, scopePath: context.scopePath, transitionId: null, fileBrowser: context },
         });

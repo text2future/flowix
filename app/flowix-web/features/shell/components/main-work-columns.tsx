@@ -1,3 +1,7 @@
+import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
+import { useBrowserColumnViewModel } from '@features/workspace/public/browser-column-api';
+import { SessionHostProvider, type SessionHostEnvironment } from './session-host-environment';
+import { ColumnResizeHandle } from './column-resize-handle';
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { lazy, Suspense, type CSSProperties } from 'react';
 
@@ -123,6 +127,12 @@ export function MainWorkColumns({
   language,
 }: MainWorkColumnsProps) {
   const { t } = useI18n();
+  const primaryAtWork = useWorkspaceSessionStore((state) => state.hosts['main-third'] === 'primary-session');
+  const { current: browserCurrent } = useBrowserColumnViewModel();
+  const environment = (host: SessionHostEnvironment['host']): SessionHostEnvironment => ({
+    host, browserVisible: browserColumnVisible, sidebarHidden: isMemoListHidden,
+    navigationVisible: noteNavigationPhase !== 'closed', onToggleSidebar: handleToggleMemoList,
+  });
   const selectionLabel = t('memo.fileTree.selectedDocumentCount', { count: accessSpaceSelectionCount });
   /**
    * 集合头图可见时，内容区上穿一个标题栏高度（mac h-12 / win h-9），让头图
@@ -153,37 +163,40 @@ export function MainWorkColumns({
     >
     <div
       data-document-columns-layout="split"
-      className="relative isolate flex min-h-0 min-w-0 flex-1 flex-row overflow-x-auto overflow-y-hidden"
+      className="relative isolate grid min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+      style={{ gridTemplateColumns: browserColumnVisible
+        ? `${browserColumnLayout.mainColumnWidth}px ${browserColumnLayout.browserColumnWidth}px`
+        : 'minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)' }}
     >
-    {/* Memo detail */}
+    {isMemoListHidden && (
+      <MemoListPreviewEdgeTrigger
+        onTriggerEnter={handleMemoListPreviewTriggerEnter}
+        onTriggerLeave={handleMemoListPreviewTriggerLeave}
+        onPreviewOpen={handleMemoListPreviewEnter}
+        ariaLabel={t('document.titlebar.showSidebar')}
+        title={t('document.titlebar.showSidebarTooltip')}
+      />
+    )}
+    <SessionHostProvider value={environment(primaryAtWork ? 'main-third' : 'browser-column')}>
       <div
         className={`relative h-full min-w-0 flex flex-col bg-[var(--document-bg)]${
           browserColumnVisible && isMemoListAnimating
             ? ' transition-[flex-basis] flowix-motion'
             : ''
         }`}
-        style={browserColumnVisible
-          ? {
-              minWidth: DOCUMENT_PANEL_MIN_WIDTH,
-              flex: `0 0 ${browserColumnLayout.mainColumnWidth}px`,
-            }
-          : { minWidth: DOCUMENT_PANEL_MIN_WIDTH, flex: 1 }}
-        data-workspace-host="main-third"
+        style={{
+          minWidth: DOCUMENT_PANEL_MIN_WIDTH, gridColumn: primaryAtWork ? 1 : 2, gridRow: 1,
+          display: !primaryAtWork && !browserColumnVisible ? 'none' : undefined,
+          borderLeft: !primaryAtWork ? '1px solid var(--divider)' : undefined,
+        }}
+        data-workspace-host={primaryAtWork ? 'main-third' : 'browser-column'}
+        data-workspace-session="primary-session"
         data-workspace-focused={focusedHostId === 'main-third' ? '' : undefined}
         onPointerDown={(event) => {
           focusWorkspaceHostFromEvent(event, 'main-third');
         }}
         onFocusCapture={(event) => focusWorkspaceHostFromEvent(event, 'main-third')}
       >
-      {isMemoListHidden && (
-        <MemoListPreviewEdgeTrigger
-          onTriggerEnter={handleMemoListPreviewTriggerEnter}
-          onTriggerLeave={handleMemoListPreviewTriggerLeave}
-          onPreviewOpen={handleMemoListPreviewEnter}
-          ariaLabel={t('document.titlebar.showSidebar')}
-          title={t('document.titlebar.showSidebarTooltip')}
-        />
-      )}
       {/* Fixed top navigation bar */}
       {hasMultipleDocumentsSelected ? (
         <WorkColumnTitlebar
@@ -261,23 +274,32 @@ export function MainWorkColumns({
         )}
       </div>
     </div>
-    {browserColumnVisible && (
+    </SessionHostProvider>
+    {(browserColumnVisible || !primaryAtWork || browserCurrent !== null) && (
       <Suspense fallback={null}>
         <SurfaceBoundary
           name="browser-column"
           language={language}
           resetKeys={[browserColumnLayoutKey]}
         >
+          <SessionHostProvider value={environment(primaryAtWork ? 'browser-column' : 'main-third')}>
           <BrowserColumn
-            width={browserColumnLayout.browserColumnWidth}
+            width={primaryAtWork ? browserColumnLayout.browserColumnWidth : browserColumnLayout.mainColumnWidth}
             layoutKey={browserColumnLayoutKey}
             onResize={handleBrowserColumnResize}
             toolbarCollapsed={toolbarCollapsed}
             onToolbarCollapsedChange={setToolbarCollapsed}
             animated={isMemoListAnimating}
           />
+          </SessionHostProvider>
         </SurfaceBoundary>
       </Suspense>
+    )}
+    {browserColumnVisible && (
+      <div className="absolute inset-y-0 z-[70]" style={{ left: browserColumnLayout.mainColumnWidth }}>
+        <ColumnResizeHandle label="调整浏览器列宽度" width={browserColumnLayout.browserColumnWidth}
+          direction={-1} onResize={handleBrowserColumnResize} />
+      </div>
     )}
     </div>
     </div>

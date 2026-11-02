@@ -287,16 +287,31 @@ function validateHybridEnvelope(value: Record<string, unknown>): { collection: C
   if (!isRecord(rawDomains)) throw new Error('集合数据域无效');
   const domainKeys = Object.keys(rawDomains).filter((key): key is CollectionDomain =>
     (COLLECTION_DOMAINS as readonly string[]).includes(key));
+  const rawViews = value.payload.views;
+  const defaultsByKey = isRecord(rawViews) && isRecord(rawViews.default_by_domain) ? rawViews.default_by_domain : null;
+  if (!isRecord(rawViews) || !hasOnlyKeys(rawViews, ['default_by_domain', 'items'])
+    || defaultsByKey === null || !Array.isArray(rawViews.items)) {
+    throw new Error('集合视图格式无效');
+  }
+  const folderOnly = collection.placement === 'folder' && fileTree
+    && Object.keys(rawDomains).length === 0 && rawViews.items.length === 0
+    && Object.keys(defaultsByKey).length === 0;
+  if (folderOnly) {
+    return {
+      collection,
+      payload: {
+        schema_version: 3,
+        file_tree: true,
+        domains: {},
+        views: { default_by_domain: {}, items: [] },
+      },
+    };
+  }
   if (domainKeys.length === 0 || domainKeys.length !== Object.keys(rawDomains).length
     || domainKeys.some((key) => !isRecord(rawDomains[key]))) {
     throw new Error('集合数据域无效');
   }
-  const rawViews = value.payload.views;
-  const defaultsByKey = isRecord(rawViews) && isRecord(rawViews.default_by_domain) ? rawViews.default_by_domain : null;
-  if (!isRecord(rawViews) || !hasOnlyKeys(rawViews, ['default_by_domain', 'items'])
-    || defaultsByKey === null || !Array.isArray(rawViews.items) || rawViews.items.length === 0) {
-    throw new Error('集合视图格式无效');
-  }
+  if (rawViews.items.length === 0) throw new Error('集合视图格式无效');
   const viewsByDomain = new Map<CollectionDomain, HybridCollectionView[]>();
   const seenIds = new Set<string>();
   for (const view of rawViews.items) {

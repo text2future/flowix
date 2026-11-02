@@ -1,3 +1,4 @@
+import { useWorkspaceSessionStore } from './session-api';
 /**
  * Path-based content currently on screen, across both workspace hosts.
  *
@@ -39,11 +40,13 @@ export function resolveActiveFilePath(input: {
 }
 
 export function useActiveFilePath(): string | null {
+  const primaryAtWork = useWorkspaceSessionStore((state) => state.hosts['main-third'] === 'primary-session');
+  const visible = useBrowserColumnStore((state) => state.visible);
   const workPath = useWorkColumnStore((state) => workColumnFilePath(state.navigation.target));
   // A hidden Browser column keeps its last entry; it is not on screen then.
   const browserPath = useBrowserColumnStore((state) => (
-    state.visible ? browserColumnFilePath(state.current?.target ?? null) : null
+    browserColumnFilePath(state.current?.target ?? null)
   ));
   const focusedHostId = useWorkspaceFocusStore((state) => state.focusedHostId);
-  return resolveActiveFilePath({ focusedHostId, workPath, browserPath });
+  return resolveActiveFilePath({ focusedHostId, workPath: primaryAtWork || visible ? workPath : null, browserPath: !primaryAtWork || visible ? browserPath : null });
 }

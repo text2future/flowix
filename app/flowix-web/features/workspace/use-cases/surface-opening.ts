@@ -1,3 +1,4 @@
+import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { createLogger } from '@/lib/logger';
 import { canOpenBrowserColumnTargetInWorkColumn, useBrowserColumnStore, type BrowserColumnTarget } from '../store/browser-column-store';
 import type {
@@ -32,6 +33,7 @@ import {
   openContentleTarget,
   openWebTarget,
   prepareActiveWorkColumnDocumentLeave,
+  openWorkFileBrowserTarget,
 } from './workspace-navigation';
 import { selectAndOpenAgentConversation } from './agent-conversation-navigation';
 import { browserColumnTargetIdentity, workColumnTargetIdentity, findWorkspaceContentForNavigation } from './workspace-content-activation';
@@ -47,6 +49,7 @@ function fileKind(path: string): WorkspaceSurfaceKind {
 
 function workTargetSurfaceKind(target: WorkWorkspaceSurfaceTarget): WorkspaceSurfaceKind {
   switch (target.kind) {
+    case 'file-browser': return browserTargetSurfaceKind(target);
     case 'folder-collection': return 'collection';
     case 'external': return fileKind(target.path);
     case 'table': return 'file-table';
@@ -64,6 +67,7 @@ function workTargetSurfaceKind(target: WorkWorkspaceSurfaceTarget): WorkspaceSur
 
 function workTargetIdentity(target: WorkWorkspaceSurfaceTarget): ContentIdentity | null {
   switch (target.kind) {
+    case 'file-browser': return browserColumnTargetIdentity(target);
     case 'folder-collection': return { kind: 'folder-collection', notebookId: target.notebookId, folderPath: target.folderPath, viewMode: target.viewMode };
     case 'external': return { kind: 'external', path: target.path };
     case 'table': case 'media-library': return { kind: 'external', path: target.filePath };
@@ -78,6 +82,7 @@ function workTargetIdentity(target: WorkWorkspaceSurfaceTarget): ContentIdentity
 
 function browserTargetSurfaceKind(target: BrowserColumnTarget): WorkspaceSurfaceKind {
   switch (target.kind) {
+    case 'plugin-workbench': return 'plugin-workbench';
     case 'folder-collection': return 'collection';
     case 'media': return 'media';
     case 'web': return 'web';
@@ -92,11 +97,12 @@ function browserTargetSurfaceKind(target: BrowserColumnTarget): WorkspaceSurface
   }
 }
 
-function browserTargetFromOpenTarget(
+export function browserTargetFromOpenTarget(
   target: Exclude<BrowserWorkspaceSurfaceTarget, CollectionReferenceSurfaceTarget>,
   notebookId?: string | null,
 ): BrowserColumnTarget {
   switch (target.kind) {
+    case 'plugin-workbench': return target;
     case 'folder-collection':
       return target;
     case 'file-browser':
@@ -123,8 +129,6 @@ function browserTargetFromOpenTarget(
         collectionType: target.collectionType,
       };
     case 'media':
-      if (!target.notebookPath?.trim()) throw new Error('Browser media target requires a notebook path');
-      if (!target.notebookId?.trim()) throw new Error('Browser media target requires a notebook ID');
       return {
         kind: 'media',
         filePath: target.filePath,
@@ -141,6 +145,7 @@ function browserTargetFromOpenTarget(
 
 async function openCollectionReferenceInBrowser(
   target: CollectionReferenceSurfaceTarget,
+  options?: import('../model/surface-opening').WorkspaceOpenNavigationOptions,
 ): Promise<BrowserWorkspaceOpenResult> {
   const notebook = (await notebooks.getAll()).find((candidate) => candidate.id === target.notebookId);
   if (!notebook) throw new Error('集合所属笔记本不存在');
@@ -166,7 +171,7 @@ async function openCollectionReferenceInBrowser(
     notebookId: target.notebookId,
     collectionDisplay: descriptor,
     collectionType,
-  });
+  }, options);
 }
 
 function activeWorkLocation(): Extract<WorkspaceContentLocation, { host: 'main-third' }> {
@@ -181,6 +186,7 @@ function assertHostSupport(kind: WorkspaceSurfaceKind, host: WorkspaceSurfaceHos
 
 async function openBrowserTarget(
   target: BrowserColumnTarget,
+  options?: import('../model/surface-opening').WorkspaceOpenNavigationOptions,
 ): Promise<BrowserWorkspaceOpenResult> {
   assertHostSupport(browserTargetSurfaceKind(target), 'browser-column');
   if (target.kind !== 'agent_conversation') {
@@ -190,7 +196,7 @@ async function openBrowserTarget(
       await prepareActiveWorkColumnDocumentLeave();
     }
   }
-  const result = await openBrowserColumnTarget(target);
+  const result = await openBrowserColumnTarget(target, options);
   return result
     ? { status: result.alreadyOpen ? 'activated' : 'opened', host: 'browser-column', location: { host: 'browser-column', surfaceId: result.surfaceId } }
     : { status: 'cancelled', host: 'browser-column', reason: 'navigation-cancelled' };
@@ -204,6 +210,12 @@ export async function openWorkspaceSurface(
   request: OpenWorkspaceSurfaceRequest,
 ): Promise<BrowserWorkspaceOpenResult | WorkWorkspaceOpenResult> {
   const navigationId = ++navigationSequence;
+  if (request.host === 'main-third') {
+    useWorkspaceSessionStore.getState().updateSession('primary-session', (session) => ({
+      ...session, navigation: { ...session.navigation,
+        transaction: { ...session.navigation.transaction, entryId: request.options?.navigationEntryId } },
+    }));
+  }
   const workRequestId = request.host === 'main-third'
     ? useWorkColumnStore.getState().reserveNavigationIntent() : undefined;
   const context = { navigationId, source: request.source ?? 'unspecified', requestedHost: request.host, targetKind: request.target.kind };
@@ -236,10 +248,10 @@ async function performWorkspaceSurfaceOpen(
     if (target.kind === 'collection-reference') {
       assertHostSupport(target.collectionKind === 'media_library' ? 'file-media-library'
         : target.collectionKind === 'work_documents' ? 'file-work-documents' : 'file-table', 'browser-column');
-      return openCollectionReferenceInBrowser(target);
+      return openCollectionReferenceInBrowser(target, request.options);
     }
     const resolvedTarget = browserTargetFromOpenTarget(target, request.options?.notebookId);
-    return openBrowserTarget(resolvedTarget);
+    return openBrowserTarget(resolvedTarget, request.options);
   }
 
   const cancelWork = (reason: 'superseded' | 'save-refused' | 'target-not-active'): WorkWorkspaceOpenResult => {
@@ -280,6 +292,9 @@ async function performWorkspaceSurfaceOpen(
     return { status: previousLocation || pluginWasOpen ? 'activated' : 'opened', host: 'main-third', location };
   };
   switch (target.kind) {
+    case 'file-browser':
+      await openWorkFileBrowserTarget(target, options?.history ?? 'push', workRequestId);
+      return finishWorkOpen();
     case 'folder-collection':
       await openFolderCollectionChooserTarget(target, workRequestId, options?.history ?? 'push');
       return finishWorkOpen();
@@ -332,7 +347,7 @@ async function performWorkspaceSurfaceOpen(
       await openWebTarget(target.url, { history: options?.history, destination: 'main-third' });
       return finishWorkOpen();
     case 'plugin-workbench':
-      await openPluginWorkbench(target.plugin);
+      await openPluginWorkbench(target.plugin, options?.history ?? 'push');
       return finishWorkOpen();
   }
 }
@@ -345,34 +360,14 @@ export async function openBrowserColumnContentInWorkColumn(
   if (!entry || !canOpenBrowserColumnTargetInWorkColumn(entry.target)) {
     return { status: 'cancelled', host: 'main-third', reason: 'navigation-cancelled' };
   }
-  const target: WorkWorkspaceSurfaceTarget | null = (() => {
-    switch (entry.target.kind) {
-      case 'folder-collection': return entry.target;
-      case 'file-browser':
-        if (entry.target.collectionDisplay) return {
-          kind: 'collection-reference',
-          notebookId: entry.target.collectionDisplay.notebookId,
-          collectionId: entry.target.collectionDisplay.collectionId,
-          viewId: entry.target.collectionDisplay.viewId,
-          displayId: entry.target.collectionDisplay.displayId,
-          filePath: entry.target.activeFilePath ?? undefined,
-        };
-        if (!entry.target.activeFilePath) return null;
-        return {
-          kind: 'external', path: entry.target.activeFilePath,
-          scopePath: entry.target.scopePath, fileBrowser: entry.target,
-        };
-      case 'media':
-        return {
-          kind: 'media', filePath: entry.target.filePath, notebookId: entry.target.notebookId,
-          notebookPath: entry.target.notebookPath, resourceKind: entry.target.resourceKind,
-        };
-      case 'web': return { kind: 'web', url: entry.target.url };
-      case 'agent_conversation': return { kind: 'agent-conversation', instanceId: entry.target.instanceId };
-    }
-  })();
+  const target = browserTargetToWorkTarget(entry.target);
   if (!target) return { status: 'cancelled', host: 'main-third', reason: 'navigation-cancelled' };
   return openWorkspaceSurface({ host: 'main-third', target });
+}
+
+export function browserTargetToWorkTarget(target: BrowserColumnTarget): WorkWorkspaceSurfaceTarget {
+  return target.kind === 'agent_conversation'
+    ? { kind: 'agent-conversation', instanceId: target.instanceId } : target;
 }
 
 export type { WorkspaceSurfaceHost };

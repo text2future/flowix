@@ -45,6 +45,33 @@ pub(crate) enum FlowixOperation {
         collection_id: Option<String>,
         path: Option<String>,
     },
+    CollectionList {
+        notebook: Option<String>,
+        collection_type: Option<String>,
+        domain: Option<String>,
+        query: Option<String>,
+        limit: usize,
+        offset: usize,
+        snapshot: Option<String>,
+    },
+    CollectionDescribe {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+    },
+    CollectionQuery {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        domain: Option<String>,
+        view_id: Option<String>,
+        query: Option<String>,
+        fields: Vec<String>,
+        sort: Vec<String>,
+        limit: usize,
+        offset: usize,
+        snapshot: Option<String>,
+    },
     ArtifactList,
     ArtifactDescribe {
         plugin_id: String,
@@ -77,7 +104,10 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             offset,
         } => {
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
-            let entries = path_store::list(&notebook)?["notes"].as_array().cloned().unwrap_or_default();
+            let entries = path_store::list(&notebook)?["notes"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
             let total = entries.len();
             let notes = entries
                 .into_iter()
@@ -102,9 +132,7 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             notebook,
             tag,
             limit,
-        } => {
-            path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit)
-        }
+        } => path_store::search(&query, notebook.as_deref(), tag.as_deref(), limit),
         FlowixOperation::Create { notebook, content } => {
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
             path_store::create(&notebook, &content)
@@ -114,18 +142,61 @@ pub(crate) fn execute(operation: FlowixOperation) -> Result<Value, CliError> {
             old,
             replacement,
             dry_run,
-        } => {
-            path_store::edit(&address, &old, &replacement, dry_run)
-        }
-        FlowixOperation::Write { address, content } => {
-            path_store::write(&address, &content)
-        }
-        FlowixOperation::Delete { address } => {
-            path_store::delete(&address)
-        }
-        FlowixOperation::CollectionRead { notebook, collection_id, path } => {
-            collection_store::read(&notebook, collection_id.as_deref(), path.as_deref())
-        }
+        } => path_store::edit(&address, &old, &replacement, dry_run),
+        FlowixOperation::Write { address, content } => path_store::write(&address, &content),
+        FlowixOperation::Delete { address } => path_store::delete(&address),
+        FlowixOperation::CollectionRead {
+            notebook,
+            collection_id,
+            path,
+        } => collection_store::read(&notebook, collection_id.as_deref(), path.as_deref()),
+        FlowixOperation::CollectionList {
+            notebook,
+            collection_type,
+            domain,
+            query,
+            limit,
+            offset,
+            snapshot,
+        } => collection_store::list(
+            notebook.as_deref(),
+            collection_type.as_deref(),
+            domain.as_deref(),
+            query.as_deref(),
+            limit,
+            offset,
+            snapshot.as_deref(),
+        ),
+        FlowixOperation::CollectionDescribe {
+            notebook,
+            collection_id,
+            path,
+        } => collection_store::describe(&notebook, collection_id.as_deref(), path.as_deref()),
+        FlowixOperation::CollectionQuery {
+            notebook,
+            collection_id,
+            path,
+            domain,
+            view_id,
+            query,
+            fields,
+            sort,
+            limit,
+            offset,
+            snapshot,
+        } => collection_store::query(
+            &notebook,
+            collection_id.as_deref(),
+            path.as_deref(),
+            domain.as_deref(),
+            view_id.as_deref(),
+            query.as_deref(),
+            &fields,
+            &sort,
+            limit,
+            offset,
+            snapshot.as_deref(),
+        ),
         FlowixOperation::ArtifactList => output::to_json_value(&plugin::list_data()),
         FlowixOperation::ArtifactDescribe { plugin_id } => {
             output::to_json_value(&plugin::describe_data(&plugin_id)?)

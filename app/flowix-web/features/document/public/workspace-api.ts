@@ -163,3 +163,9 @@ export function replaceWorkspaceDocumentHistoryPath(previousPath: string, path: 
 export function subscribeWorkspaceDocumentHistory(listener: () => void): () => void {
   return useDocumentHistoryStore.subscribe(listener);
 }
+
+/** Compatibility adapter for session navigation; histories remain owned by their runtime. */
+export function getWorkspaceDocumentNavigation() {
+  const { backStack, forwardStack } = useDocumentHistoryStore.getState();
+  return { backStack, forwardStack };
+}

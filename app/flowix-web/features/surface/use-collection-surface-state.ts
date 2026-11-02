@@ -106,6 +106,8 @@ export interface CollectionHostTabsState {
   addNoteView: (layout: TableViewType, fieldId?: string) => Promise<string | null>;
   /** 「管理视图」→ 重命名资料视图 tab。 */
   renameTab: (key: string, name: string) => void;
+  /** 「管理视图」→ 调整笔记与资料视图 tab 的共同顺序。 */
+  reorderViews: (viewIds: readonly string[]) => void | Promise<void>;
   /** 「管理视图」→ 删除资料视图 tab（所在域最后一个视图会连同域一起移除）。 */
   removeTab: (key: string) => void;
 }
@@ -258,7 +260,7 @@ export function useCollectionSurfaceState({
 
   const commands = useCollectionViewCommands({ indexPath, notebookPath, currentFolderPath, folderName,
     editable, summary, onSummary: setSummary });
-  const { addAssetView: createAssetView, addNoteView: createNoteView, renameView, removeView, busy } = commands;
+  const { addAssetView: createAssetView, addNoteView: createNoteView, renameView, reorderViews, removeView, busy } = commands;
   const addAssetView = useCallback((kind: 'media_library' | 'work_documents') => {
     const domain = kind === 'media_library' ? 'media' : 'work_documents';
     void createAssetView(domain).then((result) => {
@@ -281,13 +283,19 @@ export function useCollectionSurfaceState({
     const id = viewIdFromTabKey(key);
     if (id) void renameView(id, name);
   }, [renameView]);
+  const reorderTabs = useCallback((viewIds: readonly string[]) => {
+    return reorderViews(viewIds).then(() => undefined);
+  }, [reorderViews]);
   const removeTab = useCallback((key: string) => {
     const id = viewIdFromTabKey(key);
     if (!id) return;
     void removeView(id).then((result) => {
       if (!result) return;
       setMountedDomains((current) => current.filter((domain) => result.domains.includes(domain)));
-      if (activeHostTab === key) {
+      const removedActiveNotesDomain = isNoteTabKey(key)
+        && activeHostTab === null
+        && !result.domains.includes('notes');
+      if (activeHostTab === key || removedActiveNotesDomain) {
         const next = resolveHostTab(result);
         const asset = next ? parseAssetTabKey(next) : null;
         if (asset) mountDomain(asset.domain);
@@ -312,8 +320,6 @@ export function useCollectionSurfaceState({
         label: view.name,
         placement: 'after',
         removable: true,
-        // 资料视图的口径是「别把集合删成没有视图」：只剩一个视图时不可移除。
-        deleteDisabled: (existing?.views.length ?? 0) <= 1,
         domain,
         viewId: view.id,
       });
@@ -347,11 +353,12 @@ export function useCollectionSurfaceState({
       addAssetView,
       addNoteView,
       renameTab,
+      reorderViews: reorderTabs,
       removeTab,
     },
   }), [
     busy, activateDomain, activeAssetView, activeHostTab, addAssetView, addNoteView, mountDomain,
     banner, subtitle, icon, domains, existing, hostTabs, missing, mountedDomains,
-    removeTab, renameTab, selectNoteView, selectTab, showFilesTab, summary, tableReady,
+    removeTab, renameTab, reorderTabs, selectNoteView, selectTab, showFilesTab, summary, tableReady,
   ]);
 }

@@ -876,6 +876,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "tabWindow.all": "All",
     "tabWindow.showAll": "All",
     "tabWindow.openContent": "Open content in browser column",
+    "tabWindow.swapPositions": "Swap positions",
     "tabWindow.closeColumn": "Close browser panel",
     "tabWindow.expandColumn": "Expand browser panel",
     "tabWindow.closeTab": "Close {title}",

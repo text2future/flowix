@@ -1,8 +1,9 @@
-import { contentIdentityKey, type ContentIdentity } from './surface-identity';
+import { workspaceSurfaceIdentityKey, type WorkspaceSurfaceIdentity } from './surface-identity';
 
-import type { FileBrowserTarget } from './surface-target';
+import type { WorkspaceContentTarget, FileBrowserTarget } from './surface-target';
 
 export type BrowserColumnTarget =
+  | Extract<WorkspaceContentTarget, { kind: 'plugin-workbench' }>
   | {
       kind: 'folder-collection';
       folderPath: string;
@@ -14,8 +15,8 @@ export type BrowserColumnTarget =
   | {
       kind: 'media';
       filePath: string;
-      notebookId: string;
-      notebookPath: string;
+      notebookId: string | null;
+      notebookPath: string | null;
       resourceKind: 'image' | 'video';
     }
   | FileBrowserTarget
@@ -29,8 +30,9 @@ export type BrowserColumnTarget =
     };
 
 
-export function browserColumnTargetIdentity(target: BrowserColumnTarget): ContentIdentity {
+export function browserColumnTargetIdentity(target: BrowserColumnTarget): WorkspaceSurfaceIdentity {
   switch (target.kind) {
+    case 'plugin-workbench': return { kind: 'plugin-workbench', pluginId: target.plugin.manifest.id };
     case 'folder-collection': return { kind: 'folder-collection', notebookId: target.notebookId, folderPath: target.folderPath, viewMode: target.viewMode };
     case 'media': return { kind: 'media', path: target.filePath };
     case 'file-browser': return target.collectionDisplay ? { kind: 'collection', ...target.collectionDisplay } : target.activeFilePath
@@ -45,6 +47,6 @@ export function browserColumnTargetIdentity(target: BrowserColumnTarget): Conten
 }
 
 export function browserColumnTargetKey(target: BrowserColumnTarget): string | null {
-  return contentIdentityKey(browserColumnTargetIdentity(target));
+  return workspaceSurfaceIdentityKey(browserColumnTargetIdentity(target));
 }
 

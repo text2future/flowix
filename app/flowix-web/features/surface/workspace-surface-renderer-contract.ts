@@ -48,6 +48,7 @@ export type WorkspaceSurfaceRendererData =
 
 export interface WorkspaceSurfaceRenderContext extends Pick<SurfaceViewContext,
   'host' | 'viewId' | 'focused' | 'readOnly' | 'initialFocus'> {
+  sessionEntryId?: string | null;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
   onRendererError?: () => void;
   registerLifecycle?: (lifecycle: SurfaceLifecycle | null, owner?: object) => void;

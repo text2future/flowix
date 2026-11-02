@@ -37,7 +37,14 @@ async function renderComposer(
 ): Promise<HTMLInputElement> {
   const node = document.createElement('div');
   root = createRoot(node);
-  await act(async () => root?.render(<CollectionAgentComposer notebookId={notebookId} host={host} />));
+  await act(async () => root?.render(<CollectionAgentComposer
+    notebookId={notebookId}
+    collectionId="col-1"
+    collectionName="Flowix"
+    collectionPath="/tmp/Flowix"
+    indexPath="/tmp/Flowix/.index.yaml"
+    host={host}
+  />));
   const input = node.querySelector('input');
   if (!input) throw new Error('composer input missing');
   return input;
@@ -107,10 +114,14 @@ describe('CollectionAgentComposer', () => {
     await type(input, '  帮我总结这个集合  ');
     await pressEnter(input);
 
-    expect(calls.createWithPrompt).toHaveBeenCalledWith('pi', 'nb-1', '帮我总结这个集合', {
+    expect(calls.createWithPrompt).toHaveBeenCalledWith('pi', 'nb-1', expect.stringContaining('帮我总结这个集合'), {
       destination: 'browser-column',
       autoSend: true,
     });
+    const sentPrompt = calls.createWithPrompt.mock.calls[0]?.[2] as string;
+    expect(sentPrompt.startsWith('帮我总结这个集合\n\n参考集合资料 [@Flowix](flowix://collection/')).toBe(true);
+    expect(sentPrompt).toContain(encodeURIComponent('"collectionId":"col-1"'));
+    expect(sentPrompt.endsWith(')')).toBe(true);
     expect(input.value).toBe('');
     expect(pillOf(input).style.width).toBe('120px');
   });
@@ -120,7 +131,7 @@ describe('CollectionAgentComposer', () => {
     await type(input, 'hi');
     await pressEnter(input);
 
-    expect(calls.createWithPrompt).toHaveBeenCalledWith('pi', 'nb-1', 'hi', {
+    expect(calls.createWithPrompt).toHaveBeenCalledWith('pi', 'nb-1', expect.stringContaining('hi'), {
       destination: 'main-third',
       autoSend: true,
     });

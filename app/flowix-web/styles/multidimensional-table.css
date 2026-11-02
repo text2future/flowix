@@ -933,3 +933,12 @@ html[data-platform] .table-reference-node__content .overlay-scrollbar-frame .ove
 .multidimensional-table.collection-files-table :is(th, td):last-child::before {
   display: none;
 }
+
+/* The folder file list scrolls horizontally inside its own rows viewport.
+ * Let vertical wheel input continue to the collection page. */
+.collection-files-tab__scroller {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+}

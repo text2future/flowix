@@ -1,3 +1,4 @@
+import { restoreWorkspaceWebRuntime } from '../model/web-navigation';
 import { createJSONStorage, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { STORAGE_KEYS } from '@/lib/constants';
@@ -36,8 +37,8 @@ function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
         : null;
     case 'media':
       return nonEmptyString(value.filePath)
-        && typeof value.notebookId === 'string'
-        && nonEmptyString(value.notebookPath)
+        && (value.notebookId === null || typeof value.notebookId === 'string')
+        && (value.notebookPath === null || nonEmptyString(value.notebookPath))
         && (value.resourceKind === 'image' || value.resourceKind === 'video')
         ? {
             kind: 'media',
@@ -230,6 +231,8 @@ export function restoreBrowserColumnSession<T extends BrowserColumnSessionState>
         ? persisted.splitRatio
         : readLegacySplitRatio() ?? BROWSER_COLUMN_DEFAULT_SPLIT_RATIO,
     ),
+    webRuntime: currentEntry?.target.kind === 'web'
+      ? restoreWorkspaceWebRuntime(persisted.webRuntime) : null,
     current: currentEntry,
     backStack: normalizeHistory(persisted.backStack),
     forwardStack: normalizeHistory(persisted.forwardStack),
@@ -250,6 +253,7 @@ export const browserColumnPersistence = {
   migrate: migrateBrowserColumnSessionState,
   storage: browserColumnStorage,
   partialize: (state: BrowserColumnSessionState): BrowserColumnSessionState => ({
+    webRuntime: state.webRuntime ?? null,
     visible: state.visible,
     splitRatio: state.splitRatio,
     backStack: state.backStack,

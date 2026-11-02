@@ -11,6 +11,7 @@ export { canonicalUrl } from '@/lib/url';
  * corrupt the `//` in an URL scheme.
  */
 export type ContentIdentity =
+  | { kind: 'plugin-workbench'; pluginId: string }
   | { kind: 'collection'; notebookId: string; collectionId: string; viewId: string | null }
   | { kind: 'media'; path: string }
   | { kind: 'external'; path: string }
@@ -23,6 +24,7 @@ export function contentIdentityKey(
   identity: ContentIdentity,
 ): string | null {
   switch (identity.kind) {
+    case 'plugin-workbench': return identity.pluginId.trim() ? `plugin:${JSON.stringify(identity.pluginId)}` : null;
     case 'collection': return `collection:${JSON.stringify([identity.notebookId, identity.collectionId])}`;
     case 'media': {
       const path = identity.path;

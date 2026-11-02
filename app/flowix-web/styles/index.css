@@ -905,6 +905,12 @@ html.flowix-drag-drop-active * {
 	box-shadow: 0 0 0 1px var(--ring);
 }
 
+/* Hide the browser's outer focus ring when a popup received focus from a
+ * pointer context-menu action. Keyboard-opened surfaces keep their native cue. */
+:is([data-flowix-surface="context-menu"], [data-flowix-surface="popover"], [data-flowix-surface="select"])[data-flowix-focus-origin="pointer"]:focus {
+	outline: none;
+}
+
 /* agent-* 元素的样式已合并到组件 className (Tailwind 工具类);
  * 关键帧由 animate-[<name>_<duration>_<timing>] arbitrary value 引用,
  * 必须保留 CSS。 */

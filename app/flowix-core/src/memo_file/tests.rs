@@ -90,6 +90,24 @@ fn notebook_json_is_migrated_to_local_db() {
     assert_eq!(count, 1);
 }
 
+/// The note index is a rebuildable projection, so its connection must run
+/// `synchronous=NORMAL`. FULL forces one device barrier per autosave commit
+/// (the dominant cost on Windows/NTFS) and buys no durability for a database
+/// that is discarded and rebuilt when unreadable.
+#[test]
+fn note_index_connection_uses_normal_synchronous() {
+    let (mf, _tmp) = fresh_memo_file();
+    let conn = mf.open_note_index_connection("nb_test").unwrap();
+    let synchronous: i64 = conn
+        .query_row("PRAGMA synchronous", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(synchronous, 1, "expected 1 (NORMAL), 2 means FULL");
+    let journal: String = conn
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(journal.to_lowercase(), "wal");
+}
+
 #[test]
 fn notebook_registry_writes_portable_identity_manifest() {
     let (_mf, root) = fresh_memo_file();

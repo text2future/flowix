@@ -1,3 +1,4 @@
+import { useSessionWebRuntimeStore } from '@features/workspace/public/session-web-api';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,7 @@ let host: HTMLDivElement;
 const url = 'https://example.com/';
 
 beforeEach(() => {
+  useSessionWebRuntimeStore.setState({ runtimes: {} });
   vi.useFakeTimers();
   host = document.createElement('div');
   document.body.append(host);
@@ -74,4 +76,23 @@ describe('shared web renderer', () => {
     await act(async () => { frame.dispatchEvent(new Event('load')); vi.advanceTimersByTime(6000); });
     expect(host.textContent).not.toContain('网页可能禁止嵌入或加载超时');
   });
+});
+
+it('retains the mounted iframe and current page when only the container geometry changes', async () => {
+  const render = (column: number) => root.render(
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+      <section style={{ gridColumn: column }}>
+        <WebRenderer surface={{ kind: 'web', url }} context={{
+          host: 'main-third', viewId: 'relocatable-web', focused: true, readOnly: false,
+        }} />
+      </section>
+    </div>,
+  );
+  await act(async () => render(1));
+  await navigate('https://retained.example/');
+  const iframe = host.querySelector('iframe');
+  expect(iframe?.getAttribute('src')).toBe('https://retained.example/');
+  await act(async () => render(2));
+  expect(host.querySelector('iframe')).toBe(iframe);
+  expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://retained.example/');
 });

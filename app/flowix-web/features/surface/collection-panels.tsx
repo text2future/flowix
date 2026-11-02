@@ -30,7 +30,7 @@ export function CollectionPanels({ tabs, domains, filesRoot, notebookId, noteboo
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
 }) {
   return <>
-    {/* 文件树随整页滚动：自己不设滚动容器、也不吃高度，表头 sticky 吸在 tab 条下沿。 */}
+    {/* 文件树纵向随整页滚动；行列表单独横滚，表头仍 sticky 在 tab 条下沿。 */}
     {tabs.showFiles ? (
       <div className={tabs.active === 'files' ? 'flex flex-col' : 'hidden'}>
         <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host}

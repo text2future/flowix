@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import { Columns2, SquarePen, SwatchBook } from 'lucide-react';
+import { ArrowLeftRight, Columns2, SquarePen, SwatchBook } from 'lucide-react';
 import type { AgentTypeKey } from '@/types/agent';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { orderNoteTemplates } from '@/lib/note-template-order';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuTrigger } from '@shared/ui/context-menu';
-import { toggleBrowserColumn, useBrowserColumnVisible } from '@features/workspace/public/browser-column-api';
-import { AgentIcon, createAndOpenAgentConversation, requestNewConversationAgentSelection, useNewConversationAgentSelection } from '@features/agent/public/shell-api';
+import { swapWorkspaceColumnContent, useCanSwapWorkspaceColumnContent, toggleBrowserColumn, useBrowserColumnVisible } from '@features/workspace/public/browser-column-api';
+import { AgentIcon, createBrowserColumnAgentConversation, discardUnopenedBrowserColumnAgentConversation, requestNewConversationAgentSelection, useNewConversationAgentSelection } from '@features/agent/public/shell-api';
 import { createShellNote, createShellNoteFromTemplate, listShellNoteTemplates, useShellSelectedNotebook, type NoteTemplate } from '@features/memo/public/shell-api';
-import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
+import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
 
 const itemClass = 'h-7 items-center justify-start gap-0 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]';
 const labelClass = 'px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]';
@@ -22,6 +22,8 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
 }) {
   const { t } = useI18n();
   const browserColumnVisible = useBrowserColumnVisible();
+  const canSwap = useCanSwapWorkspaceColumnContent();
+  const [swapping, setSwapping] = useState(false);
   const selectedNotebook = useShellSelectedNotebook();
   const conversationSelection = useNewConversationAgentSelection();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -46,7 +48,7 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
       const created = templateId
         ? await createShellNoteFromTemplate(templateId, selectedNotebook.id)
         : await createShellNote(selectedNotebook.id);
-      await openNotebookNote(created.path, selectedNotebook, { initialFocus: 'title' });
+      await openWorkspaceSurface({ host: 'main-third', target: { kind: 'external', path: created.path, scopePath: selectedNotebook.path }, options: { initialFocus: 'title', notebookId: selectedNotebook.id } });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t(templateId ? 'memo.create.templateFailed' : 'memo.list.createFailed'));
     }
@@ -58,7 +60,25 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
       onCreateAgentConversation(typeKey);
       return;
     }
-    createAndOpenAgentConversation(typeKey, selectedNotebook.id);
+    const instanceId = createBrowserColumnAgentConversation(typeKey, selectedNotebook.id);
+    void openWorkspaceSurface({ host: 'main-third', target: { kind: 'agent-conversation', instanceId } })
+      .then((result) => {
+        if (result.status === 'cancelled') discardUnopenedBrowserColumnAgentConversation(instanceId);
+      }).catch((error: unknown) => {
+        discardUnopenedBrowserColumnAgentConversation(instanceId);
+        toast.error(error instanceof Error ? error.message : t('tabWindow.switchFailed'));
+      });
+  };
+
+  const swapContent = async () => {
+    setSwapping(true);
+    try {
+      if (!await swapWorkspaceColumnContent()) toast.error(t('tabWindow.switchFailed'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('tabWindow.switchFailed'));
+    } finally {
+      setSwapping(false);
+    }
   };
 
   return (
@@ -68,6 +88,10 @@ export function WorkspaceColumnContextMenu({ children, isWindows, onCreateNote, 
         <ContextMenuItem onClick={toggleBrowserColumn} className={itemClass}>
           <Columns2 className="mr-2 h-4 w-4" aria-hidden="true" />
           <span className="leading-5">{t(browserColumnVisible ? 'tabWindow.closeColumn' : 'tabWindow.expandColumn')}</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!canSwap || swapping} onClick={() => void swapContent()} className={itemClass}>
+          <ArrowLeftRight className="mr-2 h-4 w-4" aria-hidden="true" />
+          <span className="leading-5">{t('tabWindow.swapPositions')}</span>
         </ContextMenuItem>
         <ContextMenuLabel className={labelClass}>{t('memo.create.documents')}</ContextMenuLabel>
         <ContextMenuItem disabled={!canCreate} onClick={() => void createNote()} className={itemClass}>

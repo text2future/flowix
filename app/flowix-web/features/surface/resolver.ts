@@ -1,3 +1,5 @@
+import { primarySurfaceInstanceId, primaryEntryIdForTarget } from '@features/workspace/public/session-runtime-api';
+import { resolveBrowserColumnSurface } from './browser-column-registry';
 import { collectionSessionKey } from '@/lib/collection-session-key';
 import { canonicalPath } from '@/lib/path';
 import {
@@ -145,6 +147,10 @@ function resolveWorkColumnTarget(
     };
   }
   switch (target.kind) {
+    case 'file-browser':
+      return surfaceContent(resolveBrowserColumnSurface({
+        id: 'primary-file-browser', title: target.activeFilePath ?? target.folderPath ?? '', icon: null, target,
+      }, { runtimeHost: 'main-third' }));
     case 'folder-collection':
       return surfaceContent({ kind: 'folder-collection', instanceKey: `${target.notebookId}:${target.folderPath}:${target.viewMode ?? 'chooser'}`,
         notebookId: target.notebookId, notebookPath: target.notebookPath, folderPath: target.folderPath, folderName: target.folderName,
@@ -152,7 +158,7 @@ function resolveWorkColumnTarget(
     case 'empty':
       return emptyContent(input.emptyMessage, 'no-target');
     case 'web':
-      return surfaceContent({ kind: 'web', instanceKey: target.url, url: target.url });
+      return surfaceContent({ kind: 'web', instanceKey: primarySurfaceInstanceId(target, target.url), url: target.url });
     case 'agent-conversation':
       return target.instanceId.trim()
         ? surfaceContent({ kind: 'agent-conversation', instanceKey: `agent:${target.instanceId}`, instanceId: target.instanceId })
@@ -219,5 +225,7 @@ function resolveWorkColumnTarget(
 export function resolveWorkColumnContent(
   input: ResolveWorkColumnContentInput,
 ): WorkColumnContentPresentation {
-  return resolveWorkColumnTarget(input.navigation.target, input);
+  const content = resolveWorkColumnTarget(input.navigation.target, input);
+  const sessionEntryId = primaryEntryIdForTarget(input.navigation.target);
+  return content.status === 'surface' && sessionEntryId ? { ...content, surface: { ...content.surface, sessionEntryId } } : content;
 }

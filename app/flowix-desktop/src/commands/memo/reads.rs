@@ -15,7 +15,7 @@ use flowix_core::service::{NoteSaveOutcome, NotePageQuery};
 use flowix_core::{FlowixError, NoteService};
 
 use crate::app::state::AppState;
-use crate::watcher::runtime::mark_self_write_for;
+use crate::watcher::runtime::mark_self_write_content_for;
 
 use super::helpers::*;
 use super::*;
@@ -332,25 +332,42 @@ fn write_document_internal(
         return Ok(None);
     }
 
-    let (saved_path, saved_content, entry) = {
+    let (saved_path, saved_content, entry, profile) = {
         let memo_file = read_lock(&state.memo_file, "memo_file");
         let mut service = NoteService::new(&memo_file);
-        mark_self_write_for(app, requested_path);
-        match service.save(
+        // Register the revision this save is about to land, not the revision
+        // currently on disk. Everything below (file sync, index commit, FTS
+        // rewrite) happens before the post-write mark exists, and the watcher
+        // validates self-writes ~100ms after the event; on a slow disk the save
+        // outlives that window, so a disk-state pre-mark would be stale and the
+        // post-write mark would arrive too late — the write gets reported as an
+        // external edit and the UI refetches the whole notebook. The file is
+        // written verbatim (`atomic_write_bytes(path, content.as_bytes())`), so
+        // the content hash is knowable before the write.
+        mark_self_write_content_for(app, requested_path, content.as_bytes());
+        let outcome = service.save(
             &notebook_id,
             &relative_path,
             content,
             Some(&current_content),
-        ) {
+        );
+        // Read on the saving thread, before the lock is released; writing the
+        // log line happens after the lock so it never extends the critical path.
+        let profile = flowix_core::memo_file::save_probe::take_last();
+        match outcome {
             Ok(NoteSaveOutcome::Saved(document)) => {
-                (document.path, document.body, document.entry)
+                (document.path, document.body, document.entry, profile)
             }
             Ok(NoteSaveOutcome::Conflict { .. }) => return Ok(None),
             Err(error) => return Err(error.to_string()),
         }
     };
 
-    mark_self_write_for(app, &saved_path);
+    record_slow_save_profile(profile);
+    // The landed bytes are already known, so refreshing the mark must not cost
+    // another full-file read + hash on the save path. This keeps the mark alive
+    // past a long index refresh.
+    mark_self_write_content_for(app, &saved_path, saved_content.as_bytes());
     let _ = app.emit("flowix:path-note-changed", serde_json::json!({
         "changeId": uuid::Uuid::new_v4().to_string(),
         "notebookId": notebook_id,
@@ -364,6 +381,20 @@ fn write_document_internal(
         content: saved_content,
         commit: None,
     }))
+}
+
+/// A save slower than this is worth a line in `app.log`; on a healthy machine
+/// the whole path is ~12-15ms, so anything above this is a real signal.
+const SLOW_SAVE_LOG_MS: f64 = 40.0;
+
+fn record_slow_save_profile(
+    profile: Option<flowix_core::memo_file::save_probe::SaveProfile>,
+) {
+    let Some(profile) = profile else { return };
+    if profile.total_ms() < SLOW_SAVE_LOG_MS {
+        return;
+    }
+    crate::runtime_log::record_event("warn", "slow-note-save", profile.to_json());
 }
 
 #[derive(serde::Serialize)]

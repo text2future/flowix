@@ -1,3 +1,4 @@
+import { useSessionHostEnvironment } from './session-host-environment';
 import { SidebarToggleIconRight } from '@shared/icons/sidebar-toggle-icon';
 import { toggleBrowserColumn, useBrowserColumnVisible } from '@features/workspace/public/browser-column-api';
 import { useI18n } from '@/lib/i18n';
@@ -10,8 +11,9 @@ import { useI18n } from '@/lib/i18n';
  */
 export function WorkColumnBrowserExpandButton({ iconButtonClass }: { iconButtonClass: string }) {
   const { t } = useI18n();
+  const environment = useSessionHostEnvironment();
   const browserColumnVisible = useBrowserColumnVisible();
-  if (browserColumnVisible) return null;
+  if (browserColumnVisible || environment?.host === 'browser-column') return null;
   return (
     <button
       type="button"

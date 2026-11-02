@@ -11,16 +11,16 @@ const button = (label: string) => [...document.querySelectorAll<HTMLButtonElemen
   .find((item) => item.getAttribute('aria-label') === label || item.textContent === label)!;
 async function mount(options: Partial<Parameters<typeof CollectionViewMenu>[0]> = {}) {
   node = document.createElement('div'); document.body.append(node); root = createRoot(node);
-  const renameTab = vi.fn(); const onRequestDelete = vi.fn(); const onAddNoteView = vi.fn();
-  const tabs = { list: [{ key: 'files', label: '文件树', placement: 'before' },
+  const renameTab = vi.fn(); const reorderViews = vi.fn(); const onRequestDelete = vi.fn(); const onAddNoteView = vi.fn();
+  const tabs = { list: [{ key: 'files', label: '文件夹', placement: 'before' },
     { key: 'media:m1', label: '图墙', placement: 'after', removable: true, viewId: 'm1' }],
-    renameTab, addAssetView: vi.fn() } as unknown as CollectionHostTabsState;
+    renameTab, reorderViews, addAssetView: vi.fn() } as unknown as CollectionHostTabsState;
   await act(async () => root.render(<CollectionViewMenu tabs={tabs} editable bannerVisible
     onToggleBanner={() => {}} titleVisible onToggleTitle={() => {}}
     onRequestDelete={onRequestDelete} onAddNoteView={onAddNoteView}
     onCommitHostTabRename={renameTab} {...options} />));
   await act(async () => button('显示设置').click());
-  return { renameTab, onRequestDelete, onAddNoteView };
+  return { renameTab, reorderViews, onRequestDelete, onAddNoteView };
 }
 it('复用原按钮和弹层样式，管理视图支持返回、改名及删除确认请求', async () => {
   const { renameTab, onRequestDelete } = await mount();
@@ -58,10 +58,47 @@ it('日历与看板保留字段选择步骤，返回不创建视图', async () =
   expect(onAddNoteView).toHaveBeenCalledWith('kanban', undefined);
 });
 
-it('笔记与资料共用管理菜单；最后一个笔记视图可以改名但不能删除', async () => {
+it('笔记与资料共用管理菜单；普通视图可以删除到只剩固定文件夹 tab', async () => {
   await mount({ noteViews: [{ id: 'n1', name: '表格' }] });
   await act(async () => button('管理视图').click());
   expect(button('重命名视图：表格').disabled).toBe(false);
-  expect(button('移除 tab：表格').disabled).toBe(true);
+  expect(button('移除 tab：表格').disabled).toBe(false);
   expect(button('移除 tab：图墙').disabled).toBe(false);
+});
+
+it('管理视图支持拖动排序，但固定文件夹 tab 不可拖动', async () => {
+  const { reorderViews } = await mount({ noteViews: [{ id: 'n1', name: '表格' }], viewOrder: ['m1', 'n1'] });
+  await act(async () => button('管理视图').click());
+
+  const list = document.querySelector<HTMLElement>('[data-manage-item-id]')?.parentElement as HTMLElement;
+  const itemRows = [...document.querySelectorAll<HTMLElement>('[data-manage-item-id]')];
+  expect(itemRows.map((row) => row.dataset.manageItemId)).toEqual(['host:files', 'host:media:m1', 'host:notes:n1']);
+  const fixedFolderHandle = itemRows[0].querySelector<HTMLButtonElement>('button');
+  expect(fixedFolderHandle?.disabled).toBe(true);
+  expect(fixedFolderHandle?.querySelector('svg')).not.toBeNull();
+  expect(itemRows.slice(1).every((row) => row.querySelector('button[aria-label^="拖动调整视图顺序"]'))).toBe(true);
+
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  list.getBoundingClientRect = () => ({ left: 0, right: 220, top: 0, bottom: 120 }) as DOMRect;
+  for (const row of itemRows) {
+    row.getBoundingClientRect = () => ({
+      left: 0, right: 220, top: [...list.querySelectorAll('[data-manage-item-id]')].indexOf(row) * 32, height: 32,
+    }) as DOMRect;
+  }
+  const pointer = (target: EventTarget, type: string, y: number) => {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperties(event, { pointerId: { value: 1 }, button: { value: 0 }, clientX: { value: 20 }, clientY: { value: y } });
+    target.dispatchEvent(event);
+  };
+  try {
+    const handle = itemRows[2].querySelector<HTMLButtonElement>('button[aria-label^="拖动调整视图顺序"]')!;
+    act(() => pointer(handle, 'pointerdown', 80));
+    act(() => pointer(window, 'pointermove', 40));
+    expect([...list.querySelectorAll<HTMLElement>('[data-manage-item-id]')].map((row) => row.dataset.manageItemId))
+      .toEqual(['host:files', 'host:notes:n1', 'host:media:m1']);
+    await act(async () => pointer(window, 'pointerup', 40));
+    expect(reorderViews).toHaveBeenCalledWith(['n1', 'm1']);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

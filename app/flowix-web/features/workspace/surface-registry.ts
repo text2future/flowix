@@ -49,14 +49,14 @@ export const workspaceSurfaceRegistry = Object.freeze({
   'file-html': { rendererId: 'file-html', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
   'file-docx': { rendererId: 'file-docx', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
   'file-unavailable': { rendererId: 'file-unavailable', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-browser': { rendererId: 'file-browser', hosts: ['browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-browser': { rendererId: 'file-browser', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
   collection: { rendererId: 'collection', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
   media: { rendererId: 'media', hosts: ['main-third', 'browser-column'], capabilities: ['fullscreen'], appearance: MEDIA_APPEARANCE },
   mindmap: { rendererId: 'plugin-document', hosts: ['main-third'], capabilities: ['fullscreen', 'fit', 'zoom'], appearance: DOCUMENT_APPEARANCE },
   'plugin-artifact': { rendererId: 'plugin-document', hosts: ['main-third'], capabilities: ['fullscreen'], appearance: DOCUMENT_APPEARANCE },
   'agent-conversation': { rendererId: 'agent-conversation', hosts: ['main-third', 'browser-column'], capabilities: ['stream-conversation'], appearance: AGENT_APPEARANCE },
   web: { rendererId: 'web', hosts: ['main-third', 'browser-column'], capabilities: ['web-navigation'], appearance: DOCUMENT_APPEARANCE },
-  'plugin-workbench': { rendererId: 'plugin-workbench', hosts: ['main-third'], capabilities: ['run-agent', 'fullscreen'], appearance: DOCUMENT_APPEARANCE },
+  'plugin-workbench': { rendererId: 'plugin-workbench', hosts: ['main-third', 'browser-column'], capabilities: ['run-agent', 'fullscreen'], appearance: DOCUMENT_APPEARANCE },
 } as const satisfies Record<WorkspaceSurfaceKind, SurfaceRegistration>);
 
 export function workspaceSurfaceSupportsHost(

@@ -92,8 +92,5 @@ export interface CollectionReferenceSurfaceTarget {
 
 export type WorkspaceSurfaceOpenTarget = WorkspaceContentTarget | FileBrowserTarget | CollectionReferenceSurfaceTarget;
 /** Empty is a host state, not an open request. */
-export type WorkWorkspaceSurfaceTarget = Exclude<WorkspaceContentTarget, { kind: 'empty' }> | CollectionReferenceSurfaceTarget;
-export type BrowserWorkspaceSurfaceTarget = Exclude<
-  WorkspaceContentTarget,
-  { kind: 'empty' | 'plugin-workbench' }
-> | FileBrowserTarget | CollectionReferenceSurfaceTarget;
+export type WorkWorkspaceSurfaceTarget = FileBrowserTarget | Exclude<WorkspaceContentTarget, { kind: 'empty' }> | CollectionReferenceSurfaceTarget;
+export type BrowserWorkspaceSurfaceTarget = WorkWorkspaceSurfaceTarget;

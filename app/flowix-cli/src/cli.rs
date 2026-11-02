@@ -43,6 +43,36 @@ pub enum Cli {
         path: Option<String>,
         json: bool,
     },
+    CollectionList {
+        notebook: Option<String>,
+        collection_type: Option<String>,
+        domain: Option<String>,
+        query: Option<String>,
+        limit: usize,
+        offset: usize,
+        snapshot: Option<String>,
+        json: bool,
+    },
+    CollectionDescribe {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        json: bool,
+    },
+    CollectionQuery {
+        notebook: String,
+        collection_id: Option<String>,
+        path: Option<String>,
+        domain: Option<String>,
+        view_id: Option<String>,
+        query: Option<String>,
+        fields: Vec<String>,
+        sort: Vec<String>,
+        limit: usize,
+        offset: usize,
+        snapshot: Option<String>,
+        json: bool,
+    },
     Search {
         query: String,
         notebook: Option<String>,
@@ -153,14 +183,58 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Cli>, CliError> {
             json,
         })),
         Some(("collection", sub)) => match sub.subcommand() {
+            Some(("list", command)) => Ok(Some(Cli::CollectionList {
+                notebook: command.get_one::<String>("notebook").cloned(),
+                collection_type: command.get_one::<String>("collection-type").cloned(),
+                domain: command.get_one::<String>("domain").cloned(),
+                query: command.get_one::<String>("query").cloned(),
+                limit: *command.get_one::<usize>("limit").unwrap_or(&50),
+                offset: *command.get_one::<usize>("offset").unwrap_or(&0),
+                snapshot: command.get_one::<String>("snapshot").cloned(),
+                json,
+            })),
+            Some(("describe", command)) => Ok(Some(Cli::CollectionDescribe {
+                notebook: required_string(command, "notebook")?,
+                collection_id: command.get_one::<String>("collection-id").cloned(),
+                path: command.get_one::<String>("path").cloned(),
+                json,
+            })),
+            Some(("query", command)) => Ok(Some(Cli::CollectionQuery {
+                notebook: required_string(command, "notebook")?,
+                collection_id: command.get_one::<String>("collection-id").cloned(),
+                path: command.get_one::<String>("path").cloned(),
+                domain: command.get_one::<String>("domain").cloned(),
+                view_id: command.get_one::<String>("view-id").cloned(),
+                query: command.get_one::<String>("query").cloned(),
+                fields: command
+                    .get_many::<String>("fields")
+                    .map(|values| {
+                        values
+                            .flat_map(|value| value.split(',').map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                sort: command
+                    .get_many::<String>("sort")
+                    .map(|values| values.cloned().collect())
+                    .unwrap_or_default(),
+                limit: *command.get_one::<usize>("limit").unwrap_or(&50),
+                offset: *command.get_one::<usize>("offset").unwrap_or(&0),
+                snapshot: command.get_one::<String>("snapshot").cloned(),
+                json,
+            })),
             Some(("read", command)) => Ok(Some(Cli::CollectionRead {
                 notebook: required_string(command, "notebook")?,
                 collection_id: command.get_one::<String>("collection-id").cloned(),
                 path: command.get_one::<String>("path").cloned(),
                 json,
             })),
-            Some((other, _)) => Err(CliError::Usage(format!("unknown collection command: `{other}`"))),
-            None => Err(CliError::Usage(format!("usage: {DISPLAY_BIN} collection read"))),
+            Some((other, _)) => Err(CliError::Usage(format!(
+                "unknown collection command: `{other}`"
+            ))),
+            None => Err(CliError::Usage(format!(
+                "usage: {DISPLAY_BIN} collection <list|describe|query|read>"
+            ))),
         },
         Some(("edit", sub)) => Ok(Some(Cli::Edit {
             id: required_string(sub, "id")?,
@@ -233,7 +307,7 @@ pub(crate) fn cli_command() -> Command {
     Command::new(DISPLAY_BIN)
         .version(env!("CARGO_PKG_VERSION"))
         .about("Manage local Flowix notebooks, Markdown notes, and artifacts")
-        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix collection read --notebook <notebook-id> --path 'Assets/Images.index.yaml' --json\n  flowix mcp")
+        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection list work --json\n  flowix collection describe --notebook work --id <collection-id> --json\n  flowix collection query --notebook work --id <collection-id> --domain notes --json\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix mcp")
         .arg(
             Arg::new("json")
                 .long("json")
@@ -267,6 +341,41 @@ pub(crate) fn cli_command() -> Command {
             Command::new("collection")
                 .about("Read collection datasets")
                 .subcommand_required(true)
+                .subcommand(
+                    Command::new("list")
+                        .about("List collections in a notebook")
+                        .arg(Arg::new("notebook").allow_hyphen_values(true).num_args(1))
+                        .arg(Arg::new("collection-type").long("type").num_args(1))
+                        .arg(Arg::new("domain").long("domain").num_args(1))
+                        .arg(Arg::new("query").long("query").num_args(1))
+                        .arg(Arg::new("limit").long("limit").value_parser(clap::value_parser!(usize)).num_args(1))
+                        .arg(Arg::new("offset").long("offset").value_parser(clap::value_parser!(usize)).num_args(1))
+                        .arg(Arg::new("snapshot").long("snapshot").num_args(1)),
+                )
+                .subcommand(
+                    Command::new("describe")
+                        .about("Describe collection domains, fields, and views")
+                        .arg(Arg::new("notebook").long("notebook").required(true).num_args(1))
+                        .arg(Arg::new("collection-id").long("id").num_args(1))
+                        .arg(Arg::new("path").long("path").num_args(1))
+                        .group(clap::ArgGroup::new("selector").args(["collection-id", "path"]).required(true).multiple(false)),
+                )
+                .subcommand(
+                    Command::new("query")
+                        .about("Query collection records")
+                        .arg(Arg::new("notebook").long("notebook").required(true).num_args(1))
+                        .arg(Arg::new("collection-id").long("id").num_args(1))
+                        .arg(Arg::new("path").long("path").num_args(1))
+                        .arg(Arg::new("domain").long("domain").num_args(1))
+                        .arg(Arg::new("view-id").long("view").num_args(1))
+                        .arg(Arg::new("query").long("query").num_args(1))
+                        .arg(Arg::new("fields").long("fields").num_args(1))
+                        .arg(Arg::new("sort").long("sort").action(ArgAction::Append).num_args(1))
+                        .arg(Arg::new("limit").long("limit").value_parser(clap::value_parser!(usize)).num_args(1))
+                        .arg(Arg::new("offset").long("offset").value_parser(clap::value_parser!(usize)).num_args(1))
+                        .arg(Arg::new("snapshot").long("snapshot").num_args(1))
+                        .group(clap::ArgGroup::new("selector").args(["collection-id", "path"]).required(true).multiple(false)),
+                )
                 .subcommand(
                     Command::new("read")
                         .about("Read one table or media library collection")

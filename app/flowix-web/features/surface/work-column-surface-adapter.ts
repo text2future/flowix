@@ -6,6 +6,7 @@ import type { WorkspaceSurfaceRendererData } from './workspace-surface-renderer-
 /** Convert Work's navigation discriminants to the canonical renderer input. */
 export function workspaceSurfaceRendererDataFromWorkSurface(surface: WorkColumnSurface): WorkspaceSurfaceRendererData {
   switch (surface.kind) {
+    case 'file-browser': return { kind: 'file-browser', props: surface };
     case 'folder-collection': return { kind: 'collection', notebookId: surface.notebookId,
       notebookPath: surface.notebookPath, folderPath: surface.folderPath, folderName: surface.folderName, viewMode: surface.viewMode };
     case 'media': return { kind: 'media', fileIdentity: surface.fileIdentity, notebookPath: surface.notebookPath, notebookId: surface.notebookId, resourceKind: surface.resourceKind };

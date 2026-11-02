@@ -67,6 +67,31 @@ export function useTableViewManagement({ session, save, editable, canDeleteViews
     await save(next, false, loadSequenceRef.current);
   }, [document, endInlineEdit, loadSequenceRef, save, saving, t]);
 
+  const reorderViews = useCallback(async (viewIds: readonly string[]) => {
+    if (!editable || !document || saving) return;
+    const byId = new Map(document.views.items.map((view) => [view.id, view]));
+    const items: TableView[] = [];
+    const seen = new Set<string>();
+    for (const id of viewIds) {
+      const view = byId.get(id);
+      if (!view || seen.has(id)) continue;
+      items.push(view);
+      seen.add(id);
+    }
+    for (const view of document.views.items) {
+      if (seen.has(view.id)) continue;
+      items.push(view);
+      seen.add(view.id);
+    }
+    if (items.every((view, index) => view.id === document.views.items[index]?.id)) return;
+    const next: MultidimensionalTableDocument = {
+      ...document,
+      collection: reviseCollection(document.collection),
+      views: { ...document.views, items },
+    };
+    await save(next, false, loadSequenceRef.current);
+  }, [document, editable, loadSequenceRef, save, saving]);
+
   const manageViewRenameInputRef = useRef<HTMLInputElement | null>(null);
   useLayoutEffect(() => {
     if (!managingViewId) return;
@@ -140,6 +165,7 @@ export function useTableViewManagement({ session, save, editable, canDeleteViews
     managingViewId, cancelManageViewRename,
     managingViewName, setManagingViewName, manageViewRenameInputRef, closeViewManagement,
     viewPendingDelete, cancelDeleteView, beginRenameView, renameView,
+    reorderViews,
     beginManageViewRename, finishManageViewRename, requestDeleteView, confirmDeleteView,
   };
 }

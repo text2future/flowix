@@ -8,6 +8,7 @@ export interface BrowserColumnEntry {
 }
 
 export interface BrowserColumnSessionState {
+  webRuntime?: import('./surface-contract').WorkspaceWebRuntime | null;
   visible: boolean;
   splitRatio: number;
   current: BrowserColumnEntry | null;

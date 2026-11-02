@@ -41,6 +41,7 @@ mod registration;
 pub(crate) mod time;
 pub mod types;
 mod note_index;
+pub mod save_probe;
 mod tree_display;
 mod versions;
 

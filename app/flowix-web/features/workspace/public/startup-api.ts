@@ -19,3 +19,15 @@ export function setWorkspaceRestoreStatus(status: 'restoring' | 'restored' | 'un
 export async function restoreAgentConversationWorkspace(restoreRequestId?: number): Promise<void> {
   await restore(restoreRequestId);
 }
+
+/** Compatibility restore for session targets now supported by both runtimes. */
+export async function restoreSessionTarget(
+  target: Extract<import('../store/workspace-restore-store').PersistedWorkspaceTarget, { kind: 'web' | 'file-browser' | 'plugin-workbench' }>,
+  requestId: number,
+) {
+  const { useWorkColumnStore } = await import('../store/work-column-store');
+  if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
+  const { openWorkspaceSurface } = await import('../use-cases/surface-opening');
+  if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
+  await openWorkspaceSurface({ host: 'main-third', target, options: { history: 'skip' } });
+}

@@ -4,7 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import type { AssetDomain } from '@/lib/collection-tab-key';
 import { addCollectionDomain, addCollectionNoteView, addCollectionView, ensureFolderCollection,
   renameCollectionView, removeCollectionView, type FolderCollectionSummary,
-  type AddCollectionViewResult } from '@features/collection/public/folder-api';
+  reorderCollectionViews, type AddCollectionViewResult } from '@features/collection/public/folder-api';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
 
 /** Serializes view commands; only the current collection may publish results or change selection. */
@@ -52,7 +52,9 @@ export function useCollectionViewCommands({ indexPath, notebookPath, currentFold
   [currentFolderPath, indexPath, notebookPath, run]);
   const renameView = useCallback((id: string, name: string) => run(() =>
     renameCollectionView(indexPath, notebookPath!, id, name)), [indexPath, notebookPath, run]);
+  const reorderViews = useCallback((ids: readonly string[]) => run(() =>
+    reorderCollectionViews(indexPath, notebookPath!, ids)), [indexPath, notebookPath, run]);
   const removeView = useCallback((id: string) => run(() =>
     removeCollectionView(indexPath, notebookPath!, id)), [indexPath, notebookPath, run]);
-  return { busy: busyKey === key, addAssetView, addNoteView, renameView, removeView };
+  return { busy: busyKey === key, addAssetView, addNoteView, renameView, reorderViews, removeView };
 }

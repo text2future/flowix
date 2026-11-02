@@ -9,7 +9,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "collection.composerSend": "Send to {name}",
   "collection.composerAdd": "Add attachment",
   "collection.agentSwitch": "Switch agent type",
-  "collection.filesTab": "All",
+  "collection.filesTab": "Folder",
   "collection.emptyFiles": "This collection is empty",
   "collection.noteView": "Table",
   // Asset views are data-domain tabs: "Image wall" (media domain, images & videos) and "Files" (everything else, formerly "Work documents").
@@ -67,6 +67,8 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "collection.manage.fixed": "Fixed",
   "collection.manage.remove": "Remove",
   "collection.manage.renameView": "Rename view: {name}",
+  "collection.manage.reorderView": "Drag to reorder view: {name}",
+  "collection.manage.fixedOrder": "View order is fixed: {name}",
   "collection.manage.removeTab": "Remove tab: {name}",
   "collection.manage.deleteView": "Delete view: {name}",
   "collection.manage.deleteDisabled": "Views cannot be deleted here",

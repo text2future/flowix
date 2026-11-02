@@ -12,6 +12,9 @@ interface AgentConversationRestoreState {
 }
 
 export type PersistedWorkspaceTarget =
+  | import('../model/surface-target').FileBrowserTarget
+  | { kind: 'web'; url: string }
+  | Extract<import('../model/surface-target').WorkspaceContentTarget, { kind: 'plugin-workbench' }>
   | CollectionWorkspaceTarget
   | FolderCollectionSurfaceTarget
   | LegacyFolderListTarget
@@ -100,7 +103,9 @@ export const useWorkspaceRestoreStore = create<WorkspaceRestoreStore>()(
           ...state,
           version: 6 as const,
           agentConversation: state?.agentConversation ?? EMPTY_AGENT_CONVERSATION_RESTORE,
-          desiredTarget: desiredTarget?.kind === 'collection'
+          desiredTarget: desiredTarget?.kind === 'web'
+            || desiredTarget?.kind === 'file-browser'
+            || desiredTarget?.kind === 'collection'
             || desiredTarget?.kind === 'external'
             || desiredTarget?.kind === 'table'
             || desiredTarget?.kind === 'media'

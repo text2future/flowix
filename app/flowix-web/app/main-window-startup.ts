@@ -12,6 +12,7 @@ import {
   restoreTableWorkspace,
   restoreCollectionWorkspace,
   restoreFolderCollectionWorkspace,
+  restoreSessionTarget,
   setWorkspaceRestoreStatus,
   type PersistedWorkspaceTarget,
 } from '@features/workspace/public/startup-api';
@@ -167,6 +168,10 @@ function afterShellPaint(): Promise<void> {
 
 async function restoreDesiredTarget(target: PersistedWorkspaceTarget | null, requestId: number): Promise<void> {
   if (!target || getWorkspaceNavigationRevision() !== requestId) return;
+  if (target.kind === 'web' || target.kind === 'file-browser' || target.kind === 'plugin-workbench') {
+    await restoreSessionTarget(target, requestId);
+    return;
+  }
   if (target.kind === 'external') {
     await restoreExternalDocumentWorkspace(target, requestId);
     return;

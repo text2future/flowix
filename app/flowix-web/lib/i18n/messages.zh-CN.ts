@@ -856,6 +856,7 @@ const zhCN = {
     "tabWindow.all": "全部",
     "tabWindow.showAll": "全部",
     "tabWindow.openContent": "浏览器列打开的内容",
+    "tabWindow.swapPositions": "交换位置",
     "tabWindow.closeColumn": "关闭右栏",
     "tabWindow.expandColumn": "展开右栏",
     "tabWindow.closeTab": "关闭 {title}",

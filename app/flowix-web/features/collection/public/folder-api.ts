@@ -8,6 +8,7 @@ export {
   ensureFolderCollection,
   readCollectionSummary,
   readFolderCollectionSummary,
+  reorderCollectionViews,
   removeCollectionDomain,
   removeCollectionView,
   removeFolderCollectionDomain,

@@ -140,7 +140,7 @@ payload:
 
 `collectionId` 标识集合；`viewId` 标识集合内部视图；`displayId` 标识工作区中的展示身份。历史记录和展示描述按 ID 恢复，文件路径只作缓存提示。缺少集合、身份冲突、视图缺失或版本不支持时显示不可用状态。
 
-桌面端统一使用 `list_collections`、`resolve_collection`、`mutate_collection`、`set_collection_display_state` 和 `make_collection_identity_unique`。CLI 与 MCP 共用只读操作 `collection.read`，可按集合 ID 或笔记本内相对路径读取。读取返回原始 payload，不运行视图筛选、分页或笔记 frontmatter 展开。
+桌面端统一使用 `list_collections`、`resolve_collection`、`mutate_collection`、`set_collection_display_state` 和 `make_collection_identity_unique`。CLI 与 MCP 保留 `collection.read` 读取原始 payload，并提供 `collection list` / `collection.list` 发现集合、`collection describe` / `collection.describe` 读取结构、`collection query` / `collection.query` 按数据域读取实际条目。查询会执行数据集来源、筛选及所选视图规则，返回可供现有 `show` / MCP `show` 使用的笔记地址。列表和查询支持分页及 snapshot 变更检测；集合 ID 仍是集合身份，笔记地址仍使用 `notebookId::relativePath`。
 
 - 公共协议：`app/flowix-core/src/collection.rs`、`app/flowix-web/features/collection/model.ts`
 - 索引和生命周期：`app/flowix-desktop/src/commands/collection.rs`

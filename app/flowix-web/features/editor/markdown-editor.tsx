@@ -1,8 +1,9 @@
+import { useSessionViewChannel, attachSessionViewCapture } from '@features/workspace/public/session-view-state-api';
 import { createLogger } from '@/lib/logger';
 import { Editor } from '@tiptap/core';
 import type { JSONContent } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { AllSelection, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
@@ -21,6 +22,7 @@ import { applyListType } from '@features/editor/extensions/list-transforms';
 import { SKIP_AGENT_THREAD_CARD_CLEANUP_META } from '@features/agent/thread-card/agent-thread-card-extension';
 import { useI18n } from '@/lib/i18n';
 import { markDocumentOpenTrace } from '@/lib/document-open-perf';
+import { perfMark } from '@/lib/perf-probe';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import type { WorkspaceHostId } from '@features/workspace/public/host-api';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
@@ -274,6 +276,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   // 运行时通过下面的同步 effect dispatch meta 触发重新装饰。
   const resolvedPlaceholderRef = useRef(resolvedPlaceholder);
   resolvedPlaceholderRef.current = resolvedPlaceholder;
+  const recovery = useSessionViewChannel(`markdown:${ownerPath ?? ''}`);
   const elementRef = useRef<HTMLDivElement>(null);
   const editorMountRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -354,6 +357,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const markdown = editor.getMarkdown();
     const serializationMs = performance.now() - serializationStarted;
     if (serializationMs > 50) persistenceLog.info('slow serialization', { elapsedMs: serializationMs, characters: markdown.length });
+    perfMark('editor-serialize-ms', serializationMs, { chars: markdown.length });
     if (markdown === contentRef.current) {
       return null;
     }
@@ -468,6 +472,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
     logEditorPerf('MarkdownEditor:setContent', startedAt, {
       nextChars: nextContent.length,
+    });
+    perfMark('editor-apply-external-ms', performance.now() - startedAt, {
+      chars: nextContent.length,
     });
 
     const docSize = editor.state.doc.content.size;
@@ -711,7 +718,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       content: parsedContent ?? initialContent,
       contentType: parsedContent ? 'json' : 'markdown',
       editable,
-      autofocus: autoFocus ? 'end' : false,
+      autofocus: !recovery?.read() && autoFocus ? 'end' : false,
       onUpdate: ({ transaction }) => {
         if (isApplyingExternalContentRef.current || !transaction.docChanged) return;
         localEditVersionRef.current += 1;
@@ -782,8 +789,37 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     );
 
     const scrollEl = elementRef.current ? findScrollable(elementRef.current) : null;
+    const savedView = recovery?.read();
+    if (savedView?.kind === 'editor') {
+      const max = editor.state.doc.content.size;
+      const anchor = Math.min(savedView.anchor, max);
+      const node = editor.state.doc.nodeAt(anchor);
+      const selection = savedView.selectionType === 'all' ? new AllSelection(editor.state.doc)
+        : savedView.selectionType === 'node' && node && NodeSelection.isSelectable(node) ? NodeSelection.create(editor.state.doc, anchor)
+        : TextSelection.between(editor.state.doc.resolve(anchor), editor.state.doc.resolve(Math.min(savedView.head, max)));
+      editor.view.dispatch(editor.state.tr.setSelection(selection).setMeta('addToHistory', false));
+    }
+    const restoreScroll = () => {
+      if (scrollEl && savedView?.kind === 'editor') {
+        scrollEl.scrollTop = savedView.scrollTop;
+        scrollEl.scrollLeft = savedView.scrollLeft;
+      }
+    };
+    restoreScroll();
+    const restoreFrame = requestAnimationFrame(restoreScroll);
+    const capture = attachSessionViewCapture(recovery, () => ({ kind: 'editor',
+      anchor: editor.state.selection.anchor, head: editor.state.selection.head,
+      selectionType: editor.state.selection instanceof AllSelection ? 'all' : editor.state.selection instanceof NodeSelection ? 'node' : 'text',
+      scrollTop: scrollEl?.scrollTop ?? 0, scrollLeft: scrollEl?.scrollLeft ?? 0 }));
+    editor.on('selectionUpdate', capture.schedule);
+    const disposeRecovery = () => {
+      cancelAnimationFrame(restoreFrame);
+      editor.off('selectionUpdate', capture.schedule);
+      capture.dispose();
+    };
     if (scrollEl) {
       const handleScroll = () => {
+        capture.schedule();
         setIsScrolling(true);
         if (scrollTimerRef.current) {
           clearTimeout(scrollTimerRef.current);
@@ -797,6 +833,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       scrollEl.addEventListener('scroll', handleScroll, { passive: true });
 
       return () => {
+        disposeRecovery();
         serializePendingChanges({ force: true });
         editorDom.removeEventListener('compositionstart', handleCompositionStart);
         editorDom.removeEventListener('compositionend', handleCompositionEnd);
@@ -809,6 +846,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
 
     return () => {
+      disposeRecovery();
       serializePendingChanges({ force: true });
       editorDom.removeEventListener('compositionstart', handleCompositionStart);
       editorDom.removeEventListener('compositionend', handleCompositionEnd);
@@ -818,6 +856,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       setEditorInstance(null);
     };
   }, [
+    recovery,
     applyExternalContent,
     findScrollable,
     getCurrentAttachmentOwnerPath,

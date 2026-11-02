@@ -93,4 +93,46 @@ mod tests {
         assert!(!is_exact_self_write(&path, &revision, &writes));
         assert!(writes.lock().unwrap().is_empty());
     }
+
+    /// The editor knows the exact bytes it is about to write, so it marks the
+    /// revision *before* the write. The watcher may validate at any later
+    /// moment — the match must not depend on when the save finishes its index
+    /// and FTS work.
+    #[test]
+    fn suppresses_a_write_marked_with_its_own_content_before_the_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memo.md");
+        std::fs::write(&path, "old revision").unwrap();
+
+        let writes = Arc::new(Mutex::new(SelfWriteMap::new()));
+        let new_content = b"new revision written by the editor";
+        writes.lock().unwrap().insert(
+            crate::watcher::path::normalize_for_compare(&path),
+            SelfWriteMark {
+                marked_at: Instant::now(),
+                expected_revision: Some(FileRevision::from_bytes(new_content)),
+            },
+        );
+        std::fs::write(&path, new_content).unwrap();
+
+        // No post-write mark has been registered yet: this is the window in
+        // which a slow save used to be reported as an external edit.
+        let revision = FileRevision::read(&path).unwrap();
+        assert!(is_exact_self_write(&path, &revision, &writes));
+    }
+
+    /// Guards the regression this fixed: a pre-write mark taken from the file
+    /// currently on disk hashes the *previous* content, never matches the
+    /// revision that lands, and leaves the app's own save looking external.
+    #[test]
+    fn a_pre_write_mark_of_stale_disk_content_does_not_suppress_the_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memo.md");
+        std::fs::write(&path, "old revision").unwrap();
+        let writes = marked_writes(&path);
+        std::fs::write(&path, "new revision").unwrap();
+
+        let revision = FileRevision::read(&path).unwrap();
+        assert!(!is_exact_self_write(&path, &revision, &writes));
+    }
 }

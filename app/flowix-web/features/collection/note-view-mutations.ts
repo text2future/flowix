@@ -15,7 +15,7 @@ import { initializeFolderCollectionBanner, summarizeFolderCollectionSource, type
 export async function addCollectionNoteView(indexPath: string, notebookPath: string, layout: TableViewType, folderPath?: string | null, fieldId?: string): Promise<AddCollectionViewResult> {
   const source = await files.read(indexPath, notebookPath);
   const hybrid = source !== null && isHybridCollectionSource(source) ? parseHybridCollection(source) : null;
-  const envelope = source !== null ? parseCollectionDocumentV2(source) : null;
+  const envelope = source !== null && !hybrid ? parseCollectionDocumentV2(source) : null;
   const hasNotes = hybrid ? Boolean(hybrid.payload.domains.notes) : envelope?.collection.type === 'table';
   let content: string;
   let viewId: string;
@@ -27,7 +27,7 @@ export async function addCollectionNoteView(indexPath: string, notebookPath: str
     content = serializeProjectedCollectionDocument(source, added.document as unknown as ProjectedCollectionDocument, hybrid ? 'notes' : null);
   } else {
     if (source === null && !folderPath) throw new Error('集合文件不存在');
-    const placement = envelope?.collection.placement ?? 'folder';
+    const placement = hybrid?.collection.placement ?? envelope?.collection.placement ?? (folderPath ? 'folder' : 'standalone');
     const table = createTableDocument(layout, '集合', placement);
     if (layout === 'calendar' && fieldId) table.views.items[0].config.date_field = fieldId;
     if (placement === 'folder') {
@@ -40,9 +40,12 @@ export async function addCollectionNoteView(indexPath: string, notebookPath: str
     viewId = table.views.default_id;
     const existingDomain = envelope && !hybrid && envelope.collection.type !== 'hybrid' ? collectionTypeDomain(envelope.collection.type) : null;
     const previousViews = envelope?.payload.views as { default_id: string; items: Record<string, unknown>[] } | undefined;
+    const collection = hybrid
+      ? reviseCollection(hybrid.collection)
+      : envelope ? reviseCollection(envelope.collection) : table.collection;
     const next: HybridCollectionDocument = {
       format: 'flowix.collection', schema_version: 3,
-      collection: { ...(envelope ? reviseCollection(hybrid?.collection ?? envelope.collection) : table.collection), type: 'hybrid' },
+      collection: { ...collection, type: 'hybrid' },
       payload: {
         schema_version: 3,
         file_tree: hybrid?.payload.file_tree ?? placement === 'folder',

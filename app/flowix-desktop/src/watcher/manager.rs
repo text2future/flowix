@@ -1096,9 +1096,41 @@ mod tests {
         ));
     }
 
+    /// The editor knows the bytes it is about to write, so it marks the path
+    /// before the write (`mark_self_write_content_for`). The gate must drop that
+    /// event however long the save's index work afterwards takes, and must still
+    /// pass a later external edit.
     #[test]
-    fn worker_keeps_the_stable_markdown_snapshot_for_indexing() {
+    fn worker_drops_a_save_marked_before_its_own_write() {
         let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memo.md");
+        std::fs::write(&path, "# Note\n\nold body\n").unwrap();
+
+        let writes = Arc::new(Mutex::new(SelfWriteMap::new()));
+        let new_content = "# Note\n\nnew body written by the editor\n";
+        writes.lock().unwrap().insert(
+            normalize_for_compare(&path),
+            SelfWriteMark {
+                marked_at: Instant::now(),
+                expected_revision: Some(FileRevision::from_bytes(new_content.as_bytes())),
+            },
+        );
+        std::fs::write(&path, new_content).unwrap();
+
+        let event = RawFsEvent::new(FsEventKind::Modify, path.clone());
+        let mut processed = HashMap::new();
+        assert!(!should_process_stable_event(
+            &event,
+            &writes,
+            &mut processed
+        ));
+
+        std::fs::write(&path, "# Note\n\n外部的改动\n").unwrap();
+        assert!(should_process_stable_event(&event, &writes, &mut processed));
+    }
+
+    #[test]
+    fn worker_keeps_the_stable_markdown_snapshot_for_indexing() {        let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("memo.md");
         let content = "# Stable snapshot\nbody";
         std::fs::write(&path, content).unwrap();

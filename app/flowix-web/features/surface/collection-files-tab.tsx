@@ -11,7 +11,7 @@
  * 该文件夹自己的集合视图（同一套外壳、同一套 tab），层级导航交给视图本身完成，
  * 所以这里永远只渲染一层。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { files } from '@platform/tauri/client';
 import type { DocTreeItem } from '@platform/tauri/client';
@@ -24,6 +24,7 @@ import { useI18n } from '@/lib/i18n';
 import { formatUpdatedAt } from '@/lib/collection-updated-time';
 import { toast } from '@/lib/toast';
 import { displayTitleFromFilename } from '@/lib/utils';
+import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import folderIcon from '@/assets/folder-outline.svg?raw';
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import type { WorkspaceSurfaceRenderContext } from './workspace-surface-renderer-contract';
@@ -102,6 +103,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host, r
   const { t, language } = useI18n();
   const [listing, setListing] = useState<{ rootPath: string; items: DocTreeItem[] } | null>(null);
   const items = listing?.rootPath === rootPath ? listing.items : null;
+  const headerScrollerRef = useRef<HTMLDivElement>(null);
 
   // Only the active panel receives the reporter. Re-publish when a retained
   // panel becomes active so another tab's loading state cannot linger.
@@ -184,54 +186,74 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host, r
 
   /** 行的更新时间 ── 今天 / 昨天 / 具体日期，精确到分钟；悬停显示完整值。 */
   const updatedLabel = (item: DocTreeItem): string => (item.modifiedMs ? formatUpdatedAt(item.modifiedMs, language, t) : '');
+  const syncHeaderScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    if (headerScrollerRef.current) headerScrollerRef.current.scrollLeft = event.currentTarget.scrollLeft;
+  }, []);
 
-  // 与表格视图共用表头、单元格和分隔线样式，滚动由集合外壳统一处理。
+  const renderColumns = () => <colgroup>
+    <col />
+    <col style={{ width: '12.75rem' }} />
+    <col style={{ width: '10rem' }} />
+  </colgroup>;
+
+  // Keep the header sticky to the page while the rows own their horizontal scroll.
+  // The header's hidden overflow lets it follow the row scroller without widening the page.
   return <div className="min-w-0 pb-2 pl-4 pr-4">
-    <table className="multidimensional-table collection-files-table w-full min-w-[38rem] table-fixed border-collapse text-sm">
-      <colgroup>
-        <col />
-        <col style={{ width: '12.75rem' }} />
-        <col style={{ width: '10rem' }} />
-      </colgroup>
-      <thead className="sticky top-[calc(var(--work-titlebar-h,0px)+var(--collection-tab-bar-h))] z-[1] bg-[var(--document-bg)] text-left text-sm text-[var(--muted-foreground)]">
-        <tr>
-          {renderHeader('name', 'note', t('collection.filesTab.fileColumn'))}
-          {renderHeader('modifiedMs', 'date', t('collection.filesTab.updatedColumn'))}
-          {renderHeader('sizeBytes', 'number', t('collection.filesTab.sizeColumn'))}
-        </tr>
-      </thead>
-      <tbody>
-        {items === null || items.length === 0
-          ? <tr><td colSpan={3} className="py-6 text-center text-sm text-[var(--muted-foreground)]">
-            {items === null ? '…' : t('collection.emptyFiles')}
-          </td></tr>
-          : sortedItems?.map((item, index) => {
-            const updated = updatedLabel(item);
-            const cellClass = `${index < items.length - 1 ? 'border-b ' : ''}border-[var(--border)] p-0 align-middle`;
-            return <tr key={item.id} onClick={() => void openItem(item)} className="cursor-pointer hover:bg-[var(--muted)]/25">
-              <td className={cellClass}>
-                <div className="multidimensional-table__cell-content">
-                  <button data-file-row type="button" onClick={(event) => { event.stopPropagation(); void openItem(item); }}
-                    className="flex min-w-0 items-center gap-x-1.5 text-left text-sm text-[var(--foreground)] focus-visible:outline focus-visible:outline-[var(--brand)]"
-                    title={item.type === 'folder' ? t('collection.openFolder', { name: item.name }) : item.name}>
-                    <TreeRowIcon item={item} notebookPath={notebookPath} />
-                    <span data-file-name className="min-w-0 flex-1 truncate">{itemDisplayName(item)}</span>
-                  </button>
-                </div>
-              </td>
-              <td className={cellClass}>
-                <div className="multidimensional-table__cell-content text-[var(--foreground)]">
-                  <span className="truncate tabular-nums" title={updated || undefined}>{updated}</span>
-                </div>
-              </td>
-              <td className={cellClass}>
-                <div className="multidimensional-table__cell-content text-[var(--foreground)]">
-                  <span className="truncate tabular-nums">{fileSizeLabel(item)}</span>
-                </div>
-              </td>
-            </tr>;
-          })}
-      </tbody>
-    </table>
+    <div ref={headerScrollerRef} className="sticky top-[calc(var(--work-titlebar-h,0px)+var(--collection-tab-bar-h))] z-[1] min-w-0 overflow-hidden bg-[var(--document-bg)]">
+      <table role="presentation" className="multidimensional-table collection-files-table w-full min-w-[38rem] table-fixed border-collapse text-sm">
+        {renderColumns()}
+        <thead className="bg-[var(--document-bg)] text-left text-sm text-[var(--muted-foreground)]">
+          <tr>
+            {renderHeader('name', 'note', t('collection.filesTab.fileColumn'))}
+            {renderHeader('modifiedMs', 'date', t('collection.filesTab.updatedColumn'))}
+            {renderHeader('sizeBytes', 'number', t('collection.filesTab.sizeColumn'))}
+          </tr>
+        </thead>
+      </table>
+    </div>
+    <OverlayScrollbar horizontalScrollbar className="collection-files-tab__scrollbar min-w-0" scrollerClassName="collection-files-tab__scroller min-w-0" onScroll={syncHeaderScroll}>
+      <table className="multidimensional-table collection-files-table w-full min-w-[38rem] table-fixed border-collapse text-sm">
+        {renderColumns()}
+        <thead className="sr-only">
+          <tr>
+            <th scope="col">{t('collection.filesTab.fileColumn')}</th>
+            <th scope="col">{t('collection.filesTab.updatedColumn')}</th>
+            <th scope="col">{t('collection.filesTab.sizeColumn')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items === null || items.length === 0
+            ? <tr><td colSpan={3} className="py-6 text-center text-sm text-[var(--muted-foreground)]">
+              {items === null ? '…' : t('collection.emptyFiles')}
+            </td></tr>
+            : sortedItems?.map((item, index) => {
+              const updated = updatedLabel(item);
+              const cellClass = `${index < items.length - 1 ? 'border-b ' : ''}border-[var(--border)] p-0 align-middle`;
+              return <tr key={item.id} onClick={() => void openItem(item)} className="cursor-pointer hover:bg-[var(--muted)]/25">
+                <td className={cellClass}>
+                  <div className="multidimensional-table__cell-content">
+                    <button data-file-row type="button" onClick={(event) => { event.stopPropagation(); void openItem(item); }}
+                      className="flex min-w-0 items-center gap-x-1.5 text-left text-sm text-[var(--foreground)] focus-visible:outline focus-visible:outline-[var(--brand)]"
+                      title={item.type === 'folder' ? t('collection.openFolder', { name: item.name }) : item.name}>
+                      <TreeRowIcon item={item} notebookPath={notebookPath} />
+                      <span data-file-name className="min-w-0 flex-1 truncate">{itemDisplayName(item)}</span>
+                    </button>
+                  </div>
+                </td>
+                <td className={cellClass}>
+                  <div className="multidimensional-table__cell-content text-[var(--foreground)]">
+                    <span className="truncate tabular-nums" title={updated || undefined}>{updated}</span>
+                  </div>
+                </td>
+                <td className={cellClass}>
+                  <div className="multidimensional-table__cell-content text-[var(--foreground)]">
+                    <span className="truncate tabular-nums">{fileSizeLabel(item)}</span>
+                  </div>
+                </td>
+              </tr>;
+            })}
+        </tbody>
+      </table>
+    </OverlayScrollbar>
   </div>;
 }

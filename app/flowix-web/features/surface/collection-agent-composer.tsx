@@ -3,8 +3,8 @@
 /**
  * 集合底部的悬浮 AI 输入框 ── **针对任意集合**，不区分文件夹集合还是独立集合文件。
  *
- * 发送即在当前笔记本里新建一个该 agent 的会话（提示词带上集合上下文由 agent 自己读），
- * 所以它只依赖 notebookId；没有笔记本上下文时只禁用输入，不隐藏。
+ * 发送即在当前笔记本里新建会话，并附带当前集合引用和定位元数据。
+ * 没有笔记本或集合路径上下文时只禁用输入，不隐藏。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
 import { getAgentType } from '@/lib/agent-types';
 import { useI18n } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
+import { buildCollectionAgentPrompt } from '@features/collection/public/agent-reference-api';
 
 /** 收起态固定宽（产品稿）。 */
 const COLLAPSED_WIDTH = 120;
@@ -33,9 +34,17 @@ const WRAPPER_HORIZONTAL_PADDING = 32;
 
 export function CollectionAgentComposer({
   notebookId,
+  collectionId,
+  collectionName,
+  collectionPath,
+  indexPath,
   host,
 }: {
   notebookId: string | null;
+  collectionId: string | null;
+  collectionName: string;
+  collectionPath: string;
+  indexPath: string | null;
   /** 集合自己所在的位置：新会话永远开到「另一侧」，避免把它顶掉。 */
   host: 'main-third' | 'browser-column';
 }) {
@@ -96,17 +105,23 @@ export function CollectionAgentComposer({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const sendPrompt = useCallback(() => {
     const prompt = draft.trim();
-    if (!prompt || !notebookId) return;
+    if (!prompt || !notebookId || !collectionPath) return;
+    const contextualPrompt = buildCollectionAgentPrompt(prompt, collectionName, {
+      collectionId,
+      notebookId,
+      collectionPath,
+      indexPath,
+    });
     // 默认在右栏 browser 里新开会话，并把这段输入直接发出去（不是预填）。
     // 集合本身就在 browser 列时反过来开进 Work，否则会把正在编辑的集合顶掉。
-    createAndOpenAgentConversationWithPrompt(agentType, notebookId, prompt, {
+    createAndOpenAgentConversationWithPrompt(agentType, notebookId, contextualPrompt, {
       destination: host === 'browser-column' ? 'main-third' : 'browser-column',
       autoSend: true,
     });
     setDraft('');
     // 内容已经搬到对话里：收起胶囊回到 120px，让位给刚打开的会话。
     inputRef.current?.blur();
-  }, [agentType, draft, host, notebookId]);
+  }, [agentType, collectionId, collectionName, collectionPath, draft, host, indexPath, notebookId]);
 
   return <div
     ref={wrapperRef}
@@ -163,13 +178,13 @@ export function CollectionAgentComposer({
           }
         }}
         placeholder={notebookId ? t('collection.composerPlaceholder', { name: agentName }) : ''}
-        disabled={!notebookId}
+        disabled={!notebookId || !collectionPath}
         className="h-[30px] min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
       />
       <button
         type="button"
         onClick={sendPrompt}
-        disabled={!draft.trim() || !notebookId}
+        disabled={!draft.trim() || !notebookId || !collectionPath}
         aria-label={t('collection.composerSend', { name: agentName })}
         title={t('collection.composerSend', { name: agentName })}
         aria-hidden={!expanded}

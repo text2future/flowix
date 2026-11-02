@@ -3,11 +3,11 @@
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "collection.read", "artifact.list", "artifact.describe", "artifact.create"],
-      "description": "Structured operation. Prefer this over the legacy command field."
+      "enum": ["notebooks", "list", "tags", "show", "search", "create", "edit", "write", "delete", "collection.list", "collection.describe", "collection.query", "collection.read", "artifact.list", "artifact.describe", "artifact.create"],
+      "description": "Structured operation. For collections, call collection.list, then collection.describe, then collection.query. Use a returned note address with show to read its body. Prefer this over the legacy command field."
     },
     "notebook": { "type": "string", "description": "Notebook name or id; defaults to the current notebook where supported." },
-    "id": { "type": "string", "description": "Memo id or filename." },
+    "address": { "type": "string", "description": "Notebook-relative note address (<notebook-id>::<path>) or an absolute note path. Use this with show, edit, write, or delete." },
     "query": { "type": "string" },
     "tag": { "type": "string", "description": "Optional tag path filter. Matches the path itself and all sub-tags; a leading # is accepted (for example 项目/Flowix)." },
     "content": { "type": "string", "description": "Complete Markdown, replacement body, or artifact source." },
@@ -18,14 +18,26 @@
     "pluginId": { "type": "string" },
     "sourceNote": { "type": "string" },
     "producer": { "type": "string", "default": "agent-mcp" },
-    "collectionId": { "type": "string", "description": "Stable collection identity. Provide this or path for collection.read." },
-    "path": { "type": "string", "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read." },
+    "collectionId": { "type": "string", "description": "Stable collection identity. Provide this or path for collection.read, collection.describe, and collection.query." },
+    "path": { "type": "string", "description": "Notebook-relative collection file path. Provide this or collectionId for collection.read, collection.describe, and collection.query." },
+    "collectionType": { "type": "string", "enum": ["table", "media_library", "work_documents", "hybrid"], "description": "Optional collection.list type filter." },
+    "domain": { "type": "string", "enum": ["notes", "media", "work_documents"], "description": "Collection data domain. Required when querying a hybrid collection." },
+    "viewId": { "type": "string", "description": "Optional saved view to apply while querying a collection." },
+    "fields": { "type": "array", "items": { "type": "string" }, "description": "Field IDs to return for collection.query. Omit to return all fields." },
+    "sort": { "type": "array", "items": { "oneOf": [{ "type": "string", "description": "<fieldId>:asc or <fieldId>:desc" }, { "type": "object", "properties": { "field": { "type": "string" }, "direction": { "type": "string", "enum": ["asc", "desc"] } }, "required": ["field"], "additionalProperties": false }] }, "description": "Optional sort order for collection.query." },
+    "snapshot": { "type": "string", "description": "Snapshot returned by the first page. Reuse it on later pages; a changed data set returns DATA_CHANGED." },
     "command": { "type": "string", "deprecated": true, "description": "Legacy restricted CLI command without the flowix prefix." },
     "stdin": { "type": "string", "deprecated": true, "description": "Legacy content paired with command." }
   },
   "anyOf": [{ "required": ["action"] }, { "required": ["command"] }],
   "allOf": [{
     "if": { "properties": { "action": { "const": "collection.read" } }, "required": ["action"] },
+    "then": {
+      "required": ["notebook"],
+      "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]
+    }
+  }, {
+    "if": { "properties": { "action": { "enum": ["collection.describe", "collection.query"] } }, "required": ["action"] },
     "then": {
       "required": ["notebook"],
       "oneOf": [{ "required": ["collectionId"] }, { "required": ["path"] }]

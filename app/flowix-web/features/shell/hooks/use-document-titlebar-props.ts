@@ -1,5 +1,5 @@
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
-import { useState } from 'react';
+import { useSessionAddressBar } from '@features/workspace/public/session-header-api';
 
 import { canonicalPath, notebookRelativeDirectoryPath, parentDirectoryPath } from '@/lib/path';
 import {
@@ -104,11 +104,10 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     activeExternalSession,
     selectedNotebook,
   } = input;
-  const [addressBarWorkSurfaceId, setAddressBarWorkSurfaceId] = useState<string | null>(null);
   const workWebSurfaceId = workColumnPresentation.content.status === 'surface'
     && workColumnPresentation.content.surface.kind === 'web'
     ? workColumnPresentation.content.surface.instanceKey : null;
-  const workWebAddressBarVisible = workWebSurfaceId !== null && addressBarWorkSurfaceId === workWebSurfaceId;
+  const addressBar = useSessionAddressBar('primary-session', workWebSurfaceId);
   const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
     ? workColumnPresentation.content.surface : null);
 
@@ -121,10 +120,8 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
 
   return {
     headerBackgroundColor: workRuntimePresentation.headerBackgroundColor,
-    webAddressBarVisible: workWebAddressBarVisible,
-    onToggleWebAddressBar: workWebSurfaceId === null ? undefined : () => {
-      setAddressBarWorkSurfaceId(workWebAddressBarVisible ? null : workWebSurfaceId);
-    },
+    webAddressBarVisible: addressBar.visible,
+    onToggleWebAddressBar: addressBar.toggle,
     reserveWindowsControls: !browserColumnVisible,
     surfaceChrome: workHeaderStyle === 'media' ? 'media' as const : 'document' as const,
     showEditorFontSwitcher: header.showEditorFontSwitcher,
@@ -136,6 +133,7 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
         && workColumnPresentation.header.document.externalFilePath
         && workColumnPresentation.content.status === 'surface'
         && 'fileIdentity' in workColumnPresentation.content.surface
+        && workColumnPresentation.content.surface.fileIdentity !== undefined
         ? resolveDocumentTitlebarTarget(
             workColumnPresentation.content.surface.fileIdentity,
             activeExternalSession,

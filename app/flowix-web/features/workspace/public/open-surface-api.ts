@@ -5,7 +5,7 @@
  * metadata reads, so clears, notebook switches and newer opens retire them.
  * Development navigation logs contain request IDs and outcomes, never paths.
  */
-export { openWorkspaceSurface } from '../use-cases/surface-opening';
+export { openWorkspaceSurface } from '../use-cases/host-surface-opening';
 export type * from '../model/surface-opening';
 export type {
   WorkspaceSurfaceOpenTarget, WorkWorkspaceSurfaceTarget, BrowserWorkspaceSurfaceTarget,

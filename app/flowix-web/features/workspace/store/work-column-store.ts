@@ -1,4 +1,5 @@
-import { create } from 'zustand';
+import { useWorkspaceSessionStore } from './workspace-session-store';
+import { createPrimaryNavigationFacade } from './session-compatibility';
 import { canonicalPath } from '@/lib/path';
 
 import {
@@ -24,7 +25,7 @@ export interface WorkColumnStore {
     preservePreviousTarget?: boolean,
     showWorkColumnLoading?: boolean,
   ) => number;
-  commitNavigation: (requestId: number, target: WorkColumnTarget) => boolean;
+  commitNavigation: (requestId: number, target: WorkColumnTarget, history?: 'push' | 'skip') => boolean;
   failNavigation: (requestId: number, error: unknown) => boolean;
   dismissNavigationFailure: () => string | null;
   isCurrentNavigation: (requestId: number) => boolean;
@@ -33,7 +34,7 @@ export interface WorkColumnStore {
   replaceExternalPath: (previousPath: string, path: string) => void;
 }
 
-export const useWorkColumnStore = create<WorkColumnStore>()((set, get) => ({
+export const useWorkColumnStore = createPrimaryNavigationFacade<WorkColumnStore>((set, get) => ({
   notebookSwitchesInFlight: 0,
   navigation: {
     phase: 'idle',
@@ -80,33 +81,9 @@ export const useWorkColumnStore = create<WorkColumnStore>()((set, get) => ({
     }));
     return requestId;
   },
-  commitNavigation: (requestId, target) => {
-    if (get().navigation.requestId !== requestId) return false;
-    set({
-      navigation: target.kind === 'empty'
-        ? {
-            phase: 'idle',
-            showWorkColumnLoading: false,
-            requestId,
-            target,
-            pendingTarget: null,
-            previousTarget: get().navigation.previousTarget,
-            failure: null,
-            retryToken: null,
-          }
-        : {
-            phase: 'committed',
-            showWorkColumnLoading: false,
-            requestId,
-            target,
-            pendingTarget: null,
-            previousTarget: get().navigation.previousTarget,
-            failure: null,
-            retryToken: null,
-          },
-    });
-    return true;
-  },
+  commitNavigation: (requestId, target, history = 'skip') =>
+    useWorkspaceSessionStore.getState().commitTarget('primary-session', target, { expectedRequestId: requestId, history }),
+
   failNavigation: (requestId, error) => {
     if (get().navigation.requestId !== requestId) return false;
     set((state) => ({

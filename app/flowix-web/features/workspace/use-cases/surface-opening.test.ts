@@ -77,8 +77,8 @@ describe('public surface opening host contract', () => {
   it('keeps explicit Browser opens in Browser and forwards notebook context', async () => {
     await expect(openWorkspaceSurface({ host: 'browser-column', target, options: { notebookId: 'book' } }))
       .resolves.toEqual({ status: 'activated', host: 'browser-column', location: { host: 'browser-column', surfaceId: 'a' } });
-    // openBrowserColumnTarget 现在只收一个 target 参数（笔记本上下文已并入 target）。
-    expect(mocks.openBrowser).toHaveBeenCalledWith(expect.objectContaining({ notebookId: 'book', activeFilePath: target.path }));
+    // Notebook ownership is in the target; navigation policy is passed separately.
+    expect(mocks.openBrowser).toHaveBeenCalledWith(expect.objectContaining({ notebookId: 'book', activeFilePath: target.path }), { notebookId: 'book' });
     expect(mocks.openWork).not.toHaveBeenCalled();
   });
 

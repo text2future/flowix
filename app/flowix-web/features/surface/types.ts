@@ -153,7 +153,8 @@ export interface WebSurface extends SurfaceBase {
   url: string;
 }
 
-export type WorkColumnSurface =
+export type WorkColumnSurface = (
+  | Extract<import('./browser-column-registry').BrowserColumnSurface, { kind: 'file-browser' }>
   | MDSurface
   | CodeSurface
   | CsvFileSurface
@@ -173,7 +174,7 @@ export type WorkColumnSurface =
   | PluginArtifactSurface
   | AgentConversationSurface
   | PluginWorkbenchSurface
-  | WebSurface;
+  | WebSurface) & { sessionEntryId?: string | null };
 
 export type WorkColumnSurfaceKind = WorkColumnSurface['kind'];
 

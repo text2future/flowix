@@ -1,13 +1,16 @@
+import { useSessionAddressBar } from '@features/workspace/public/session-header-api';
+import { useSessionHostEnvironment } from './session-host-environment';
 import { ColumnResizeHandle } from './column-resize-handle';
 import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import {
+  BROWSER_COLUMN_MIN_WIDTH,
   hideBrowserColumn,
   openBrowserColumnContentInWorkColumn,
   useBrowserColumnFocusViewModel,
   useBrowserColumnViewModel,
 } from '@features/workspace/public/browser-column-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
 import { BrowserColumnHeader } from './browser-column-header';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
@@ -52,9 +55,10 @@ export const BrowserColumn = memo(function BrowserColumn({
   animated = false,
 }: BrowserColumnProps) {
   const { t } = useI18n();
+  const environment = useSessionHostEnvironment();
   const { current, webRuntime } = useBrowserColumnViewModel();
-  const [addressBarSurfaceId, setAddressBarSurfaceId] = useState<string | null>(null);
-  const webAddressBarVisible = Boolean(current && addressBarSurfaceId === current.id);
+  const addressBar = useSessionAddressBar('secondary-session', current?.target.kind === 'web' ? current.id : null);
+  const webAddressBarVisible = addressBar.visible;
   const { isFocused } = useBrowserColumnFocusViewModel();
   const selectedNotebook = useShellSelectedNotebook();
   const handleCreateNote = useCallback(async (templateId?: string) => {
@@ -125,21 +129,25 @@ export const BrowserColumn = memo(function BrowserColumn({
     ?? [];
   return (
     <section
-      data-workspace-host="browser-column"
+      data-workspace-host={environment?.host ?? 'browser-column'}
+      data-workspace-session="secondary-session"
       data-workspace-focused={isFocused ? '' : undefined}
       aria-label="浏览器列辅助工作区"
       onPointerDown={(event) => focusWorkspaceHostFromEvent(event, 'browser-column')}
       onFocusCapture={(event) => focusWorkspaceHostFromEvent(event, 'browser-column')}
-      className={`relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--divider)] bg-[var(--document-bg)]${
+      className={`relative flex h-full min-w-0 shrink-0 flex-col ${!environment || environment.host === 'browser-column' ? 'border-l border-[var(--divider)]' : ''} bg-[var(--document-bg)]${
         animated ? ' transition-[width] flowix-motion' : ''
       }`}
-      style={{ width }}
+      style={environment ? {
+        minWidth: BROWSER_COLUMN_MIN_WIDTH, gridColumn: environment.host === 'main-third' ? 1 : 2, gridRow: 1,
+        display: environment.host === 'browser-column' && !environment.browserVisible ? 'none' : undefined,
+      } : { width }}
     >
-      <ColumnResizeHandle label="调整浏览器列宽度" width={width} direction={-1} onResize={onResize} />
+      {!environment && <ColumnResizeHandle label="调整浏览器列宽度" width={width} direction={-1} onResize={onResize} />}
       <BrowserColumnHeader
         current={current}
         webAddressBarVisible={webAddressBarVisible}
-        onToggleWebAddressBar={() => setAddressBarSurfaceId(webAddressBarVisible ? null : current?.id ?? null)}
+        onToggleWebAddressBar={addressBar.toggle}
         activeSurfaceChrome={activeSurfaceChrome}
         surfaceContentKind={activeSurfaceRuntime.contentKind ?? activeSurfaceDefinition?.contentKind}
         headerBackgroundColor={activeSurfaceRuntime.headerBackgroundColor}

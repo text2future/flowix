@@ -175,7 +175,7 @@ export async function openAgentLink(
         path: target.path,
         ...(target.location ? { location: target.location } : {}),
         ...(target.anchor ? { anchor: target.anchor } : {}),
-        host: opened.location.host,
+        host: (opened.location.runtimeLocation ?? opened.location).host,
         viewId: locationViewId(opened.location),
       });
       return;

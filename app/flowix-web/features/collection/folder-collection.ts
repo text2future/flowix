@@ -250,24 +250,24 @@ export async function addCollectionDomain(
   const source = await files.read(indexPath, notebookPath);
   if (source === null) throw new Error('集合文件不存在');
   const relativeFolder = notebookRelativeDirectoryPath(notebookPath, folderPath);
-  const placement = parseCollectionDocumentV2(source).collection.placement;
+  const hybrid = isHybridSource(source) ? parseHybridCollection(source) : null;
+  const placement = hybrid?.collection.placement ?? parseCollectionDocumentV2(source).collection.placement;
   const template = buildDomainTemplate(domain, relativeFolder, placement);
   const view: HybridCollectionView = { ...(template.view as unknown as HybridCollectionView), domain };
   let next: HybridCollectionDocument;
-  if (isHybridSource(source)) {
-    const parsed = parseHybridCollection(source);
-    if (parsed.payload.domains[domain]) return summarizeFolderCollectionSource(source);
+  if (hybrid) {
+    if (hybrid.payload.domains[domain]) return summarizeFolderCollectionSource(source);
     next = {
       format: 'flowix.collection',
       schema_version: 3,
-      collection: reviseCollection(parsed.collection),
+      collection: reviseCollection(hybrid.collection),
       payload: {
         schema_version: 3,
-        file_tree: parsed.payload.file_tree,
-        domains: { ...parsed.payload.domains, [domain]: template.dataset },
+        file_tree: hybrid.payload.file_tree,
+        domains: { ...hybrid.payload.domains, [domain]: template.dataset },
         views: {
-          default_by_domain: { ...parsed.payload.views.default_by_domain, [domain]: view.id },
-          items: [...parsed.payload.views.items, view],
+          default_by_domain: { ...hybrid.payload.views.default_by_domain, [domain]: view.id },
+          items: [...hybrid.payload.views.items, view],
         },
       },
     };
@@ -307,16 +307,18 @@ export async function addCollectionDomain(
       },
     };
   }
-  const original = parseCollectionDocumentV2(source);
-  const owner = isHybridSource(source)
-    ? Object.values(parseHybridCollection(source).payload.domains)[0]!
-    : original.payload.dataset;
+  const original = hybrid ? null : parseCollectionDocumentV2(source);
+  const owner = hybrid
+    ? Object.values(hybrid.payload.domains)[0]
+    : original?.payload.dataset;
   const newDataset = next.payload.domains[domain]!;
-  const existingAssets = isHybridSource(source) ? parseHybridCollection(source).payload.domains : {};
+  const existingAssets = hybrid?.payload.domains ?? {};
   const assetOwner = existingAssets.media ?? existingAssets.work_documents;
-  next.payload.domains[domain] = withDatasetLocation(
-    domain !== 'notes' && assetOwner ? { ...newDataset, filter: assetOwner.filter } : newDataset,
-    datasetLocation(owner), owner.source);
+  if (owner) {
+    next.payload.domains[domain] = withDatasetLocation(
+      domain !== 'notes' && assetOwner ? { ...newDataset, filter: assetOwner.filter } : newDataset,
+      datasetLocation(owner), owner.source);
+  }
   const content = serializeHybridCollectionDocument(next);
   const result = await externalDocuments.write({
     filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
@@ -558,8 +560,74 @@ export async function renameCollectionView(
   return summarizeFolderCollectionSource(result.content);
 }
 
-/** 删除一个视图：若它是所在域的最后一个视图，连同数据域一起移除（与旧「移除
- *  数据域」语义一致）；notes 域至少保留一个视图（表格自身有同样护栏）。 */
+/** Save the shared tab order while preserving each view's domain and defaults. */
+export async function reorderCollectionViews(
+  indexPath: string,
+  notebookPath: string,
+  viewIds: readonly string[],
+): Promise<FolderCollectionSummary> {
+  const source = await files.read(indexPath, notebookPath);
+  if (source === null) throw new Error('集合文件不存在');
+  const ordered = <T extends { id: unknown }>(items: T[]): T[] => {
+    const byId = new Map(items.map((item) => [String(item.id), item]));
+    const result: T[] = [];
+    const seen = new Set<string>();
+    for (const id of viewIds) {
+      const item = byId.get(id);
+      if (!item || seen.has(id)) continue;
+      result.push(item);
+      seen.add(id);
+    }
+    for (const item of items) {
+      const id = String(item.id);
+      if (seen.has(id)) continue;
+      result.push(item);
+      seen.add(id);
+    }
+    return result;
+  };
+  const sameOrder = <T extends { id: unknown }>(left: T[], right: T[]) =>
+    left.length === right.length && left.every((item, index) => String(item.id) === String(right[index]?.id));
+
+  if (isHybridSource(source)) {
+    const parsed = parseHybridCollection(source);
+    const items = ordered(parsed.payload.views.items);
+    if (sameOrder(parsed.payload.views.items, items)) return summarizeFolderCollectionSource(source);
+    const next: HybridCollectionDocument = {
+      format: 'flowix.collection',
+      schema_version: 3,
+      collection: reviseCollection(parsed.collection),
+      payload: {
+        schema_version: 3,
+        file_tree: parsed.payload.file_tree,
+        domains: parsed.payload.domains,
+        views: { default_by_domain: parsed.payload.views.default_by_domain, items },
+      },
+    };
+    const result = await externalDocuments.write({
+      filePath: indexPath, scopePath: notebookPath, expectedContent: source,
+      content: serializeHybridCollectionDocument(next),
+    });
+    if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
+    return summarizeFolderCollectionSource(result.content);
+  }
+
+  const document = parseCollectionDocumentV2(source);
+  const views = document.payload.views as { default_id: unknown; items: Array<Record<string, unknown> & { id: unknown }> };
+  const items = ordered(views.items);
+  if (sameOrder(views.items, items)) return summarizeFolderCollectionSource(source);
+  await writeProjection(indexPath, notebookPath, source, {
+    collection: reviseCollection(document.collection),
+    dataset: document.payload.dataset,
+    views: { default_id: String(views.default_id), items },
+  }, null);
+  const summary = await readCollectionSummary(indexPath, notebookPath);
+  if (!summary) throw new Error('集合文件读取失败');
+  return summary;
+}
+
+/** 删除一个视图：若它是所在域的最后一个视图，连同数据域一起移除。文件夹集合允许
+ *  删除最后一个普通视图，保留固定的文件夹列表 tab 作为唯一可用入口。 */
 export async function removeCollectionView(
   indexPath: string,
   notebookPath: string,
@@ -571,7 +639,16 @@ export async function removeCollectionView(
     const document = parseCollectionDocumentV2(source);
     const views = document.payload.views as { default_id: unknown; items: Array<Record<string, unknown>> };
     if (!views.items.some((item) => String(item.id) === viewId)) return summarizeFolderCollectionSource(source);
-    if (views.items.length <= 1) throw new Error('至少保留一个视图');
+    if (views.items.length <= 1) {
+      if (document.collection.placement !== 'folder') throw new Error('至少保留一个视图');
+      const content = serializeHybridCollectionDocument({
+        collection: reviseCollection({ ...document.collection, type: 'hybrid' }),
+        payload: { schema_version: 3, file_tree: true, domains: {}, views: { default_by_domain: {}, items: [] } },
+      });
+      const result = await externalDocuments.write({ filePath: indexPath, scopePath: notebookPath, expectedContent: source, content });
+      if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
+      return summarizeFolderCollectionSource(result.content);
+    }
     const items = views.items.filter((item) => String(item.id) !== viewId);
     await writeProjection(indexPath, notebookPath, source, {
       collection: reviseCollection(document.collection),
@@ -588,13 +665,14 @@ export async function removeCollectionView(
   const parsed = parseHybridCollection(source);
   const target = parsed.payload.views.items.find((item) => item.id === viewId);
   if (!target) return summarizeFolderCollectionSource(source);
-  if (parsed.payload.views.items.length <= 1) throw new Error('至少保留一个视图');
   const remaining = parsed.payload.views.items.filter((item) => item.id !== viewId);
+  if (remaining.length === 0 && !(parsed.collection.placement === 'folder' && parsed.payload.file_tree)) {
+    throw new Error('至少保留一个视图');
+  }
   const domainViews = remaining.filter((item) => item.domain === target.domain);
   const domains = { ...parsed.payload.domains };
   const defaultByDomain = { ...parsed.payload.views.default_by_domain };
   if (domainViews.length === 0) {
-    if (target.domain === 'notes') throw new Error('表格至少保留一个视图');
     delete domains[target.domain];
     delete defaultByDomain[target.domain];
   } else if (defaultByDomain[target.domain] === viewId) {

@@ -1,5 +1,7 @@
 'use client';
 
+import { useSessionViewChannel, attachSessionViewCapture } from '@features/workspace/public/session-view-state-api';
+
 import {
   forwardRef,
   useCallback,
@@ -321,6 +323,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   sourceModeToggleLabel,
   scrollHeader,
 }, ref) {
+  const recovery = useSessionViewChannel(`code:${filePath}`);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [scrollHeaderMount, setScrollHeaderMount] = useState<HTMLDivElement | null>(null);
@@ -455,6 +458,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     const mount = mountRef.current;
     if (!mount) return;
 
+    const captureRef: { current?: ReturnType<typeof attachSessionViewCapture> } = {};
     let lastSearchPanelOpen = false;
     // Files whose extension maps to a preloaded Shiki language are colored by
     // the shared Shiki highlighter (see code-editor-shiki.ts) instead of the
@@ -495,6 +499,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
           if (update.docChanged && !syncingContentRef.current) {
             onChangeRef.current(update.state.doc.toString());
           }
+          if (update.selectionSet || update.docChanged) captureRef.current?.schedule();
           const nextSearchPanelOpen = searchPanelOpen(update.state);
           if (nextSearchPanelOpen !== lastSearchPanelOpen) {
             lastSearchPanelOpen = nextSearchPanelOpen;
@@ -505,16 +510,29 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     });
     const view = new EditorView({ state, parent: mount });
     viewRef.current = view;
+    const savedView = recovery?.read();
+    if (savedView?.kind === 'editor') {
+      view.dispatch({ selection: { anchor: Math.min(savedView.anchor, view.state.doc.length), head: Math.min(savedView.head, view.state.doc.length) } });
+    }
+    const restoreFrame = requestAnimationFrame(() => {
+      if (autoFocus && !savedView) view.focus();
+      if (savedView?.kind === 'editor') {
+        view.scrollDOM.scrollTop = savedView.scrollTop;
+        view.scrollDOM.scrollLeft = savedView.scrollLeft;
+      }
+    });
+    captureRef.current = attachSessionViewCapture(recovery, () => ({ kind: 'editor', anchor: view.state.selection.main.anchor,
+      head: view.state.selection.main.head, scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft }));
     onReadyChangeRef.current?.(true);
 
-    const handleScroll = () => onEditorScrollRef.current?.(view.scrollDOM.scrollTop);
+    const handleScroll = () => { captureRef.current?.schedule(); onEditorScrollRef.current?.(view.scrollDOM.scrollTop); };
     const handleBlur = () => onEditingFinishedRef.current?.();
     view.scrollDOM.addEventListener('scroll', handleScroll, { passive: true });
     view.contentDOM.addEventListener('blur', handleBlur);
 
-    if (autoFocus) requestAnimationFrame(() => view.focus());
-
     return () => {
+      cancelAnimationFrame(restoreFrame);
+      captureRef.current?.dispose();
       view.scrollDOM.removeEventListener('scroll', handleScroll);
       view.contentDOM.removeEventListener('blur', handleBlur);
       view.destroy();
@@ -522,7 +540,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       onReadyChangeRef.current?.(false);
       setScrollHeaderMount(null);
     };
-  }, [autoFocus, editableCompartment, filePath, handleSourceHeaderMount, languageCompartment]);
+  }, [recovery, autoFocus, editableCompartment, filePath, handleSourceHeaderMount, languageCompartment]);
 
   // Install or remove the title as a CodeMirror-managed block widget. This is
   // a separate effect so changing the header does not recreate the editor.

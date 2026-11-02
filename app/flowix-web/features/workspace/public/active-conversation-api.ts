@@ -1,3 +1,4 @@
+import { useWorkspaceSessionStore } from './session-api';
 /** Workspace surface state consumed by the agent task panel. */
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
@@ -28,6 +29,8 @@ export function resolveActiveAgentConversationInstanceId(input: {
  * whole navigation model.
  */
 export function useActiveAgentConversationInstanceId(): string | null {
+  const primaryAtWork = useWorkspaceSessionStore((state) => state.hosts['main-third'] === 'primary-session');
+  const visible = useBrowserColumnStore((state) => state.visible);
   const workInstanceId = useWorkColumnStore((state) => (
     state.navigation.target.kind === 'agent-conversation'
       ? state.navigation.target.instanceId
@@ -35,10 +38,10 @@ export function useActiveAgentConversationInstanceId(): string | null {
   ));
   // A hidden Browser column keeps its last entry; it is not on screen then.
   const browserInstanceId = useBrowserColumnStore((state) => (
-    state.visible && state.current?.target.kind === 'agent_conversation'
+    state.current?.target.kind === 'agent_conversation'
       ? state.current.target.instanceId
       : null
   ));
   const focusedHostId = useWorkspaceFocusStore((state) => state.focusedHostId);
-  return resolveActiveAgentConversationInstanceId({ focusedHostId, workInstanceId, browserInstanceId });
+  return resolveActiveAgentConversationInstanceId({ focusedHostId, workInstanceId: primaryAtWork || visible ? workInstanceId : null, browserInstanceId: !primaryAtWork || visible ? browserInstanceId : null });
 }

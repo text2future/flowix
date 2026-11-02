@@ -251,6 +251,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     managingViewId, cancelManageViewRename,
     managingViewName, setManagingViewName, manageViewRenameInputRef, closeViewManagement,
     viewPendingDelete, cancelDeleteView, beginRenameView, renameView,
+    reorderViews,
     beginManageViewRename, finishManageViewRename, requestDeleteView, confirmDeleteView,
   } = useTableViewManagement({ session: tableSession,
     save, editable, canDeleteViews, activeViewId, activateView });
@@ -1330,6 +1331,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
           onSelectViewField={(field) => void selectViewField(field)}
           onOpenDatasetFieldManager={openDatasetFieldManager}
           views={document.views.items}
+          onReorderViews={reorderViews}
           managingViewId={managingViewId}
           managingViewName={managingViewName}
           onManagingViewNameChange={setManagingViewName}

@@ -384,6 +384,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
             titleVisible={titleVisible}
             onToggleTitle={toggleTitleVisibility}
             noteViews={noteViews}
+            viewOrder={existing?.views.map((view) => view.id)}
             activeNoteViewId={selectedNoteViewId}
             onSelectNoteView={handleActiveViewChange}
             onAddNoteView={handleAddNoteView}
@@ -397,6 +398,13 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       </div>
     </OverlayScrollbar>
 
-    <CollectionAgentComposer notebookId={notebookId} host={host} />
+    <CollectionAgentComposer
+      notebookId={notebookId}
+      collectionId={expectedCollectionId ?? existing?.collectionId ?? null}
+      collectionName={headerTitle.name}
+      collectionPath={currentFolderPath ?? indexPath}
+      indexPath={indexPath || null}
+      host={host}
+    />
   </div></CollectionScrollContext></CollectionNoteFilterSlot.Provider>;
 }

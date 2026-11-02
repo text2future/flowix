@@ -1,5 +1,7 @@
 'use client';
 
+import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
+
 import { Suspense, useEffect, type ComponentType, type ReactNode } from 'react';
 import {
   workspaceSurfaceAppearance,
@@ -199,7 +201,7 @@ export function WorkspaceSurfaceRendererView({
       appearance={appearance}
       state={{ status: 'loading', loadingMode: 'blocking', retainContent: false }}
     />;
-  return <div data-workspace-surface={surface.kind} data-surface-capabilities={(runtime.capabilities ?? definition.capabilities).join(' ')} className={`flex h-full min-h-0 w-full flex-col ${backgroundClass}`}>
+  return <SessionViewRecoveryContext.Provider value={context.sessionEntryId ? { sessionId: context.host === 'main-third' ? 'primary-session' : 'secondary-session', entryId: context.sessionEntryId } : null}><div data-workspace-surface={surface.kind} data-surface-capabilities={(runtime.capabilities ?? definition.capabilities).join(' ')} className={`flex h-full min-h-0 w-full flex-col ${backgroundClass}`}>
     <WorkspaceSurfaceErrorBoundary key={`${context.viewId}:${surface.kind}:${contentIdentity}`} appearance={appearance} reportPresentation={context.reportPresentation} onRendererError={context.onRendererError}>
       <WorkspaceSurfaceStateView state={resolvedState} appearance={appearance} keepContentMounted loadingOwner={loadingOwner}>
         <Suspense fallback={suspenseFallback}>
@@ -207,5 +209,5 @@ export function WorkspaceSurfaceRendererView({
         </Suspense>
       </WorkspaceSurfaceStateView>
     </WorkspaceSurfaceErrorBoundary>
-  </div>;
+  </div></SessionViewRecoveryContext.Provider>;
 }

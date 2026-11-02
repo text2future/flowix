@@ -17,7 +17,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     LATEST_PROTOCOL_VERSION,
 ];
 
-pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix Markdown notes, read table and media library collection datasets by collection ID or notebook-relative path, and use declared artifacts. Delete is destructive.";
+pub const TOOL_DESCRIPTION: &str = "Search and manage Flowix Markdown notes. Discover collections with collection.list, inspect their fields and views with collection.describe, query records with collection.query, then read a note body with show and its returned address. collection.read returns the raw collection definition. Delete is destructive.";
 
 /// Run the MCP line-delimited JSON-RPC loop until stdin reaches EOF.
 pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W) -> Result<(), CliError> {
@@ -76,7 +76,7 @@ fn initialize_result(params: &Value) -> Value {
             "title": "Flowix Memo",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Use the memo tool to search and manage Flowix Markdown memos, read collection datasets with collection.read by collectionId or notebook-relative path, and create declared plugin artifacts such as mind maps."
+        "instructions": "Use memo action collection.list to discover collections, collection.describe to inspect domains and fields, and collection.query to read actual records. Query results include an address for notes; pass it to action show to read the Markdown body. Use collection.read only when you need the raw collection YAML payload. Hybrid collections require a domain."
     })
 }
 
@@ -169,6 +169,12 @@ fn validate_argument_keys(arguments: &Map<String, Value>) -> Result<(), CliError
         "sourceNote",
         "producer",
         "collectionId",
+        "collectionType",
+        "domain",
+        "viewId",
+        "fields",
+        "sort",
+        "snapshot",
         "path",
         "tag",
         "command",
@@ -203,13 +209,46 @@ fn parse_structured_operation(
                 path: optional_string(arguments, "path")?,
             })
         }
+        "collection.list" => Ok(FlowixOperation::CollectionList {
+            notebook,
+            collection_type: optional_string(arguments, "collectionType")?,
+            domain: optional_string(arguments, "domain")?,
+            query: optional_string(arguments, "query")?,
+            limit,
+            offset,
+            snapshot: optional_string(arguments, "snapshot")?,
+        }),
+        "collection.describe" => Ok(FlowixOperation::CollectionDescribe {
+            notebook: required_string(arguments, "notebook")?,
+            collection_id: optional_string(arguments, "collectionId")?,
+            path: optional_string(arguments, "path")?,
+        }),
+        "collection.query" => {
+            let fields = string_array(arguments, "fields")?;
+            let sort = sort_arguments(arguments)?;
+            Ok(FlowixOperation::CollectionQuery {
+                notebook: required_string(arguments, "notebook")?,
+                collection_id: optional_string(arguments, "collectionId")?,
+                path: optional_string(arguments, "path")?,
+                domain: optional_string(arguments, "domain")?,
+                view_id: optional_string(arguments, "viewId")?,
+                query: optional_string(arguments, "query")?,
+                fields,
+                sort,
+                limit,
+                offset,
+                snapshot: optional_string(arguments, "snapshot")?,
+            })
+        }
         "list" => Ok(FlowixOperation::List {
             notebook,
             limit,
             offset,
         }),
         "tags" => Ok(FlowixOperation::Tags { notebook }),
-        "show" => Ok(FlowixOperation::Show { address: address()? }),
+        "show" => Ok(FlowixOperation::Show {
+            address: address()?,
+        }),
         "search" => Ok(FlowixOperation::Search {
             query: required_string(arguments, "query")?,
             notebook,
@@ -230,7 +269,9 @@ fn parse_structured_operation(
             address: address()?,
             content: content()?,
         }),
-        "delete" => Ok(FlowixOperation::Delete { address: address()? }),
+        "delete" => Ok(FlowixOperation::Delete {
+            address: address()?,
+        }),
         "artifact.list" => Ok(FlowixOperation::ArtifactList),
         "artifact.describe" => Ok(FlowixOperation::ArtifactDescribe {
             plugin_id: required_string(arguments, "pluginId")?,
@@ -262,6 +303,55 @@ fn optional_string(arguments: &Map<String, Value>, key: &str) -> Result<Option<S
                 .ok_or_else(|| CliError::Usage(format!("memo.{key} must be a string")))
         })
         .transpose()
+}
+
+fn string_array(arguments: &Map<String, Value>, key: &str) -> Result<Vec<String>, CliError> {
+    let Some(value) = arguments.get(key) else {
+        return Ok(Vec::new());
+    };
+    value
+        .as_array()
+        .ok_or_else(|| CliError::Usage(format!("memo.{key} must be an array of strings")))?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| CliError::Usage(format!("memo.{key} must contain only strings")))
+        })
+        .collect()
+}
+
+fn sort_arguments(arguments: &Map<String, Value>) -> Result<Vec<String>, CliError> {
+    let Some(value) = arguments.get("sort") else {
+        return Ok(Vec::new());
+    };
+    value
+        .as_array()
+        .ok_or_else(|| CliError::Usage("memo.sort must be an array".into()))?
+        .iter()
+        .map(|item| {
+            if let Some(text) = item.as_str() {
+                return Ok(text.to_owned());
+            }
+            let object = item.as_object().ok_or_else(|| {
+                CliError::Usage("memo.sort entries must be {field,direction}".into())
+            })?;
+            let field = object
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| CliError::Usage("memo.sort.field must be a string".into()))?;
+            let direction = object
+                .get("direction")
+                .and_then(Value::as_str)
+                .unwrap_or("asc");
+            if !matches!(direction, "asc" | "desc") {
+                return Err(CliError::Usage(
+                    "memo.sort.direction must be asc or desc".into(),
+                ));
+            }
+            Ok(format!("{field}:{direction}"))
+        })
+        .collect()
 }
 
 fn integer(
@@ -360,10 +450,80 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             reject_stdin(stdin)?;
             path_store::delete(&id)
         }
-        cli::Cli::CollectionRead { notebook, collection_id, path, .. } => {
+        cli::Cli::CollectionRead {
+            notebook,
+            collection_id,
+            path,
+            ..
+        } => {
             reject_stdin(stdin)?;
             operation::execute(operation::FlowixOperation::CollectionRead {
-                notebook, collection_id, path,
+                notebook,
+                collection_id,
+                path,
+            })
+        }
+        cli::Cli::CollectionList {
+            notebook,
+            collection_type,
+            domain,
+            query,
+            limit,
+            offset,
+            snapshot,
+            ..
+        } => {
+            reject_stdin(stdin)?;
+            operation::execute(operation::FlowixOperation::CollectionList {
+                notebook,
+                collection_type,
+                domain,
+                query,
+                limit,
+                offset,
+                snapshot,
+            })
+        }
+        cli::Cli::CollectionDescribe {
+            notebook,
+            collection_id,
+            path,
+            ..
+        } => {
+            reject_stdin(stdin)?;
+            operation::execute(operation::FlowixOperation::CollectionDescribe {
+                notebook,
+                collection_id,
+                path,
+            })
+        }
+        cli::Cli::CollectionQuery {
+            notebook,
+            collection_id,
+            path,
+            domain,
+            view_id,
+            query,
+            fields,
+            sort,
+            limit,
+            offset,
+            snapshot,
+            ..
+        } => {
+            reject_stdin(stdin)?;
+            operation::execute(operation::FlowixOperation::CollectionQuery {
+                notebook,
+                collection_id,
+                path,
+                domain,
+                view_id,
+                query,
+                fields,
+                sort,
+                limit,
+                offset,
+                snapshot,
             })
         }
         cli::Cli::Search {

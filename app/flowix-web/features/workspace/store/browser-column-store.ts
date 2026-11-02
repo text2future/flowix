@@ -1,13 +1,13 @@
+import { fromBrowserEntry } from './session-legacy-projections';
+import { useWorkspaceSessionStore, getHostForSessionRuntime, getSessionRuntimeAtHost } from './workspace-session-store';
 import { resolveWorkspaceFileSurfaceKind, workspaceSurfaceSupportsHost } from '../surface-registry';
 import { createWorkspaceWebRuntime, navigateWorkspaceWebRuntime, moveWorkspaceWebHistory, reloadWorkspaceWebRuntime } from '../model/web-navigation';
 import type { FileBrowserContext, FileBrowserTarget } from './file-browser-target';
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createSecondaryNavigationFacade } from './session-compatibility';
 import { canonicalPath, canonicalDirectoryPath, isPathInDirectory, parentDirectoryPath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { canonicalUrl } from '../model/surface-identity';
 import { useWorkspaceFocusStore } from './workspace-focus-store';
-import { browserColumnPersistence, restoreBrowserColumnSession } from './browser-column-persistence';
 import { BROWSER_COLUMN_DEFAULT_SPLIT_RATIO, clampFileTreeWidth, clampSplitRatio } from '../model/browser-column-layout';
 import { browserColumnTargetKey, type BrowserColumnTarget } from '../model/browser-column-target';
 import type { BrowserColumnEntry, BrowserColumnSessionState } from '../model/browser-column-session';
@@ -22,7 +22,7 @@ export { browserColumnTargetIdentity, browserColumnTargetKey } from '../model/br
 /** Opening in Work uses the same public support declaration as normal navigation. */
 export function canOpenBrowserColumnTargetInWorkColumn(target: BrowserColumnTarget): boolean {
   if (target.kind === 'file-browser') {
-    if (!target.activeFilePath) return false;
+    if (!target.activeFilePath) return workspaceSurfaceSupportsHost('file-browser', 'main-third');
     const fileKind = target.collectionType === 'table' ? 'table'
       : target.collectionType === 'media_library' ? 'media-library'
       : target.collectionType === 'work_documents' ? 'work-documents'
@@ -41,7 +41,7 @@ interface BrowserColumnState extends BrowserColumnSessionState {
   updateEntries: (transform: (entry: BrowserColumnEntry) => BrowserColumnEntry | null) => void;
   setVisible: (visible: boolean) => void;
   setSplitRatio: (ratio: number) => void;
-  openContent: (entry: BrowserColumnEntry) => string;
+  openContent: (entry: BrowserColumnEntry, options?: { history?: 'push' | 'skip' }) => string;
   focusContent: (surfaceId: string) => void;
   clearContent: () => void;
   clearSession: () => void;
@@ -76,7 +76,7 @@ function usesPath(entry: BrowserColumnEntry, path: string): boolean {
 
 function releaseBrowserFocus(): void {
   const focus = useWorkspaceFocusStore.getState();
-  if (focus.focusedHostId === 'browser-column') focus.focusHost('main-third');
+  if (focus.focusedHostId === getSessionRuntimeAtHost('browser-column')) focus.focusHost(getSessionRuntimeAtHost('main-third'));
 }
 
 export function getBrowserColumnEntries(state: BrowserColumnSessionState): BrowserColumnEntry[] {
@@ -99,7 +99,7 @@ function transformEntries(
   if (current === state.current && backStack === state.backStack && forwardStack === state.forwardStack) return state;
   return {
     current, backStack, forwardStack,
-    visible: state.visible && current !== null,
+    visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? state.visible && current !== null : state.visible,
     webRuntime: current?.target.kind === 'web' ? state.webRuntime : null,
   };
 }
@@ -109,8 +109,7 @@ const emptySession = (): BrowserColumnSessionState => ({
   current: null, backStack: [], forwardStack: [],
 });
 
-export const useBrowserColumnStore = create<BrowserColumnState>()(
-  persist<BrowserColumnState, [], [], BrowserColumnSessionState>((set, get) => {
+export const useBrowserColumnStore = createSecondaryNavigationFacade<BrowserColumnState>((set, get) => {
     const updateEntries = (transform: (entry: BrowserColumnEntry) => BrowserColumnEntry | null) => set((state) => transformEntries(state, transform));
     const updateContext = (surfaceId: string, patch: Partial<FileBrowserContext>) => set((state) => {
       const entry = state.current;
@@ -131,12 +130,12 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
       webRuntime: null,
       updateEntries,
       setVisible: (visible) => {
-        if (visible) useWorkspaceFocusStore.getState().focusHost('browser-column');
+        if (visible) useWorkspaceFocusStore.getState().focusHost(getSessionRuntimeAtHost('browser-column'));
         else releaseBrowserFocus();
         set({ visible });
       },
       setSplitRatio: (ratio) => set({ splitRatio: clampSplitRatio(ratio) }),
-      openContent: (incoming) => {
+      openContent: (incoming, options) => {
         const state = get();
         const current = state.current;
         const same = current && browserColumnTargetKey(current.target) === browserColumnTargetKey(incoming.target);
@@ -144,30 +143,34 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
           ? { ...incoming.target, fileTreeVisible: current.target.fileTreeVisible, fileTreeWidth: current.target.fileTreeWidth }
           : incoming.target;
         const occupied = [current, ...state.backStack, ...state.forwardStack].some((entry) => entry?.id === incoming.id);
-        const entry = { ...incoming, target, id: same ? current.id : occupied ? `browser:${crypto.randomUUID()}` : incoming.id };
-        set({ current: entry, visible: true,
-          backStack: same || !current ? state.backStack : [...state.backStack, current].slice(-100),
-          forwardStack: same ? state.forwardStack : [], webRuntime: same ? state.webRuntime : null });
+        const entry = { ...incoming, target, id: same ? current.id : options?.history === 'skip' ? incoming.id : occupied ? `browser:${crypto.randomUUID()}` : incoming.id };
+        const canonical = fromBrowserEntry(entry);
+        useWorkspaceSessionStore.getState().commitTarget('secondary-session', canonical.target, {
+          entryId: entry.id, title: entry.title, icon: entry.icon, history: options?.history ?? 'push',
+        });
+        if (getHostForSessionRuntime('browser-column') === 'browser-column') {
+          useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true });
+        }
         useWorkspaceFocusStore.getState().focusHost('browser-column');
-        return entry.id;
+        return useWorkspaceSessionStore.getState().sessions['secondary-session'].navigation.current!.id;
       },
       focusContent: (surfaceId) => {
         if (get().current?.id !== surfaceId) return;
-        set({ visible: true });
+        set({ visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? true : get().visible });
         useWorkspaceFocusStore.getState().focusHost('browser-column');
       },
       clearContent: () => {
-        set({ current: null, visible: false, webRuntime: null });
+        set({ current: null, visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? false : get().visible, webRuntime: null });
         releaseBrowserFocus();
       },
       clearSession: () => {
-        set({ current: null, backStack: [], forwardStack: [], visible: false, webRuntime: null });
+        set({ current: null, backStack: [], forwardStack: [], visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? false : get().visible, webRuntime: null });
         releaseBrowserFocus();
       },
       restoreHistoryEntry: (entry, direction) => {
         const state = get();
         const current = state.current;
-        set({ current: { ...entry, id: `browser:${crypto.randomUUID()}` }, visible: true, webRuntime: null,
+        set({ current: entry, visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? true : state.visible, webRuntime: null,
           backStack: direction === 'back' ? state.backStack.slice(0, -1) : current ? [...state.backStack, current].slice(-100) : state.backStack,
           forwardStack: direction === 'forward' ? state.forwardStack.slice(0, -1) : current ? [...state.forwardStack, current].slice(-100) : state.forwardStack });
         useWorkspaceFocusStore.getState().focusHost('browser-column');
@@ -253,9 +256,4 @@ export const useBrowserColumnStore = create<BrowserColumnState>()(
         set({ ...emptySession(), webRuntime: null });
       },
     };
-  }, {
-    ...browserColumnPersistence,
-    // Live WebView state and its internal URL history are process-local.
-    merge: (persisted, current) => ({ ...restoreBrowserColumnSession(persisted, current), webRuntime: null }),
-  }),
-);
+  });

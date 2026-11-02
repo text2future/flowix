@@ -110,7 +110,7 @@ describe('agent conversation navigation', () => {
     expect(mocks.commitNavigation).toHaveBeenCalledWith(1, {
       kind: 'agent-conversation',
       instanceId: 'conversation-a',
-    });
+    }, 'push');
     expect(mocks.setActivePluginId).toHaveBeenCalledWith(null);
     expect(mocks.openAgentConversation).toHaveBeenCalledWith('conversation-a');
     expect(mocks.selectAgentConversation).toHaveBeenCalledWith('conversation-a', true);

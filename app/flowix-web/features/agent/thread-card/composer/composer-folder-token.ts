@@ -1,5 +1,9 @@
 import { Node, type Editor, type JSONContent, type MarkdownToken } from "@tiptap/core";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Database } from "lucide-react";
 import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
+import { COLLECTION_AGENT_REFERENCE_LINK_TITLE } from "@features/collection/public/agent-reference-api";
 import {
   createInlineAtomCloseIcon,
   createInlineAtomNodeView,
@@ -10,11 +14,14 @@ import {
 export interface ComposerFolderTokenValue {
   path: string;
   displayName?: string;
+  kind?: "folder" | "collection";
+  collectionMetadata?: string;
 }
 
 const FOLDER_HREF_PREFIX = "flowix://folder/";
-const FOLDER_TOKEN_RE = /^\[([^\]\n]*)\]\(flowix:\/\/folder\/([^\s)]+)\)/i;
-const FOLDER_TOKEN_GLOBAL_RE = /\[([^\]\n]*)\]\(flowix:\/\/folder\/([^\s)]+)\)/gi;
+const COLLECTION_HREF_PREFIX = "flowix://collection/";
+const FOLDER_TOKEN_RE = /^\[([^\]\n]*)\]\(flowix:\/\/(folder|collection)\/([^\s)]+)\)/i;
+const FOLDER_TOKEN_GLOBAL_RE = /\[([^\]\n]*)\]\(flowix:\/\/(folder|collection)\/([^\s)]+)\)/gi;
 
 function safeDecode(value: string): string {
   try {
@@ -29,7 +36,17 @@ function escapeMarkdownLinkText(value: string): string {
 }
 
 function encodePathSegments(value: string): string {
-  return value.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  return value.split("/").map(encodeTokenValue).join("/");
+}
+
+function encodeTokenValue(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function escapeMarkdownTitle(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 /** Convert a repository path into a Markdown-safe absolute file URL. */
@@ -66,6 +83,8 @@ export const ComposerFolderToken = Node.create({
     return {
       path: { default: "" },
       displayName: { default: null },
+      kind: { default: "folder" },
+      collectionMetadata: { default: null },
     };
   },
 
@@ -73,6 +92,8 @@ export const ComposerFolderToken = Node.create({
     return [{ tag: "span[data-composer-folder]", getAttrs: (dom) => ({
       path: (dom as HTMLElement).getAttribute("data-composer-folder") ?? "",
       displayName: (dom as HTMLElement).getAttribute("data-composer-folder-display-name") || null,
+      kind: (dom as HTMLElement).getAttribute("data-composer-folder-kind") || "folder",
+      collectionMetadata: (dom as HTMLElement).getAttribute("data-composer-folder-metadata") || null,
     }) }];
   },
 
@@ -82,9 +103,14 @@ export const ComposerFolderToken = Node.create({
       path,
       typeof node.attrs?.displayName === "string" ? node.attrs.displayName : undefined,
     );
+    const kind = node.attrs?.kind === "collection" ? "collection" : "folder";
     return ["span", {
       "data-composer-folder": path,
       "data-composer-folder-display-name": displayName,
+      "data-composer-folder-kind": kind,
+      "data-composer-folder-metadata": kind === "collection"
+        ? String(node.attrs?.collectionMetadata ?? "")
+        : "",
       class: "agent-composer__folder-token",
     }, `@${displayName}`];
   },
@@ -93,8 +119,10 @@ export const ComposerFolderToken = Node.create({
     name: "composerFolderToken",
     level: "inline" as const,
     start(src: string) {
-      const index = src.indexOf(`(${FOLDER_HREF_PREFIX}`);
-      return index >= 0 ? Math.max(0, src.lastIndexOf("[", index)) : -1;
+      const indexes = [FOLDER_HREF_PREFIX, COLLECTION_HREF_PREFIX]
+        .map((prefix) => src.indexOf(`(${prefix}`))
+        .filter((index) => index >= 0);
+      return indexes.length > 0 ? Math.max(0, src.lastIndexOf("[", Math.min(...indexes))) : -1;
     },
     tokenize(src: string) {
       const match = FOLDER_TOKEN_RE.exec(src);
@@ -102,19 +130,27 @@ export const ComposerFolderToken = Node.create({
         type: "composerFolderToken",
         raw: match[0],
         text: match[1],
-        href: `${FOLDER_HREF_PREFIX}${match[2]}`,
+        kind: match[2].toLowerCase(),
+        href: `flowix://${match[2].toLowerCase()}/${match[3]}`,
       } : undefined;
     },
   },
 
   parseMarkdown(token: MarkdownToken) {
     const href = String(token.href ?? "");
-    const encodedPath = href.slice(FOLDER_HREF_PREFIX.length);
+    const kind = href.startsWith(COLLECTION_HREF_PREFIX) ? "collection" : "folder";
+    const prefix = kind === "collection" ? COLLECTION_HREF_PREFIX : FOLDER_HREF_PREFIX;
+    const [encodedPath, query = ""] = href.slice(prefix.length).split("?", 2);
+    const collectionMetadata = kind === "collection"
+      ? new URLSearchParams(query).get("metadata")
+      : null;
     return {
       type: "composerFolderToken",
       attrs: {
         path: safeDecode(encodedPath),
         displayName: String(token.text ?? "").replace(/^@/, "").trim() || null,
+        kind,
+        collectionMetadata,
       },
     };
   },
@@ -126,7 +162,12 @@ export const ComposerFolderToken = Node.create({
       path,
       typeof node.attrs?.displayName === "string" ? node.attrs.displayName : undefined,
     );
-    return `[${escapeMarkdownLinkText(`@${displayName}`)}](${FOLDER_HREF_PREFIX}${encodeURIComponent(path)})`;
+    const kind = node.attrs?.kind === "collection" ? "collection" : "folder";
+    const prefix = kind === "collection" ? COLLECTION_HREF_PREFIX : FOLDER_HREF_PREFIX;
+    const metadata = kind === "collection" && typeof node.attrs?.collectionMetadata === "string"
+      ? `?metadata=${encodeTokenValue(node.attrs.collectionMetadata)}`
+      : "";
+    return `[${escapeMarkdownLinkText(`@${displayName}`)}](${prefix}${encodeTokenValue(path)}${metadata})`;
   },
 
   addNodeView() {
@@ -136,8 +177,11 @@ export const ComposerFolderToken = Node.create({
         path,
         typeof node.attrs.displayName === "string" ? node.attrs.displayName : undefined,
       );
+      const kind = node.attrs.kind === "collection" ? "collection" : "folder";
       const iconTemplate = document.createElement("template");
-      iconTemplate.innerHTML = folderOutlineSvg;
+      iconTemplate.innerHTML = kind === "collection"
+        ? renderToStaticMarkup(createElement(Database, { "aria-hidden": true }))
+        : folderOutlineSvg;
       const folderIcon = iconTemplate.content.firstElementChild;
       folderIcon?.classList.add("agent-composer__folder-token-icon");
       const nodeView = createInlineAtomNodeView({
@@ -149,7 +193,9 @@ export const ComposerFolderToken = Node.create({
         labelClassName: "agent-composer__folder-token-label",
         title: path,
         hoverActions: [{
-          ariaLabel: `移除资料库 ${displayName}`,
+          ariaLabel: kind === "collection"
+            ? `移除集合引用 ${displayName}`
+            : `移除资料库 ${displayName}`,
           icon: createInlineAtomCloseIcon(),
           onClick: () => deleteInlineAtomNode(
             view,
@@ -160,6 +206,11 @@ export const ComposerFolderToken = Node.create({
       });
       nodeView.dom.setAttribute("data-composer-folder", path);
       nodeView.dom.setAttribute("data-composer-folder-display-name", displayName);
+      nodeView.dom.setAttribute("data-composer-folder-kind", kind);
+      nodeView.dom.setAttribute(
+        "data-composer-folder-metadata",
+        kind === "collection" ? String(node.attrs.collectionMetadata ?? "") : "",
+      );
       return nodeView;
     };
   },
@@ -189,14 +240,23 @@ export function insertComposerFolderToken(
     .run();
 }
 
-/** Convert persisted folder cards to absolute-path Markdown links for the agent. */
+/** Convert persisted folder and collection cards to absolute-path links for the agent. */
 export function composerFolderMarkdownToPrompt(markdown: string): string {
   return markdown.replace(
     FOLDER_TOKEN_GLOBAL_RE,
-    (_match, displayName: string, encodedPath: string) => {
-      const path = safeDecode(encodedPath);
+    (_match, displayName: string, kind: string, encodedPath: string) => {
+      const [encodedCollectionPath, query = ""] = encodedPath.split("?", 2);
+      const path = safeDecode(encodedCollectionPath);
       const label = folderDisplayName(path, displayName.replace(/^@/, ""));
-      return `[${escapeMarkdownLinkText(`@${label}`)}](${toAbsoluteFileUrl(path)})`;
+      let title = "";
+      if (kind.toLowerCase() === "collection") {
+        const metadata = new URLSearchParams(query).get("metadata");
+        const titleValue = metadata
+          ? `${COLLECTION_AGENT_REFERENCE_LINK_TITLE} ${metadata}`
+          : COLLECTION_AGENT_REFERENCE_LINK_TITLE;
+        title = ` '${escapeMarkdownTitle(titleValue)}'`;
+      }
+      return `[${escapeMarkdownLinkText(`@${label}`)}](${toAbsoluteFileUrl(path)}${title})`;
     },
   );
 }

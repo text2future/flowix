@@ -519,12 +519,22 @@ fn validate_collection_hybrid(document: &CollectionDocument) -> Result<(), Strin
         .get("domains")
         .and_then(Value::as_object)
         .ok_or("INVALID_COLLECTION_DOMAINS")?;
-    if domains.is_empty() {
-        return Err("INVALID_COLLECTION_DOMAINS".into());
-    }
     let views = payload.get("views").ok_or("MISSING_COLLECTION_VIEWS")?;
     only_keys(views, &["default_by_domain", "items"])?;
     let items = array(views, "items")?;
+    let defaults = views
+        .get("default_by_domain")
+        .and_then(Value::as_object)
+        .ok_or("INVALID_DEFAULT_VIEW")?;
+    if domains.is_empty() && items.is_empty() && defaults.is_empty()
+        && document.collection.placement == CollectionPlacement::Folder
+        && payload.get("file_tree") == Some(&Value::Bool(true))
+    {
+        return Ok(());
+    }
+    if domains.is_empty() {
+        return Err("INVALID_COLLECTION_DOMAINS".into());
+    }
     if items.is_empty() {
         return Err("COLLECTION_REQUIRES_VIEW".into());
     }
@@ -557,10 +567,6 @@ fn validate_collection_hybrid(document: &CollectionDocument) -> Result<(), Strin
     if views_by_domain.len() != domains.len() {
         return Err("INVALID_COLLECTION_DOMAINS".into());
     }
-    let defaults = views
-        .get("default_by_domain")
-        .and_then(Value::as_object)
-        .ok_or("INVALID_DEFAULT_VIEW")?;
     if defaults.len() != domains.len() || defaults.keys().any(|key| !domains.contains_key(key)) {
         return Err("INVALID_DEFAULT_VIEW".into());
     }

@@ -24,9 +24,9 @@
  * 「管理视图」里宿主 tab 的行按 `host:` 前缀区分（`hostTabEditId`），提交改名一律交给
  * 调用方的 `onRenameHostTab`——与 tab 条上的双击改名同一个落点，不各自校验一遍。
  */
-import type { ReactNode, RefObject } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { DotsThreeIcon, EyeIcon, EyeSlashIcon, PencilSimpleIcon, TrashIcon } from '@phosphor-icons/react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
+import { DotsThreeIcon, EyeIcon, EyeSlashIcon, PencilSimpleIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { Popover, PopoverContent, PopoverTrigger } from '@shared/ui/popover';
 import { useI18n } from '@/lib/i18n';
 import { hostTabEditId, type CollectionHostTab } from './collection-host-tab';
@@ -43,6 +43,17 @@ export interface CollectionDisplayToggles {
 
 interface MenuField { id: string; type: string; property_key?: string; name?: string }
 interface MenuView { id: string; name: string }
+
+type ManageRow<TableView extends MenuView> =
+  | { kind: 'host'; key: string; viewId?: string; tab: CollectionHostTab }
+  | { kind: 'view'; key: string; viewId: string; view: TableView };
+
+function moveManageRow(keys: string[], source: string, target: string, after: boolean): string[] {
+  if (source === target || !keys.includes(source) || !keys.includes(target)) return keys;
+  const next = keys.filter((key) => key !== source);
+  next.splice(next.indexOf(target) + Number(after), 0, source);
+  return next;
+}
 export interface CollectionViewMenuProps<TableField extends MenuField, TableView extends MenuView> {
   hideTrigger?: boolean;
   fieldManagerAvailable?: boolean;
@@ -85,6 +96,8 @@ export interface CollectionViewMenuProps<TableField extends MenuField, TableView
   onCancelManageViewRename: () => void;
   onBeginManageViewRename: (view: Pick<TableView, 'id' | 'name'>) => void;
   onRequestDeleteView?: (view: TableView) => void;
+  /** Persist the order of all movable view IDs; fixed host tabs are omitted. */
+  onReorderViews?: (viewIds: readonly string[]) => void | Promise<void>;
 }
 
 export function CollectionViewMenu<TableField extends MenuField, TableView extends MenuView>({
@@ -96,13 +109,105 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
   onChooseKanbanStatusField, onCreateKanbanViewForStatus, onSelectViewField,
   onOpenDatasetFieldManager, views = [], managingViewId, managingViewName,
   onManagingViewNameChange, manageViewRenameInputRef, onFinishManageViewRename,
-  onCancelManageViewRename, onBeginManageViewRename, onRequestDeleteView,
+  onCancelManageViewRename, onBeginManageViewRename, onRequestDeleteView, onReorderViews,
 }: CollectionViewMenuProps<TableField, TableView>) {
   const { t } = useI18n();
   const step = wizard.step;
   const fieldPickTitle = wizard.pendingType === 'calendar'
     ? t('collection.wizard.chooseDateField')
     : t('collection.wizard.chooseSelectField');
+
+  const manageListRef = useRef<HTMLDivElement>(null);
+  const dragSession = useRef<{ key: string; pointer: number; x: number; y: number; active: boolean } | null>(null);
+  const dragTarget = useRef<{ key: string; after: boolean } | null>(null);
+  const previousRects = useRef<Map<string, DOMRect> | null>(null);
+  const [draggedKey, setDraggedKey] = useState<string | null>(null);
+  const [previewKeys, setPreviewKeys] = useState<string[] | null>(null);
+  const baseRows: ManageRow<TableView>[] = [
+    ...hostTabs.map((tab) => ({ kind: 'host' as const, key: hostTabEditId(tab.key), viewId: tab.viewId, tab })),
+    ...views.map((view) => ({ kind: 'view' as const, key: view.id, viewId: view.id, view })),
+  ];
+  const rowByKey = new Map(baseRows.map((row) => [row.key, row]));
+  const dragCurrent = useRef({ baseRows, rowByKey, editable, saving, onReorderViews });
+  dragCurrent.current = { baseRows, rowByKey, editable, saving, onReorderViews };
+  const rows = previewKeys?.map((key) => rowByKey.get(key)).filter((row): row is ManageRow<TableView> => Boolean(row)) ?? baseRows;
+  const captureRects = useCallback(() => {
+    previousRects.current = new Map([...manageListRef.current?.querySelectorAll<HTMLElement>('[data-manage-item-id]') ?? []]
+      .map((row) => [row.dataset.manageItemId!, row.getBoundingClientRect()]));
+  }, []);
+
+  useLayoutEffect(() => {
+    const rects = previousRects.current;
+    previousRects.current = null;
+    if (!rects || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    manageListRef.current?.querySelectorAll<HTMLElement>('[data-manage-item-id]').forEach((row) => {
+      const previous = rects.get(row.dataset.manageItemId!);
+      if (!previous) return;
+      const dy = previous.top - row.getBoundingClientRect().top;
+      if (Math.abs(dy) < 1) return;
+      row.getAnimations().forEach((animation) => animation.cancel());
+      row.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], { duration: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+    });
+  }, [previewKeys, hostTabs, views]);
+
+  useEffect(() => {
+    const cancel = () => { captureRects(); dragSession.current = null; dragTarget.current = null; setDraggedKey(null); setPreviewKeys(null); };
+    const onMove = (event: PointerEvent) => {
+      const drag = dragSession.current;
+      const current = dragCurrent.current;
+      if (!drag || drag.pointer !== event.pointerId || !current.onReorderViews || !current.editable || current.saving) return;
+      if (!drag.active) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+        drag.active = true;
+        setDraggedKey(drag.key);
+      }
+      const bounds = manageListRef.current?.getBoundingClientRect();
+      if (!bounds || event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+        if (dragTarget.current) { captureRects(); dragTarget.current = null; setPreviewKeys(null); }
+        return;
+      }
+      const targets = [...manageListRef.current?.querySelectorAll<HTMLElement>('[data-manage-item-id][data-manage-sortable="true"]') ?? []]
+        .filter((row) => row.dataset.manageItemId !== drag.key);
+      const target = targets.find((row) => event.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2);
+      const nextTarget = target
+        ? { key: target.dataset.manageItemId!, after: false }
+        : targets.length ? { key: targets[targets.length - 1].dataset.manageItemId!, after: true } : null;
+      if (dragTarget.current?.key === nextTarget?.key && dragTarget.current?.after === nextTarget?.after) return;
+      captureRects();
+      dragTarget.current = nextTarget;
+      setPreviewKeys(nextTarget ? moveManageRow(current.baseRows.map((row) => row.key), drag.key, nextTarget.key, nextTarget.after) : null);
+    };
+    const onUp = (event: PointerEvent) => {
+      const drag = dragSession.current;
+      if (!drag || drag.pointer !== event.pointerId) return;
+      const drop = dragTarget.current;
+      const current = dragCurrent.current;
+      const next = drag.active && drop && current.onReorderViews && current.editable && !current.saving
+        ? moveManageRow(current.baseRows.map((row) => row.key), drag.key, drop.key, drop.after)
+        : null;
+      cancel();
+      if (next && next.some((key, index) => key !== current.baseRows[index]?.key)) {
+        const orderedViewIds = next.map((key) => current.rowByKey.get(key)?.viewId).filter((id): id is string => Boolean(id));
+        setPreviewKeys(next);
+        void Promise.resolve(current.onReorderViews?.(orderedViewIds)).finally(() => setPreviewKeys(null));
+      }
+    };
+    const onCancel = (event: PointerEvent) => { if (dragSession.current?.pointer === event.pointerId) cancel(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('blur', cancel);
+    return () => {
+      dragSession.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('blur', cancel);
+    };
+  }, [captureRects]);
 
   // 触发按钮与 tab 同圆角同高（rounded-md / h-7）+ 四周 p-1.5 → 16px 图标撑成 28×28 的正方形；
   // hover / 按下 / 展开态都取 tab 那一档背景色，视觉上和 tab 是同一套控件。
@@ -169,14 +274,50 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
             <span className="min-w-0 truncate text-xs leading-[1.2] text-[var(--muted-foreground)]">{t('collection.menu.manageViews')}</span>
           </button>
         </div>
-        <div className="max-h-[min(60vh,420px)] space-y-0.5 overflow-y-auto">
-          {/* 全部已添加的 tab：宿主 tab（文件树 + 媒体库/列表的视图实例）在前，表格视图在后。
+        <div ref={manageListRef} className="max-h-[min(60vh,420px)] space-y-0.5 overflow-y-auto">
+          {/* 全部已添加的 tab 按集合顺序展示；固定的文件夹 tab 保持在首位，不参与拖动。
               视图型宿主 tab 与表格视图同一套改名交互（铅笔 → 输入框 → 保存/失焦提交）。 */}
-          {hostTabs.map((tab) => {
+          {rows.map((row) => {
+            if (row.kind === 'view') {
+              const view = row.view;
+              const editing = managingViewId === view.id;
+              return <div key={row.key} data-manage-item-id={row.key} data-manage-sortable={onReorderViews ? 'true' : undefined} className={`flex h-8 w-full min-w-0 items-center gap-1 rounded-lg px-1 ${draggedKey === row.key ? 'opacity-50' : ''}`}>
+                {onReorderViews && <button type="button" aria-label={t('collection.manage.reorderView', { name: view.name })} title={t('collection.manage.reorderView', { name: view.name })} disabled={!editable || saving || managingViewId !== null} className="ml-0.5 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-[var(--muted-foreground)] active:cursor-grabbing disabled:cursor-default disabled:opacity-40" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => {
+                  if (event.button !== 0 || !editable || saving || managingViewId !== null || !onReorderViews) return;
+                  event.preventDefault(); event.stopPropagation();
+                  dragSession.current = { key: row.key, pointer: event.pointerId, x: event.clientX, y: event.clientY, active: false };
+                  try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Window listeners complete the drag. */ }
+                }}><GripVertical className="h-4 w-4" aria-hidden="true" /></button>}
+                {editing ? <input
+                  ref={manageViewRenameInputRef}
+                  aria-label={t('collection.manage.renameView', { name: view.name })}
+                  value={managingViewName}
+                  disabled={!editable || saving}
+                  onChange={(event) => onManagingViewNameChange(event.currentTarget.value)}
+                  onBlur={(event) => onFinishManageViewRename(view, event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+                    else if (event.key === 'Escape') { event.preventDefault(); onCancelManageViewRename(); }
+                  }}
+                  className="h-7 min-w-0 flex-1 rounded-md border border-[var(--primary)] bg-[var(--background)] px-2 text-sm text-[var(--foreground)] outline-none"
+                /> : <span className="min-w-0 flex-1 truncate px-1.5 text-sm text-[var(--foreground)]">{view.name}</span>}
+                {editing ? <button type="button" disabled={!editable || saving} onMouseDown={(event) => event.preventDefault()} onClick={() => onFinishManageViewRename(view, managingViewName)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--primary)] hover:bg-[var(--muted)] disabled:opacity-40">{t('common.save')}</button> : <>
+                  <button type="button" aria-label={t('collection.manage.renameView', { name: view.name })} title={t('multidimensionalTable.view.rename')} disabled={!editable || saving || managingViewId !== null} onClick={() => onBeginManageViewRename(view)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"><PencilSimpleIcon size={15} aria-hidden="true" /></button>
+                  <button type="button" aria-label={t('collection.manage.deleteView', { name: view.name })} title={canDeleteViews ? t('multidimensionalTable.view.delete') : t('collection.manage.deleteDisabled')} disabled={!editable || !canDeleteViews || saving || views.length <= 1 || managingViewId !== null} onClick={() => onRequestDeleteView?.(view)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-40"><TrashSimpleIcon size={15} aria-hidden="true" /></button>
+                </>}
+              </div>;
+            }
+            const tab = row.tab;
             const hostEditId = hostTabEditId(tab.key);
             const canRename = Boolean(tab.viewId && onRenameHostTab);
             const editing = canRename && managingViewId === hostEditId;
-            return <div key={hostEditId} className="flex h-8 w-full min-w-0 items-center gap-1 rounded-lg px-1">
+            return <div key={hostEditId} data-manage-item-id={hostEditId} data-manage-sortable={tab.viewId && onReorderViews ? 'true' : undefined} className={`flex h-8 w-full min-w-0 items-center gap-1 rounded-lg px-1 ${draggedKey === hostEditId ? 'opacity-50' : ''}`}>
+              {tab.viewId && onReorderViews ? <button type="button" aria-label={t('collection.manage.reorderView', { name: tab.label })} title={t('collection.manage.reorderView', { name: tab.label })} disabled={!editable || saving || managingViewId !== null} className="ml-0.5 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-[var(--muted-foreground)] active:cursor-grabbing disabled:cursor-default disabled:opacity-40" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => {
+                if (event.button !== 0 || !editable || saving || managingViewId !== null || !onReorderViews) return;
+                event.preventDefault(); event.stopPropagation();
+                dragSession.current = { key: hostEditId, pointer: event.pointerId, x: event.clientX, y: event.clientY, active: false };
+                try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Window listeners complete the drag. */ }
+              }}><GripVertical className="h-4 w-4" aria-hidden="true" /></button> : onReorderViews ? <button type="button" aria-label={t('collection.manage.fixedOrder', { name: tab.label })} title={t('collection.manage.fixedOrder', { name: tab.label })} disabled className="ml-0.5 flex h-6 w-6 shrink-0 cursor-default items-center justify-center text-[var(--muted-foreground)] opacity-40"><GripVertical className="h-4 w-4" aria-hidden="true" /></button> : null}
               {editing ? <input
                 ref={manageViewRenameInputRef}
                 aria-label={t('collection.manage.renameView', { name: tab.label })}
@@ -207,44 +348,12 @@ export function CollectionViewMenu<TableField extends MenuField, TableView exten
                 </button>}
                 {tab.removable && onRemoveHostTab
                   ? <button type="button" aria-label={t('collection.manage.removeTab', { name: tab.label })} title={t('collection.manage.remove')} disabled={!editable || saving || tab.deleteDisabled} onClick={() => { onRemoveHostTab(tab.key); wizard.close(); }} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-40">
-                    <TrashIcon size={15} aria-hidden="true" />
+                    <TrashSimpleIcon size={15} aria-hidden="true" />
                   </button>
                   : (!canRename ? <span className="shrink-0 px-1.5 text-xs text-[var(--muted-foreground)]">{t('collection.manage.fixed')}</span> : null)}
               </>}
             </div>;
           })}
-          {views.map((view) => <div key={view.id} className="flex h-8 w-full min-w-0 items-center gap-1 rounded-lg px-1">
-            {managingViewId === view.id ? <input
-              ref={manageViewRenameInputRef}
-              aria-label={t('collection.manage.renameView', { name: view.name })}
-              value={managingViewName}
-              disabled={!editable || saving}
-              onChange={(event) => onManagingViewNameChange(event.currentTarget.value)}
-              onBlur={(event) => onFinishManageViewRename(view, event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  event.currentTarget.blur();
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  onCancelManageViewRename();
-                }
-              }}
-              className="h-7 min-w-0 flex-1 rounded-md border border-[var(--primary)] bg-[var(--background)] px-2 text-sm text-[var(--foreground)] outline-none"
-            /> : <span className="min-w-0 flex-1 truncate px-1.5 text-sm text-[var(--foreground)]">{view.name}</span>}
-            {managingViewId === view.id ? <button
-              type="button"
-              disabled={!editable || saving}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onFinishManageViewRename(view, managingViewName)}
-              className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--primary)] hover:bg-[var(--muted)] disabled:opacity-40"
-            >{t('common.save')}</button> : <button type="button" aria-label={t('collection.manage.renameView', { name: view.name })} title={t('multidimensionalTable.view.rename')} disabled={!editable || saving || managingViewId !== null} onClick={() => onBeginManageViewRename(view)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">
-              <PencilSimpleIcon size={15} aria-hidden="true" />
-            </button>}
-            {managingViewId !== view.id && <button type="button" aria-label={t('collection.manage.deleteView', { name: view.name })} title={canDeleteViews ? t('multidimensionalTable.view.delete') : t('collection.manage.deleteDisabled')} disabled={!editable || !canDeleteViews || saving || views.length <= 1 || managingViewId !== null} onClick={() => onRequestDeleteView?.(view)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--destructive)] disabled:opacity-40">
-              <TrashIcon size={15} aria-hidden="true" />
-            </button>}
-          </div>)}
         </div>
       </div> : <div className="space-y-0.5">
         <div className="flex min-w-0 items-center gap-0.5 px-1.5 py-[0.35rem]">

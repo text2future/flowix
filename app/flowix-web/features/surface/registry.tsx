@@ -21,6 +21,7 @@ import {
 } from './workspace-surface-renderer-registry';
 import { WorkspaceSurfaceStateView } from './workspace-surface-state-view';
 
+import { primaryCurrentEntryId, updatePrimarySurfaceMetadata } from '@features/workspace/public/session-runtime-api';
 import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
 import { registerStartupSurfaceHostView, registerWorkspaceSurfacePresentationOwner, reportEmptyWorkspaceSurfaceForIdentity, reportWorkspaceSurfacePresentation } from './workspace-surface-runtime';
 import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/workspace/model/surface-contract';
@@ -43,6 +44,7 @@ export function getWorkColumnSurfaceDefinition(
   onRendererError?: () => void,
   webAddressBarVisible = false,
 ): WorkColumnSurfaceDefinition {
+  const sessionEntryId = surface.sessionEntryId;
   const data = workspaceSurfaceRendererDataFromWorkSurface(surface);
   const definition = getWorkspaceSurfaceRendererDefinition(data);
   return {
@@ -53,7 +55,7 @@ export function getWorkColumnSurfaceDefinition(
     render: () => <WorkspaceSurfaceRendererView
       surface={data}
       context={{
-        host: 'main-third', viewId: surface.instanceKey, focused,
+        sessionEntryId, host: 'main-third', viewId: surface.instanceKey, focused,
         initialFocus: initialFocusForSurface(surface),
         readOnly: 'props' in surface && 'readOnly' in surface.props ? Boolean(surface.props.readOnly) : false,
         reportPresentation: reportPresentation ?? ((update) => reportWorkspaceSurfacePresentation(surface.instanceKey, update)),
@@ -113,17 +115,20 @@ function transitionForSurface(surface: WorkColumnSurface): { id: number; finishO
 }
 
 function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { surface: WorkColumnSurface; focused: boolean; webAddressBarVisible: boolean }) {
+  const entryId = primaryCurrentEntryId();
   const transition = transitionForSurface(surface);
   const transitionId = transition?.id ?? null;
   const finishTransitionOnMount = transition?.finishOnMount ?? false;
-  const presentationScope = `${surface.kind}:${surface.instanceKey}:${'fileIdentity' in surface ? surface.fileIdentity.path : ''}`;
+  const presentationScope = `${surface.kind}:${surface.instanceKey}:${'fileIdentity' in surface ? surface.fileIdentity?.path ?? '' : ''}`;
   const presentationOwner = useMemo(() => ({}), [presentationScope]);
   const retainInitialContent = workspaceSurfaceRetainsInitialContent(
     workspaceSurfaceRendererDataFromWorkSurface(surface),
   );
   const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
-    reportWorkspaceSurfacePresentation(surface.instanceKey, update, presentationOwner);
-  }, [presentationOwner, surface.instanceKey]);
+    if (reportWorkspaceSurfacePresentation(surface.instanceKey, update, presentationOwner)) {
+      updatePrimarySurfaceMetadata(entryId, update);
+    }
+  }, [entryId, presentationOwner, surface.instanceKey]);
   const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
     registerWorkspaceSurfaceLifecycle(surface.instanceKey, lifecycle, owner);
   }, [surface.instanceKey]);

@@ -17,7 +17,7 @@ import {
 } from '@features/document/components/document-titlebar-model';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import { openNoteByNotebookPath, openNoteByPhysicalPath } from '@features/memo/public/note-navigation-api';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
 import { getAgentConversationPresentation } from '@features/agent/conversation-presentation';
 import { toast } from '@/lib/toast';
 import { WorkColumnTitlebar } from '@features/shell/components/work-column-titlebar';

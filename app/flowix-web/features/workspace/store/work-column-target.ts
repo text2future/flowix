@@ -1,15 +1,14 @@
-import type {
-  CollectionSurfaceTarget, WorkspaceContentTarget,
-} from '../model/surface-target';
-export type CollectionWorkspaceTarget = CollectionSurfaceTarget;
+import type { SessionSurfaceTarget } from '../model/session-target';
+import type { SessionNavigationTransaction, SessionNavigationFailure, SessionNavigationPhase } from '../model/session-navigation';
+export type CollectionWorkspaceTarget = import('../model/surface-target').CollectionSurfaceTarget;
 
-/** Stored Work targets require the transaction ID which is optional at the public boundary. */
-export type WorkColumnTarget = Exclude<WorkspaceContentTarget, { kind: 'external' }>
-  | (Extract<WorkspaceContentTarget, { kind: 'external' }> & { transitionId: number | null });
+/** Deprecated renderer compatibility name; the model is owned by sessions. */
+export type WorkColumnTarget = SessionSurfaceTarget;
 
 /** Local file path for the last successfully committed workColumn target. */
 export function workColumnTargetFilePath(target: WorkColumnTarget): string | null {
   switch (target.kind) {
+    case 'file-browser': return target.activeFilePath;
     case 'external':
       return target.path;
     case 'media':
@@ -26,26 +25,9 @@ export function workColumnTargetFilePath(target: WorkColumnTarget): string | nul
 
 export const EMPTY_WORK_COLUMN_TARGET = { kind: 'empty' } as const satisfies WorkColumnTarget;
 
-export type WorkColumnNavigationPhase = 'idle' | 'loading' | 'committed' | 'failed';
-
-export interface WorkColumnNavigationFailure {
-  code: 'navigation-failed' | 'navigation-stale';
-  message: string;
-  requestId: number;
-  retryToken: string | null;
-}
-
-export interface WorkColumnNavigationState {
-  /** The last successfully committed workColumn target. */
-  phase: WorkColumnNavigationPhase;
-  /** Whether an in-flight transaction should visually block the workColumn. */
+export type WorkColumnNavigationPhase = SessionNavigationPhase;
+export type WorkColumnNavigationFailure = SessionNavigationFailure;
+export interface WorkColumnNavigationState extends Omit<SessionNavigationTransaction, 'showBlockingLoading'> {
   showWorkColumnLoading: boolean;
-  requestId: number;
-  target: WorkColumnTarget;
-  /** The target currently being attempted, if any. */
-  pendingTarget: WorkColumnTarget | null;
-  /** Target that was active when the current request began. */
-  previousTarget: WorkColumnTarget | null;
-  failure: WorkColumnNavigationFailure | null;
-  retryToken: string | null;
+  target: SessionSurfaceTarget;
 }

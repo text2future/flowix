@@ -112,7 +112,7 @@ async function renderShell(props: Parameters<typeof CollectionShell>[0]): Promis
 function activeTab() { return host?.querySelector('[aria-label="集合视图"] [aria-current="page"]')?.textContent; }
 function selectTab(key: string) {
   const summary = calls.summary.current as { views: { id: string; name: string }[] };
-  const name = key === 'files' ? '全部' : summary.views.find((view) => view.id === key.slice(key.indexOf(':') + 1))?.name;
+  const name = key === 'files' ? '文件夹' : summary.views.find((view) => view.id === key.slice(key.indexOf(':') + 1))?.name;
   const target = [...(host?.querySelectorAll<HTMLButtonElement>('[aria-label="集合视图"] button') ?? [])].find((button) => button.textContent === name);
   expect(target).toBeDefined(); target?.click();
 }
@@ -175,7 +175,7 @@ describe('collection shell', () => {
     });
 
     expect(node.querySelector('h2')?.textContent).toBe('客户周报');
-    expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toContain('全部');
+    expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toContain('文件夹');
     expect(node.querySelector('[aria-label="集合视图"]')?.textContent).toContain('图墙');
     expect(calls.tableProps.current?.showNavTitle).toBe(false);
   });
@@ -219,7 +219,7 @@ describe('collection shell active tab', () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
     const node = await renderShell(folderProps);
 
-    expect(activeTab()).toBe('全部');
+    expect(activeTab()).toBe('文件夹');
     expect(node.querySelector('[data-view-scope]')).toBeNull();
   });
 
@@ -382,14 +382,14 @@ describe('collection shell active tab', () => {
     await act(async () => root?.unmount());
     root = undefined;
     await renderShell(folderProps);
-    expect(activeTab()).toBe('全部');
+    expect(activeTab()).toBe('文件夹');
   });
 
   it('文件夹入口不受上次表格视图偏好的影响，默认选中文件树', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
     window.localStorage.setItem('flowix:collection:active-host-tab:c1', 'notes');
     const node = await renderShell(folderProps);
-    expect(activeTab()).toBe('全部');
+    expect(activeTab()).toBe('文件夹');
     expect(node.querySelector('button[aria-label="管理数据集"]')).not.toBeNull();
   });
 
@@ -448,7 +448,7 @@ describe('collection shell active tab', () => {
 
     // 缺集合时走的是「占位 tab + 文件树」的兜底分支，不再有那圈 rounded-xl border
     // （集合图标本身是圆角描边，排除掉它才是这条回归要守的「内容区外框」）。
-    expect(node.textContent).toContain('全部');
+    expect(node.textContent).toContain('文件夹');
     expect(node.querySelector('.rounded-xl.border:not(.collection-header-icon-tint)')).toBeNull();
 
     // 回归：兜底态也必须有 nav 右侧的操作槽，否则文件树的数据集合按钮会整块消失

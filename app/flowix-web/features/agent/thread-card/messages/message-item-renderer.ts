@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   Check,
   Copy,
+  Database,
   GitBranch,
   Image as ImageIcon,
   LoaderCircle,
@@ -11,6 +12,7 @@ import {
 import folderOutlineSvg from "@/assets/folder-outline.svg?raw";
 import { translate, type AppLanguage } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
+import { COLLECTION_AGENT_REFERENCE_LINK_TITLE } from "@features/collection/public/agent-reference-api";
 import { agent } from "@platform/tauri/client";
 import type { ThreadState } from "@features/agent/store/thread-runtime-state";
 import {
@@ -50,7 +52,7 @@ export interface AgentThreadCardMessageDisplayContext {
   onForkMessage?: (message: AgentMessage) => void | Promise<void>;
 }
 
-function createLucideIcon(icon: typeof Copy): SVGSVGElement {
+function createLucideIcon(icon: typeof Copy | typeof Database): SVGSVGElement {
   const template = document.createElement("template");
   template.innerHTML = renderToStaticMarkup(
     createElement(icon, { size: 14, strokeWidth: 2, "aria-hidden": true }),
@@ -172,6 +174,7 @@ function renderUserMessageFolderCards(content: HTMLElement): void {
     const labelText = link.textContent?.trim() ?? "";
     const href = link.getAttribute("href") ?? "";
     if (!labelText.startsWith("@") || !/^file:/i.test(href)) return;
+    const isCollection = link.title.startsWith(COLLECTION_AGENT_REFERENCE_LINK_TITLE);
 
     let path = href;
     try {
@@ -183,14 +186,19 @@ function renderUserMessageFolderCards(content: HTMLElement): void {
     }
 
     const card = document.createElement("span");
-    card.className = "agent-thread-card__message-folder-reference";
+    card.className = `agent-thread-card__message-folder-reference${isCollection ? ' agent-thread-card__message-folder-reference--collection' : ''}`;
     card.title = path;
     const displayLabel = labelText.replace(/^@/, "");
     card.setAttribute("aria-label", `${displayLabel}\n${path}`);
 
-    const iconTemplate = document.createElement("template");
-    iconTemplate.innerHTML = folderOutlineSvg;
-    const icon = iconTemplate.content.firstElementChild;
+    let icon: SVGSVGElement | null;
+    if (isCollection) {
+      icon = createLucideIcon(Database);
+    } else {
+      const iconTemplate = document.createElement("template");
+      iconTemplate.innerHTML = folderOutlineSvg;
+      icon = iconTemplate.content.firstElementChild as SVGSVGElement | null;
+    }
     icon?.classList.add("agent-thread-card__message-folder-reference-icon");
     const label = document.createElement("span");
     label.className = "agent-thread-card__message-folder-reference-label";

@@ -11,7 +11,7 @@ const zhCN = {
   "collection.composerAdd": "添加附件",
   "collection.agentSwitch": "切换",
   // tab 条：文件树（仅文件夹类型的集合，且 .index.yaml 的 file_tree 为真）→ 表格视图 → 图墙 / 列表
-  "collection.filesTab": "全部",
+  "collection.filesTab": "文件夹",
   "collection.emptyFiles": "此集合是空的",
   "collection.noteView": "表格",
   // 资料视图口径：笔记视图（表格/画廊/日历/看板…）建在表格数据上；
@@ -87,6 +87,8 @@ const zhCN = {
   "collection.manage.fixed": "固定",
   "collection.manage.remove": "移除",
   "collection.manage.renameView": "重命名视图：{name}",
+  "collection.manage.reorderView": "拖动调整视图顺序：{name}",
+  "collection.manage.fixedOrder": "顺序固定：{name}",
   "collection.manage.removeTab": "移除 tab：{name}",
   "collection.manage.deleteView": "删除视图：{name}",
   "collection.manage.deleteDisabled": "此处不可删除视图",

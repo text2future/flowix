@@ -65,6 +65,19 @@ Prefer structured arguments:
 {"action":"search","query":"product plan","notebook":"work","tag":"project/flowix","limit":20}
 ```
 
+To read a collection, call `collection.list`, use its `collectionId` with
+`collection.describe`, then call `collection.query`. Hybrid collections need
+`domain: "notes"`, `"media"`, or `"work_documents"`. Query results for notes
+include an `address`; pass it to `{"action":"show","address":"..."}` to read
+the Markdown body. Pass the returned `snapshot` and `nextOffset` to each next
+page. Use `collection.read` when you need the raw YAML payload.
+
+```json
+{"action":"collection.list","notebook":"work","limit":50,"offset":0}
+{"action":"collection.describe","notebook":"work","collectionId":"col_…"}
+{"action":"collection.query","notebook":"work","collectionId":"col_…","domain":"notes","limit":50,"offset":0}
+```
+
 The legacy `{ "command": "search ...", "stdin": "..." }` form remains  
 accepted for compatibility but is no longer the recommended contract.
 

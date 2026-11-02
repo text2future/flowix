@@ -193,42 +193,46 @@ mod tests {
         );
     }
 
+    /// Name-based exclusions (`.DS_Store`, `attachments`, …) moved to the
+    /// notebook-local `FileManagementPolicy`; the runtime config keeps only the
+    /// internal directories and always watches hidden files. What still rejects
+    /// `.DS_Store` here is the extension gate, not the hidden-file gate.
     #[test]
-    fn default_skips_blacklisted_files() {
+    fn default_allows_hidden_notes_and_rejects_hidden_non_notes() {
         let w = WhitelistConfig::default();
+        assert!(w.watch_hidden, "runtime config always watches hidden files");
+        assert!(w.allows(Path::new("/x/.hidden.md")).is_ok());
         assert_eq!(
             w.allows(Path::new("/x/.DS_Store")),
-            Err(DropReason::PathNotWhitelisted) // 闅愯棌鏂囦欢浼樺厛
-        );
-        // 非隐藏的黑名单文�?- *.tmp �?���?".tmp" 结尾, ".tmp.md" 不匹�?        // (临时文件场景�? 用户�?*.tmp.md 这�?带后缀�? 行为应当放�?�?watcher 重命名�?�?
-        assert!(w.allows(Path::new("/x/notes.tmp.md")).is_ok());
-        // �?.tmp 命中
-        assert_eq!(
-            w.allows(Path::new("/x/notes.tmp")),
-            Err(DropReason::PathBlacklisted)
+            Err(DropReason::ExtensionMismatch)
         );
     }
 
+    /// The hidden-file branch is still reachable for configs that turn it off.
     #[test]
-    fn default_skips_hidden() {
-        let w = WhitelistConfig::default();
+    fn watch_hidden_false_rejects_dot_files() {
+        let mut w = WhitelistConfig::default();
+        w.watch_hidden = false;
         assert_eq!(
             w.allows(Path::new("/x/.hidden.md")),
             Err(DropReason::PathNotWhitelisted)
         );
     }
 
+    /// `skip_files` is empty by default now, so the glob path is exercised
+    /// through an explicit entry.
     #[test]
-    fn watch_hidden_true_allows_dots() {
+    fn configured_skip_files_reject_by_glob() {
         let mut w = WhitelistConfig::default();
-        w.watch_hidden = true;
-        // .DS_Store 仍然黑名�?
+        w.skip_files.push("*.tmp".into());
         assert_eq!(
-            w.allows(Path::new("/x/.DS_Store")),
+            w.allows(Path::new("/x/notes.tmp")),
             Err(DropReason::PathBlacklisted)
         );
-        // �?��隐�?.md 放�?
-        assert!(w.allows(Path::new("/x/.hidden.md")).is_ok());
+        // `*.tmp` only matches the trailing suffix, so a genuine note named
+        // `notes.tmp.md` still passes: watcher rename intermediates must never
+        // become notes, but a note may legitimately carry that name.
+        assert!(w.allows(Path::new("/x/notes.tmp.md")).is_ok());
     }
 
     #[test]

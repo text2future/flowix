@@ -14,6 +14,7 @@ vi.mock('@features/document/public/shell-api', () => ({
   DocumentTitlebarMac: () => null,
   DocumentTitlebarWin: () => null,
 }));
+vi.mock('./browser-column', () => ({ BrowserColumn: () => <section data-testid="secondary-surface"><input defaultValue="preserved" /></section> }));
 vi.mock('./work-column-titlebar', () => ({ WorkColumnTitlebar: () => null }));
 vi.mock('./work-column-selection-view', () => ({ WorkColumnSelectionView: () => null }));
 vi.mock('./main-layout-export-notice', () => ({ MainLayoutExportNotice: () => null }));
@@ -21,6 +22,7 @@ vi.mock('./memo-list-preview-edge-trigger', () => ({ MemoListPreviewEdgeTrigger:
 vi.mock('@shared/surface-boundary', () => ({ SurfaceBoundary: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@shared/ui/centered-loading-spinner', () => ({ CenteredLoadingSpinner: () => null }));
 
+import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
 import { registerCollectionBannerControl } from '@/lib/collection-banner-visibility';
 import { MainWorkColumns, type MainWorkColumnsProps } from './main-work-columns';
 
@@ -31,6 +33,7 @@ let disposeBanner: (() => void) | undefined;
 afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
+  useWorkspaceSessionStore.getState().reset();
   disposeBanner?.();
   disposeBanner = undefined;
   host?.remove();
@@ -114,4 +117,29 @@ describe('MainWorkColumns collection header overlap', () => {
     expect(contentHost()?.style.marginTop).toBe('');
     expect(contentHost()?.style.getPropertyValue('--work-titlebar-h')).toBe('');
   });
+});
+
+it('relocates stable session trees without unmounting either content or Header state', async () => {
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  const input = { ...props(), browserColumnVisible: true };
+  await act(async () => root?.render(<MainWorkColumns {...input} />));
+  const primary = host.querySelector('[data-testid="surface-host"]');
+  const secondary = host.querySelector('[data-testid="secondary-surface"]');
+  const field = secondary?.querySelector('input');
+  if (field) field.value = 'edited without saving';
+  const primaryRoot = host.querySelector<HTMLElement>('[data-workspace-session="primary-session"]');
+  expect(primaryRoot?.style.gridColumn).toBe('1');
+  await act(async () => { useWorkspaceSessionStore.getState().swap(); });
+  expect(primaryRoot?.style.gridColumn).toBe('2');
+  expect(primaryRoot?.dataset.workspaceHost).toBe('browser-column');
+  expect(host.querySelector('[data-testid="surface-host"]')).toBe(primary);
+  expect(host.querySelector('[data-testid="secondary-surface"]')).toBe(secondary);
+  expect(secondary?.querySelector('input')?.value).toBe('edited without saving');
+  await act(async () => root?.render(<MainWorkColumns {...input} browserColumnVisible={false} />));
+  expect(primaryRoot?.style.display).toBe('none');
+  expect(host.querySelector('[data-testid="surface-host"]')).toBe(primary);
+  await act(async () => root?.render(<MainWorkColumns {...input} />));
+  expect(host.querySelector('[data-testid="secondary-surface"]')).toBe(secondary);
 });

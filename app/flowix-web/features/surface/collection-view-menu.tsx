@@ -18,7 +18,7 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
  */
 export function CollectionViewMenu({ tabs, editable, bannerVisible, onToggleBanner,
   titleVisible, onToggleTitle, onAddNoteView, onRequestDelete, onCommitHostTabRename,
-  source, noteViews = [], onOpenFieldManager, busy = false }: {
+  source, noteViews = [], viewOrder, onOpenFieldManager, busy = false }: {
   tabs: CollectionHostTabsState;
   editable: boolean;
   bannerVisible: boolean;
@@ -32,6 +32,7 @@ export function CollectionViewMenu({ tabs, editable, bannerVisible, onToggleBann
   onCommitHostTabRename: (key: string, name: string) => void;
   source?: string;
   noteViews?: readonly { id: string; name: string }[];
+  viewOrder?: readonly string[];
   onOpenFieldManager?: () => void;
   busy?: boolean;
 }) {
@@ -39,7 +40,7 @@ export function CollectionViewMenu({ tabs, editable, bannerVisible, onToggleBann
   const edit = useTabInlineEdit();
   const wizard = useViewAddWizard({ onClose: edit.end });
   const { statusField, viewFieldChoices } = useMemo(() => collectionNoteViewOptions(source, wizard.pendingType), [source, wizard.pendingType]);
-  const sections = useMemo(() => collectionTabList(tabs.list, noteViews), [noteViews, tabs.list]);
+  const sections = useMemo(() => collectionTabList(tabs.list, noteViews, viewOrder), [noteViews, tabs.list, viewOrder]);
   const create = (layout: TableViewType, fieldId?: string) => { wizard.close(); onAddNoteView(layout, fieldId); };
   return <ViewMenu editable={editable} saving={busy} canDeleteViews={false}
     wizard={wizard} display={{ titleVisible, onToggleTitleVisibility: onToggleTitle,
@@ -47,6 +48,7 @@ export function CollectionViewMenu({ tabs, editable, bannerVisible, onToggleBann
     hostTabs={sections.all} canAddDomainTab domainAdditionsDisabled={!editable || busy}
     onRequestAddAssetView={tabs.addAssetView}
     onRenameHostTab={tabs.renameTab}
+    onReorderViews={tabs.reorderViews}
     onRemoveHostTab={(key) => { const tab = sections.all.find((item) => item.key === key); if (tab) onRequestDelete(tab); }}
     viewFieldChoices={viewFieldChoices} calendarDateChoices={calendarDateChoices} statusField={statusField}
     onSelectCalendarDateField={(fieldId) => create('calendar', fieldId)}

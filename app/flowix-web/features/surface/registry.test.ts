@@ -1,3 +1,4 @@
+import { resolveBrowserColumnSurface } from './browser-column-registry';
 import { describe, expect, it } from 'vitest';
 import {
   getWorkColumnSurfaceDefinition,
@@ -15,6 +16,11 @@ function fileIdentity(path: string) {
 
 function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
   switch (kind) {
+    case 'file-browser': return resolveBrowserColumnSurface({
+      id: 'file-browser:1', title: 'Folder', icon: null,
+      target: { kind: 'file-browser', folderPath: '/workspace', activeFilePath: null,
+        scopePath: '/workspace', notebookId: null, fileTreeVisible: true, fileTreeWidth: 220 },
+    }, { runtimeHost: 'main-third' });
     case 'folder-collection':
       return { kind, instanceKey: 'folder-collection:1', notebookId: 'notebook-1', notebookPath: '/notebook', folderPath: '/notebook/folder', folderName: 'folder' };
     case 'md':
@@ -162,7 +168,7 @@ describe('unified collection frame', () => {
       expect(workspaceSurfaceUsesCollectionFrame(workspaceSurfaceRendererDataFromWorkSurface(value).kind)).toBe(true);
       expect(collectionIndexPath(value)).toBe(kind === 'folder-collection'
         ? '/notebook/folder/.index.yaml'
-        : 'fileIdentity' in value ? value.fileIdentity.path : null);
+        : 'fileIdentity' in value ? value.fileIdentity?.path ?? null : null);
     },
   );
   it('ordinary documents do not inherit collection underlap or controls', () => {

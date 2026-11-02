@@ -93,7 +93,7 @@ describe('folder home inside index-excluded folders', () => {
     calls.read.mockResolvedValue(createFolderHybridCollectionContent('skills', ''));
     const node = document.createElement('div'); root = createRoot(node);
     await act(async () => root?.render(<CollectionRenderer surface={surface} context={{ ...context, readOnly: true }} />));
-    expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('文件树');
+    expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('文件夹');
     expect(node.querySelector<HTMLButtonElement>('button[aria-label="显示设置"]')?.disabled).toBe(true);
     expect(calls.tableProps.current?.editable).toBe(false);
   });
@@ -105,11 +105,11 @@ describe('folder home inside index-excluded folders', () => {
     const node = document.createElement('div');
     root = createRoot(node);
     await act(async () => root?.render(<CollectionRenderer surface={{ ...surface, viewMode: 'work-documents' }} context={context} />));
-    for (let i = 0; i < 20 && !node.textContent?.includes('文件树'); i++) {
+    for (let i = 0; i < 20 && !node.textContent?.includes('文件夹'); i++) {
       await act(async () => { await Promise.resolve(); });
     }
     expect(node.querySelector('h2')?.textContent).toBe('skills');
-    expect(node.textContent).toContain('文件树');
+    expect(node.textContent).toContain('文件夹');
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
   });
 
@@ -122,14 +122,14 @@ describe('folder home inside index-excluded folders', () => {
     const node = await render();
     const text = () => node.textContent ?? '';
     // FolderHomeView 静态挂载，flush 微任务等 getDirChildren 数据落地。
-    for (let i = 0; i < 20 && !text().includes('文件树'); i += 1) {
+    for (let i = 0; i < 20 && !text().includes('文件夹'); i += 1) {
       await act(async () => { await Promise.resolve(); });
     }
 
     expect(node.querySelector('input[placeholder*="询问内容"]')).not.toBeNull();
     // 直接打开：集合名是大标题，独占一行。
     expect(node.querySelector('h2')?.textContent).toBe('skills');
-    expect(text()).toContain('文件树');
+    expect(text()).toContain('文件夹');
     // 尚无 .index.yaml：只展示文件树，视图由原显示菜单按需添加。
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
     expect(node.querySelector('button[aria-label="显示设置"]')).not.toBeNull();
@@ -147,7 +147,7 @@ describe('folder home inside index-excluded folders', () => {
     calls.read.mockResolvedValue(createFolderHybridCollectionContent('skills', ''));
     const node = await render();
     const text = () => node.textContent ?? '';
-    for (let i = 0; i < 20 && !text().includes('文件树'); i += 1) {
+    for (let i = 0; i < 20 && !text().includes('文件夹'); i += 1) {
       await act(async () => { await Promise.resolve(); });
     }
 
@@ -158,11 +158,11 @@ describe('folder home inside index-excluded folders', () => {
     expect(navigation).not.toBeNull();
     expect(host!.contains(navigation)).toBe(false);
     const labels = [...navigation!.querySelectorAll('button')].map((button) => button.textContent?.trim());
-    expect(labels).toContain('文件树');
+    expect(labels).toContain('文件夹');
     expect(labels).toContain('图墙');
     expect(labels).toContain('列表');
     // 文件夹类型的集合默认落在「文件树」（集合就是这个文件夹本身）。
-    expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('文件树');
+    expect(node.querySelector('[aria-current="page"]')?.textContent).toBe('文件夹');
     // 直接打开：名字在大标题里，表格 nav 的小标题关掉（一个集合只出现一处名字）。
     expect(calls.tableProps.current?.showNavTitle).toBe(false);
 

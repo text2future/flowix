@@ -112,7 +112,88 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+; Older Flowix builds registered these extensions as "Flowix Document".
+; Restore the prior class only when the extension still points at Flowix, so an
+; update does not overwrite a file association the user changed afterward.
+!macro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION extension
+  ReadRegStr $R0 SHCTX "Software\Classes\.${extension}" ""
+  ${If} $R0 == "Flowix Document"
+    ClearErrors
+    ReadRegStr $R1 SHCTX "Software\Classes\.${extension}" "Flowix Document_backup"
+    ${If} ${Errors}
+      DeleteRegValue SHCTX "Software\Classes\.${extension}" ""
+    ${ElseIf} $R1 == ""
+      DeleteRegValue SHCTX "Software\Classes\.${extension}" ""
+    ${Else}
+      WriteRegStr SHCTX "Software\Classes\.${extension}" "" "$R1"
+    ${EndIf}
+  ${EndIf}
+  DeleteRegValue SHCTX "Software\Classes\.${extension}" "Flowix Document_backup"
+!macroend
+
+!macro FLOWIX_CLEANUP_LEGACY_DOCUMENT_ASSOCIATIONS
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "txt"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "csv"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "json"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "yaml"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "yml"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "toml"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "xml"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "html"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "htm"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "css"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "js"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "jsx"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "ts"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "tsx"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "py"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "rs"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "go"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "java"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "c"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "cpp"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "h"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "sh"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "pdf"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "doc"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "docx"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "xls"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "xlsx"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "ppt"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "pptx"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "odt"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "ods"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "png"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "jpg"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "jpeg"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "gif"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "webp"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "svg"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "bmp"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "ico"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "tif"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "tiff"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "heic"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "mp4"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "webm"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "mov"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "avi"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "mkv"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "mp3"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "wav"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "ogg"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "flac"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "zip"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "rar"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "7z"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "tar"
+  !insertmacro FLOWIX_REMOVE_LEGACY_DOCUMENT_ASSOCIATION "gz"
+  DeleteRegKey SHCTX "Software\Classes\Flowix Document"
+  !insertmacro UPDATEFILEASSOC
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
+  !insertmacro FLOWIX_CLEANUP_LEGACY_DOCUMENT_ASSOCIATIONS
   ; Visible/manual installs clear stale updater status without emitting a toast.
   IfSilent flowix_status_clear_done 0
   Delete "${FLOWIX_STATE_DIR}\app-update-result.txt"

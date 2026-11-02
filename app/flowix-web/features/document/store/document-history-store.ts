@@ -1,60 +1,10 @@
 import { ensureCollectionDisplay } from '@/lib/collection-display-registry';
-import { persist } from 'zustand/middleware';
-import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
-import { create } from 'zustand';
+import { createPrimaryHistoryFacade } from '@features/workspace/public/session-history-api';
 import { canonicalPath, fileLocatorKey } from '@/lib/path';
 import { canonicalUrl } from '@/lib/url';
-import type { LegacyFolderListTarget } from '@features/workspace/model/legacy-folder-list';
 
-type ExternalHistoryEntry = {
-  kind: 'external';
-  path: string;
-  scopePath: string | null;
-  openedAt: number;
-};
-
-export type LegacyFolderListHistoryEntry = LegacyFolderListTarget & { openedAt: number };
-
-export type AgentConversationHistoryEntry = {
-  kind: 'agent-conversation';
-  instanceId: string;
-  blankIfMissing?: true;
-  openedAt: number;
-};
-
-export type WebHistoryEntry = {
-  kind: 'web';
-  url: string;
-  openedAt: number;
-};
-
-export type MediaHistoryEntry = {
-  kind: 'media';
-  filePath: string;
-  notebookId: string | null;
-  notebookPath: string | null;
-  resourceKind: 'image' | 'video';
-  openedAt: number;
-};
-
-export type CollectionHistoryEntry = CollectionDisplayDescriptor & { kind: 'collection'; relativePathHint?: string; openedAt: number };
-
-/** 文件夹首页（folder-home）。一个文件夹一条记录：tab 切换不产生导航，键按 folderPath 归一。 */
-export type FolderCollectionHistoryEntry = {
-  kind: 'folder-collection';
-  folderPath: string;
-  notebookId: string;
-  openedAt: number;
-};
-
-export type DocumentHistoryEntry =
-  | CollectionHistoryEntry
-  | LegacyFolderListHistoryEntry
-  | FolderCollectionHistoryEntry
-  | ExternalHistoryEntry
-  | AgentConversationHistoryEntry
-  | WebHistoryEntry
-  | MediaHistoryEntry;
+export type * from '@features/workspace/public/session-history-api';
+import type { DocumentHistoryEntry } from '@features/workspace/public/session-history-api';
 
 interface DocumentHistoryStore {
   backStack: DocumentHistoryEntry[];
@@ -71,11 +21,12 @@ interface DocumentHistoryStore {
   clear: () => void;
 }
 
-const MAX_HISTORY_ENTRIES = 30;
+const MAX_HISTORY_ENTRIES = 100;
 
 export function documentHistoryEntryKey(entry: DocumentHistoryEntry | null): string | null {
   if (!entry) return null;
   if (entry.kind === 'collection' || entry.kind === 'document-list') return entry.displayId;
+  if (entry.kind === 'file-browser') return `file-browser:${fileLocatorKey(entry.activeFilePath ?? entry.folderPath ?? '')}`;
   if (entry.kind === 'folder-collection') return `folder-collection:${fileLocatorKey(entry.folderPath)}`;
   if (entry.kind === 'agent-conversation') return `agent-conversation:${entry.instanceId}`;
   if (entry.kind === 'web') {
@@ -93,15 +44,6 @@ function normalizeEntry(entry: DocumentHistoryEntry): DocumentHistoryEntry {
     : entry;
 }
 
-function normalizeStack(stack: DocumentHistoryEntry[]): DocumentHistoryEntry[] {
-  const result: DocumentHistoryEntry[] = [];
-  for (const entry of stack) {
-    const normalized = normalizeEntry(entry);
-    if (result.length && documentHistoryEntryKey(result[result.length - 1]) === documentHistoryEntryKey(normalized)) result[result.length - 1] = normalized;
-    else result.push(normalized);
-  }
-  return result.slice(-MAX_HISTORY_ENTRIES);
-}
 
 function pushCapped(
   stack: DocumentHistoryEntry[],
@@ -115,7 +57,7 @@ function pushCapped(
   return [...stack, entry].slice(-MAX_HISTORY_ENTRIES);
 }
 
-export const useDocumentHistoryStore = create<DocumentHistoryStore>()(persist((set, get) => ({
+export const useDocumentHistoryStore = createPrimaryHistoryFacade<DocumentHistoryStore>((set, get) => ({
   backStack: [],
   forwardStack: [],
   pushBack: (entry) => set((state) => ({
@@ -178,11 +120,4 @@ export const useDocumentHistoryStore = create<DocumentHistoryStore>()(persist((s
   }),
   clearForward: () => set({ forwardStack: [] }),
   clear: () => set({ backStack: [], forwardStack: [] }),
-}), {
-  name: 'flowix.document-history.v1',
-  partialize: (state) => ({ backStack: state.backStack, forwardStack: state.forwardStack }),
-  merge: (persisted, current) => {
-    const saved = persisted as Partial<Pick<DocumentHistoryStore, 'backStack' | 'forwardStack'>> | undefined;
-    return { ...current, backStack: normalizeStack(saved?.backStack ?? []), forwardStack: normalizeStack(saved?.forwardStack ?? []) };
-  },
 }));

@@ -19,8 +19,20 @@ pub async fn run<T: Send + 'static>(
         .await
         .map_err(|error| error.to_string());
     drop(permit);
+    let total_ms = started.elapsed().as_millis();
     tracing::info!(target: "document_io", operation, queued_ms,
-        total_ms = started.elapsed().as_millis(), success = result.is_ok());
+        total_ms, success = result.is_ok());
+    // tracing does not reach app.log; mirror slow operations there so a user on
+    // a slow machine can send one file instead of opening the devtools.
+    if total_ms >= 40 {
+        let payload = format!(
+            "{{\"operation\":\"{operation}\",\"queuedMs\":{queued_ms},\"totalMs\":{total_ms},\"success\":{}}}",
+            result.is_ok()
+        );
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::runtime_log::record_event("warn", "slow-document-io", payload);
+        });
+    }
     result
 }
 
