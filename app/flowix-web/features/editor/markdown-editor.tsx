@@ -660,6 +660,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       // 修复跨多块复制时多余空行：ProseMirror 默认在块间插入 `\n\n`，
       // 改成单个 `\n`，粘贴到纯文本目标时块间只保留一个换行。
       editorProps: {
+        // The formatting toolbar overlays the bottom of the scroller. Start
+        // scrolling about three lines early and keep the caret above it.
+        // Threshold triggers the scroll; margin controls its destination.
+        scrollThreshold: { top: 0, right: 0, bottom: 96, left: 0 },
+        scrollMargin: { top: 5, right: 5, bottom: 96, left: 5 },
         attributes: editable
           ? {}
           : {
