@@ -9,7 +9,7 @@ use crate::lock_utils::read_lock;
 use flowix_core::memo_file::{
     normalize_markdown_encoding_boundaries,
     notebook_path_from_relative, notebook_relative_path, Memo, MemoFile,
-    NoteEntry, NoteTitleFilter,
+    NoteEntry, NoteSummary, NoteTitleFilter,
 };
 use flowix_core::service::{NoteSaveOutcome, NotePageQuery};
 use flowix_core::{FlowixError, NoteService};
@@ -133,6 +133,24 @@ pub async fn get_indexed_note_by_path(
     })
     .await
     .map_err(|error| format!("indexed note read task failed: {error}"))?
+}
+
+/// List note titles only. Pickers (`@` mention, plugin note pickers) render one
+/// line per note, so they must not pay for every note's preview and metadata.
+#[tauri::command]
+pub async fn list_note_summaries(
+    notebook_id: String,
+    app: AppHandle,
+) -> Result<Vec<NoteSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let memo_file = read_lock(&state.memo_file, "memo_file");
+        NoteService::new(&memo_file)
+            .list_summaries(&notebook_id)
+            .map_err(|error| crate::app::notebook_background::query_error(state.inner(), &notebook_id, error))
+    })
+    .await
+    .map_err(|error| format!("note summary list task failed: {error}"))?
 }
 
 /// Return one page from the path-keyed Note index without consulting Memo IDs.

@@ -1802,13 +1802,29 @@ pub fn delete_file(file_path: String, space_path: Option<String>, state: State<A
 }
 
 #[tauri::command]
-pub fn delete_folder(
+pub async fn delete_folder(
     folder_path: String,
     space_path: String,
-    state: State<AppState>,
+    app: AppHandle,
 ) -> Result<bool, String> {
-    let folder = Path::new(&folder_path);
-    let scope = Path::new(&space_path);
+    // Recursive removal, the cross-process write lock and the post-delete index
+    // reconcile are all disk-bound. A synchronous command runs them on the main
+    // thread, so deleting a large folder freezes the window until the sweep ends.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        delete_folder_blocking(&folder_path, &space_path, &state)
+    })
+    .await
+    .map_err(|error| format!("folder delete task failed: {error}"))?
+}
+
+fn delete_folder_blocking(
+    folder_path: &str,
+    space_path: &str,
+    state: &State<AppState>,
+) -> Result<bool, String> {
+    let folder = Path::new(folder_path);
+    let scope = Path::new(space_path);
     // Never allow the notebook root itself to be removed. The folder command
     // is intentionally recursive because a notebook folder may contain notes
     // and nested folders.
@@ -2308,16 +2324,33 @@ pub fn move_file(
 
 /// Move a folder within the caller's notebook/access-folder scope.
 #[tauri::command]
-pub fn move_folder(
+pub async fn move_folder(
     folder_path: String,
     target_directory_path: String,
     space_path: String,
-    state: State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<super::path_change::PathMutationResult, FileOperationFailure> {
-    let source = Path::new(&folder_path);
-    let target_directory = Path::new(&target_directory_path);
-    let scope = Path::new(&space_path);
+    // A directory move renames in place but then reconciles the note index, the
+    // resource catalog and the view catalog for the whole notebook. That is
+    // disk-bound work, so it leaves the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        move_folder_blocking(&folder_path, &target_directory_path, &space_path, &state, &app)
+    })
+    .await
+    .map_err(|error| FileOperationFailure::from(format!("FOLDER_MOVE_TASK_FAILED: {error}")))?
+}
+
+fn move_folder_blocking(
+    folder_path: &str,
+    target_directory_path: &str,
+    space_path: &str,
+    state: &State<AppState>,
+    app: &tauri::AppHandle,
+) -> Result<super::path_change::PathMutationResult, FileOperationFailure> {
+    let source = Path::new(folder_path);
+    let target_directory = Path::new(target_directory_path);
+    let scope = Path::new(space_path);
     if source == scope
         || !is_browsable_scope(scope, &state)
         || !path_is_inside(source, scope)

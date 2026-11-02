@@ -46,8 +46,8 @@ mod tree_display;
 mod versions;
 
 pub use note_index::{
-    NoteEntry, NoteIndexReconcileReport, NoteSearchHit, NoteTreeMetadata, NoteTitleFilter, NoteTitleCondition,
-    NoteWriteOutcome,
+    NoteEntry, NoteIndexReconcileReport, NoteSearchHit, NoteSummary, NoteTreeMetadata, NoteTitleFilter,
+    NoteTitleCondition, NoteWriteOutcome,
 };
 pub(crate) use note_index::NoteWriteResult;
 pub use operation_locks::{FileLockIntent, FileWriteGuard, OperationLocks};

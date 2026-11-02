@@ -192,6 +192,16 @@ pub struct NoteEntry {
     pub properties: serde_json::Value,
 }
 
+/// Minimal projection for pickers that only render a title (`@` mention,
+/// plugin note pickers). It never decodes preview, todos, agents or properties.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSummary {
+    pub relative_path: String,
+    pub title: String,
+    pub updated_at: i64,
+}
+
 /// Minimal projection used by file-tree rows. It never reads note bodies.
 #[derive(Debug)]
 pub struct NoteTreeMetadata {
@@ -928,6 +938,34 @@ impl MemoFile {
             .collect::<Result<Vec<_>, _>>()
             .map_err(io::Error::other)?;
         Ok(entries)
+    }
+
+    /// Read path/title/updatedAt for every note in the notebook, newest first.
+    /// Pickers use this instead of `read_note_entries`, which also decodes each
+    /// note's preview, todos, agents and properties for nothing.
+    pub fn read_note_summaries(&self, notebook_id: &str) -> io::Result<Vec<NoteSummary>> {
+        let conn = self.open_note_index_connection(notebook_id)?;
+        if !Self::note_index_is_ready_on_connection(&conn)? {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Note index is not ready",
+            ));
+        }
+        let mut statement = conn.prepare(
+            "SELECT relative_path, title, updated_at FROM notes ORDER BY updated_at DESC",
+        ).map_err(io::Error::other)?;
+        let summaries = statement
+            .query_map([], |row| {
+                Ok(NoteSummary {
+                    relative_path: row.get(0)?,
+                    title: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            })
+            .map_err(io::Error::other)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(io::Error::other)?;
+        Ok(summaries)
     }
 
     /// Read only entries already found by a directory listing. Primary-key
@@ -2852,5 +2890,44 @@ mod tests {
         assert_eq!(count, 0);
     }
 
+    #[test]
+    fn summaries_carry_the_same_path_title_and_recency_as_the_full_projection() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notebook");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("一.md"), "# 第一篇\n\n正文\n").unwrap();
+        fs::create_dir_all(root.join("子目录")).unwrap();
+        fs::write(root.join("子目录").join("二.md"), "# 第二篇\n\n正文\n").unwrap();
+        let mut store = MemoFile::new(temp.path().join("config"));
+        store
+            .write_notebook_configs(&[NotebookConfig {
+                id: "nb_summary".into(),
+                name: "Summary".into(),
+                icon: None,
+                path: root.to_string_lossy().into_owned(),
+                is_default: true,
+                sort: 0,
+                created_at: 0,
+                updated_at: 0,
+            }])
+            .unwrap();
+        store.reconcile_note_index("nb_summary").unwrap();
+
+        let summaries = store.read_note_summaries("nb_summary").unwrap();
+        let entries = store.read_note_entries("nb_summary").unwrap();
+        assert_eq!(summaries.len(), entries.len());
+        assert_eq!(summaries.len(), 2);
+        for entry in &entries {
+            let summary = summaries
+                .iter()
+                .find(|summary| summary.relative_path == entry.relative_path)
+                .expect("every projection row has a summary");
+            assert_eq!(summary.title, entry.title);
+            assert_eq!(summary.updated_at, entry.updated_at);
+        }
+        assert!(summaries
+            .windows(2)
+            .all(|pair| pair[0].updated_at >= pair[1].updated_at));
+    }
 
 }

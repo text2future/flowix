@@ -588,6 +588,7 @@ pub fn run() {
             // 解析�? `commands::memo::xxx` 顶层�?��不传�?macro re-export.
             commands::memo::reads::list_notes_by_path,
             commands::memo::reads::get_indexed_note_by_path,
+            commands::memo::reads::list_note_summaries,
             commands::memo::reads::get_path_notes,
             commands::memo::reads::resolve_markdown_location,
             commands::media::get_media_resource,

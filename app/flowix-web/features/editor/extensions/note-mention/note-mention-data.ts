@@ -16,32 +16,39 @@ export interface MentionNoteItem {
 let cachedItems: MentionNoteItem[] | null = null;
 let cachePromise: Promise<MentionNoteItem[]> | null = null;
 
-async function fetchMentionNotes(query: string): Promise<MentionNoteItem[]> {
+/** The picker renders titles only, so it asks for the title-only projection. */
+const MENTION_LIMIT = 200;
+
+async function fetchMentionNotes(): Promise<MentionNoteItem[]> {
   const state = useNoteStore.getState();
   if (!state.notebooksInitialized) await state.loadNotebooks();
   const notebooks = useNoteStore.getState().notebooks;
-  const normalizedQuery = query.trim().toLocaleLowerCase();
   const groups = await Promise.all(notebooks.map(async (notebook) => {
-    const entries = await notes.list(notebook.id);
-    return entries.filter((note) => !normalizedQuery || note.title.toLocaleLowerCase().includes(normalizedQuery))
-      .map((note): MentionNoteItem => ({
-        relativePath: note.relativePath,
-        filename: note.relativePath.split('/').pop() || note.relativePath,
-        title: note.title,
-        updatedAt: note.updatedAt,
-        notebookId: notebook.id,
-        notebookName: notebook.name,
-        notebookPath: notebook.path,
-        originalPath: null,
-      }));
+    const summaries = await notes.listSummaries(notebook.id);
+    return summaries.map((note): MentionNoteItem => ({
+      relativePath: note.relativePath,
+      filename: note.relativePath.split('/').pop() || note.relativePath,
+      title: note.title,
+      updatedAt: note.updatedAt,
+      notebookId: notebook.id,
+      notebookName: notebook.name,
+      notebookPath: notebook.path,
+      originalPath: null,
+    }));
   }));
-  return groups.flat().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 200);
+  return groups.flat().sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * Load every note title once. Filtering happens in memory: refetching on each
+ * keystroke meant one full IPC round trip per notebook per character typed.
+ * `invalidateMentionNotes` is called on the notebook change events that can add
+ * or remove a note, so the cache tracks the tree.
+ */
 function loadMentionNotes(): Promise<MentionNoteItem[]> {
   if (cachedItems) return Promise.resolve(cachedItems);
   if (!cachePromise) {
-    cachePromise = fetchMentionNotes('')
+    cachePromise = fetchMentionNotes()
       .then((items) => {
         cachedItems = items;
         return items;
@@ -61,8 +68,13 @@ export function invalidateMentionNotes(): void {
 }
 
 export function queryMentionNotes(query: string): Promise<MentionNoteItem[]> {
-  const normalizedQuery = query.trim().toLowerCase();
-  return normalizedQuery ? fetchMentionNotes(normalizedQuery) : loadMentionNotes();
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return loadMentionNotes().then((items) => {
+    const matched = normalizedQuery
+      ? items.filter((item) => item.title.toLocaleLowerCase().includes(normalizedQuery))
+      : items;
+    return matched.slice(0, MENTION_LIMIT);
+  });
 }
 
 export function toNoteReferenceAttrs(item: MentionNoteItem): NoteReferenceAttrs {

@@ -69,6 +69,13 @@ export interface NoteListPage {
   hasMore: boolean;
 }
 
+/** Title-only row for pickers; carries no preview, todos, agents or properties. */
+export interface NoteSummary {
+  relativePath: string;
+  title: string;
+  updatedAt: number;
+}
+
 export interface NoteSearchHit {
   notebookId: string;
   relativePath: string;
@@ -115,6 +122,8 @@ export const notes = {
   list: (notebookId: string) => invoke<NoteEntry[]>('list_notes_by_path', { notebookId }),
   getIndexed: (notebookId: string, relativePath: string) =>
     invoke<NoteEntry | null>('get_indexed_note_by_path', { notebookId, relativePath }),
+  listSummaries: (notebookId: string) =>
+    invoke<NoteSummary[]>('list_note_summaries', { notebookId }),
   getPage: (params: {
     notebookId: string;
     filter?: FilterType;

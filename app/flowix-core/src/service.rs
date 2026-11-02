@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::memo_file::{
-    notebook_path_from_relative, MemoFile, NoteEntry, NoteSearchHit, NoteWriteResult,
+    notebook_path_from_relative, MemoFile, NoteEntry, NoteSearchHit, NoteSummary, NoteWriteResult,
     NotebookConfig, NoteTitleFilter,
 };
 
@@ -477,6 +477,21 @@ impl NoteService<'_> {
 impl<'a> NoteService<'a> {
     pub fn list(&mut self, notebook: &str) -> Result<Vec<NoteEntry>, FlowixError> {
         self.list_notes_by_path(notebook)
+    }
+
+    /// Title-only list for pickers. Recovers a cold index the same way `list`
+    /// does, but never decodes the preview, todos, agents or properties of a
+    /// note that only has to render one line of text.
+    pub fn list_summaries(&mut self, notebook: &str) -> Result<Vec<NoteSummary>, FlowixError> {
+        let notebook = self.resolve_notebook(notebook)?;
+        match self.memo_file.read_note_summaries(&notebook.id) {
+            Ok(summaries) => Ok(summaries),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                self.memo_file.reconcile_note_index(&notebook.id)?;
+                Ok(self.memo_file.read_note_summaries(&notebook.id)?)
+            }
+            Err(error) => Err(FlowixError::Io(error)),
+        }
     }
 
     pub fn list_page(
