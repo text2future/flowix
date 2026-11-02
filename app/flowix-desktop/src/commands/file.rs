@@ -1100,23 +1100,33 @@ fn image_mime_type(path: &Path) -> Option<&'static str> {
 
 /// Read an in-scope image as a data URL so the webview can preview arbitrary
 /// user files without widening the Tauri asset-protocol scope.
+///
+/// The scope check, the read and the base64 encode run on the blocking pool.
+/// Synchronous commands run on the IPC thread, so encoding a multi-megabyte
+/// photo into a data URL there stalls the window for the whole encode. Callers
+/// fire one of these per visible card or table image cell.
 #[tauri::command]
-pub fn read_image_file(
+pub async fn read_image_file(
     file_path: String,
     space_path: Option<String>,
-    state: State<AppState>,
+    app: AppHandle,
 ) -> Option<String> {
-    let path = Path::new(&file_path);
-    let mime = image_mime_type(path)?;
-    if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
-        eprintln!("[read_image_file] refused file: {}", file_path);
-        return None;
-    }
-    let bytes = fs::read(path).ok()?;
-    Some(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = Path::new(&file_path);
+        let mime = image_mime_type(path)?;
+        if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
+            eprintln!("[read_image_file] refused file: {}", file_path);
+            return None;
+        }
+        let bytes = fs::read(path).ok()?;
+        Some(format!(
+            "data:{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ))
+    })
+    .await
+    .ok()?
 }
 
 /// Read a downscaled, transparency-preserving PNG preview for an in-scope raster image.
@@ -1617,58 +1627,67 @@ fn prune_media_thumbnail_cache(cache_root: &Path) {
 }
 
 /// Read a temporary Quick Look thumbnail for an in-scope video file.
+///
+/// Quick Look spawns a helper process and the result is then decoded and
+/// re-encoded, so the whole command runs on the blocking pool rather than on
+/// the IPC thread.
 #[tauri::command]
-pub fn read_video_preview(
+pub async fn read_video_preview(
     file_path: String,
     space_path: Option<String>,
-    state: State<AppState>,
+    app: AppHandle,
 ) -> Option<String> {
-    let path = Path::new(&file_path);
-    if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
-        eprintln!("[read_video_preview] refused file: {}", file_path);
-        return None;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let directory = tempfile::tempdir().ok()?;
-        let output = std::process::Command::new("/usr/bin/qlmanage")
-            .args(["-t", "-s", "480", "-o"])
-            .arg(directory.path())
-            .arg(path)
-            .output()
-            .ok()?;
-        if !output.status.success() {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = Path::new(&file_path);
+        if !can_access_scoped_file(path, space_path.as_deref(), &state) || !path.is_file() {
+            eprintln!("[read_video_preview] refused file: {}", file_path);
             return None;
         }
-        let thumbnail = fs::read_dir(directory.path())
-            .ok()?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|candidate| {
-                candidate
-                    .extension()
-                    .is_some_and(|extension| extension == "png")
-            })?;
-        let bytes = fs::read(thumbnail).ok()?;
-        let preview = image::load_from_memory(&bytes)
-            .ok()?
-            .thumbnail(480, 480)
-            .to_rgb8();
-        let mut jpeg = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 72)
-            .encode_image(&preview)
-            .ok()?;
-        return Some(format!(
-            "data:image/jpeg;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(jpeg)
-        ));
-    }
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        None
-    }
+        #[cfg(target_os = "macos")]
+        {
+            let directory = tempfile::tempdir().ok()?;
+            let output = std::process::Command::new("/usr/bin/qlmanage")
+                .args(["-t", "-s", "480", "-o"])
+                .arg(directory.path())
+                .arg(path)
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let thumbnail = fs::read_dir(directory.path())
+                .ok()?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .find(|candidate| {
+                    candidate
+                        .extension()
+                        .is_some_and(|extension| extension == "png")
+                })?;
+            let bytes = fs::read(thumbnail).ok()?;
+            let preview = image::load_from_memory(&bytes)
+                .ok()?
+                .thumbnail(480, 480)
+                .to_rgb8();
+            let mut jpeg = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 72)
+                .encode_image(&preview)
+                .ok()?;
+            Some(format!(
+                "data:image/jpeg;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(jpeg)
+            ))
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    })
+    .await
+    .ok()?
 }
 
 #[tauri::command]

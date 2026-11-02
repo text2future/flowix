@@ -4,12 +4,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Manager};
 
+use crate::watcher::directory_coalesce::DirectoryCoalescer;
 use crate::watcher::filter::{FileRevision, SelfWriteMap, SelfWriteMark, SELF_WRITE_TTL};
 use crate::watcher::tombstone::RemoveCoalescer;
 use crate::watcher::{
@@ -365,24 +367,84 @@ impl MemoWatcher {
             .name("memo-watcher-processor".into())
             .spawn(move || {
                 let mut processed_revisions = HashMap::<PathBuf, FileRevision>::new();
-                'worker: while let Ok(first) = worker_rx.recv() {
-                    let batch = collect_queued_events(first, &worker_rx);
-                    for (raw, ctx) in batch {
+                // Directory events are collected per notebook and replayed once
+                // the window closes. See `directory_coalesce` for why collapsing
+                // them is safe: the reconcile they trigger is whole-notebook and
+                // idempotent.
+                let mut coalescer = DirectoryCoalescer::default();
+                'worker: loop {
+                    // Block until the next event, or until an absorbed burst is
+                    // due — a trailing reconcile must never wait for an
+                    // unrelated event to arrive.
+                    let received = match coalescer.next_deadline() {
+                        Some(deadline) => worker_rx
+                            .recv_timeout(deadline.saturating_duration_since(Instant::now())),
+                        None => worker_rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                    };
+                    match received {
+                        Ok(first) => {
+                            let batch = collect_queued_events(first, &worker_rx);
+                            for (raw, ctx) in batch {
+                                if generation_counter.load(Ordering::Acquire) != worker_generation {
+                                    break 'worker;
+                                }
+                                if matches!(raw.kind, FsEventKind::DirectoryChange) {
+                                    coalescer.absorb(&ctx, &raw.path, Instant::now());
+                                    continue;
+                                }
+                                let decision = stabilize_event(
+                                    &raw,
+                                    &recent_for_worker,
+                                    &mut processed_revisions,
+                                );
+                                let stable_content = match decision {
+                                    StableEventDecision::Skip => continue,
+                                    StableEventDecision::Process { content } => content,
+                                };
+                                // Serialize the final validity check and processing with notebook
+                                // selection changes. If a switch already won, this old event is
+                                // discarded; if processing won, the switch waits for it to finish.
+                                let state = worker_app.state::<crate::app::state::AppState>();
+                                let _transition = state
+                                    .notebook_transition
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                                if generation_counter.load(Ordering::Acquire) != worker_generation {
+                                    break 'worker;
+                                }
+                                // catch_unwind: 单个事件处理 panic 不能永久杀死 worker (否则后续事件
+                                // 静默不处理)。panic 本身是 bug (见技术债务「unwrap panic」节), 这里只做
+                                // 隔离 + 记录, 让 worker 继续处理后续事件。
+                                if let Err(payload) =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        PathNoteEventProcessor::process(
+                                            &raw,
+                                            &worker_app,
+                                            &worker_memo_file,
+                                            &ctx,
+                                            stable_content.as_deref(),
+                                        )
+                                    }))
+                                {
+                                    tracing::error!(
+                                        thread = "memo-watcher-processor",
+                                        path = %raw.path.display(),
+                                        kind = ?raw.kind,
+                                        "PathNoteEventProcessor::process panicked; worker recovered. payload={:?}",
+                                        payload
+                                    );
+                                }
+                            }
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break 'worker,
+                    }
+                    for due in coalescer.drain_due(Instant::now()) {
                         if generation_counter.load(Ordering::Acquire) != worker_generation {
                             break 'worker;
                         }
-                        let decision = stabilize_event(
-                            &raw,
-                            &recent_for_worker,
-                            &mut processed_revisions,
-                        );
-                        let stable_content = match decision {
-                            StableEventDecision::Skip => continue,
-                            StableEventDecision::Process { content } => content,
-                        };
-                        // Serialize the final validity check and processing with notebook
-                        // selection changes. If a switch already won, this old event is
-                        // discarded; if processing won, the switch waits for it to finish.
+                        // Same lock, same worker thread as a normal event: the
+                        // reconcile keeps its position in the serial stream.
                         let state = worker_app.state::<crate::app::state::AppState>();
                         let _transition = state
                             .notebook_transition
@@ -391,25 +453,29 @@ impl MemoWatcher {
                         if generation_counter.load(Ordering::Acquire) != worker_generation {
                             break 'worker;
                         }
-                        // catch_unwind: 单个事件处理 panic 不能永久杀死 worker (否则后续事件
-                        // 静默不处理)。panic 本身是 bug (见技术债务「unwrap panic」节), 这里只做
-                        // 隔离 + 记录, 让 worker 继续处理后续事件。
+                        let Ok(memo_file) = worker_memo_file.read() else {
+                            tracing::warn!(
+                                notebook_id = %due.context.notebook_id,
+                                "directory reconcile skipped: memo file lock poisoned"
+                            );
+                            continue;
+                        };
                         if let Err(payload) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                PathNoteEventProcessor::process(
-                                    &raw,
+                                PathNoteEventProcessor::reconcile_directory_change(
                                     &worker_app,
-                                    &worker_memo_file,
-                                    &ctx,
-                                    stable_content.as_deref(),
+                                    &memo_file,
+                                    &due.context,
+                                    &due.directories,
+                                    due.absorbed,
                                 )
                             }))
                         {
                             tracing::error!(
                                 thread = "memo-watcher-processor",
-                                path = %raw.path.display(),
-                                kind = ?raw.kind,
-                                "PathNoteEventProcessor::process panicked; worker recovered. payload={:?}",
+                                notebook_id = %due.context.notebook_id,
+                                absorbed = due.absorbed,
+                                "directory reconcile panicked; worker recovered. payload={:?}",
                                 payload
                             );
                         }

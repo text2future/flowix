@@ -314,7 +314,9 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
     if (!location.indexable || !location.notebookId || !location.relativePath) return null;
     const cached = useNoteStore.getState().notes.find((candidate) => candidate.notebookId === location.notebookId && candidate.relativePath === location.relativePath);
     if (cached) { setPathNote(cached); return cached; }
-    const entry = (await notes.list(location.notebookId)).find((candidate) => candidate.relativePath === location.relativePath);
+    // Read the one row this row needs. Listing the notebook would serialize
+    // every note's preview, tags, todos and properties to resolve a single path.
+    const entry = await noteRepository.getIndexed(location.notebookId, location.relativePath);
     if (!entry) return null;
     const loaded: NoteListItem = { ...entry, kind: 'path-note', notebookId: location.notebookId, relativePath: location.relativePath, filename: location.relativePath.split('/').pop() || location.relativePath };
     setPathNote(loaded);

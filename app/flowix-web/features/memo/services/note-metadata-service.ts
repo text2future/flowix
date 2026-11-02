@@ -1,5 +1,6 @@
 import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import { createLogger } from '@/lib/logger';
+import { perfCount } from '@/lib/perf-probe';
 import { subscribeNotebookChanges, type NotebookChange } from '@platform/tauri/notebook-change-events';
 import type { NoteEntry } from '@platform/tauri/client';
 import { NoteMetadataProjection, type NoteMetadata } from '../model/note-metadata';
@@ -60,9 +61,16 @@ export function subscribeNotebookMetadata(scope: NotebookMetadataScope, listener
     const listeners = new Set<(event: NotebookMetadataChange) => void>();
     const reconcile = () => {
       for (const path of noteMetadata.paths()) if (within(path, root)) noteMetadata.invalidate(path);
+      // Probe: a whole-notebook invalidation re-reads every observed path, so
+      // this is the fan-out cost a single directory reconcile imposes on the
+      // renderer. Read it with `__flowixPerf.dump()`.
+      let rereads = 0;
       for (const path of noteMetadata.observedPaths()) {
-        if (within(path, root)) void refreshNoteMetadata(scope, path.slice(root.length + 1), true);
+        if (!within(path, root)) continue;
+        rereads += 1;
+        void refreshNoteMetadata(scope, path.slice(root.length + 1), true);
       }
+      perfCount('metadata-reconcile', 1, { rereads, listeners: listeners.size });
       for (const receive of listeners) receive({ change: null, favoriteChanged: null });
     };
     const stop = subscribeNotebookChanges((change) => {

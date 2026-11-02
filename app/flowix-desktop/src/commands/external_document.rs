@@ -346,6 +346,9 @@ pub async fn write_external_document(
                     &app, window.label(), &path,
                     saved_content,
                 );
+                // Diagnostic only: lets the watcher probe attribute a following
+                // directory reconcile to this save instead of an external edit.
+                crate::watcher::probe::note_save_finished();
                 let (saved_content, merged) = match outcome {
                     Ok(MergedFileWriteOutcome::Saved { content, merged }) => {
                         match refresh_saved_notebook_note(&memo_file, &path, window.label(), previous_favorited) {

@@ -8,6 +8,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use rusqlite::types::Value as SqlValue;
@@ -115,6 +116,31 @@ fn pending_note_index_refreshes(root: &Path) -> io::Result<Vec<std::path::PathBu
         Err(error) => return Err(error),
     }
     Ok(pending)
+}
+
+/// Minimum gap between two pending-refresh repairs of the same notebook.
+///
+/// Search is issued per keystroke; a repair scan per keystroke is worse than
+/// serving the projection that is already indexed for a few more seconds.
+const NOTE_INDEX_REPAIR_WINDOW: Duration = Duration::from_secs(10);
+
+/// Claim the repair slot for this notebook. The slot is taken even when the
+/// repair is later skipped for being busy, so a saturated notebook cannot make
+/// every following query attempt another scan.
+fn note_index_repair_due(notebook_id: &str) -> bool {
+    static LAST_REPAIR: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    let attempts = LAST_REPAIR.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut last) = attempts.lock() else {
+        return true;
+    };
+    let now = Instant::now();
+    match last.get(notebook_id) {
+        Some(previous) if now.duration_since(*previous) < NOTE_INDEX_REPAIR_WINDOW => false,
+        _ => {
+            last.insert(notebook_id.to_owned(), now);
+            true
+        }
+    }
 }
 
 fn sqlite_busy(error: &io::Error) -> bool {
@@ -967,8 +993,13 @@ impl MemoFile {
         let tag_filter = tag_filter.map(str::trim).filter(|tag| !tag.is_empty());
         let conn = self.ensure_note_search_index(notebook_id)?;
         let root = self.notebook_root_for_note(notebook_id)?;
-        if !pending_note_index_refreshes(&root)?.is_empty() {
-            self.verify_note_index(notebook_id)?;
+        // A pending marker means some earlier write's index update did not land.
+        // Repair it before serving results, but never more than once per window:
+        // search runs on every debounced keystroke, and hashing every file per
+        // keystroke costs the user far more than one stale snippet. The routine
+        // reconcile only re-hashes files whose size or mtime moved.
+        if !pending_note_index_refreshes(&root)?.is_empty() && note_index_repair_due(notebook_id) {
+            self.reconcile_note_index(notebook_id)?;
         }
         let short_query = query.chars().count() < 3;
         let (sql, query_pattern) = if short_query {

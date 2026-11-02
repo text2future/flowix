@@ -346,7 +346,14 @@ impl NotebookBackground {
                     return;
                 }
                 let status = match result {
-                    Ok((_indexed, changed_kinds)) => {
+                    Ok((indexed, changed_kinds)) => {
+                        crate::watcher::probe::record_background_scan(
+                            crate::watcher::probe::ScanKind::Media,
+                            &id,
+                            started.elapsed(),
+                            indexed as u64,
+                            false,
+                        );
                         let status = queue.update_media_status(&id, "ready", None);
                         drop(queue);
                         if !changed_kinds.is_empty() {
@@ -429,6 +436,13 @@ impl NotebookBackground {
                 queue.enqueue(id.clone(), false, true);
             }
             drop(queue);
+            crate::watcher::probe::record_background_scan(
+                crate::watcher::probe::ScanKind::NoteIndex,
+                &id,
+                started.elapsed(),
+                ticks.get() as u64,
+                rerun,
+            );
             tracing::info!(notebook = %id, elapsed_ms = started.elapsed().as_millis(),
                 files_checked = ticks.get(), "background notebook task settled");
             if let Some(status) = status {

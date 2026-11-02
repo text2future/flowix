@@ -1,7 +1,7 @@
 //! Keep the notebook path index aligned with filesystem changes.
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use flowix_core::memo_file::{
     resource_kind_for_path, FileManagementPolicy, notebook_relative_path, MemoFile,
@@ -500,20 +500,61 @@ match refresh_path_with_content(
                 }
             }
             FsEventKind::DirectoryChange => {
-                Self::reconcile_directory_change(app, &memo_file, ctx);
+                // The worker folds a burst into one call before dispatch; this
+                // keeps a direct caller of `process` correct on its own.
+                Self::reconcile_directory_change(
+                    app,
+                    &memo_file,
+                    ctx,
+                    std::slice::from_ref(&event.path),
+                    1,
+                );
             }
             FsEventKind::Other => {}
         }
     }
 
-    fn reconcile_directory_change(app: &AppHandle, memo_file: &MemoFile, ctx: &NotebookWatchContext) {
+    /// Whole-notebook reconcile for one collapsed burst of directory events.
+    ///
+    /// `directories` and `absorbed` are diagnostic only — they never change what
+    /// this function does. The burst they describe was already folded into a
+    /// single call by [`crate::watcher::directory_coalesce`], because a directory
+    /// reconcile recomputes the whole notebook and is therefore idempotent.
+    pub(crate) fn reconcile_directory_change(
+        app: &AppHandle,
+        memo_file: &MemoFile,
+        ctx: &NotebookWatchContext,
+        directories: &[PathBuf],
+        absorbed: u32,
+    ) {
+        let started = Instant::now();
         crate::commands::document_list::refresh_view_document_catalog(memo_file, &ctx.notebook_id, &ctx.root);
+        let catalog = started.elapsed();
         app.state::<crate::app::state::AppState>().notebook_background
             .request(&ctx.notebook_id, false, true);
+        let index_request = started.elapsed().saturating_sub(catalog);
         let _ = app.state::<crate::app::state::AppState>()
             .notebook_background
             .request_media(&ctx.notebook_id);
+        let media_request = started.elapsed().saturating_sub(catalog + index_request);
         emit_path_changed(app, ctx, "", false);
+        let total = started.elapsed();
+        let directory = directories
+            .first()
+            .and_then(|directory| notebook_relative_path(&ctx.root, directory).ok())
+            .unwrap_or_default();
+        crate::watcher::probe::record(
+            &ctx.notebook_id,
+            &directory,
+            crate::watcher::probe::ReconcileProfile {
+                catalog,
+                index_request,
+                media_request,
+                broadcast: total.saturating_sub(catalog + index_request + media_request),
+                total,
+                absorbed,
+            },
+        );
     }
 
     pub(crate) fn unregister_and_emit(
