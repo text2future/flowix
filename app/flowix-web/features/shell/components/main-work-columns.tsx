@@ -135,7 +135,7 @@ export function MainWorkColumns({
   });
   const selectionLabel = t('memo.fileTree.selectedDocumentCount', { count: accessSpaceSelectionCount });
   /**
-   * 集合头图可见时，内容区上穿一个标题栏高度（mac h-12 / win h-9），让头图
+   * 集合头图可见时，内容区上穿共享标题栏高度，让头图
    * 顶部从标题栏下方经过；隐藏头图后撤掉上移，集合内容从标题栏下方正常开始。
    * 集合内部的吸顶偏移（tab 条 / 表头）引用 `--work-titlebar-h`，随负 margin 一起开关。
    */
@@ -147,12 +147,12 @@ export function MainWorkColumns({
   // Registry 尚未就绪时按默认可见处理，避免集合初次渲染时内容短暂跳位。
   const collectionBannerVisible = !collectionBanner.available || collectionBanner.visible;
   const workTitlebarH = isCollectionShellSurface && collectionBannerVisible
-    ? (isWindowsPlatform() ? '2.25rem' : '3rem')
+    ? 'var(--window-titlebar-height)'
     : null;
   const contentHostStyle: CSSProperties | undefined = hasMultipleDocumentsSelected
     ? { display: 'none' }
     : workTitlebarH
-      ? ({ marginTop: `-${workTitlebarH}`, '--work-titlebar-h': workTitlebarH } as CSSProperties)
+      ? ({ marginTop: `calc(0px - ${workTitlebarH})`, '--work-titlebar-h': workTitlebarH } as CSSProperties)
       : undefined;
   return (
     <>

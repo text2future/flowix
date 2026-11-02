@@ -92,7 +92,6 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
    * （重读会把已挂载的面板与当前 tab 打回初始态）。
    */
   const [noteViewId, setNoteViewId] = useState<string | null>(tableProps.initialViewId ?? null);
-  useEffect(() => { setNoteViewId(tableProps.initialViewId ?? null); }, [sourceIndexPath, tableProps.initialViewId]);
   const [renamedIndexPath, setRenamedIndexPath] = useState<string | null>(null);
   useEffect(() => { setRenamedIndexPath(null); }, [sourceIndexPath]);
   const indexPath = renamedIndexPath ?? sourceIndexPath;
@@ -114,6 +113,8 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
   const { existing, missing: collectionMissing, domains, tableReady, banner, subtitle, icon, tabs } = useCollectionSurfaceState({
     sourceIndexPath, folderPath, indexPath, currentFolderPath, folderName, notebookPath, notebookId, editable: tableProps.editable ?? true,
   });
+  const collectionKey = expectedCollectionId ?? existing?.collectionId ?? sourceIndexPath;
+  useEffect(() => { setNoteViewId(tableProps.initialViewId ?? null); }, [collectionKey, tableProps.initialViewId]);
   /** 自定义集合图标（属性图标 URL）：集合属性 `icon` 指定时覆盖默认文件夹 / 表格图标。 */
   const defaultIcon = collectionDefaultIcon(existing?.views ?? []);
   const collectionIconSrc = icon.value ? getPropertyIconOption(icon.value)?.src : undefined;
@@ -223,7 +224,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
     notebookPath={notebookPath}
     host={host}
     indexPath={indexPath}
-    expectedCollectionId={expectedCollectionId}
+    expectedCollectionId={expectedCollectionId ?? existing?.collectionId}
     actionsHost={actionsHost}
     datasetFilterOwner={datasetFilterOwner}
     onDatasetFilterVisibilityChange={handleDatasetFilterVisibilityChange}
@@ -237,6 +238,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
   const tableBody = <Suspense fallback={PANEL_FALLBACK}>
     <TableDocumentView
       {...tableProps}
+      expectedCollectionId={expectedCollectionId ?? existing?.collectionId}
       filePath={indexPath}
       onActiveViewChange={handleActiveViewChange}
       initialViewId={noteViewId ?? tableProps.initialViewId}

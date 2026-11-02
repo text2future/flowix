@@ -54,6 +54,30 @@ async function renderTab(props = baseProps): Promise<HTMLDivElement> {
 }
 
 describe('collection files tab', () => {
+  it('retains rows and sorting on a collection rename and opens files at the new path', async () => {
+    calls.getDirChildren.mockResolvedValue([
+      item({ id: 'b', name: 'b.md', fullPath: '/book/客户周报/b.md', type: 'file' }),
+      item({ id: 'a', name: 'a.md', fullPath: '/book/客户周报/a.md', type: 'file' }),
+    ]);
+    const reportPresentation = vi.fn();
+    const props = { ...baseProps, collectionId: 'c1', reportPresentation };
+    const node = await renderTab(props);
+    await act(async () => node.querySelector<HTMLButtonElement>('th button')!.click());
+    let finish!: (items: ReturnType<typeof item>[]) => void;
+    calls.getDirChildren.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    reportPresentation.mockClear();
+    await act(async () => root?.render(<CollectionFilesTab {...props} rootPath="/book/renamed" />));
+    expect([...node.querySelectorAll('[data-file-name]')].map((row) => row.textContent)).toEqual(['a', 'b']);
+    expect(reportPresentation.mock.calls.every(([update]) => update.state.status === 'ready')).toBe(true);
+    await act(async () => node.querySelector<HTMLButtonElement>('[data-file-row]')!.click());
+    expect(calls.openWorkspaceSurface.mock.lastCall?.[0].target.path).toBe('/book/renamed/a.md');
+    await act(async () => finish([
+      item({ id: 'b', name: 'b.md', fullPath: '/book/renamed/b.md', type: 'file' }),
+      item({ id: 'a', name: 'a.md', fullPath: '/book/renamed/a.md', type: 'file' }),
+    ]));
+    expect([...node.querySelectorAll('[data-file-name]')].map((row) => row.textContent)).toEqual(['a', 'b']);
+  });
+
   it('clears shell loading after files arrive and republishes ready when reactivated', async () => {
     let finish!: (items: ReturnType<typeof item>[]) => void;
     calls.getDirChildren.mockReturnValue(new Promise((resolve) => { finish = resolve; }));

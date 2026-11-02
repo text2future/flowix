@@ -1,7 +1,5 @@
 // Compatibility exports for document and Agent titlebar consumers.
 export {
-  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC,
-  DOCUMENT_TITLEBAR_ICON_BUTTON_WIN,
   type DocumentTitlebarProps,
   type DocumentTitlebarTarget,
 } from './document-titlebar-model';

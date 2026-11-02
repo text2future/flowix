@@ -14,19 +14,8 @@ interface NoteNavigationPanelHeaderWinProps {
 /**
  * Windows header for the note navigation panel.
  *
- * Design rules:
- * - `h-9` (36px) ── Windows uses a native OS title bar
- *   (`<WindowsTitlebarControls />`) at the very top; this in-app header sits
- *   BELOW it and is purely internal UI decoration, so it can be shorter
- *   than the macOS variant.
- * - `px-2` ── matches MemoListTitlebarWin's horizontal padding; no traffic
- *   lights to reserve space for (Windows native chrome handles those).
- * - `data-tauri-drag-region` ── kept for consistency with other in-app
- *   titlebars; redundant on Windows because the OS title bar already
- *   handles window dragging, but harmless and keeps the visual layer
- *   uniform.
- * - `rounded-lg` + `w-7 h-7` button ── matches MemoListTitlebarWin's
- *   button sizing & Windows-typical tighter radius.
+ * This 40px strip matches the macOS navigation panel header. It is an app
+ * drag region; the main window uses custom controls with no native title bar.
  */
 export function NoteNavigationPanelHeaderWin({
   onTogglePanel,
@@ -36,7 +25,7 @@ export function NoteNavigationPanelHeaderWin({
   return (
     <div
       data-tauri-drag-region
-      className="shrink-0 h-9 px-2 flex items-center justify-between"
+      className="shrink-0 h-10 px-2 flex items-center justify-between"
     >
       <div className="ml-1 flex items-center">
         <NotebookIconMenu

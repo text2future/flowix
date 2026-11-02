@@ -24,6 +24,7 @@ import { useI18n } from '@/lib/i18n';
 import { formatUpdatedAt } from '@/lib/collection-updated-time';
 import { toast } from '@/lib/toast';
 import { displayTitleFromFilename } from '@/lib/utils';
+import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import folderIcon from '@/assets/folder-outline.svg?raw';
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
@@ -93,16 +94,29 @@ function HeaderTypeIcon({ kind }: { kind: 'note' | 'date' | 'number' }) {
 /**
  * 文件树 tab ── 单层列表，点文件夹进它自己的集合视图，不含任何集合配置。
  */
-export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host, reportPresentation }: {
+export function CollectionFilesTab({ rootPath, notebookId, notebookPath, collectionId, host, reportPresentation }: {
   rootPath: string;
   notebookId: string | null;
   notebookPath: string | null;
+  collectionId?: string | null;
   host: WorkspaceSurfaceRenderContext['host'];
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
 }) {
   const { t, language } = useI18n();
-  const [listing, setListing] = useState<{ rootPath: string; items: DocTreeItem[] } | null>(null);
-  const items = listing?.rootPath === rootPath ? listing.items : null;
+  const identity = JSON.stringify([notebookId, notebookPath, collectionId ?? rootPath]);
+  const [listing, setListing] = useState<{ identity: string; rootPath: string; items: DocTreeItem[] } | null>(null);
+  // A renamed folder has the same children. Rebase their addresses immediately
+  // so retained rows remain safe to open while the new directory is read.
+  const items = useMemo(() => {
+    if (!listing || listing.identity !== identity) return null;
+    if (listing.rootPath === rootPath) return listing.items;
+    const prefix = `${canonicalDirectoryPath(listing.rootPath)}/`;
+    const nextPrefix = `${canonicalDirectoryPath(rootPath)}/`;
+    return listing.items.map((item) => {
+      const path = canonicalPath(item.fullPath);
+      return { ...item, fullPath: path.startsWith(prefix) ? nextPrefix + path.slice(prefix.length) : path };
+    });
+  }, [identity, listing, rootPath]);
   const headerScrollerRef = useRef<HTMLDivElement>(null);
 
   // Only the active panel receives the reporter. Re-publish when a retained
@@ -114,6 +128,7 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host, r
   }, [items, reportPresentation]);
 
   const [sort, setSort] = useState<FileSort>(null);
+  useEffect(() => { setSort(null); }, [identity]);
   const sortedItems = useMemo(() => {
     const collator = new Intl.Collator(language, { numeric: true, sensitivity: 'base' });
     return items?.slice().sort((a, b) => {
@@ -150,13 +165,11 @@ export function CollectionFilesTab({ rootPath, notebookId, notebookPath, host, r
 
   useEffect(() => {
     let cancelled = false;
-    setListing(null);
-    setSort(null);
     files.getDirChildren(rootPath)
-      .then((next) => { if (!cancelled) setListing({ rootPath, items: next }); })
-      .catch(() => { if (!cancelled) setListing({ rootPath, items: [] }); });
+      .then((next) => { if (!cancelled) setListing({ identity, rootPath, items: next }); })
+      .catch(() => { if (!cancelled) setListing({ identity, rootPath, items: [] }); });
     return () => { cancelled = true; };
-  }, [rootPath]);
+  }, [identity, rootPath]);
 
   const openItem = useCallback(async (item: DocTreeItem) => {
     if (!notebookId || !notebookPath) return;

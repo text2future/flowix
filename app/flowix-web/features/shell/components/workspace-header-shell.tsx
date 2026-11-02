@@ -29,8 +29,7 @@ export function WorkspaceHeaderShell({
   }
   const skin = header?.chrome === 'agent' ? 'agent-surface-titlebar' : header?.chrome === 'media' ? 'media-surface-titlebar' : '';
   return <Tag {...domProps} data-tauri-drag-region data-header-style={header?.chrome}
-    className={`work-column-titlebar relative z-[50] flex shrink-0 select-none items-center pl-1 ${isWindows
-      ? `h-9 min-h-9 ${reserveWindowsControls ? 'pr-[126px]' : 'pr-0'}` : 'h-12 min-h-12'} ${skin} ${className}`}
+    className={`work-column-titlebar relative z-[50] flex h-[var(--window-titlebar-height)] min-h-[var(--window-titlebar-height)] shrink-0 select-none items-center pl-1 ${isWindows && reserveWindowsControls ? 'pr-[var(--window-controls-width)]' : isWindows ? 'pr-0' : ''} ${skin} ${className}`}
     style={{ ...style, ...(header ? {
       backgroundColor: header.backgroundColor,
       backgroundImage: header.gradient ? WORK_COLUMN_TITLEBAR_GRADIENT : 'none',

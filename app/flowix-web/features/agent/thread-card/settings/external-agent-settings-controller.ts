@@ -46,6 +46,10 @@ import {
 import { ensureConversationWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
 import { agent, windows } from "@platform/tauri/client";
 import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
+import {
+  createOverlayScrollbarDom,
+  type OverlayScrollbarDomController,
+} from "@shared/ui/overlay-scrollbar-dom";
 import { subscribe, type UnlistenFn } from "@platform/tauri/event-bus";
 import {
   applyPopoverPosition,
@@ -203,6 +207,7 @@ export interface ExternalAgentSettingsControllerOptions {
 
 export class ExternalAgentSettingsController {
   private readonly popover: HTMLDivElement;
+  private modelPickerScrollbar: OverlayScrollbarDomController | null = null;
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly getInstanceId: () => string | undefined;
   private readonly getLanguage: () => AppLanguage;
@@ -1153,6 +1158,7 @@ export class ExternalAgentSettingsController {
       this.startPositionTracking();
       document.addEventListener("pointerdown", this.handleOutsidePointer, true);
     } else {
+      this.clearModelPickerScrollbar();
       this.stopPositionTracking();
       document.removeEventListener(
         "pointerdown",
@@ -1185,10 +1191,11 @@ export class ExternalAgentSettingsController {
       return;
     }
     const kind = this.kind;
+    this.clearModelPickerScrollbar();
     this.popover.replaceChildren();
     this.popover.classList.toggle(
       "agent-thread-card__codex-settings-popover--model-picker",
-      this.getTypeKey() === "codex" && kind === "model",
+      kind === "model",
     );
     const isPiModelPicker = this.getTypeKey() === "pi" && kind === "model";
     this.popover.classList.toggle(
@@ -1232,6 +1239,7 @@ export class ExternalAgentSettingsController {
   }
 
   private renderWorkspacePopover(): void {
+    this.clearModelPickerScrollbar();
     this.popover.classList.remove(
       "agent-thread-card__codex-settings-popover--model-picker",
     );
@@ -1545,6 +1553,7 @@ export class ExternalAgentSettingsController {
 
   dispose(): void {
     this.emptyState.dispose();
+    this.clearModelPickerScrollbar();
     this.unlistenCodexSettings();
     this.unlistenPiCatalog();
     this.setSettingsPopoverOpen(false);
@@ -2022,14 +2031,11 @@ export class ExternalAgentSettingsController {
     const { id: current, providerId: currentProviderId } =
       this.resolveCurrentSelection();
     const options = this.getExternalModelOptions();
+    const modelList = this.createModelPickerScroller();
 
     // Codex 的 reasoning effort 放在模型列表底部, 模型列表与强度可分别选择。
     if (this.getTypeKey() === "codex") {
-      this.popover.classList.add(
-        "agent-thread-card__codex-settings-popover--model-picker",
-      );
-      const modelList = document.createElement("div");
-      modelList.className = "agent-thread-card__codex-settings-model-list";
+      modelList.classList.add("agent-thread-card__codex-settings-model-list");
       const modelSection = document.createElement("div");
       modelSection.className =
         "agent-thread-card__codex-settings-section agent-thread-card__codex-settings-section--model";
@@ -2051,7 +2057,7 @@ export class ExternalAgentSettingsController {
           ),
         );
       });
-      this.popover.append(modelList, this.createCodexReasoningSlider());
+      this.popover.append(this.createCodexReasoningSlider());
       return;
     }
 
@@ -2069,14 +2075,14 @@ export class ExternalAgentSettingsController {
         personalEmptyLabel: this.t("agent.pi.modelSection.mineEmpty"),
         createModelItem: (option) => this.createModelSettingsItem(option, current, currentProviderId),
       });
-      this.popover.append(picker);
+      modelList.append(picker);
     } else if (this.getTypeKey() === "dsh") {
       if (this.shouldShowPiModelEmptyState()) {
         const modelSection = document.createElement("div");
         modelSection.className = "agent-thread-card__codex-settings-section";
         modelSection.textContent = this.t("agent.model.title");
-        this.popover.append(modelSection);
-        this.popover.append(
+        modelList.append(modelSection);
+        modelList.append(
           createCodexSettingsItem(
             this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound"),
             false,
@@ -2103,9 +2109,9 @@ export class ExternalAgentSettingsController {
           providerSection.className =
             "agent-thread-card__codex-settings-section agent-thread-card__codex-settings-section--provider";
           providerSection.textContent = group.label;
-          this.popover.append(providerSection);
+          modelList.append(providerSection);
           group.options.forEach((option) => {
-            this.popover.append(this.createModelSettingsItem(option, current, currentProviderId));
+            modelList.append(this.createModelSettingsItem(option, current, currentProviderId));
           });
         });
       }
@@ -2113,10 +2119,10 @@ export class ExternalAgentSettingsController {
       const modelSection = document.createElement("div");
       modelSection.className = "agent-thread-card__codex-settings-section";
       modelSection.textContent = this.t("agent.model.title");
-      this.popover.append(modelSection);
+      modelList.append(modelSection);
 
       if (this.shouldShowPiModelEmptyState()) {
-        this.popover.append(
+        modelList.append(
           createCodexSettingsItem(
             this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound"),
             false,
@@ -2127,7 +2133,7 @@ export class ExternalAgentSettingsController {
         );
       } else {
         options.forEach((option) => {
-          this.popover.append(this.createModelSettingsItem(option, current, currentProviderId));
+          modelList.append(this.createModelSettingsItem(option, current, currentProviderId));
         });
       }
     }
@@ -2138,7 +2144,7 @@ export class ExternalAgentSettingsController {
     divider.setAttribute("role", "separator");
     divider.setAttribute("aria-hidden", "true");
     divider.className = POPUP_SEPARATOR_CLASS;
-    this.popover.append(divider);
+    modelList.append(divider);
 
     const reasoningSection = document.createElement("div");
     reasoningSection.className = "agent-thread-card__codex-settings-section";
@@ -2149,12 +2155,34 @@ export class ExternalAgentSettingsController {
       reasoningGroup.setAttribute("role", "group");
       reasoningGroup.setAttribute("aria-label", this.t("agent.reasoningDepth.title"));
       reasoningGroup.append(reasoningSection);
-      this.popover.append(reasoningGroup);
+      modelList.append(reasoningGroup);
       this.renderReasoningOptions(reasoningGroup, true);
     } else {
-      this.popover.append(reasoningSection);
-      this.renderReasoningOptions();
+      modelList.append(reasoningSection);
+      this.renderReasoningOptions(modelList);
     }
+  }
+
+  private createModelPickerScroller(): HTMLDivElement {
+    this.clearModelPickerScrollbar();
+    const typeKey = this.getTypeKey();
+    this.modelPickerScrollbar = createOverlayScrollbarDom(this.popover.ownerDocument, {
+      frameClassName: "agent-thread-card__codex-settings-model-scroll-frame overlay-scrollbar-frame--custom-mac",
+      scrollerClassName: [
+        "agent-thread-card__codex-settings-model-scroll",
+        typeKey !== "pi" && typeKey !== "codex"
+          ? "agent-thread-card__codex-settings-model-scroll--inset"
+          : undefined,
+      ].filter(Boolean).join(" "),
+      observeContent: true,
+    });
+    this.popover.append(this.modelPickerScrollbar.frame);
+    return this.modelPickerScrollbar.scroller;
+  }
+
+  private clearModelPickerScrollbar(): void {
+    this.modelPickerScrollbar?.destroy();
+    this.modelPickerScrollbar = null;
   }
 
   private createCodexReasoningSlider(): HTMLElement {

@@ -52,7 +52,7 @@ export function NoteNavigationPanel({
     )}>
       {/* 顶部 header ── Mac/Win 差分:
             - Mac: h-10 + pl-[90px] 避开红绿灯 + rounded-xl 按钮
-            - Win: h-9 (在 OS 标题栏下方, 仅做内部 UI) + rounded-lg 按钮
+            - Win: h-10 (与 Mac 对齐) + rounded-lg 按钮
           两者都整块作为窗口拖动区 (data-tauri-drag-region)。 */}
       {isWindowsPlatform() ? (
         <NoteNavigationPanelHeaderWin

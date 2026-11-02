@@ -105,19 +105,10 @@ import {
 
 export { localFilePathFromAgentHref } from "@features/agent/thread-card/link-navigation";
 
-// OS 顶部控件区高度 ── AgentThreadCard 全屏时把卡片向上探出这条带状区
-// 高度, 覆盖到 webview 顶端 (而不是停在文档区顶边)。
-//
-//   - Windows: 36px (h-9), 来自 components/windows-titlebar-controls.tsx
-//     ── 那是一个 `position: fixed; top: 0; h-9` 的覆盖层, 实际占
-//     据 webview 内容顶部的 36px 高度。
-//   - macOS / Linux: 0px ── OS 自带的 traffic-light / GTK decoration
-//     在 webview 之外, 不占内容区。Mac 上确实有 flowix 自己的
-//     document-titlebar-mac (h-12 = 48px), 但它属于"文档区内部的
-//     标题栏", 全屏卡片向上探出去就把它压住了 ── 不算 OS 顶部控件区。
-//
-// 用 px 写死而非 var 是有意: h-9 是 Tailwind 直接出 36px 的常量, 改
-// 一边就要同步改另一边, 这里保留纯数字 + 注释避免魔法值漂移。
+// OS 顶部控件区高度 ── Windows 的自定义控制区使用共享
+// `--window-titlebar-height` token (当前为 48px)；macOS / Linux 的系统
+// 装饰位于 webview 外，不占内容区。Mac 自己的 document titlebar 属于
+// 文档区内部，Agent 全屏卡片向上展开时会被覆盖，不算 OS 顶部控件区。
 const BOTTOM_FOLLOW_THRESHOLD_PX = 96;
 const TOP_HISTORY_LOAD_THRESHOLD_PX = 48;
 const FULLSCREEN_EXIT_FALLBACK_MIN_TOP_PX = 24;

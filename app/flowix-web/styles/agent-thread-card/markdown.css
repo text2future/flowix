@@ -1751,7 +1751,25 @@
 .agent-thread-card__codex-settings-model-list {
   min-height: 0;
   flex: 1 1 auto;
+  padding: 0.25rem;
+}
+
+.agent-thread-card__codex-settings-model-scroll-frame {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.agent-thread-card__codex-settings-model-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
   overflow-y: auto;
+}
+
+.agent-thread-card__codex-settings-model-scroll--inset {
   padding: 0.25rem;
 }
 

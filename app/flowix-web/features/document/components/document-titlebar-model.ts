@@ -39,15 +39,6 @@ export function resolveDocumentTitlebarTarget(
   };
 }
 
-/** Shared titlebar action button classes used by document and Agent titlebars. */
-export const DOCUMENT_TITLEBAR_ICON_BUTTON_MAC =
-  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors bg-[color-mix(in_srgb,var(--bg-titlebar)_72%,transparent)] border border-[var(--border)]';
-export const DOCUMENT_TITLEBAR_ICON_BUTTON_WIN =
-  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg transition-colors';
-/** macOS variant without the outer frame (no bg/border), used by the browser-column expand button. */
-export const DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS =
-  'w-8 h-8 flex enabled:!cursor-pointer disabled:!cursor-not-allowed items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition-colors';
-
 export interface DocumentTitlebarProps {
   webAddressBarVisible?: boolean;
   onToggleWebAddressBar?: () => void;

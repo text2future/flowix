@@ -115,6 +115,21 @@ beforeEach(() => {
 });
 
 describe('useCollectionDocumentSession', () => {
+  it('keeps a renamed collection visible while refreshing its new path, but loads a different identity', async () => {
+    const source = serializeMediaLibrary(createMediaLibrary('Library'));
+    const id = parseMediaLibrary(source).collection.id;
+    mocks.read.mockResolvedValue(source);
+    await mount(baseOptions({ expectedCollectionId: id }));
+    let finish!: (content: string) => void;
+    mocks.read.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    await act(async () => root?.render(<Probe options={baseOptions({ filePath: '/book/renamed.lib.yaml', expectedCollectionId: id })} />));
+    expect(session?.loading).toBe(false);
+    expect(session?.document?.collection.id).toBe(id);
+    await act(async () => finish(source));
+    await act(async () => root?.render(<Probe options={baseOptions({ filePath: '/book/other.lib.yaml', expectedCollectionId: 'other' })} />));
+    expect(session?.loading).toBe(true);
+  });
+
   it('只读会话不迁移旧格式，也拒绝直接写入和持锁任务', async () => {
     const migrate = vi.fn(serializeMediaLibrary);
     const document = createMediaLibrary('readonly');

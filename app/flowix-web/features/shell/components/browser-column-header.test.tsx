@@ -14,8 +14,6 @@ vi.mock('@features/document/public/shell-api', () => ({
   ExternalDocumentActions: ({ capabilities, collectionDisplayIndexPath }: { capabilities: { memoColors: boolean; versionHistory: boolean }; collectionDisplayIndexPath?: string }) => <div data-document-actions data-history={String(capabilities.versionHistory)} data-collection-index={collectionDisplayIndexPath}>
     {capabilities.memoColors && <button aria-label="document.color.button" />}
   </div>,
-  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC: 'mac-button',
-  DOCUMENT_TITLEBAR_ICON_BUTTON_WIN: 'win-button',
   AgentThreadCardFullscreenExitButton: () => null,
   AgentThreadCardFullscreenIdentity: () => <span>fullscreen agent</span>,
   AgentThreadCardFullscreenMoreMenu: () => <button data-fullscreen-menu />,

@@ -985,7 +985,9 @@ fn mutate_locked(
         }
         let (item, path, source, mut document) = catalog.read(&request.collection_id)?;
         if let Some(locked_path) = locked_path {
-            if dunce::canonicalize(&path).map_err(|error| error.to_string())? != locked_path {
+            // FileWriteGuard uses std canonicalization, including the Windows
+            // verbatim prefix. Use the same representation for identity checks.
+            if fs::canonicalize(&path).map_err(|error| error.to_string())? != locked_path {
                 return Err("COLLECTION_PATH_CHANGED".into());
             }
         }
@@ -1533,6 +1535,34 @@ mod tests {
         value.payload["dataset"]["source"] =
             serde_json::json!({"scope":"containing_folder","depth":"descendants"});
         value
+    }
+
+    #[test]
+    fn folder_banner_can_be_enabled_and_hidden_under_file_lock() {
+        let (memo, _temp, root, book) = fixture();
+        let original = folder_document(CollectionType::Table);
+        let path = root.join(".index.yaml");
+        fs::write(&path, original.serialize().unwrap()).unwrap();
+        let mut current = original.clone();
+        for hidden in [false, true] {
+            let mut patch = request(&book, &current);
+            patch.new_name = None;
+            patch.properties = Some(std::collections::BTreeMap::from([(
+                "banner_hidden".into(),
+                Some(CollectionProperty {
+                    kind: "Boolean".into(),
+                    name: None,
+                    value: serde_json::json!(hidden),
+                }),
+            )]));
+            let result = mutate(&memo, &patch).unwrap();
+            current = CollectionDocument::parse(&fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(result.actual_relative_path, ".index.yaml");
+            assert_eq!(current.collection.id, original.collection.id);
+            assert_eq!(current.collection.revision, patch.expected_revision + 1);
+            assert_eq!(current.collection.properties["banner_hidden"].value, hidden);
+            assert_eq!(current.payload, original.payload);
+        }
     }
 
     #[test]

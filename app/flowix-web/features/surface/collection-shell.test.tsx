@@ -182,7 +182,8 @@ describe('collection shell', () => {
 
   it('大标题双击改名：失焦保存后标题跟着新路径走', async () => {
     calls.summary.current = HYBRID_NOTES_ONLY;
-    calls.rename.mockResolvedValue({ filePath: '/book/客户月报/.index.yaml' });
+    let finishRename!: (value: { filePath: string }) => void;
+    calls.rename.mockImplementation(() => new Promise((resolve) => { finishRename = resolve; }));
     const node = await renderShell({
       filePath: '/book/客户周报/.index.yaml',
       notebookId: 'book',
@@ -208,8 +209,34 @@ describe('collection shell', () => {
     });
 
     expect(calls.rename).toHaveBeenCalledWith('/book/客户周报/.index.yaml', '/book', '客户月报', 'book', 'c1');
+    expect(node.querySelector('h2 button')?.textContent).toBe('客户月报');
+    expect(node.querySelector<HTMLButtonElement>('h2 button')?.disabled).toBe(true);
+    expect(node.querySelector('h2 input')).toBeNull();
+    await act(async () => finishRename({ filePath: '/book/客户月报/.index.yaml' }));
     expect(node.querySelector('h2')?.textContent).toBe('客户月报');
+    expect(node.querySelector<HTMLButtonElement>('h2 button')?.disabled).toBe(false);
   });
+});
+
+it('rename failure restores the original title and allows editing again', async () => {
+  calls.summary.current = HYBRID_NOTES_ONLY;
+  let failRename!: (reason: Error) => void;
+  calls.rename.mockImplementation(() => new Promise((_resolve, reject) => { failRename = reject; }));
+  const node = await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+  await act(async () => {
+    node.querySelector('h2 button')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  });
+  const input = node.querySelector<HTMLInputElement>('h2 input')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '客户月报');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => { input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+  expect(node.querySelector('h2 button')?.textContent).toBe('客户月报');
+  expect(node.querySelector<HTMLButtonElement>('h2 button')?.disabled).toBe(true);
+  await act(async () => failRename(new Error('rename failed')));
+  expect(node.querySelector('h2 button')?.textContent).toBe('客户周报');
+  expect(node.querySelector<HTMLButtonElement>('h2 button')?.disabled).toBe(false);
 });
 
 describe('collection shell active tab', () => {

@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core';
 import { GapCursor, gapCursor } from '@tiptap/pm/gapcursor';
-import type { ResolvedPos } from '@tiptap/pm/model';
+import type { Node as ProseMirrorNode, ResolvedPos } from '@tiptap/pm/model';
 import { NodeSelection, Plugin, Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
@@ -8,6 +8,56 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 // Keep the compatibility boundary here so hot zones use precisely its rules.
 export function isValidBlockGap($pos: ResolvedPos): boolean {
   return (GapCursor as typeof GapCursor & { valid(pos: ResolvedPos): boolean }).valid($pos);
+}
+
+// Ordinary inline content makes a boundary invalid. Check this before resolve,
+// which scans the document's preceding siblings for every candidate position.
+// Special text blocks (including code blocks) still use GapCursor's validator.
+function isOpenTextBlock(node: ProseMirrorNode | null): boolean {
+  return !!node && node.inlineContent && !node.isAtom
+    && !node.type.spec.isolating && !node.type.spec.createGapCursor;
+}
+
+function createBlockGapWidget(pos: number): Decoration {
+  return Decoration.widget(pos, (view, getPos) => {
+    const boundary = document.createElement('div');
+    boundary.className = 'editor-block-gap';
+    boundary.contentEditable = 'false';
+    const hit = document.createElement('span');
+    hit.className = 'editor-block-gap__hit';
+    hit.setAttribute('aria-hidden', 'true');
+    hit.addEventListener('mousedown', (event) => {
+      if (event.button !== 0 || !view.editable) return;
+      // Decorations can survive edits. Resolve the current position on click.
+      const position = getPos();
+      if (position === undefined) return;
+      const resolved = view.state.doc.resolve(position);
+      if (!isValidBlockGap(resolved)) return;
+      event.preventDefault();
+      view.dispatch(view.state.tr.setSelection(new GapCursor(resolved)));
+      view.focus();
+    });
+    boundary.appendChild(hit);
+    return boundary;
+  }, { key: `block-gap-${pos}`, side: -1, stopEvent: () => true });
+}
+
+function buildBlockGapDecorations(doc: ProseMirrorNode): DecorationSet {
+  const decorations: Decoration[] = [];
+  const addBoundary = (pos: number, index: number) => {
+    const before = index > 0 ? doc.child(index - 1) : null;
+    const after = index < doc.childCount ? doc.child(index) : null;
+    // Performance contract: filter BEFORE resolve. Resolving every boundary
+    // repeatedly scans preceding siblings, making many-block documents O(n²).
+    // This is only a rejection filter; GapCursor remains the final authority.
+    if (isOpenTextBlock(before) || isOpenTextBlock(after)) return;
+    const $pos = doc.resolve(pos);
+    if (!isValidBlockGap($pos) || after?.type.name === 'frontmatter') return;
+    decorations.push(createBlockGapWidget(pos));
+  };
+  doc.forEach((_node, pos, index) => addBoundary(pos, index));
+  addBoundary(doc.content.size, doc.childCount);
+  return DecorationSet.create(doc, decorations);
 }
 
 /** Never let schema ordering choose frontmatter as the new text container. */
@@ -141,35 +191,7 @@ export const BlockGapCursor = Extension.create({
       new Plugin({
         props: {
           decorations(state) {
-            if (!editor.isEditable) return null;
-            const decorations: Decoration[] = [];
-            const add = (pos: number) => {
-              const $pos = state.doc.resolve(pos);
-              if (!isValidBlockGap($pos) || $pos.nodeAfter?.type.name === 'frontmatter') return;
-              decorations.push(Decoration.widget(pos, (view, getPos) => {
-                const boundary = document.createElement('div');
-                boundary.className = 'editor-block-gap';
-                boundary.contentEditable = 'false';
-                const hit = document.createElement('span');
-                hit.className = 'editor-block-gap__hit';
-                hit.setAttribute('aria-hidden', 'true');
-                hit.addEventListener('mousedown', (event) => {
-                  if (event.button !== 0 || !view.editable) return;
-                  const position = getPos();
-                  if (position === undefined) return;
-                  const resolved = view.state.doc.resolve(position);
-                  if (!isValidBlockGap(resolved)) return;
-                  event.preventDefault();
-                  view.dispatch(view.state.tr.setSelection(new GapCursor(resolved)));
-                  view.focus();
-                });
-                boundary.appendChild(hit);
-                return boundary;
-              }, { key: `block-gap-${pos}`, side: -1, stopEvent: () => true }));
-            };
-            state.doc.forEach((_node, pos) => add(pos));
-            add(state.doc.content.size);
-            return DecorationSet.create(state.doc, decorations);
+            return editor.isEditable ? buildBlockGapDecorations(state.doc) : null;
           },
         },
       }),

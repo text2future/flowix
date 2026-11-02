@@ -30,7 +30,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-family: var(--font-sans);
   color: var(--foreground);
 }
 

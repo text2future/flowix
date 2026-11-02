@@ -475,6 +475,11 @@ html.flowix-drag-drop-active * {
 }
 
 :root {
+	/* Shared geometry for native window titlebars and Windows control buttons. */
+	--window-titlebar-height: 3rem;
+	--window-control-button-width: 42px;
+	--window-controls-width: 126px; /* Three 42px buttons. */
+
 	/* Shared fade for editor titlebars and Agent conversation headers.
 	 * 起点色 = 品牌色 5% 叠加文字前景色 1%（嵌套 color-mix，均为对 transparent
 	 * 的 alpha 混合），向下渐变到 0%；不再取 --bg-titlebar 的中性白/黑，

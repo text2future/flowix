@@ -12,17 +12,9 @@ interface NoteNavigationPanelHeaderMacProps {
 /**
  * macOS header for the note navigation panel.
  *
- * Design rules:
- * - `h-10` (40px) ── macOS uses frameless Tauri window; this header doubles
- *   as the OS title bar so it must be tall enough for comfortable drag and
- *   to match the other Mac title bars in the app.
- * - `pl-[90px]` ── reserves space for the macOS traffic-light cluster
- *   (~78px wide at x=18) so the collapse button on the right side doesn't
- *   visually collide with the OS controls on the left.
- * - `data-tauri-drag-region` ── drag-to-move-window; Tauri's webview handles
- *   the actual window manipulation.
- * - `rounded-xl` + `w-8 h-8` button ── matches DocumentTitlebarMac's touch
- *   target sizing & macOS-typical rounded affordance.
+ * The 40px height matches the Windows navigation panel header. The main
+ * macOS window uses an overlay title bar; this strip provides a drag region
+ * within the navigation panel and reserves space for the traffic lights.
  */
 export function NoteNavigationPanelHeaderMac({
   onTogglePanel,

@@ -19,7 +19,6 @@ import { createBrowserColumnAgentConversation, discardUnopenedBrowserColumnAgent
 import type { AgentTypeKey } from '@/types/agent';
 import { workspaceSurfaceAppearance } from '@features/workspace/public/surface-api';
 import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
-import { isWindowsPlatform } from '@/lib/path';
 import {
   captureLatestDocumentContent,
   getDocumentEditorMode,
@@ -129,10 +128,10 @@ export const BrowserColumn = memo(function BrowserColumn({
   // Match the main Work column: visible collection banners slide under the titlebar,
   // while sticky collection tabs and table headers use the same titlebar offset.
   const collectionTitlebarH = collectionPath && (!collectionBanner.available || collectionBanner.visible)
-    ? (isWindowsPlatform() ? '2.25rem' : '3rem')
+    ? 'var(--window-titlebar-height)'
     : null;
   const collectionContentStyle: CSSProperties | undefined = collectionTitlebarH
-    ? ({ marginTop: `-${collectionTitlebarH}`, '--work-titlebar-h': collectionTitlebarH } as CSSProperties)
+    ? ({ marginTop: `calc(0px - ${collectionTitlebarH})`, '--work-titlebar-h': collectionTitlebarH } as CSSProperties)
     : undefined;
   const activeSurfaceChrome = activeSurfaceRuntime.appearance?.headerStyle
     ?? activeSurfaceDefinition?.chrome

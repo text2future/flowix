@@ -12,7 +12,7 @@
  *   `data-tauri-drag-region`.
  * - `<WindowsTitlebarControls />` returns `null` on macOS, so the overlay would
  *   otherwise expose no drag region at all. This component supplies it.
- * - `h-12` (48px) matches every other macOS title bar in the app
+ * - `--window-titlebar-height` matches every other title bar in the app
  *   (`memo-list-titlebar-mac`, `document-titlebar-mac`, `preferences-titlebar-mac`).
  * - The strip is intentionally empty and spans the full width, including the
  *   traffic-light cluster, which Rust pins at (x=15, y=25). Tauri treats the

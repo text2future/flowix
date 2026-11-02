@@ -155,6 +155,7 @@ export function useCollectionDocumentSession<T>({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const loadedRef = useRef<{ sessionKey: string; notebookPath: string; loadAttempt: number } | null>(null);
   const [saving, setSavingState] = useState(false);
   const savingRef = useRef(false);
   const saveBarrier = useMemo(createSaveBarrier, [sessionKey]);
@@ -198,6 +199,10 @@ export function useCollectionDocumentSession<T>({
 
   /** 读盘：解析 + 身份校验 + v1/v2 就地迁移。 */
   useEffect(() => {
+    // A path-only rename keeps this identity and its mounted content. The
+    // refresh effect below revalidates the new address without a loading screen.
+    if (loadedRef.current?.sessionKey === sessionKey && loadedRef.current.notebookPath === notebookPath
+      && loadedRef.current.loadAttempt === loadAttempt) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -237,6 +242,7 @@ export function useCollectionDocumentSession<T>({
       }
       if (cancelled) return;
       sourceContentRef.current = currentSource;
+      loadedRef.current = { sessionKey, notebookPath, loadAttempt };
       setDocument(parsed);
     }).catch((reason: unknown) => {
       if (!cancelled) setError(friendlyErrorMessage(reason, tRef.current, loadErrorKey));
@@ -244,7 +250,7 @@ export function useCollectionDocumentSession<T>({
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [currentFilePath, expectedCollectionId, loadAttempt, loadErrorKey, missingFileMessage, missingScopeMessage, notebookPath]);
+  }, [currentFilePath, expectedCollectionId, loadAttempt, loadErrorKey, missingFileMessage, missingScopeMessage, notebookPath, sessionKey]);
 
   /**
    * 变更并写回。hybrid 文档按域合并（保留其它数据域），v1/v2 走类型自己的序列化。
@@ -359,6 +365,15 @@ export function useCollectionDocumentSession<T>({
     });
   }, [acceptContent, loadErrorKey, missingFileMessage, notebookPath, sessionKey]);
   const retryRefresh = useCallback(() => refreshContent(currentFilePath), [currentFilePath, refreshContent]);
+  const previousAddressRef = useRef({ sessionKey, path: currentFilePath, notebookPath });
+  useEffect(() => {
+    const previous = previousAddressRef.current;
+    previousAddressRef.current = { sessionKey, path: currentFilePath, notebookPath };
+    if (previous.sessionKey === sessionKey && previous.notebookPath === notebookPath
+      && previous.path !== currentFilePath && loadedRef.current?.sessionKey === sessionKey) {
+      refreshContent(currentFilePath);
+    }
+  }, [currentFilePath, notebookPath, refreshContent, sessionKey]);
 
   useEffect(() => {
     setRefreshError(null);

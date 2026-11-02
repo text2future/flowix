@@ -22,13 +22,13 @@ describe('session Header host adaptation', () => {
       const header = node.firstElementChild!;
       const field = node.querySelector('input')!;
       field.value = 'draft address';
-      expect(header.className.includes('pr-[126px]')).toBe(false);
+      expect(header.className.includes('pr-[var(--window-controls-width)]')).toBe(false);
       expect(header.querySelector('[aria-hidden="true"]') !== null).toBe(!windows);
       await act(async () => render('browser-column'));
       expect(node.firstElementChild).toBe(header);
       expect(node.querySelector('input')).toBe(field);
       expect(field.value).toBe('draft address');
-      expect(header.className.includes('pr-[126px]')).toBe(windows);
+      expect(header.className.includes('pr-[var(--window-controls-width)]')).toBe(windows);
       expect(header.querySelector('[aria-hidden="true"]')).toBeNull();
     } finally {
       await act(async () => root.unmount());

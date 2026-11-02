@@ -88,7 +88,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 						<div
 							data-tauri-drag-region
 							aria-hidden="true"
-							className={`${isWindows ? "h-9" : "h-12"} w-full flex-none bg-[var(--bg-titlebar)]`}
+							className="h-[var(--window-titlebar-height)] w-full flex-none bg-[var(--bg-titlebar)]"
 						/>
 					)}
 					<div className="flex flex-1 flex-col items-center justify-center p-8">

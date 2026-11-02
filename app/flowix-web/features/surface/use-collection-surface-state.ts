@@ -180,14 +180,14 @@ export function useCollectionSurfaceState({
 
   const initializedSourceRef = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${sourceIndexPath}:${notebookPath}`;
+    const key = `${existing?.collectionId ?? sourceIndexPath}:${notebookPath}`;
     if (summary === null || initializedSourceRef.current === key) return;
     initializedSourceRef.current = key;
     const tab = summary === 'missing' ? (folderPath ? FILES_TAB_KEY : null) : resolveHostTab(summary);
     setActiveHostTab(tab);
     const parsed = tab ? parseAssetTabKey(tab) : null;
     setMountedDomains(parsed ? [parsed.domain] : []);
-  }, [folderPath, notebookPath, resolveHostTab, sourceIndexPath, summary]);
+  }, [existing?.collectionId, folderPath, notebookPath, resolveHostTab, sourceIndexPath, summary]);
 
   /**
    * 切换宿主 tab，并把「当前 tab」记到本地偏好里（下次打开直接进入）。

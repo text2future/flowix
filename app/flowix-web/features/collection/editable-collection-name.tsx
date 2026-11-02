@@ -71,6 +71,7 @@ export function EditableCollectionName({
   const { t } = useI18n();
   const style = NAME_STYLES[size];
   const unavailable = edit.disabled || edit.busy;
+  const displayTitle = edit.busy ? edit.draft.trim() || title : title;
 
   return <>
     {edit.editing ? <input
@@ -98,8 +99,8 @@ export function EditableCollectionName({
         edit.captureCaret(event.currentTarget, event.clientX, event.clientY);
         edit.beginEdit();
       }}
-      aria-label={`${renameLabel}：${title}`}
-      title={`${renameHint}：${title}`}
+      aria-label={`${renameLabel}：${displayTitle}`}
+      title={`${renameHint}：${displayTitle}`}
       disabled={unavailable}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === 'F2') {
@@ -108,7 +109,7 @@ export function EditableCollectionName({
         }
       }}
       className={`min-w-[2em] max-w-full flex-[0_1_auto] truncate text-left text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] disabled:opacity-100 ${style.button}`}
-    >{title}</button>}
+    >{displayTitle}</button>}
     {edit.busy && <span role="status" aria-label={t('memo.fileTree.renaming')} className="inline-flex shrink-0 items-center text-[var(--muted-foreground)]">
       <LoaderCircle className={`${style.spinner} flowix-spin`} aria-hidden="true" />
     </span>}

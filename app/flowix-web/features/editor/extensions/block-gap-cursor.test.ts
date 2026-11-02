@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Editor, Node } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { GapCursor } from '@tiptap/pm/gapcursor';
@@ -17,6 +17,10 @@ function createEditor() {
         renderHTML: () => ['aside'] }),
       Node.create({ name: 'card', group: 'block', atom: true, selectable: false,
         renderHTML: () => ['section', { contenteditable: 'false' }] }),
+      Node.create({ name: 'isolatingText', group: 'block', content: 'inline*', isolating: true,
+        renderHTML: () => ['section', 0] }),
+      Node.create({ name: 'atomText', group: 'block', content: 'inline*', atom: true,
+        renderHTML: () => ['section', 0] }),
       BlockGapCursor,
     ],
     content: { type: 'doc', content: [{ type: 'card' }, { type: 'card' }] },
@@ -27,6 +31,20 @@ function createEditor() {
 
 function selectGap(editor: Editor, position = 1) {
   editor.view.dispatch(editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(position))));
+}
+
+// Reference behavior deliberately resolves every boundary. Production's cheap
+// rejection filter must preserve these results when node schemas change.
+function expectedGapPositions(editor: Editor): number[] {
+  const doc = editor.state.doc;
+  const positions: number[] = [];
+  const add = (pos: number) => {
+    const $pos = doc.resolve(pos);
+    if (isValidBlockGap($pos) && $pos.nodeAfter?.type.name !== 'frontmatter') positions.push(pos);
+  };
+  doc.forEach((_node, pos) => add(pos));
+  add(doc.content.size);
+  return positions;
 }
 
 afterEach(() => { editors.splice(0).forEach(editor => editor.destroy()); });
@@ -105,6 +123,80 @@ describe('block gap cursor', () => {
     expect(editor.state.selection).toBeInstanceOf(GapCursor);
     expect(editor.state.selection.from).toBe(1);
     expect(editor.state.doc.eq(before)).toBe(true);
+  });
+
+  it.each(['isolatingText', 'atomText'])('preserves gaps around a %s block containing text', type => {
+    const editor = createEditor();
+    editor.commands.setContent({ type: 'doc', content: [
+      { type, content: [{ type: 'text', text: 'keep' }] },
+      { type: 'card' },
+    ] });
+    expect(editor.view.dom.querySelectorAll('.editor-block-gap')).toHaveLength(3);
+  });
+
+  it('matches upstream gap rules across ordinary and special block neighbors', () => {
+    const editor = createEditor();
+    const blocks = [
+      { type: 'paragraph' },
+      ...['paragraph', 'heading', 'codeBlock', 'isolatingText', 'atomText'].map(type => ({
+        type, content: [{ type: 'text', text: 'text' }],
+      })),
+      { type: 'card' },
+      { type: 'frontmatter' },
+    ];
+    for (const before of blocks) for (const after of blocks) {
+      editor.commands.setContent({ type: 'doc', content: [before, after] });
+      expect(editor.view.dom.querySelectorAll('.editor-block-gap').length,
+        `${before.type} / ${after.type}`).toBe(expectedGapPositions(editor).length);
+    }
+  });
+
+  it('keeps clickable gaps correct after editing and undoing a mixed document', () => {
+    const editor = createEditor();
+    editor.commands.setContent({ type: 'doc', content: [
+      { type: 'frontmatter' },
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
+      { type: 'codeBlock', content: [{ type: 'text', text: 'code' }] },
+      { type: 'card' },
+    ] });
+    const check = () => {
+      const expected = expectedGapPositions(editor);
+      expect(expected).toHaveLength(2);
+      expect(editor.view.dom.querySelectorAll('.editor-block-gap')).toHaveLength(expected.length);
+      expected.forEach((pos, index) => {
+        editor.view.dom.querySelectorAll('.editor-block-gap__hit')[index]
+          .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        expect(editor.state.selection).toBeInstanceOf(GapCursor);
+        expect(editor.state.selection.from).toBe(pos);
+      });
+    };
+    check();
+    editor.commands.setTextSelection(3);
+    editor.view.dispatch(closeHistory(editor.state.tr));
+    editor.commands.insertContent('edit');
+    check();
+    editor.commands.undo();
+    check();
+  });
+
+  it('avoids resolving every boundary in a large ordinary text document', () => {
+    const editor = createEditor();
+    editor.commands.setContent({ type: 'doc', content: Array.from({ length: 500 }, () => ({
+      type: 'paragraph', content: [{ type: 'text', text: 'ordinary text' }],
+    })) });
+    const resolve = vi.spyOn(editor.state.doc, 'resolve');
+    try {
+      // Count expensive operations rather than elapsed time so this guard is
+      // stable on both Windows and macOS, including slower CI machines.
+      editor.view.someProp('decorations', decorations => {
+        decorations(editor.state);
+        return false;
+      });
+      expect(resolve.mock.calls.length).toBeLessThan(10);
+      expect(editor.view.dom.querySelectorAll('.editor-block-gap')).toHaveLength(0);
+    } finally {
+      resolve.mockRestore();
+    }
   });
 
   it('Enter creates a paragraph and undo restores the two adjacent cards', () => {

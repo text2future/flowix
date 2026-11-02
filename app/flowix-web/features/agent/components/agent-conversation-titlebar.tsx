@@ -11,10 +11,9 @@ import {
 import { useI18n } from '@/lib/i18n';
 import { isWindowsPlatform } from '@features/shortcuts';
 import {
-  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC,
-  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS,
-  DOCUMENT_TITLEBAR_ICON_BUTTON_WIN,
-} from '@features/document/components/document-titlebar-model';
+  TITLEBAR_ICON_BUTTON_CLASS,
+  TITLEBAR_ICON_BUTTON_FRAMELESS_CLASS,
+} from '@shared/ui/titlebar-icon-button';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import { openNoteByNotebookPath, openNoteByPhysicalPath } from '@features/memo/public/note-navigation-api';
 import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
@@ -28,7 +27,6 @@ import { AgentConversationIdentity } from '@features/agent/components/agent-conv
 
 function AgentConversationHeader({ instanceId }: { instanceId: string }) {
   const { t } = useI18n();
-  const isWindows = isWindowsPlatform();
   const instance = useAgentSessionStore((state) => state.getInstance(instanceId));
   const [renameRequest, setRenameRequest] = useState(0);
   const presentation = instance
@@ -50,9 +48,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
   }, [instance, presentation, t]);
 
   if (!instance || !presentation) return null;
-  const actionButtonClass = isWindows
-    ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN
-    : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC;
+  const actionButtonClass = TITLEBAR_ICON_BUTTON_CLASS;
 
   return (
     <div className="relative flex h-full min-w-0 flex-1 items-center gap-2 pl-1">
@@ -66,7 +62,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
         renameRequest={renameRequest}
         className="h-full flex-1 pl-0"
       />
-      <div className={`ml-auto flex shrink-0 items-center ${isWindows ? 'gap-2 pr-3' : 'gap-1 pr-2'}`}>
+      <div className="ml-auto flex shrink-0 items-center gap-1 pr-2">
         {presentation.hasSourceDocument ? (
           <button
             type="button"
@@ -88,7 +84,7 @@ function AgentConversationHeader({ instanceId }: { instanceId: string }) {
           </span>
         )}
         <WorkColumnBrowserExpandButton
-          iconButtonClass={isWindows ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS}
+          iconButtonClass={TITLEBAR_ICON_BUTTON_FRAMELESS_CLASS}
         />
         <AgentConversationMoreMenu
           instance={instance}

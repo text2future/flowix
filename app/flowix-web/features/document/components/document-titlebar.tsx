@@ -7,9 +7,10 @@ import { WorkColumnTitlebarNavigation } from '@features/shell/components/work-co
 import { WorkColumnBrowserExpandButton, WorkspaceHeaderIdentity, useWorkspaceHeader } from '@features/shell/public/work-column-api';
 import { CollectionDisplayMenu } from '@features/collection/public/title-api';
 import {
-  DOCUMENT_TITLEBAR_ICON_BUTTON_MAC, DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS, DOCUMENT_TITLEBAR_ICON_BUTTON_WIN,
-  type DocumentTitlebarProps,
-} from './document-titlebar-model';
+  TITLEBAR_ICON_BUTTON_CLASS,
+  TITLEBAR_ICON_BUTTON_FRAMELESS_CLASS,
+} from '@shared/ui/titlebar-icon-button';
+import type { DocumentTitlebarProps } from './document-titlebar-model';
 import { ExternalTitlebarBadge, SurfaceHeaderIcon, MediaActions } from './document-titlebar-controls';
 import { DocumentTitlebarActions } from './document-titlebar-actions';
 import {
@@ -17,7 +18,7 @@ import {
   AgentThreadCardFullscreenIdentity,
 } from './agent-thread-card-titlebar';
 
-/** Shared behavior and content; platforms only select frame and button styling. */
+/** Shared behavior and content; platforms only select native window geometry. */
 export function DocumentTitlebar({
   platform,
   webAddressBarVisible = false,
@@ -44,7 +45,7 @@ export function DocumentTitlebar({
   });
   const isMediaSurface = surfaceChrome === 'media';
   const hasCollectionDisplayActionMenu = isMediaSurface ? Boolean(mediaActions) : Boolean(target);
-  const iconButtonClass = isWindows ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC;
+  const iconButtonClass = TITLEBAR_ICON_BUTTON_CLASS;
 
   return <WorkColumnTitlebar isWindows={isWindows} reserveWindowsControls={reserveWindowsControls}
     showTrafficLightSpacer={sidebar.hidden && !sidebar.noteNavigationVisible}
@@ -56,14 +57,14 @@ export function DocumentTitlebar({
 
     </WorkColumnTitlebarNavigation>
     <AgentThreadCardFullscreenIdentity />
-    <div data-tauri-drag-region className={`ml-auto flex shrink-0 items-center ${isWindows ? 'gap-2 pr-3' : 'gap-1 pr-2'}`}>
+    <div data-tauri-drag-region className="ml-auto flex shrink-0 items-center gap-1 pr-2">
       <AgentThreadCardFullscreenExitButton className="agent-thread-card-fullscreen-exit-btn" />
       {header.showSurfaceActions && target && <ExternalTitlebarBadge target={target} />}
-      <WorkColumnBrowserExpandButton iconButtonClass={isWindows ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC_FRAMELESS} />
+      <WorkColumnBrowserExpandButton iconButtonClass={TITLEBAR_ICON_BUTTON_FRAMELESS_CLASS} />
       {/* 文件夹入口没有文档/媒体操作菜单时，集合显示偏好单独放在标题栏。 */}
       {header.showSurfaceActions && collectionDisplay && !hasCollectionDisplayActionMenu && <CollectionDisplayMenu
         indexPath={collectionDisplay.indexPath}
-        iconButtonClass={isWindows ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC}
+        iconButtonClass={iconButtonClass}
       />}
       {header.showSurfaceActions && onToggleWebAddressBar && <button
         type="button"

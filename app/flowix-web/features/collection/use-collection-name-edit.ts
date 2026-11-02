@@ -10,7 +10,7 @@
  * 交互约定（与 `EditableCollectionName` 一起构成整套）：双击进入编辑、
  * Enter / 失焦保存、Esc 退出不保存、保存中显示 spinner 且不可再次进入。
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
@@ -40,11 +40,12 @@ export function useCollectionNameEdit({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const savingRef = useRef(false);
   const { inputRef, captureCaret } = useTitleEditCaret(editing);
   const unavailable = !editable || busy || !notebookPath || !filePath;
 
   const beginEdit = useCallback(() => {
-    if (unavailable) return;
+    if (unavailable || savingRef.current) return;
     setDraft(currentName);
     setEditing(true);
   }, [currentName, unavailable]);
@@ -52,11 +53,13 @@ export function useCollectionNameEdit({
   const commit = useCallback(async (raw: string) => {
     setEditing(false);
     const name = raw.trim();
-    if (unavailable || !notebookPath || !name || name === currentName) return;
+    if (unavailable || savingRef.current || !notebookPath || !name || name === currentName) return;
     if (/[\\/]/.test(name)) {
       toast.error('文件名不能包含路径分隔符');
       return;
     }
+    savingRef.current = true;
+    setDraft(name);
     setBusy(true);
     try {
       const result = await renameCollectionAtPath(filePath, notebookPath, name, notebookId, expectedCollectionId ?? undefined);
@@ -64,6 +67,7 @@ export function useCollectionNameEdit({
     } catch (error) {
       toast.error(friendlyErrorMessage(error, t, 'errors.friendly.tableRename'));
     } finally {
+      savingRef.current = false;
       setBusy(false);
     }
   }, [currentName, expectedCollectionId, filePath, notebookId, notebookPath, onRenamed, t, unavailable]);

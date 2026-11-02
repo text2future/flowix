@@ -53,14 +53,14 @@ export function WindowsTitlebarControls({
 
   return (
     <>
-      {reserveSpace && <div aria-hidden="true" className="h-9 w-full flex-none" />}
-      <div className="fixed top-0 right-0 z-[100] flex h-9 select-none bg-[var(--bg-titlebar)] pointer-events-auto [-webkit-app-region:no-drag]">
+      {reserveSpace && <div aria-hidden="true" className="h-[var(--window-titlebar-height)] w-full flex-none" />}
+      <div className="fixed top-0 right-0 z-[100] flex h-[var(--window-titlebar-height)] select-none bg-[color-mix(in_oklch,var(--bg-titlebar)_32%,transparent)] pointer-events-auto [-webkit-app-region:no-drag]">
         <Tooltip content={t('window.minimize')} side="bottom">
           <button
             type="button"
             aria-label={t('window.minimize')}
             onClick={() => getCurrentWindow().minimize()}
-            className="flex h-9 w-[42px] items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] [-webkit-app-region:no-drag]"
+            className="flex h-[var(--window-titlebar-height)] w-[var(--window-control-button-width)] items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] [-webkit-app-region:no-drag]"
           >
             <Minus className="h-3.5 w-3.5" strokeWidth={1.8} />
           </button>
@@ -70,7 +70,7 @@ export function WindowsTitlebarControls({
             type="button"
             aria-label={t('window.maximize')}
             onClick={() => getCurrentWindow().toggleMaximize()}
-            className="flex h-9 w-[42px] items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] [-webkit-app-region:no-drag]"
+            className="flex h-[var(--window-titlebar-height)] w-[var(--window-control-button-width)] items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] [-webkit-app-region:no-drag]"
           >
             <Square className="h-3 w-3" strokeWidth={1.8} />
           </button>
@@ -86,7 +86,7 @@ export function WindowsTitlebarControls({
                 toast.error(t('window.closeRequestFailed'));
               });
             }}
-            className="flex h-9 w-[42px] items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)] hover:text-[var(--floating-foreground)] [-webkit-app-region:no-drag]"
+            className="flex h-[var(--window-titlebar-height)] w-[var(--window-control-button-width)] items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)] hover:text-[var(--floating-foreground)] [-webkit-app-region:no-drag]"
           >
             <X className="h-3.5 w-3.5" strokeWidth={1.8} />
           </button>

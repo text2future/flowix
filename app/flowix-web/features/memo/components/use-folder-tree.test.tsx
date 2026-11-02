@@ -62,6 +62,7 @@ describe('useFolderTree', () => {
     container?.remove();
     root = null;
     container = null;
+    vi.useRealTimers();
   });
 
   function mount(folderPath: string) {
@@ -69,6 +70,82 @@ describe('useFolderTree', () => {
       root?.render(createElement(TreeProbe, { folderPath }));
     });
   }
+
+  describe('watcher refresh feedback', () => {
+    async function loadExpandedDirectory() {
+      getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
+      getDirChildrenMock.mockResolvedValue([file('/root/sub/old.md', 'old.md')]);
+      mount('/root');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+      await act(async () => lastState?.toggle('/root/sub'));
+      expect(lastState?.nodes.has('/root/sub/old.md')).toBe(true);
+      vi.useFakeTimers();
+      await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    }
+
+    async function notifyWatcher() {
+      act(() => lastState?.refreshDirectories(['/root/sub']));
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    }
+
+    it('silently reconciles changed files while preserving the visible children', async () => {
+      await loadExpandedDirectory();
+      let release!: (items: DocTreeItem[]) => void;
+      getDirChildrenMock.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+      await notifyWatcher();
+      expect(getDirChildrenMock).toHaveBeenCalledTimes(2);
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(false);
+      expect(lastState?.nodes.get('/root/sub')?.children?.[0].name).toBe('old.md');
+      await act(async () => release([file('/root/sub/new.md', 'new.md')]));
+      expect(lastState?.nodes.has('/root/sub/old.md')).toBe(false);
+      expect(lastState?.nodes.has('/root/sub/new.md')).toBe(true);
+      expect(lastState?.expanded.has('/root/sub')).toBe(true);
+    });
+
+    it('shows feedback for an explicit load joining a silent watcher read', async () => {
+      await loadExpandedDirectory();
+      let release!: (items: DocTreeItem[]) => void;
+      getDirChildrenMock.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+      await notifyWatcher();
+      act(() => { void lastState?.loadDirectory('/root/sub'); });
+      expect(getDirChildrenMock).toHaveBeenCalledTimes(2);
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(true);
+      await act(async () => release([file('/root/sub/new.md', 'new.md')]));
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(false);
+    });
+
+    it('retains watcher errors and shows loading when the user retries', async () => {
+      await loadExpandedDirectory();
+      getDirChildrenMock.mockRejectedValueOnce(new Error('unreadable'));
+      await notifyWatcher();
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(false);
+      expect(lastState?.directoryErrors.has('/root/sub')).toBe(true);
+      expect(lastState?.nodes.has('/root/sub/old.md')).toBe(true);
+      let release!: (items: DocTreeItem[]) => void;
+      getDirChildrenMock.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+      act(() => { void lastState?.retryDirectory('/root/sub'); });
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(true);
+      await act(async () => release([file('/root/sub/new.md', 'new.md')]));
+      expect(lastState?.directoryErrors.has('/root/sub')).toBe(false);
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(false);
+    });
+
+    it('keeps the spinner when a watcher joins the first expansion read', async () => {
+      getTreeMock.mockResolvedValue([dir('/root/sub', 'sub')]);
+      let release!: (items: DocTreeItem[]) => void;
+      getDirChildrenMock.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+      mount('/root');
+      await vi.waitFor(() => expect(lastState?.loading).toBe(false));
+      act(() => lastState?.toggle('/root/sub'));
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(true);
+      vi.useFakeTimers();
+      await notifyWatcher();
+      expect(getDirChildrenMock).toHaveBeenCalledTimes(1);
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(true);
+      await act(async () => release([file('/root/sub/new.md', 'new.md')]));
+      expect(lastState?.loadingDirectories.has('/root/sub')).toBe(false);
+    });
+  });
 
   it.each(['initial', 'refresh', 'reload'] as const)('preserves saved metadata over a delayed %s root read', async (mode) => {
     const oldNote = { ...file('/root/a.md', 'a.md'), memoMeta: { icon: null, colors: [], favorited: false } } satisfies DocTreeItem;

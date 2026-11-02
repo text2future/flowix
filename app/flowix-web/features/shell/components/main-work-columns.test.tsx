@@ -106,8 +106,8 @@ describe('MainWorkColumns collection header overlap', () => {
     await act(async () => root?.render(<MainWorkColumns {...props()} />));
 
     const contentHost = () => host?.querySelector('[data-testid="surface-host"]')?.parentElement;
-    expect(contentHost()?.style.marginTop).toBe('-3rem');
-    expect(contentHost()?.style.getPropertyValue('--work-titlebar-h')).toBe('3rem');
+    expect(contentHost()?.style.marginTop).toBe('calc(0px - var(--window-titlebar-height))');
+    expect(contentHost()?.style.getPropertyValue('--work-titlebar-h')).toBe('var(--window-titlebar-height)');
 
     await act(async () => {
       disposeBanner?.();

@@ -33,7 +33,7 @@ export function CollectionPanels({ tabs, domains, filesRoot, notebookId, noteboo
     {/* 文件树纵向随整页滚动；行列表单独横滚，表头仍 sticky 在 tab 条下沿。 */}
     {tabs.showFiles ? (
       <div className={tabs.active === 'files' ? 'flex flex-col' : 'hidden'}>
-        <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host}
+        <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} collectionId={expectedCollectionId} host={host}
           reportPresentation={tabs.active === 'files' ? reportPresentation : undefined} />
       </div>
     ) : null}

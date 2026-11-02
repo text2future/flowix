@@ -26,14 +26,16 @@ export function createOverlayScrollbarDom(
     .join(' ');
 
   const track = ownerDocument.createElement('div');
-  track.className = 'overlay-scrollbar-track';
+  track.className = 'overlay-scrollbar-track overlay-scrollbar-track--vertical';
   track.setAttribute('aria-hidden', 'true');
 
   const thumb = ownerDocument.createElement('div');
-  thumb.className = 'overlay-scrollbar-thumb';
+  thumb.className = 'overlay-scrollbar-thumb overlay-scrollbar-thumb--vertical';
   thumb.setAttribute('aria-hidden', 'true');
 
   frame.append(scroller, track, thumb);
+  frame.dataset.horizontalScrollbar = 'false';
+  frame.dataset.horizontalScrollable = 'false';
 
   const ownerWindow = ownerDocument.defaultView;
   let hideTimer: number | null = null;

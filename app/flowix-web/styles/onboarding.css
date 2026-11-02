@@ -2,7 +2,7 @@
 .flowix-onboarding__titlebar-mac {
   flex: 0 0 auto;
   width: 100%;
-  height: 48px;
+  height: var(--window-titlebar-height);
   -webkit-app-region: drag;
 }
 

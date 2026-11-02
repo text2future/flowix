@@ -24,7 +24,7 @@ import { resolveWorkspaceFileSurfaceKind, type WorkspaceSurfaceKind, type Worksp
 import { browserCollectionIndexPath } from '@features/surface/public/shell-api';
 import { CollectionDisplayMenuItems } from '@features/collection/public/title-api';
 import { WorkspaceColumnContextMenu } from './workspace-column-context-menu';
-import { DOCUMENT_TITLEBAR_ICON_BUTTON_MAC, DOCUMENT_TITLEBAR_ICON_BUTTON_WIN } from '@features/document/public/shell-api';
+import { TITLEBAR_ICON_BUTTON_CLASS } from '@shared/ui/titlebar-icon-button';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@shared/ui/dropdown-menu';
 
@@ -77,7 +77,7 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
   const title = fullscreen?.title || conversation?.title || current?.title || '';
   const windows = typeof navigator !== 'undefined' && /Windows|Win32/.test(navigator.userAgent + navigator.platform);
   const buttonClass = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-35 [-webkit-app-region:no-drag]';
-  const actionButtonClass = `${windows ? DOCUMENT_TITLEBAR_ICON_BUTTON_WIN : DOCUMENT_TITLEBAR_ICON_BUTTON_MAC} [-webkit-app-region:no-drag]`;
+  const actionButtonClass = `${TITLEBAR_ICON_BUTTON_CLASS} [-webkit-app-region:no-drag]`;
   const navigate = async (direction: 'back' | 'forward') => {
     try { if (await (direction === 'back' ? back() : forward()) === null) toast.error(t('tabWindow.switchFailed')); }
     catch (error) { toast.error(error instanceof Error ? error.message : t('tabWindow.switchFailed')); }

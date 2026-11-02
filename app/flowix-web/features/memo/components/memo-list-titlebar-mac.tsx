@@ -26,7 +26,7 @@ export function MemoListTitlebarMac({
   return (
     <div
       data-tauri-drag-region
-      className="relative h-12 pr-3.5 shrink-0 flex items-center justify-between gap-1"
+      className="relative h-[var(--window-titlebar-height)] pr-3.5 shrink-0 flex items-center justify-between gap-1"
     >
       <div className="ml-[82px] flex items-center">
         {!isPreview && selectedNotebook && (

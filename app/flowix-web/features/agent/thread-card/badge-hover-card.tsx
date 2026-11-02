@@ -242,7 +242,7 @@ export function BadgeHoverCard({
               <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
                 <span className="text-[var(--muted-foreground)]">{t("editor.threadCard.model")}</span>
                 <span className={cn(
-                  "agent-thread-card__model-value min-w-0 font-mono",
+                  "agent-thread-card__model-value min-w-0",
                   piModelParts ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
                 )}>
                   {modelPending ? <HoverCardSkeleton width="4rem" /> : piModelParts || "-"}
@@ -255,7 +255,7 @@ export function BadgeHoverCard({
             <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
               <span className="text-[var(--muted-foreground)]">{t("editor.threadCard.model")}</span>
               <span className={cn(
-                "agent-thread-card__model-value min-w-0 font-mono",
+                "agent-thread-card__model-value min-w-0",
                 displayModel ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
               )}>
                 {modelPending ? <HoverCardSkeleton width="4rem" /> : displayModel || "-"}

@@ -450,15 +450,22 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   }, [autoLoadKey, enabled, loadRoot]);
 
   /** Coalesce concurrent reads of the same directory (manual action + watcher). */
-  const refreshDirectory = useCallback((dirPath: string, force = false) => {
+  const refreshDirectory = useCallback((dirPath: string, {
+    force = false,
+    silent = false,
+  }: { force?: boolean; silent?: boolean } = {}) => {
     if (pendingRenamesRef.current > 0) return Promise.resolve();
     const key = canonicalDirectoryPath(dirPath);
     const pending = directoryRefreshesRef.current.get(key);
+    // Watcher reconciliation keeps existing children visible without a spinner.
+    // An explicit expand can still show feedback when joining that same read.
+    if (!silent) setLoadingDirectories((previous) => (
+      previous.has(key) ? previous : new Set(previous).add(key)
+    ));
     if (pending && !force) return pending;
 
     const requestSequence = (directoryRefreshSequenceRef.current.get(key) ?? 0) + 1;
     directoryRefreshSequenceRef.current.set(key, requestSequence);
-    setLoadingDirectories((previous) => new Set(previous).add(key));
     setDirectoryErrors((previous) => {
       if (!previous.has(key)) return previous;
       const next = new Set(previous);
@@ -538,7 +545,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
   }, [readWithLatestMetadata]);
 
   const retryDirectory = useCallback((dirPath: string) => {
-    return refreshDirectory(dirPath, true);
+    return refreshDirectory(dirPath, { force: true });
   }, [refreshDirectory]);
 
   /** 展开时惰性拉子级; 已有子级的 folder 只切展开态。 */
@@ -663,7 +670,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
     }
     try {
       if (dirPath && canonicalDirectoryPath(dirPath) !== rootKey) {
-        await refreshDirectory(dirPath, true);
+        await refreshDirectory(dirPath, { force: true });
         return;
       }
       // Mutations at the notebook root should not collapse the user's tree.
@@ -710,7 +717,7 @@ export function useFolderTree(folderPath: string, options?: FolderTreeOptions) {
         return;
       }
 
-      await refreshDirectory(key);
+      await refreshDirectory(key, { silent: true });
     }));
   }, [refreshRootPreservingExpansion, rootKey]);
 

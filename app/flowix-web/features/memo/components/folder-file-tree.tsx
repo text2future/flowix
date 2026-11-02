@@ -72,7 +72,7 @@ function formatTimestamp(ms: number | null): string {
  * - 右键菜单: 新建笔记 / 新建文件夹 (folder 上), 重命名, 删除, 复制
  *   路径, 在 Finder 显示。写操作走 `files.*` IPC, 成功后局部 `refresh`
  *   父目录。
- * - header 与 MemoList 同构高度 (Mac h-12 / Win h-9 由外层 titlebar
+ * - header 与 MemoList 同构高度 (由共享 titlebar token 和外层组件
  *   组件负责), 这里只渲染标题行 + 树体。
  */
 export function FolderFileTree({
