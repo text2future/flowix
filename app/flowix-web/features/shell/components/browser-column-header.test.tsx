@@ -6,6 +6,7 @@ import { expect, it, vi } from 'vitest';
 import type { BrowserColumnEntry } from '@features/workspace/public/browser-column-api';
 import { BrowserColumnHeader } from './browser-column-header';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
+import { registerCollectionBannerControl } from '@/lib/collection-banner-visibility';
 vi.mock('@/lib/i18n', async (original) => ({ ...await original<typeof import('@/lib/i18n')>(), useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@features/document/public/shell-api', () => ({
   documentIdentityFromFile: (identity: unknown) => identity,
@@ -81,6 +82,35 @@ it.each(['folder', 'table', 'media_library', 'work_documents'] as const)(
     }
   },
 );
+
+it('uses the Work collection display menu for folder collections', async () => {
+  const node = document.createElement('div');
+  document.body.append(node);
+  const root = createRoot(node);
+  const toggleBanner = vi.fn();
+  const dispose = registerCollectionBannerControl('/book/folder/.index.yaml', { visible: true, toggle: toggleBanner });
+  try {
+    await act(async () => root.render(<BrowserColumnHeader
+      current={{ id: 'folder', title: 'Folder', icon: null, target: {
+        kind: 'folder-collection', folderPath: '/book/folder', notebookId: 'book', notebookPath: '/book', folderName: 'Folder',
+      } }} activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()}
+      isFocused canCreate onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    const trigger = node.querySelector<HTMLButtonElement>('[aria-label="collection.display.more"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger!.click());
+    const menu = document.querySelector('[data-flowix-surface="popover"]');
+    expect(menu).not.toBeNull();
+    const items = Array.from(menu!.querySelectorAll<HTMLButtonElement>('button'));
+    expect(items.map((item) => item.textContent)).toEqual(['collection.display.title', 'collection.display.banner']);
+    expect(menu!.classList.contains('w-[180px]')).toBe(true);
+    await act(async () => items[1].click());
+    expect(toggleBanner).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+    dispose();
+    node.remove();
+  }
+});
 
 
 it('hides the underlying note controls only in the fullscreen host, restores them on exit, and follows plugin preview capabilities', async () => {

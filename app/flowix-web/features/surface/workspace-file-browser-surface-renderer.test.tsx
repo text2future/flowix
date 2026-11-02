@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { FileBrowserRenderer } from './workspace-file-browser-surface-renderer';
 import type { WorkspaceSurfaceRenderContext, WorkspaceSurfaceRendererData } from './workspace-surface-renderer-contract';
 import type { SurfacePresentationUpdate } from '@features/workspace/model/surface-contract';
+import { resetCurrentCollectionView } from '@features/workspace/public/collection-navigation-api';
 
 const observations = vi.hoisted(() => ({ reads: vi.fn(), mounts: vi.fn(), unmounts: vi.fn() }));
 vi.mock('./workspace-surface-renderer-registry', () => ({
@@ -24,6 +25,25 @@ const surface: Extract<WorkspaceSurfaceRendererData, { kind: 'file-browser' }> =
 } };
 let root: ReturnType<typeof createRoot>;
 afterEach(async () => { if (root) await act(async () => root.unmount()); vi.clearAllMocks(); });
+it.each(['main-third', 'browser-column'] as const)('resets an unavailable collection in its %s host', async (host) => {
+  root = createRoot(document.createElement('div'));
+  const updates: SurfacePresentationUpdate[] = [];
+  await act(async () => root.render(<FileBrowserRenderer
+    surface={{ ...surface, props: { ...surface.props, collectionUnavailableReason: 'Invalid collection' } }}
+    context={{ host, viewId: 'collection-view', focused: true, readOnly: false,
+      reportPresentation: (update) => { updates.push(update); } }}
+  />));
+  const unavailable = updates.find((update) => update.state?.status === 'unavailable')?.state;
+  expect(unavailable?.status).toBe('unavailable');
+  if (unavailable?.status !== 'unavailable') throw new Error('Missing unavailable collection state');
+  const reset = unavailable.actions?.find((action) => action.id === 'reset-current-collection-view');
+  expect(reset).toBeDefined();
+  await act(async () => { await reset!.run(); });
+  expect(resetCurrentCollectionView).toHaveBeenCalledExactlyOnceWith(
+    '/notes/browser.md', '/notes', 'notes',
+    host === 'browser-column' ? { host, surfaceId: 'collection-view' } : { host },
+  );
+});
 it('does not restart loading or replace a ready editor when layout, focus or reporting callbacks change', async () => {
   const node = document.createElement('div');
   root = createRoot(node);

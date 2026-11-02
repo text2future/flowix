@@ -42,10 +42,10 @@ export function useCollectionPageLayout(host: WorkspaceSurfaceRenderContext['hos
     return () => observer.disconnect();
   }, [pageScroller]);
 
-  // Only Work overlaps the collection banner. The owner token isolates cleanup
+  // Both columns overlap the collection banner. The owner token isolates cleanup
   // from a replacement view and the other column's independently mounted shell.
   useEffect(() => {
-    if (host !== 'main-third' || !pageScroller) return;
+    if (!pageScroller) return;
     const owner = {};
     const sync = () => reportWorkspaceHeaderScrolled(host, owner, pageScroller.scrollTop > 200);
     sync();

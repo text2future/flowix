@@ -22,11 +22,11 @@ import { useWorkspaceHeader } from '../hooks/use-workspace-header';
 import { BrowserColumnDocumentActions, BrowserColumnMediaActions } from './browser-column-surface-actions';
 import { resolveWorkspaceFileSurfaceKind, type WorkspaceSurfaceKind, type WorkspaceSurfaceCapability } from '@features/workspace/public/surface-api';
 import { browserCollectionIndexPath } from '@features/surface/public/shell-api';
-import { CollectionDisplayMenuItems } from '@features/collection/public/title-api';
+import { CollectionDisplayMenu } from '@features/collection/public/title-api';
 import { WorkspaceColumnContextMenu } from './workspace-column-context-menu';
 import { TITLEBAR_ICON_BUTTON_CLASS } from '@shared/ui/titlebar-icon-button';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@shared/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@shared/ui/dropdown-menu';
 
 export interface BrowserColumnHeaderProps {
   current: BrowserColumnEntry | null;
@@ -128,15 +128,12 @@ export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
             onToggleMemoEditorMode={props.onToggleMemoEditorMode}
             iconButtonClass={actionButtonClass}
           />
+        : collectionPath ? <CollectionDisplayMenu indexPath={collectionPath} iconButtonClass={actionButtonClass} />
         : current?.target.kind === 'web' ? null : <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className={actionButtonClass} aria-label={t('document.titlebar.moreTooltip')} title={t('document.titlebar.moreTooltip')}><Ellipsis className="h-4 w-4" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[210px] rounded-xl p-1">
                 {current && <DropdownMenuItem disabled={environment?.host === 'main-third' || !canOpenBrowserColumnTargetInWorkColumn(current.target)} onClick={() => void props.onOpenInWorkColumn(current.id)}>{t('tabWindow.context.openInWorkColumn')}</DropdownMenuItem>}
                 <DropdownMenuItem disabled={!props.canCreate} onClick={() => props.onCreateNote()}><FilePlus2 className="mr-2 h-4 w-4" />{t('tabWindow.context.newNote')}</DropdownMenuItem>
                 {selection.options.map((type) => <DropdownMenuItem key={type.id} disabled={!props.canCreate} onClick={() => props.onCreateAgentConversation(type.id)}><MessageCirclePlus className="mr-2 h-4 w-4" />{type.nameKey ? t(type.nameKey as Parameters<typeof t>[0]) : type.name}</DropdownMenuItem>)}
-                {collectionPath && <>
-                  <DropdownMenuSeparator />
-                  <CollectionDisplayMenuItems indexPath={collectionPath} />
-                </>}
               </DropdownMenuContent>
             </DropdownMenu>}
   </WorkspaceHeaderShell></WorkspaceColumnContextMenu>;
