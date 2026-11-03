@@ -45,4 +45,27 @@ describe('HTML parsing without a browser DOM', () => {
       type: 'text', text: 'A & B', marks: [{ type: 'bold' }],
     });
   });
+
+  it('preserves table presentation attributes in the worker schema', () => {
+    installMarkdownWorkerDOM();
+    const manager = new MarkdownManager({ extensions: createMarkdownParserExtensions() });
+    const doc = manager.parse('<table data-flowix-table-style="hk-financial"><tr data-flowix-row-role="total"><td data-flowix-column-role="amount"><p>(9,700)</p><p>01</p></td></tr></table>');
+    const table = doc.content?.[0];
+    expect(table?.attrs?.styleId).toBe('hk-financial');
+    expect(table?.content?.[0].attrs?.role).toBe('total');
+    expect(table?.content?.[0].content?.[0].attrs?.columnRole).toBe('amount');
+    expect(table?.content?.[0].content?.[0].content?.map(node => node.content?.[0].text)).toEqual(['(9,700)', '01']);
+  });
+
+  it('preserves merged HTML cell borders and normalizes unknown border attributes without browser APIs', () => {
+    installMarkdownWorkerDOM();
+    const manager = new MarkdownManager({ extensions: createMarkdownParserExtensions() });
+    const doc = manager.parse('<table><tr><td colspan="2" data-flowix-border-top="double" data-flowix-border-bottom="none"><p>Header</p></td></tr><tr><td data-flowix-border-top="single" data-flowix-border-bottom="invalid"><p>01</p></td><td data-flowix-border-bottom="double"><p>(9,700)</p></td></tr></table>');
+    const rows = doc.content?.[0].content;
+    expect(rows?.[0].content?.[0].attrs).toMatchObject({ colspan: 2, borderTop: 'double', borderBottom: 'none' });
+    expect(rows?.[1].content?.[0].attrs).toMatchObject({ borderTop: 'single', borderBottom: 'auto' });
+    expect(rows?.[1].content?.[1].attrs).toMatchObject({ borderTop: 'auto', borderBottom: 'double' });
+    expect(rows?.[1].content?.[0].content?.[0].content?.[0].text).toBe('01');
+    expect(rows?.[1].content?.[1].content?.[0].content?.[0].text).toBe('(9,700)');
+  });
 });

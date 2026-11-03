@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { hasFormattableTextSelection } from '@features/editor/components/selection-bubble-menu-state';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
+import { TableStyleControls } from './table-style-controls';
 
 interface TableBubbleMenuProps {
   editor: Editor;
@@ -207,7 +208,9 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
         top: `${position.top}px`,
       }}
     >
-      <div className="table-bubble-menu">
+      <div className="table-bubble-menu-panel">
+      <TableStyleControls editor={editor} />
+      <div className="table-bubble-menu" role="toolbar" aria-label={t('editor.table.operations')}>
         <Tooltip content={t('editor.table.insertRowBefore')}>
           <button
             onMouseDown={(e) => {
@@ -290,6 +293,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
             <AgentTrashIcon size={16} />
           </button>
         </Tooltip>
+      </div>
       </div>
     </div>,
     overlayRoot,

@@ -1,6 +1,8 @@
 import { Fragment, useLayoutEffect, useRef, type MouseEvent } from 'react';
 import {
   CheckSquareIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
   CodeIcon,
   FilePlusIcon,
   ImageSquareIcon,
@@ -31,6 +33,7 @@ import { AgentIcon } from '@features/agent/public/icon-api';
 import { Kbd } from '@shared/ui/shortcut-kbd';
 import { MediaLibraryIcon, TableDocumentIcon } from '@features/memo/components/file-type-icon';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
+import type { TableStyleId } from '@features/editor/extensions/table/table-presentation';
 
 export type SlashMenuItemId =
   | 'heading-1'
@@ -41,6 +44,7 @@ export type SlashMenuItemId =
   | 'blockquote'
   | 'code-block'
   | 'table'
+  | `table-style-${TableStyleId}`
   | 'table-reference'
   | 'table-kanban-view'
   | 'table-calendar-view'
@@ -86,6 +90,7 @@ export interface SlashMenuItem {
   sectionKey?: I18nKey;
   /** 快捷键 chord ── 使用与 drag context menu 相同的显示格式。 */
   shortcut?: string;
+  tableStyle?: TableStyleId;
 }
 
 export interface SlashMenuProps {
@@ -95,6 +100,7 @@ export interface SlashMenuProps {
   onSelect: (item: SlashMenuItem) => void;
   onHover: (index: number) => void;
   onScroll?: () => void;
+  onBack?: () => void;
   /** 空态 CTA: 触发后跳到偏好设置的 AI Agents 配置列表。 */
   onAddAgent?: () => void;
   /** 当前界面语言 ── 弹窗经命令式 createRoot 渲染在 I18nProvider 外,
@@ -247,7 +253,7 @@ export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
   {
     id: 'table',
     labelKey: 'editor.slash.label.table',
-    keywords: ['table', 'biaoge', 'grid'],
+    keywords: ['table', 'biaoge', 'grid', '表格'],
     icon: TableIcon,
     sectionKey: 'editor.slash.section.addBlock',
   },
@@ -353,6 +359,7 @@ export const SlashMenuDropdown = ({
   onSelect,
   onHover,
   onScroll,
+  onBack,
   onAddAgent,
   language,
 }: SlashMenuProps) => {
@@ -410,8 +417,18 @@ export const SlashMenuDropdown = ({
     <div
       className={`slash-menu-dropdown${scrollSelectedItem ? ' is-keyboard-navigation' : ''}`}
       role="listbox"
-      aria-label={translate(language, 'editor.slash.ariaLabel')}
+      aria-label={translate(language, onBack ? 'editor.table.style' : 'editor.slash.ariaLabel')}
     >
+      {onBack && <button
+        type="button"
+        className="slash-menu-item mb-1 shrink-0"
+        aria-label={translate(language, 'editor.table.backToMenu')}
+        title={translate(language, 'editor.table.backToMenu')}
+        onMouseDown={event => { event.preventDefault(); onBack(); }}
+      >
+        <CaretLeftIcon className="h-4 w-4" weight="bold" aria-hidden="true" />
+        <span className="slash-menu-item-label">{translate(language, 'editor.slash.label.table')}</span>
+      </button>}
       <OverlayScrollbar
         ref={overlayScrollbarRef}
         className="slash-menu-items-frame"
@@ -465,7 +482,7 @@ export const SlashMenuDropdown = ({
                   );
               return (
                 <Fragment key={item.id}>
-                  {showSectionHeader && (
+                  {!onBack && showSectionHeader && (
                     <>
                       {prevItem && <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />}
                       <div className="slash-menu-header" role="presentation">
@@ -480,6 +497,7 @@ export const SlashMenuDropdown = ({
                     type="button"
                     role="option"
                     aria-selected={selected}
+                    aria-haspopup={item.id === 'table' ? 'listbox' : undefined}
                     className={`slash-menu-item group${selected ? ' is-selected' : ''}`}
                     onMouseMove={(event) => handleItemMouseMove(event, index)}
                     onMouseDown={(event) => {
@@ -489,6 +507,7 @@ export const SlashMenuDropdown = ({
                   >
                     {renderIcon}
                     <span className="slash-menu-item-label min-w-0 flex-1">{displayLabel}</span>
+                    {item.id === 'table' && <CaretRightIcon className="h-3 w-3 shrink-0" weight="bold" aria-hidden="true" />}
                     {item.shortcut && (
                       // 快捷键提示始终保持 muted-foreground ── hover / 选中态的
                       // 底色是浅色 --hover-bg, 不再反色为 primary-foreground 的白,

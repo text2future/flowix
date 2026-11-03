@@ -11,6 +11,7 @@ import { FlowixHighlight } from '@features/editor/extensions/flowix-text-mark';
 import { MarkdownLinkParserExtension } from '@features/editor/extensions/markdown-link-markdown';
 import { NoteReferenceMarkdownExtension } from '@features/editor/extensions/note-link/note-reference-markdown';
 import { FlowixTable } from '@features/editor/extensions/table/flowix-table';
+import { TablePresentation } from '@features/editor/extensions/table/table-presentation';
 import { FrontmatterMarkdownExtension } from '@features/editor/extensions/frontmatter-markdown';
 import { TableReferenceMarkdownExtension } from '@features/multidimensional-table/table-reference-markdown';
 import { MediaLibraryReferenceMarkdownExtension } from '@features/media-library/media-library-reference-markdown';
@@ -74,6 +75,7 @@ export function createMarkdownParserExtensions() {
     TableRow,
     TableHeader,
     TableCell,
+    TablePresentation,
     TableReferenceMarkdownExtension,
     MediaLibraryReferenceMarkdownExtension,
     FlowixHighlight.configure({ multicolor: true }),
