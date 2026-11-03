@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';

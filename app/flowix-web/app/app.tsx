@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { StartupEntryScreen, StartupGate } from "./startup-screen";
 import { useWorkspaceStartupStore, applyNativeStartupStatus, isWorkspaceInteractive } from "@/lib/store/workspace-startup-store";
 import { ErrorBoundary } from "@shared/error-boundary";
-import { Toaster, toast } from "sonner";
+import { toast, useToastHostRequested } from "@/lib/toast";
 import { useAppPreferencesViewModel } from "@features/preferences/public/app-api";
 import { useApplyFontSettings } from "@features/preferences/public/app-api";
 import { ThemeProvider } from "@features/theme";
@@ -29,6 +29,10 @@ import { translate, type AppLanguage } from "@/lib/i18n";
 // Keep memo notification hosts out of the startup graph.
 const DocumentSaveNotifications = lazy(() => import('@features/document/public/app-api')
   .then(module => ({ default: module.DocumentSaveNotifications })));
+
+// 提示宿主同样不进启动图: 首屏几乎不会弹 toast, 而 sonner 本身 ~34KB。
+// 只有 lib/toast 收到第一条提示时才请求挂载 (见 useToastHostRequested)。
+const ToastHost = lazy(() => import('./toast-host').then(module => ({ default: module.ToastHost })));
 
 const logger = createLogger("app");
 
@@ -93,6 +97,7 @@ function AppToaster({ language }: { language: AppLanguage }) {
   // 根组件只需要"缓存写失败"这一个信号，不该为它把整个 store 拖进启动图。
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const lastPersistenceError = useRef<string | null>(null);
+  const toastHostRequested = useToastHostRequested();
 
   useEffect(() => subscribeAgentPersistenceError(setPersistenceError), []);
 
@@ -108,12 +113,11 @@ function AppToaster({ language }: { language: AppLanguage }) {
 
   return (
     <>
-    <Toaster
-      className="flowix-toaster"
-      position="top-center"
-      richColors={false}
-      closeButton={false}
-    />
+    {toastHostRequested && (
+      <Suspense fallback={null}>
+        <ToastHost className="flowix-toaster" />
+      </Suspense>
+    )}
     <Suspense fallback={null}><DocumentSaveNotifications /></Suspense>
     <ActionableNoticeHost />
     </>

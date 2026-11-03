@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "@app/app";
 import { installDesktopShutdown } from "@app/desktop-shutdown";
 import "@/styles/index.css";
-import "sonner/dist/styles.css";
+// sonner 的样式随 app/toast-host 一起按需加载, 不再进入口 CSS。
 import { initTauriClient } from "@platform/tauri/client";
 import { installFrontendErrorPersistence } from "@platform/tauri/frontend-errors";
 import { getPlatform } from "@/lib/shortcuts/platform";
