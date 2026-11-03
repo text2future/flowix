@@ -23,8 +23,8 @@ export interface MainWindowMemoEventActions {
  * Legacy Memo events for externally created notes and notes created in a
  * background notebook produce persistent created-document cards.
  * Path-first external creates are handled by the notebook path event instead.
- * Template notes skip notifications. List and tag metadata updates remain scoped
- * to the selected notebook, while notebook-keyed todo counts refresh in background.
+ * List and tag metadata updates remain scoped to the selected notebook, while
+ * notebook-keyed todo counts refresh in background.
  *
  * `tags_renamed` / `tags_deleted` 都是 tag 子树操作的收口事件, 后端已经
  * 完成所有 affected memo 的 body 改写 + index 同步。 这里只走
@@ -68,8 +68,7 @@ export function handleMainWindowMemoEvent(
     && (
       event.source === 'external_tool'
       || (!!selectedNotebookId && selectedNotebookId !== event.notebookId)
-    )
-    && event.source !== 'notebook_template';
+    );
   if (shouldNotifyCreatedNote) {
     void actions.notifyCreatedNote(event.notebookId, event.memo.relativePath || event.memo.filename)
       .catch(actions.reportNotificationFailure);

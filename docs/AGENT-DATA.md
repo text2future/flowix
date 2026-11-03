@@ -5,7 +5,7 @@ Device-local notebook registration and repository mounts are stored in `~/.flowi
 - `notebooks` owns notebook identity, display metadata, local root paths and order.
 - `notebook_add_dirs` owns notebook-scoped repository mounts. The same directory may be mounted by multiple notebooks. A notebook deletion cascades to its mounts.
 - `notebook_workspace_state` records migration completion and mount revisions.
-- `app_state` stores selected notebook state; `notebook_setup_jobs` preserves first-open setup jobs.
+- `app_state` stores selected notebook state.
 
 The frontend Agent Store projects workspace data from IPC into memory. Its `workspace.resources` is derived from notebook mounts. Workspace data is neither persisted in localStorage nor merged from old browser caches. Agent model/skill catalogs and user preferences retain their existing browser persistence.
 

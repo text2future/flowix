@@ -126,78 +126,7 @@ pub struct NotebookConfig {
     pub updated_at: i64,
 }
 
-/// Durable state for first-open notebook preparation. The registry database
-/// owns this state so it survives WebView and application restarts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotebookSetupJob {
-    pub notebook_id: String,
-    /// Stable identity for this logical setup task. Retries keep the same ID;
-    /// replacing or recreating a task gets a new ID.
-    #[serde(default)]
-    pub job_id: String,
-    pub template_id: Option<String>,
-    #[serde(default)]
-    pub overwrite_existing: bool,
-    #[serde(rename = "status")]
-    pub status: NotebookSetupJobStatus,
-    pub stage: NotebookSetupStage,
-    #[serde(default)]
-    pub revision: i64,
-    #[serde(default)]
-    pub run_id: String,
-    pub message: Option<String>,
-    pub report: Option<NotebookSetupReport>,
-    pub updated_at: i64,
-    /// Persisted after the workspace is ready to let this job execute.
-    #[serde(default)]
-    pub execution_requested: bool,
-}
-
-/// Consistent registry snapshot used to reconcile missed events and removed
-/// notebook setup tasks in a WebView.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotebookSetupSnapshot {
-    pub revision: i64,
-    pub jobs: Vec<NotebookSetupJob>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NotebookSetupStage {
-    #[serde(alias = "queued")]
-    Preparing,
-    #[serde(alias = "template")]
-    Writing,
-    Indexing,
-    Completed,
-}
-
-/// Aggregate result of a best-effort template application. Existing files are
-/// preserved by default, or replaced when the user confirms an overwrite.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotebookSetupReport {
-    pub total_files: usize,
-    pub written_files: usize,
-    pub skipped_existing_files: usize,
-    pub failed_files: usize,
-    pub first_failure_path: Option<String>,
-    pub first_failure_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NotebookSetupJobStatus {
-    Pending,
-    Running,
-    Completed,
-    Partial,
-    Failed,
-}
-
-/// Notebook identity and optional scene selection stored in
+/// Notebook identity stored in
 /// `<notebook>/.flowix/notebook.json`. Markdown remains the note source of truth.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,8 +134,6 @@ pub struct NotebookManifest {
     pub format_version: u32,
     pub notebook_id: String,
     pub created_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scene_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

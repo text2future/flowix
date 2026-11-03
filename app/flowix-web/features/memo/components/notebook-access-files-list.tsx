@@ -161,7 +161,6 @@ export function NotebookAccessFilesList({
                   {item.missing ? (
                     <NotebookIcon
                       icon={null}
-                      name={item.name}
                       className="h-6 w-6 rounded-md bg-[var(--muted)] text-[11px] font-semibold text-[var(--secondary-foreground)]"
                       imageClassName="h-[72%] w-[72%]"
                     />

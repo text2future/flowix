@@ -1,7 +1,5 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
-import { getPinyin, isPinyinLoaded, subscribePinyinReady } from '@/lib/pinyin';
 import { cn } from '@/lib/utils';
 
 export interface NotebookIconOption {
@@ -16,6 +14,8 @@ const NOTEBOOK_ICON_MODULES = import.meta.glob<string>('../../../assets/notebook
   import: 'default',
   query: '?raw',
 });
+
+export const DEFAULT_NOTEBOOK_ICON_ID = 'notebook_2_fill';
 
 const NOTEBOOK_ICON_PREFERRED_ORDER = [
   'notebook_2_fill',
@@ -86,6 +86,9 @@ export const NOTEBOOK_ICON_OPTIONS: readonly NotebookIconOption[] = Object.keys(
 const NOTEBOOK_ICON_BY_ID = new Map<string, NotebookIconOption>(
   NOTEBOOK_ICON_OPTIONS.map((option) => [option.id, option] as const),
 );
+const DEFAULT_NOTEBOOK_ICON_OPTION = NOTEBOOK_ICON_BY_ID.get(DEFAULT_NOTEBOOK_ICON_ID)
+  ?? NOTEBOOK_ICON_OPTIONS[0]
+  ?? { id: DEFAULT_NOTEBOOK_ICON_ID, label: getNotebookIconLabel(DEFAULT_NOTEBOOK_ICON_ID) };
 
 const NOTEBOOK_ICON_MARKUP_BY_ID = Object.fromEntries(
   Object.entries(NOTEBOOK_ICON_MODULES).map(([path, markup]) => [
@@ -99,62 +102,34 @@ export function getNotebookIconOption(icon: string | null | undefined): Notebook
   return NOTEBOOK_ICON_BY_ID.get(icon) ?? null;
 }
 
+export function resolveNotebookIconOption(icon: string | null | undefined): NotebookIconOption {
+  return getNotebookIconOption(icon) ?? DEFAULT_NOTEBOOK_ICON_OPTION;
+}
+
+export function resolveNotebookIconId(icon: string | null | undefined): string {
+  return resolveNotebookIconOption(icon).id;
+}
+
 export function getNotebookIconMarkup(icon: string | null | undefined): string | null {
   const option = getNotebookIconOption(icon);
   return option ? NOTEBOOK_ICON_MARKUP_BY_ID[option.id] ?? null : null;
 }
 
-// 保持同步签名 (NotebookIcon 组件 / 测试 mock 都依赖同步返回)。
-// pinyin-pro 动态加载, 未就绪时降级返回原字符占位;
-// NotebookIcon 经 usePinyinReady 在加载后重渲染刷新为拼音首字母。
-export function getNotebookIconLetter(name: string | undefined | null, fallback: string = 'N'): string {
-  if (!name) return fallback;
-  const trimmed = name.trim();
-  if (!trimmed) return fallback;
-
-  const first = trimmed.charAt(0);
-  if (/[A-Za-z0-9]/.test(first)) {
-    return first.toUpperCase();
-  }
-
-  const pinyin = getPinyin();
-  if (!pinyin) return first;
-
-  const py = pinyin(trimmed, { pattern: 'first' }).trim();
-  if (!py) return fallback;
-  return py.charAt(0).toUpperCase();
-}
-
-// 订阅 pinyin 加载完成, 触发 fallback 字母刷新。仅 PinyinAwareLetter 使用,
-// 把订阅开销限制在无自定义 icon 的笔记本上。
-function usePinyinReady(): boolean {
-  return useSyncExternalStore(subscribePinyinReady, isPinyinLoaded, () => true);
-}
-
-function PinyinAwareLetter({ name, fallback }: { name?: string | null; fallback?: string }) {
-  usePinyinReady();
-  return <>{getNotebookIconLetter(name, fallback)}</>;
-}
-
 interface NotebookIconProps {
   icon?: string | null;
-  name?: string | null;
   className?: string;
   imageClassName?: string;
-  fallbackClassName?: string;
   /** 关闭图标自带的原生 title tooltip (例如用作 hover 下拉窗触发器时避免遮挡)。 */
   disableTitle?: boolean;
 }
 
 export function NotebookIcon({
   icon,
-  name,
   className,
   imageClassName,
-  fallbackClassName,
   disableTitle,
 }: NotebookIconProps) {
-  const option = getNotebookIconOption(icon);
+  const option = resolveNotebookIconOption(icon);
   const iconMarkup = option ? NOTEBOOK_ICON_MARKUP_BY_ID[option.id] : null;
 
   if (option && iconMarkup) {
@@ -178,9 +153,5 @@ export function NotebookIcon({
     );
   }
 
-  return (
-    <span className={cn('flex shrink-0 items-center justify-center', className, fallbackClassName)}>
-      <PinyinAwareLetter name={name} />
-    </span>
-  );
+  return <span className={cn('flex shrink-0 items-center justify-center', className)} />;
 }

@@ -21,8 +21,6 @@ pub enum MemoChangeSource {
     UserNew,
     /// "Save to Memo" 鎸夐挳瀵煎叆澶栭儴鏂囦欢
     UserImport,
-    /// A note created while initializing a notebook from a local template.
-    NotebookTemplate,
     /// 用户在编辑器保存或改名 (`write_document` / `rename_memo_title`).
     UserEdit,
     /// User explicitly deleted a note.
@@ -266,11 +264,15 @@ pub(crate) fn emit_with_recorded_commit_from_window(
                 }
                 MemoEvent::Deleted { path, .. } => {
                     let memo_file = read_lock(&state.memo_file, "memo_file");
-                    memo_file.get_notebook_config_by_id(&notebook_id).and_then(|notebook| {
-                        flowix_core::memo_file::notebook_relative_path(
-                            std::path::Path::new(&notebook.path), std::path::Path::new(path),
-                        ).ok()
-                    })
+                    memo_file
+                        .get_notebook_config_by_id(&notebook_id)
+                        .and_then(|notebook| {
+                            flowix_core::memo_file::notebook_relative_path(
+                                std::path::Path::new(&notebook.path),
+                                std::path::Path::new(path),
+                            )
+                            .ok()
+                        })
                 }
                 _ => None,
             };
@@ -338,13 +340,9 @@ fn commit_for_event(app: &AppHandle, event: &MemoEvent) -> Result<Option<Documen
             let path = flowix_core::memo_file::notebook_path_from_relative(
                 std::path::Path::new(&notebook.path),
                 &memo.relative_path,
-            ).map_err(|_| ())?;
-            DocumentMutationCoordinator::commit(
-                app,
-                notebook_id,
-                &memo.relative_path,
-                &path,
             )
+            .map_err(|_| ())?;
+            DocumentMutationCoordinator::commit(app, notebook_id, &memo.relative_path, &path)
         }
         MemoEvent::Updated {
             memo,
@@ -365,9 +363,7 @@ fn commit_for_event(app: &AppHandle, event: &MemoEvent) -> Result<Option<Documen
             )
         }
         MemoEvent::Deleted {
-            path,
-            notebook_id,
-            ..
+            path, notebook_id, ..
         } if !path.is_empty() => {
             let relative =
                 relativize_note_path(app, notebook_id, std::path::Path::new(path)).ok_or(())?;
@@ -384,9 +380,11 @@ fn relativize_note_path(
     path: &std::path::Path,
 ) -> Option<String> {
     let state = app.try_state::<crate::app::state::AppState>()?;
-    let notebook = read_lock(&state.memo_file, "memo_file")
-        .get_notebook_config_by_id(notebook_id)?;
-    let relative = path.strip_prefix(std::path::Path::new(&notebook.path)).ok()?;
+    let notebook =
+        read_lock(&state.memo_file, "memo_file").get_notebook_config_by_id(notebook_id)?;
+    let relative = path
+        .strip_prefix(std::path::Path::new(&notebook.path))
+        .ok()?;
     Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
@@ -547,7 +545,6 @@ mod tests {
         for (variant, expected) in [
             (MemoChangeSource::UserNew, "user_new"),
             (MemoChangeSource::UserImport, "user_import"),
-            (MemoChangeSource::NotebookTemplate, "notebook_template"),
             (MemoChangeSource::UserEdit, "user_edit"),
             (MemoChangeSource::UserDelete, "user_delete"),
             (MemoChangeSource::ExternalTool, "external_tool"),

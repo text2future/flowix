@@ -5,7 +5,7 @@ import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
 import { consumeCellPopupTriggerClick } from "@shared/ui/consume-cell-popup-click";
 
 type DropdownAlign = "start" | "center" | "end";
-type DropdownSide = "top" | "bottom";
+type DropdownSide = "top" | "bottom" | "right";
 
 const VIEWPORT_MARGIN = 4;
 const FALLBACK_MENU_SIZE = 160;
@@ -90,13 +90,21 @@ function getMenuPosition({
 }): MenuPosition {
 	const top = side === "top"
 		? triggerRect.top - menuHeight - sideOffset
-		: triggerRect.bottom + sideOffset;
+		: side === "right"
+			? align === "center"
+				? triggerRect.top + triggerRect.height / 2 - menuHeight / 2
+				: align === "end"
+					? triggerRect.bottom - menuHeight
+					: triggerRect.top
+			: triggerRect.bottom + sideOffset;
 
-	const left = align === "center"
-		? triggerRect.left + triggerRect.width / 2 - menuWidth / 2
-		: align === "end"
-			? triggerRect.right - menuWidth
-			: triggerRect.left;
+	const left = side === "right"
+		? triggerRect.right + sideOffset
+		: align === "center"
+			? triggerRect.left + triggerRect.width / 2 - menuWidth / 2
+			: align === "end"
+				? triggerRect.right - menuWidth
+				: triggerRect.left;
 
 	return {
 		top: clamp(top, VIEWPORT_MARGIN, window.innerHeight - menuHeight - VIEWPORT_MARGIN),

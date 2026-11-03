@@ -7,7 +7,7 @@
  * 灌数据, 所以 DOM / 样式 / 交互都与线上一致。
  *
  * 覆盖的 notice 类型 (与真实业务调用对齐):
- *   - error   + 可关闭 + 重试         → notebook 模板部分写入 (memo-list-services-host)
+ *   - error   + 可关闭 + 重试         → 笔记本导入失败
  *   - warning + 双动作 + 不可关闭      → 文档保存版本冲突 (document-save-status)
  *   - error   + 不可关闭 + 重试        → csv / 文档保存失败
  *   - neutral + outline 动作          → 一般信息提示
@@ -33,17 +33,16 @@ import { I18nProvider } from "@/lib/i18n";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const PARTIAL_ID = "notebook-setup:mock-photography";
+const IMPORT_FAILURE_ID = "mock-import-failure";
 
-/** error + 可关闭 + 单个 default 重试。对齐 memo-list-services-host 的 notebook.setup.partial。 */
-function seedPartialNotice() {
+/** error + 可关闭 + 单个 default 重试。 */
+function seedImportFailure() {
   upsertActionableNotice({
-    id: PARTIAL_ID,
+    id: IMPORT_FAILURE_ID,
     priority: 50,
     tone: "error",
-    title: "摄影作品集合 · 模板已部分写入",
-    message:
-      "已写入 19 个模板文件；跳过 0 个已有文件，另有 1 个文件写入失败。首个失败项：图库/.gitkeep（UNSUPPORTED_TEMPLATE_PATH）",
+    title: "笔记本导入失败",
+    message: "导入索引时发生错误，可以重试。",
     revision: "rev-1",
     dismissible: true,
     actions: [{ id: "retry", label: "重试", variant: "default", run: () => sleep(1500) }],
@@ -168,9 +167,9 @@ function seedLongMessage() {
     id: "mock-long-message",
     priority: 60,
     tone: "error",
-    title: "摄影作品集合 · 模板已部分写入",
+    title: "笔记本导入失败 · 索引重建未完成",
     message:
-      "已写入 19 个模板文件；跳过 0 个已有文件，另有 1 个文件写入失败。首个失败项：图库/.gitkeep（UNSUPPORTED_TEMPLATE_PATH）。这条副文案会故意写得很长很长，用来确认右侧重试按钮与单行省略同时生效，超出一行的部分应当以省略号截断而不是把卡片撑高。",
+      "尝试读取笔记本中的文件并重建索引时发生错误。这条副文案会故意写得很长很长，用来确认右侧重试按钮与单行省略同时生效，超出一行的部分应当以省略号截断而不是把卡片撑高。",
     revision: "rev-1",
     dismissible: true,
     actions: [{ id: "retry", label: "重试", variant: "default", run: () => sleep(1500) }],
@@ -196,7 +195,7 @@ function seedStack() {
 
 /** 一次性铺开所有类型, 便于横向对照。 */
 function seedAllTypes() {
-  seedPartialNotice();
+  seedImportFailure();
   seedConflict();
   seedNeutral();
   seedSaveFailed();
@@ -288,7 +287,7 @@ function MockPanel() {
       <strong style={{ fontSize: 13 }}>Actionable Notice · dev mock</strong>
 
       <Row label="场景">
-        <PanelButton onClick={seedPartialNotice}>模板部分写入</PanelButton>
+        <PanelButton onClick={seedImportFailure}>导入失败</PanelButton>
         <PanelButton onClick={seedLongMessage}>超长副文案</PanelButton>
         <PanelButton onClick={seedStack}>堆叠 4 条</PanelButton>
       </Row>
@@ -333,7 +332,7 @@ function MockPanel() {
 // 页面加载即灌入代表性数据 (三种 tone + 不可关闭), 打开就能看到多条不同类型。
 // 必须在 render 之前调用: ActionableNoticeHost 用 useSyncExternalStore
 // 读 store 快照, 先 seed 才能保证首帧就渲染出来。
-seedPartialNotice();
+seedImportFailure();
 seedConflict();
 seedNeutral();
 

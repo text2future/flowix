@@ -20,17 +20,17 @@ use std::{fs::OpenOptions, io};
 
 mod content;
 mod database_layout;
-mod storage_repair;
 mod derivation;
+mod file_io;
 mod file_management;
 mod file_rules;
-mod file_io;
 pub(crate) mod frontmatter;
 mod index_store;
 mod internal_migration;
 mod local_migrations;
 mod media_resource;
 mod migration;
+mod note_index;
 mod notebook;
 mod notebook_registry;
 mod onboarding;
@@ -38,25 +38,26 @@ mod operation_locks;
 mod ops;
 mod pinned_entry;
 mod registration;
-pub(crate) mod time;
-pub mod types;
-mod note_index;
 pub mod save_probe;
+mod storage_repair;
+pub(crate) mod time;
 mod tree_display;
+pub mod types;
 mod versions;
 
-pub use note_index::{
-    NoteEntry, NoteIndexReconcileReport, NoteSearchHit, NoteSummary, NoteTreeMetadata, NoteTitleFilter,
-    NoteTitleCondition, NoteWriteOutcome,
-};
 pub(crate) use note_index::NoteWriteResult;
+pub use note_index::{
+    NoteEntry, NoteIndexReconcileReport, NoteSearchHit, NoteSummary, NoteTitleCondition,
+    NoteTitleFilter, NoteTreeMetadata, NoteWriteOutcome,
+};
 pub use operation_locks::{FileLockIntent, FileWriteGuard, OperationLocks};
 
 // 公开 API re-export — 跟旧 `memo_file.rs` 的 pub use 边界一致。
+pub use database_layout::{prepare_database_directory, DATABASE_DIRECTORY_NAME};
 pub use derivation::{
-    apply_derived_memo_fields, extract_agent_threads_from_body,
-    extract_title_and_preview, extract_todos_from_body, normalize_search_tag_filter,
-    normalize_tag_path, tag_path_matches_filter,
+    apply_derived_memo_fields, extract_agent_threads_from_body, extract_title_and_preview,
+    extract_todos_from_body, normalize_search_tag_filter, normalize_tag_path,
+    tag_path_matches_filter,
 };
 pub use file_io::{
     atomic_create_bytes, atomic_write_bytes, filesystem_identity, rename_file_noclobber,
@@ -66,40 +67,36 @@ pub use file_management::{
     default_create_folder_for_notebook, rebase_default_create_folder_path, FileManagementPolicy,
 };
 pub use file_rules::EXCLUDED_DIRECTORY_NAMES;
-pub use tree_display::TreeVisibility;
 pub use frontmatter::{
     extract_body_content, extract_document_metadata, extract_frontmatter_properties,
-    merge_frontmatter,
-    normalize_document_tags, normalize_markdown_encoding_boundaries, replace_frontmatter_tags,
-    DocumentMetadata, FrontmatterMetadataError, MergeOverrides,
+    merge_frontmatter, normalize_document_tags, normalize_markdown_encoding_boundaries,
+    replace_frontmatter_tags, DocumentMetadata, FrontmatterMetadataError, MergeOverrides,
 };
 pub use index_store::{NoteContentCommit, NoteContentRevision};
-pub use local_migrations::{initialize_local_migration_table, NotebookInitializationJob};
 pub use internal_migration::{NotebookInternalMigrationReport, NOTEBOOK_INTERNAL_MIGRATION_KEY};
-pub use storage_repair::{
-    backup_database, backup_storage_file, database_file_is_corrupt, discard_database_for_runtime, ensure_storage_directory,
-    is_rebuildable_storage_error, read_or_create_json, with_database_rebuild, with_corrupt_database_rebuild,
-};
-pub use database_layout::{prepare_database_directory, DATABASE_DIRECTORY_NAME};
+pub use local_migrations::{initialize_local_migration_table, NotebookInitializationJob};
 pub use media_resource::{
-    media_kind_for_path, media_resource_id, resource_catalog_id, resource_kind_for_path, IndexedResource,
-    IndexedResourcePage, MediaResource, MediaResourceKind, MediaResourcePage, ResourceKind,
+    media_kind_for_path, media_resource_id, resource_catalog_id, resource_kind_for_path,
+    IndexedResource, IndexedResourcePage, MediaResource, MediaResourceKind, MediaResourcePage,
+    ResourceKind,
 };
-pub use pinned_entry::{PinnedEntry, PinnedEntryPage};
 pub use migration::{DataMigrationReport, NotebookMigrationReport, LATEST_DATA_MIGRATION_VERSION};
 pub use ops::{
-    base_filename, filename_from_notebook_relative_path,
-    notebook_path_from_relative, notebook_relative_path, resolve_filename_conflict,
-    resolve_relative_filename_conflict, sanitize_filename_component, IsMd,
+    base_filename, filename_from_notebook_relative_path, notebook_path_from_relative,
+    notebook_relative_path, resolve_filename_conflict, resolve_relative_filename_conflict,
+    sanitize_filename_component, IsMd,
 };
+pub use pinned_entry::{PinnedEntry, PinnedEntryPage};
+pub use storage_repair::{
+    backup_database, backup_storage_file, database_file_is_corrupt, discard_database_for_runtime,
+    ensure_storage_directory, is_rebuildable_storage_error, read_or_create_json,
+    with_corrupt_database_rebuild, with_database_rebuild,
+};
+pub use tree_display::TreeVisibility;
 pub use types::{
-    AgentThreadItem, DeleteTagReport, Memo, MemoIndexEntry, MemoIndexFile, MemoLocation,
-    MemoTag, MoveTagReport, NoteColor,
-    Notebook, NotebookConfig, NotebookManifest, NotebookSetupJob, NotebookSetupJobStatus,
-    NotebookSetupSnapshot,
-    NotebookSetupStage,
-    NotebookSetupReport,
-    ReconcileReport, TodoItem,
+    AgentThreadItem, DeleteTagReport, Memo, MemoIndexEntry, MemoIndexFile, MemoLocation, MemoTag,
+    MoveTagReport, NoteColor, Notebook, NotebookConfig, NotebookManifest, ReconcileReport,
+    TodoItem,
 };
 pub use versions::{
     MemoVersionSource, PathArchiveSummary, PathVersionMeta, MEMO_AUTO_VERSION_INTERVAL_MS,
@@ -168,7 +165,9 @@ impl MemoFile {
 
     pub fn file_management_policy(&self, notebook_id: &str) -> FileManagementPolicy {
         self.get_notebook_config_by_id(notebook_id)
-            .map(|notebook| FileManagementPolicy::from_notebook_root(std::path::Path::new(&notebook.path)))
+            .map(|notebook| {
+                FileManagementPolicy::from_notebook_root(std::path::Path::new(&notebook.path))
+            })
             .unwrap_or_default()
     }
 
@@ -184,8 +183,12 @@ impl MemoFile {
             let absolute = match std::fs::canonicalize(path) {
                 Ok(path) => path,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    let parent = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
-                    let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no name"))?;
+                    let parent = path.parent().ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "path has no parent")
+                    })?;
+                    let name = path.file_name().ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "path has no name")
+                    })?;
                     std::fs::canonicalize(parent)?.join(name)
                 }
                 Err(error) => return Err(error),
@@ -194,7 +197,9 @@ impl MemoFile {
         }
         let mut ids = Vec::new();
         for notebook in self.read_notebook_configs()? {
-            let Ok(root) = std::fs::canonicalize(&notebook.path) else { continue; };
+            let Ok(root) = std::fs::canonicalize(&notebook.path) else {
+                continue;
+            };
             if resolved.iter().any(|path| path.starts_with(&root)) {
                 ids.push(notebook.id);
             }
@@ -212,7 +217,8 @@ impl MemoFile {
         operation: &str,
         write: impl FnOnce(&std::path::Path) -> io::Result<T>,
     ) -> io::Result<T> {
-        let notebook = self.get_notebook_config_by_id(notebook_id)
+        let notebook = self
+            .get_notebook_config_by_id(notebook_id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "notebook not found"))?;
         let guard = self.operation_locks().file_write(
             notebook_id,
@@ -221,10 +227,17 @@ impl MemoFile {
             intent,
             operation,
         )?;
-        let current = self.get_notebook_config_by_id(notebook_id)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "notebook removed while waiting for file lock"))?;
+        let current = self.get_notebook_config_by_id(notebook_id).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "notebook removed while waiting for file lock",
+            )
+        })?;
         if std::fs::canonicalize(&current.path)? != std::fs::canonicalize(&notebook.path)? {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "notebook root changed while waiting for file lock"));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "notebook root changed while waiting for file lock",
+            ));
         }
         write(guard.path())
     }
@@ -235,7 +248,9 @@ impl MemoFile {
         operation: &str,
         change: impl FnOnce() -> io::Result<T>,
     ) -> io::Result<T> {
-        let _guard = self.operation_locks().notebook_change(notebook_ids, operation)?;
+        let _guard = self
+            .operation_locks()
+            .notebook_change(notebook_ids, operation)?;
         change()
     }
 
@@ -250,12 +265,18 @@ impl MemoFile {
     ) -> io::Result<T> {
         let ids = self.notebook_ids_for_paths(paths)?;
         if ids.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "path is outside registered notebooks"));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "path is outside registered notebooks",
+            ));
         }
         let borrowed: Vec<&str> = ids.iter().map(String::as_str).collect();
         self.with_notebook_change(&borrowed, operation, || {
             if self.notebook_ids_for_paths(paths)? != ids {
-                return Err(io::Error::new(io::ErrorKind::NotFound, "notebook registration changed"));
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "notebook registration changed",
+                ));
             }
             change()
         })
@@ -347,7 +368,6 @@ impl MemoFile {
     pub fn get_plugin_dir(&self, plugin_id: &str) -> PathBuf {
         self.get_flowix_dir().join("plugin").join(plugin_id)
     }
-
 }
 
 #[cfg(test)]

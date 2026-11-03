@@ -1,5 +1,6 @@
+use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -28,6 +29,117 @@ pub async fn select_directory(app: tauri::AppHandle) -> Option<String> {
             .blocking_pick_folder()
             .map(|p| {
                 let path = Path::new(&p.to_string()).to_path_buf();
+                record_bookmark_directory(&app, &path);
+                path.to_string_lossy().into_owned()
+            })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObsidianVaultRecord {
+    pub name: String,
+    pub path: String,
+}
+
+fn discover_obsidian_vaults() -> Result<Vec<ObsidianVaultRecord>, String> {
+    let Some(config_dir) = dirs::config_dir() else {
+        return Ok(Vec::new());
+    };
+    let config_path = config_dir.join("obsidian").join("obsidian.json");
+    let contents = match fs::read_to_string(&config_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err("OBSIDIAN_CONFIG_READ_FAILED".to_string()),
+    };
+    let config: serde_json::Value = serde_json::from_str(&contents)
+        .map_err(|_| "OBSIDIAN_CONFIG_INVALID".to_string())?;
+    let Some(vaults) = config.get("vaults").and_then(serde_json::Value::as_object) else {
+        return Ok(Vec::new());
+    };
+
+    let mut seen_paths = HashSet::new();
+    let mut discovered = Vec::new();
+    for vault in vaults.values() {
+        let Some(configured_path) = vault.get("path").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let path = Path::new(configured_path);
+        if !path.is_dir() {
+            continue;
+        }
+
+        let canonical_path =
+            fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(configured_path));
+        let path_string = canonical_path.to_string_lossy().into_owned();
+        let path_key = if cfg!(windows) {
+            path_string.to_lowercase()
+        } else {
+            path_string.clone()
+        };
+        if !seen_paths.insert(path_key) {
+            continue;
+        }
+
+        let name = canonical_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(configured_path)
+            .to_string();
+        discovered.push(ObsidianVaultRecord {
+            name,
+            path: path_string,
+        });
+    }
+
+    discovered.sort_by(|left, right| {
+        left.name
+            .to_lowercase()
+            .cmp(&right.name.to_lowercase())
+            .then_with(|| left.path.to_lowercase().cmp(&right.path.to_lowercase()))
+    });
+    Ok(discovered)
+}
+
+#[tauri::command]
+pub async fn list_obsidian_vaults() -> Result<Vec<ObsidianVaultRecord>, String> {
+    tokio::task::spawn_blocking(discover_obsidian_vaults)
+        .await
+        .map_err(|error| format!("obsidian vault discovery task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn select_project_directory(
+    app: tauri::AppHandle,
+    project_source: String,
+) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (title, relative_directory) = match project_source.as_str() {
+        "workbuddy" => ("选择 WorkBuddy 项目文件夹", Path::new("workbuddy")),
+        "codex" => ("选择 Codex 项目文件夹", Path::new("Documents/Codex")),
+        _ => return None,
+    };
+    let home_directory = dirs::home_dir()?;
+    let project_directory = home_directory.join(relative_directory);
+    let start_directory = if project_directory.is_dir() {
+        project_directory
+    } else {
+        home_directory
+    };
+
+    tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title(title)
+            .set_directory(start_directory)
+            .blocking_pick_folder()
+            .map(|path| {
+                let path = Path::new(&path.to_string()).to_path_buf();
                 record_bookmark_directory(&app, &path);
                 path.to_string_lossy().into_owned()
             })

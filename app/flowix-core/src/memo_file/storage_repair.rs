@@ -454,86 +454,6 @@ mod storage_rebuild_tests {
     }
 
     #[test]
-    fn broken_optional_setup_table_does_not_replace_notebook_registry() {
-        let temp = tempfile::tempdir().unwrap();
-        let memo = MemoFile::new(temp.path().to_path_buf());
-        memo.initialize_registry_storage().unwrap();
-        let conn = rusqlite::Connection::open(memo.registry_db_path()).unwrap();
-        conn.execute_batch(
-            "INSERT INTO notebooks (id,name,path,is_default,sort,pinned,created_at,updated_at)
-            VALUES ('keep','Name','/offline',1,30,1,123,456);
-            DROP TABLE notebook_setup_jobs;
-            CREATE TABLE notebook_setup_jobs (notebook_id TEXT);",
-        )
-        .unwrap();
-        drop(conn);
-        for _ in 0..2 {
-            memo.initialize_current_registry_storage().unwrap();
-            let rows = memo.read_notebook_configs().unwrap();
-            assert_eq!(rows.len(), 1);
-            assert_eq!(rows[0].id, "keep");
-            assert_eq!(rows[0].path, "/offline");
-            assert_eq!(rows[0].sort, 30);
-            assert!(memo.read_notebook_pin_states().unwrap().contains("keep"));
-        }
-    }
-
-    #[test]
-    fn repeated_optional_upgrade_failure_reuses_a_validated_registry_backup() {
-        let temp = tempfile::tempdir().unwrap();
-        let memo = MemoFile::new(temp.path().to_path_buf());
-        memo.initialize_registry_storage().unwrap();
-        let conn = rusqlite::Connection::open(memo.registry_db_path()).unwrap();
-        conn.execute_batch(
-            "INSERT INTO notebooks (id,name,path,is_default,sort,pinned,created_at,updated_at)
-            VALUES ('keep','Original','/offline',1,30,1,123,456);
-            DROP TABLE notebook_setup_jobs; CREATE TABLE notebook_setup_jobs(notebook_id TEXT);",
-        )
-        .unwrap();
-        for _ in 0..3 {
-            memo.initialize_current_registry_storage().unwrap();
-        }
-        let backups = temp.path().join("db/registry-backups");
-        assert_eq!(fs::read_dir(&backups).unwrap().count(), 1);
-        // A changed identity state requires a separate preserved snapshot.
-        conn.execute("UPDATE notebooks SET name='Changed'", [])
-            .unwrap();
-        memo.initialize_current_registry_storage().unwrap();
-        assert_eq!(fs::read_dir(&backups).unwrap().count(), 2);
-        assert_eq!(memo.read_notebook_configs().unwrap()[0].name, "Changed");
-    }
-
-    #[test]
-    fn unavailable_optional_backup_does_not_block_registry_access() {
-        let temp = tempfile::tempdir().unwrap();
-        let memo = MemoFile::new(temp.path().to_path_buf());
-        memo.initialize_registry_storage().unwrap();
-        let conn = rusqlite::Connection::open(memo.registry_db_path()).unwrap();
-        conn.execute_batch(
-            "INSERT INTO notebooks (id,name,path,is_default,sort,pinned,created_at,updated_at)
-            VALUES ('keep','Original','/offline',1,30,1,123,456);
-            DROP TABLE notebook_setup_jobs; CREATE TABLE notebook_setup_jobs(notebook_id TEXT);",
-        )
-        .unwrap();
-        fs::write(
-            temp.path().join("db/registry-backups"),
-            b"blocked backup directory",
-        )
-        .unwrap();
-        memo.initialize_current_registry_storage().unwrap();
-        assert_eq!(memo.read_notebook_configs().unwrap()[0].id, "keep");
-        assert_eq!(
-            conn.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('notebook_setup_jobs')",
-                [],
-                |r| r.get::<_, i64>(0)
-            )
-            .unwrap(),
-            1
-        );
-    }
-
-    #[test]
     fn unavailable_backup_blocks_core_schema_changes_without_modifying_notebooks() {
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join("db")).unwrap();
@@ -666,7 +586,9 @@ mod storage_rebuild_tests {
         let memo = MemoFile::new(temp.path().to_path_buf());
         assert!(!memo.migrate_existing_registry_storage());
         let connection = rusqlite::Connection::open(&path).unwrap();
-        let count: i64 = connection.query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get(0)).unwrap();
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(count, 0);
         drop(connection);
         assert!(!temp.path().join("notebook-registry-initialized").exists());
@@ -685,8 +607,16 @@ mod storage_rebuild_tests {
         assert_eq!(fs::read(&path).unwrap(), b"broken registry");
         memo.initialize_runtime_registry_storage().unwrap();
         let backups = path.parent().unwrap().join("rebuild-backups");
-        let backup = fs::read_dir(backups).unwrap().next().unwrap().unwrap().path();
-        assert_eq!(fs::read(backup.join("local.db")).unwrap(), b"broken registry");
+        let backup = fs::read_dir(backups)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(
+            fs::read(backup.join("local.db")).unwrap(),
+            b"broken registry"
+        );
         assert!(memo.read_notebook_configs().unwrap().is_empty());
     }
 

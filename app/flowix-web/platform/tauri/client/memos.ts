@@ -2,16 +2,6 @@ import { invokeDocumentMutation } from './document-mutation';
 import { invoke } from '@tauri-apps/api/core';
 import type { NotebookImportStatus } from './agent';
 
-export interface NotebookTemplateRecord {
-  id: string;
-  name: string;
-  description: string;
-  sourceDirectory: string;
-  icon: string;
-  category?: string;
-  coverUrl?: string;
-}
-
 /** Tag summary and memo events. Path-based note operations live in `notes`. */
 export const memos = {
   getUsedTagIds: (notebookId?: string) =>
@@ -122,82 +112,26 @@ export interface NotebookRecord {
   missing?: boolean;
 }
 
-export type NotebookSetupJobStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed';
-export type NotebookSetupStage = 'preparing' | 'writing' | 'indexing' | 'completed';
-
-export interface NotebookSetupReport {
-  totalFiles: number;
-  writtenFiles: number;
-  skippedExistingFiles: number;
-  failedFiles: number;
-  firstFailurePath: string | null;
-  firstFailureReason: string | null;
-}
-
-export interface NotebookSetupJob {
-  notebookId: string;
-  jobId: string;
-  templateId: string | null;
-  overwriteExisting: boolean;
-  status: NotebookSetupJobStatus;
-  stage: NotebookSetupStage;
-  revision: number;
-  runId: string;
-  message: string | null;
-  report: NotebookSetupReport | null;
-  updatedAt: number;
-  executionRequested: boolean;
-}
-
-export interface NotebookSetupSnapshot {
-  revision: number;
-  jobs: NotebookSetupJob[];
+export interface ObsidianVaultRecord {
+  name: string;
+  path: string;
 }
 
 export const notebooks = {
   getAll: () => invoke<NotebookRecord[]>('get_notebooks'),
+  listObsidianVaults: () => invoke<ObsidianVaultRecord[]>('list_obsidian_vaults'),
   setPinned: (notebookId: string, pinned: boolean) =>
     invoke<boolean>('set_notebook_pinned', { notebookId, pinned }),
   getBackgroundStatus: () => invoke<NotebookBackgroundStatus[]>('get_notebook_background_status'),
   refreshIndex: (notebookId: string) => invoke<void>('request_notebook_refresh', { notebookId }),
   getMediaMaintenanceStatus: () => invoke<NotebookMediaMaintenanceStatus[]>('get_notebook_media_maintenance_status'),
   retryMediaMaintenance: (notebookId: string) => invoke<void>('request_notebook_media_maintenance', { notebookId }),
-  listTemplates: () => invoke<NotebookTemplateRecord[]>('list_notebook_templates'),
   getDefaultPath: (name: string) =>
     invoke<string>('get_default_notebook_path', { name }),
-  confirmPresetOverwrite: (message: string) =>
-    invoke<boolean>('confirm_notebook_preset_overwrite', { message }),
   ensureDefaultPath: (name: string) =>
     invoke<string>('ensure_default_notebook_path', { name }),
-  initializeTemplate: (
-    notebookId: string,
-    templateId: string,
-    isNewNotebook: boolean,
-  ) => invoke<number>('initialize_notebook_template', {
-    notebookId,
-    templateId,
-    isNewNotebook,
-  }),
-  create: (
-    name: string,
-    path?: string,
-    icon?: string | null,
-    activate = true,
-    templateId?: string | null,
-    overwriteExisting = false,
-  ) => invoke<NotebookRecord>('create_notebook', {
-    name, path, icon, activate, templateId, overwriteExisting,
-  }),
-  ensureTemplateSetup: (notebookId: string, templateId: string, overwriteExisting = false) =>
-    invoke<NotebookSetupJob>('ensure_notebook_template_setup', { notebookId, templateId, overwriteExisting }),
-  getTemplateSetupStatus: (notebookId: string) =>
-    invoke<NotebookSetupJob | null>('get_notebook_template_setup_status', { notebookId }),
-  startTemplateSetup: (notebookId: string, retry = false) =>
-    invoke<NotebookSetupJob | null>('start_notebook_template_setup', { notebookId, retry }),
-  startOrResumeReadyTemplateSetups: (activeNotebookId: string | null) =>
-    invoke<void>('start_or_resume_ready_notebook_template_setups', { activeNotebookId }),
-  getTemplateSetupSnapshot: () =>
-    invoke<NotebookSetupSnapshot>('get_notebook_template_setup_snapshot'),
+  create: (name: string, path?: string, icon?: string | null, activate = true) =>
+    invoke<NotebookRecord>('create_notebook', { name, path, icon, activate }),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null, activate = true) =>
     invoke<NotebookRecord>('create_notebook_from_cloud', { id, name, path, icon, activate }),
   startImport: (notebookId: string) =>
@@ -206,6 +140,8 @@ export const notebooks = {
     invoke<NotebookImportStatus | null>('get_notebook_import_status', { notebookId }),
   update: (id: string, name?: string, icon?: string | null) =>
     invoke<NotebookRecord | null>('update_notebook', { id, name, icon }),
+  setPrimaryDirectory: (id: string, path: string) =>
+    invoke<NotebookRecord>('set_notebook_primary_directory', { id, path }),
   delete: (id: string, deleteLocalFiles = false) =>
     invoke<boolean>('delete_notebook', { id, deleteLocalFiles }),
   clearAll: () => invoke<boolean>('clear_notebooks'),

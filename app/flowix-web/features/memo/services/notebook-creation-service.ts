@@ -1,14 +1,11 @@
 import type { Notebook } from '@features/memo/store/note-store';
 import { notebookRepository } from '@features/memo/services/note-repository';
-import {
-  listenToNotebookImportStatus,
-  type NotebookSetupJob,
-  type NotebookImportStatus,
-} from '@platform/tauri/client';
+import { listenToNotebookImportStatus, type NotebookImportStatus } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { loadLanguage, translate } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
+import { resolveNotebookIconId } from '@features/memo/components/notebook-icon';
 
 const logger = createLogger('notebook-creation-service');
 
@@ -16,16 +13,12 @@ export interface NotebookRegistrationResult {
   notebook: Notebook;
   created: boolean;
   needsImport: boolean;
-  hasTemplateSetup?: boolean;
-  setupJob?: NotebookSetupJob | null;
 }
 
 interface CreateNotebookRegistrationInput {
   name: string;
   path?: string;
   icon?: string | null;
-  templateId?: string | null;
-  overwriteExisting?: boolean;
   reuseExisting?: boolean;
 }
 
@@ -141,8 +134,6 @@ export async function createNotebookRegistration({
   name,
   path,
   icon,
-  templateId,
-  overwriteExisting = false,
   reuseExisting = false,
 }: CreateNotebookRegistrationInput): Promise<NotebookRegistrationResult> {
   const trimmedName = name.trim();
@@ -154,20 +145,19 @@ export async function createNotebookRegistration({
   const pathForCreate = requestedPath || undefined;
 
   try {
-    const notebook = templateId
-      ? await notebookRepository.create(
-        trimmedName, pathForCreate, icon, false, templateId, overwriteExisting,
-      )
-      : await notebookRepository.create(trimmedName, pathForCreate, icon, false);
-    // Only a brand-new notebook gets the auto-created default notes folder.
-    // The reuse-existing branch below targets an already registered notebook
-    // whose folder layout / preferences must be left untouched.
-    await ensureDefaultNoteFolder(notebook);
+    const notebook = await notebookRepository.create(
+      trimmedName,
+      pathForCreate,
+      resolveNotebookIconId(icon),
+      false,
+    );
+    // Only default-location creation gets a starter notes folder. Explicit
+    // paths connect existing directories and must preserve their layout.
+    if (!requestedPath) await ensureDefaultNoteFolder(notebook);
     return {
       notebook,
       created: true,
       needsImport: true,
-      ...(templateId ? { hasTemplateSetup: true } : {}),
     };
   } catch (error) {
     // A second onboarding attempt can race with another registration. Resolve
@@ -176,18 +166,11 @@ export async function createNotebookRegistration({
       const existingPath = pathForCreate ?? await notebookRepository.getDefaultPath(trimmedName);
       const registered = await findNotebookByPath(existingPath);
       if (registered) {
-        const setupJob = templateId
-          ? await notebookRepository.ensureTemplateSetup(registered.id, templateId, overwriteExisting)
-          : await notebookRepository.getTemplateSetupStatus?.(registered.id) ?? null;
-        const registration = {
+        return {
           notebook: registered,
           created: false,
-          ...(setupJob ? { hasTemplateSetup: true } : {}),
-          needsImport: setupJob
-            ? setupJob.status !== 'completed'
-            : await notebookNeedsImport(registered.id),
+          needsImport: await notebookNeedsImport(registered.id),
         };
-        return setupJob ? { ...registration, setupJob } : registration;
       }
     }
     throw error;

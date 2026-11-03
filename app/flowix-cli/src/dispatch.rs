@@ -31,13 +31,14 @@ pub fn run_cli(args: &[String]) -> Result<(), CliError> {
         cli::Cli::Show { id, json } => path_store::print(path_store::show(&id)?, json),
         cli::Cli::Create {
             notebook,
+            title,
             file,
             stdin,
             json,
         } => {
             let content = path_store::read_input(file.as_deref(), stdin, "create")?;
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
-            path_store::print(path_store::create(&notebook, &content)?, json)
+            path_store::print(path_store::create_with_title(&notebook, title.as_deref(), &content)?, json)
         }
         cli::Cli::Delete { id, json } => path_store::print(path_store::delete(&id)?, json),
         cli::Cli::CollectionRead {

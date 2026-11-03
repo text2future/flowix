@@ -532,14 +532,9 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/memo/components/notebook-create-form.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "app/flowix-web/features/memo/components/notebook-dialogs.tsx": {
     "no-restricted-imports": {
-      "count": 3
+      "count": 1
     }
   },
   "app/flowix-web/features/memo/components/notebook-document-create-dialog.tsx": {
@@ -570,16 +565,6 @@
   "app/flowix-web/features/memo/components/notebook-repositories-section.tsx": {
     "no-restricted-imports": {
       "count": 2
-    }
-  },
-  "app/flowix-web/features/memo/components/notebook-setup-coordinator.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/flowix-web/features/memo/components/notebook-setup-notice-host.tsx": {
-    "no-restricted-imports": {
-      "count": 1
     }
   },
   "app/flowix-web/features/memo/components/notebook-tree-file-icon.tsx": {
@@ -767,16 +752,6 @@
   "app/flowix-web/features/multidimensional-table/view-selection.ts": {
     "no-restricted-imports": {
       "count": 1
-    }
-  },
-  "app/flowix-web/features/onboarding/notebook-template-icon.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/flowix-web/features/onboarding/onboarding-screen.tsx": {
-    "no-restricted-imports": {
-      "count": 3
     }
   },
   "app/flowix-web/features/plugin/plugin-agent-workbench.tsx": {

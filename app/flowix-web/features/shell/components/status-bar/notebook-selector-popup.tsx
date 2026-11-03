@@ -437,17 +437,11 @@ export function NotebookSelectorPopup({
       >
         <NotebookIcon
           icon={notebook.icon}
-          name={notebook.name}
           className={cn(
-            'mr-3 h-7 w-7 shrink-0 rounded-md text-[15px] font-semibold transition-colors duration-150',
+            'mr-3 h-7 w-7 shrink-0 rounded-md transition-colors duration-150',
             isActive
               ? 'bg-[color-mix(in_oklch,var(--primary)_16%,var(--muted))] !text-[var(--primary)]'
               : 'bg-[var(--muted)] !text-[var(--foreground)]',
-          )}
-          fallbackClassName={cn(
-            isActive
-              ? '!text-[color-mix(in_oklch,var(--primary)_25%,transparent)]'
-              : '!text-[color-mix(in_oklch,var(--foreground)_25%,transparent)]',
           )}
           imageClassName="h-[72%] w-[72%]"
         />
@@ -543,10 +537,9 @@ export function NotebookSelectorPopup({
             aria-label={t('status.switchNotebook')}
             title={t('status.switchNotebook')}
           >
-            {selectedNotebook?.icon && (
+            {selectedNotebook && (
               <NotebookIcon
                 icon={selectedNotebook.icon}
-                name={selectedNotebook.name}
                 className="h-4 w-4 rounded text-[12px] font-semibold !text-[var(--foreground)]"
               />
             )}
@@ -655,7 +648,6 @@ export function NotebookSelectorPopup({
           >
             <NotebookIcon
               icon={sourceNotebook.icon}
-              name={sourceNotebook.name}
               className="h-7 w-7 shrink-0 rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,var(--muted))] text-[15px] font-semibold !text-[var(--primary)]"
             />
             <div className="min-w-0 flex-1 space-y-0.5">

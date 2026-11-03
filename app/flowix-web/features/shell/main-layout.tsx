@@ -581,12 +581,11 @@ export function MainLayout({
 
       {onboardingOpen && (
         <OnboardingScreen
-          onFinish={async (notebook, { startImport, templateId }) => {
-            await finishOnboardingNotebook(notebook, { startImport, templateId }, {
+          onFinish={async (notebook, { startImport }) => {
+            await finishOnboardingNotebook(notebook, { startImport }, {
               completeOnboarding,
-              failureTitle: t('notebook.setup.failed'),
+              failureTitle: t('memo.list.createFailed'),
               retryLabel: t('error.retry'),
-              overwriteConfirmMessage: t('notebook.template.overwriteConfirm'),
             });
             showProductIntroAfterOnboarding();
           }}

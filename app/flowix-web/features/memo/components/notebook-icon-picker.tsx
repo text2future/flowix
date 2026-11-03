@@ -7,22 +7,22 @@ import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import {
   NotebookIcon,
   NOTEBOOK_ICON_OPTIONS,
+  resolveNotebookIconOption,
 } from '@features/memo/components/notebook-icon';
 
 interface NotebookIconPickerProps {
   value: string | null;
-  notebookName: string;
   onChange: (icon: string | null) => void;
   disabled?: boolean;
 }
 
 export function NotebookIconPicker({
   value,
-  notebookName,
   onChange,
   disabled = false,
 }: NotebookIconPickerProps) {
   const { t } = useI18n();
+  const selected = resolveNotebookIconOption(value);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [showBottomScrollHint, setShowBottomScrollHint] = useState(false);
 
@@ -53,25 +53,6 @@ export function NotebookIconPicker({
           }}
         >
           <div className="grid grid-cols-7 gap-1.5">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(null)}
-              className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
-                value === null
-                  ? 'border-[var(--primary)] bg-[var(--accent)]'
-                  : 'border-[var(--border)] hover:bg-[var(--muted)]',
-                disabled && 'cursor-not-allowed opacity-60',
-              )}
-              aria-label={t("memo.notebook.letterIcon")}
-              title={t("memo.notebook.letterIcon")}
-            >
-              <NotebookIcon
-                name={notebookName}
-                className="h-[26px] w-[26px] rounded-md bg-[var(--muted)] text-[15px] font-semibold text-[var(--secondary-foreground)]"
-              />
-            </button>
             {NOTEBOOK_ICON_OPTIONS.map((option) => (
               <button
                 key={option.id}
@@ -80,7 +61,7 @@ export function NotebookIconPicker({
                 onClick={() => onChange(option.id)}
                 className={cn(
                   'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
-                  value === option.id
+                  selected.id === option.id
                     ? 'border-[var(--primary)] bg-[var(--accent)]'
                     : 'border-[var(--border)] hover:bg-[var(--muted)]',
                   disabled && 'cursor-not-allowed opacity-60',
@@ -92,7 +73,7 @@ export function NotebookIconPicker({
                   icon={option.id}
                   className={cn(
                     'h-[26px] w-[26px] rounded-md bg-[var(--muted)]',
-                    value === option.id
+                    selected.id === option.id
                       ? 'text-[var(--secondary-foreground)]'
                       : 'text-[var(--muted-foreground)]',
                   )}

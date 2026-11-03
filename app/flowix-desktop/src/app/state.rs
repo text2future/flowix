@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use serde::Serialize;
@@ -74,8 +74,6 @@ pub struct AppState {
     /// AppState lets a Webview recover when it subscribes after an event was
     /// emitted or when a transient IPC/event bridge failure occurs.
     pub notebook_imports: Arc<Mutex<HashMap<String, NotebookImportStatus>>>,
-    /// In-process exclusion for durable first-open template preparation jobs.
-    pub notebook_template_initializations: Arc<Mutex<HashSet<String>>>,
     /// Serializes the complete current-notebook transition, including its
     /// migration, index invalidation, and persisted selection update.
     pub notebook_transition: Arc<Mutex<()>>,

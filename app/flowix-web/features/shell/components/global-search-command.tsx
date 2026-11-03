@@ -667,7 +667,6 @@ function StaticGroups({ onClose }: StaticGroupsProps) {
               >
                 <NotebookIcon
                   icon={nb.icon}
-                  name={nb.name}
                   className="h-6 w-6 rounded-md bg-[var(--muted)] text-[11px] font-semibold text-[var(--secondary-foreground)]"
                 />
                 <span className="flex-1 truncate">

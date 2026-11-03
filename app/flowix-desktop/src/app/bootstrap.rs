@@ -15,7 +15,6 @@ use crate::app::watchdog::spawn_external_agent_watchdog;
 use crate::cli_link;
 use crate::commands;
 use crate::config::user as user_config;
-use crate::memo_events::{self, MemoChangeSource, MemoDerivedChanged, MemoEvent};
 use crate::runtime_log;
 use crate::system_data::SystemData;
 use crate::watcher::MemoWatcher;
@@ -352,7 +351,6 @@ pub fn run() {
                 plugin_runs: crate::plugin::PluginRunCoordinator::default(),
                 notebook_imports: Default::default(),
                 notebook_background: Default::default(),
-                notebook_template_initializations: Default::default(),
                 notebook_transition: notebook_transition_for_state,
                 startup: startup_for_state,
                 watcher_retry_stop: Arc::new(AtomicBool::new(false)),
@@ -616,9 +614,6 @@ pub fn run() {
             open_targets::acknowledge_open_targets,
             commands::memo::reads::search_path_notes,
             commands::memo::creates::add_path_document,
-            commands::memo::creates::list_notebook_templates,
-            commands::memo::creates::initialize_notebook_template,
-            commands::notebook_setup::ensure_notebook_template_setup,
             commands::memo::creates::import_external_document_by_path,
             commands::memo::creates::rename_memo_title,
             commands::memo::creates::move_memo_to_directory,
@@ -644,17 +639,13 @@ pub fn run() {
             commands::notebook::request_notebook_media_maintenance,
             commands::notebook::request_notebook_refresh,
             commands::notebook::get_default_notebook_path,
-            commands::notebook::confirm_notebook_preset_overwrite,
             commands::notebook::ensure_default_notebook_path,
             commands::notebook::create_notebook,
             commands::notebook::create_notebook_from_cloud,
             commands::notebook::start_notebook_import,
-            commands::notebook_setup::get_notebook_template_setup_status,
-            commands::notebook_setup::start_notebook_template_setup,
-            commands::notebook_setup::start_or_resume_ready_notebook_template_setups,
-            commands::notebook_setup::get_notebook_template_setup_snapshot,
             commands::notebook::get_notebook_import_status,
             commands::notebook::update_notebook,
+            commands::notebook::set_notebook_primary_directory,
             commands::notebook::delete_notebook,
             commands::notebook::clear_notebooks,
             commands::notebook::set_current_notebook,
@@ -708,6 +699,8 @@ pub fn run() {
             commands::web::resolve_bilibili_video,
             // dialog
             commands::dialog::select_directory,
+            commands::dialog::list_obsidian_vaults,
+            commands::dialog::select_project_directory,
             commands::dialog::select_import_directory,
             commands::dialog::select_files,
             commands::dialog::save_file_dialog,
@@ -1048,17 +1041,16 @@ fn spawn_notebook_watch_retry(
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let active_notebook_id = crate::lock_utils::read_lock(&state.memo_file, "memo_file")
                 .current_notebook_id_value();
-            let active_config = match crate::watcher::runtime::read_registered_notebooks(&config_dir) {
-                Ok(configs) => configs
-                    .into_iter()
-                    .find(|config| {
-                        active_notebook_id.as_deref() == Some(config.id.as_str())
-                    }),
-                Err(error) => {
-                    tracing::warn!(%error, "could not reload notebook roots for watcher retry");
-                    continue;
-                }
-            };
+            let active_config =
+                match crate::watcher::runtime::read_registered_notebooks(&config_dir) {
+                    Ok(configs) => configs
+                        .into_iter()
+                        .find(|config| active_notebook_id.as_deref() == Some(config.id.as_str())),
+                    Err(error) => {
+                        tracing::warn!(%error, "could not reload notebook roots for watcher retry");
+                        continue;
+                    }
+                };
             let Ok(mut watcher) = memo_watcher.write() else {
                 tracing::warn!("notebook watcher lock unavailable during root retry");
                 continue;
@@ -1291,17 +1283,25 @@ fn prepare_notebook_selection(
     memo_file: &Arc<RwLock<flowix_core::memo_file::MemoFile>>,
     startup: &crate::app::startup::StartupCoordinator,
 ) -> Result<(), String> {
-    startup.mark_running(crate::app::startup::StartupStage::WorkspacePreparation, "preparingData");
+    startup.mark_running(
+        crate::app::startup::StartupStage::WorkspacePreparation,
+        "preparingData",
+    );
     // Resolve identity solely from local metadata. Probing every external disk
     // or attached repository does not belong on the shell's critical path.
     let persisted = crate::lock_utils::read_lock(memo_file, "memo_file")
-        .read_selected_notebook_id().map_err(|error| error.to_string())?;
-    let selected = persisted.as_deref().and_then(|id| initial_notebooks.iter().find(|n| n.id == id))
-        .or_else(|| initial_notebooks.first()).map(|n| n.id.clone());
+        .read_selected_notebook_id()
+        .map_err(|error| error.to_string())?;
+    let selected = persisted
+        .as_deref()
+        .and_then(|id| initial_notebooks.iter().find(|n| n.id == id))
+        .or_else(|| initial_notebooks.first())
+        .map(|n| n.id.clone());
     let mut memo = memo_file.write().unwrap_or_else(|p| p.into_inner());
     memo.set_current_notebook(selected.clone());
     if persisted != selected {
-        memo.write_selected_notebook_id(selected.as_deref()).map_err(|error| error.to_string())?;
+        memo.write_selected_notebook_id(selected.as_deref())
+            .map_err(|error| error.to_string())?;
     }
     record_startup_stage(startup, "selected-notebook-resolved");
     Ok(())
@@ -1327,8 +1327,10 @@ fn handle_second_instance(app: &tauri::AppHandle, args: Vec<String>) {
             tracing::warn!("second-instance target deferred because startup failed: {error}");
             return;
         }
-        let targets = open_targets::command_line_targets(args).into_iter()
-            .filter(|arg| !dispatch_google_callback(&app, arg)).collect();
+        let targets = open_targets::command_line_targets(args)
+            .into_iter()
+            .filter(|arg| !dispatch_google_callback(&app, arg))
+            .collect();
         open_targets::dispatch(&app, targets, "second-instance");
     });
 }
@@ -1412,8 +1414,10 @@ fn register_deep_links(app: &mut tauri::App) {
                 tracing::warn!("deep-link target deferred because startup failed: {error}");
                 return;
             }
-            let targets = urls.into_iter()
-                .filter(|url| !dispatch_google_callback(&app, url)).collect();
+            let targets = urls
+                .into_iter()
+                .filter(|url| !dispatch_google_callback(&app, url))
+                .collect();
             open_targets::dispatch(&app, targets, "deep-link");
         });
     });
@@ -1446,16 +1450,21 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Opened { urls } => {
-            if commands::window_shutdown::is_exiting() { return; }
+            if commands::window_shutdown::is_exiting() {
+                return;
+            }
             let app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 if let Err(error) = app.state::<AppState>().startup.wait_until_ready() {
                     tracing::warn!("macOS open target deferred because startup failed: {error}");
                     return;
                 }
-                let paths = urls.into_iter().filter(|url| url.scheme() == "file")
+                let paths = urls
+                    .into_iter()
+                    .filter(|url| url.scheme() == "file")
                     .filter_map(|url| url.to_file_path().ok())
-                    .map(|path| path.to_string_lossy().into_owned()).collect();
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect();
                 open_targets::dispatch(&app, paths, "macos-opened");
             });
         }
@@ -1474,7 +1483,9 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
                         // Run once off the UI thread. A blocked lock, panic or
                         // checkpoint cannot outlive the independent watchdog.
                         app.state::<AppState>().notebook_background.stop();
-                        app.state::<AppState>().watcher_retry_stop.store(true, Ordering::Release);
+                        app.state::<AppState>()
+                            .watcher_retry_stop
+                            .store(true, Ordering::Release);
                         stop_external_agent_children(&app, "exit");
                         checkpoint_thread_database(&app, "exit");
                         CLEANUP_DONE.store(true, Ordering::Release);
@@ -1501,7 +1512,10 @@ pub(crate) fn prepare_for_update(app: &tauri::AppHandle) -> UpdateRuntimeGuard {
     // stays on the same worker through cleanup and installer launch.
     let state = app.state::<AppState>();
     state.notebook_background.pause();
-    let guard = UpdateRuntimeGuard { pi: state.pi.clone(), background: state.notebook_background.clone() };
+    let guard = UpdateRuntimeGuard {
+        pi: state.pi.clone(),
+        background: state.notebook_background.clone(),
+    };
     stop_external_agent_children(app, "update");
     checkpoint_thread_database(app, "update");
     guard
@@ -1618,17 +1632,34 @@ mod missing_dependency_tests {
         let home = temp.path().to_path_buf();
         let config = get_user_config_dir(&home);
         let user = user_config::UserConfigStore::new(home);
-        let memo = Arc::new(RwLock::new(flowix_core::memo_file::MemoFile::new(config.clone())));
+        let memo = Arc::new(RwLock::new(flowix_core::memo_file::MemoFile::new(
+            config.clone(),
+        )));
         memo.read().unwrap().initialize_registry_storage().unwrap();
         user.initialize_current_runtime_storage().unwrap();
         let connection = rusqlite::Connection::open(config.join("db/local.db")).unwrap();
         connection.execute_batch("INSERT INTO notebooks(id,name,path,is_default,created_at,updated_at) VALUES ('keep','Keep','/tmp/keep',1,1,1); INSERT INTO property_presets(scope,id,property_key,property_type,revision,updated_at) VALUES ('user','fld_bad','custom','Text','invalid',1);").unwrap();
         let threads = ThreadManager::new_uninitialized(config.join("db/thread.db")).unwrap();
         prepare_runtime_storage(&memo, &threads, &user, &StartupCoordinator::new());
-        assert_eq!(memo.read().unwrap().read_notebook_configs().unwrap()[0].id,"keep");
+        assert_eq!(
+            memo.read().unwrap().read_notebook_configs().unwrap()[0].id,
+            "keep"
+        );
         let defaults = user.get_property_presets().unwrap();
-        assert!(defaults.system_fields.iter().any(|field| field.key == "status"));
-        assert_eq!(connection.query_row("SELECT revision FROM property_presets WHERE id='fld_bad'",[],|row|row.get::<_,String>(0)).unwrap(),"invalid");
+        assert!(defaults
+            .system_fields
+            .iter()
+            .any(|field| field.key == "status"));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT revision FROM property_presets WHERE id='fld_bad'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "invalid"
+        );
         assert!(!config.join("db/rebuild-backups").exists());
     }
 
@@ -1644,7 +1675,8 @@ mod missing_dependency_tests {
         memo.read().unwrap().initialize_registry_storage().unwrap();
         let connection = rusqlite::Connection::open(config.join("db/local.db")).unwrap();
         connection.execute_batch("INSERT INTO notebooks(id,name,path,is_default,created_at,updated_at) VALUES ('keep','Keep','/tmp/keep',1,11,22);").unwrap();
-        let before = serde_json::to_value(memo.read().unwrap().read_notebook_configs().unwrap()).unwrap();
+        let before =
+            serde_json::to_value(memo.read().unwrap().read_notebook_configs().unwrap()).unwrap();
         connection
             .execute_batch("CREATE TABLE property_presets (bad TEXT);")
             .unwrap();
@@ -1652,7 +1684,10 @@ mod missing_dependency_tests {
         let threads = ThreadManager::new_uninitialized(config.join("db/thread.db")).unwrap();
         let startup = StartupCoordinator::new();
         prepare_runtime_storage(&memo, &threads, &user, &startup);
-        assert_eq!(serde_json::to_value(memo.read().unwrap().read_notebook_configs().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(memo.read().unwrap().read_notebook_configs().unwrap()).unwrap(),
+            before
+        );
         user.initialize_current_runtime_storage().unwrap();
         assert!(!config.join("db/rebuild-backups").exists());
     }
@@ -1886,10 +1921,18 @@ mod missing_dependency_tests {
             prepare_startup_storage(&device, &memo, &threads, &sync, &user, &config, &startup)
                 .is_ok()
         );
-        assert_eq!(std::fs::read(config.join("db/local.db")).unwrap(), b"invalid database");
+        assert_eq!(
+            std::fs::read(config.join("db/local.db")).unwrap(),
+            b"invalid database"
+        );
         prepare_runtime_storage(&memo, &threads, &user, &startup);
         assert!(config.join("db/rebuild-backups").is_dir());
-        assert!(memo.read().unwrap().read_notebook_configs().unwrap().is_empty());
+        assert!(memo
+            .read()
+            .unwrap()
+            .read_notebook_configs()
+            .unwrap()
+            .is_empty());
         assert_eq!(
             std::fs::read(config.join("db/sync.db")).unwrap(),
             b"invalid database"
@@ -1933,6 +1976,11 @@ mod missing_dependency_tests {
         assert!(device.is_version_initialization_complete());
         assert!(!config_dir.join("db/local.db").exists());
         prepare_runtime_storage(&memo, &threads, &user_config, &startup);
-        assert!(memo.read().unwrap().read_notebook_configs().unwrap().is_empty());
+        assert!(memo
+            .read()
+            .unwrap()
+            .read_notebook_configs()
+            .unwrap()
+            .is_empty());
     }
 }

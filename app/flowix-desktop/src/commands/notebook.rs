@@ -5,10 +5,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::lock_utils::{read_lock, write_lock};
-use flowix_core::memo_file::{
-    MemoFile, Notebook, NotebookConfig, NotebookSetupJob, NotebookSetupJobStatus,
-    NotebookSetupStage,
-};
+use flowix_core::memo_file::{MemoFile, Notebook, NotebookConfig};
 use flowix_sync::V2LocalNotebook;
 
 use super::agent_workspace::AGENT_WORKSPACE_CHANGED_EVENT;
@@ -131,7 +128,7 @@ fn create_notebook_registry(
     icon: Option<String>,
     memo_file: &MemoFile,
 ) -> Result<NotebookConfig, String> {
-    create_notebook_registry_with_id_and_template(name, path, icon, None, None, false, memo_file)
+    create_notebook_registry_with_id(name, path, icon, None, memo_file)
 }
 
 fn default_notebook_path_without_create(name: &str) -> Result<PathBuf, String> {
@@ -162,42 +159,12 @@ fn default_notebook_path(name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-pub(crate) fn notebook_folder_has_content(path: &Path) -> Result<bool, String> {
-    let entries = std::fs::read_dir(path)
-        .map_err(|error| format!("NOTEBOOK_CONTENT_CHECK_FAILED: {error}"))?;
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("NOTEBOOK_CONTENT_CHECK_FAILED: {error}"))?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if matches!(name.as_ref(), ".flowix" | ".DS_Store" | "Thumbs.db") {
-            continue;
-        }
-        return Ok(true);
-    }
-    Ok(false)
-}
-
 #[tauri::command]
 pub fn get_default_notebook_path(name: String) -> Result<String, String> {
     default_notebook_path_without_create(name.trim())?
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| "PATH_INVALID_UTF8".to_string())
-}
-
-#[tauri::command]
-pub async fn confirm_notebook_preset_overwrite(app: AppHandle, message: String) -> Result<bool, String> {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-
-    tauri::async_runtime::spawn_blocking(move || {
-        app.dialog()
-            .message(message)
-            .title("Flowix")
-            .buttons(MessageDialogButtons::OkCancel)
-            .blocking_show()
-    })
-    .await
-    .map_err(|error| format!("CONFIRM_DIALOG_FAILED: {error}"))
 }
 
 /// Resolve and create a product-owned default notebook directory. This is a
@@ -220,26 +187,6 @@ fn create_notebook_registry_with_id(
     path: &str,
     icon: Option<String>,
     requested_id: Option<&str>,
-    memo_file: &MemoFile,
-) -> Result<NotebookConfig, String> {
-    create_notebook_registry_with_id_and_template(
-        name,
-        path,
-        icon,
-        requested_id,
-        None,
-        false,
-        memo_file,
-    )
-}
-
-fn create_notebook_registry_with_id_and_template(
-    name: &str,
-    path: &str,
-    icon: Option<String>,
-    requested_id: Option<&str>,
-    template_id: Option<&str>,
-    overwrite_existing: bool,
     memo_file: &MemoFile,
 ) -> Result<NotebookConfig, String> {
     let now = chrono::Utc::now().timestamp_millis();
@@ -286,22 +233,8 @@ fn create_notebook_registry_with_id_and_template(
             existing.icon = normalized_icon.clone();
             existing.updated_at = now;
             let relocated = existing.clone();
-            let setup_job = template_id.map(|template_id| NotebookSetupJob {
-                notebook_id: relocated.id.clone(),
-                job_id: uuid::Uuid::now_v7().to_string(),
-                template_id: Some(template_id.to_string()),
-                overwrite_existing,
-                status: NotebookSetupJobStatus::Pending,
-                stage: NotebookSetupStage::Preparing,
-                revision: 0,
-                run_id: String::new(),
-                message: None,
-                report: None,
-                updated_at: now,
-                execution_requested: false,
-            });
             memo_file
-                .write_notebook_configs_with_setup_job(&configs, setup_job.as_ref())
+                .write_notebook_configs(&configs)
                 .map_err(|error| format!("INDEX_WRITE_FAILED: {error}"))?;
             return Ok(relocated);
         }
@@ -328,22 +261,8 @@ fn create_notebook_registry_with_id_and_template(
         updated_at: now,
     };
     configs.push(config.clone());
-    let setup_job = template_id.map(|template_id| NotebookSetupJob {
-        notebook_id: config.id.clone(),
-        job_id: uuid::Uuid::now_v7().to_string(),
-        template_id: Some(template_id.to_string()),
-        overwrite_existing,
-        status: NotebookSetupJobStatus::Pending,
-        stage: NotebookSetupStage::Preparing,
-        revision: 0,
-        run_id: String::new(),
-        message: None,
-        report: None,
-        updated_at: now,
-        execution_requested: false,
-    });
     memo_file
-        .write_notebook_configs_with_setup_job(&configs, setup_job.as_ref())
+        .write_notebook_configs(&configs)
         .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
 
     tracing::info!("[create_notebook] registry written id={}", id);
@@ -431,7 +350,11 @@ fn activate_created_notebook(
     Ok(())
 }
 
-pub(crate) fn run_notebook_import(app: AppHandle, notebook_id: String, seed_onboarding_docs: bool) -> bool {
+pub(crate) fn run_notebook_import(
+    app: AppHandle,
+    notebook_id: String,
+    seed_onboarding_docs: bool,
+) -> bool {
     let started = std::time::Instant::now();
     tracing::info!(
         "[create_notebook] background import start id={}",
@@ -446,12 +369,15 @@ pub(crate) fn run_notebook_import(app: AppHandle, notebook_id: String, seed_onbo
             let memo_file = read_lock(&app_state.memo_file, "memo_file");
             match memo_file.has_legacy_notebook_internal_data(&notebook_id) {
                 Ok(true) => {
-                    if let Err(error) = memo_file.ensure_notebook_structure_migration(&notebook_id) {
+                    if let Err(error) = memo_file.ensure_notebook_structure_migration(&notebook_id)
+                    {
                         tracing::warn!(notebook = %notebook_id, %error, "legacy plugin artifact migration deferred");
                     }
                 }
                 Ok(false) => {}
-                Err(error) => tracing::warn!(notebook = %notebook_id, %error, "legacy plugin artifact check deferred"),
+                Err(error) => {
+                    tracing::warn!(notebook = %notebook_id, %error, "legacy plugin artifact check deferred")
+                }
             }
             tracing::info!(
                 "[create_notebook] import/reconcile start id={}",
@@ -461,7 +387,8 @@ pub(crate) fn run_notebook_import(app: AppHandle, notebook_id: String, seed_onbo
             // Reconcile by explicit notebook ID. This keeps the background job
             // independent from whichever notebook the user currently views and
             // avoids switching the global MemoFile context from a worker thread.
-            let report = memo_file.reconcile_note_index(&notebook_id)
+            let report = memo_file
+                .reconcile_note_index(&notebook_id)
                 .map_err(|error| format!("notebook path reconciliation failed: {error}"))?;
             index_changed = report.added + report.updated + report.removed > 0;
             tracing::info!(
@@ -487,11 +414,15 @@ pub(crate) fn run_notebook_import(app: AppHandle, notebook_id: String, seed_onbo
             }
         };
         if index_changed || onboarding_docs_seeded {
-            dispatcher::emit_to(&app, "flowix:path-note-changed", serde_json::json!({
-                "notebookId": notebook_id,
-                "relativePath": "",
-                "deleted": false,
-            }));
+            dispatcher::emit_to(
+                &app,
+                "flowix:path-note-changed",
+                serde_json::json!({
+                    "notebookId": notebook_id,
+                    "relativePath": "",
+                    "deleted": false,
+                }),
+            );
         }
         Ok::<(), String>(())
     })();
@@ -499,8 +430,12 @@ pub(crate) fn run_notebook_import(app: AppHandle, notebook_id: String, seed_onbo
     crate::runtime_log::record_event(
         "info",
         "notebook.import.timing",
-        format!("notebook={} total_ms={} success={}", notebook_id,
-            started.elapsed().as_millis(), import_result.is_ok()),
+        format!(
+            "notebook={} total_ms={} success={}",
+            notebook_id,
+            started.elapsed().as_millis(),
+            import_result.is_ok()
+        ),
     );
     if let Err(error) = import_result {
         tracing::warn!("[create_notebook] background import failed: {error}");
@@ -534,18 +469,27 @@ pub async fn get_notebooks(app: AppHandle) -> Result<Vec<NotebookListItem>, Stri
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        let configs = memo_file.read_notebook_configs().map_err(|error| error.to_string())?;
-        let pinned_ids = memo_file.read_notebook_pin_states().map_err(|error| error.to_string())?;
+        let configs = memo_file
+            .read_notebook_configs()
+            .map_err(|error| error.to_string())?;
+        let pinned_ids = memo_file
+            .read_notebook_pin_states()
+            .map_err(|error| error.to_string())?;
         // Metadata-only read: no path probes, count queries or filesystem scans.
-        Ok::<_, String>(configs.into_iter().map(|config| {
-            let cached = state.notebook_background.snapshot(&config.id);
-            NotebookListItem {
-                pinned: pinned_ids.contains(&config.id),
-                memo_count: cached.as_ref().and_then(|status| status.memo_count),
-                missing: cached.as_ref().and_then(|status| status.missing),
-                notebook: config,
-            }
-        }).collect::<Vec<_>>())
+        Ok::<_, String>(
+            configs
+                .into_iter()
+                .map(|config| {
+                    let cached = state.notebook_background.snapshot(&config.id);
+                    NotebookListItem {
+                        pinned: pinned_ids.contains(&config.id),
+                        memo_count: cached.as_ref().and_then(|status| status.memo_count),
+                        missing: cached.as_ref().and_then(|status| status.missing),
+                        notebook: config,
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
     })
     .await
     .map_err(|error| format!("notebook list task failed: {error}"))?
@@ -570,7 +514,9 @@ pub fn set_notebook_pinned(
 }
 
 #[tauri::command]
-pub fn get_notebook_background_status(state: State<AppState>) -> Vec<crate::app::notebook_background::NotebookBackgroundStatus> {
+pub fn get_notebook_background_status(
+    state: State<AppState>,
+) -> Vec<crate::app::notebook_background::NotebookBackgroundStatus> {
     state.notebook_background.statuses()
 }
 
@@ -606,8 +552,6 @@ pub async fn create_notebook(
     path: Option<String>,
     icon: Option<String>,
     activate: Option<bool>,
-    template_id: Option<String>,
-    overwrite_existing: Option<bool>,
     app: AppHandle,
 ) -> Result<Notebook, String> {
     let started = std::time::Instant::now();
@@ -616,9 +560,6 @@ pub async fn create_notebook(
         let trimmed_name = name.trim();
         if trimmed_name.is_empty() {
             return Err("INVALID_NAME".to_string());
-        }
-        if let Some(template_id) = template_id.as_deref() {
-            super::memo::creates::validate_notebook_template_id(template_id)?;
         }
         let default_path;
         let trimmed_path = match path
@@ -637,38 +578,20 @@ pub async fn create_notebook(
         if !Path::new(trimmed_path).is_dir() {
             return Err("PATH_MISSING".to_string());
         }
-        let notebook_path = Path::new(trimmed_path);
         let comparable_path = comparable_notebook_path(&normalize_notebook_path(trimmed_path));
         if read_lock(&state.memo_file, "memo_file")
             .read_notebook_configs()
             .unwrap_or_default()
             .iter()
-            .any(|notebook| {
-                comparable_notebook_path(&notebook.path) == comparable_path
-            })
+            .any(|notebook| comparable_notebook_path(&notebook.path) == comparable_path)
         {
             return Err("PATH_ALREADY_REGISTERED".to_string());
-        }
-        let overwrite_existing = overwrite_existing.unwrap_or(false);
-        if template_id.is_some()
-            && !overwrite_existing
-            && notebook_folder_has_content(notebook_path)?
-        {
-            return Err("NOTEBOOK_PRESET_OVERWRITE_CONFIRM_REQUIRED".to_string());
         }
         // Also handles dependency deletion while the window stayed open.
         state.user_config.ensure_runtime_storage()?;
         let config = {
             let memo_file = write_lock(&state.memo_file, "memo_file");
-            create_notebook_registry_with_id_and_template(
-                trimmed_name,
-                trimmed_path,
-                icon,
-                None,
-                template_id.as_deref(),
-                overwrite_existing,
-                &memo_file,
-            )?
+            create_notebook_registry_with_id(trimmed_name, trimmed_path, icon, None, &memo_file)?
         };
         notify_notebook_workspace_changed(&app);
         if activate.unwrap_or(true) {
@@ -691,7 +614,11 @@ pub async fn create_notebook(
     crate::runtime_log::record_event(
         "info",
         "notebook.create.timing",
-        format!("total_ms={} success={}", started.elapsed().as_millis(), result.is_ok()),
+        format!(
+            "total_ms={} success={}",
+            started.elapsed().as_millis(),
+            result.is_ok()
+        ),
     );
     result
 }
@@ -843,23 +770,45 @@ pub fn update_notebook(
 }
 
 #[tauri::command]
+pub fn set_notebook_primary_directory(
+    id: String,
+    path: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<Notebook, String> {
+    state.startup.wait_until_ready()?;
+    let updated = {
+        let _transition = state
+            .notebook_transition
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let memo_file = write_lock(&state.memo_file, "memo_file");
+        let _change_guard = memo_file
+            .operation_locks()
+            .notebook_change(&[id.as_str()], "set_notebook_primary_directory")
+            .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?;
+        memo_file
+            .set_notebook_primary_directory(&id, &path)
+            .map_err(|error| format!("PRIMARY_DIRECTORY_UPDATE_FAILED: {error}"))?
+    };
+
+    record_created_notebook_access(state.inner(), &app, &updated);
+    notify_notebook_workspace_changed(&app);
+    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
+    Ok(notebook_from_config(updated))
+}
+
+#[tauri::command]
 pub fn delete_notebook(
     id: String,
     delete_local_files: bool,
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<bool, String> {
-    let setup_guard = state
-        .notebook_template_initializations
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if setup_guard.contains(&id) {
-        return Err("NOTEBOOK_SETUP_IN_PROGRESS".to_string());
-    }
-
     let (was_current, next_notebook_id) = {
         let memo_file = read_lock(&state.memo_file, "memo_file");
-        let _change_guard = memo_file.operation_locks()
+        let _change_guard = memo_file
+            .operation_locks()
             .notebook_change(&[&id], "remove_notebook_from_registry")
             .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?;
         let mut configs = memo_file
@@ -909,8 +858,6 @@ pub fn delete_notebook(
             .map_err(|e| format!("INDEX_WRITE_FAILED: {e}"))?;
         (was_current, next_notebook_id)
     };
-    drop(setup_guard);
-
     // Keep the native operation context and the persisted selection valid even
     // when the deletion is initiated outside the main Webview. The frontend
     // performs the same transition for its workspace state, but the backend
@@ -1019,14 +966,6 @@ pub fn reorder_notebooks(
 
 #[tauri::command]
 pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> Result<bool, String> {
-    let setup_guard = state
-        .notebook_template_initializations
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !setup_guard.is_empty() {
-        return Err("NOTEBOOK_SETUP_IN_PROGRESS".to_string());
-    }
-
     let memo_file = read_lock(&state.memo_file, "memo_file");
     let configs = memo_file
         .read_notebook_configs()
@@ -1035,12 +974,19 @@ pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> Result<bool, S
     let _change_guard = if ids.is_empty() {
         None
     } else {
-        Some(memo_file.operation_locks().notebook_change(&ids, "clear_notebooks")
-            .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?)
+        Some(
+            memo_file
+                .operation_locks()
+                .notebook_change(&ids, "clear_notebooks")
+                .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?,
+        )
     };
     let current_ids: std::collections::HashSet<String> = memo_file
-        .read_notebook_configs().map_err(|error| error.to_string())?
-        .into_iter().map(|config| config.id).collect();
+        .read_notebook_configs()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|config| config.id)
+        .collect();
     if current_ids != ids.iter().map(|id| (*id).to_owned()).collect() {
         return Err("NOTEBOOK_REGISTRY_CHANGED".to_string());
     }
@@ -1050,8 +996,6 @@ pub fn clear_notebooks(state: State<AppState>, app: AppHandle) -> Result<bool, S
     let ok = memo_file.write_notebook_configs(&[]).is_ok();
     drop(_change_guard);
     drop(memo_file);
-    drop(setup_guard);
-
     // 把�?清掉的非默�? notebook �?access 列表里也清掉, 然后 emit 一欰�?
     for id in before_ids {
         if let Err(error) = state.cloud_sync.record_v2_notebook_delete(&id) {
@@ -1107,28 +1051,33 @@ mod tests {
 
     #[test]
     fn notebook_list_distinguishes_unknown_statistics_from_a_known_empty_index() {
-        let config = NotebookConfig { id: "offline".into(), name: "Offline".into(), icon: None,
-            path: "/unavailable/notebook".into(), is_default: false, sort: 0, created_at: 0, updated_at: 0 };
-        let unknown = serde_json::to_value(NotebookListItem { notebook: config.clone(), pinned: false, memo_count: None, missing: None }).unwrap();
+        let config = NotebookConfig {
+            id: "offline".into(),
+            name: "Offline".into(),
+            icon: None,
+            path: "/unavailable/notebook".into(),
+            is_default: false,
+            sort: 0,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let unknown = serde_json::to_value(NotebookListItem {
+            notebook: config.clone(),
+            pinned: false,
+            memo_count: None,
+            missing: None,
+        })
+        .unwrap();
         assert!(unknown.get("memoCount").is_none());
         assert!(unknown.get("missing").is_none());
-        let empty = serde_json::to_value(NotebookListItem { notebook: config, pinned: false, memo_count: Some(0), missing: Some(false) }).unwrap();
+        let empty = serde_json::to_value(NotebookListItem {
+            notebook: config,
+            pinned: false,
+            memo_count: Some(0),
+            missing: Some(false),
+        })
+        .unwrap();
         assert_eq!(empty["memoCount"], 0);
-    }
-
-    #[test]
-    fn preset_content_check_ignores_metadata_but_detects_existing_folders() {
-        let root = temp_root();
-        fs::create_dir_all(root.join(".flowix")).expect("create notebook metadata directory");
-        fs::write(root.join(".flowix/notebook.json"), "{}").expect("write notebook metadata");
-        fs::create_dir_all(root.join("empty-folder")).expect("create empty folder");
-        assert!(notebook_folder_has_content(&root).expect("inspect existing folder"));
-
-        fs::create_dir_all(root.join("projects/nested")).expect("create nested folders");
-        fs::write(root.join("projects/nested/Note.md"), "existing note")
-            .expect("write existing note");
-        assert!(notebook_folder_has_content(&root).expect("inspect populated notebook"));
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

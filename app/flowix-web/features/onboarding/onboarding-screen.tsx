@@ -1,73 +1,72 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { CircleAlert } from 'lucide-react';
 import {
-  NOTEBOOK_CREATE_PAGE_GUTTER_CLASS,
   NotebookCreateFooter,
   NotebookCreateForm,
-} from '@features/memo/components/notebook-create-form';
-import { dialogs, notebooks, type NotebookRecord } from '@platform/tauri/client';
-import { createNotebookRegistration, notebookRepository } from '@features/memo/services';
-import { useNoteStore } from '@features/memo/store/note-store';
+  NotebookAgentLibraryHint,
+  createNotebookRegistration, notebookRepository, useNoteStore,
+  DEFAULT_NOTEBOOK_ICON_ID,
+} from '@features/memo/public/onboarding-api';
+import { dialogs, notebooks, type NotebookRecord, type ObsidianVaultRecord } from '@platform/tauri/client';
 import { useI18n } from '@/lib/i18n';
-import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
-import { isMac } from '@features/shortcuts';
-import { useNotebookTemplates } from './notebook-templates';
-import { NotebookTemplatePicker } from './notebook-template-picker';
-import { OnboardingTitlebarMac } from './onboarding-titlebar-mac';
-
-const DEFAULT_BOOK_FOLDER = 'My Notebook';
-const DEFAULT_NOTEBOOK_NAME = 'My Notebook';
-
-function defaultFolderNameForNotebook(name: string): string {
-  const trimmed = name.trim();
-  return !trimmed || trimmed === DEFAULT_NOTEBOOK_NAME ? DEFAULT_BOOK_FOLDER : trimmed;
-}
+import { Dialog, DialogContent } from '@shared/ui/dialog';
+import { useTauriRpc } from '@platform/tauri/use-tauri-rpc';
+import { attachNotebookFolder } from '@features/agent/public/workspace-api';
+import { useShortcutScope } from '@features/shortcuts';
+import { toast } from '@/lib/toast';
 
 interface OnboardingScreenProps {
-  onFinish(notebook: NotebookRecord, options: { startImport: boolean; templateId?: string | null }): Promise<void>;
+  onFinish(notebook: NotebookRecord, options: { startImport: boolean }): Promise<void>;
 }
 
 export function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
-  const { t } = useI18n();
-  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
-  const {
-    templates: notebookTemplates,
-    status: notebookTemplateStatus,
-    retry: retryNotebookTemplates,
-  } = useNotebookTemplates(isTemplatePickerOpen);
-  const [defaultPath, setDefaultPath] = useState<string | null>(null);
-  const [notebookName, setNotebookName] = useState(DEFAULT_NOTEBOOK_NAME);
-  const [notebookPath, setNotebookPath] = useState<string | null>(null);
-  const [notebookIcon, setNotebookIcon] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const { t, language } = useI18n();
+  useShortcutScope('dialog');
+  const { request } = useTauriRpc();
+  const inFlight = useRef(false);
+  const [paths, setPaths] = useState<string[]>([]);
+  const [vaults, setVaults] = useState<ObsidianVaultRecord[]>([]);
+  const [vaultsLoading, setVaultsLoading] = useState(false);
+  const [vaultsError, setVaultsError] = useState(false);
+  const [notebookName, setNotebookName] = useState(() => language === 'en-US' ? 'My Notebook' : '我的笔记本');
+  const [notebookIcon, setNotebookIcon] = useState<string | null>(DEFAULT_NOTEBOOK_ICON_ID);
   const [createdNotebook, setCreatedNotebook] = useState<NotebookRecord | null>(null);
-  const [createdTemplateId, setCreatedTemplateId] = useState<string | null>(null);
   const [shouldStartImport, setShouldStartImport] = useState(false);
   const [isCreatingNotebook, setIsCreatingNotebook] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (notebookPath) return;
-    setDefaultPath(null);
-    void notebooks.getDefaultPath(defaultFolderNameForNotebook(notebookName))
-      .then(setDefaultPath)
-      .catch(() => {
-        // Keep the form usable in browser/dev shells where the native path API is unavailable.
-      });
-  }, [notebookName, notebookPath]);
+  const addPath = (path: string) => {
+    setPaths((current) => current.includes(path) ? current : [...current, path]);
+    setError(null);
+  };
+  const loadVaults = async () => {
+    setVaultsLoading(true);
+    setVaultsError(false);
+    try { setVaults(await notebooks.listObsidianVaults()); }
+    catch { setVaultsError(true); }
+    finally { setVaultsLoading(false); }
+  };
+
+  const importProject = async (source: 'workbuddy' | 'codex') => {
+    try {
+      const path = await request<string | null>('select_project_directory', { projectSource: source });
+      if (path) addPath(path);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
+  };
 
   const finishNotebook = async (
     notebook: NotebookRecord,
     startImport: boolean,
-    templateId: string | null = selectedTemplateId,
   ) => {
     setIsFinishing(true);
     setError(null);
     try {
-      await onFinish(notebook, { startImport, templateId });
+      await onFinish(notebook, { startImport });
     } catch (value) {
       setError(value instanceof Error ? value.message : String(value));
       setIsFinishing(false);
@@ -75,141 +74,124 @@ export function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
   };
 
   const createNotebook = async () => {
+    if (inFlight.current) return;
     if (createdNotebook) {
-      await finishNotebook(createdNotebook, shouldStartImport, createdTemplateId);
+      inFlight.current = true;
+      try { await finishNotebook(createdNotebook, shouldStartImport); }
+      finally { inFlight.current = false; }
       return;
     }
 
     const name = notebookName.trim();
     if (!name) return;
+    inFlight.current = true;
     setIsCreatingNotebook(true);
     setError(null);
     try {
-      let templateId = selectedTemplateId;
-      let registration: Awaited<ReturnType<typeof createNotebookRegistration>>;
-      try {
-        registration = await createNotebookRegistration({
-          name,
-          path: notebookPath ?? undefined,
-          icon: notebookIcon,
-          templateId,
-          reuseExisting: true,
-        });
-      } catch (value) {
-        if (!templateId || !String(value).includes('NOTEBOOK_PRESET_OVERWRITE_CONFIRM_REQUIRED')) {
-          throw value;
-        }
-        const confirmed = await notebooks.confirmPresetOverwrite(t('notebook.template.overwriteConfirm'));
-        if (confirmed) {
-          registration = await createNotebookRegistration({
-            name,
-            path: notebookPath ?? undefined,
-            icon: notebookIcon,
-            templateId,
-            overwriteExisting: true,
-            reuseExisting: true,
-          });
-        } else {
-          // Keep the notebook creation flow available when the user declines
-          // template replacement; ordinary import will index existing files.
-          templateId = null;
-          setSelectedTemplateId(null);
-          registration = await createNotebookRegistration({
-            name,
-            path: notebookPath ?? undefined,
-            icon: notebookIcon,
-            reuseExisting: true,
-          });
-        }
-      }
+      const registration = await createNotebookRegistration({
+        name,
+        path: paths[0],
+        icon: notebookIcon,
+        reuseExisting: true,
+      });
 
       const notebook = registration.notebook;
-      setDefaultPath(notebook.path);
       const store = useNoteStore.getState();
       store.setNotebooks(store.notebooks.some((item) => item.id === notebook.id)
         ? store.notebooks.map((item) => item.id === notebook.id ? notebook : item)
         : [...store.notebooks, notebook]);
-      const startImport = registration.needsImport && !templateId && !registration.hasTemplateSetup;
+      const startImport = registration.needsImport;
       setCreatedNotebook(notebook);
-      setCreatedTemplateId(templateId);
       setShouldStartImport(startImport);
-      await finishNotebook(notebook, startImport, templateId);
+      for (const path of paths.slice(1)) {
+        try {
+          const attached = await attachNotebookFolder(notebook.id, path);
+          if (attached === false) toast.error(t('agent.access.saveFailed'));
+        } catch { toast.error(t('agent.access.saveFailed')); }
+      }
+      await finishNotebook(notebook, startImport);
       void notebookRepository.list()
         .then((latest) => useNoteStore.getState().setNotebooks(latest))
         .catch((value) => console.warn('[Onboarding] Failed to refresh notebook list:', value));
     } catch (value) {
       setError(value instanceof Error ? value.message : String(value));
     } finally {
+      inFlight.current = false;
       setIsCreatingNotebook(false);
     }
   };
 
   const selectNotebookDirectory = async () => {
-    const path = await dialogs.selectDirectory();
-    if (path) {
-      setNotebookPath(path);
-      setError(null);
+    try {
+      const path = await dialogs.selectDirectory();
+      if (path) addPath(path);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[220] flex flex-col overflow-hidden bg-[var(--frame-bg)] text-[var(--foreground)] [--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)] animate-[flowix-onboarding-in_520ms_cubic-bezier(0.16,1,0.3,1)_both] motion-reduce:animate-none max-[760px]:overflow-y-auto [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--ring)] [&_button:focus-visible]:outline-offset-[3px]"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="flowix-onboarding-notebook-form-title"
-    >
-      {isMac() && <OnboardingTitlebarMac />}
-      <WindowsTitlebarControls reserveSpace />
-      <main className={`relative z-[1] flex min-h-0 w-full flex-1 flex-col ${NOTEBOOK_CREATE_PAGE_GUTTER_CLASS} pb-[clamp(22px,3vw,44px)] max-[760px]:pb-[26px]`}>
-        <div className="mx-auto flex min-h-0 w-[min(100%,680px)] flex-1 flex-col items-start justify-center overflow-y-auto overscroll-contain">
-          <section className="w-full animate-[flowix-onboarding-section-in_500ms_ease-out_both] motion-reduce:animate-none py-[clamp(11px,1.33vw,16px)] pb-4" aria-labelledby="flowix-onboarding-notebook-form-title">
-            <NotebookCreateForm
-              title="创建第一个笔记本"
-              formId="flowix-onboarding-notebook-form"
-              name={notebookName}
-              onNameChange={setNotebookName}
-              nameLabel="笔记本名称"
-              pathLabel="存储位置"
-              path={notebookPath ?? defaultPath ?? ''}
-              pathPlaceholder="默认文稿位置"
-              directoryButtonLabel="选择目录"
-              onSelectDirectory={() => void selectNotebookDirectory()}
-              icon={notebookIcon}
-              onIconChange={setNotebookIcon}
-              templates={notebookTemplates}
-              selectedTemplateId={selectedTemplateId}
-              onSelectTemplate={() => setIsTemplatePickerOpen(true)}
-              disabled={Boolean(createdNotebook) || isCreatingNotebook || isFinishing}
-              onSubmit={() => void createNotebook()}
-            />
-          </section>
-
-          {error && (
-            <div className="mt-5 flex items-start gap-[7px] text-xs leading-[1.5] text-[var(--destructive)]" role="alert"><CircleAlert size={15} aria-hidden="true" /> {error}</div>
-          )}
-        </div>
-
-        <NotebookCreateFooter
-          formId="flowix-onboarding-notebook-form"
-          disabled={!notebookName.trim() || (!createdNotebook && !notebookPath && !defaultPath)}
-          isBusy={isCreatingNotebook || isFinishing}
-          submitLabel={createdNotebook ? t('error.retry') : '创建并开始使用'}
-        />
-        {isTemplatePickerOpen && (
-          <NotebookTemplatePicker
-            templates={notebookTemplates}
-            status={notebookTemplateStatus}
-            retry={retryNotebookTemplates}
-            initialTemplateId={selectedTemplateId}
-            onCancel={() => setIsTemplatePickerOpen(false)}
-            onComplete={(templateId) => {
-              setSelectedTemplateId(templateId);
-              setIsTemplatePickerOpen(false);
+    <Dialog open onOpenChange={() => {}}>
+      <DialogContent
+        showCloseButton={false}
+        trapFocus
+        overlayClassName="bg-white/65 backdrop-blur-[14px] dark:bg-black/45"
+        className="max-h-[min(720px,calc(100dvh-2rem))] w-[min(576px,calc(90vw-1.8rem))] max-w-none overflow-y-auto rounded-[28px] border border-[var(--border-popup)] bg-[var(--card)] p-0 text-[var(--foreground)] shadow-[0_22px_70px_rgba(15,23,42,0.16)] [--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)]"
+      >
+        <div role="dialog" aria-modal="true" aria-labelledby="flowix-onboarding-notebook-form-title" className="px-5 py-3">
+          <NotebookCreateForm
+            variant="dialog"
+            title="创建笔记本"
+            formId="flowix-onboarding-notebook-form"
+            name={notebookName}
+            onNameChange={setNotebookName}
+            nameLabel={t('notebook.create.namePlaceholder')}
+            namePlaceholder={t('notebook.create.namePlaceholder')}
+            pathLabel={t('notebook.create.pathLabel')}
+            pathLocationLabel={t('notebook.create.pathLocationDevice')}
+            emptyPathPrimaryPrompt={t('notebook.create.emptyPathPrimaryPrompt')}
+            emptyPathAlternativePrompt={t('notebook.create.emptyPathAlternativePrompt')}
+            addFolderLabel={t('notebook.create.addFolder')}
+            importLabel={t('memo.fileTree.import')}
+            importWorkBuddyProjectLabel={t('notebook.create.importWorkBuddyProject')}
+            importCodexProjectLabel={t('notebook.create.importCodexProject')}
+            onImportProject={(source) => void importProject(source)}
+            importObsidianVaultLabel={t('notebook.create.importObsidianVaults')}
+            obsidianVaults={vaults}
+            obsidianVaultsLoading={vaultsLoading}
+            obsidianVaultsError={vaultsError}
+            onImportObsidianVaults={() => void loadVaults()}
+            onSelectObsidianVault={(vault) => addPath(vault.path)}
+            primaryFolderLabel={t('notebook.create.primaryFolder')}
+            setPrimaryFolderLabel={t('notebook.create.setPrimaryFolder')}
+            removeFolderLabel={t('notebook.create.removeFolder')}
+            selectedPaths={paths}
+            path={paths[0] ?? ''}
+            pathPlaceholder={t('notebook.create.pathPlaceholder')}
+            directoryButtonLabel={t('notebook.create.selectDirectory')}
+            onSelectDirectory={() => void selectNotebookDirectory()}
+            onRemoveDirectory={(path) => setPaths((current) => current.filter((item) => item !== path))}
+            onSetPrimaryDirectory={(path) => {
+              setPaths((current) => current.includes(path)
+                ? [path, ...current.filter((item) => item !== path)]
+                : current);
             }}
+            icon={notebookIcon}
+            onIconChange={setNotebookIcon}
+            disabled={Boolean(createdNotebook) || isCreatingNotebook || isFinishing}
+            onSubmit={() => void createNotebook()}
           />
-        )}
-      </main>
-    </div>
+          <NotebookAgentLibraryHint />
+          {error && <div className="mt-5 flex items-start gap-2 text-xs text-[var(--destructive)]" role="alert"><CircleAlert size={15} aria-hidden="true" />{error}</div>}
+          <NotebookCreateFooter
+            variant="dialog"
+            formId="flowix-onboarding-notebook-form"
+            disabled={!notebookName.trim()}
+            isBusy={isCreatingNotebook || isFinishing}
+            submitLabel={createdNotebook ? t('error.retry') : '创建并开始使用'}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

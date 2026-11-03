@@ -1,63 +1,10 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-
-fn collect_template_files(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) {
-    println!("cargo:rerun-if-changed={}", directory.display());
-    let entries = fs::read_dir(directory).unwrap_or_else(|error| {
-        panic!(
-            "failed to read template directory {}: {error}",
-            directory.display()
-        )
-    });
-
-    for entry in entries {
-        let entry = entry.expect("failed to read template directory entry");
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .unwrap_or_else(|error| panic!("failed to inspect {}: {error}", path.display()));
-        if file_type.is_dir() {
-            collect_template_files(root, &path, files);
-        } else if file_type.is_file() {
-            println!("cargo:rerun-if-changed={}", path.display());
-            files.push(path.strip_prefix(root).unwrap().to_path_buf());
-        }
-    }
-}
-
-fn generate_notebook_template_assets() {
-    let manifest_dir =
-        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
-    let template_root = manifest_dir.join("../../.flowix/templates/notebook-templates");
-    let template_root = template_root
-        .canonicalize()
-        .unwrap_or_else(|error| panic!("notebook template source is unavailable: {error}"));
-    println!("cargo:rerun-if-changed={}", template_root.display());
-
-    let mut files = Vec::new();
-    collect_template_files(&template_root, &template_root, &mut files);
-    files.sort();
-
-    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set"));
-    let generated_file = out_dir.join("notebook_template_assets.rs");
-    let mut generated = String::from("pub const NOTEBOOK_TEMPLATE_ASSETS: &[(&str, &[u8])] = &[\n");
-    for relative in files {
-        let absolute = template_root.join(&relative);
-        generated.push_str(&format!(
-            "    ({:?}, include_bytes!({:?})),\n",
-            relative.to_string_lossy().replace('\\', "/"),
-            absolute.to_string_lossy(),
-        ));
-    }
-    generated.push_str("];\n");
-    fs::write(generated_file, generated).expect("failed to write generated template asset list");
-}
-
 fn main() {
-    generate_notebook_template_assets();
     let dev_mode = std::env::var_os("FLOWIX_DEV_MODE").is_some();
     println!("cargo:rerun-if-env-changed=FLOWIX_DEV_MODE");
-    println!("cargo:rustc-env=FLOWIX_DEV_MODE={}", if dev_mode { "1" } else { "0" });
+    println!(
+        "cargo:rustc-env=FLOWIX_DEV_MODE={}",
+        if dev_mode { "1" } else { "0" }
+    );
 
     // `tauri dev` launches the macOS executable directly instead of an
     // `.app` bundle, so the bundle plist configured in tauri.conf.json is
@@ -72,13 +19,17 @@ fn main() {
         let info_plist = if dev_mode {
             let source = std::fs::read_to_string(manifest_dir.join("Info.plist"))
                 .expect("failed to read Info.plist");
-            println!("cargo:rerun-if-changed={}", manifest_dir.join("Info.plist").display());
-            let dev = source.replace("<string>flowix</string>", "<string>flowix-dev</string>")
+            println!(
+                "cargo:rerun-if-changed={}",
+                manifest_dir.join("Info.plist").display()
+            );
+            let dev = source
+                .replace("<string>flowix</string>", "<string>flowix-dev</string>")
                 .replace("<string>Flowix</string>", "<string>Flowix Dev</string>")
                 .replace("com.flowix.app.deeplink", "com.flowix-dev.app.deeplink");
-            let generated = std::path::PathBuf::from(
-                std::env::var_os("OUT_DIR").expect("OUT_DIR is set"),
-            ).join("Flowix-Dev-Info.plist");
+            let generated =
+                std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set"))
+                    .join("Flowix-Dev-Info.plist");
             std::fs::write(&generated, dev).expect("failed to write dev Info.plist");
             generated
         } else {

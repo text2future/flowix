@@ -221,7 +221,6 @@ export function NotebookList({
                     >
                   <NotebookIcon
                     icon={notebook.icon}
-                    name={notebook.name}
                     className="h-6 w-6 rounded-md bg-[var(--muted)] text-[12px] font-semibold text-[var(--foreground)]"
                     imageClassName="h-[72%] w-[72%]"
                   />

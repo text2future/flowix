@@ -80,6 +80,21 @@ pub(crate) fn show(raw: &str) -> Result<Value, CliError> {
 }
 
 pub(crate) fn create(notebook_key: &str, content: &str) -> Result<Value, CliError> {
+    create_with_title(notebook_key, None, content)
+}
+
+pub(crate) fn create_with_title(
+    notebook_key: &str,
+    title: Option<&str>,
+    content: &str,
+) -> Result<Value, CliError> {
+    let title = match title {
+        Some(title) if title.trim().is_empty() => {
+            return Err(CliError::Usage("create: --title cannot be empty".into()));
+        }
+        Some(title) => title.trim(),
+        None => "Untitled",
+    };
     if content.trim().is_empty() {
         return Err(CliError::Usage("create: content is empty".into()));
     }
@@ -90,7 +105,7 @@ pub(crate) fn create(notebook_key: &str, content: &str) -> Result<Value, CliErro
     let document = NoteService::new(&mf).create(
         &notebook.id,
         parent.as_deref(),
-        "Untitled",
+        title,
         content,
     )?;
     Ok(json!({"ok": true, "action": "created", "note": document_json(&document)}))
@@ -297,6 +312,14 @@ mod tests {
         let previous = std::env::var_os("FLOWIX_HOME");
         std::env::set_var("FLOWIX_HOME", &config);
         let result = (|| -> Result<(), CliError> {
+            assert!(create_with_title("work", Some("  "), "Body").is_err());
+            let named = create_with_title("work", Some("我的文档"), "# Body")?;
+            assert_eq!(named["note"]["relativePath"], "我的文档.md");
+            let duplicate = create_with_title("work", Some("我的文档"), "Second body")?;
+            assert_ne!(named["note"]["address"], duplicate["note"]["address"]);
+            assert_eq!(show(named["note"]["address"].as_str().unwrap())?["body"], "# Body");
+            delete(named["note"]["address"].as_str().unwrap())?;
+            delete(duplicate["note"]["address"].as_str().unwrap())?;
             let created = create("work", "# Hello\nBody\n")?;
             let address = created["note"]["address"].as_str().unwrap();
             assert!(address.starts_with("work::Untitled.md"));

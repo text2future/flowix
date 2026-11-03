@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 
 use super::notebook::sqlite_to_io;
 use super::types::NotebookConfig;
@@ -88,12 +88,10 @@ impl NotebookRegistry {
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='notebooks')",
             [], |row| row.get(0),
         ).map_err(sqlite_to_io)?;
-        let setup_upgrade_allowed = if run_legacy_migrations && existing_database && has_registry {
-            snapshot_before_registry_upgrade(&database, &path)?
-        } else {
-            true
-        };
-        // All schema changes roll back together, including failures in auxiliary tables.
+        if run_legacy_migrations && existing_database && has_registry {
+            snapshot_before_registry_upgrade(&database, &path)?;
+        }
+        // All schema changes roll back together.
         let mut conn = database
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(sqlite_to_io)?;
@@ -220,142 +218,11 @@ impl NotebookRegistry {
                 migration_key TEXT PRIMARY KEY,
                 completed_at INTEGER NOT NULL DEFAULT 0
             );
+            DROP TABLE IF EXISTS notebook_setup_jobs;
+            DELETE FROM app_state WHERE key LIKE 'notebook_setup_%';
             "#,
         )
         .map_err(sqlite_to_io)?;
-        let setup_result = (|| -> std::io::Result<()> {
-            if !setup_upgrade_allowed {
-                return Ok(());
-            }
-            let mut conn = conn.savepoint().map_err(sqlite_to_io)?;
-            conn.execute_batch(
-                r#"
-            CREATE TABLE IF NOT EXISTS notebook_setup_jobs (
-                notebook_id TEXT PRIMARY KEY REFERENCES notebooks(id) ON DELETE CASCADE,
-                template_id TEXT,
-                status TEXT NOT NULL,
-                stage TEXT NOT NULL,
-                message TEXT,
-                report_json TEXT,
-                overwrite_existing INTEGER NOT NULL DEFAULT 0,
-                updated_at INTEGER NOT NULL,
-                revision INTEGER NOT NULL DEFAULT 0,
-                run_id TEXT NOT NULL DEFAULT '',
-                job_id TEXT NOT NULL DEFAULT '',
-                execution_requested INTEGER NOT NULL DEFAULT 0
-            );
-            "#,
-            )
-            .map_err(sqlite_to_io)?;
-            // Only add known optional columns to a recognizable base schema.
-            // A malformed task table must remain untouched rather than accumulate
-            // partially applied upgrades and a fresh backup on each launch.
-            conn.prepare("SELECT notebook_id,template_id,status,stage,message,updated_at FROM notebook_setup_jobs LIMIT 0")
-                .map_err(sqlite_to_io)?;
-            let has_setup_report = conn
-                .prepare("PRAGMA table_info(notebook_setup_jobs)")
-                .map_err(sqlite_to_io)?
-                .query_map([], |row| row.get::<_, String>(1))
-                .map_err(sqlite_to_io)?
-                .filter_map(Result::ok)
-                .any(|name| name == "report_json");
-            if !has_setup_report && !run_legacy_migrations {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "notebook setup registry requires version initialization",
-                ));
-            }
-            if !has_setup_report {
-                conn.execute_batch("ALTER TABLE notebook_setup_jobs ADD COLUMN report_json TEXT;")
-                    .map_err(sqlite_to_io)?;
-            }
-            let has_setup_overwrite = conn
-                .prepare("PRAGMA table_info(notebook_setup_jobs)")
-                .map_err(sqlite_to_io)?
-                .query_map([], |row| row.get::<_, String>(1))
-                .map_err(sqlite_to_io)?
-                .filter_map(Result::ok)
-                .any(|name| name == "overwrite_existing");
-            if !has_setup_overwrite && !run_legacy_migrations {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "notebook setup registry requires version initialization",
-                ));
-            }
-            if !has_setup_overwrite {
-                conn.execute_batch(
-                "ALTER TABLE notebook_setup_jobs ADD COLUMN overwrite_existing INTEGER NOT NULL DEFAULT 0;",
-            )
-            .map_err(sqlite_to_io)?;
-            }
-            for (column, declaration) in [
-                ("revision", "INTEGER NOT NULL DEFAULT 0"),
-                ("run_id", "TEXT NOT NULL DEFAULT ''"),
-                ("job_id", "TEXT NOT NULL DEFAULT ''"),
-                ("execution_requested", "INTEGER NOT NULL DEFAULT 0"),
-            ] {
-                let has_column = conn
-                    .prepare("PRAGMA table_info(notebook_setup_jobs)")
-                    .map_err(sqlite_to_io)?
-                    .query_map([], |row| row.get::<_, String>(1))
-                    .map_err(sqlite_to_io)?
-                    .filter_map(Result::ok)
-                    .any(|name| name == column);
-                if !has_column && !run_legacy_migrations {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!(
-                            "notebook setup registry requires version initialization ({column})"
-                        ),
-                    ));
-                }
-                if !has_column {
-                    conn.execute_batch(&format!(
-                        "ALTER TABLE notebook_setup_jobs ADD COLUMN {column} {declaration};"
-                    ))
-                    .map_err(sqlite_to_io)?;
-                }
-            }
-            conn.execute(
-            "UPDATE notebook_setup_jobs SET job_id = lower(hex(randomblob(16))) WHERE job_id = ''",
-            [],
-        )
-        .map_err(sqlite_to_io)?;
-            let migration_tx = conn.savepoint().map_err(sqlite_to_io)?;
-            let execution_request_migration: Option<String> = migration_tx
-            .query_row(
-                "SELECT value FROM app_state WHERE key = 'notebook_setup_execution_request_migrated'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(sqlite_to_io)?;
-            if execution_request_migration.is_none() {
-                migration_tx
-                .execute(
-                    "UPDATE notebook_setup_jobs SET execution_requested = 1 WHERE status IN ('pending', 'running')",
-                    [],
-                )
-                .map_err(sqlite_to_io)?;
-                migration_tx
-                .execute(
-                    "INSERT INTO app_state (key, value, updated_at) VALUES ('notebook_setup_execution_request_migrated', '1', 0)",
-                    [],
-                )
-                .map_err(sqlite_to_io)?;
-            }
-            migration_tx.commit().map_err(sqlite_to_io)?;
-            conn.execute(
-            "INSERT OR IGNORE INTO app_state (key, value, updated_at) SELECT 'notebook_setup_revision', CAST(COALESCE(MAX(revision), 0) AS TEXT), 0 FROM notebook_setup_jobs",
-            [],
-        )
-        .map_err(sqlite_to_io)?;
-            conn.commit().map_err(sqlite_to_io)?;
-            Ok(())
-        })();
-        if let Err(error) = setup_result {
-            tracing::warn!(%error, "notebook setup migration deferred; notebook identities preserved");
-        }
         if notebooks_table_exists && !has_sort_column {
             let tx = conn.savepoint().map_err(sqlite_to_io)?;
             let mut stmt = tx
@@ -428,16 +295,13 @@ fn notebook_rows(
 fn snapshot_before_registry_upgrade(
     conn: &Connection,
     path: &std::path::Path,
-) -> std::io::Result<bool> {
+) -> std::io::Result<()> {
     use sha2::{Digest, Sha256};
     let notebook_columns: i64 = conn.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('notebooks') WHERE name IN ('id','name','icon','path','is_default','sort','pinned','created_at','updated_at')",
         [], |row| row.get(0)).map_err(sqlite_to_io)?;
-    let setup_columns: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('notebook_setup_jobs') WHERE name IN ('notebook_id','template_id','status','stage','message','report_json','overwrite_existing','updated_at','revision','run_id','job_id','execution_requested')",
-        [], |row| row.get(0)).map_err(sqlite_to_io)?;
-    if notebook_columns == 9 && setup_columns == 12 {
-        return Ok(true);
+    if notebook_columns == 9 {
+        return Ok(());
     }
     let snapshot = (|| -> std::io::Result<()> {
         let mut statement = conn
@@ -451,7 +315,7 @@ fn snapshot_before_registry_upgrade(
         let rows = notebook_rows(conn, &columns)?;
         let mut statement = conn
             .prepare(
-                "SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND tbl_name IN ('notebooks','notebook_setup_jobs') ORDER BY type,name",
+                "SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND tbl_name = 'notebooks' ORDER BY type,name",
             )
             .map_err(sqlite_to_io)?;
         let schema = statement
@@ -511,12 +375,5 @@ fn snapshot_before_registry_upgrade(
             Err(error) => Err(error),
         }
     })();
-    match snapshot {
-        Ok(()) => Ok(true),
-        Err(error) if notebook_columns == 9 => {
-            tracing::warn!(%error, "optional setup upgrade deferred because backup is unavailable; notebook registry remains usable");
-            Ok(false)
-        }
-        Err(error) => Err(error),
-    }
+    snapshot
 }

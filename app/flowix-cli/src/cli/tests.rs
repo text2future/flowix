@@ -190,9 +190,9 @@ fn create_dash_suffix_no_longer_special() {
 #[test]
 fn create_accepts_utf8_file_input() {
     assert!(matches!(
-        parse_args(&["create", "常用信息备案", "--file", "D:\\资料\\说明.md"]),
-        Ok(Some(Cli::Create { notebook: Some(notebook), file: Some(file), json: false, .. }))
-            if notebook == "常用信息备案" && file == "D:\\资料\\说明.md"
+        parse_args(&["create", "常用信息备案", "--title", "我的文档", "--file", "D:\\资料\\说明.md"]),
+        Ok(Some(Cli::Create { notebook: Some(notebook), title: Some(title), file: Some(file), json: false, .. }))
+            if title == "我的文档" && notebook == "常用信息备案" && file == "D:\\资料\\说明.md"
     ));
 }
 

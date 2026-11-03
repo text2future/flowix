@@ -13,8 +13,10 @@ import {
   listenToCloudStateChanges,
   mediaResources,
   notes,
+  notebooks as notebookCommands,
   windows as tauriWindows,
   type CloudNotebook,
+  type ObsidianVaultRecord,
 } from '@platform/tauri/client';
 import { useTauriRpc } from '@platform/tauri/use-tauri-rpc';
 import {
@@ -24,17 +26,27 @@ import {
 import { useCreateNotebookFlow } from '@features/memo/hooks/use-create-notebook-flow';
 import { useImportNotebookSelection } from '@features/memo/hooks/use-import-notebook-selection';
 import { useEmptyNotebookPrompt } from '@features/memo/hooks/use-empty-notebook-prompt';
+import {
+  attachNotebookFolder,
+  detachNotebookFolder,
+  ensureAgentWorkspaceReady,
+  getWorkspaceAgentRepositories,
+  loadAgentWorkspace,
+} from '@features/agent/public/workspace-api';
 import { noteRepository, notebookRepository } from '@features/memo/services/note-repository';
 import { getVisibleCreateFilter, useNoteStore, useTagStore, type NoteListItem, type Notebook } from '@features/memo/store';
 import { noteListItemRelativePath } from '@/types/note-item';
-import { NotebookSetupResultNotices } from './notebook-setup-notice-host';
-import { getNotebookIconOption, NotebookIcon } from '@features/memo/components/notebook-icon';
+import {
+  DEFAULT_NOTEBOOK_ICON_ID,
+  NotebookIcon,
+  resolveNotebookIconId,
+} from '@features/memo/components/notebook-icon';
 import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
 import { clearWorkspaceDocument } from '@features/workspace/public/note-navigation-api';
 import { selectNotebook } from '@features/workspace/public/main-window-api';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import { joinNotebookMemoPath } from '@/lib/path';
+import { canonicalDirectoryPath, joinNotebookMemoPath } from '@/lib/path';
 import { Kbd } from '@shared/ui/kbd';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@shared/ui/select';
@@ -54,8 +66,8 @@ const LazyNotebookDialogs = lazy(() =>
   })),
 );
 
-function normalizeNotebookIconId(icon: string | null | undefined): string | null {
-  return getNotebookIconOption(icon) ? icon! : null;
+function normalizeNotebookIconId(icon: string | null | undefined): string {
+  return resolveNotebookIconId(icon);
 }
 
 interface MediaDeleteRequest {
@@ -65,6 +77,12 @@ interface MediaDeleteRequest {
 
 function filenameFromPath(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
+}
+
+function sameDirectorySet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightPaths = new Set(right.map(canonicalDirectoryPath));
+  return left.every((path) => rightPaths.has(canonicalDirectoryPath(path)));
 }
 
 function DeleteDialogShortcuts({
@@ -200,7 +218,7 @@ function ExternalDocumentOpenDialog() {
                 {notebooks.map((notebook) => (
                   <SelectItem key={notebook.id} value={notebook.id}>
                     <span className="flex min-w-0 items-center gap-2">
-                      <NotebookIcon icon={notebook.icon} name={notebook.name} className="h-6 w-6 rounded-md bg-[var(--muted)] text-xs font-semibold" disableTitle />
+                      <NotebookIcon icon={notebook.icon} className="h-6 w-6 rounded-md bg-[var(--muted)] text-xs font-semibold" disableTitle />
                       <span className="truncate">{notebook.name}</span>
                     </span>
                   </SelectItem>
@@ -259,22 +277,26 @@ export function MemoListServicesHost({
   const [createOpen, setCreateOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newPath, setNewPath] = useState('');
-  const [newDefaultPath, setNewDefaultPath] = useState('');
-  const [newIcon, setNewIcon] = useState<string | null>(null);
-  const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
+  const [newPaths, setNewPaths] = useState<string[]>([]);
+  const [newIcon, setNewIcon] = useState<string | null>(DEFAULT_NOTEBOOK_ICON_ID);
   const [createMode, setCreateMode] = useState<'create' | 'cloud'>('create');
   const [remoteNotebooks, setRemoteNotebooks] = useState<CloudNotebook[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [syncingRemoteId, setSyncingRemoteId] = useState<string | null>(null);
   const [cloudImporting, setCloudImporting] = useState(false);
+  const [obsidianVaults, setObsidianVaults] = useState<ObsidianVaultRecord[]>([]);
+  const [obsidianVaultsLoading, setObsidianVaultsLoading] = useState(false);
+  const [obsidianVaultsError, setObsidianVaultsError] = useState(false);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editIcon, setEditIcon] = useState<string | null>(null);
+  const [editIcon, setEditIcon] = useState<string | null>(DEFAULT_NOTEBOOK_ICON_ID);
+  const [editPaths, setEditPaths] = useState<string[]>([]);
+  const [editOriginalPaths, setEditOriginalPaths] = useState<string[]>([]);
   const [editCloudSync, setEditCloudSync] = useState(false);
   const [originalEditCloudSync, setOriginalEditCloudSync] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const editingNotebookIdRef = useRef<string | null>(null);
   const [cloudSyncAvailable, setCloudSyncAvailable] = useState(false);
   const { creationState, createNotebook } = useCreateNotebookFlow({
     onMemoListReloadNeeded: onRefresh,
@@ -284,48 +306,29 @@ export function MemoListServicesHost({
     setCreateOpen(false);
     setCreateMode('create');
     setNewName('');
-    setNewPath('');
-    setNewDefaultPath('');
-    setNewIcon(null);
-    setNewTemplateId(null);
+    setNewPaths([]);
+    setNewIcon(DEFAULT_NOTEBOOK_ICON_ID);
     setRemoteNotebooks([]);
     setRemoteLoading(false);
     setSyncingRemoteId(null);
+    setObsidianVaults([]);
+    setObsidianVaultsLoading(false);
+    setObsidianVaultsError(false);
   }, []);
 
   const openCreate = useCallback(() => {
     setNewName('');
-    setNewPath('');
-    setNewDefaultPath('');
-    setNewIcon(null);
-    setNewTemplateId(null);
+    setNewPaths([]);
+    setNewIcon(DEFAULT_NOTEBOOK_ICON_ID);
     setCreateMode('create');
     setRemoteNotebooks([]);
     setRemoteLoading(false);
     setSyncingRemoteId(null);
+    setObsidianVaults([]);
+    setObsidianVaultsLoading(false);
+    setObsidianVaultsError(false);
     setCreateOpen(true);
   }, []);
-
-  useEffect(() => {
-    const name = newName.trim();
-    if (!createOpen || createMode !== 'create' || newPath.trim() || !name) {
-      setNewDefaultPath('');
-      return;
-    }
-
-    let cancelled = false;
-    void notebookRepository.getDefaultPath(name)
-      .then((path) => {
-        if (!cancelled) setNewDefaultPath(path);
-      })
-      .catch(() => {
-        if (!cancelled) setNewDefaultPath('');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [createMode, createOpen, newName, newPath]);
 
   useEffect(() => {
     if (notebookCreateRequest > 0) openCreate();
@@ -367,10 +370,28 @@ export function MemoListServicesHost({
       const notebook = (event as CustomEvent<Notebook>).detail;
       if (!notebook) return;
       setEditSaving(false);
+      editingNotebookIdRef.current = notebook.id;
       setEditingNotebook(notebook);
       setEditName(notebook.name);
       setEditIcon(normalizeNotebookIconId(notebook.icon));
+      setEditPaths([notebook.path]);
+      setEditOriginalPaths([notebook.path]);
       setEditOpen(true);
+      void ensureAgentWorkspaceReady().then(() => {
+        if (editingNotebookIdRef.current !== notebook.id) return;
+        const repositories = getWorkspaceAgentRepositories(notebook.id);
+        const paths = [notebook.path, ...repositories.map((repository) => repository.path)
+          .filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(notebook.path))];
+        setEditOriginalPaths(paths);
+        setEditPaths((current) => {
+          const newSelections = current.filter((path) => !paths.some(
+            (loadedPath) => canonicalDirectoryPath(loadedPath) === canonicalDirectoryPath(path),
+          ));
+          return [...paths, ...newSelections];
+        });
+      }).catch(() => {
+        if (editingNotebookIdRef.current === notebook.id) toast.error(t('agent.access.saveFailed'));
+      });
     };
     const handleDeleteMemo = (event: Event) => {
       const memo = (event as CustomEvent<NoteListItem>).detail;
@@ -396,7 +417,7 @@ export function MemoListServicesHost({
       window.removeEventListener('flowix:toggle-palette', handleTogglePalette);
       window.removeEventListener('flowix:open-palette', handleOpenPalette);
     };
-  }, [openCreate]);
+  }, [openCreate, t]);
 
   const handleCreateMemo = useCallback(async () => {
     if (!selectedNotebook) return;
@@ -518,6 +539,19 @@ export function MemoListServicesHost({
     }
   }, [handleInvalidCloudSession, resetCreateState, t]);
 
+  const openObsidianVaults = useCallback(async () => {
+    setObsidianVaults([]);
+    setObsidianVaultsError(false);
+    setObsidianVaultsLoading(true);
+    try {
+      setObsidianVaults(await notebookCommands.listObsidianVaults());
+    } catch {
+      setObsidianVaultsError(true);
+    } finally {
+      setObsidianVaultsLoading(false);
+    }
+  }, []);
+
   const selectRemoteNotebook = useCallback(async (remote: CloudNotebook) => {
     if (remote.synced || syncingRemoteId) return;
     try {
@@ -556,17 +590,27 @@ export function MemoListServicesHost({
 
   const confirmCreate = useCallback(() => {
     if (!newName.trim()) return;
-    void createNotebook({ name: newName, path: newPath || undefined, icon: newIcon, templateId: newTemplateId }).then((created) => {
-      if (created) resetCreateState();
+    const additionalPaths = newPaths.slice(1);
+    void createNotebook({ name: newName, path: newPaths[0] || undefined, icon: newIcon }).then(async (created) => {
+      if (!created) return;
+      resetCreateState();
+      let mountFailed = false;
+      for (const path of additionalPaths) {
+        if (await attachNotebookFolder(created.id, path) === false) mountFailed = true;
+      }
+      if (mountFailed) toast.error(t('agent.access.saveFailed'));
     });
-  }, [createNotebook, newIcon, newName, newPath, newTemplateId, resetCreateState]);
+  }, [createNotebook, newIcon, newName, newPaths, resetCreateState, t]);
 
   const closeEdit = useCallback(() => {
     if (editSaving) return;
     setEditOpen(false);
+    editingNotebookIdRef.current = null;
     setEditingNotebook(null);
     setEditName('');
-    setEditIcon(null);
+    setEditIcon(DEFAULT_NOTEBOOK_ICON_ID);
+    setEditPaths([]);
+    setEditOriginalPaths([]);
     setEditCloudSync(false);
     setOriginalEditCloudSync(false);
     setEditSaving(false);
@@ -575,19 +619,50 @@ export function MemoListServicesHost({
   const confirmEdit = useCallback(async () => {
     if (!editingNotebook || editSaving) return;
     const name = editName.trim();
-    const icon = editIcon || null;
-    const iconChanged = (icon ?? '') !== (normalizeNotebookIconId(editingNotebook.icon) ?? '');
+    const icon = normalizeNotebookIconId(editIcon);
+    const iconChanged = icon !== normalizeNotebookIconId(editingNotebook.icon);
     const metadataChanged = name !== editingNotebook.name || iconChanged;
     const cloudChanged = editCloudSync !== originalEditCloudSync;
-    if (!name || (!metadataChanged && !cloudChanged)) {
+    const primaryPath = editPaths[0];
+    const primaryChanged = Boolean(primaryPath)
+      && canonicalDirectoryPath(primaryPath) !== canonicalDirectoryPath(editingNotebook.path);
+    const desiredRepositoryPaths = editPaths.slice(1);
+    const originalRepositoryPaths = editOriginalPaths.filter(
+      (path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(editingNotebook.path),
+    );
+    const repositoriesChanged = !sameDirectorySet(desiredRepositoryPaths, originalRepositoryPaths);
+    if (!name || !primaryPath || (!metadataChanged && !cloudChanged && !primaryChanged && !repositoriesChanged)) {
       closeEdit();
       return;
     }
     try {
       setEditSaving(true);
-      const updated = metadataChanged
-        ? await notebookRepository.update(editingNotebook.id, name, icon ?? '')
-        : editingNotebook;
+      let updated = editingNotebook;
+      if (primaryChanged) {
+        updated = await notebookCommands.setPrimaryDirectory(editingNotebook.id, primaryPath);
+        const workspaceLoaded = await loadAgentWorkspace();
+        if (!workspaceLoaded) throw new Error(t('agent.access.saveFailed'));
+      }
+
+      const existingRepositoryPaths = getWorkspaceAgentRepositories(editingNotebook.id)
+        .map((repository) => repository.path);
+      const desiredPathKeys = new Set(desiredRepositoryPaths.map(canonicalDirectoryPath));
+      for (const path of desiredRepositoryPaths) {
+        if (existingRepositoryPaths.some((existing) => canonicalDirectoryPath(existing) === canonicalDirectoryPath(path))) continue;
+        const result = await attachNotebookFolder(editingNotebook.id, path);
+        if (result === false) throw new Error(t('agent.access.saveFailed'));
+      }
+      for (const path of existingRepositoryPaths) {
+        if (desiredPathKeys.has(canonicalDirectoryPath(path))) continue;
+        const result = await detachNotebookFolder(editingNotebook.id, path);
+        if (result === false) throw new Error(t('agent.access.saveFailed'));
+      }
+
+      if (metadataChanged) {
+        const metadataUpdated = await notebookRepository.update(editingNotebook.id, name, icon);
+        if (!metadataUpdated) throw new Error(t('memo.list.updateFailed'));
+        updated = metadataUpdated;
+      }
       if (!updated) throw new Error(t('memo.list.updateFailed'));
       if (cloudChanged) await cloud.setNotebookEnabled(editingNotebook.id, editCloudSync);
       setNotebooks(useNoteStore.getState().notebooks.map((item) => item.id === updated.id ? updated : item));
@@ -597,17 +672,25 @@ export function MemoListServicesHost({
           toast.error(cloudSyncErrorMessage(error, t));
         });
       }
+      if (primaryChanged) onRefresh();
       toast.success(t('memo.list.updated'));
       closeEdit();
     } catch (error) {
       toast.error(cloudSyncErrorMessage(error, t));
       setEditSaving(false);
     }
-  }, [closeEdit, editCloudSync, editIcon, editName, editSaving, editingNotebook, originalEditCloudSync, setNotebooks, setSelectedNotebook, t]);
+  }, [closeEdit, editCloudSync, editIcon, editName, editOriginalPaths, editPaths, editSaving, editingNotebook, onRefresh, originalEditCloudSync, setNotebooks, setSelectedNotebook, t]);
+
+  const editNotebookStorageChanged = Boolean(editingNotebook) && (
+    canonicalDirectoryPath(editPaths[0] ?? '') !== canonicalDirectoryPath(editingNotebook?.path ?? '')
+    || !sameDirectorySet(
+      editPaths.slice(1),
+      editOriginalPaths.filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(editingNotebook?.path ?? '')),
+    )
+  );
 
   return (
     <>
-      <NotebookSetupResultNotices />
       <ExternalDocumentOpenDialog />
 
       {cloudImporting && (
@@ -667,24 +750,43 @@ export function MemoListServicesHost({
             }}
             newNotebookName={newName}
             onNewNotebookNameChange={setNewName}
-            newNotebookPath={newPath}
-            newNotebookDefaultPath={newDefaultPath}
+            newNotebookPaths={newPaths}
             newNotebookIcon={newIcon}
             onNewNotebookIconChange={setNewIcon}
-            newNotebookTemplateId={newTemplateId}
-            onNewNotebookTemplateIdChange={setNewTemplateId}
             isCreatingNotebook={creationState.status === 'creating'}
             cloudSyncAvailable={cloudSyncAvailable}
             createMode={createMode}
             remoteNotebooks={remoteNotebooks}
             remoteNotebooksLoading={remoteLoading}
             remoteNotebookSyncingId={syncingRemoteId}
+            obsidianVaults={obsidianVaults}
+            obsidianVaultsLoading={obsidianVaultsLoading}
+            obsidianVaultsError={obsidianVaultsError}
             onOpenRemoteNotebooks={() => void openRemoteNotebooks()}
-            onBackToCreate={() => { setCreateMode('create'); setRemoteNotebooks([]); }}
+            onOpenObsidianVaults={() => void openObsidianVaults()}
+            onBackToCreate={() => {
+              setCreateMode('create');
+              setRemoteNotebooks([]);
+              setObsidianVaults([]);
+              setObsidianVaultsError(false);
+            }}
             onSelectRemoteNotebook={(item) => void selectRemoteNotebook(item)}
+            onSelectObsidianVault={(vault) => {
+              setNewPaths((current) => current.includes(vault.path) ? current : [...current, vault.path]);
+            }}
             onSelectDirectory={async () => {
               const path = await request<string | null>('select_directory');
-              if (path) setNewPath(path);
+              if (path) setNewPaths((current) => current.includes(path) ? current : [...current, path]);
+            }}
+            onImportProjectDirectory={async (source) => {
+              const path = await request<string | null>('select_project_directory', { projectSource: source });
+              if (path) setNewPaths((current) => current.includes(path) ? current : [...current, path]);
+            }}
+            onRemoveDirectory={(path) => setNewPaths((current) => current.filter((item) => item !== path))}
+            onSetPrimaryDirectory={(path) => {
+              setNewPaths((current) => current.includes(path)
+                ? [path, ...current.filter((item) => item !== path)]
+                : current);
             }}
             onConfirmCreate={confirmCreate}
             onCancelCreate={resetCreateState}
@@ -706,6 +808,28 @@ export function MemoListServicesHost({
             editNotebookCloudSyncChanged={editCloudSync !== originalEditCloudSync}
             onConfirmEdit={() => void confirmEdit()}
             onCancelEdit={closeEdit}
+            editNotebookPaths={editPaths}
+            onSelectEditDirectory={async () => {
+              try {
+                const path = await request<string | null>('select_directory');
+                if (path) setEditPaths((current) => current.some((item) => canonicalDirectoryPath(item) === canonicalDirectoryPath(path))
+                  ? current
+                  : [...current, path]);
+              } catch {
+                toast.error(t('agent.access.saveFailed'));
+              }
+            }}
+            onRemoveEditDirectory={(path) => {
+              setEditPaths((current) => current.length > 1
+                ? current.filter((item) => canonicalDirectoryPath(item) !== canonicalDirectoryPath(path))
+                : current);
+            }}
+            onSetPrimaryEditDirectory={(path) => {
+              setEditPaths((current) => current.some((item) => canonicalDirectoryPath(item) === canonicalDirectoryPath(path))
+                ? [path, ...current.filter((item) => canonicalDirectoryPath(item) !== canonicalDirectoryPath(path))]
+                : current);
+            }}
+            editNotebookStorageChanged={editNotebookStorageChanged}
           />
         </Suspense>
       )}

@@ -5,8 +5,10 @@ export { useNotebookTodoCount } from '@features/memo/components/use-notebook-tod
 export {
   NotebookIcon,
   NOTEBOOK_ICON_OPTIONS,
-  getNotebookIconLetter,
   getNotebookIconOption,
+  resolveNotebookIconId,
+  resolveNotebookIconOption,
+  DEFAULT_NOTEBOOK_ICON_ID,
   type NotebookIconOption,
 } from '@features/memo/components/notebook-icon';
 export {

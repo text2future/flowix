@@ -30,7 +30,7 @@ migration still moves plugin output from `.plugin-output/` into that directory.
 
 | Store | Ownership | Contents | Rebuild policy |
 | --- | --- | --- | --- |
-| `~/.flowix/db/local.db` | Device | Notebook registry, workspace mounts and setup state | Preserve; it is not a notebook cache |
+| `~/.flowix/db/local.db` | Device | Notebook registry and workspace mounts | Preserve; it is not a notebook cache |
 | `<notebook>/.flowix/notebook.db` | Notebook | Path-keyed note and full-text projections, the multidimensional-table listing catalog, media identities and properties | Rebuild note, search, and table-listing projections selectively; preserve user-owned media properties |
 
 The notebook database deliberately remains one file. Its tables have different
@@ -41,21 +41,7 @@ Media bytes remain in notebook files. The `media_resources` table stores a
 notebook-relative path, resource identity, file fingerprint, and user
 properties. Those properties cannot be reconstructed from the media file.
 
-## Notebook template setup lifecycle
-
-The device-local registry stores notebook template setup jobs. A stable
-`job_id` identifies the selected template task across retries; each execution
-gets a new `run_id`; a registry-wide revision orders events across task
-deletion and recreation. Registration leaves a task pending until the selected
-notebook's workspace is ready. The application coordinator requests its pending
-job after the active workspace switch settles; requested pending jobs and
-interrupted running jobs resume after workspace preparation.
-
-The worker persists the `indexing` stage and its aggregate write report before
-removing the initialization marker. Indexing retries therefore continue from
-that checkpoint without reapplying template files. Terminal state remains
-owned by the worker until it is durably stored. The frontend combines status
-events with a complete registry snapshot; taking a snapshot never starts work.
+## Catalog lifecycle
 
 The multidimensional-table listing is a rebuildable file catalog. Its
 view-group membership preference is stored separately by stable `table_id`,

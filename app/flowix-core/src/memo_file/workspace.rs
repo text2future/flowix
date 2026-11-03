@@ -251,6 +251,99 @@ impl MemoFile {
         tx.commit().map_err(sqlite_to_io)?;
         self.read_notebook_workspace()
     }
+
+    /// Promote a selected storage directory to the notebook root and keep the
+    /// previous root in the repository list when it is available.
+    pub fn set_notebook_primary_directory(
+        &self,
+        notebook_id: &str,
+        path: &str,
+    ) -> std::io::Result<NotebookConfig> {
+        let configs = self.read_notebook_configs()?;
+        let mut updated = configs
+            .iter()
+            .find(|notebook| notebook.id == notebook_id)
+            .cloned()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "notebook not found"))?;
+        let target = dunce::canonicalize(path)?;
+        if !target.is_dir() {
+            return Err(std::io::Error::other("primary directory is unavailable"));
+        }
+        let target_string = target.to_string_lossy().into_owned();
+        let target_key = directory_key(&target_string);
+        let old_path = updated.path.clone();
+        let old_target = normalized_directory(&old_path);
+        if directory_key(&old_path) == target_key {
+            return Ok(updated);
+        }
+        if configs.iter().any(|notebook| {
+            notebook.id != notebook_id && directory_key(&notebook.path) == target_key
+        }) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "primary directory is registered to another notebook",
+            ));
+        }
+
+        let mut conn = self.workspace_connection()?;
+        if old_target.is_dir() {
+            validate_add_dir(&target_string, &old_path, true)?;
+        }
+
+        updated.path = target_string;
+        updated.updated_at = chrono::Utc::now().timestamp_millis();
+        Self::ensure_notebook_manifest(&updated)?;
+
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sqlite_to_io)?;
+        let changed = tx
+            .execute(
+                "UPDATE notebooks SET path=?1,updated_at=?2 WHERE id=?3",
+                params![updated.path, updated.updated_at, notebook_id],
+            )
+            .map_err(sqlite_to_io)?;
+        if changed == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "notebook not found",
+            ));
+        }
+        tx.execute(
+            "DELETE FROM notebook_add_dirs WHERE notebook_id=?1 AND path_key=?2",
+            params![notebook_id, target_key],
+        )
+        .map_err(sqlite_to_io)?;
+        if old_target.is_dir() {
+            let old_path = old_target.to_string_lossy().into_owned();
+            let old_key = directory_key(&old_path);
+            let label = old_target
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let now = chrono::Utc::now().timestamp_millis();
+            tx.execute(
+                "INSERT INTO notebook_add_dirs (id,notebook_id,path,path_key,label,enabled,sort,created_at,updated_at) \
+                 VALUES (?1,?2,?3,?4,?5,1,COALESCE((SELECT MAX(sort)+1 FROM notebook_add_dirs WHERE notebook_id=?2),0),?6,?6) \
+                 ON CONFLICT(notebook_id,path_key) DO UPDATE SET enabled=1,updated_at=excluded.updated_at",
+                params![uuid::Uuid::new_v4().to_string(), notebook_id, old_path, old_key, label, now],
+            )
+            .map_err(sqlite_to_io)?;
+        }
+        tx.execute(
+            "INSERT INTO notebook_workspace_state VALUES (?1,1) ON CONFLICT(notebook_id) DO UPDATE SET revision=revision+1",
+            [notebook_id],
+        )
+        .map_err(sqlite_to_io)?;
+        tx.commit().map_err(sqlite_to_io)?;
+
+        self.read_notebook_configs()?
+            .into_iter()
+            .find(|notebook| notebook.id == notebook_id)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "notebook not found"))
+    }
+
     pub fn attached_directory_paths(&self) -> std::io::Result<Vec<std::path::PathBuf>> {
         let conn = self.workspace_connection()?;
         let mut stmt = conn

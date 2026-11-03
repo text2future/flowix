@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -46,17 +46,32 @@ export function DialogTrigger({ children }: DialogTriggerProps) {
 interface DialogContentProps {
 	children: ReactNode;
 	className?: string;
+	overlayClassName?: string;
 	fullScreen?: boolean;
 	showOverlay?: boolean;
 	showCloseButton?: boolean;
+	trapFocus?: boolean;
 }
 
 const EXIT_ANIMATION_MS = 300;
 
-export function DialogContent({ children, className, showOverlay = true, showCloseButton = true }: DialogContentProps) {
+export function DialogContent({
+	children,
+	className,
+	overlayClassName,
+	showOverlay = true,
+	showCloseButton = true,
+	trapFocus = false,
+}: DialogContentProps) {
 	const context = useDialogContext();
 	const open = context?.open ?? false;
 	const onOpenChange = context?.onOpenChange ?? (() => {});
+	const contentRef = useRef<HTMLDivElement>(null);
+	const previouslyFocusedRef = useRef<HTMLElement | null>(
+		typeof document === 'undefined' || !(document.activeElement instanceof HTMLElement)
+			? null
+			: document.activeElement,
+	);
 
 	// Drive mount/visibility separately from `open` so the exit animation
 	// has time to play before the dialog is removed from the DOM.
@@ -77,6 +92,87 @@ export function DialogContent({ children, className, showOverlay = true, showClo
 		return () => clearTimeout(timer);
 	}, [open]);
 
+	useEffect(() => {
+		if (!mounted || !trapFocus) return;
+
+		const content = contentRef.current;
+		if (!content) return;
+
+		const appRoot = document.getElementById('root');
+		const wasInert = appRoot?.inert ?? false;
+		const previouslyFocused = previouslyFocusedRef.current;
+		if (appRoot) appRoot.inert = true;
+
+		const focusableSelector = [
+			'a[href]',
+			'button:not([disabled])',
+			'input:not([disabled])',
+			'select:not([disabled])',
+			'textarea:not([disabled])',
+			'[tabindex]:not([tabindex="-1"])',
+		].join(',');
+		const getFocusableElements = () => {
+			const dialogElements = Array.from(content.querySelectorAll<HTMLElement>(focusableSelector));
+			// Dropdowns render in a body portal, so include their items while this
+			// dialog owns focus.
+			const popupElements = Array.from(document.querySelectorAll<HTMLElement>(
+				`[data-flowix-surface="popover"] ${focusableSelector}`,
+			));
+			return [...dialogElements, ...popupElements].filter((element) => (
+				!element.hidden && element.getAttribute('aria-hidden') !== 'true'
+				&& element.getClientRects().length > 0
+			));
+		};
+		const focusFirst = () => {
+			const [first] = getFocusableElements();
+			(first ?? content).focus();
+		};
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== 'Tab') return;
+			const focusable = getFocusableElements();
+			if (focusable.length === 0) {
+				event.preventDefault();
+				content.focus();
+				return;
+			}
+
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			const active = document.activeElement;
+			const isOutsideDialog = !content.contains(active)
+				&& !(active instanceof Element && active.closest('[data-flowix-surface="popover"]'));
+
+			if (isOutsideDialog || (event.shiftKey && active === first)) {
+				event.preventDefault();
+				last.focus();
+			} else if (!event.shiftKey && active === last) {
+				event.preventDefault();
+				first.focus();
+			}
+		};
+		const handleFocusIn = (event: FocusEvent) => {
+			const target = event.target;
+			if (!(target instanceof Node)) return;
+			if (content.contains(target)) return;
+			if (target instanceof Element && target.closest('[data-flowix-surface="popover"]')) return;
+			focusFirst();
+		};
+
+		// autoFocus fields are mounted with the dialog. If focus remained on the
+		// page behind it, move focus into the modal immediately.
+		if (!content.contains(document.activeElement)) focusFirst();
+		document.addEventListener('keydown', handleKeyDown, true);
+		document.addEventListener('focusin', handleFocusIn, true);
+
+		return () => {
+			document.removeEventListener('keydown', handleKeyDown, true);
+			document.removeEventListener('focusin', handleFocusIn, true);
+			if (appRoot) appRoot.inert = wasInert;
+			if (previouslyFocused?.isConnected) previouslyFocused.focus();
+		};
+	}, [mounted, trapFocus]);
+
 	if (!mounted) return null;
 
 	const overlayAnimationClass = visible
@@ -96,7 +192,8 @@ export function DialogContent({ children, className, showOverlay = true, showClo
 				<div
 					className={cn(
 						'fixed inset-0 bg-black/50 z-[var(--layer-dialog)]',
-						overlayAnimationClass
+						overlayAnimationClass,
+						overlayClassName,
 					)}
 					onClick={() => onOpenChange(false)}
 				/>
@@ -105,8 +202,10 @@ export function DialogContent({ children, className, showOverlay = true, showClo
 			    the keyframe's `transform` (which would clobber Tailwind's
 			    `-translate-x-1/2 -translate-y-1/2`). `pointer-events-none` lets
 			    clicks on the wrapper pass through to the overlay behind. */}
-			<div className="fixed inset-0 z-[var(--layer-dialog)] flex items-center justify-center pointer-events-none">
-				<div
+				<div className="fixed inset-0 z-[var(--layer-dialog)] flex items-center justify-center pointer-events-none">
+					<div
+						ref={contentRef}
+						tabIndex={trapFocus ? -1 : undefined}
 					className={cn(
 						'relative w-full max-w-[380px] rounded-2xl bg-[var(--background)] px-5 py-4 shadow-lg pointer-events-auto',
 						contentAnimationClass,

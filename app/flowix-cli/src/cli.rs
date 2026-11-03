@@ -29,6 +29,7 @@ pub enum Cli {
     },
     Create {
         notebook: Option<String>,
+        title: Option<String>,
         file: Option<String>,
         stdin: bool,
         json: bool,
@@ -174,6 +175,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Cli>, CliError> {
         })),
         Some(("create", sub)) => Ok(Some(Cli::Create {
             notebook: sub.get_one::<String>("notebook").cloned(),
+            title: sub.get_one::<String>("title").cloned(),
             file: sub.get_one::<String>("file").cloned(),
             stdin: sub.get_flag("stdin"),
             json,
@@ -307,7 +309,7 @@ pub(crate) fn cli_command() -> Command {
     Command::new(DISPLAY_BIN)
         .version(env!("CARGO_PKG_VERSION"))
         .about("Manage local Flowix notebooks, Markdown notes, and artifacts")
-        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection list work --json\n  flowix collection describe --notebook work --id <collection-id> --json\n  flowix collection query --notebook work --id <collection-id> --domain notes --json\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix mcp")
+        .after_help("For Markdown content, --file is recommended (especially on Windows PowerShell 5.1). Files must be UTF-8. Note addresses use <notebook-id>::<relative-path> or an absolute path. Examples:\n  flowix create <notebook> --title \"My note\" --file body.md --json\n  flowix show work::Notes/Example.md --json\n  flowix write work::Notes/Example.md --file body.md --json\n  flowix list\n  flowix search TODO --tag project/flowix --limit 20\n  flowix collection list work --json\n  flowix collection describe --notebook work --id <collection-id> --json\n  flowix collection query --notebook work --id <collection-id> --domain notes --json\n  flowix collection read --notebook <notebook-id> --id <collection-id> --json\n  flowix mcp")
         .arg(
             Arg::new("json")
                 .long("json")
@@ -331,6 +333,7 @@ pub(crate) fn cli_command() -> Command {
         .subcommand(
             Command::new("create")
                 .about("Create a note; use --file for UTF-8 Markdown (recommended), or --stdin explicitly; defaults to the current notebook")
+                .arg(Arg::new("title").long("title").value_name("TITLE").help("Document name (defaults to Untitled)").num_args(1))
                 .arg(Arg::new("notebook").allow_hyphen_values(true).num_args(1))
                 .arg(Arg::new("file").long("file").short('f').value_name("UTF-8-MARKDOWN").help("Recommended: read Markdown content directly from a UTF-8 file").num_args(1))
                 .arg(Arg::new("stdin").long("stdin").action(ArgAction::SetTrue).help("Read Markdown from stdin; required explicitly on Windows"))

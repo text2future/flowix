@@ -51,6 +51,13 @@ describe('default note folder on notebook creation', () => {
     });
   });
 
+  it('preserves the layout of a newly registered existing directory', async () => {
+    repository.create.mockResolvedValue({ id: 'existing-folder', path: '/existing' });
+    await createNotebookRegistration({ name: 'Existing', path: '/existing' });
+    expect(files.createFolder).not.toHaveBeenCalled();
+    expect(files.setNotebookViewPreferences).not.toHaveBeenCalled();
+  });
+
   it('does not touch folders when adopting an existing notebook', async () => {
     runtime.getCurrentAppLanguage.mockReturnValue('zh-CN');
     repository.create.mockRejectedValue('PATH_ALREADY_REGISTERED');

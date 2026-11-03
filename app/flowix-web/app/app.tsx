@@ -26,16 +26,9 @@ import { GlobalErrorToaster } from "./global-error-toaster";
 import { ActionableNoticeHost } from "@features/notifications/actionable-notice-host";
 import { translate, type AppLanguage } from "@/lib/i18n";
 
-// 首屏不需要这两个 host：它们只在"笔记本缺少设置项"或"文档保存失败"时才有内容。
-// 用 lazy 把它们连同 memo 组件树移出启动图（DocumentSaveNotifications 同理）。
+// Keep memo notification hosts out of the startup graph.
 const DocumentSaveNotifications = lazy(() => import('@features/document/public/app-api')
   .then(module => ({ default: module.DocumentSaveNotifications })));
-
-const NotebookSetupCoordinator = lazy(() => import('@features/memo/components/notebook-setup-coordinator')
-  .then(module => ({ default: module.NotebookSetupCoordinator })));
-
-const NotebookSetupNoticeHost = lazy(() => import('@features/memo/components/notebook-setup-notice-host')
-  .then(module => ({ default: module.NotebookSetupNoticeHost })));
 
 const logger = createLogger("app");
 
@@ -122,8 +115,6 @@ function AppToaster({ language }: { language: AppLanguage }) {
       closeButton={false}
     />
     <Suspense fallback={null}><DocumentSaveNotifications /></Suspense>
-    <Suspense fallback={null}><NotebookSetupCoordinator /></Suspense>
-    <Suspense fallback={null}><NotebookSetupNoticeHost /></Suspense>
     <ActionableNoticeHost />
     </>
   );

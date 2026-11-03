@@ -347,34 +347,47 @@ fn reset_pending_notebooks_with_progress(
                             tracing::info!(notebook_id = %notebook.id, changed = count,
                                 "media resource identity migration completed");
                         })
-                        .map_err(|error| format!("migrate notebook {} media identities failed: {error}", notebook.id)),
+                        .map_err(|error| {
+                            format!(
+                                "migrate notebook {} media identities failed: {error}",
+                                notebook.id
+                            )
+                        }),
                     NotebookInitializationJob::MigrateResourceCatalog => {
                         let migrated = memo_file
                             .migrate_legacy_media_resources_to_catalog(&notebook.id)
-                            .map_err(|error| format!(
-                                "migrate notebook {} resource catalog failed: {error}", notebook.id
-                            ))?;
-                        let indexed = memo_file
-                            .reconcile_resources(&notebook.id)
-                            .map_err(|error| format!(
-                                "rebuild notebook {} resource catalog failed: {error}", notebook.id
-                            ))?;
+                            .map_err(|error| {
+                                format!(
+                                    "migrate notebook {} resource catalog failed: {error}",
+                                    notebook.id
+                                )
+                            })?;
+                        let indexed =
+                            memo_file
+                                .reconcile_resources(&notebook.id)
+                                .map_err(|error| {
+                                    format!(
+                                        "rebuild notebook {} resource catalog failed: {error}",
+                                        notebook.id
+                                    )
+                                })?;
                         tracing::info!(notebook_id = %notebook.id, migrated, indexed,
                             "shared resource catalog initialized");
                         Ok(())
                     }
-                    NotebookInitializationJob::IndexWorkDocuments => {
-                        memo_file
-                            .initialize_resource_catalog_schema(&notebook.id)
-                            .and_then(|_| memo_file.reconcile_resources(&notebook.id))
-                            .map(|indexed| {
-                                tracing::info!(notebook_id = %notebook.id, indexed,
+                    NotebookInitializationJob::IndexWorkDocuments => memo_file
+                        .initialize_resource_catalog_schema(&notebook.id)
+                        .and_then(|_| memo_file.reconcile_resources(&notebook.id))
+                        .map(|indexed| {
+                            tracing::info!(notebook_id = %notebook.id, indexed,
                                     "work document resource index initialized");
-                            })
-                            .map_err(|error| format!(
-                                "initialize notebook {} work document index failed: {error}", notebook.id
-                            ))
-                    }
+                        })
+                        .map_err(|error| {
+                            format!(
+                                "initialize notebook {} work document index failed: {error}",
+                                notebook.id
+                            )
+                        }),
                 },
                 report,
                 completed,
@@ -632,8 +645,7 @@ mod tests {
         fs::create_dir_all(&repo).unwrap();
         fs::write(
             temp.path().join("config/agent-access.json"),
-            serde_json::json!({"defaults":{"files":{"_global":{"folders":[repo]}}}})
-                .to_string(),
+            serde_json::json!({"defaults":{"files":{"_global":{"folders":[repo]}}}}).to_string(),
         )
         .unwrap();
         let config = temp.path().join("config");
@@ -642,19 +654,33 @@ mod tests {
         let device = DeviceRegistry::load(&config, "test");
 
         initialize_legacy_storage(&device, &memo, &user, &config, &app_data).unwrap();
-        assert!(memo.local_migration_completed("agent_workspace_v1").unwrap());
-        assert_eq!(memo.read_notebook_workspace().unwrap().notebook_configs["test"].add_dirs.len(), 1);
+        assert!(memo
+            .local_migration_completed("agent_workspace_v1")
+            .unwrap());
+        assert_eq!(
+            memo.read_notebook_workspace().unwrap().notebook_configs["test"]
+                .add_dirs
+                .len(),
+            1
+        );
 
         let mut new_notebook = notebook;
         new_notebook.id = "later".into();
         new_notebook.name = "later".into();
         new_notebook.path = temp.path().join("later").to_string_lossy().into();
         fs::create_dir_all(&new_notebook.path).unwrap();
-        memo.write_notebook_configs(&[memo.read_notebook_configs().unwrap()[0].clone(), new_notebook])
-            .unwrap();
+        memo.write_notebook_configs(&[
+            memo.read_notebook_configs().unwrap()[0].clone(),
+            new_notebook,
+        ])
+        .unwrap();
 
         initialize_legacy_storage(&device, &memo, &user, &config, &app_data).unwrap();
-        assert!(memo.read_notebook_workspace().unwrap().notebook_configs["later"].add_dirs.is_empty());
+        assert!(
+            memo.read_notebook_workspace().unwrap().notebook_configs["later"]
+                .add_dirs
+                .is_empty()
+        );
     }
 
     #[test]
@@ -665,7 +691,7 @@ mod tests {
         fs::create_dir_all(&flowix).unwrap();
         fs::write(flowix.join("agent.json"), b"legacy agent").unwrap();
         fs::write(flowix.join("system.json"), b"legacy settings").unwrap();
-        fs::write(flowix.join("notebook-template-initializing.json"), b"{}").unwrap();
+        fs::write(flowix.join("custom-initialization-marker.json"), b"{}").unwrap();
         let preferences = b"{\"default_create_folder\":\"custom\"}";
         fs::write(flowix.join("view-preferences.json"), preferences).unwrap();
         Connection::open(flowix.join("notebook.db")).unwrap().execute_batch(
@@ -686,7 +712,7 @@ mod tests {
                 fs::read(flowix.join("system.json")).unwrap(),
                 b"legacy settings"
             );
-            assert!(flowix.join("notebook-template-initializing.json").exists());
+            assert!(flowix.join("custom-initialization-marker.json").exists());
             let conn = Connection::open(flowix.join("notebook.db")).unwrap();
             assert_eq!(
                 conn.query_row("SELECT id FROM memos", [], |row| row.get::<_, String>(0))
@@ -784,7 +810,7 @@ mod tests {
         )
         .unwrap();
         fs::write(flowix.join("file-management-refresh-pending"), b"refresh").unwrap();
-        fs::write(flowix.join("notebook-template-initializing.json"), b"{}").unwrap();
+        fs::write(flowix.join("custom-initialization-marker.json"), b"{}").unwrap();
         assert!(!notebook_requires_reset(&memo, &notebook).unwrap());
         reset_pending_notebooks(&memo).unwrap();
         assert_eq!(
@@ -792,7 +818,7 @@ mod tests {
             b"{\"default_create_folder\":\"custom\"}"
         );
         assert!(flowix.join("file-management-refresh-pending").exists());
-        assert!(flowix.join("notebook-template-initializing.json").exists());
+        assert!(flowix.join("custom-initialization-marker.json").exists());
     }
 
     fn assert_reset_rebuilds_note(memo: &MemoFile, notebook: &NotebookConfig) {

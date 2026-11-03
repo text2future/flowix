@@ -436,7 +436,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             reject_stdin(stdin)?;
             path_store::show(&id)
         }
-        cli::Cli::Create { notebook, file, .. } => {
+        cli::Cli::Create { notebook, title, file, .. } => {
             if file.is_some() {
                 return Err(CliError::Usage(
                     "MCP cannot read client-local --file paths; use structured `content`".into(),
@@ -444,7 +444,7 @@ fn execute_command(command: &str, stdin: Option<&str>) -> Result<Value, CliError
             }
             let body = require_stdin(stdin, "create")?;
             let notebook = store::resolve_notebook_key(notebook.as_deref())?;
-            path_store::create(&notebook, body)
+            path_store::create_with_title(&notebook, title.as_deref(), body)
         }
         cli::Cli::Delete { id, .. } => {
             reject_stdin(stdin)?;

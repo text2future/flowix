@@ -7,6 +7,7 @@
  * `workspace-session-api.ts`，走函数体内动态 import。不要把两者合并回来。
  */
 import { useAgentWorkspaceStore } from '@features/agent/store/agent-workspace-store';
+export { ensureAgentWorkspaceReady } from '@features/agent/store/agent-workspace-store';
 
 export interface WorkspaceAgentRepository {
   path: string;
@@ -35,4 +36,16 @@ export function getWorkspaceAgentRepositories(
       name: directory.label,
       missing: directory.missing,
     }));
+}
+
+export function attachNotebookFolder(notebookId: string, path: string) {
+  return useAgentWorkspaceStore.getState().workspaceActions.attachFolderToNotebook(notebookId, path);
+}
+
+export function detachNotebookFolder(notebookId: string, path: string) {
+  return useAgentWorkspaceStore.getState().workspaceActions.detachFolderFromNotebook(notebookId, path);
+}
+
+export function loadAgentWorkspace() {
+  return useAgentWorkspaceStore.getState().workspaceActions.loadInitial();
 }

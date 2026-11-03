@@ -53,22 +53,9 @@ export const noteRepository = {
 export const notebookRepository = {
   list: (): Promise<Notebook[]> => notebooks.getAll(),
   getDefaultPath: (name: string) => notebooks.getDefaultPath(name),
-  confirmPresetOverwrite: (message: string) => notebooks.confirmPresetOverwrite(message),
   ensureDefaultPath: (name: string) => notebooks.ensureDefaultPath(name),
-  create: (
-    name: string,
-    path?: string,
-    icon?: string | null,
-    activate = true,
-    templateId?: string | null,
-    overwriteExisting = false,
-  ) => notebooks.create(name, path, icon, activate, templateId, overwriteExisting),
-  ensureTemplateSetup: (notebookId: string, templateId: string, overwriteExisting = false) =>
-    notebooks.ensureTemplateSetup(notebookId, templateId, overwriteExisting),
-  getTemplateSetupStatus: (notebookId: string) =>
-    notebooks.getTemplateSetupStatus(notebookId),
-  startTemplateSetup: (notebookId: string, retry = false) =>
-    notebooks.startTemplateSetup(notebookId, retry),
+  create: (name: string, path?: string, icon?: string | null, activate = true) =>
+    notebooks.create(name, path, icon, activate),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null, activate = true) =>
     notebooks.createFromCloud(id, name, path, icon, activate),
   startImport: (notebookId: string) => notebooks.startImport(notebookId),
