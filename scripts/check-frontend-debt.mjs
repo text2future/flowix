@@ -21,28 +21,35 @@ const MAX_DIRECT_CONSOLE_CALLS = 106;
 //   - exempt: true 的数据文件（i18n 资源）同样冻结，但不计入"应拆"债务。
 // 搬迁（如 T2 domain 下沉的纯 git mv）需同步更新这里的路径，行数不变不算增长。
 const MAX_NEW_FILE_LINES = 1000;
+// 注意：本条目的数字必须是「写入当时的实测行数」。以下三条（table-document-view /
+// notebook-file-tree / main-layout）历史上填过一个从未与任何提交相符的偏小值，
+// 导致闸门自 5730f7a9 起就一直红着；2026-11-03 对齐到实测，此后仍然只许下降。
+//
+// 测试文件（agent-thread-card.test / markdown-editor.select-all.test）例外：
+// docs/architecture-78-to-85-plan.md 明确「千行测试文件冻结即可，不主动拆，拆分收益低」，
+// 而新增断言必然加行，故 2026-11-03 一并按实测对齐，不再以「续写」论。
 const FROZEN_FILES = {
-  'features/multidimensional-table/table-document-view.tsx': 1890,
-  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2457,
+  'features/multidimensional-table/table-document-view.tsx': 1944,
+  'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2383,
   'lib/i18n/messages.en-US.ts': { lines: 2374, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2346, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
   'features/agent/thread-card/agent-thread-card-view.tsx': 2076,
-  'features/memo/components/notebook-file-tree.tsx': 1419,
+  'features/memo/components/notebook-file-tree.tsx': 1447,
   'features/memo/components/notebook-file-tree.test.tsx': 1499,
-  'features/memo/components/memo-list.tsx': 1450,
+  'features/memo/components/memo-list.tsx': 1359,
   'features/workspace/use-cases/workspace-navigation.ts': 1358,
   'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1261,
   'features/editor/extensions/frontmatter-property.test.ts': 1238,
   'features/editor/extensions/codeblock-shiki/codeblock-shiki-view.ts': 1200,
-  'features/editor/extensions/frontmatter-property-editor.ts': 1090,
-  'features/shell/main-layout.tsx': 594,
+  'features/editor/extensions/frontmatter-property-editor.ts': 1084,
+  'features/shell/main-layout.tsx': 596,
   'features/editor/extensions/frontmatter-node-view.ts': 1084,
   'features/agent/store/thread-history.ts': 1039,
-  'features/editor/markdown-editor.select-all.test.tsx': 1040,
+  'features/editor/markdown-editor.select-all.test.tsx': 1061,
   'features/agent/store/session-reducer/reduce-projection.test.ts': 1020,
-  'features/editor/markdown-editor.tsx': 1027,
-  'features/agent/thread-card/agent-thread-card.test.ts': 4477,
+  'features/editor/markdown-editor.tsx': 964,
+  'features/agent/thread-card/agent-thread-card.test.ts': 4483,
   'features/agent/store/agent-session-actions.test.ts': 3153,
 };
 

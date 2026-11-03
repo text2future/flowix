@@ -21,13 +21,8 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDownUp,
   Check,
-  ChevronDown,
-  ChevronUp,
-  SwatchBook,
   Loader2,
   SquarePen,
-  Table2,
-  GalleryHorizontalEnd,
 } from 'lucide-react';
 import {
   getVisibleCreateFilter,
@@ -78,15 +73,11 @@ import { files as fileApi, notes as noteApi, type NoteTemplate } from '@platform
 import type { AgentTypeKey } from '@/types/agent';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
 import { useNewConversationAgentSelection } from '@features/agent/hooks/use-new-conversation-agent-selection';
-import { AgentConversationTypeMenuItems } from '@features/agent/components/agent-conversation-type-menu-items';
 import {
   createAndOpenAgentConversation,
 } from '@features/agent/public/new-conversation-api';
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@shared/ui/dropdown-menu';
 import type { TableViewType } from '@features/multidimensional-table/public/create-api';
@@ -94,7 +85,7 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
 import { COLOR_LABEL_KEYS } from './memo-list/color-filter-submenu';
 import { MemoNavigationDropdown, MemoNavigationSubmenu } from './memo-navigation-dropdown';
 import { MemoListNavigationDrawer } from './memo-list-navigation-drawer';
-import { MEMO_CREATE_VIEW_OPTIONS } from './memo-create-view-options';
+import { MemoCreateMenu } from './memo-create-menu';
 import { NotebookFolderView } from './notebook-folder-view';
 import { useMemoListPagination } from './memo-list/use-memo-list-pagination';
 import { MemoListRows, type MemoRowKeepAliveChange } from './memo-list/memo-list-rows';
@@ -1037,108 +1028,22 @@ export function MemoList({
       : activeSort === 'filenameDesc'
         ? t('memo.list.sortFilenameDesc')
         : t('memo.list.sortCreated');
-  const visibleCreateViewOptions = createViewsExpanded
-    ? MEMO_CREATE_VIEW_OPTIONS
-    : MEMO_CREATE_VIEW_OPTIONS.slice(0, 1);
   const createTypeMenuContent = (
-    <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-      <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
-        {t('memo.create.documents')}
-      </DropdownMenuLabel>
-      <DropdownMenuItem
-        disabled={!selectedNotebook}
-        onClick={() => {
-          void handleCreateMemo();
-        }}
-        className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-      >
-        <SquarePen className="h-4 w-4" aria-hidden="true" />
-        {t('memo.create.note')}
-      </DropdownMenuItem>
-      {createTemplates.map((template) => (
-        <DropdownMenuItem
-          key={template.id}
-          disabled={!selectedNotebook}
-          onClick={() => void handleCreateFromTemplate(template.id)}
-          className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-        >
-          <SwatchBook className="h-4 w-4" aria-hidden="true" />
-          <span className="min-w-0 truncate">{template.name}</span>
-        </DropdownMenuItem>
-      ))}
-      {memoListView === 'folders' && newConversationSelection.options.length > 0 && (
-        <>
-          <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
-            {t('memo.create.conversations')}
-          </DropdownMenuLabel>
-          <AgentConversationTypeMenuItems
-            options={newConversationSelection.options}
-            disabled={!selectedNotebook}
-            onSelect={handleCreateAgentConversation}
-          />
-        </>
-      )}
-      {memoListView === 'folders' && (
-        <>
-          <DropdownMenuLabel className="px-[0.375rem] pb-[0.35rem] pt-[0.35rem] text-xs font-normal leading-[1.2] text-[var(--muted-foreground)]">
-            {t('memo.create.newView')}
-          </DropdownMenuLabel>
-          {visibleCreateViewOptions.map(({ type, labelKey }) => (
-            <DropdownMenuItem
-              key={type}
-              disabled={!selectedNotebook}
-              onClick={() => {
-                openDocumentCreateDialog('table', type);
-              }}
-              className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-            >
-              {type === 'table'
-                ? <Table2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                : <span className="h-4 w-4 shrink-0" aria-hidden="true" />}
-              <span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
-              <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">{t('memo.create.note')}</span>
-            </DropdownMenuItem>
-          ))}
-          {createViewsExpanded && (
-            <>
-              <DropdownMenuItem
-                disabled={!selectedNotebook}
-                onClick={() => {
-                  openDocumentCreateDialog('media-library');
-                }}
-                className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                <GalleryHorizontalEnd className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.mediaLibraryMenuLabel')}</span>
-                <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">{t('memo.create.assetShort')}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!selectedNotebook || selectedNotebook.missing}
-                onClick={() => {
-                  openDocumentCreateDialog('work-documents');
-                }}
-                className="group h-7 items-center gap-2 rounded-lg px-2 py-0 hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-              >
-                <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate text-left">{t('memo.create.workDocumentsMenuLabel')}</span>
-                <span className="ml-auto shrink-0 text-xs text-[var(--muted-foreground)] opacity-50 group-hover:text-[var(--primary-foreground)] group-focus-visible:text-[var(--primary-foreground)] group-data-[highlighted]:text-[var(--primary-foreground)]">{t('memo.create.assetShort')}</span>
-              </DropdownMenuItem>
-            </>
-          )}
-          <DropdownMenuItem
-            keepOpenOnClick
-            onClick={() => setCreateViewsExpanded((expanded) => !expanded)}
-            title={t(createViewsExpanded ? 'memo.create.collapseViews' : 'memo.create.expandViews')}
-            className="group h-5 justify-center rounded-lg px-2 py-0 text-[var(--muted-foreground)] hover:text-[color-mix(in_oklch,var(--brand)_65%,white)]"
-          >
-            {createViewsExpanded
-              ? <ChevronUp className="h-4 w-4" aria-hidden="true" />
-              : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
-            <span className="sr-only">{t(createViewsExpanded ? 'memo.create.collapseViews' : 'memo.create.expandViews')}</span>
-          </DropdownMenuItem>
-        </>
-      )}
-    </DropdownMenuContent>
+    <MemoCreateMenu
+      disabled={!selectedNotebook}
+      disabledForMissingNotebook={!selectedNotebook || Boolean(selectedNotebook.missing)}
+      showViewOptions={memoListView === 'folders'}
+      templates={createTemplates}
+      conversationOptions={newConversationSelection.options}
+      viewsExpanded={createViewsExpanded}
+      onToggleViewsExpanded={() => setCreateViewsExpanded((expanded) => !expanded)}
+      onCreateMemo={() => {
+        void handleCreateMemo();
+      }}
+      onCreateFromTemplate={handleCreateFromTemplate}
+      onCreateAgentConversation={handleCreateAgentConversation}
+      onOpenDocumentCreate={openDocumentCreateDialog}
+    />
   );
   return (
     <div className="memo-list relative flex h-full min-w-0 select-none flex-col bg-[var(--list-bg)]">

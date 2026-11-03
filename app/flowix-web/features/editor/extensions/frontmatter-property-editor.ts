@@ -1,15 +1,12 @@
 import { createElement as createReactElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { I18nProvider, translate, type I18nKey } from '@/lib/i18n';
+import { translate, type I18nKey } from '@/lib/i18n';
 import { getPropertyTypeDefinition } from '@/lib/property-types';
 import { stableTextHue } from '@/lib/color';
 import { NOTE_COLORS, NOTE_COLOR_HEX } from '@features/memo/store/note-store';
 import type { NoteColor } from '@/types/note-item';
 import { isFrontmatterPropertyFlowSequence, normalizeTagInput, toFrontmatterPropertyInput } from '@features/document/properties/frontmatter-model';
-import {
-  getPropertyIconOption,
-  PropertyIconPickerPanel,
-} from '@features/document/public/property-display-api';
+import { getPropertyIconOption } from '@features/document/public/property-display-api';
 import { getAllPresets, PROPERTY_KINDS, resolvePropertyPreset, type PropertyKind } from '@features/document/properties/presets';
 import { PROPERTY_DATE_RE, resolvePropertyType } from '@features/document/properties/property-type';
 import { DateValueInput } from '@features/document/components/note-properties/date-value-input';
@@ -18,6 +15,7 @@ import { getPropertyPresets } from '@features/properties/public-api';
 import { canonicalizePropertyKey } from '@features/properties/property-key';
 import { createPropertySvgIcon } from '@features/document/properties/property-type-icon';
 import { isImeKeyboardEvent } from '@/lib/input-method';
+import { mountIconPickerMenu } from './frontmatter-icon-menu';
 import { queryMentionTags, type MentionTagItem } from './tag-mention/tag-mention-data';
 import { FrontmatterPropertyKeyPicker } from './frontmatter-property-key-picker';
 
@@ -501,35 +499,24 @@ export class FrontmatterPropertyEditor {
           }
         };
 
-        // 菜单内容直接复用共享 React 面板 PropertyIconPickerPanel —— 与属性
-        // 面板/文件树/多维表格同一个实现, 不再维护第二份 DOM 渲染。编辑器是
-        // 原生 DOM 环境, 挂独立 React root; 面板用 useI18n 取文案, 这里套
-        // I18nProvider 提供当前语言, 否则 useContext 会回退默认语言。
-        const iconMenuHost = createElement('div', 'frontmatter-property__edit-icon-content');
-        const iconMenuRoot: Root = createRoot(iconMenuHost);
-        const renderIconMenu = () => {
-          iconMenuRoot.render(createReactElement(I18nProvider, {
-            language: getCurrentAppLanguage(),
-            children: createReactElement(PropertyIconPickerPanel, {
-              value: iconValue,
-              onSelect: (next: string) => {
-                iconValue = next;
-                renderTrigger();
-                closeMenu();
-                trigger.focus();
-              },
-            }),
-          }));
-        };
-        renderIconMenu();
-        menu.append(iconMenuHost);
+        // 图标菜单复用共享 React 面板, 挂载胶水统一收在 frontmatter-icon-menu。
+        const iconMenu = mountIconPickerMenu({
+          onSelect: (next: string) => {
+            iconValue = next;
+            renderTrigger();
+            closeMenu();
+            trigger.focus();
+          },
+        });
+        iconMenu.render(iconValue);
+        menu.append(iconMenu.host);
 
         trigger.addEventListener('click', () => {
           const open = menu.hidden;
           if (open) {
             // 每次展开都用当前值重渲染: 清除 × 之后选中高亮要跟着清掉;
             // 面板内部的包/分类浏览位置由组件 state 保留, 不受影响。
-            renderIconMenu();
+            iconMenu.render(iconValue);
           }
           menu.hidden = !open;
           trigger.setAttribute('aria-expanded', String(open));
@@ -548,7 +535,7 @@ export class FrontmatterPropertyEditor {
           focusTarget: trigger,
           getValue: () => iconValue,
           storageKind: 'Icon',
-          destroy: () => iconMenuRoot.unmount(),
+          destroy: () => iconMenu.unmount(),
         };
       }
 

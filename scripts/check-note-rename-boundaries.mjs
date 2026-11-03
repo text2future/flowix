@@ -10,11 +10,15 @@ const ALLOWED_RENAME_COMMAND_CALLER = 'platform/tauri/client/desktop.ts';
 const RAW_RENAME_COMMANDS = new Set(['rename_file', 'rename_memo_title']);
 const PROTECTED_RENAME_IMPORTS = new Map([
   ['renameLocalDocumentFile', new Set(['features/workspace/use-cases/rename-workspace-file.ts'])],
+  // 直接调用方的允许名单。改名编排抽成 hook 后，名单必须跟着调用点走：
+  // 文件树 / 表格的改名逻辑现在分别在 use-notebook-tree-rename.ts 与
+  // use-table-note-linking.ts，壳组件（notebook-file-tree / table-document-view）
+  // 已不再直接引用，留着旧路径只会让真正的调用方漏检。
   ['renameMarkdownTitle', new Set([
     'features/document/components/document-container.tsx',
     'features/memo/components/memo-card.tsx',
-    'features/memo/components/notebook-file-tree.tsx',
-    'features/multidimensional-table/table-document-view.tsx',
+    'features/memo/components/use-notebook-tree-rename.ts',
+    'features/multidimensional-table/use-table-note-linking.ts',
   ])],
 ]);
 

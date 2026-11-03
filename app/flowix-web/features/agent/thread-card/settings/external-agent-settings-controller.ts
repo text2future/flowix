@@ -45,7 +45,6 @@ import {
 } from "@features/agent/runtime/conversation-workspace";
 import { ensureConversationWorkspaceSnapshot } from "@features/agent/runtime/workspace-snapshot";
 import { agent, windows } from "@platform/tauri/client";
-import { POPUP_SEPARATOR_CLASS } from "@shared/ui/popup-separator";
 import {
   createOverlayScrollbarDom,
   type OverlayScrollbarDomController,
@@ -69,11 +68,9 @@ import {
   createTrashIcon,
 } from "@features/agent/thread-card/agent-thread-card-icons";
 import type { ComposerSlashSkill } from "@features/agent/thread-card/composer/composer-slash-command-controller";
-import {
-  createPiModelPicker,
-  isFlowixCloudModelOption,
-} from "@features/agent/thread-card/settings/model-picker/pi-model-picker";
+import { isFlowixCloudModelOption } from "@features/agent/thread-card/settings/model-picker/pi-model-picker";
 import type { AgentModelOption } from "@features/agent/thread-card/settings/model-picker/model-picker-types";
+import { renderModelSettingsBody } from "@features/agent/thread-card/settings/external-agent-model-settings";
 
 const PI_THINKING_OPTIONS = [
   { id: "off", label: "Off" },
@@ -2033,134 +2030,29 @@ export class ExternalAgentSettingsController {
     const options = this.getExternalModelOptions();
     const modelList = this.createModelPickerScroller();
 
-    // Codex 的 reasoning effort 放在模型列表底部, 模型列表与强度可分别选择。
-    if (this.getTypeKey() === "codex") {
-      modelList.classList.add("agent-thread-card__codex-settings-model-list");
-      const modelSection = document.createElement("div");
-      modelSection.className =
-        "agent-thread-card__codex-settings-section agent-thread-card__codex-settings-section--model";
-      modelSection.textContent = this.t("agent.model.title");
-      modelSection.append(this.createCodexSpeedToggle());
-      modelList.append(modelSection);
-
-      options.forEach((option) => {
-        modelList.append(
-          createCodexSettingsItem(
-            option.label,
-            option.id === current
-              && (option.providerId ?? "") === (currentProviderId ?? ""),
-            () => {
-              this.setExternalAgentModel(option);
-              this.renderPopover();
-              this.schedulePosition();
-            },
-          ),
-        );
-      });
-      this.popover.append(this.createCodexReasoningSlider());
-      return;
-    }
-
-    if (this.getTypeKey() === "pi") {
-      const picker = createPiModelPicker({
-        models: options,
-        showMemberSection: this.getLoadedModelOptions().some(isFlowixCloudModelOption),
-        selectedModelId: current,
-        selectedProviderId: currentProviderId,
-        memberLabel: this.t("preferences.pi.cloudTitle"),
-        mineLabel: this.t("preferences.pi.byokTitle"),
-        emptyLabel: this.t(
-          this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound",
-        ),
-        personalEmptyLabel: this.t("agent.pi.modelSection.mineEmpty"),
-        createModelItem: (option) => this.createModelSettingsItem(option, current, currentProviderId),
-      });
-      modelList.append(picker);
-    } else if (this.getTypeKey() === "dsh") {
-      if (this.shouldShowPiModelEmptyState()) {
-        const modelSection = document.createElement("div");
-        modelSection.className = "agent-thread-card__codex-settings-section";
-        modelSection.textContent = this.t("agent.model.title");
-        modelList.append(modelSection);
-        modelList.append(
-          createCodexSettingsItem(
-            this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound"),
-            false,
-            () => {},
-            undefined,
-            { readOnly: true },
-          ),
-        );
-      } else {
-        const groups = new Map<string, { label: string; options: AgentModelOption[] }>();
-        options.forEach((option) => {
-          const label = option.providerName?.trim() || option.providerId?.trim() || "Other";
-          const key = option.providerId?.trim() || label;
-          const group = groups.get(key);
-          if (group) {
-            group.options.push(option);
-          } else {
-            groups.set(key, { label, options: [option] });
-          }
-        });
-
-        groups.forEach((group) => {
-          const providerSection = document.createElement("div");
-          providerSection.className =
-            "agent-thread-card__codex-settings-section agent-thread-card__codex-settings-section--provider";
-          providerSection.textContent = group.label;
-          modelList.append(providerSection);
-          group.options.forEach((option) => {
-            modelList.append(this.createModelSettingsItem(option, current, currentProviderId));
-          });
-        });
-      }
-    } else {
-      const modelSection = document.createElement("div");
-      modelSection.className = "agent-thread-card__codex-settings-section";
-      modelSection.textContent = this.t("agent.model.title");
-      modelList.append(modelSection);
-
-      if (this.shouldShowPiModelEmptyState()) {
-        modelList.append(
-          createCodexSettingsItem(
-            this.t(this.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound"),
-            false,
-            () => {},
-            undefined,
-            { readOnly: true },
-          ),
-        );
-      } else {
-        options.forEach((option) => {
-          modelList.append(this.createModelSettingsItem(option, current, currentProviderId));
-        });
-      }
-    }
-
-    if (!this.supportsRuntimeSetting("reasoning")) return;
-
-    const divider = document.createElement("div");
-    divider.setAttribute("role", "separator");
-    divider.setAttribute("aria-hidden", "true");
-    divider.className = POPUP_SEPARATOR_CLASS;
-    modelList.append(divider);
-
-    const reasoningSection = document.createElement("div");
-    reasoningSection.className = "agent-thread-card__codex-settings-section";
-    reasoningSection.textContent = this.t("agent.reasoningDepth.title");
-    if (this.getTypeKey() === "pi") {
-      const reasoningGroup = document.createElement("div");
-      reasoningGroup.className = "agent-pi-model-picker__reasoning";
-      reasoningGroup.setAttribute("role", "group");
-      reasoningGroup.setAttribute("aria-label", this.t("agent.reasoningDepth.title"));
-      reasoningGroup.append(reasoningSection);
-      modelList.append(reasoningGroup);
-      this.renderReasoningOptions(reasoningGroup, true);
-    } else {
-      modelList.append(reasoningSection);
-      this.renderReasoningOptions(modelList);
-    }
+    // 列表结构按 agent 类型分派, 具体编排见 external-agent-model-settings.ts。
+    renderModelSettingsBody(this.popover, modelList, {
+      typeKey: this.getTypeKey(),
+      current,
+      currentProviderId,
+      options,
+      loadedOptions: this.getLoadedModelOptions(),
+      piModelsLoadFailed: this.piModelsLoadFailed,
+      showEmptyState: this.shouldShowPiModelEmptyState(),
+      supportsReasoning: this.supportsRuntimeSetting("reasoning"),
+      t: (key) => this.t(key),
+      createModelItem: (option) =>
+        this.createModelSettingsItem(option, current, currentProviderId),
+      onSelectModel: (option) => {
+        this.setExternalAgentModel(option);
+        this.renderPopover();
+        this.schedulePosition();
+      },
+      createSpeedToggle: () => this.createCodexSpeedToggle(),
+      createReasoningSlider: () => this.createCodexReasoningSlider(),
+      renderReasoningOptions: (target, useButtonSelectionState) =>
+        this.renderReasoningOptions(target, useButtonSelectionState),
+    });
   }
 
   private createModelPickerScroller(): HTMLDivElement {

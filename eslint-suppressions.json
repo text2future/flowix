@@ -27,7 +27,7 @@
   },
   "app/flowix-web/features/agent/components/agent-conversation-titlebar.tsx": {
     "no-restricted-imports": {
-      "count": 3
+      "count": 2
     }
   },
   "app/flowix-web/features/agent/components/use-agent-conversation-surface.ts": {
@@ -519,7 +519,7 @@
   },
   "app/flowix-web/features/memo/components/memo-list.tsx": {
     "no-restricted-imports": {
-      "count": 4
+      "count": 3
     }
   },
   "app/flowix-web/features/memo/components/notebook-access-files-list.test.ts": {

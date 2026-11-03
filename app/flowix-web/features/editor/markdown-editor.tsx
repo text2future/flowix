@@ -1,9 +1,8 @@
-import { useSessionViewChannel, attachSessionViewCapture } from '@features/workspace/public/session-view-state-api';
+import { useSessionViewChannel } from '@features/workspace/public/session-view-state-api';
 import { createLogger } from '@/lib/logger';
 import { Editor } from '@tiptap/core';
 import type { JSONContent } from '@tiptap/core';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { AllSelection, NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { TextSelection } from '@tiptap/pm/state';
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useShortcutScope, pushHandler } from '@features/shortcuts';
 import { TableBubbleMenu } from '@features/editor/extensions/table/table-bubble-menu';
@@ -27,6 +26,13 @@ import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import type { WorkspaceHostId } from '@features/workspace/public/host-api';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
 import { createMarkdownEditorExtensions, serializeEditorMarkdown } from './markdown-editor-extensions';
+import {
+  createEmptyParagraph,
+  focusEmptyParagraphAfterMedia,
+  getEditableBodyStart,
+  isBlankEditorDocument,
+} from './editor-body-navigation';
+import { attachEditorViewRecovery } from './editor-view-recovery';
 import { isSlashMenuOpen } from './extensions/slash-menu';
 import { isEmptyMarkdownPlaceholderOnly } from './markdown-normalization';
 
@@ -150,92 +156,6 @@ function resetEditorHistory(editor: Editor): void {
 
   editor.unregisterPlugin('history');
   editor.registerPlugin(historyPlugin);
-}
-
-interface EditableBodyStart {
-  block: ProseMirrorNode | null;
-  blockIndex: number;
-  position: number;
-}
-
-/**
- * Find the first real body block without treating the protected frontmatter
- * node (which renders the tag row) as document content.
- */
-function getEditableBodyStart(editor: Editor): EditableBodyStart {
-  let position = 0;
-  for (let index = 0; index < editor.state.doc.childCount; index += 1) {
-    const block = editor.state.doc.child(index);
-    if (block.type.name !== 'frontmatter') {
-      return { block, blockIndex: index, position };
-    }
-    position += block.nodeSize;
-  }
-
-  return {
-    block: null,
-    blockIndex: editor.state.doc.childCount,
-    position,
-  };
-}
-
-function isBlankEditorDocument(editor: Editor): boolean {
-  const { block, blockIndex } = getEditableBodyStart(editor);
-  return !block || Boolean(
-    blockIndex === editor.state.doc.childCount - 1 &&
-    block.type.name === 'paragraph' &&
-    block.textContent.trim() === '',
-  );
-}
-
-function createEmptyParagraph(editor: Editor, text?: string): ProseMirrorNode {
-  const paragraph = editor.state.schema.nodes.paragraph;
-  return paragraph.create(null, text ? editor.state.schema.text(text) : undefined);
-}
-
-/**
- * WebKit can fail to place the native caret in an empty paragraph immediately
- * after a non-editable block NodeView. The first click then only focuses the
- * editor and a second click is needed before typing works. Resolve that
- * paragraph explicitly while a media block is selected.
- */
-function focusEmptyParagraphAfterMedia(
-  view: Editor['view'],
-  event: MouseEvent,
-): boolean {
-  if (event.button !== 0) return false;
-
-  const selection = view.state.selection;
-  if (
-    !(selection instanceof NodeSelection) ||
-    (selection.node.type.name !== 'image' && selection.node.type.name !== 'videoAttachment')
-  ) return false;
-
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return false;
-
-  const paragraph = target.closest('p');
-  if (
-    !(paragraph instanceof HTMLElement) ||
-    !view.dom.contains(paragraph) ||
-    paragraph.textContent !== '' ||
-    paragraph.closest('[contenteditable="false"]')
-  ) return false;
-
-  try {
-    const textPosition = view.posAtDOM(paragraph, 0);
-    const nextSelection = TextSelection.create(view.state.doc, textPosition);
-    if (!nextSelection.$from.parent.isTextblock || !nextSelection.empty) return false;
-
-    view.dispatch(view.state.tr.setSelection(nextSelection).setMeta('pointer', true));
-    view.focus();
-    event.preventDefault();
-    return true;
-  } catch {
-    // The DOM may have been replaced between the pointer event and the
-    // position lookup (for example while a NodeView is updating).
-    return false;
-  }
 }
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
@@ -794,37 +714,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     );
 
     const scrollEl = elementRef.current ? findScrollable(elementRef.current) : null;
-    const savedView = recovery?.read();
-    if (savedView?.kind === 'editor') {
-      const max = editor.state.doc.content.size;
-      const anchor = Math.min(savedView.anchor, max);
-      const node = editor.state.doc.nodeAt(anchor);
-      const selection = savedView.selectionType === 'all' ? new AllSelection(editor.state.doc)
-        : savedView.selectionType === 'node' && node && NodeSelection.isSelectable(node) ? NodeSelection.create(editor.state.doc, anchor)
-        : TextSelection.between(editor.state.doc.resolve(anchor), editor.state.doc.resolve(Math.min(savedView.head, max)));
-      editor.view.dispatch(editor.state.tr.setSelection(selection).setMeta('addToHistory', false));
-    }
-    const restoreScroll = () => {
-      if (scrollEl && savedView?.kind === 'editor') {
-        scrollEl.scrollTop = savedView.scrollTop;
-        scrollEl.scrollLeft = savedView.scrollLeft;
-      }
-    };
-    restoreScroll();
-    const restoreFrame = requestAnimationFrame(restoreScroll);
-    const capture = attachSessionViewCapture(recovery, () => ({ kind: 'editor',
-      anchor: editor.state.selection.anchor, head: editor.state.selection.head,
-      selectionType: editor.state.selection instanceof AllSelection ? 'all' : editor.state.selection instanceof NodeSelection ? 'node' : 'text',
-      scrollTop: scrollEl?.scrollTop ?? 0, scrollLeft: scrollEl?.scrollLeft ?? 0 }));
-    editor.on('selectionUpdate', capture.schedule);
-    const disposeRecovery = () => {
-      cancelAnimationFrame(restoreFrame);
-      editor.off('selectionUpdate', capture.schedule);
-      capture.dispose();
-    };
+    const viewRecovery = attachEditorViewRecovery(editor, recovery, scrollEl);
     if (scrollEl) {
       const handleScroll = () => {
-        capture.schedule();
+        viewRecovery.schedule();
         setIsScrolling(true);
         if (scrollTimerRef.current) {
           clearTimeout(scrollTimerRef.current);
@@ -838,7 +731,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       scrollEl.addEventListener('scroll', handleScroll, { passive: true });
 
       return () => {
-        disposeRecovery();
+        viewRecovery.dispose();
         serializePendingChanges({ force: true });
         editorDom.removeEventListener('compositionstart', handleCompositionStart);
         editorDom.removeEventListener('compositionend', handleCompositionEnd);
@@ -851,7 +744,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
 
     return () => {
-      disposeRecovery();
+      viewRecovery.dispose();
       serializePendingChanges({ force: true });
       editorDom.removeEventListener('compositionstart', handleCompositionStart);
       editorDom.removeEventListener('compositionend', handleCompositionEnd);
