@@ -1,0 +1,272 @@
+/* Extra ProseMirror scope overrides the grid's corner and first-cell rules. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] {
+  --flowix-table-rule: color-mix(in srgb, var(--foreground) 16%, transparent);
+  --flowix-table-soft: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --flowix-table-tint: light-dark(#edf3fb, #28374b);
+  --flowix-table-accent: light-dark(#28558f, #a5c8f6);
+  border-collapse: collapse;
+  border-radius: 0;
+  border: 0;
+  color: var(--foreground);
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] :is(td, th) {
+  border: var(--flowix-table-grid, 0);
+  border-top: var(--flowix-table-row-top, var(--flowix-table-grid, 0));
+  border-bottom: var(--flowix-table-row-bottom, var(--flowix-table-grid, 0));
+  border-radius: 0;
+  background: var(--flowix-table-cell-fill, transparent);
+  color: var(--flowix-table-cell-ink, inherit);
+  padding: var(--flowix-table-cell-padding, 0.5rem 0.75rem);
+  vertical-align: top;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr:first-child:not(:has(> td)) > th {
+  background: var(--flowix-table-head-fill, transparent);
+  color: var(--flowix-table-head-ink, inherit);
+  border-top: var(--flowix-table-head-top, var(--flowix-table-grid, 0));
+  border-bottom: var(--flowix-table-head-bottom, var(--flowix-table-grid, 0));
+  font-weight: 600;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="three-line"] {
+  border-top: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  font-family: "Times New Roman", "Songti SC", "Noto Serif CJK SC", serif;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="three-line"], [data-flowix-table-style="hk-financial"]) tr:first-child:not(:has(> td)) > th {
+  border-bottom: 1px solid currentColor;
+  font-weight: 600;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] {
+  font-family: "Times New Roman", "Songti TC", "Songti SC", serif;
+  line-height: 1.5;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr[data-flowix-row-role="group"] > :is(td, th) {
+  padding-top: 1rem;
+  font-weight: 600;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr:is([data-flowix-row-role="subtotal"], [data-flowix-row-role="total"]) > :is(td, th) {
+  font-weight: 600;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] tr:is([data-flowix-row-role="subtotal"], [data-flowix-row-role="total"]) > [data-flowix-column-role="amount"] {
+  border-top: 1px solid currentColor;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] tr[data-flowix-row-role="total"] > [data-flowix-column-role="amount"] {
+  border-bottom: 3px double currentColor;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="amount"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="note"] {
+  text-align: center;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="label"] {
+  text-align: left;
+}
+
+/* Presentation variables keep template rules below explicit cell borders. */
+.markdown-editor table[data-flowix-table-style="business-blue"] {
+  --flowix-table-head-fill: #234d82;
+  --flowix-table-head-ink: #fff;
+  --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table[data-flowix-table-style="business-blue"] tr[data-flowix-row-role="total"] {
+  --flowix-table-cell-fill: var(--flowix-table-tint);
+  --flowix-table-cell-ink: var(--flowix-table-accent);
+}
+
+.markdown-editor table[data-flowix-table-style="striped"] {
+  --flowix-table-head-fill: var(--flowix-table-soft);
+  --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table[data-flowix-table-style="striped"] tr:nth-child(odd):not(:first-child) {
+  --flowix-table-cell-fill: var(--flowix-table-soft);
+}
+
+.markdown-editor table[data-flowix-table-style="striped"] tr[data-flowix-row-role="total"] {
+  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table[data-flowix-table-style="comparison"] {
+  --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
+  --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table[data-flowix-table-style="comparison"] [data-flowix-comparison-column] {
+  --flowix-table-cell-fill: var(--flowix-table-tint);
+  --flowix-table-cell-ink: var(--flowix-table-accent);
+  --flowix-table-head-fill: var(--flowix-table-tint);
+  --flowix-table-head-ink: var(--flowix-table-accent);
+  font-weight: 600;
+}
+
+.markdown-editor table[data-flowix-table-style="comparison"] [data-flowix-comparison-first] {
+  --flowix-table-row-top: 3px solid var(--flowix-table-accent);
+  --flowix-table-head-top: 3px solid var(--flowix-table-accent);
+}
+
+.markdown-editor table[data-flowix-table-style="comparison"] [data-flowix-comparison-last] {
+  --flowix-table-row-bottom: 3px solid var(--flowix-table-accent);
+}
+
+.markdown-editor table[data-flowix-table-style="financial-brief"] {
+  --flowix-table-head-top: 1px solid currentColor;
+  --flowix-table-head-bottom: 1px solid currentColor;
+  --flowix-table-cell-padding: 0.4rem 0.75rem;
+}
+
+.markdown-editor table[data-flowix-table-style="financial-brief"] tr:not([data-flowix-row-role]) > td:first-child {
+  --flowix-table-cell-padding: 0.4rem 0.75rem 0.4rem 1.5rem;
+  --flowix-table-cell-ink: var(--foreground);
+}
+
+.markdown-editor table[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="subtotal"] {
+  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="total"] {
+  --flowix-table-row-top: 1px solid currentColor;
+  --flowix-table-row-bottom: 3px double currentColor;
+}
+
+.markdown-editor table[data-flowix-table-style="grouped"] {
+  --flowix-table-head-top: 2px solid currentColor;
+  --flowix-table-head-bottom: 1px solid currentColor;
+  --flowix-table-cell-padding: 0.4rem 0.75rem;
+}
+
+.markdown-editor table[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] {
+  --flowix-table-cell-fill: var(--flowix-table-soft);
+  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] > :is(td, th) {
+  padding: 0.4rem 0.75rem;
+}
+
+.markdown-editor table[data-flowix-table-style="grouped"] tr:last-child {
+  --flowix-table-row-bottom: 1px solid currentColor;
+}
+
+.markdown-editor table[data-flowix-table-style="minimal"] {
+  --flowix-table-head-ink: var(--foreground);
+  --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
+  --flowix-table-cell-padding: 0.85rem 0.75rem;
+}
+
+.markdown-editor table[data-flowix-table-style="minimal"] tr:not(:last-child) {
+  --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table[data-flowix-table-style="literature"] {
+  --flowix-table-grid: 1px solid var(--flowix-table-rule);
+  --flowix-table-head-fill: var(--flowix-table-soft);
+  --flowix-table-cell-padding: 0.3rem 0.6rem;
+  font-size: 0.875em;
+  line-height: 1.4;
+}
+
+.markdown-editor table[data-flowix-table-style="literature"] tr > :first-child {
+  --flowix-table-cell-fill: var(--flowix-table-soft);
+  font-weight: 500;
+}
+
+/* Custom edges share one line in grid tables too. Unmodified grids keep their rounded corners. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):has([data-flowix-border-top], [data-flowix-border-bottom]) {
+  border-collapse: collapse;
+  border-radius: 0;
+}
+
+/* Explicit cell borders take priority over all template/row rules. Hidden also suppresses a neighbor's automatic rule. */
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="single"] {
+  border-top: 1px solid currentColor !important;
+}
+
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="double"] {
+  border-top: 3px double currentColor !important;
+}
+
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="none"] {
+  border-top: hidden !important;
+}
+
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="single"] {
+  border-bottom: 1px solid currentColor !important;
+}
+
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="double"] {
+  border-bottom: 3px double currentColor !important;
+}
+
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="none"] {
+  border-bottom: hidden !important;
+}
+
+.table-bubble-menu-panel {
+  width: max-content;
+  max-width: min(460px, calc(100vw - 24px));
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 0 14px color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.table-bubble-menu-panel .table-bubble-menu {
+  justify-content: center;
+  border: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  padding: 4px 8px;
+}
+
+.table-bubble-menu-panel .table-bubble-menu button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+}
+
+.table-bubble-menu-panel .table-bubble-menu button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.editor-toolbar.table-style-controls {
+  position: static;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 8px;
+}
+
+.table-style-controls .toolbar-button {
+  gap: 5px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.table-style-controls .toolbar-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.editor-toolbar.table-border-controls {
+  border-top: 1px solid var(--border);
+  justify-content: center;
+}

@@ -2,8 +2,19 @@ import { DOMSerializer } from '@tiptap/pm/model';
 import { getExtensionField } from '@tiptap/core';
 import type { Editor } from '@tiptap/core';
 import { Table } from '@tiptap/extension-table';
+import type { Command } from '@tiptap/pm/state';
+import { addRowAfter, addRowBefore, isInTable, selectedRect, TableMap } from '@tiptap/pm/tables';
+import { Lexer } from 'marked';
 import { isEmptyMarkdownPlaceholderOnly } from '../../markdown-normalization';
 import { scanHead } from '@features/editor/markdown-tokenizer-start';
+import {
+  applyTablePresentationMetadata,
+  getTablePresentationMetadata,
+  normalizeTableColumnRole,
+  type TableColumnRole,
+  parseTablePresentationMetadata,
+  type TablePresentationMetadata,
+} from './table-presentation';
 import type {
   JSONContent,
   MarkdownParseHelpers,
@@ -22,9 +33,10 @@ type FlowixTableToken = MarkdownToken & {
   flowixColumnWidths?: TableColumnWidth[];
   flowixRowHeader?: boolean;
   flowixColumnHeader?: boolean;
+  flowixPresentation?: TablePresentationMetadata;
 };
 
-interface FlowixTableMetadata {
+interface FlowixTableMetadata extends TablePresentationMetadata {
   version: number;
   columns: Array<{ width: TableColumnWidth }>;
   rowHeader?: boolean;
@@ -50,6 +62,7 @@ function parseVersionedMetadata(value: string | undefined): {
   widths: TableColumnWidth[];
   rowHeader?: boolean;
   columnHeader?: boolean;
+  presentation?: TablePresentationMetadata;
 } | null {
   if (!value) return null;
 
@@ -71,6 +84,7 @@ function parseVersionedMetadata(value: string | undefined): {
       }),
       rowHeader: metadata.rowHeader === false || metadata.header === false ? false : undefined,
       columnHeader: metadata.columnHeader === true ? true : undefined,
+      presentation: parseTablePresentationMetadata(metadata),
     };
   } catch {
     return null;
@@ -82,6 +96,7 @@ function parseTableMetadata(src: string): {
   widths: TableColumnWidth[];
   rowHeader?: boolean;
   columnHeader?: boolean;
+  presentation?: TablePresentationMetadata;
 } | null {
   const versioned = TABLE_METADATA_RE.exec(src);
   if (versioned) {
@@ -157,6 +172,7 @@ function renderTableMetadata(
   widths: TableColumnWidth[],
   rowHeader: boolean,
   columnHeader: boolean,
+  presentation: TablePresentationMetadata,
 ): string {
   const metadata: FlowixTableMetadata = {
     version: FLOWIX_TABLE_METADATA_VERSION,
@@ -164,6 +180,7 @@ function renderTableMetadata(
   };
   if (!rowHeader) metadata.rowHeader = false;
   if (columnHeader) metadata.columnHeader = true;
+  Object.assign(metadata, presentation);
   return `<!-- flowix:table ${JSON.stringify(metadata)} -->`;
 }
 
@@ -231,10 +248,12 @@ function normalizeNodeForMarkdown(node: JSONContent, rowHeader: boolean, columnH
   };
 }
 
-/** Pipe tables can only round-trip a single paragraph of inline content. */
+/** Pipe tables cannot represent merged cells or multiple blocks in a cell. */
 export function tableNeedsHtml(node: JSONContent): boolean {
   return (node.content ?? []).some(row => (row.content ?? []).some(cell =>
-    cell.content?.length !== 1 || cell.content[0]?.type !== 'paragraph',
+    cell.content?.length !== 1 || cell.content[0]?.type !== 'paragraph'
+      || (typeof cell.attrs?.colspan === 'number' && cell.attrs.colspan > 1)
+      || (typeof cell.attrs?.rowspan === 'number' && cell.attrs.rowspan > 1),
   ));
 }
 
@@ -264,9 +283,10 @@ export const FlowixTable = Table.extend({
     const withColumnWidths = flowixToken.flowixColumnWidths
       ? applyColumnWidths(withoutSyntheticHeader, flowixToken.flowixColumnWidths)
       : withoutSyntheticHeader;
-    return flowixToken.flowixColumnHeader === true
+    const withHeaders = flowixToken.flowixColumnHeader === true
       ? applyColumnHeader(withColumnWidths)
       : withColumnWidths;
+    return applyTablePresentationMetadata(withHeaders, flowixToken.flowixPresentation);
   },
 
   renderMarkdown(
@@ -290,8 +310,9 @@ export const FlowixTable = Table.extend({
       },
     }, ctx) ?? '';
     const hasExplicitWidth = widths.some(width => width !== null);
-    return (hasExplicitWidth || !rowHeader || columnHeader)
-      ? `${renderTableMetadata(widths, rowHeader, columnHeader)}${rendered}`
+    const presentation = getTablePresentationMetadata(node);
+    return (hasExplicitWidth || !rowHeader || columnHeader || Object.keys(presentation).length > 0)
+      ? `${renderTableMetadata(widths, rowHeader, columnHeader, presentation)}${rendered}`
       : rendered;
   },
 
@@ -323,7 +344,10 @@ export const FlowixTable = Table.extend({
       const metadata = parseTableMetadata(src);
       if (!metadata) return undefined;
 
-      const tableTokens = lexer.blockTokens(src.slice(metadata.raw.length));
+      // Lex only this table, avoiding recursive re-parsing of later metadata tables.
+      const tableSource = Lexer.rules.block.gfm.table.exec(src.slice(metadata.raw.length))?.[0];
+      if (!tableSource) return undefined;
+      const tableTokens = lexer.blockTokens(tableSource);
       const table = tableTokens[0] as FlowixTableToken | undefined;
       if (!table || table.type !== 'table') return undefined;
 
@@ -331,6 +355,7 @@ export const FlowixTable = Table.extend({
         ...table,
         raw: metadata.raw + table.raw,
         flowixColumnWidths: metadata.widths,
+        flowixPresentation: metadata.presentation,
         ...(metadata.rowHeader === undefined ? {} : { flowixRowHeader: metadata.rowHeader }),
         ...(metadata.columnHeader === undefined ? {} : { flowixColumnHeader: metadata.columnHeader }),
       };
@@ -338,12 +363,59 @@ export const FlowixTable = Table.extend({
   },
 });
 
+function inheritColumnRoles(addRow: Command, before: boolean): Command {
+  return (state, dispatch, view) => {
+    if (!isInTable(state)) return false;
+    const rect = selectedRect(state);
+    return addRow(state, dispatch ? (tr) => {
+      const roles = Array.from({ length: rect.map.width }, (_, column): TableColumnRole => {
+        let role: TableColumnRole | undefined;
+        for (let row = 0; row < rect.map.height; row += 1) {
+          const cell = rect.table.nodeAt(rect.map.map[row * rect.map.width + column]);
+          const current = normalizeTableColumnRole(cell?.attrs.columnRole);
+          if (current === 'default' || (role !== undefined && current !== role)) return 'default';
+          role = current;
+        }
+        return role ?? 'default';
+      });
+      const table = tr.doc.nodeAt(rect.tableStart - 1);
+      if (table) {
+        const map = TableMap.get(table);
+        const insertedRow = before ? rect.top : rect.bottom;
+        let rowOffset = 0;
+        for (let row = 0; row < insertedRow; row += 1) rowOffset += table.child(row).nodeSize;
+        // Only cells created by this insertion are eligible; spanning cells and
+        // existing rows retain their own roles, and pasted tables are untouched.
+        table.child(insertedRow).forEach((cell, offset) => {
+          if (normalizeTableColumnRole(cell.attrs.columnRole) !== 'default' || cell.textContent) return;
+          const position = rowOffset + 1 + offset;
+          const { left, right } = map.findCell(position);
+          const role = roles[left];
+          if (!role || role === 'default' || roles.slice(left, right).some(value => value !== role)) return;
+          tr.setNodeMarkup(rect.tableStart + position, undefined, { ...cell.attrs, columnRole: role });
+        });
+      }
+      dispatch(tr);
+    } : undefined, view);
+  };
+}
+
+const addRowBeforeWithColumnRoles = inheritColumnRoles(addRowBefore, true);
+const addRowAfterWithColumnRoles = inheritColumnRoles(addRowAfter, false);
+
 /** Capture the active editor schema; Markdown callbacks have no editor context. */
 export function createEditorTable() {
   let editor: Editor;
   const renderSimple = getExtensionField(FlowixTable, 'renderMarkdown');
   return Table.extend({
     ...FlowixTable.config,
+    addCommands() {
+      return {
+        ...this.parent?.(),
+        addRowBefore: () => ({ state, dispatch, view }) => addRowBeforeWithColumnRoles(state, dispatch, view),
+        addRowAfter: () => ({ state, dispatch, view }) => addRowAfterWithColumnRoles(state, dispatch, view),
+      };
+    },
     onBeforeCreate() {
       editor = this.editor;
     },

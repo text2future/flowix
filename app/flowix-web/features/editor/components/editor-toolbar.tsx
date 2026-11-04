@@ -2,7 +2,7 @@
 
 import { Editor } from '@tiptap/core';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
-import { TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextTIcon, ListBulletsIcon, ListNumbersIcon, CheckSquareIcon, TextBIcon, TextUnderlineIcon, TextItalicIcon, TextStrikethroughIcon, HighlighterIcon, CodeIcon, PaperclipIcon, LinkSimpleIcon, CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
+import { TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextTIcon, ListBulletsIcon, ListNumbersIcon, CheckSquareIcon, TextBIcon, TextUnderlineIcon, TextItalicIcon, TextStrikethroughIcon, HighlighterIcon, CodeIcon, PaperclipIcon, LinkSimpleIcon, CaretDownIcon, CaretUpIcon, TableIcon } from '@phosphor-icons/react';
 import { useEffect, useState, useRef } from 'react';
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ import { openLinkEditPopup } from '@features/editor/components/link-edit-popup';
 import { useI18n } from '@/lib/i18n';
 import { FlowixHighlightPalette } from '@features/editor/components/flowix-highlight-palette';
 import { applyListType } from '@features/editor/extensions/list-transforms';
+import { insertTableTemplate, TABLE_TEMPLATE_OPTIONS } from '@features/editor/extensions/table/table-templates';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -26,6 +27,8 @@ interface EditorToolbarProps {
 type HeadingLevel = 1 | 2 | 3 | 4;
 
 interface ToolbarState {
+  editable: boolean;
+  table: boolean;
   heading: HeadingLevel | null;
   bold: boolean;
   underline: boolean;
@@ -53,6 +56,8 @@ function sameToolbarState(left: ToolbarState, right: ToolbarState): boolean {
 }
 
 const INITIAL_STATE: ToolbarState = {
+  editable: false,
+  table: false,
   heading: null,
   bold: false,
   underline: false,
@@ -74,7 +79,7 @@ const iconButtonStyle: React.CSSProperties = {
 };
 
 export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorToolbarProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [state, setState] = useState<ToolbarState>(INITIAL_STATE);
   const stateRef = useRef<ToolbarState>(INITIAL_STATE);
   const [highlightPaletteOpen, setHighlightPaletteOpen] = useState(false);
@@ -98,6 +103,8 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
       }
 
       const nextState: ToolbarState = {
+        editable: currentEditor.isEditable,
+        table: currentEditor.isActive('table'),
         heading,
         bold: currentEditor.isActive('bold'),
         underline: currentEditor.isActive('underline'),
@@ -120,10 +127,12 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
 
     currentEditor.on('selectionUpdate', updateActiveStates);
     currentEditor.on('transaction', updateActiveStates);
+    currentEditor.on('update', updateActiveStates);
 
     return () => {
       currentEditor.off('selectionUpdate', updateActiveStates);
       currentEditor.off('transaction', updateActiveStates);
+      currentEditor.off('update', updateActiveStates);
     };
   }, [editor]);
 
@@ -293,6 +302,38 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
         </DropdownMenu>
 
         <div className="toolbar-divider" />
+
+        <DropdownMenu disabled={!state.editable || state.table}>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="toolbar-button"
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              style={iconButtonStyle}
+              aria-label={t('editor.table.insert')}
+              title={t('editor.table.insert')}
+            >
+              <TableIcon size={18} weight="bold" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            sideOffset={5}
+            align="center"
+            className="w-auto min-w-[160px] max-h-[min(22rem,calc(100vh-32px))] overflow-y-auto space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
+          >
+            {TABLE_TEMPLATE_OPTIONS.map(({ styleId, labelKey }) => (
+              <DropdownMenuItem
+                key={styleId}
+                className="group h-7 items-center justify-start gap-3 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
+                onClick={() => insertTableTemplate(editor, styleId, { language })}
+              >
+                <TableIcon size={16} weight="bold" />
+                <span>{t(labelKey)}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="relative inline-block">
           <DropdownMenu>
