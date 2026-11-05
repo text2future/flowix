@@ -27,7 +27,6 @@ pub struct Resolved {
     #[allow(dead_code)]
     pub app_data: PathBuf,
     /// `~/.flowix/`. 笔记本注册表位于 `<config_dir>/db/local.db`.
-    #[allow(dead_code)]
     pub config_dir: PathBuf,
 }
 
