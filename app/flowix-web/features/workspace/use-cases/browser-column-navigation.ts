@@ -30,7 +30,6 @@ import {
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 
 export type BrowserColumnOpenResult = NonNullable<BrowserColumnNavigationResult>;
-export type BrowserTargetOpenResult = BrowserColumnOpenResult;
 
 /** Allocate file identity before publishing a target that a surface resolver will read. */
 function ensureBrowserTargetFileIdentity(target: BrowserColumnTarget): void {
@@ -119,11 +118,6 @@ export function openBrowserColumnMarkdown(filePath: string): Promise<BrowserColu
   return openBrowserColumnTarget(createFileBrowserTarget(filePath));
 }
 
-/** An external drop explicitly targets the browser column, even if the file is open elsewhere. */
-export function openBrowserColumnDroppedFile(filePath: string): Promise<BrowserColumnOpenResult | null> {
-  return openBrowserColumnTarget(createFileBrowserTarget(filePath));
-}
-
 export function openBrowserColumnNotebookNote(
   filePath: string,
   notebookId: string,
@@ -142,21 +136,6 @@ export function openBrowserColumnText(
   return openBrowserColumnTarget(createFileBrowserTarget(filePath, scopePath));
 }
 
-export function openBrowserColumnMedia(
-  filePath: string,
-  notebookId: string,
-  notebookPath: string,
-  resourceKind: 'image' | 'video',
-): Promise<BrowserColumnOpenResult | null> {
-  return openBrowserColumnTarget({
-    kind: 'media',
-    filePath,
-    notebookId,
-    notebookPath,
-    resourceKind,
-  });
-}
-
 export function openBrowserColumnFileBrowser(
   folderPath: string,
   activeFilePath: string | null = null,
@@ -168,10 +147,6 @@ export function openBrowserColumnWebpage(url: string): Promise<BrowserColumnOpen
   const normalized = canonicalUrl(url);
   if (!normalized) return Promise.reject(new Error(`Unsupported webpage URL: ${url}`));
   return openBrowserColumnTarget({ kind: 'web', url: normalized });
-}
-
-export function openBrowserColumnAgentConversation(instanceId: string): Promise<BrowserColumnOpenResult | null> {
-  return openBrowserColumnTarget({ kind: 'agent_conversation', instanceId });
 }
 
 /** Open the currently displayed work-column target in the right browser column. */

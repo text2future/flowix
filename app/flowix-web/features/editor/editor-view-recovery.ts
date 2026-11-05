@@ -49,10 +49,14 @@ export function attachEditorViewRecovery(
     selectionType: editor.state.selection instanceof AllSelection ? 'all' : editor.state.selection instanceof NodeSelection ? 'node' : 'text',
     scrollTop: scrollEl?.scrollTop ?? 0, scrollLeft: scrollEl?.scrollLeft ?? 0 }));
   editor.on('selectionUpdate', capture.schedule);
+  let disposed = false;
 
   return {
     schedule: capture.schedule,
     dispose: () => {
+      // The editor teardown may flush before the React binding cleanup runs.
+      if (disposed) return;
+      disposed = true;
       cancelAnimationFrame(restoreFrame);
       editor.off('selectionUpdate', capture.schedule);
       capture.dispose();

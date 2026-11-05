@@ -26,15 +26,3 @@ export function TagMentionName({ name }: { name: string }) {
     </span>
   );
 }
-
-export function appendTagMentionName(container: HTMLElement, name: string): void {
-  const content = document.createElement('span');
-  content.className = 'mention-tag-name-content';
-  for (const part of splitTagPath(name)) {
-    const element = document.createElement('span');
-    element.className = part.separator ? 'mention-tag-separator' : 'mention-tag-segment';
-    element.textContent = part.text;
-    content.append(element);
-  }
-  container.append(content);
-}

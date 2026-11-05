@@ -20,6 +20,18 @@ const LEGACY_TABLE_WIDTH_METADATA_RE = /^<!--[ \t]*flowix:table-widths=([^\s]+)[
 const TABLE_WIDTH_VALUE_RE = /^(?:auto|[1-9]\d*)$/;
 const FLOWIX_TABLE_METADATA_VERSION = 1;
 
+// Anything beyond this is a corrupted layout measurement rather than a
+// useful per-column width. Treat it as auto so old malformed metadata repairs
+// itself when the table is opened in the editor.
+export const TABLE_CELL_MAX_WIDTH = 10_000;
+
+export function isValidTableColumnWidth(width: unknown): width is number {
+  return typeof width === 'number'
+    && Number.isSafeInteger(width)
+    && width > 0
+    && width <= TABLE_CELL_MAX_WIDTH;
+}
+
 export type TableColumnWidth = number | null;
 
 export interface FlowixTableMetadata extends TablePresentationMetadata {
@@ -48,7 +60,7 @@ function parseColumnWidths(value: string | undefined): TableColumnWidth[] | null
     if (!TABLE_WIDTH_VALUE_RE.test(normalized)) return null;
 
     const width = Number(normalized);
-    return Number.isSafeInteger(width) ? width : null;
+    return isValidTableColumnWidth(width) ? width : null;
   });
 }
 
@@ -72,7 +84,7 @@ function parseVersionedMetadata(value: string | undefined): {
         const width = column.width;
         return width === null
           ? null
-          : typeof width === 'number' && Number.isSafeInteger(width) && width > 0
+          : isValidTableColumnWidth(width)
             ? width
             : null;
       }),
@@ -121,7 +133,7 @@ export function getColumnWidths(node: JSONContent): TableColumnWidth[] {
 
     for (let index = 0; index < colspan; index += 1) {
       const width = colwidth[index];
-      widths.push(typeof width === 'number' && Number.isSafeInteger(width) && width > 0 ? width : null);
+      widths.push(isValidTableColumnWidth(width) ? width : null);
     }
   });
 

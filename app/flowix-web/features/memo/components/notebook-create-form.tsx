@@ -16,8 +16,6 @@ import { NotebookIconPopover } from '@features/memo/components/notebook-icon-pop
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 
-export const NOTEBOOK_CREATE_PAGE_GUTTER_CLASS = 'px-[clamp(38px,6vw,96px)] max-[679px]:px-12';
-
 export function NotebookAgentLibraryHint() {
   const { t } = useI18n();
 

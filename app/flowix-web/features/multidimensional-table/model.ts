@@ -1,5 +1,5 @@
 import type { PropertyFieldConfig } from '@/lib/constants';
-import { createCollectionMetadata, createCollectionId, createUuidV7, parseCollectionDocumentV2, serializeCollectionDocumentV2, validateCollectionMetadata, reviseCollection, hasOnlyKeys, isRecord, type CollectionMetadata, type CollectionSource } from '@features/collection/model';
+import { createCollectionMetadata, createUuidV7, parseCollectionDocumentV2, serializeCollectionDocumentV2, validateCollectionMetadata, reviseCollection, hasOnlyKeys, isRecord, type CollectionMetadata, type CollectionSource } from '@features/collection/model';
 export { createUuidV7 } from '@features/collection/model';
 import { isTablePropertyKind } from '@/lib/property-types';
 import { normalizeCollectionLocation } from '@features/collection/public/dataset-filter-api';
@@ -190,8 +190,6 @@ function pathFromLegacyRules(rules: Record<string, unknown>[]): string | null | 
     && !path.startsWith(`${other}/`) && !other.startsWith(`${path}/`)))) return undefined;
   return nonEmpty.sort((left, right) => right.length - left.length)[0] ?? (rules.length ? '' : null);
 }
-
-export const createTableId = createCollectionId;
 
 function completeFieldOrder(
   primaryId: string,

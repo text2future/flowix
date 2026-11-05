@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { CenteredLoadingSpinner } from '@shared/ui/centered-loading-spinner';
 
@@ -56,31 +56,5 @@ export function ListSurfaceSpinner({
       aria-label={ariaLabel}
       aria-hidden={ariaLabel ? undefined : true}
     />
-  );
-}
-
-/** Compact progress row for pagination and other in-place loads. */
-export function ListSurfaceInlineLoadingState({
-  label,
-  className,
-  style,
-}: {
-  label: string;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <div
-      className={cn(
-        'flex items-center justify-center gap-2 px-2 py-2 text-xs text-[var(--muted-foreground)]',
-        className,
-      )}
-      style={style}
-      role="status"
-      aria-live="polite"
-    >
-      <ListSurfaceSpinner className="h-3.5 w-3.5" />
-      <span>{label}</span>
-    </div>
   );
 }

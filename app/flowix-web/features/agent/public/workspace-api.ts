@@ -43,10 +43,6 @@ export function attachNotebookFolder(notebookId: string, path: string) {
   return useAgentWorkspaceStore.getState().workspaceActions.attachFolderToNotebook(notebookId, path);
 }
 
-export function detachNotebookFolder(notebookId: string, path: string) {
-  return useAgentWorkspaceStore.getState().workspaceActions.detachFolderFromNotebook(notebookId, path);
-}
-
 export function loadAgentWorkspace() {
   return useAgentWorkspaceStore.getState().workspaceActions.loadInitial();
 }

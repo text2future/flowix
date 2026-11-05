@@ -23,7 +23,7 @@
  */
 
 import { subscribe } from '@platform/tauri/event-bus';
-import { EventDispatcher, type DispatcherMiddleware } from '@/lib/event-dispatcher';
+import { EventDispatcher } from '@/lib/event-dispatcher';
 import { createMemoDedupMiddleware } from '@/lib/memo-dispatcher-dedup';
 import { createLogger } from '@/lib/logger';
 import type { MemoEvent, MemoDerivedRefresh } from '@/types/memo';
@@ -117,13 +117,4 @@ export function registerMemoEventHandler(
   filter?: (event: MemoEvent) => boolean,
 ): () => void {
   return memoDispatcher.subscribe(handler, filter);
-}
-
-/**
- * 给 Phase 2 middleware 安装接口。 上层 (测试 / 配置) 调
- * `installMemoMiddleware(...)` 把 dedup 装上, 不需要直接 import
- * `EventDispatcher` 类。
- */
-export function installMemoMiddleware(middleware: DispatcherMiddleware<MemoEvent>): void {
-  memoDispatcher.use(middleware);
 }

@@ -807,18 +807,6 @@ impl MemoFile {
         Ok(path)
     }
 
-    /// Return whether any note carries exactly `tag` in the path projection.
-    pub fn note_tag_exists(&self, notebook_id: &str, tag: &str) -> io::Result<bool> {
-        let conn = self.open_note_index_connection(notebook_id)?;
-        let exists: bool = conn
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM notes n, json_each(n.tags) t WHERE t.value = ?1)",
-                [tag],
-                |row| row.get(0),
-            )
-            .map_err(io::Error::other)?;
-        Ok(exists)
-    }
 
     /// Return distinct note relative paths carrying `tag` or a subtree tag
     /// (`tag/<...>` at any depth), ordered for deterministic iteration.

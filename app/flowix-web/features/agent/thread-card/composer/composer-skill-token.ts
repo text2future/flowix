@@ -7,11 +7,6 @@ import {
   deleteAdjacentInlineAtom,
 } from "@features/editor/extensions/shared/inline-atom-nodeview";
 
-export interface ComposerSkillTokenValue {
-  name: string;
-  displayName?: string;
-}
-
 const SKILL_HREF_PREFIX = "flowix://skill/codex/";
 const SKILL_TOKEN_RE = /^\[([^\]\n]*)\]\(flowix:\/\/skill\/codex\/([^\s)]+)\)/i;
 const SKILL_TOKEN_GLOBAL_RE = /\[([^\]\n]*)\]\(flowix:\/\/skill\/codex\/([^\s)]+)\)/gi;

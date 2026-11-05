@@ -36,5 +36,6 @@ pub mod tag;
 pub mod thread;
 pub mod web;
 pub mod window;
+pub mod window_health;
 pub mod window_input;
 pub mod window_shutdown;

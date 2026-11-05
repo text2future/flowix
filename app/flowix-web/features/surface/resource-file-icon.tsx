@@ -193,19 +193,3 @@ export function ResourceFolderIcon({ className, hidden = false }: {
     </span>
   );
 }
-
-/** DOM adapter for non-React editor NodeViews, sharing file-tree glyphs and themes. */
-export function createResourceFileIcon(path: string, className = '', size = 14) {
-  const dom = document.createElement('span');
-  dom.className = className;
-  dom.setAttribute('aria-hidden', 'true');
-  const render = () => {
-    const icon = getResourceSetiIcon(path, getSetiThemeVariant());
-    dom.dataset.setiIcon = icon.definitionKey;
-    dom.textContent = icon.glyph;
-    Object.assign(dom.style, setiIconStyle(icon.color, size));
-  };
-  render();
-  const destroy = subscribeToSetiTheme(render);
-  return { dom, destroy };
-}

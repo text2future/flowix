@@ -302,11 +302,6 @@
       "count": 1
     }
   },
-  "app/flowix-web/features/document/public/startup-api.ts": {
-    "prefer-const": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/document/public/workspace-api.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
@@ -533,11 +528,6 @@
     }
   },
   "app/flowix-web/features/memo/components/notebook-file-tree.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "app/flowix-web/features/memo/components/notebook-list.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -973,11 +963,6 @@
   "app/flowix-web/lib/safe-link.ts": {
     "no-control-regex": {
       "count": 2
-    }
-  },
-  "app/flowix-web/platform/tauri/event-bus.ts": {
-    "prefer-const": {
-      "count": 1
     }
   },
   "app/flowix-web/shared/ui/popover.tsx": {

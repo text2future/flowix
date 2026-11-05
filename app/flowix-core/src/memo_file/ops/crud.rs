@@ -555,31 +555,6 @@ impl MemoFile {
         Ok(removed)
     }
 
-    /// Clear legacy metadata after a path deletion without removing a file
-    /// that another process may have recreated at the same path.
-    pub fn prune_deleted_memo_for_notebook_id(
-        &self,
-        notebook_id: &str,
-        relative_path: &str,
-        expected_relative_path: &str,
-    ) -> std::io::Result<bool> {
-        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
-        let base = self.memo_base_for_notebook_id_result(notebook_id).map_err(std::io::Error::other)?;
-        let path = notebook_path_from_relative(&base, relative_path).map_err(std::io::Error::other)?;
-        match fs::symlink_metadata(&path) {
-            Ok(_) => return Ok(false),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        let Some(memo) = self.find_memo_by_relative_path_for_notebook_id(notebook_id, relative_path) else {
-            return Ok(true);
-        };
-        if memo.relative_path != expected_relative_path {
-            return Ok(false);
-        }
-        MemoFile::sync_index_on_delete_for_notebook_id_locked(self, notebook_id, expected_relative_path)?;
-        Ok(true)
-    }
 
     /// Delete a memo only when it belongs to the requested notebook.
     ///

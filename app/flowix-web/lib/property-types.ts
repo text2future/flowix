@@ -42,10 +42,6 @@ export const CUSTOM_PROPERTY_KINDS: readonly CustomPropertyKind[] = PROPERTY_TYP
   .filter((definition) => definition.custom)
   .map((definition) => definition.kind as CustomPropertyKind);
 
-export const TABLE_PROPERTY_KINDS: readonly TablePropertyKind[] = PROPERTY_TYPE_CATALOG
-  .filter((definition) => definition.table)
-  .map((definition) => definition.kind as TablePropertyKind);
-
 export const ADDABLE_TABLE_PROPERTY_KINDS: readonly TablePropertyKind[] = PROPERTY_TYPE_CATALOG
   .filter((definition) => definition.tableAddable)
   .map((definition) => definition.kind as TablePropertyKind);

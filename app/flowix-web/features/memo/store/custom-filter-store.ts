@@ -19,8 +19,6 @@ export interface CustomFilter {
   value: string;
 }
 
-export const EMPTY_CUSTOM_FILTERS: CustomFilter[] = [];
-
 interface CustomFilterStore {
   filtersByNotebook: Record<string, CustomFilter[]>;
   loadedNotebookIds: string[];

@@ -13,14 +13,9 @@ export interface ThreadListItem {
 // Core message type used throughout the app
 /** Stable identity values used by frontend state and the backend protocol. */
 export type AgentId = "pi" | "codex" | "claudecode" | "opencode" | "hermes" | "dsh";
-
-export type ActiveAgentTypeKey = AgentId;
 export type AgentTypeKey = AgentId;
 
 export type AgentRuntimeKind = "builtin" | "external-cli";
-
-/** `missing` means detection completed and found no executable/runtime. */
-export type AgentInstallationState = "unknown" | "installed" | "missing";
 
 /** Readiness describes whether a known installed runtime can be started. */
 export type AgentReadinessState = "unknown" | "ready" | "blocked";
@@ -783,9 +778,6 @@ export interface LastRunSnapshot {
   /** 失败 / 取消原因;正常完成时为 undefined。*/
   reason?: string | null;
 }
-
-// Re-export for backwards compatibility
-export type MessageType = ChatMessage;
 
 /** Native Pi RPC snapshot identity. IDs are opaque and must not be ordered lexically. */
 export interface PiHistoryRevision {

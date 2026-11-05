@@ -37,6 +37,7 @@ mod update_security;
 mod watcher;
 mod window_chrome;
 mod window_material;
+mod window_responsiveness;
 mod native_close_region;
 
 pub use app::{get_app_data_path, get_user_config_dir, APP_DATA_DIR_NAME, USER_CONFIG_DIR_NAME};

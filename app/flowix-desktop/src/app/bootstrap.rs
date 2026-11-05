@@ -366,6 +366,9 @@ pub fn run() {
             }
             if let Some(window) = app.get_webview_window("main") {
                 commands::window_shutdown::install_window(&window);
+                // Diagnostics only: records hung-pump / stalled-renderer events so
+                // an intermittent freeze is observable after the fact.
+                crate::window_responsiveness::start(&window);
                 // �?��即�?齐主题背�?��, 消除冷启动白�?(尤其深色主�?)�?
                 let saved_theme = app.state::<AppState>().user_config.get_preference().theme;
                 // Mist is account-gated. Keep native chrome on Rock until the
@@ -819,6 +822,7 @@ pub fn run() {
             // window
             commands::window::show_main_window,
             commands::window::open_preferences_window,
+            commands::window_health::report_ui_heartbeat,
             commands::window_input::set_window_close_region,
             commands::window_input::native_close_routing_ready,
             commands::window::apply_window_theme,

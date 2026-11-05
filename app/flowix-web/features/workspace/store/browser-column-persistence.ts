@@ -1,8 +1,6 @@
 import { SESSION_HISTORY_LIMIT } from '../model/session-limits';
 import { restoreWorkspaceWebRuntime } from '../model/web-navigation';
-import { createJSONStorage, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
-import { STORAGE_KEYS } from '@/lib/constants';
 import { canonicalUrl } from '../model/surface-identity';
 import { browserColumnTargetKey, type BrowserColumnTarget } from '../model/browser-column-target';
 import type { BrowserColumnEntry, BrowserColumnSessionState } from '../model/browser-column-session';
@@ -169,45 +167,6 @@ function readLegacySplitRatio(): number | null {
   }
 }
 
-const browserColumnJsonStorage = createJSONStorage<BrowserColumnSessionState>(() => ({
-  getItem: (name: string) => {
-    if (typeof localStorage === 'undefined') return null;
-    const current = localStorage.getItem(name);
-    return current;
-  },
-  setItem: (name: string, value: string) => {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(name, value);
-  },
-  removeItem: (name: string) => {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(name);
-  },
-}));
-
-// Runtime-only updates must not serialize or write the unchanged durable snapshot.
-let lastStoredSnapshot: StorageValue<BrowserColumnSessionState> | undefined;
-const browserColumnStorage: PersistStorage<BrowserColumnSessionState> = {
-  getItem: (name) => {
-    lastStoredSnapshot = undefined;
-    return browserColumnJsonStorage?.getItem(name) ?? null;
-  },
-  setItem: (name, value) => {
-    const previous = lastStoredSnapshot;
-    if (previous && previous.version === value.version
-      && previous.state.backStack === value.state.backStack
-      && previous.state.forwardStack === value.state.forwardStack
-      && previous.state.current === value.state.current
-      && previous.state.visible === value.state.visible
-      && previous.state.splitRatio === value.state.splitRatio) return;
-    const result = browserColumnJsonStorage?.setItem(name, value);
-    lastStoredSnapshot = value;
-    return result;
-  },
-  removeItem: (name) => {
-    lastStoredSnapshot = undefined;
-    return browserColumnJsonStorage?.removeItem(name);
-  },
-};
-
 export function restoreBrowserColumnSession<T extends BrowserColumnSessionState>(
   persisted: unknown,
   current: T,
@@ -239,26 +198,3 @@ export function restoreBrowserColumnSession<T extends BrowserColumnSessionState>
     forwardStack: normalizeHistory(persisted.forwardStack),
   };
 }
-
-function migrateBrowserColumnSessionState(
-  persisted: unknown,
-  _version: number,
-): BrowserColumnSessionState {
-  // Validation and legacy selection migration happen in restoreBrowserColumnSession.
-  return persisted as BrowserColumnSessionState;
-}
-
-export const browserColumnPersistence = {
-  name: STORAGE_KEYS.BROWSER_COLUMN,
-  version: 7,
-  migrate: migrateBrowserColumnSessionState,
-  storage: browserColumnStorage,
-  partialize: (state: BrowserColumnSessionState): BrowserColumnSessionState => ({
-    webRuntime: state.webRuntime ?? null,
-    visible: state.visible,
-    splitRatio: state.splitRatio,
-    backStack: state.backStack,
-    forwardStack: state.forwardStack,
-    current: state.current,
-  }),
-};

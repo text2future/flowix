@@ -58,6 +58,30 @@
   ready();
 })();
 
+// Select the Knowledge Base view for explicit Skill Market deep links. The
+// market is hosted separately and currently exposes this choice as a menu.
+(() => {
+  if (window === window.parent) return;
+  let url;
+  try { url = new URL(location.href); } catch { return; }
+  const productionMarket = url.origin === 'https://skills.flowix.cc';
+  const localMarket = url.protocol === 'http:'
+    && ['localhost', '127.0.0.1'].includes(url.hostname)
+    && url.port === '8088';
+  const marketEntry = url.pathname === '/i' || url.pathname.startsWith('/i/');
+  if ((!productionMarket && !localMarket) || !marketEntry || url.searchParams.get('view') !== 'templates') return;
+
+  const selectKnowledgeBase = () => {
+    const option = document.querySelector('[data-market-view-option][data-market-view="templates"]');
+    if (option && option.getAttribute('aria-checked') !== 'true') option.click();
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', selectKnowledgeBase, { once: true });
+  } else {
+    selectKnowledgeBase();
+  }
+})();
+
 // The sandboxed frame owns computed styles; expose only its solid page color.
 // Keep this separate from readiness so style work never delays document opens.
 (() => {
@@ -143,6 +167,7 @@
 
   const pending = new Map();
   const pendingTemplateInstalls = new Map();
+  const pendingMarketViews = new Map();
   let sequence = 0;
   const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
   const post = (message) => window.parent.postMessage(message, '*');
@@ -181,6 +206,22 @@
     });
   };
 
+  const openSkillMarketView = (view) => {
+    if (view !== 'templates') return Promise.reject(new Error('unsupported Skill Market view'));
+    if (pendingMarketViews.size >= 4) return Promise.reject(new Error('too many pending Skill Market opens'));
+    const requestId = `fx-market-${Date.now().toString(36)}-${++sequence}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (pendingMarketViews.delete(requestId)) reject(new Error('技能市场打开超时，请重试。'));
+      }, 15000);
+      pendingMarketViews.set(requestId, {
+        resolve: () => { clearTimeout(timer); resolve(true); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
+      post({ type: 'flowix:local-html-open-market-view', url: location.href, requestId, view });
+    });
+  };
+
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;
     const data = event.data;
@@ -190,6 +231,12 @@
       pendingTemplateInstalls.delete(data.requestId);
       if (data.success === true) entry.resolve(data.result ?? null);
       else entry.reject(new Error(typeof data.error === 'string' ? data.error : 'template installation failed'));
+    } else if (data?.type === 'flowix:local-html-open-market-view-result' && typeof data.requestId === 'string') {
+      const entry = pendingMarketViews.get(data.requestId);
+      if (!entry) return;
+      pendingMarketViews.delete(data.requestId);
+      if (data.success === true) entry.resolve();
+      else entry.reject(new Error(typeof data.error === 'string' ? data.error : '技能市场打开失败。'));
     } else if (data?.type === 'flowix:local-html-data-response' && typeof data.requestId === 'string') {
       const entry = pending.get(data.requestId);
       if (!entry) return;
@@ -305,6 +352,7 @@
   window.flowix = {
     request,
     installTemplate,
+    openSkillMarketView,
     render,
     onData: (listener) => {
       listeners.add(listener);
@@ -334,6 +382,8 @@
     pending.clear();
     pendingTemplateInstalls.forEach((entry) => entry.reject(new Error('page unloaded')));
     pendingTemplateInstalls.clear();
+    pendingMarketViews.forEach((entry) => entry.reject(new Error('page unloaded')));
+    pendingMarketViews.clear();
     listeners.clear();
   }, { once: true });
 })();

@@ -28,8 +28,6 @@ interface CodexFollowUpQueueSnapshot {
   nextCursor: string | null;
 }
 
-export type NotebookAgentFileKind = 'skill' | 'agent';
-
 export interface NotebookAgentFile {
   id: string;
   name: string;
@@ -675,9 +673,6 @@ export interface CachedAgentAttachment {
   name: string;
 }
 
-/** @deprecated Legacy payload name retained for existing integrations. */
-export type CachedAgentImage = CachedAgentAttachment;
-
 // Stream event handling
 //
 // Module-level singleton listener — only ONE registration is allowed. The
@@ -761,12 +756,6 @@ export function listenToAgentWorkspaceChanges(
   options?: SubscribeOptions,
 ): UnlistenFn {
   return subscribe<unknown>('agent-workspace-changed', () => handler(), options);
-}
-
-export function listenToNotebookImportComplete(
-  handler: (notebookId: string) => void,
-): UnlistenFn {
-  return subscribe<string>('notebook-import-complete', handler);
 }
 
 export type NotebookImportStatusKind = 'started' | 'skipped' | 'completed' | 'failed';

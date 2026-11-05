@@ -223,45 +223,6 @@ export function subscribe<T>(
   };
 }
 
-/**
- * 一次性订阅: handler 第一次被调用后自动 unsub。
- *
- * 实现: 内部 subscribe + 调一次就 unsub。 注意如果 handler 主动抛错,
- * 仍然算"已调用", 不会再触发 (跟原生 DOM once 一致)。
- */
-export function subscribeOnce<T>(event: string, handler: (payload: T) => void): UnlistenFn {
-  let unlisten: UnlistenFn | undefined;
-  unlisten = subscribe<T>(event, (payload) => {
-    if (unlisten) unlisten();
-    handler(payload);
-  });
-  return unlisten!;
-}
-
-/**
- * 调试 / 测试用: 当前已挂 Tauri 事件数 (不等于 handler 总数)。
- */
-export function subscribedEventCount(): number {
-  return tauriUnlistens.size;
-}
-
-/**
- * 调试 / 测试用: 清空所有订阅 + unlisten 全部 Tauri 监听。 主要给单测
- * afterEach 用, 业务代码不要调。
- */
-export function _resetForTests(): void {
-  for (const u of tauriUnlistens.values()) {
-    if (u !== PLACEHOLDER_UNLISTEN) u();
-  }
-  handlers.clear();
-  listenerReadyHandlers.clear();
-  tauriUnlistens.clear();
-  listenerGenerations.clear();
-  for (const timer of retryTimers.values()) window.clearTimeout(timer);
-  retryTimers.clear();
-  retryAttempts.clear();
-}
-
 // 占位 unlisten, 在 listen() promise 还没 resolve 期间充当 Map value。
 // 真 unlisten 拿到后会被替换 (见 .then)。
 const PLACEHOLDER_UNLISTEN: UnlistenFn = () => {

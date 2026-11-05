@@ -777,33 +777,7 @@ fn harness_version_from_root(root: &Path) -> Option<String> {
     value.get("version")?.as_str().map(ToOwned::to_owned)
 }
 
-/// Best-effort size lookup for the install card. A manifest outage must not
-/// make the DSH preferences page unusable or block installation.
-pub fn latest_archive_size() -> Option<u64> {
-    let client = BlockingClient::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .ok()?;
-    let manifest: DshManifest = client
-        .get(manifest_url())
-        .send()
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .json()
-        .ok()?;
-    manifest
-        .platforms
-        .get(target_key())
-        .and_then(|artifact| artifact.size_bytes)
-}
 
-/// Download and atomically install the current platform's DSH archive.
-/// Network and archive work is intentionally synchronous; the Tauri command
-/// runs it on a blocking worker so the UI thread remains responsive.
-pub fn install_runtime_with_progress(app: Option<AppHandle>) -> Result<DshStatus, String> {
-    install_runtime_with_progress_before_publish(app, || Ok(()))
-}
 
 /// Prepare and verify an update while the current host remains available, then
 /// invoke `before_publish` immediately before replacing the installed runtime.
@@ -846,15 +820,6 @@ fn check_cancelled() -> Result<(), String> {
     Ok(())
 }
 
-/// Remove the Flowix-managed DSH runtime tree. `prepare` must have shut down
-/// every dsh-host child process first; the caller is expected to invoke the
-/// manager's `prepare_uninstall` before reaching this function. Only the
-/// runtime tree under the Flowix data directory (`<app data>/dsh`) is removed
-/// — user state in `~/.dsh/` (settings, sessions) is deliberately preserved.
-pub fn uninstall_runtime() -> Result<DshStatus, String> {
-    let _operation_guard = try_acquire_operation_lock()?;
-    remove_runtime_root(&dsh_root()).map(|_| status())
-}
 
 /// Delegate profile dependency changes to the official `dsh plugin`
 /// implementation embedded in the managed carrier. Flowix validates only the
@@ -1025,11 +990,6 @@ fn current_artifact_matches(current: &DshInstallation, artifact: &DshArtifact) -
         && current.build_id == artifact.build_id
 }
 
-/// Used by the Rust host resolver. The path is versioned and never points at
-/// a partially downloaded archive.
-pub fn managed_host_path() -> Option<PathBuf> {
-    current_installation().map(|installation| installation.launch.executable)
-}
 
 pub fn managed_launch_spec() -> Option<ManagedDshLaunch> {
     if let Some(result) = development_bundle_launch_spec() {

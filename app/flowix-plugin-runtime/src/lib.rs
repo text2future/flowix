@@ -754,9 +754,6 @@ fn output_file_path(output_dir: &Path, title: &str, extension: &str) -> PathBuf 
     ))
 }
 
-pub fn artifact_content_hash(content: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(content.as_bytes()))
-}
 
 pub fn serialize_artifact_document(
     plugin_id: &str,

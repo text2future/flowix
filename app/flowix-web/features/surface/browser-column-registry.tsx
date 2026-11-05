@@ -75,8 +75,6 @@ export type BrowserColumnSurface =
   | BrowserWebSurface
   | BrowserAgentConversationSurface;
 
-export type BrowserColumnSurfaceKind = BrowserColumnSurface['kind'];
-
 /** Titlebar skin owned by the surface currently mounted in Browser Column. */
 export type BrowserColumnSurfaceChrome = SurfaceHeaderStyle;
 

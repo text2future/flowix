@@ -213,14 +213,6 @@ if (typeof window !== "undefined") {
   });
 }
 
-export function escapeAgentThreadCardAttr(
-  value: string | null | undefined,
-): string {
-  return String(value ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
-}
-
 function unescapeAgentThreadCardAttr(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
@@ -237,12 +229,6 @@ export function parseAgentThreadCardAttrs(
   }
 
   return attrs;
-}
-
-export function encodeAgentThreadCardInputDraft(
-  value: string | null | undefined,
-): string {
-  return encodeURIComponent(value ?? "");
 }
 
 export function decodeAgentThreadCardInputDraft(

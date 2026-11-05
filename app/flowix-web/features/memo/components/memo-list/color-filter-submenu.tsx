@@ -1,9 +1,4 @@
-import { Check } from 'lucide-react';
-import { NOTE_COLORS, NOTE_COLOR_HEX, type ColorFilterValue } from '@features/memo/store/note-store';
 import type { NoteColor } from '@/types/note-item';
-import { useI18n } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
-import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 
 export const COLOR_LABEL_KEYS: Record<NoteColor, import('@/lib/i18n').I18nKey> = {
   red: 'document.color.red',
@@ -14,79 +9,3 @@ export const COLOR_LABEL_KEYS: Record<NoteColor, import('@/lib/i18n').I18nKey> =
   blue: 'document.color.blue',
   gray: 'document.color.gray',
 };
-
-interface ColorFilterSubmenuContentProps {
-  value: ColorFilterValue;
-  onSelect: (value: ColorFilterValue) => void;
-}
-
-/**
- * 颜色筛选项内容（无内部滚动、无组标题）。外层的定位、hover 延迟和关闭行为由
- * MemoNavigationSubmenu 统一处理；调用方负责放置「颜色」分组标题与滚动容器。
- */
-export function ColorFilterSubmenuContent({
-  value,
-  onSelect,
-}: ColorFilterSubmenuContentProps) {
-  const { t } = useI18n();
-
-  const renderRow = (
-    key: string,
-    label: string,
-    swatch: React.ReactNode,
-    next: ColorFilterValue,
-  ) => {
-    const isActive = value === next;
-    return (
-      <button
-        key={key}
-        type="button"
-        onClick={() => onSelect(next)}
-        onMouseDown={(event) => event.preventDefault()}
-        className={cn(
-          'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
-          isActive && 'is-selected',
-        )}
-      >
-        <span className="mention-note-title flex min-w-0 items-center gap-3">
-          <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-            {swatch}
-          </span>
-          <span className="min-w-0 truncate">{label}</span>
-        </span>
-        {isActive && <Check className="h-4 w-4 shrink-0 text-[var(--brand)]" aria-hidden="true" />}
-      </button>
-    );
-  };
-
-  return (
-    <>
-      {renderRow(
-        'any',
-        t('memo.list.filterColorAny'),
-        <span className="inline-flex h-3.5 w-3.5 rounded-full border border-dashed border-[var(--muted-foreground)]" />,
-        'any',
-      )}
-      {renderRow(
-        'none',
-        t('memo.list.filterColorNone'),
-        <span className="inline-flex h-3.5 w-3.5 rounded-full border border-[var(--border)] bg-transparent" />,
-        'none',
-      )}
-      <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
-      {NOTE_COLORS.map((color) =>
-        renderRow(
-          color,
-          t(COLOR_LABEL_KEYS[color]),
-          <span
-            className="block h-3.5 w-3.5 rounded-full"
-            style={{
-              backgroundColor: `color-mix(in oklch, ${NOTE_COLOR_HEX[color]} 67%, white)`,
-            }}
-          />,
-          color,
-        ),
-      )}
-    </>
-  );
-}

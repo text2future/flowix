@@ -18,6 +18,19 @@ function open(id: 0 | 1) {
 }
 
 describe('session view recovery protocol', () => {
+  it('migrates the latest legacy Markdown slot and preserves the semantic slot thereafter', () => {
+    const migrated = restoreViewRecovery({ version: 1, slots: {
+      'markdown:/book/old.md': editor,
+      'markdown:display:previous-process': { ...editor, head: 4 },
+      code: { ...editor, head: 9 },
+    } });
+    expect(migrated?.slots).toEqual({ markdown: { ...editor, head: 4 }, code: { ...editor, head: 9 } });
+    expect(restoreViewRecovery({ version: 1, slots: {
+      markdown: editor,
+      'markdown:/book/old.md': { ...editor, head: 4 },
+    } })?.slots).toEqual({ markdown: editor });
+    expect(restoreViewRecovery(JSON.parse(JSON.stringify(migrated)))).toEqual(migrated);
+  });
   it.each([0, 1] as const)('retains %s state with history and across unrelated session state updates', (id) => {
     const entry = open(id);
     const channel = createSessionViewChannel(id, entry, 'editor');

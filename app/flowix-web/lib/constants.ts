@@ -5,26 +5,10 @@
  * 实际色板在 css/theme/*.css; 本文件保留非颜色 / 通用 / 偏好设置结构。
  */
 
-import { SUPPORTED_TEXT_EXTENSIONS } from '@/types';
 import { DEFAULT_THEME_ID, type ThemeId } from '@/lib/theme';
 import type { ShortcutOverrides } from '@/lib/shortcuts';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage, type Region } from '@/lib/i18n';
 import type { AgentTypeKey } from '@/types/agent';
-
-// 文件类型
-export const BINARY_EXTENSIONS = [
-  '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
-  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
-  '.mp3', '.mp4', '.wav', '.ogg', '.webm', '.avi', '.mov',
-  '.zip', '.tar', '.gz', '.rar', '.7z',
-  '.exe', '.dll', '.so', '.dylib',
-];
-
-/** 判断是否为文本文件 */
-export function isTextFile(fileName: string): boolean {
-  const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
-  return SUPPORTED_TEXT_EXTENSIONS.some(e => ext === e || fileName.toLowerCase().endsWith(e));
-}
 
 // UI 存储键名
 export const STORAGE_KEYS = {
@@ -260,9 +244,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
     lastCheckedAt: 0,
   },
 };
-
-// UI 常量
-export const DEFAULT_REQUEST_TIMEOUT = 600000;
 
 // ---------- Toast 视觉常量 ----------
 

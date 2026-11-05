@@ -633,15 +633,4 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
     ),
   ),
 );
-// Selectors
-
-export const selectThreadProjection = (
-  state: AgentSessionStore,
-  threadId: string,
-): ThreadProjection | undefined => state.threadProjections[threadId];
-
-export const selectSessionMeta = (state: AgentSessionStore) => state.sessionMeta;
-
-export const selectConversationRegistry = (state: AgentSessionStore) =>
-  state.conversationRegistry;
 export const acquireAgentChunkBridge = installAgentSessionRuntimeBridges(useAgentSessionStore);

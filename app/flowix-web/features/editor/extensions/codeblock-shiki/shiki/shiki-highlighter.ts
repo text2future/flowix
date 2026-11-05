@@ -1,7 +1,4 @@
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
-import type { BundledLanguage, BundledTheme } from 'shiki'
-
-import { findChildren } from '@tiptap/core'
+import type { BundledLanguage } from 'shiki'
 
 import { createHighlighterCore } from 'shiki/core'
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
@@ -49,14 +46,6 @@ export async function loadHighlighter() {
 }
 
 /**
- * Loads a theme if it's valid and not yet loaded.
- * Curated themes are all preloaded in {@link loadHighlighter}; nothing to do.
- */
-export async function loadTheme(_theme: BundledTheme): Promise<boolean> {
-  return false
-}
-
-/**
  * Load one curated language grammar. Concurrent requests for aliases of the
  * same canonical language share a promise. Unsupported languages retain the
  * existing plaintext fallback.
@@ -82,37 +71,4 @@ export async function loadLanguage(language: BundledLanguage | string): Promise<
     languagePromises.set(definition.id, pending)
   }
   return pending
-}
-
-interface InitHighlighterOptions {
-  doc: ProseMirrorNode
-  name: string
-  language: BundledLanguage | 'plaintext' | null
-  theme: BundledTheme
-  themes?: BundledTheme[]
-}
-
-/**
- * Initializes the highlighter based on the prose-mirror document, with the
- * themes and languages in the document.
- */
-export async function initHighlighter({
-  doc,
-  name,
-  language,
-}: InitHighlighterOptions) {
-  const codeBlocks = findChildren(doc, node => node.type.name === name)
-  if (codeBlocks.length === 0 && language === 'plaintext') return
-
-  await loadHighlighter()
-
-  const languages = new Set<string>()
-  if (language && language !== 'plaintext') languages.add(language)
-  for (const block of codeBlocks) {
-    const blockLanguage = block.node.attrs.language
-    if (typeof blockLanguage === 'string' && blockLanguage && blockLanguage !== 'plaintext') {
-      languages.add(blockLanguage)
-    }
-  }
-  await Promise.all([...languages].map((currentLanguage) => loadLanguage(currentLanguage)))
 }

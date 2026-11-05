@@ -65,6 +65,8 @@ export default tseslint.config(
       '.build/**',
       'dist/**',
       'node_modules/**',
+      // Agent 工作区（.gitignore 已忽略）：本地分析/审计脚本，不属于仓库代码。
+      '.workbuddy/**',
       'app/target/**',
       'app/flowix-desktop/**',
       'app/flowix-cli/**',

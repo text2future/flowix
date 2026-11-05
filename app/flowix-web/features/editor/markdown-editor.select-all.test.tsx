@@ -1,6 +1,6 @@
 import { getSessionId } from '../workspace/public/session-api';
 import { sessionFor } from '../workspace/model/workspace-session';
-import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
+import { SessionViewRecoveryContext, createSessionViewChannel } from '@features/workspace/public/session-view-state-api';
 import { useWorkspaceSessionStore } from '@features/workspace/store/workspace-session-store';
 import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -118,6 +118,25 @@ describe('MarkdownEditor select all', () => {
     expect(editor).not.toBe(first);
     expect(editor!.state.selection.anchor).toBe(8);
     expect(editor!.state.selection.head).toBe(2);
+  });
+  it('restores persisted Markdown state without a runtime file identity', async () => {
+    useWorkspaceSessionStore.getState().reset();
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(1), { kind: 'external', path: '/book/note.md', scopePath: '/book', transitionId: null });
+    const entryId = sessionFor(useWorkspaceSessionStore.getState(), 1).navigation.current!.id;
+    createSessionViewChannel(1, entryId, 'markdown').write({ kind: 'editor', anchor: 8, head: 2, scrollTop: 37, scrollLeft: 0 });
+    const persisted = JSON.parse(JSON.stringify(useWorkspaceSessionStore.getState().sessions));
+    useWorkspaceSessionStore.getState().reset();
+    useWorkspaceSessionStore.setState({ sessions: persisted });
+    let editor: Editor | null = null;
+    await act(async () => root.render(
+      <SessionViewRecoveryContext.Provider value={{ sessionId: 1, entryId }}>
+        <style>{'.editor-content { overflow-y: auto; }'}</style>
+        <MarkdownEditor ownerPath="/book/note.md" content="hello world" onBeforeCreate={value => { editor = value; }} />
+      </SessionViewRecoveryContext.Provider>,
+    ));
+    expect(editor!.state.selection.anchor).toBe(8);
+    expect(editor!.state.selection.head).toBe(2);
+    expect(container.querySelector('.editor-content')?.scrollTop).toBe(37);
   });
   it('keeps the header in the shared scroller but outside ProseMirror markdown', async () => {
     let editor: Editor | null = null;

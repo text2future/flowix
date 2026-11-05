@@ -1,5 +1,3 @@
-import type { WorkspaceSurfaceIdentity } from './surface-identity';
-
 export type { WorkspaceColumnId } from './workspace-session';
 import type { WorkspaceColumnId } from './workspace-session';
 
@@ -88,11 +86,6 @@ export interface SurfacePresentation {
 /** Runtime values a renderer may publish after async resolution or mode changes. */
 export type SurfacePresentationUpdate = Partial<Pick<SurfacePresentation,
   'title' | 'icon' | 'headerBackgroundColor' | 'appearance' | 'contentKind' | 'capabilities' | 'actions' | 'state'>>;
-export interface ResolvedSurface<K extends WorkspaceSurfaceKind, D> {
-  kind: K;
-  identity: WorkspaceSurfaceIdentity;
-  data: D;
-}
 
 /** Per-view web navigation state; it is never part of content identity. */
 export interface WorkspaceWebRuntime {

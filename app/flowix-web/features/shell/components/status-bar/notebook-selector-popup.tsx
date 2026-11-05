@@ -541,6 +541,7 @@ export function NotebookSelectorPopup({
               <NotebookIcon
                 icon={selectedNotebook.icon}
                 className="h-4 w-4 rounded text-[12px] font-semibold !text-[var(--foreground)]"
+                imageClassName="h-[92%] w-[92%]"
               />
             )}
             {selectedNotebook?.name && (

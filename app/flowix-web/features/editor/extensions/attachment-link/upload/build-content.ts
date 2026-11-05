@@ -52,10 +52,6 @@ export function buildUploadContent(assets: StoredAsset[]): JSONContent[] {
     });
 }
 
-export function normalizeUploadContentForInsert(content: JSONContent[]): JSONContent[] {
-    return content;
-}
-
 function canReplaceRangeWithUploadContent(view: EditorView, range: { from: number; to: number }): boolean {
     if (range.from < 0 || range.to > view.state.doc.content.size || range.from >= range.to) return false;
     const node = view.state.doc.nodeAt(range.from);

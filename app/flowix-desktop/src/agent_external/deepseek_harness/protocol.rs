@@ -106,18 +106,6 @@ pub fn app_turn_interrupt_request(id: u64, thread_id: &str) -> Value {
     })
 }
 
-pub fn app_thread_events_request(
-    id: u64,
-    thread_id: &str,
-    after_sequence: Option<i64>,
-    limit: i64,
-) -> Value {
-    let mut params = json!({ "threadId": thread_id, "limit": limit.clamp(1, 1000) });
-    if let Some(sequence) = after_sequence.filter(|value| *value >= -1) {
-        params["afterSeq"] = json!(sequence);
-    }
-    json!({ "jsonrpc": "2.0", "id": id, "method": "thread/events/list", "params": params })
-}
 
 pub fn app_runtime_dispose_request(id: u64, thread_id: &str) -> Value {
     json!({
@@ -137,9 +125,6 @@ pub fn app_thread_archive_request(id: u64, session_id: &str) -> Value {
     })
 }
 
-pub fn app_thread_command_request(id: u64, session_id: &str, command: &str) -> Value {
-    app_thread_command_request_with_attachments(id, session_id, command, &[])
-}
 
 pub fn app_thread_command_request_with_attachments(
     id: u64,
@@ -268,15 +253,6 @@ pub fn response_result(message: &Value) -> Option<Result<Value, String>> {
     Some(Ok(message.get("result").cloned().unwrap_or(Value::Null)))
 }
 
-pub fn event_route(message: &Value) -> Option<(String, String)> {
-    if message.get("method").and_then(Value::as_str) != Some("run.event") {
-        return None;
-    }
-    Some((
-        message.pointer("/params/threadId")?.as_str()?.to_string(),
-        message.pointer("/params/runId")?.as_str()?.to_string(),
-    ))
-}
 
 /// Return the Thread associated with a direct App Server notification. Unlike
 /// the legacy `run.event` envelope, App Server notifications carry the thread

@@ -3,6 +3,7 @@ import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/p
 import { Mapping } from '@tiptap/pm/transform';
 import { TableMap } from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
+import { isValidTableColumnWidth } from './table-metadata';
 
 export const TABLE_CELL_MIN_WIDTH = 80;
 
@@ -14,15 +15,24 @@ export function equalTableWidths(available: number, columns: number): number[] {
 
 /** Local content box, including list/blockquote indentation. */
 export function tableContentWidth(view: EditorView, position: number): number {
+  const root = view.dom;
+  const rootStyle = getComputedStyle(root);
+  const rootWidth = root.clientWidth
+    - (parseFloat(rootStyle.paddingLeft) || 0)
+    - (parseFloat(rootStyle.paddingRight) || 0);
+  // A hidden editor has no reliable viewport yet. Defer initialization instead
+  // of persisting a width inherited from an overflowing descendant.
+  if (rootWidth <= 0) return 0;
+
   const dom = view.domAtPos(position).node;
   let element = dom instanceof HTMLElement ? dom : dom.parentElement;
   while (element && view.dom.contains(element)) {
     const style = getComputedStyle(element);
     const width = element.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
-    if (width > 0) return width;
+    if (width > 0) return Math.min(width, rootWidth);
     element = element.parentElement;
   }
-  return 0;
+  return rootWidth;
 }
 
 function normalizeWidths(
@@ -48,7 +58,7 @@ function normalizeWidths(
       const cell = table.nodeAt(offset)!;
       for (let index = 0; index < cell.attrs.colspan; index++) {
         const width = cell.attrs.colwidth?.[index];
-        if (Number.isSafeInteger(width) && width > 0) widths[left + index] = width;
+        if (isValidTableColumnWidth(width)) widths[left + index] = width;
       }
     }
     const currentDOM = view.state.doc === state.doc;
@@ -83,7 +93,8 @@ function normalizeWidths(
         const measured = cellDOM instanceof HTMLElement && cellDOM.offsetWidth > 0
           ? (cellDOM.offsetWidth - known) / unknown
           : 0;
-        if (measured > 0) widths[column] = Math.max(TABLE_CELL_MIN_WIDTH, Math.round(measured));
+        const measuredWidth = Math.round(measured);
+        if (isValidTableColumnWidth(measuredWidth)) widths[column] = Math.max(TABLE_CELL_MIN_WIDTH, measuredWidth);
       }
       if (hasWidths && (!currentDOM || available > 0)) {
         widths[column] ??= widths.slice(0, column).reverse().find(Boolean) ?? widths.slice(column + 1).find(Boolean);

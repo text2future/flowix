@@ -293,29 +293,7 @@ impl SystemData {
         Ok(())
     }
 
-    pub fn get_tag_metadata(&self, notebook_id: &str) -> NotebookTagSystemData {
-        let data = self.read_data();
-        data.tag
-            .notebooks
-            .get(notebook_id)
-            .cloned()
-            .unwrap_or_default()
-    }
 
-    pub fn set_tag_layout(
-        &self,
-        notebook_id: &str,
-        layout: Vec<TagLayoutItem>,
-    ) -> std::io::Result<()> {
-        let mut data = self.write_data();
-        let notebook = data
-            .tag
-            .notebooks
-            .entry(notebook_id.to_string())
-            .or_default();
-        notebook.layout = layout;
-        self.flush(&data)
-    }
 
     /// 写回某 parent 下的 pinned 列表（MRU 顺序）。
     /// - `parent_id` 为 `None` 时使用 root 哨兵 `""`。

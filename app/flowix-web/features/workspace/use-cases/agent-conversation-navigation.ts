@@ -54,10 +54,6 @@ export function closeAgentConversationDetail(): void {
   useWorkspaceRestoreStore.getState().closeAgentConversationDetail();
 }
 
-export function clearRestoredAgentConversation(instanceId: string): void {
-  useWorkspaceRestoreStore.getState().clearAgentConversation(instanceId);
-}
-
 export async function restoreAgentConversationWorkspace(
   restoreRequestId = useWorkColumnStore.getState().navigation.requestId,
 ): Promise<void> {

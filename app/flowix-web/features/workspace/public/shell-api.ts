@@ -1,9 +1,8 @@
-import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { useCallback } from 'react';
 import { toast } from '@/lib/toast';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { columnRequestId, columnTarget } from '@features/workspace/store/column-navigation';
+import { columnRequestId } from '@features/workspace/store/column-navigation';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { openWorkspaceSurface } from './open-surface-api';
@@ -29,18 +28,8 @@ export {
 } from '@features/workspace/store/browser-column-store';
 export type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
 
-/** Hosts with content visible in the current workspace layout. */
-export function getVisibleWorkspaceColumnIds(): ('column-1' | 'column-2')[] {
-  const state = useWorkspaceSessionStore.getState();
-  return state.browserLayout.visible ? [state.placement[0], state.placement[1]] : [state.placement[0]];
-}
-
 export function getWorkspaceNavigationRevision(): number {
   return columnRequestId('column-1');
-}
-
-export function getWorkColumnStartupIdentity(): string {
-  return JSON.stringify(columnTarget('column-1'));
 }
 
 export function useShellWorkspaceViewModel() {

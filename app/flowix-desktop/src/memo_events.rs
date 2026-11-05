@@ -393,10 +393,6 @@ fn relativize_note_path(
 /// 拿不到才退�?`app.emit` 直接发�?�?channel 扩展 (attachment-event /
 /// tag-event) �?dispatcher 里�?�? 业务调用点仍�?`emit()`�?///
 
-#[allow(dead_code)]
-pub fn emit_via_dispatcher(dispatcher: &crate::events::SharedDispatcher, event: MemoEvent) {
-    emit_committed_via_dispatcher(dispatcher, &event, None, None);
-}
 
 fn emit_committed_via_dispatcher(
     dispatcher: &crate::events::SharedDispatcher,

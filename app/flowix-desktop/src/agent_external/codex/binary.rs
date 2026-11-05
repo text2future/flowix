@@ -6,10 +6,6 @@ pub(crate) fn resolve_codex_binary() -> PathBuf {
     resolve_external_cli(&CODEX_CLI_SPEC)
 }
 
-#[cfg(test)]
-pub(crate) fn codex_candidate_paths() -> Vec<PathBuf> {
-    crate::agent_external::cli_resolver::external_cli_candidate_paths(&CODEX_CLI_SPEC)
-}
 
 const CODEX_CLI_SPEC: ExternalCliSpec = ExternalCliSpec {
     binary_name: "codex",

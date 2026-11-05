@@ -217,19 +217,6 @@ export function hydrateHistoricalMessages(
   return messages.map((message) => hydrateToolDisplay(message, agentType));
 }
 
-/**
- * Replace a projection with a complete provider snapshot. Unlike the normal
- * stale-while-revalidate merge, this deliberately drops rows absent from the
- * snapshot because provider surface replacements (for example DSH compact)
- * are allowed to hide older durable messages.
- */
-export function replaceHistoricalMessages(
-  messages: ChatMessage[],
-  agentType?: AgentTypeKey,
-): ChatMessage[] {
-  return hydrateHistoricalMessages(filterRenderableHistoryMessages(messages), agentType);
-}
-
 function mergeHistoricalToolMessage(
   existing: ChatMessage,
   historical: ChatMessage,
@@ -966,55 +953,6 @@ export function mergeLiveMessagesIntoRenderableMessages(
   ) {
     return existingMessages;
   }
-  return merged;
-}
-
-/**
- * 流式 fast path: 若 `renderable` 与 `current` 仅最后一条消息的内容不同
- * (同 id 同 role, 前 N-1 条引用全等), 直接返回替换末条后的新数组, 跳过
- * [`mergeLiveMessagesIntoRenderableMessages`] 的全量 fingerprint + sort
- * (O(N·L) -> O(N) 引用比较)。流式 text_delta / reasoning_delta 每次只追加
- * 末条内容, 前 N-1 条引用不变, 命中率极高。
- *
- * - 返回 `current` 本身: 无任何变化, 让上层相等短路。
- * - 返回新数组: 末条已 swap。
- * - 返回 `null`: 未命中 (长度不同 / 中间有变化 / 末条非 assistant·reasoning·end),
- *   调用方走原 merge。
- *
- * 仅对末条 assistant / reasoning / end 启用: 这些角色的 [`hydrateToolDisplay`]
- * 是 no-op, 直接复用 live 引用不会丢失 toolDisplay; tool / user 末条仍需走原
- * merge 做 hydrate 与去重。顺序不变是流式追加的前提 ── applyTextChunk 只追加
- * 内容不重排, 故跳过 sort 安全。
- */
-export function trySwapLastLiveMessage(
-  current: ChatMessage[],
-  renderable: ChatMessage[],
-): ChatMessage[] | null {
-  const len = renderable.length;
-  if (len === 0 || len !== current.length) return null;
-
-  // 找第一个引用不同的位置; 全等则返回 current 让上层短路
-  let firstDiff = -1;
-  for (let i = 0; i < len; i += 1) {
-    if (renderable[i] !== current[i]) {
-      firstDiff = i;
-      break;
-    }
-  }
-  if (firstDiff === -1) return current;
-  // 唯一差异必须在末条; 中间有变化 (新增 / 重排 / 历史回放) 走原 merge
-  if (firstDiff !== len - 1) return null;
-
-  const currentLast = current[len - 1];
-  const renderableLast = renderable[len - 1];
-  const role = renderableLast.role;
-  if (role !== "assistant" && role !== "reasoning" && role !== "end") return null;
-  if (renderableLast.id !== currentLast.id || currentLast.role !== role) {
-    return null;
-  }
-
-  const merged = current.slice();
-  merged[len - 1] = renderableLast;
   return merged;
 }
 

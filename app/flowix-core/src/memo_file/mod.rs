@@ -366,10 +366,6 @@ impl MemoFile {
         self.get_memo_base().join(".flowix")
     }
 
-    /// Notebook-local plugin output root for a validated plugin id.
-    pub fn get_plugin_dir(&self, plugin_id: &str) -> PathBuf {
-        self.get_flowix_dir().join("plugin").join(plugin_id)
-    }
 }
 
 #[cfg(test)]

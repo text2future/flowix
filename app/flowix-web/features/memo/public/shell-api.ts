@@ -41,10 +41,6 @@ export function useShellMemoViewModel() {
   })));
 }
 
-export function showAgentConversationsView(): void {
-  useNoteStore.getState().setMiddleColumnView('conversations');
-}
-
 /** The one list data source that must be ready before the workspace is shown. */
 
 export { useAccessSpaceSelectionCount, useAccessSpaceSelectedPaths, useAccessSpaceSelectionContentKinds } from '@features/memo/store/notebook-tree-selection-store';

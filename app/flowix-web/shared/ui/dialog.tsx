@@ -34,15 +34,6 @@ export function Dialog({ children, open, onOpenChange }: DialogProps) {
 	);
 }
 
-interface DialogTriggerProps {
-	children: ReactNode;
-	asChild?: boolean;
-}
-
-export function DialogTrigger({ children }: DialogTriggerProps) {
-	return <>{children}</>;
-}
-
 interface DialogContentProps {
 	children: ReactNode;
 	className?: string;
@@ -225,22 +216,6 @@ export function DialogContent({
 			</div>
 		</>,
 		document.body
-	);
-}
-
-interface DialogCloseProps {
-	children?: ReactNode;
-}
-
-export function DialogClose({ children }: DialogCloseProps) {
-	const context = useDialogContext();
-	return (
-		<button
-			onClick={() => context?.onOpenChange(false)}
-			className="absolute top-3 right-3 p-1 rounded-md hover:bg-[var(--hover-bg)]"
-		>
-			{children || <X className="w-4 h-4" />}
-		</button>
 	);
 }
 

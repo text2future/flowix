@@ -102,12 +102,6 @@ export function cancelDocumentCapture(key: string): void {
   if (session) session.clock = undefined;
 }
 
-export function flushDocumentCapture(key: string): void {
-  const clock = findDocumentSession(sessionId(key))?.clock;
-  cancelDocumentCapture(key);
-  clock?.run();
-}
-
 export function documentCommitDiagnostics() {
   const sessions = listDocumentSessions();
   return { active: sessions.filter(s => s.queue).length,

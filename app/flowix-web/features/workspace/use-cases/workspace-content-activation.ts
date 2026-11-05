@@ -151,14 +151,6 @@ export function findWorkspaceContentLocations(
   };
 }
 
-/** Legacy single-location lookup. Prefer host-specific location queries. */
-export function findExistingWorkspaceContent(
-  identity: ContentIdentity,
-): WorkspaceContentLocation | null {
-  const locations = findWorkspaceContentLocations(identity);
-  return locations.workColumn ?? locations.browserColumn;
-}
-
 /** Resolve an existing location in the requested host; unspecified opens target Work. */
 export function findWorkspaceContentForNavigation(
   identity: ContentIdentity,

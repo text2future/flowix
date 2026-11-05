@@ -13,13 +13,6 @@ export const CODEX_MODEL_OPTIONS: Array<{
   { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
 ];
 
-/** App Server exposes only its three supported sandbox levels. */
-export const CODEX_APP_SERVER_PERMISSION_IDS: AgentPermissionMode[] = [
-  "danger-full-access",
-  "workspace-write",
-  "read-only",
-];
-
 /** 统一文案：所有 agent 对话框底部权限选择器共用 3 档。 */
 export const SHARED_ACCESS_OPTIONS: Array<{
   id: AgentPermissionMode;

@@ -1,4 +1,4 @@
-import { getStyleProperty, mergeAttributes } from '@tiptap/core';
+import { mergeAttributes } from '@tiptap/core';
 import type { Editor } from '@tiptap/core';
 import type { MarkdownLexerConfiguration, MarkdownToken } from '@tiptap/core';
 import Highlight from '@tiptap/extension-highlight';
@@ -192,29 +192,4 @@ export function setFlowixTextStyle(
       flowixFg: nextFg,
     })
     .run();
-}
-
-export function setDefaultFlowixHighlight(editor: Editor): boolean {
-  return editor
-    .chain()
-    .focus()
-    .setMark('highlight', {
-      color: null,
-      flowixBg: null,
-      flowixFg: null,
-    })
-    .run();
-}
-
-export function clearFlowixHighlight(editor: Editor): boolean {
-  return editor.chain().focus().unsetHighlight().run();
-}
-
-// Keep the import surface explicit for consumers that need to parse legacy
-// inline HTML marks without duplicating Tiptap's style extraction behavior.
-export function parseLegacyHighlightColor(element: HTMLElement): string | null {
-  return element.getAttribute('data-color')
-    || getStyleProperty(element, 'background-color')
-    || element.style.backgroundColor
-    || null;
 }

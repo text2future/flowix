@@ -70,13 +70,6 @@ export function isExternalDocumentRenameInProgress(displayId: string): boolean {
   return (renamingDisplays.get(displayId) ?? 0) > 0;
 }
 
-export function subscribeExternalDocumentRenameLock(
-  subscriber: (displayId: string) => void,
-): () => void {
-  renameLockSubscribers.add(subscriber);
-  return () => renameLockSubscribers.delete(subscriber);
-}
-
 export function beginExternalDocumentRename(
   displayId: string,
 ): ExternalDocumentRenameOperation {
@@ -104,16 +97,4 @@ export function beginExternalDocumentRename(
       for (const subscriber of renameLockSubscribers) subscriber(displayId);
     },
   };
-}
-
-export function resetExternalDocumentOperations(): void {
-  for (const event of expectedEvents.values()) clearTimeout(event.timeout);
-  expectedEvents.clear();
-  const lockedDisplays = [...renamingDisplays.keys()];
-  renamingDisplays.clear();
-  for (const displayId of lockedDisplays) {
-    for (const releaseDisplayPin of renameDisplayPins.get(displayId) ?? []) releaseDisplayPin();
-    renameDisplayPins.delete(displayId);
-    for (const subscriber of renameLockSubscribers) subscriber(displayId);
-  }
 }

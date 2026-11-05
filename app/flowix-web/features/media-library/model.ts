@@ -207,13 +207,6 @@ export function parseMediaLibrary(source: string): MediaLibraryDocument {
     views: document.payload.views as unknown as MediaLibraryDocument['views'] });
 }
 
-export function validateMediaLibraryDocument(value: unknown): MediaLibraryDocument {
-  if (!value || typeof value !== 'object') throw new Error('媒体库文档无效');
-  const document = value as MediaLibraryDocument;
-  serializeMediaLibrary(document);
-  return document;
-}
-
 export async function createMediaLibraryFile(
   notebookPath: string,
   relativeFolder: string | null | undefined,

@@ -14,10 +14,3 @@ export function countTextUnits(content: string): number {
 
   return chineseChars + englishWords;
 }
-
-export function joinPath(basePath: string, filePath: string): string {
-  if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/') || filePath.startsWith('\\')) {
-    return filePath;
-  }
-  return `${basePath.replace(/[\\/]+$/, '')}/${filePath.replace(/^[\\/]+/, '')}`;
-}

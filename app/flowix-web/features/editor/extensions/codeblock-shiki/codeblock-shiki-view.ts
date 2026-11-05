@@ -63,14 +63,6 @@ const ZOOM_OUT_ICON = '<svg class="code-block-fullscreen-icon" viewBox="0 0 256 
 
 const ZOOM_IN_ICON = '<svg class="code-block-fullscreen-icon" viewBox="0 0 256 256" aria-hidden="true" focusable="false"><path fill="currentColor" d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>'
 
-// 复制按钮图标 ── 默认态 (clipboard) 和成功态 (checkmark)。提到模块
-// 顶层做常量, 不再每次 click 时从 DOM 读 innerHTML 当「原始态」保存 ──
-// 那种保存方式在快速重复点击下会让第二次点击把 check icon 当成原态,
-// 后续 timer 全部还原成 check icon, 状态卡死。
-export interface CodeBlockShikiViewOptions {
-  theme: string
-}
-
 // NodeView 不在 React 树内 ── 走 user-settings-store 读最新 AppLanguage,
 // 与 agent-thread-card 的 `t(key)` 模式同源 (跨窗口同步跟 I18nProvider 一致)。
 function t(key: I18nKey): string {

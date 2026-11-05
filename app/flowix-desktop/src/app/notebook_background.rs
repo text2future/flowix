@@ -193,14 +193,6 @@ impl NotebookBackground {
         Some(status)
     }
 
-    pub fn media_snapshot(&self, id: &str) -> Option<NotebookMediaMaintenanceStatus> {
-        self.queue
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .media_statuses
-            .get(id)
-            .cloned()
-    }
 
     pub fn media_statuses(&self) -> Vec<NotebookMediaMaintenanceStatus> {
         self.queue

@@ -32,10 +32,6 @@ export function peekAgentLocationRequest(path: string): AgentLocationRequest | n
   return requests.get(key(path)) ?? null;
 }
 
-export function hasAgentLocationRequest(path: string, id: number): boolean {
-  return requests.get(key(path))?.id === id;
-}
-
 export function consumeAgentLocationRequest(path: string, id: number): boolean {
   const requestKey = key(path);
   if (requests.get(requestKey)?.id !== id) return false;

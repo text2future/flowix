@@ -397,6 +397,8 @@ export interface FileBrowserDirectoriesChangedEvent {
 
 export const windows = {
   showMain: () => invoke<void>('show_main_window'),
+  /** Renderer liveness probe; `hidden` marks silence that is expected. */
+  reportUiHeartbeat: (hidden: boolean) => invoke<void>('report_ui_heartbeat', { hidden }),
   getWindowMaterial: () => invoke<'none' | 'mica' | 'vibrancy'>('get_window_material'),
   openPreferences: (tab?: string) => invoke<void>('open_preferences_window', { tab }),
   applyWindowTheme,

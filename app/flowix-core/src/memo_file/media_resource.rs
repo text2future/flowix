@@ -339,10 +339,6 @@ impl MemoFile {
         Ok(())
     }
 
-    /// Backward-compatible name for older internal callers.
-    pub fn initialize_media_resource_schema(&self, notebook_id: &str) -> std::io::Result<()> {
-        self.initialize_resource_catalog_schema(notebook_id)
-    }
 
     fn open_notebook_db_inner(
         &self,
@@ -1269,18 +1265,6 @@ impl MemoFile {
         Ok(changed > 0)
     }
 
-    /// Media-only compatibility wrapper.
-    pub fn move_media_resource_path(
-        &self,
-        notebook_id: &str,
-        old_relative_path: &str,
-        new_relative_path: &str,
-    ) -> std::io::Result<bool> {
-        if media_kind_for_path(Path::new(new_relative_path)).is_none() {
-            return Ok(false);
-        }
-        self.move_indexed_resource_path(notebook_id, old_relative_path, new_relative_path)
-    }
 
     /// Copy missing media records once, retaining the source table for recovery.
     /// The completion receipt commits with the copied records so retries cannot

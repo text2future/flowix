@@ -146,6 +146,29 @@ export function useLocalHtmlPreview(
         && event.data.href.length <= 8192
         && (event.data.baseHref === null || (typeof event.data.baseHref === 'string' && event.data.baseHref.length <= 8192))) {
         linkCallback.current?.({ href: event.data.href, baseHref: event.data.baseHref });
+      } else if (event.data.type === 'flowix:local-html-open-market-view') {
+        const requestId = typeof event.data.requestId === 'string' && event.data.requestId.length <= 64
+          ? event.data.requestId
+          : '';
+        const respond = (success: boolean, error?: string) => {
+          iframeRef.current?.contentWindow?.postMessage({
+            type: 'flowix:local-html-open-market-view-result',
+            requestId,
+            success,
+            ...(error ? { error } : {}),
+          }, '*');
+        };
+        if (!requestId) return;
+        const isQuickStartGuide = filePath.replace(/\\/g, '/').split('/').pop() === '快速开始指南.html';
+        if (!scopePath || !isQuickStartGuide || event.data.view !== 'templates' || !linkCallback.current) {
+          respond(false, '无法打开技能市场知识库视图。');
+          return;
+        }
+        const marketUrl = import.meta.env.DEV
+          ? 'http://localhost:8088/i/index.html?view=templates'
+          : 'https://skills.flowix.cc/i/?view=templates';
+        linkCallback.current({ href: marketUrl, baseHref: null });
+        respond(true);
       } else if (event.data.type === 'flowix:local-html-data-request') {
         handleDataRequest(event.data);
       } else if (event.data.type === 'flowix:local-html-template-install') {
@@ -171,7 +194,7 @@ export function useLocalHtmlPreview(
         void agent.installNotebookTemplateZip(scopePath, templateId, {
           url: `${archiveOrigin}/templates/archives/${templateId}.zip`,
           // This guide action explicitly installs its featured example. Market installs use manifest metadata.
-          targetDirectory: '自媒体管理',
+          targetDirectory: '小红书运营工作台',
         }).then((result) => respond(true, result)).catch((error: unknown) => {
           const failure = marketInstallFailure(error);
           const message = failure.code === 'already_exists' ? '同名模板目录已存在，本次没有覆盖任何内容。'

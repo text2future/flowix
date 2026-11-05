@@ -76,25 +76,6 @@ export function workDocumentsFilterFromCondition(condition?: WorkDocumentsFilter
   return { path, match: 'all', conditions };
 }
 
-export function workDocumentsConditionFromFilter(filter?: Record<string, unknown> | null): WorkDocumentsFilterCondition {
-  if (!filter || !Array.isArray(filter.conditions) || filter.match !== 'all') return {};
-  const result: WorkDocumentsFilterCondition = {};
-  if (filter.path === '') result.path_scope = 'all';
-  else if (typeof filter.path === 'string') result.path_contains = filter.path;
-  for (const entry of filter.conditions) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-    const rule = entry as Record<string, unknown>;
-    if (rule.field === 'file_name' && rule.op === 'contains' && typeof rule.value === 'string') result.file_name_contains = rule.value;
-    if (rule.field === 'kind' && rule.op === 'eq' && WORK_DOCUMENT_KINDS.includes(rule.value as WorkDocumentsKind)) result.file_type = rule.value as WorkDocumentsKind;
-    if (rule.field === 'kind' && rule.op === 'in' && Array.isArray(rule.value)) {
-      const kinds = rule.value.filter((value): value is WorkDocumentsKind => WORK_DOCUMENT_KINDS.includes(value as WorkDocumentsKind));
-      if (kinds.length === 1) result.file_type = kinds[0];
-      else if (kinds.length > 1) result.file_types = kinds;
-    }
-  }
-  return normalizeWorkDocumentsCondition(result);
-}
-
 /** The compact work-documents editor can only round-trip one name and kind rule. */
 export function canEditWorkDocumentsFilter(filter?: Record<string, unknown> | null): boolean {
   if (!filter) return true;

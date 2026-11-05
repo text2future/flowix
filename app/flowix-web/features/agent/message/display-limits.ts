@@ -1,6 +1,5 @@
 export const USER_MESSAGE_DISPLAY_MAX_CHARS = 1000;
 export const ASSISTANT_MESSAGE_DISPLAY_MAX_CHARS = 12000;
-export const REASONING_MESSAGE_DISPLAY_MAX_CHARS = 6000;
 export const TOOL_MESSAGE_DISPLAY_MAX_CHARS = 1000;
 export const TOOL_RESULT_DISPLAY_MAX_CHARS = 4096;
 export const TOOL_RESULT_OUTPUT_PREVIEW_MAX_CHARS = 2000;
@@ -46,10 +45,6 @@ export function applyMessageDisplayBudget(
     text: expanded || !isOverBudget ? text : truncateByCodePoint(text, maxChars),
     isOverBudget,
   };
-}
-
-export function truncateUserMessageForDisplay(text: string): string {
-  return applyMessageDisplayBudget("user", text, false).text;
 }
 
 export function truncateToolMessageForDisplay(text: string): string {

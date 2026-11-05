@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 
 import type {
   AgentConversationInstance,
@@ -8,7 +8,6 @@ import {
 } from '@features/agent/store/agent-session-store';
 import type { ThreadProjection } from '@features/agent/store/session-reducer';
 import {
-  EMPTY_CONVERSATION_RUN_SIGNATURE,
   getConversationRunSignature,
   splitConversationRunSignature,
 } from '@features/agent/store/conversation-run-signature';
@@ -50,24 +49,6 @@ export function buildConversationRunIndex(
 
 export function getConversationRunSummaryFromSignature(signature: string): ConversationRunSummary {
   return splitConversationRunSignature(signature);
-}
-
-/**
- * Read one thread's lifecycle state. The selector is O(1) for each mounted
- * row, so a text chunk in one thread does not rebuild an index for every row.
- * The fallback keeps older in-memory states compatible before the incremental
- * signature map has observed that thread.
- */
-export function useConversationRunSignature(threadId: string | null | undefined): string {
-  const selector = useCallback(
-    (state: ReturnType<typeof useAgentSessionStore.getState>) => {
-      if (!threadId) return EMPTY_CONVERSATION_RUN_SIGNATURE;
-      return state.threadRunSignatures[threadId]
-        ?? getConversationRunSignature(state.threadProjections[threadId]);
-    },
-    [threadId],
-  );
-  return useAgentSessionStore(selector);
 }
 
 /**

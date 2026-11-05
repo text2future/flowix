@@ -752,15 +752,15 @@
   </div>
 </section>
 
-<!-- === 第 2 页 · 自媒体创作知识库方案 === -->
+<!-- === 第 2 页 · 小红书运营工作台 === -->
 <section class="slide creator-slide" id="s2">
   <div class="frame">
     <div class="stage">
       <div class="pad">
         <p class="kicker" data-reveal>示例</p>
-        <h2 class="slide-title" data-reveal style="--d:.06s">自媒体创作知识库方案</h2>
+        <h2 class="slide-title" data-reveal style="--d:.06s">小红书运营工作台</h2>
         <p class="slide-sub" data-reveal style="--d:.12s">
-          用共享文档库串联创作资料、灵感笔记、项目规则、技能、专家智能体与写作产出。
+          围绕账号定位、选题研究、笔记创作与发布复盘，串联资料、项目规范、运营技能与专家智能体。
         </p>
 
         <div class="body-area creator-body">
@@ -768,37 +768,37 @@
             <section class="creator-module">
               <span class="creator-topic" data-reveal style="--d:.16s">[ 资料 ]</span>
               <article class="creator-card" data-reveal style="--d:.2s">
-                <p>收纳选题素材、参考链接与图片，让创作资料随用随查。</p>
+                <p>收纳平台热点、关键词、竞品笔记、用户评论与图片素材，保留来源方便查证。</p>
               </article>
             </section>
             <section class="creator-module">
               <span class="creator-topic" data-reveal style="--d:.24s">[ 笔记 ]</span>
               <article class="creator-card" data-reveal style="--d:.28s">
-                <p>记录灵感、观察与复盘，把零散想法沉淀为个人知识。</p>
+                <p>沉淀账号定位、受众观察、品牌语气与运营复盘，让内容方向保持一致。</p>
               </article>
             </section>
             <section class="creator-module">
               <span class="creator-topic" data-reveal style="--d:.32s">[ 产出 ]</span>
               <article class="creator-card" data-reveal style="--d:.36s">
-                <p>保存草稿、定稿与发布记录，积累每次创作成果。</p>
+                <p>保存选题、笔记草稿、封面、发布记录与表现数据，复用有效经验。</p>
               </article>
             </section>
             <section class="creator-module">
               <span class="creator-topic" data-reveal style="--d:.4s">[ AGENT.md ]</span>
               <article class="creator-card" data-reveal style="--d:.44s">
-                <p>记录项目背景、内容定位和写作规范，供 Agent 统一遵循。</p>
+                <p>记录账号目标、内容定位、笔记规范与平台规则，供 Agent 统一遵循。</p>
               </article>
             </section>
             <section class="creator-module">
               <span class="creator-topic" data-reveal style="--d:.48s">[ 技能 ]</span>
               <article class="creator-card" data-reveal style="--d:.52s">
-                <p class="creator-skills-copy">热点追踪 / 全网搜索 / 评论采集 / Humanizer / 封面生图 / 公众号排版</p>
+                <p class="creator-skills-copy">热点追踪 / 关键词研究 / 竞品分析 / 小红书笔记写作 / 封面生图 / 评论复盘</p>
               </article>
             </section>
             <section class="creator-module">
               <span class="creator-topic" data-reveal style="--d:.56s">[ 专家 ]</span>
               <article class="creator-card" data-reveal style="--d:.6s">
-                <p>为选题、研究、撰稿与审核配置专家智能体，按任务分工协作。</p>
+                <p>为选题研究、笔记撰写、视觉检查与数据复盘配置专家智能体，按任务分工协作。</p>
               </article>
             </section>
           </div>
@@ -811,7 +811,7 @@
           </svg>
         </button>
         <p class="creator-hint" data-reveal style="--d:.68s">
-          将在笔记本根目录新建「自媒体管理」文件夹；遇到同名目录时不会覆盖
+          点击后跳转到技能市场的「知识库」视图，可浏览并安装适合的模板
         </p>
       </div>
     </div>
@@ -824,7 +824,7 @@
     <div class="stage">
       <div class="pad">
         <p class="kicker" data-reveal>产品价值</p>
-        <h2 class="slide-title" data-reveal style="--d:.06s">为什么 flowix</h2>
+        <h2 class="slide-title" data-reveal style="--d:.06s">为什么选择 flowix</h2>
         <p class="slide-sub" data-reveal style="--d:.12s">
           写作、资料管理、知识组织与 AI 协同，覆盖知识工作的每一个环节。
         </p>
@@ -1030,7 +1030,7 @@
     if (!editing) window.getSelection()?.removeAllRanges();
   }
 
-  /* === 安装自媒体管理模板：只创建独立目录，不覆盖已有内容 === */
+  /* === 打开技能市场的知识库视图 === */
   (function connectCreatorTemplate() {
     const button = document.querySelector('.creator-cta');
     const hint = document.querySelector('.creator-hint');
@@ -1042,30 +1042,27 @@
     };
     button.addEventListener('click', async () => {
       if (button.disabled) return;
-      const installTemplate = window.flowix?.installTemplate;
-      if (typeof installTemplate !== 'function') {
-        hint.textContent = '请升级到支持模板安装的 Flowix 版本后，再应用此方案。';
+      const openSkillMarketView = window.flowix?.openSkillMarketView;
+      if (typeof openSkillMarketView !== 'function') {
+        hint.textContent = '请升级到支持技能市场知识库跳转的 Flowix 版本后，再应用此方案。';
         hint.dataset.state = 'error';
         return;
       }
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      updateLabel('正在安装…');
-      hint.textContent = '正在下载并安装模板，请稍候。';
-      hint.dataset.state = 'installing';
+      updateLabel('正在打开…');
+      hint.textContent = '正在打开技能市场的「知识库」视图…';
+      hint.dataset.state = 'opening';
       try {
-        await installTemplate('self-media-management');
+        const opened = await openSkillMarketView('templates');
+        if (!opened) throw new Error('无法打开技能市场，请稍后重试。');
         button.removeAttribute('aria-busy');
-        updateLabel('已应用');
-        hint.textContent = '已创建「自媒体管理」模板目录。打开该目录中的工作台开始使用。';
+        updateLabel('已打开');
+        hint.textContent = '技能市场已打开并切换到「知识库」视图，可在其中浏览和安装模板。';
         hint.dataset.state = 'success';
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (/already exists|同名|folder with this notebook template name/i.test(message)) {
-          hint.textContent = '「自媒体管理」目录已存在，本次没有覆盖任何文件。';
-        } else {
-          hint.textContent = message || '模板安装失败，请检查网络后重试。';
-        }
+        hint.textContent = message || '打开技能市场失败，请检查网络后重试。';
         hint.dataset.state = 'error';
         button.disabled = false;
         button.removeAttribute('aria-busy');

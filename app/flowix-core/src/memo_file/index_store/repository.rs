@@ -281,9 +281,6 @@ impl MemoFile {
         Ok(())
     }
 
-    pub fn sync_to_index_only(&self, memo: &Memo) -> std::io::Result<()> {
-        self.sync_index_on_write(memo)
-    }
 
     pub fn sync_index_on_delete(&self, relative_path: &str) -> std::io::Result<()> {
         let _guard = self.current_index_io.lock().expect("index_io poisoned");

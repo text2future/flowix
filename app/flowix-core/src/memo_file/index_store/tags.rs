@@ -3,16 +3,6 @@ use super::*;
 type TagUsageSummary = (Vec<String>, Vec<(String, usize)>, usize, usize, usize);
 
 impl MemoFile {
-    pub fn read_used_tag_ids(&self) -> std::io::Result<Vec<String>> {
-        Ok(self
-            .read_tag_usage_summary_for_notebook_id(Some(
-                &self.current_notebook_id_for_index(),
-            ))?
-            .1
-            .into_iter()
-            .map(|(tag, _)| tag)
-            .collect())
-    }
 
     pub fn read_notebook_tag_paths(
         &self,

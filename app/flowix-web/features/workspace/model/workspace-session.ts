@@ -41,5 +41,3 @@ export function initialWorkspaceSessions(): Record<WorkspaceSessionId, Workspace
     'column-2': createWorkspaceSession('column-2'),
   };
 }
-
-export const INITIAL_WORKSPACE_SESSIONS = initialWorkspaceSessions();

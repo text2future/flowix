@@ -38,5 +38,13 @@ export function restoreViewRecovery(value: unknown): SessionViewRecovery | undef
     const snapshot = restoreViewSnapshot(raw);
     return snapshot && key.length <= 1024 ? [[key, snapshot]] : [];
   }));
+  // Older Markdown adapters keyed slots by file path or ephemeral display ID.
+  // Entries already isolate documents; the last legacy slot is the latest
+  // capture (writes append slots). An existing semantic slot takes precedence.
+  const legacyMarkdown = Object.entries(slots).filter(([key, snapshot]) => key.startsWith('markdown:') && snapshot.kind === 'editor');
+  if (slots.markdown?.kind !== 'editor' && legacyMarkdown.length) {
+    slots.markdown = legacyMarkdown[legacyMarkdown.length - 1][1];
+  }
+  for (const [key] of legacyMarkdown) delete slots[key];
   return { version: 1, slots };
 }

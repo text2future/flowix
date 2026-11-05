@@ -7,9 +7,6 @@ impl MemoFile {
         self.register_existing_file_locked(path)
     }
 
-    pub fn register_existing_file_as_new(&self, path: &Path) -> Result<Memo, String> {
-        self.register_existing_file(path)
-    }
 
     pub fn register_existing_file_for_notebook_id(
         &self,

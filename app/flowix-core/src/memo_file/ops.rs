@@ -230,19 +230,6 @@ impl MemoFile {
             .map(|entry| MemoFile::index_entry_to_memo(&entry))
     }
 
-    pub fn find_memo_by_filename_for_notebook_id(
-        &self,
-        notebook_id: &str,
-        filename: &str,
-    ) -> Option<Memo> {
-        self.read_index_for_notebook_id(Some(notebook_id))
-            .ok()
-            .flatten()?
-            .memos
-            .into_iter()
-            .find(|entry| entry.filename == filename)
-            .map(|entry| MemoFile::index_entry_to_memo(&entry))
-    }
 
     /// 公开 title 清洗工具: 供 index_store 复用, 行为等同 `sanitize_filename_component`。
     pub fn sanitize_memo_filename_component(title: &str) -> String {

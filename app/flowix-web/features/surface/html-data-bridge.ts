@@ -173,15 +173,6 @@ async function resolveNotebookCustomViews(ctx: HtmlDataContext): Promise<unknown
   return { filters: Array.isArray(data.filters) ? data.filters : [] };
 }
 
-export interface HtmlViewDataParams {
-  /** Notebook-relative collection file, e.g. "docs.index.yaml" or "计划表.table.yaml". */
-  relativePath: string;
-  /** Optional view id inside the collection; existence is validated. */
-  viewId?: string;
-  /** Row cap, 1..MAX_VIEW_ROWS, default 50. */
-  limit?: number;
-}
-
 export interface HtmlViewDataField {
   id: string;
   name: string;

@@ -494,18 +494,6 @@ impl<'a> NoteService<'a> {
         }
     }
 
-    pub fn list_page(
-        &mut self,
-        notebook: &str,
-        filter: &str,
-        sort: &str,
-        tag_id: Option<&str>,
-        color: Option<&str>,
-        cursor: Option<&str>,
-        limit: Option<usize>,
-    ) -> Result<NotePage, FlowixError> {
-        self.list_notes_by_path_page(notebook, filter, sort, tag_id, color, cursor, limit)
-    }
 
     pub fn search(
         &mut self,

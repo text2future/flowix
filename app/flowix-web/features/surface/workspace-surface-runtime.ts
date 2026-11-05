@@ -144,12 +144,6 @@ export function reportWorkspaceSurfacePresentation(
   return true;
 }
 
-export function clearWorkspaceSurfacePresentation(viewId: string, owner?: object) {
-  const currentOwner = owners.get(viewId);
-  if (currentOwner && owner !== currentOwner) return;
-  clearSnapshot(viewId);
-}
-
 export function getWorkspaceSurfacePresentation(viewId: string): Readonly<SurfacePresentationUpdate> {
   return snapshots.get(viewId) ?? EMPTY_PRESENTATION;
 }

@@ -1,36 +1,8 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { sanitizeAppLanguage, type AppLanguage } from "@/lib/i18n"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
-}
-
-/**
- * Format a timestamp (ms) to a localized date string.
- *
- *  - zh-CN: 紧凑数字格式 `YYYY/M/D HH:mm` (列表项高密度场景)
- *  - en-US: 简写形式 `June 24, 2025` (Intl.DateTimeFormat long month)
- *
- *  language 由调用方传入 (lib/util 不引入 user-settings-store, 与 errors.ts /
- *  export.ts 同源约定)。
- */
-export function formatDateTime(
-  timestamp: number | null | undefined,
-  language: AppLanguage,
-): string {
-  if (!timestamp) return ''
-  const d = new Date(timestamp)
-  const lang = sanitizeAppLanguage(language)
-  if (lang === "en-US") {
-    return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }).format(d)
-  }
-  const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /**

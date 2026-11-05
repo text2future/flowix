@@ -1,6 +1,5 @@
 import type { ChatMessage } from "@/types";
 import type {
-  AgentEvent,
   AgentMessageAttachment,
   AgentTypeKey,
 } from "@/types/agent";
@@ -8,8 +7,6 @@ import {
   appendFirstMessageContext,
   buildUserLlmContent,
 } from "@features/agent/store/context-block";
-import { applyRunStarted } from "@features/agent/store/run-lifecycle";
-import type { ThreadState } from "@features/agent/store/thread-runtime-state";
 
 export interface OutgoingUserPayload {
   llmContent: string;
@@ -107,26 +104,6 @@ export function prepareUserMessage({
       systemReminderDocumentPath: userPayload.systemReminderDocumentPath,
       timestamp: new Date().toISOString(),
     },
-  };
-}
-
-/**
- * "乐观"地把 user message 推进 thread state ── 与后端 IPC 触发并行。
- * `applyRunStarted` 建 active run, 紧接在 messages 末尾 append user message。
- *
- * 这里不写 `isLoading` 由 stream_start chunk 收敛 ── 比直接 set=true 更
- * 准确, 避免后端未实际启动时 UI 已经显示"运行中"。
- */
-export function applyOptimisticUserRun(
-  st: ThreadState,
-  event: AgentEvent,
-  userMessage: ChatMessage,
-): ThreadState {
-  return {
-    ...applyRunStarted(st, event),
-    messages: [...st.messages, userMessage],
-    pendingAssistantId: null,
-    pendingReasoningId: null,
   };
 }
 

@@ -108,14 +108,6 @@ export function mergeConversationPage(
   return { itemsByIdentity, orderedIdentities };
 }
 
-/** Add live Zustand rows while keeping the same identity and sort contract. */
-export function mergeLiveConversation(
-  current: ConversationPageState,
-  instance: AgentConversationInstance,
-): ConversationPageState {
-  return mergeConversationPage(current, [instance]);
-}
-
 export function updateConversationTitle(
   current: ConversationPageState,
   instanceId: string,

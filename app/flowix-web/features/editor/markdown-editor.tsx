@@ -199,7 +199,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   // 运行时通过下面的同步 effect dispatch meta 触发重新装饰。
   const resolvedPlaceholderRef = useRef(resolvedPlaceholder);
   resolvedPlaceholderRef.current = resolvedPlaceholder;
-  const recovery = useSessionViewChannel(`markdown:${ownerPath ?? ''}`);
+  // The channel already scopes state by session and navigation entry.
+  const recovery = useSessionViewChannel('markdown');
+  const recoveryChannelRef = useRef(recovery);
+  recoveryChannelRef.current = recovery;
+  const viewRecoveryRef = useRef<ReturnType<typeof attachEditorViewRecovery> | null>(null);
   const elementRef = useRef<HTMLDivElement>(null);
   const editorMountRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -656,7 +660,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       content: parsedContent ?? initialContent,
       contentType: parsedContent ? 'json' : 'markdown',
       editable,
-      autofocus: !recovery?.read() && autoFocus ? 'end' : false,
+      autofocus: !recoveryChannelRef.current?.read() && autoFocus ? 'end' : false,
       onUpdate: ({ transaction }) => {
         if (isApplyingExternalContentRef.current || !transaction.docChanged) return;
         localEditVersionRef.current += 1;
@@ -727,10 +731,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     );
 
     const scrollEl = elementRef.current ? findScrollable(elementRef.current) : null;
-    const viewRecovery = attachEditorViewRecovery(editor, recovery, scrollEl);
     if (scrollEl) {
       const handleScroll = () => {
-        viewRecovery.schedule();
+        viewRecoveryRef.current?.schedule();
         setIsScrolling(true);
         if (scrollTimerRef.current) {
           clearTimeout(scrollTimerRef.current);
@@ -744,7 +747,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       scrollEl.addEventListener('scroll', handleScroll, { passive: true });
 
       return () => {
-        viewRecovery.dispose();
+        viewRecoveryRef.current?.dispose();
+        viewRecoveryRef.current = null;
         serializePendingChanges({ force: true });
         editorDom.removeEventListener('compositionstart', handleCompositionStart);
         editorDom.removeEventListener('compositionend', handleCompositionEnd);
@@ -757,7 +761,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
 
     return () => {
-      viewRecovery.dispose();
+      viewRecoveryRef.current?.dispose();
+      viewRecoveryRef.current = null;
       serializePendingChanges({ force: true });
       editorDom.removeEventListener('compositionstart', handleCompositionStart);
       editorDom.removeEventListener('compositionend', handleCompositionEnd);
@@ -767,7 +772,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       setEditorInstance(null);
     };
   }, [
-    recovery,
     applyExternalContent,
     findScrollable,
     getCurrentAttachmentOwnerPath,
@@ -776,6 +780,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     schedulePendingSerialization,
     serializePendingChanges,
   ]);
+
+  // Recovery is an adapter to a live editor, not an editor lifecycle input.
+  useLayoutEffect(() => {
+    if (!editorInstance || editorInstance.isDestroyed) return;
+    const scrollEl = elementRef.current ? findScrollable(elementRef.current) : null;
+    const binding = attachEditorViewRecovery(editorInstance, recovery, scrollEl);
+    viewRecoveryRef.current = binding;
+    return () => {
+      binding.dispose();
+      if (viewRecoveryRef.current === binding) viewRecoveryRef.current = null;
+    };
+  }, [editorInstance, recovery, findScrollable]);
 
   useLayoutEffect(() => {
     if (!editorInstance || transitionId === null || firstFrameTraceRef.current === transitionId) {

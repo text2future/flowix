@@ -480,11 +480,6 @@ impl MemoFile {
         Ok(max_sort.map(|v| v + 10).unwrap_or(10))
     }
 
-    /// Return the first registered notebook, or a non-persisted placeholder
-    /// when no notebook has been registered yet.
-    pub fn init_default_notebook(&self) -> NotebookConfig {
-        self.init_default_notebook_with_status().0
-    }
 
     /// Return the first registered notebook and report whether this call created it.
     ///

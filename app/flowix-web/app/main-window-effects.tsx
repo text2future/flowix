@@ -52,6 +52,7 @@ import {
 } from '@features/notifications/actionable-notice-store';
 import { notifyCreatedDocument, removeCreatedDocumentNotices } from './created-document-notices';
 import { mountMainWindowNotebookEvents } from './main-window-notebook-events';
+import { mountMainWindowHeartbeat } from './main-window-heartbeat';
 
 const logger = createLogger('main-window-effects');
 const NAVIGATION_FAILURE_NOTICE_ID = 'workspace-navigation-failure';
@@ -120,6 +121,10 @@ export function MainWindowEffects() {
   }, [mainWindowTitle]);
 
   useEffect(() => mountMainWindowNotebookEvents(), []);
+
+  // Diagnostics only: the native side records a stalled renderer when a
+  // visible, restored window stops reporting.
+  useEffect(() => mountMainWindowHeartbeat(), []);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;

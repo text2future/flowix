@@ -44,19 +44,6 @@ export function appendTransientDshCommandResult(
   useAgentSessionStore.getState().appendTransientCommandResult(threadId, content);
 }
 
-/** Commands are independent DSH operations, but the composer must not start a
- * model turn while one is mutating the same session (especially /compact). */
-export function hasPendingDshCommand(threadId: string | null | undefined): boolean {
-  if (!threadId) return false;
-  const projection = useAgentSessionStore.getState().threadProjections[threadId];
-  return (
-    projection?.runs.dshCommand?.status === "pending" ||
-    !!projection?.messages.some(
-      (message) => message.messageType === "dsh-command" && message.isLoading,
-    )
-  );
-}
-
 export interface DshCommandMessage {
   content: string;
   llmContent: string;

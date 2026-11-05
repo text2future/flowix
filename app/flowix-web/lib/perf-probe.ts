@@ -161,20 +161,3 @@ if (typeof window !== 'undefined') {
     enable: () => setPerfEnabled(true),
   };
 }
-
-/** Long tasks are the clearest signal of "the UI froze while typing". */
-export function installLongTaskObserver(): () => void {
-  if (typeof PerformanceObserver === 'undefined') return () => {};
-  let observer: PerformanceObserver;
-  try {
-    observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        perfMark('long-task', entry.duration, { entryType: entry.entryType });
-      }
-    });
-    observer.observe({ entryTypes: ['longtask'] });
-  } catch {
-    return () => {};
-  }
-  return () => observer.disconnect();
-}

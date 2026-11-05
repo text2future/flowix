@@ -212,37 +212,7 @@ pub(crate) fn refresh_current_notebook_watcher(state: &AppState, app: &AppHandle
     }
 }
 
-pub(crate) fn set_notebook_watching_suspended(app: &AppHandle, notebook_id: &str, suspended: bool) {
-    if let Some(watcher) = current_watcher(app) {
-        if let Ok(mut watcher) = watcher.write() {
-            watcher.set_notebook_suspended(notebook_id, suspended);
-        }
-    }
-}
 
-pub(crate) fn refresh_notebook_watcher(state: &AppState, app: &AppHandle, notebook_id: &str) {
-    let transition = state
-        .notebook_transition
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let config = {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        if memo_file.current_notebook_id_value().as_deref() != Some(notebook_id) {
-            return;
-        }
-        memo_file.get_notebook_config_by_id(notebook_id)
-    };
-    if let (Some(config), Some(watcher)) = (config, current_watcher(app)) {
-        if let Ok(mut watcher) = watcher.write() {
-            if watcher.refresh_notebook_root(&config) {
-                return;
-            }
-        }
-    }
-    // Startup and watcher failures still use the established full recovery path.
-    drop(transition);
-    refresh_current_notebook_watcher(state, app);
-}
 
 pub(crate) fn switch_notebook_trusting_index(
     state: &AppState,

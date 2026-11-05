@@ -6,7 +6,9 @@ node_modules/
 
 # Build outputs
 dist/
-.build/
+# 不带尾斜杠：同时覆盖目录与同名文件（曾经因 `.build/` 只匹配目录，
+# 让一个 0 字节的 `app/.build` 文件绕过忽略规则进了库）
+.build
 dsh-appserver/bin/
 app/target/
 app/flowix-desktop/target/

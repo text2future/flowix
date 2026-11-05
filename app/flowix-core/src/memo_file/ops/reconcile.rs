@@ -673,14 +673,6 @@ impl MemoFile {
         self.reload_memo_inner_locked(memo)
     }
 
-    /// 同 `reload_memo_from_disk`, 但定位用 `filename`。
-    pub fn reload_memo_from_disk_by_filename(&self, filename: &str) -> Result<Memo, String> {
-        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
-        let memo = self
-            .find_memo_by_filename(filename)
-            .ok_or_else(|| format!("memo with filename {filename} not in memo index"))?;
-        self.reload_memo_inner_locked(memo)
-    }
 
     pub fn reload_memo_from_disk_by_filename_for_notebook_id(
         &self,
@@ -760,10 +752,6 @@ impl MemoFile {
         notebook_path_from_relative(&base, relative_path).ok()
     }
 
-    /// 按 filename 拼绝对路径。
-    pub fn file_path_for(&self, filename: &str) -> PathBuf {
-        self.get_memo_base().join(filename)
-    }
 
     fn persist_memo_metadata_to_markdown(
         &self,
@@ -895,85 +883,6 @@ impl MemoFile {
         MemoFile::sync_index_on_delete_for_notebook_id_locked(self, notebook_id, &memo.relative_path).is_ok()
     }
 
-    /// Idempotently sync an existing memo entry to the filename currently on disk.
-    ///
-    /// The watcher can observe `Create/Modify(new_path)` while an internal save is
-    /// still holding `current_index_io`. By the time this method obtains the lock,
-    /// the save path may already have updated the index to `new_path`. Resolve by
-    /// relative path inside the lock so both states converge and still produce an update.
-    pub fn sync_memo_filename_from_disk_key(
-        &self,
-        relative_path: &str,
-        new_path: &Path,
-    ) -> Result<Memo, String> {
-        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
-        let notebook_id = self.current_notebook_id_for_index();
-        let location = self
-            .resolve_note_location_for_notebook_id(&notebook_id, relative_path)
-            .map_err(|e| format!("resolve memo location failed: {e}"))?
-            .ok_or_else(|| format!("note path not in index: {relative_path}"))?;
-
-        if !new_path.is_md() {
-            return Err(format!("new path is not markdown: {}", new_path.display()));
-        }
-
-        let base = PathBuf::from(&location.notebook.path);
-        let new_relative_path = notebook_relative_path(&base, new_path)?;
-        let new_filename = filename_from_notebook_relative_path(&new_relative_path);
-        let expected_new_abs = notebook_path_from_relative(&base, &new_relative_path)?;
-        if normalize_for_compare(&expected_new_abs) != normalize_for_compare(new_path) {
-            return Err(format!(
-                "new path not under memo notebook base: {}",
-                new_path.display()
-            ));
-        }
-
-        let current_relative_path = location.memo.relative_path.clone();
-        if current_relative_path != new_relative_path {
-            let old_abs = notebook_path_from_relative(&base, &current_relative_path)?;
-            if old_abs.exists() {
-                return Err(format!(
-                    "indexed file still exists; treating as copy instead of rename: {}",
-                    old_abs.display()
-                ));
-            }
-        }
-
-        let list = self
-            .read_index_for_notebook_id(Some(&location.notebook.id))
-            .map_err(|e| format!("read memo index failed: {e}"))?
-            .unwrap_or_default();
-        if let Some(existing) = list
-            .memos
-            .iter()
-            .find(|entry| entry.relative_path == new_relative_path && entry.relative_path != relative_path)
-        {
-            return Err(format!(
-                "new filename already occupied by another note (path={})",
-                existing.relative_path
-            ));
-        }
-
-        let content = std::fs::read_to_string(new_path)
-            .map_err(|e| format!("failed to read new path {}: {e}", new_path.display()))?;
-        let mut memo = MemoFile::index_entry_to_memo(&location.memo);
-        memo.filename = new_filename;
-        memo.relative_path = new_relative_path;
-        apply_derived_memo_fields(&mut memo, &content);
-        memo.updated_at = chrono::Utc::now().timestamp_millis();
-
-        if current_relative_path != memo.relative_path {
-            MemoFile::sync_index_on_delete_for_notebook_id_locked(
-                self,
-                &location.notebook.id,
-                &current_relative_path,
-            )
-            .map_err(|e| format!("remove old note index row failed: {e}"))?;
-        }
-        MemoFile::sync_index_on_write_for_notebook_id_locked(self, &location.notebook.id, &memo)
-            .map_err(|e| format!("sync memo index failed: {e}"))?;
-        Ok(memo)
-    }
 
     pub fn sync_memo_filename_from_disk_key_for_notebook_id(
         &self,
@@ -1132,64 +1041,6 @@ impl MemoFile {
         self.rename_memo_file_for_notebook_id_locked(notebook_id, old_path, new_path)
     }
 
-    /// Move one indexed memo into an existing notebook directory while keeping
-    /// its internal cache ID associated with the new relative path.
-    pub fn move_memo_to_directory_for_notebook_id(
-        &self,
-        notebook_id: &str,
-        relative_path: &str,
-        parent_relative_path: &str,
-    ) -> Result<(Memo, PathBuf, PathBuf), String> {
-        let _index_io_guard = self.current_index_io.lock().expect("index_io poisoned");
-        let base = self.memo_base_for_notebook_id_result(notebook_id)?;
-        let memo = self
-            .read_memo_for_notebook_id(notebook_id, relative_path)
-            .ok_or_else(|| format!("note path not in notebook {notebook_id}: {relative_path}"))?;
-        let old_path = notebook_path_from_relative(&base, &memo.relative_path)?;
-        let parent = if parent_relative_path.trim().is_empty() {
-            base.clone()
-        } else {
-            notebook_path_from_relative(&base, parent_relative_path)?
-        };
-        if !parent.is_dir() {
-            return Err(format!(
-                "memo destination directory does not exist: {}",
-                parent.display()
-            ));
-        }
-        let destination_relative = if parent_relative_path.trim().is_empty() {
-            memo.filename.clone()
-        } else {
-            format!(
-                "{parent_relative_path}/{filename}",
-                filename = memo.filename
-            )
-        };
-        if !parent_relative_path.trim().is_empty()
-            && super::super::FileManagementPolicy::from_notebook_root(&base).is_tree_hidden_at(&base, Path::new(parent_relative_path))
-        {
-            return Err("memo destination is an internal notebook directory".to_string());
-        }
-        let new_path = notebook_path_from_relative(&base, &destination_relative)?;
-        if old_path == new_path {
-            return Ok((memo, old_path, new_path));
-        }
-        if new_path.exists() {
-            return Err(format!(
-                "FILE_EXISTS: destination file already exists: {}",
-                new_path.display()
-            ));
-        }
-
-        fs::rename(&old_path, &new_path).map_err(|error| format!("move memo failed: {error}"))?;
-        match self.rename_memo_file_for_notebook_id_locked(notebook_id, &old_path, &new_path) {
-            Ok(moved) => Ok((moved, old_path, new_path)),
-            Err(error) => {
-                let _ = fs::rename(&new_path, &old_path);
-                Err(error)
-            }
-        }
-    }
 
     pub(super) fn rename_memo_file_for_notebook_id_locked(
         &self,

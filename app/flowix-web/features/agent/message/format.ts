@@ -1,11 +1,9 @@
 ﻿// format.ts ── 字符串 / 时间格式化工具, 非工具元数据。
 //
 // 历史: formatToolName 一度在此文件 ── 它是工具元数据, 已迁到 ./tools.tsx
-// (单源真源, getToolLabel)。本文件保留 truncateStart / extractFileName /
-// formatRelativeTime 三个工具, 被 message-tool.tsx / message-user.tsx /
-// agent-message.ts 共用 ── 不归"工具元数据", 保留。
-
-import { translate, type AppLanguage, type I18nParams } from "@/lib/i18n";
+// (单源真源, getToolLabel)。本文件保留 truncateStart / extractFileName
+// 两个纯字符串工具, 被 message-tool.tsx / message-user.tsx / agent-message.ts
+// 共用 ── 不归"工具元数据", 保留。
 
 export function truncateStart(path: string, maxChars: number = 20): string {
   if (path.length <= maxChars) return path;
@@ -28,20 +26,4 @@ export function extractFileName(path: string): string {
   const withoutExt = hasProperExtension ? fileName.slice(0, lastDot) : fileName;
 
   return withoutExt || fileName;
-}
-
-export function formatRelativeTime(timestamp: number, language: AppLanguage = "zh-CN"): string {
-  const now = Date.now();
-  const diffMs = now - timestamp;
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-
-  const intlLocale = language === "zh-CN" ? "zh-CN" : "en-US";
-  if (diffSec < 60) return translate(language, "agent.time.justNow");
-  if (diffMin < 60) return translate(language, "agent.time.minutesAgo", { m: diffMin } satisfies I18nParams);
-  if (diffHour < 24) return translate(language, "agent.time.hoursAgo", { h: diffHour } satisfies I18nParams);
-  if (diffDay < 7) return translate(language, "agent.time.daysAgo", { d: diffDay } satisfies I18nParams);
-  return new Date(timestamp).toLocaleDateString(intlLocale);
 }

@@ -57,10 +57,6 @@ export function useSpaceTreeVisibility() {
   return { showHiddenFolders, showSystemFolders };
 }
 
-export function getMemoListViewPreference() {
-  return useUserSettingsStore.getState().settings.memoListView;
-}
-
 export function setMemoListViewPreference(
   view: UserSettings['memoListView'],
 ): Promise<void> {

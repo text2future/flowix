@@ -278,33 +278,6 @@ impl ExternalDocumentWatchState {
         Ok(())
     }
 
-    pub fn release_window(&self, window_label: &str) {
-        let Ok(mut registry) = self.registry.lock() else {
-            return;
-        };
-        let lease_ids = registry
-            .leases
-            .iter()
-            .filter(|(_, lease)| lease.window_label == window_label)
-            .map(|(lease_id, _)| lease_id.clone())
-            .collect::<Vec<_>>();
-        let mut paths = Vec::new();
-        for lease_id in lease_ids {
-            if let Some(lease) = registry.leases.remove(&lease_id) {
-                registry.generations.remove(&lease_id);
-                registry.revisions.remove(&lease_id);
-                registry.delivering.remove(&lease_id);
-                registry.delivery_epochs.remove(&lease_id);
-                if let Some(path) = decrement_path_ref_count(&mut registry, &lease.path) {
-                    paths.push(path);
-                }
-            }
-        }
-        drop(registry);
-        for path in paths {
-            self.unwatch_path(&path);
-        }
-    }
 
     pub fn begin_window_write(&self, app: &tauri::AppHandle, path: &Path) {
         // Both notebook and open-document watchers observe this same write.

@@ -1,9 +1,4 @@
 /** Path-keyed memo event projection mirrored from the Core note DTO. */
-import {
-  noteListItemKey,
-  noteListItemRelativePath,
-  noteListItemTitle,
-} from './note-item';
 import type { NoteColor, AgentThreadItem } from './note-item';
 
 export {
@@ -34,10 +29,3 @@ export interface MemoItem {
   properties: Record<string, unknown>;
   isOpen?: boolean;
 }
-
-/** @deprecated Use noteListItemKey. */
-export const memoListItemKey = noteListItemKey;
-/** @deprecated Use noteListItemRelativePath. */
-export const memoListItemRelativePath = noteListItemRelativePath;
-/** @deprecated Use noteListItemTitle. */
-export const memoListItemTitle = noteListItemTitle;

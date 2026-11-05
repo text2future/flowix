@@ -1,5 +1,5 @@
 import type { SessionSurfaceTarget } from '../model/session-target';
-import type { SessionNavigationTransaction, SessionNavigationFailure, SessionNavigationPhase } from '../model/session-navigation';
+import type { SessionNavigationTransaction, SessionNavigationFailure } from '../model/session-navigation';
 export type CollectionWorkspaceTarget = import('../model/surface-target').CollectionSurfaceTarget;
 
 /** Deprecated renderer compatibility name; the model is owned by sessions. */
@@ -24,8 +24,6 @@ export function workColumnTargetFilePath(target: WorkColumnTarget): string | nul
 }
 
 export const EMPTY_WORK_COLUMN_TARGET = { kind: 'empty' } as const satisfies WorkColumnTarget;
-
-export type WorkColumnNavigationPhase = SessionNavigationPhase;
 export type WorkColumnNavigationFailure = SessionNavigationFailure;
 export interface WorkColumnNavigationState extends Omit<SessionNavigationTransaction, 'showBlockingLoading'> {
   showWorkColumnLoading: boolean;

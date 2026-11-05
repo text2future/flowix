@@ -31,9 +31,6 @@ impl FileManagementPolicy {
             || EXCLUDED_DIRECTORY_NAMES.contains(&name)
     }
 
-    pub fn is_locked_name(name: &str) -> bool {
-        is_internal_directory_name(name) || name.eq_ignore_ascii_case(".index.yaml")
-    }
 
     /// Kept for call-site stability: the policy no longer reads any
     /// notebook-local configuration file.

@@ -137,28 +137,20 @@ pub(crate) fn install_window(window: &tauri::WebviewWindow) -> Option<Arc<CloseT
 pub(crate) fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     match event {
         tauri::WindowEvent::CloseRequested { api, .. } => {
-            api.prevent_close();
-            let lifetime = window_lifetime(window);
-            if !lifetime.is_alive() {
+            // Resolve the instance before suppressing the close. `prevent_close`
+            // is irreversible, so doing it first used to turn any resolution
+            // failure into a window that could never be closed at all: no
+            // destroy, no watchdog, and no way out but killing the process.
+            let Some(target) = close_target_for(window) else {
+                crate::runtime_log::record_event(
+                    "warn",
+                    "window.close.uncoordinated",
+                    window.label(),
+                );
                 return;
-            }
-            let target = state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .targets
-                .get(&lifetime.id())
-                .cloned();
-            let target = target.or_else(|| {
-                window
-                    .get_webview_window(window.label())
-                    .and_then(|webview| {
-                        let target = install_window(&webview)?;
-                        (target.lifetime.id() == lifetime.id()).then_some(target)
-                    })
-            });
-            if let Some(target) = target {
-                request_target(target, Instant::now());
-            }
+            };
+            api.prevent_close();
+            request_target(target, Instant::now());
         }
         tauri::WindowEvent::Destroyed => {
             let lifetime = window_lifetime(window);
@@ -167,6 +159,30 @@ pub(crate) fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent
         }
         _ => {}
     }
+}
+
+/// Resolve the coordinator record for the *instance* that received the close.
+/// Pure lookup: it never prevents the close and never mutates the coordinator,
+/// so a failed resolution stays recoverable by the caller.
+fn close_target_for(window: &tauri::Window) -> Option<Arc<CloseTarget>> {
+    let lifetime = window_lifetime(window);
+    if !lifetime.is_alive() {
+        return None;
+    }
+    let target = state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .targets
+        .get(&lifetime.id())
+        .cloned();
+    target.or_else(|| {
+        window
+            .get_webview_window(window.label())
+            .and_then(|webview| {
+                let target = install_window(&webview)?;
+                (target.lifetime.id() == lifetime.id()).then_some(target)
+            })
+    })
 }
 
 fn request_target(target: Arc<CloseTarget>, started: Instant) {
