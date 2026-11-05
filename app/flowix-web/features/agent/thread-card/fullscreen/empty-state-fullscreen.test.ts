@@ -3,6 +3,15 @@ import StarterKit from "@tiptap/starter-kit";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createAgentClientMock } from "@features/agent/store/agent-client.test-support";
 
+// thread-card 的扩展图必须用动态导入：`@platform/tauri/client` 的 mock 工厂引用了
+// 顶层的 `createAgentClientMock`，而 vi.mock 会被提升到 import 之前 —— 改成静态
+// 导入会直接在 TDZ 里炸（Cannot access '__vi_import_3__' before initialization）。
+// 代价是首次求值这条图要 ~24s（本机实测），所以把它放进 beforeAll 并单独放宽
+// hookTimeout：钩子承担模块图加载，测试体本身只有约 0.3s。
+let AgentThreadCard: (typeof import("@features/agent/thread-card"))["AgentThreadCard"];
+
+vi.setConfig({ hookTimeout: 180_000 });
+
 /**
  * 空状态形态与全屏的联动，必须在真实卡片上验证：
  * 形态只在这些时刻重算 ── 首次创建、以及每次 render 走
@@ -101,7 +110,7 @@ async function settle(): Promise<void> {
 describe("Thread Card 空状态随全屏切换", () => {
   let editor: Editor | null = null;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // jsdom 里既没有 ResizeObserver 也没有 idle 队列；空状态在全屏时依赖空闲
     // 回调节流加载技能，缺了会让展开态停在加载中。
     vi.stubGlobal("ResizeObserver", class {
@@ -114,6 +123,7 @@ describe("Thread Card 空状态随全屏切换", () => {
       return 1;
     });
     vi.stubGlobal("cancelIdleCallback", vi.fn());
+    ({ AgentThreadCard } = await import("@features/agent/thread-card"));
   });
 
   afterEach(() => {
@@ -123,7 +133,6 @@ describe("Thread Card 空状态随全屏切换", () => {
   });
 
   it("空卡片进出全屏时换成对应形态的空状态", async () => {
-    const { AgentThreadCard } = await import("@features/agent/thread-card");
     const host = document.createElement("div");
     document.body.append(host);
     editor = new Editor({
