@@ -25,7 +25,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type RefObject,
 } from 'react';
 import {
   ChevronRight, ChevronLeft, Plus,
@@ -45,7 +44,6 @@ import { toast } from '@/lib/toast';
 import { FileTreeLoadingSkeleton } from '@shared/ui/file-tree-loading-skeleton';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
-import { useComposingValue } from '@shared/hooks/use-composing-value';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
 import { ListSurfaceViewport } from '@shared/ui/list-surface';
 import { Button } from '@shared/ui/button';
@@ -56,7 +54,6 @@ import { useCustomFilterStore } from '@features/memo/store/custom-filter-store';
 import { NotebookPinnedSection } from '@features/memo/components/notebook-file-tree-sections';
 import { useNotebookPinnedNotes } from '@features/memo/components/use-notebook-pinned-notes';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
-import folderIcon from '@/assets/folder-outline.svg?raw';
 import {
   flattenLoadedTree,
   flattenVisibleTree,
@@ -87,6 +84,7 @@ import { AgentRepositoriesSection } from './notebook-repositories-section';
 import { useRepositoryFileOpen } from './use-repository-file-open';
 import { NotebookMoreSection } from './notebook-more-section';
 import { TREE_EDGE_GUTTER, INDENT_PER_LEVEL, TREE_ROW_GAP, TREE_ROW_HEIGHT, TREE_ROW_SIZE } from './notebook-tree-layout';
+import { NotebookTreeDraft } from './notebook-tree-draft';
 import { useNotebookTreeInteraction } from './use-notebook-tree-interaction';
 import { useNotebookTreeDragController } from './use-notebook-tree-drag-controller';
 import type { NotebookMoveResult, NotebookMoveSource } from './use-notebook-tree-drag-controller';
@@ -1424,73 +1422,6 @@ export function NotebookFileTree({
             />
           </div>
       </div>
-    </div>
-  );
-}
-
-function NotebookTreeDraft({
-  draft,
-  depth,
-  onChange,
-  onSubmit,
-  onCancel,
-  inputRef,
-  style,
-  'data-notebook-tree-depth': dataDepth,
-}: {
-  draft: { requestId: number; value: string };
-  depth: number;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  style?: CSSProperties;
-  'data-notebook-tree-depth'?: number;
-}) {
-  const { t } = useI18n();
-  const draftInput = useComposingValue(draft.value, onChange);
-  return (
-    <div
-      data-notebook-tree-depth={dataDepth}
-      className="flex h-8 items-center px-1.5"
-      style={{
-        marginLeft: TREE_EDGE_GUTTER
-          + depth * INDENT_PER_LEVEL,
-        ...style,
-      }}
-    >
-      <span
-        aria-hidden="true"
-        data-notebook-tree-draft-icon="folder"
-        className="relative flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[var(--brand)]"
-      >
-        <span
-          className="absolute inset-0 flex items-center justify-center"
-          dangerouslySetInnerHTML={{ __html: folderIcon }}
-        />
-      </span>
-      <input
-        key={draft.requestId}
-        ref={inputRef}
-        autoFocus
-        value={draftInput.value}
-        placeholder={t('memo.fileTree.newFolder')}
-        onChange={draftInput.onChange}
-        onCompositionStart={draftInput.onCompositionStart}
-        onCompositionEnd={draftInput.onCompositionEnd}
-        onBlur={onSubmit}
-        onKeyDown={(event) => {
-          if (draftInput.isComposingKeyboardEvent(event.nativeEvent)) return;
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            onSubmit();
-          } else if (event.key === 'Escape') {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
-        className="ml-1.5 h-5 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm outline-none"
-      />
     </div>
   );
 }

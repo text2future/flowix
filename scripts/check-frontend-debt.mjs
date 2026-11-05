@@ -11,7 +11,7 @@ const LOGGER_FILE = join(ROOT, 'lib/logger.ts');
 // Ratchets: lower these numbers as legacy debt is removed. Never raise them to
 // make CI green; new code must use typed boundaries and createLogger().
 const MAX_EXPLICIT_ANY = 0;
-const MAX_DIRECT_CONSOLE_CALLS = 106;
+const MAX_DIRECT_CONSOLE_CALLS = 102;
 
 // 千行文件"禁止增长"闸门（T4-0，见 docs/architecture-78-to-85-plan.md）。
 // 规则：
@@ -28,27 +28,35 @@ const MAX_NEW_FILE_LINES = 1000;
 // 测试文件（agent-thread-card.test / markdown-editor.select-all.test）例外：
 // docs/architecture-78-to-85-plan.md 明确「千行测试文件冻结即可，不主动拆，拆分收益低」，
 // 而新增断言必然加行，故 2026-11-03 一并按实测对齐，不再以「续写」论。
+//
+// 2026-11-05 处置（本轮不再上调任何**生产**文件的记录值）：
+//   - notebook-file-tree.tsx 1447→1427、markdown-editor.tsx 964→941：抽出
+//     NotebookTreeDraft / normalizeTaskItemPlaceholders + resetEditorHistory，
+//     是从源头把行数降下来，不是放宽门槛；
+//   - notebook-file-tree.test.tsx 1499→1556、markdown-editor.select-all.test.tsx
+//     1061→1081：测试文件按上述先例对齐实测（新增的是断言，不是待拆逻辑）。
+// 若将来生产文件再超限，唯一合法出路仍是拆分，不得在这里改大数字。
 const FROZEN_FILES = {
-  'features/multidimensional-table/table-document-view.tsx': 1944,
+  'features/multidimensional-table/table-document-view.tsx': 1929,
   'features/agent/thread-card/settings/external-agent-settings-controller.ts': 2383,
   'lib/i18n/messages.en-US.ts': { lines: 2374, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2346, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
-  'features/agent/thread-card/agent-thread-card-view.tsx': 2076,
-  'features/memo/components/notebook-file-tree.tsx': 1447,
-  'features/memo/components/notebook-file-tree.test.tsx': 1499,
+  'features/agent/thread-card/agent-thread-card-view.tsx': 2061,
+  'features/memo/components/notebook-file-tree.tsx': 1427,
+  'features/memo/components/notebook-file-tree.test.tsx': 1556,
   'features/memo/components/memo-list.tsx': 1359,
-  'features/workspace/use-cases/workspace-navigation.ts': 1358,
+  'features/workspace/use-cases/workspace-navigation.ts': 1356,
   'features/agent/thread-card/settings/notebook-agent-settings-dialog.tsx': 1261,
   'features/editor/extensions/frontmatter-property.test.ts': 1238,
-  'features/editor/extensions/codeblock-shiki/codeblock-shiki-view.ts': 1200,
+  'features/editor/extensions/codeblock-shiki/codeblock-shiki-view.ts': 1192,
   'features/editor/extensions/frontmatter-property-editor.ts': 1084,
-  'features/shell/main-layout.tsx': 596,
+  'features/shell/main-layout.tsx': 592,
   'features/editor/extensions/frontmatter-node-view.ts': 1084,
-  'features/agent/store/thread-history.ts': 1039,
-  'features/editor/markdown-editor.select-all.test.tsx': 1061,
+  'features/agent/store/thread-history.ts': 977,
+  'features/editor/markdown-editor.select-all.test.tsx': 1081,
   'features/agent/store/session-reducer/reduce-projection.test.ts': 1020,
-  'features/editor/markdown-editor.tsx': 964,
+  'features/editor/markdown-editor.tsx': 941,
   'features/agent/thread-card/agent-thread-card.test.ts': 4483,
   'features/agent/store/agent-session-actions.test.ts': 3153,
 };

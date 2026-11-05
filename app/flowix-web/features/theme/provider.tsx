@@ -3,8 +3,11 @@
 import { useEffect } from 'react';
 import { useAppTheme } from '@features/preferences/public/runtime-api';
 import { DEFAULT_THEME_ID, applyTheme, sanitizeTheme } from '@/lib/theme';
+import { createLogger } from '@/lib/logger';
 import { useMembershipAccess } from '@features/preferences/public/membership';
 import { windows } from '@platform/tauri/client';
+
+const logger = createLogger('theme-provider');
 
 /**
  * 全局主题应用层。
@@ -39,7 +42,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         // Storage is optional; the live native result remains authoritative.
       }
     }).catch((error) => {
-      console.warn('Failed to apply native window theme', error);
+      logger.warn('Failed to apply native window theme', { error });
     });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {

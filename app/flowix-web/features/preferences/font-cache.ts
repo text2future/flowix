@@ -1,5 +1,8 @@
 import { FONT_FAMILY_OPTIONS, type FontFamilyOption } from '@/lib/constants';
+import { createLogger } from '@/lib/logger';
 import { fontCache, type CachedFontResult, type FontCacheStatus } from '@platform/tauri/client';
+
+const logger = createLogger('font-cache');
 
 const registeredFontIds = new Set<string>();
 const registrationPromises = new Map<string, Promise<boolean>>();
@@ -25,7 +28,7 @@ export async function getDownloadedFontStatus(): Promise<Record<string, boolean>
       return acc;
     }, {});
   } catch (error) {
-    console.warn('Failed to read font cache status:', error);
+    logger.warn('Failed to read font cache status', { error });
     return {};
   }
 }

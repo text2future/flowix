@@ -1,4 +1,5 @@
 import type { PropertyFieldConfig } from '@/lib/constants';
+import { createLogger } from '@/lib/logger';
 import { createPropertyId } from '@/lib/property-identity';
 import { externalDocuments, collections, notebooks, notes } from '@platform/tauri/client';
 import { usePropertyPresetStore, persistPropertyRegistry, savePropertyPreset } from './property-preset-store';
@@ -9,6 +10,8 @@ import { joinNotebookMemoPath } from '@/lib/path';
 import { canonicalizePropertyKey } from './property-key';
 import { compareAndPatchDocumentProperties, removeDocumentProperty } from '@features/document/public/path-properties';
 import type { NoteEntry } from '@platform/tauri/client';
+
+const logger = createLogger('property-preset');
 
 export interface PropertyKeyMigrationResult {
   moved: number;
@@ -50,7 +53,7 @@ export async function ensureTableFieldPreset(field: TableField): Promise<Propert
 export async function bindTablePresetsFromSnapshot(document: MultidimensionalTableDocument): Promise<MultidimensionalTableDocument> {
   if (!usePropertyPresetStore.getState().loaded) {
     try { await usePropertyPresetStore.getState().load(); }
-    catch (error) { console.warn('预设数据库暂不可用，保留当前表格定义', error); return document; }
+    catch (error) { logger.warn('预设数据库暂不可用，保留当前表格定义', { error }); return document; }
   }
   let next = document;
   for (const legacyId of document.dataset.schema.preset_fields) {
@@ -77,10 +80,10 @@ export async function bindTablePresetsFromSnapshot(document: MultidimensionalTab
       ?? [...(registry.systemFields ?? []), ...registry.fields].find((item) => comparablePropertyKey(item.key) === comparablePropertyKey(field.property_key!));
     if (!current) {
       try { await ensureTableFieldPreset(field); }
-      catch (error) { console.warn('当前表格字段已保留，预设注册待重试', error); }
+      catch (error) { logger.warn('当前表格字段已保留，预设注册待重试', { error }); }
     } else if (field.preset_pending && !samePresetDefinition(current, presetFromTableField(field))) {
       try { await updatePresetFromTable(field, presetFromTableField(field)); }
-      catch (error) { console.warn('保留当前表格修改，预设同步待重试', error); }
+      catch (error) { logger.warn('保留当前表格修改，预设同步待重试', { error }); }
     }
   }
   return hydrateTablePresets(next);

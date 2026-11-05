@@ -1,4 +1,7 @@
+import { createLogger } from "@/lib/logger";
 import { agent } from "@platform/tauri/client/agent";
+
+const logger = createLogger("notebook-skill-display-names");
 
 /** Enrich discovered skills by source path; never add or enable runtime skills. */
 export async function withNotebookSkillDisplayNames<T extends { path?: string; displayName?: string }>(
@@ -21,7 +24,7 @@ export async function withNotebookSkillDisplayNames<T extends { path?: string; d
       return displayName ? { ...skill, displayName } : skill;
     });
   } catch (error) {
-    console.warn("Failed to read notebook Skill display names", error);
+    logger.warn("Failed to read notebook Skill display names", { error });
     return skills;
   }
 }
