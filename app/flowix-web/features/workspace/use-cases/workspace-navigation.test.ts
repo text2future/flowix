@@ -207,12 +207,19 @@ describe('workspace navigation', () => {
 
   it('clears a restored notebook target after registry rebuild', async () => {
     const { useWorkspaceRestoreStore } = await import('../store/workspace-restore-store');
-    useWorkspaceRestoreStore.getState().setDesiredTarget({
-      kind: 'table', notebookId: 'removed-notebook', notebookPath: '/old', filePath: '/old/table.csv',
-    });
+    const { useWorkspaceSessionStore, getSessionId } = await import('../store/workspace-session-store');
+    // captureWorkspaceRestoreTarget 读的是 session 的 navigation.current；restore
+    // store 里的 desiredTarget 只是启动期快照。两者都要设，否则 target 本来就是
+    // null，这条用例会绕过注册表校验分支而假通过。
+    const target = {
+      kind: 'table' as const, notebookId: 'removed-notebook', notebookPath: '/old', filePath: '/old/table.csv',
+    };
+    useWorkspaceRestoreStore.getState().setDesiredTarget(target);
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), target);
     mocks.memoState.notebooks = [];
     expect(captureWorkspaceRestoreTarget()).toBeNull();
     expect(useWorkspaceRestoreStore.getState().desiredTarget).toBeNull();
+    useWorkspaceSessionStore.getState().reset();
   });
 
   beforeEach(() => {

@@ -231,14 +231,21 @@ describe('first-run notebook setup', () => {
     expect(mocks.listeners.size).toBe(0);
   });
 
-  it('shows onboarding again on the next development launch after successful setup', async () => {
+  it('does not show onboarding again once the notebook list is no longer empty', async () => {
+    // 曾经的断言是"开发环境下次启动会再显示 onboarding"，但这条路径已经不存在：
+    // useMainWindowSystemController 只有一条规则 —— notebook 列表为空才显示
+    // onboarding，没有任何 DEV 分支，也没有持久化的"已完成"标记。
+    // 现在真正要守住的是：创建成功后新笔记本进了列表，因此再次挂载不会陷入
+    // "反复要求初始化"的循环。
     await mount();
     await click('创建并开始使用');
     await emitImport('completed');
+    expect(useNoteStore.getState().notebooks.map((item) => item.id)).toContain(notebook.id);
+
     await act(async () => root.unmount());
     root = createRoot(host);
     await mount();
-    expect(document.body.querySelector('#flowix-onboarding-notebook-form')).not.toBeNull();
+    expect(document.body.querySelector('#flowix-onboarding-notebook-form')).toBeNull();
     expect(host.querySelector('[data-ordinary-create]')).toBeNull();
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });

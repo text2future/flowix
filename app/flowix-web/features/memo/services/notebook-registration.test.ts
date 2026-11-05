@@ -28,7 +28,9 @@ describe('notebook registration critical path', () => {
     expect(await createNotebookRegistration({ name: ' Book ' })).toEqual({
       notebook, created: true, needsImport: true,
     });
-    expect(repository.create).toHaveBeenCalledExactlyOnceWith('Book', undefined, undefined, false);
+    // 第三个参数是图标 id: 未指定时 resolveNotebookIconId 会回落到
+    // DEFAULT_NOTEBOOK_ICON_ID, 与 onboarding 的同名断言保持一致。
+    expect(repository.create).toHaveBeenCalledExactlyOnceWith('Book', undefined, 'notebook_2_fill', false);
     expect(repository.ensureDefaultPath).not.toHaveBeenCalled();
     expect(repository.getDefaultPath).not.toHaveBeenCalled();
   });

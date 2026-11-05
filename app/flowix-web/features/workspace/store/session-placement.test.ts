@@ -79,7 +79,11 @@ describe('stable sessions and column placement', () => {
 });
 
 describe('legacy placement and delayed web callbacks', () => {
-  it('migrates v5 position names and session identities without losing their content', () => {
+  // b7a81f49 把持久化版本从 2 提到 6，并改成 `migrate: () => ({})`：
+  // 版本不符时整体丢弃旧快照，不再跑 `migrateLegacySessionData()` 那套
+  // v5 位置名 / v2 host 映射的迁移。下面两条改成守住"丢弃"这个契约本身 ——
+  // 不崩、不半迁移、不把旧 session id 漏进状态。
+  it('discards a pre-v6 placement snapshot instead of partially applying it', () => {
     const store = useWorkspaceSessionStore.getState();
     store.commitTarget('column-1', web('first'));
     store.commitTarget('column-2', web('second'));
@@ -91,12 +95,14 @@ describe('legacy placement and delayed web callbacks', () => {
         'session-2': { ...state.sessions['column-2'], id: 'session-2' },
       },
     }, state);
-    expect(restored.placement).toEqual({ 0: 'column-2', 1: 'column-1' });
-    expect(sessionFor(restored, 0)).toMatchObject({ id: 'column-2', navigation: { current: { target: web('second') } } });
-    expect(sessionFor(restored, 1)).toMatchObject({ id: 'column-1', navigation: { current: { target: web('first') } } });
+    expect(restored.placement).toEqual({ 0: 'column-1', 1: 'column-2' });
+    // 旧 id 没有被接纳，当前规范会话的内容原样保留。
+    expect(Object.keys(restored.sessions).sort()).toEqual(['column-1', 'column-2']);
+    expect(sessionFor(restored, 0).navigation.current?.target).toEqual(web('first'));
+    expect(sessionFor(restored, 1).navigation.current?.target).toEqual(web('second'));
   });
 
-  it('restores a swapped v2 host mapping with the content in the same positions', () => {
+  it('ignores a pre-v6 v2 host mapping and keeps canonical session content', () => {
     const store = useWorkspaceSessionStore.getState();
     store.commitTarget(getSessionId(0), web('a'));
     store.commitTarget(getSessionId(1), web('b'));
@@ -105,9 +111,10 @@ describe('legacy placement and delayed web callbacks', () => {
       hosts: { 'main-third': 'secondary-session', 'browser-column': 'primary-session' },
       sessions: { 'primary-session': current.sessions['column-1'], 'secondary-session': current.sessions['column-2'] },
     }, current);
-    expect(restored.placement).toEqual({ 0: 'column-2', 1: 'column-1' });
-    expect(sessionFor(restored, 0).navigation.current?.target).toEqual(web('b'));
-    expect(sessionFor(restored, 1).navigation.current?.target).toEqual(web('a'));
+    expect(restored.placement).toEqual({ 0: 'column-1', 1: 'column-2' });
+    // 不再按旧 host 映射交换内容: 每个规范列保留自己的目标。
+    expect(sessionFor(restored, 0).navigation.current?.target).toEqual(web('a'));
+    expect(sessionFor(restored, 1).navigation.current?.target).toEqual(web('b'));
   });
 
   it('ignores invalid v2 host mappings and gives valid new placement precedence', () => {

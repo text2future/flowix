@@ -27,6 +27,10 @@ it.each([
 
 it('ignores and removes the old folder depth while following a moved index', () => {
   const old = createTableDocument('table', 'Project', 'folder');
+  // placement='folder' 的集合必须把 source 绑到所在目录 —— 生产代码
+  // (createFolderCollectionContent / buildDomainTemplate) 在工厂返回后都会立刻
+  // 重写 source, 这里同样先补上, 否则 serialize 会被 validateV2Envelope 拒掉。
+  old.dataset.source = { scope: 'containing_folder' };
   old.dataset.filter = { path: 'Old', match: 'all', conditions: [] };
   const source = serializeTableDocument(old).replace(
     '      scope: containing_folder', '      scope: containing_folder\n      depth: direct_children',

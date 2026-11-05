@@ -278,8 +278,10 @@ describe("featured note icon rendering", () => {
     expect(renderedGraphicTag(render("avocado"))).toBe("img");
   });
 
-  it("renders a notebook icon id as inline svg, not as literal text", () => {
-    expect(renderedGraphicTag(render("board_fill"))).toBe("svg");
+  it("renders a notebook icon id as an image, not as literal text", () => {
+    // 笔记本图标改用 `<img src=...>` (b7a81f49 把内联 SVG markup 换成了 URL),
+    // 与属性图标保持同一种渲染形态; 关键是别把 id 当可见文本铺出来。
+    expect(renderedGraphicTag(render("board_fill"))).toBe("img");
   });
 
   it("keeps emoji and plain text as text", () => {
@@ -295,17 +297,16 @@ describe("featured note icon rendering", () => {
 
   it("falls back to the default icon when a note has no icon of its own", () => {
     // 默认图标是一个真实的图标 id (不再是被当文本显示的 "✦"), 因此会解析成
-    // 内联 SVG; 解析失败时才会退化成字面量文本。
+    // <img>; 解析失败时才会退化成字面量文本。
     const cards = getFeaturedNoteCards([
       memo({ relativePath: "plain.md", filename: "Plain.md", properties: { type: "skill" }, icon: null }),
     ]);
     expect(cards[0]?.icon).toBe(DEFAULT_FEATURED_NOTE_ICON);
 
     const target = render(cards[0]?.icon ?? "");
-    expect(target.querySelector("svg")).not.toBeNull();
-    // 注意: 图标 SVG 自带 <title>, 因此 textContent 不为空; 这里断言的是
-    // "没有把 id 当作可见文本直接铺在容器里" —— 直接子节点只有那个 svg。
+    expect(target.querySelector("img")).not.toBeNull();
+    // 这里断言的是"没有把 id 当作可见文本直接铺在容器里" —— 直接子节点只有那个 img。
     expect(target.childElementCount).toBe(1);
-    expect(target.firstElementChild?.tagName.toLowerCase()).toBe("svg");
+    expect(target.firstElementChild?.tagName.toLowerCase()).toBe("img");
   });
 });
