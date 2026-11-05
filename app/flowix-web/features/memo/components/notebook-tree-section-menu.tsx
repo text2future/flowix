@@ -278,7 +278,7 @@ export function NotebookTreeSectionMenu({
                     key={value}
                     onClick={() => onSort(value)}
                     className={cn(
-                      'memo-navigation-submenu-item mention-note-item cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
+                      'memo-navigation-submenu-item mention-note-item !grid !grid-cols-[minmax(0,1fr)_auto] !gap-3 cursor-pointer hover:bg-[var(--brand)] focus-visible:bg-[var(--brand)] focus-visible:outline-none',
                       sort === value && 'is-selected',
                     )}
                   >

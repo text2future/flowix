@@ -1,7 +1,9 @@
+import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { useCallback } from 'react';
 import { toast } from '@/lib/toast';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { columnRequestId, columnTarget } from '@features/workspace/store/column-navigation';
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 import { openWorkspaceSurface } from './open-surface-api';
@@ -28,19 +30,17 @@ export {
 export type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
 
 /** Hosts with content visible in the current workspace layout. */
-export function getVisibleWorkspaceSurfaceHosts(): ('main-third' | 'browser-column')[] {
-  const hosts: ('main-third' | 'browser-column')[] = ['main-third'];
-  const browser = useBrowserColumnStore.getState();
-  if (browser.visible && browser.current) hosts.push('browser-column');
-  return hosts;
+export function getVisibleWorkspaceColumnIds(): ('column-1' | 'column-2')[] {
+  const state = useWorkspaceSessionStore.getState();
+  return state.browserLayout.visible ? [state.placement[0], state.placement[1]] : [state.placement[0]];
 }
 
 export function getWorkspaceNavigationRevision(): number {
-  return useWorkColumnStore.getState().navigation.requestId;
+  return columnRequestId('column-1');
 }
 
 export function getWorkColumnStartupIdentity(): string {
-  return JSON.stringify(useWorkColumnStore.getState().navigation.target);
+  return JSON.stringify(columnTarget('column-1'));
 }
 
 export function useShellWorkspaceViewModel() {
@@ -54,8 +54,8 @@ export function useShellWorkspaceViewModel() {
     setBrowserColumnSplitRatio: state.setSplitRatio,
   })));
   const focus = useWorkspaceFocusStore(useShallow((state) => ({
-    focusWorkspaceHost: state.focusHost,
-    focusedHostId: state.focusedHostId,
+    focusWorkspaceColumn: state.focusColumn,
+    focusedColumnId: state.focusedColumnId,
   })));
   return {
     navigation,
@@ -73,7 +73,7 @@ export function useWorkColumnTransferViewModel() {
     if (target.kind === 'empty' || target.kind === 'plugin-workbench') {
       return Promise.resolve(null);
     }
-    return openWorkspaceSurface({ host: 'browser-column', target }).catch((error: unknown) => {
+    return openWorkspaceSurface({ index: 1, target }).catch((error: unknown) => {
       toast.error('无法在右栏打开', { description: error instanceof Error ? error.message : String(error) });
       return null;
     });

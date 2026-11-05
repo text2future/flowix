@@ -161,40 +161,11 @@ pub async fn codex_project_skill_install_zip(
     name: String,
     archive: ProjectSkillArchive,
     state: State<'_, crate::app::state::AppState>,
-) -> Result<Value, String> {
+) -> Result<Value, crate::commands::market_package::MarketInstallError> {
     let root = registered_root(&cwd, &state)?.to_path_buf();
     let url = validate_skill_archive_request(&name, &archive)?;
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|error| format!("failed to prepare Skill download: {error}"))?;
-    let mut response = client
-        .get(url)
-        .header(reqwest::header::CACHE_CONTROL, "no-cache")
-        .send()
-        .await
-        .map_err(|error| format!("failed to download Skill ZIP: {error}"))?;
-    if response.status() != reqwest::StatusCode::OK {
-        return Err(format!("Skill ZIP download returned {}", response.status()));
-    }
-    if response
-        .content_length()
-        .is_some_and(|size| size > MAX_SKILL_PACKAGE_BYTES as u64)
-    {
-        return Err("Skill ZIP download exceeds the allowed size".to_string());
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("failed to read Skill ZIP download: {error}"))?
-    {
-        if bytes.len().saturating_add(chunk.len()) > MAX_SKILL_PACKAGE_BYTES {
-            return Err("Skill ZIP download exceeds the allowed size".to_string());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes =
+        crate::commands::market_package::download_market_zip(url, MAX_SKILL_PACKAGE_BYTES).await?;
     let path = tokio::task::spawn_blocking(move || {
         install_project_skill_zip(&root, &name, &bytes, &archive)
     })

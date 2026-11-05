@@ -1,3 +1,4 @@
+vi.mock('@features/workspace/public/session-api', () => ({ columnAtIndex: (index: number) => index === 0 ? 'column-1' : 'column-2' }));
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -33,7 +34,7 @@ afterEach(async () => {
 
 async function renderComposer(
   notebookId: string | null = 'nb-1',
-  host: 'main-third' | 'browser-column' = 'main-third',
+  host: 'column-1' | 'column-2' = 'column-1',
 ): Promise<HTMLInputElement> {
   const node = document.createElement('div');
   root = createRoot(node);
@@ -110,12 +111,12 @@ describe('CollectionAgentComposer', () => {
   });
 
   it('发送时在 browser 列新开会话并自动发送输入内容', async () => {
-    const input = await renderComposer('nb-1', 'main-third');
+    const input = await renderComposer('nb-1', 'column-1');
     await type(input, '  帮我总结这个集合  ');
     await pressEnter(input);
 
     expect(calls.createWithPrompt).toHaveBeenCalledWith('pi', 'nb-1', expect.stringContaining('帮我总结这个集合'), {
-      destination: 'browser-column',
+      destination: 1,
       autoSend: true,
     });
     const sentPrompt = calls.createWithPrompt.mock.calls[0]?.[2] as string;
@@ -127,12 +128,12 @@ describe('CollectionAgentComposer', () => {
   });
 
   it('集合自己就在 browser 列时，会话开到 Work，避免顶掉集合', async () => {
-    const input = await renderComposer('nb-1', 'browser-column');
+    const input = await renderComposer('nb-1', 'column-2');
     await type(input, 'hi');
     await pressEnter(input);
 
     expect(calls.createWithPrompt).toHaveBeenCalledWith('pi', 'nb-1', expect.stringContaining('hi'), {
-      destination: 'main-third',
+      destination: 0,
       autoSend: true,
     });
   });

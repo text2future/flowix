@@ -1,3 +1,4 @@
+import { canonicalDirectoryPath, isPathInDirectory } from '@/lib/path';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight, Folder, Laptop, LoaderCircle, Plus, X } from 'lucide-react';
@@ -138,6 +139,8 @@ export interface NotebookStorageLocationListProps {
   addFolderLabel: string;
   disabled: boolean;
   minimumPaths?: number;
+  primarySwitchRoot?: string;
+  primarySwitchBlockedLabel?: string;
   onSelectDirectory: () => void;
   onRemoveDirectory: (path: string) => void;
   onSetPrimaryDirectory: (path: string) => void;
@@ -154,6 +157,8 @@ export function NotebookStorageLocationList({
   addFolderLabel,
   disabled,
   minimumPaths = 0,
+  primarySwitchRoot,
+  primarySwitchBlockedLabel,
   onSelectDirectory,
   onRemoveDirectory,
   onSetPrimaryDirectory,
@@ -169,6 +174,9 @@ export function NotebookStorageLocationList({
     setDisplayPaths(nextDisplayPaths);
   }
 
+  const isPrimarySwitchBlocked = (path: string) => Boolean(primarySwitchRoot
+    && canonicalDirectoryPath(path) !== canonicalDirectoryPath(primarySwitchRoot)
+    && (isPathInDirectory(path, primarySwitchRoot) || isPathInDirectory(primarySwitchRoot, path)));
   return (
     <div className="grid min-w-0 gap-1">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -182,6 +190,8 @@ export function NotebookStorageLocationList({
       </div>
       <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
         {nextDisplayPaths.map((folderPath, index) => {
+          const primaryBlocked = isPrimarySwitchBlocked(folderPath);
+          const removalBlocked = folderPath === paths[0] && paths.length > 1 && isPrimarySwitchBlocked(paths[1]);
           const folderName = folderPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folderPath;
           return (
             <div
@@ -203,7 +213,8 @@ export function NotebookStorageLocationList({
                 <button
                   type="button"
                   onClick={() => onSetPrimaryDirectory(folderPath)}
-                  disabled={disabled}
+                  disabled={disabled || primaryBlocked}
+                  title={primaryBlocked ? primarySwitchBlockedLabel : undefined}
                   className="pointer-events-none shrink-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-xs leading-5 text-[var(--muted-foreground)] opacity-0 transition-[color,background-color,opacity] group-hover/storage-location:pointer-events-auto group-hover/storage-location:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-0 disabled:group-hover/storage-location:opacity-60"
                 >
                   {setPrimaryFolderLabel}
@@ -212,9 +223,9 @@ export function NotebookStorageLocationList({
               <button
                 type="button"
                 onClick={() => onRemoveDirectory(folderPath)}
-                disabled={disabled || paths.length <= minimumPaths}
+                disabled={disabled || paths.length <= minimumPaths || removalBlocked}
                 aria-label={`${removeFolderLabel}: ${folderName}`}
-                title={removeFolderLabel}
+                title={removalBlocked ? primarySwitchBlockedLabel : removeFolderLabel}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -231,6 +242,9 @@ export function NotebookStorageLocationList({
           <Plus className="h-4 w-4" aria-hidden="true" />{addFolderLabel}
         </button>
       </div>
+      {paths.some(isPrimarySwitchBlocked) && (
+        <p className="text-xs leading-5 text-[var(--muted-foreground)]">{primarySwitchBlockedLabel}</p>
+      )}
     </div>
   );
 }

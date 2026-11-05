@@ -253,6 +253,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
       bannerVisible={banner.visible}
       onToggleBannerVisibility={banner.toggleHidden}
       pageScroll
+      collectionAreaMenu
       onActiveLayoutChange={pageLayout.onActiveLayoutChange}
     />
   </Suspense>;
@@ -391,7 +392,7 @@ export function CollectionShell({ host, filePath: filePathProp = null, folderPat
             onSelectNoteView={handleActiveViewChange}
             onAddNoteView={handleAddNoteView}
           />
-          {collectionMissing && folderPath ? <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} reportPresentation={tableProps.reportPresentation} />
+          {collectionMissing && folderPath ? <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} host={host} editable={editable} reportPresentation={tableProps.reportPresentation} />
             : collectionMissing ? tableBody : !existing ? PANEL_FALLBACK : <>
               {tableReady ? <div className={activeHostTab === null ? 'flex flex-col' : 'hidden'}>{tableBody}</div> : null}
               {hostTabContent}

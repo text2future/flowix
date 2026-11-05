@@ -13,19 +13,21 @@ describe('file tree selection through a rename', () => {
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const tree = { expanded: new Set<string>(), toggle: vi.fn() };
   const onNoteSelect = vi.fn();
+  const onFolderSelect = vi.fn();
 
   function Harness({ path, paths, visiblePaths = [], pinnedPaths = [] }: {
     path: string; paths: Set<string>; visiblePaths?: string[]; pinnedPaths?: string[];
   }) {
     interaction = useNotebookTreeInteraction({
       activeFilePath: path, treeItemPaths: paths,
-      pinnedDocumentPaths: pinnedPaths,
+      pinnedItemPaths: pinnedPaths,
       visibleTreeItems: visiblePaths.map(fullPath => ({ depth: 0, item: {
         id: fullPath, fullPath, name: fullPath.split('/').pop()!, type: 'document',
         parentId: null, children: null, sizeBytes: 0, modifiedMs: null, createdMs: null, memoCreatedMs: null,
       } })), tree,
       treeRootRef: { current: null }, treeScrollerRef: { current: null },
-      renderRowIndexByPath: new Map(), treeContentOffset: 0, onNoteSelect,
+      renderRowIndexByPath: new Map(), treeContentOffset: 0, onNoteSelect, onFolderSelect,
+      folderPaths: new Set(visiblePaths.filter(path => !path.endsWith('.md'))),
     });
     return null;
   }
@@ -33,10 +35,32 @@ describe('file tree selection through a rename', () => {
     environment.IS_REACT_ACT_ENVIRONMENT = true;
     root = createRoot(document.createElement('div'));
     onNoteSelect.mockClear();
+    onFolderSelect.mockClear();
   });
   afterEach(async () => {
     await act(async () => root.unmount());
     environment.IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  it('shares selection, toggling and ranges between folders and files', async () => {
+    const folder = '/mixed/folder';
+    const file = '/mixed/file.md';
+    const otherFolder = '/mixed/other';
+    const visiblePaths = [folder, file, otherFolder];
+    await act(async () => root.render(createElement(Harness, {
+      path: file, paths: new Set(visiblePaths), visiblePaths,
+    })));
+    await act(async () => interaction.selectItem(folder));
+    expect(interaction.selectedFilePaths).toEqual([folder]);
+    expect(onFolderSelect).toHaveBeenCalledExactlyOnceWith(folder);
+    expect(onNoteSelect).not.toHaveBeenCalled();
+    await act(async () => interaction.selectItem(file, { metaKey: true }));
+    expect(interaction.selectedFilePaths).toEqual([folder, file]);
+    await act(async () => interaction.selectItem(otherFolder, { shiftKey: true }));
+    expect(interaction.selectedFilePaths).toEqual([file, otherFolder]);
+    await act(async () => interaction.selectItem(file, { ctrlKey: true }));
+    expect(interaction.selectedFilePaths).toEqual([otherFolder]);
+    expect(onNoteSelect).not.toHaveBeenCalled();
   });
 
   it('projects multi-selection count and clears it on navigation and unmount', async () => {
@@ -45,12 +69,12 @@ describe('file tree selection through a rename', () => {
     const third = '/selection/third.md';
     const paths = new Set([first, second, third]);
     await act(async () => root.render(createElement(Harness, { path: first, paths })));
-    await act(async () => interaction.selectNote(first));
-    await act(async () => interaction.selectNote(second, { ctrlKey: true }));
+    await act(async () => interaction.selectItem(first));
+    await act(async () => interaction.selectItem(second, { ctrlKey: true }));
     expect(useNotebookTreeSelectionStore.getState().count).toBe(2);
     expect(useNotebookTreeSelectionStore.getState().paths).toEqual([first, second]);
     expect(onNoteSelect).toHaveBeenCalledTimes(1);
-    await act(async () => interaction.selectNote(second, { metaKey: true }));
+    await act(async () => interaction.selectItem(second, { metaKey: true }));
     expect(useNotebookTreeSelectionStore.getState().count).toBe(1);
     await act(async () => interaction.updateSelection([first, second], first));
     await act(async () => root.render(createElement(Harness, { path: third, paths })));
@@ -66,11 +90,11 @@ describe('file tree selection through a rename', () => {
     const second = '/singleton/second.md';
     const paths = new Set([first, second]);
     await act(async () => root.render(createElement(Harness, { path: first, paths })));
-    await act(async () => interaction.selectNote(first));
+    await act(async () => interaction.selectItem(first));
     onNoteSelect.mockClear();
-    await act(async () => interaction.selectNote(second, modifiers));
+    await act(async () => interaction.selectItem(second, modifiers));
     expect(onNoteSelect).not.toHaveBeenCalled();
-    await act(async () => interaction.selectNote(first, modifiers));
+    await act(async () => interaction.selectItem(first, modifiers));
     expect(interaction.selectedFilePaths).toEqual([second]);
     expect(onNoteSelect).toHaveBeenCalledExactlyOnceWith(second);
     await act(async () => root.render(createElement(Harness, { path: second, paths })));
@@ -84,8 +108,8 @@ describe('file tree selection through a rename', () => {
     const external = '/async/external.md';
     const paths = new Set([previous, first, second, external]);
     await act(async () => root.render(createElement(Harness, { path: previous, paths })));
-    await act(async () => interaction.selectNote(first));
-    await act(async () => interaction.selectNote(second, { ctrlKey: true }));
+    await act(async () => interaction.selectItem(first));
+    await act(async () => interaction.selectItem(second, { ctrlKey: true }));
     await act(async () => root.render(createElement(Harness, { path: first, paths })));
     expect(interaction.selectedFilePaths).toEqual([first, second]);
     expect(useNotebookTreeSelectionStore.getState().paths).toEqual([first, second]);
@@ -101,9 +125,9 @@ describe('file tree selection through a rename', () => {
     const paths = new Set([pinned, first, middle, last]);
     const props = { path: pinned, paths, pinnedPaths: [pinned], visiblePaths: [first, middle, last] };
     await act(async () => root.render(createElement(Harness, props)));
-    await act(async () => interaction.selectNote(pinned, undefined, 'pinned'));
-    await act(async () => interaction.selectNote(first));
-    await act(async () => interaction.selectNote(last, { shiftKey: true }));
+    await act(async () => interaction.selectItem(pinned, undefined, 'pinned'));
+    await act(async () => interaction.selectItem(first));
+    await act(async () => interaction.selectItem(last, { shiftKey: true }));
     expect(interaction.selectedFilePaths).toEqual([first, middle, last]);
     expect(interaction.getSelectionAnchorPath()).toBe(first);
     await act(async () => root.render(createElement(Harness, { ...props, path: first })));
@@ -167,6 +191,19 @@ describe('file tree selection through a rename', () => {
       path: oldPath, loaded: true,
     })));
     expect(writes).toEqual([target]);
+  });
+
+  it('preserves conversation selection when the open document is renamed', async () => {
+    const identity = ensureFileDisplayIdentity(`/conversation-rename-${++sequence}/old.md`);
+    const next = identity.path.replace('old.md', 'new.md');
+    const paths = new Set([identity.path]);
+    await act(async () => root.render(createElement(Harness, { path: identity.path, paths })));
+    await act(async () => interaction.selectConversation('conversation-1'));
+    rebaseFileDisplayPath(identity.path, next, identity.displayId);
+    await act(async () => root.render(createElement(Harness, { path: next, paths: new Set([next]) })));
+    expect(interaction.selectedConversationId).toBe('conversation-1');
+    expect(interaction.selectedFilePaths).toEqual([]);
+    expect(useNotebookTreeSelectionStore.getState().count).toBe(0);
   });
 
   it('retains selection, anchor and focus while the directory read still contains the old filename', async () => {

@@ -16,6 +16,17 @@ const tableEdgeInsertPluginKey = new PluginKey('tableEdgeInsert');
 const EDGE_BUTTON_SIZE = 16;
 const EDGE_GAP = 4;
 
+export interface TableEdgeInsertLabels {
+  insertColumnAfter: string;
+  insertRowAfter: string;
+}
+
+/** Neutral fallbacks for callers without an i18n context (tests, worker schemas). */
+const DEFAULT_LABELS: TableEdgeInsertLabels = {
+  insertColumnAfter: 'Insert column after',
+  insertRowAfter: 'Insert row after',
+};
+
 function closestTableCell(target: EventTarget | null): HTMLTableCellElement | null {
   if (!(target instanceof Element)) return null;
   const cell = target.closest('td, th');
@@ -35,10 +46,10 @@ function getEdgeTarget(view: EditorView, eventTarget: EventTarget | null): EdgeT
   const row = cell.parentElement;
   if (!(row instanceof HTMLTableRowElement)) return null;
 
-  const cells = Array.from(row.cells);
-  const rows = Array.from(table.rows);
-  const atLastColumn = cells[cells.length - 1] === cell;
-  const atLastRow = rows[rows.length - 1] === row;
+  // Index the live collections in place: Array.from allocated one entry per row
+  // on every mousemove over a long table.
+  const atLastColumn = row.cells[row.cells.length - 1] === cell;
+  const atLastRow = table.rows[table.rows.length - 1] === row;
 
   if (!atLastColumn && !atLastRow) return null;
 
@@ -82,6 +93,8 @@ class TableEdgeInsertView {
   private hoverArea: HTMLElement;
   private overlayRoot: HTMLElement;
   private hideTimer: number | null = null;
+  private frameId: number | null = null;
+  private pendingTarget: EventTarget | null = null;
   // view 可能因为所在 Editor.destroy() 而失效；任何走 view.dom / view.posAtDOM
   // 的路径都要先看这个旗子。事件 listener 在 destroy 里已经 remove, 但
   // 浏览器仍可能 flush 一帧在途事件, 不守卫就会读到 detached dom 抛 warning。
@@ -90,11 +103,12 @@ class TableEdgeInsertView {
   constructor(
     private view: EditorView,
     private editor: Editor,
+    labels: TableEdgeInsertLabels = DEFAULT_LABELS,
   ) {
     this.hoverArea = this.findHoverArea();
     this.overlayRoot = this.findOverlayRoot();
-    this.columnButton = this.createButton('column', 'Insert column after');
-    this.rowButton = this.createButton('row', 'Insert row after');
+    this.columnButton = this.createButton('column', labels.insertColumnAfter);
+    this.rowButton = this.createButton('row', labels.insertRowAfter);
     this.columnHoverZone = this.createHoverZone('column');
     this.rowHoverZone = this.createHoverZone('row');
 
@@ -117,6 +131,12 @@ class TableEdgeInsertView {
 
   destroy(): void {
     this.isDestroyed = true;
+    // A pending hide timer would otherwise fire against the buttons removed
+    // below, 120ms after the editor is gone.
+    this.cancelScheduledHide();
+    if (this.frameId !== null) window.cancelAnimationFrame(this.frameId);
+    this.frameId = null;
+    this.pendingTarget = null;
     this.hoverArea.removeEventListener('mousemove', this.handleMouseMove);
     this.hoverArea.removeEventListener('mouseleave', this.handleMouseLeave);
     this.hoverArea.removeEventListener('scroll', this.hide);
@@ -189,31 +209,51 @@ class TableEdgeInsertView {
 
   private handleMouseMove = (event: MouseEvent): void => {
     if (this.isDestroyed) return;
+    // Coalesce to one pass per frame: hit-testing reads layout and the button
+    // placement writes it, so raw mousemove frequency forces layout thrash.
+    this.pendingTarget = event.target;
+    if (this.frameId !== null) return;
+    this.frameId = window.requestAnimationFrame(this.flushMouseMove);
+  };
+
+  private flushMouseMove = (): void => {
+    this.frameId = null;
+    if (this.isDestroyed) return;
+    const target = this.pendingTarget;
+    this.pendingTarget = null;
+    this.updateEdgeControls(target);
+  };
+
+  private updateEdgeControls(eventTarget: EventTarget | null): void {
     if (!this.editor.isEditable) {
       this.hide();
       return;
     }
 
-    if (this.isEdgeControlTarget(event.target)) return;
+    if (this.isEdgeControlTarget(eventTarget)) return;
 
-    const target = getEdgeTarget(this.view, event.target);
+    const target = getEdgeTarget(this.view, eventTarget);
     if (!target) {
       this.hide();
       return;
     }
 
+    // Staying inside one cell keeps the already positioned controls; only a new
+    // cell or a different edge re-measures.
     if (target.atLastColumn) {
-      this.showColumnButton(target);
+      if (target.cellPos !== this.currentColumnCellPos) this.showColumnButton(target);
+      else this.cancelScheduledHide();
     } else {
       this.hideColumnButton();
     }
 
     if (target.atLastRow) {
-      this.showRowButton(target);
+      if (target.cellPos !== this.currentRowCellPos) this.showRowButton(target);
+      else this.cancelScheduledHide();
     } else {
       this.hideRowButton();
     }
-  };
+  }
 
   private showColumnButton(target: EdgeTarget): void {
     this.cancelScheduledHide();
@@ -304,9 +344,9 @@ class TableEdgeInsertView {
   };
 }
 
-export function createTableEdgeInsertPlugin(editor: Editor): Plugin {
+export function createTableEdgeInsertPlugin(editor: Editor, labels?: TableEdgeInsertLabels): Plugin {
   return new Plugin({
     key: tableEdgeInsertPluginKey,
-    view: (view) => new TableEdgeInsertView(view, editor),
+    view: (view) => new TableEdgeInsertView(view, editor, labels),
   });
 }

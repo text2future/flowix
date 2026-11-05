@@ -1,34 +1,27 @@
 'use client';
 
-/**
- * 集合显示菜单 ── Work 列顶部 header 右侧的「···」。
- *
- * 只放**显示开关**，与内容/视图无关：
- *   - 显示标题：全局偏好（`useCollectionTitleVisibility`），与 tab 条「···」同一条；
- *   - 显示头图：集合属性 `banner_hidden`，通过 `useCollectionBannerControl` 交给
- *     持有 summary 的集合外壳去写（本组件不读集合文件）。
- *
- * 眼睛图标即当前状态：开 → `EyeIcon`（品牌色），关 → `EyeSlashIcon`（弱化）。
- * 集合还没挂载外壳（如工作文档视图）时没有头图入口，只留「显示标题」。
- */
+/** Shared collection header menu: display preferences and content commands. */
 import { Ellipsis } from 'lucide-react';
 import { EyeIcon, EyeSlashIcon } from '@phosphor-icons/react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
 import { useCollectionTitleVisibility } from '@/lib/collection-title-visibility';
 import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
+import { CollectionContentMenuItems } from './collection-content-menu-items';
 
 export interface CollectionDisplayMenuProps {
   /** 集合体地址（`<folder>/.index.yaml`）：头图开关按它找登记项。 */
   indexPath: string;
   /** 与 header 其它图标按钮同一套描边/圆角，由调用方给（mac / windows 两种）。 */
   iconButtonClass: string;
+  notebookPath?: string | null;
+  notebookId?: string | null;
 }
 
 const ITEM_CLASS = 'group h-7 items-center justify-start gap-2 rounded-lg px-2 py-0 text-left hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)]';
 
-/** Display preferences shared by the standalone folder menu and collection file action menus. */
-export function CollectionDisplayMenuItems({ indexPath }: Pick<CollectionDisplayMenuProps, 'indexPath'>) {
+/** Collection display and content commands shared by every header menu. */
+export function CollectionDisplayMenuItems({ indexPath, notebookPath, notebookId }: Omit<CollectionDisplayMenuProps, 'iconButtonClass'>) {
   const { t } = useI18n();
   const { titleVisible, toggleTitleVisibility } = useCollectionTitleVisibility();
   const banner = useCollectionBannerControl(indexPath);
@@ -46,10 +39,12 @@ export function CollectionDisplayMenuItems({ indexPath }: Pick<CollectionDisplay
         : <EyeSlashIcon size={16} weight="bold" className="shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />}
       <span className="flex-1">{t('collection.display.banner')}</span>
     </DropdownMenuItem> : null}
+    {notebookPath && notebookId && /[\\/]\.index\.yaml$/i.test(indexPath) && <CollectionContentMenuItems
+      indexPath={indexPath} notebookPath={notebookPath} notebookId={notebookId} />}
   </>;
 }
 
-export function CollectionDisplayMenu({ indexPath, iconButtonClass }: CollectionDisplayMenuProps) {
+export function CollectionDisplayMenu({ indexPath, iconButtonClass, notebookPath, notebookId }: CollectionDisplayMenuProps) {
   const { t } = useI18n();
 
   return <DropdownMenu>
@@ -64,7 +59,7 @@ export function CollectionDisplayMenu({ indexPath, iconButtonClass }: Collection
       </button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="w-[180px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-      <CollectionDisplayMenuItems indexPath={indexPath} />
+      <CollectionDisplayMenuItems indexPath={indexPath} notebookPath={notebookPath} notebookId={notebookId} />
     </DropdownMenuContent>
   </DropdownMenu>;
 }

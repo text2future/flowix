@@ -897,12 +897,13 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   caret-color: transparent;
 }
 
-.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+.markdown-editor .tiptap:not(.agent-composer__input-content) .selectedCell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after,
+.markdown-editor .tiptap.ProseMirror-focused[contenteditable="true"]:not(.agent-composer__input-content) .table-editing-cell:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
   content: "";
   position: absolute;
   z-index: 2;
   inset: 0;
-  background-color: color-mix(in oklch, var(--brand), transparent 85%);
+  background-color: color-mix(in oklch, var(--brand), transparent 88%);
   pointer-events: none;
 }
 
@@ -955,9 +956,13 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 /* prosemirror-tables 在鼠标进入列边检测区时给 editor 根节点加 `resize-cursor`。
  * 默认 cursor 规则来自 prosemirror-tables/style/tables.css, 但本项目未引入,
  * 故在此声明, 让整个编辑器区域(而非仅 2px handle)在靠近列边时都显示调整光标。 */
-.markdown-editor .tiptap:not(.agent-composer__input-content).resize-cursor:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
-.markdown-editor .tiptap:not(.agent-composer__input-content).ProseMirror.resize-cursor:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+.markdown-editor .tiptap[contenteditable="true"]:not(.agent-composer__input-content).resize-cursor:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.markdown-editor .tiptap[contenteditable="true"]:not(.agent-composer__input-content).ProseMirror.resize-cursor:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   cursor: col-resize;
+}
+
+.markdown-editor .tiptap[contenteditable="false"]:not(.agent-composer__input-content) .column-resize-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  display: none;
 }
 
 /* prosemirror-tables 在拖拽期间会给 cell 加 `column-resize-dragging` 装饰类;
@@ -1640,20 +1645,6 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   color: var(--foreground);
 }
 
-/* 时间戳行: 不可编辑, 随编辑器滚动 */
-.markdown-editor .timestamp-row:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  padding: 0.5rem 0;
-  pointer-events: none;
-  user-select: none;
-  background: transparent;
-}
-
-.editor-toolbar .toolbar-item-wrapper {
-  display: flex;
-  align-items: center;
-}
 
 .editor-toolbar .toolbar-button {
   padding: 6px 6px;

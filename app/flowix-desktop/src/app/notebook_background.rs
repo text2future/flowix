@@ -150,6 +150,7 @@ impl Queue {
 
 #[derive(Default)]
 pub struct NotebookBackground {
+    links: Arc<super::note_link_background::NoteLinkBackground>,
     queue: Mutex<Queue>,
     wake: Condvar,
     started: AtomicBool,
@@ -211,11 +212,15 @@ impl NotebookBackground {
             .collect()
     }
 
+    pub fn request_links(&self, id: &str) { self.links.request(id); }
+
     pub fn pause(&self) {
+        self.links.pause(true);
         let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         self.paused.store(true, Ordering::Release);
     }
     pub fn resume(&self) {
+        self.links.pause(false);
         let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         self.paused.store(false, Ordering::Release);
         self.wake.notify_all();
@@ -241,6 +246,7 @@ impl NotebookBackground {
     }
 
     pub fn stop(&self) {
+        self.links.stop();
         self.stopped.store(true, Ordering::Release);
         let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         queue.pending.clear();
@@ -255,6 +261,7 @@ impl NotebookBackground {
         if self.started.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.links.start(app.clone(), config.clone());
         let worker = self.clone();
         tauri::async_runtime::spawn_blocking(move || worker.run(app, config));
     }
@@ -429,6 +436,7 @@ impl NotebookBackground {
             }
             queue.finished.insert(id.clone(), Instant::now());
             let status = queue.statuses.get(&id).cloned();
+            if status.as_ref().is_some_and(|s| s.state == "ready") { self.links.request(&id); }
             let media_status = if status.as_ref().is_some_and(|s| s.state == "ready") {
                 Some(queue.enqueue_media(id.clone(), false))
             } else { None };

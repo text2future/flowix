@@ -221,7 +221,7 @@ describe('first-run notebook setup', () => {
 
     await click('创建并开始使用');
     expect(mocks.create).toHaveBeenCalledTimes(1);
-    expect(mocks.startImport).toHaveBeenCalledWith(notebook.id);
+    expect(mocks.startImport).toHaveBeenCalledWith(notebook.id, expect.any(String));
     expect(document.body.querySelector('#flowix-onboarding-notebook-form')).toBeNull();
     expect(host.querySelector('[data-ordinary-create]')).toBeNull();
     expect(host.querySelector('[data-workspace]')).not.toBeNull();
@@ -305,7 +305,7 @@ describe('first-run notebook setup', () => {
     await act(async () => useNoteStore.setState({ selectedNotebook: { ...notebook, id: 'other-book' } }));
     await click('重试');
     expect(mocks.startImport).toHaveBeenCalledTimes(2);
-    expect(mocks.startImport).toHaveBeenLastCalledWith(notebook.id);
+    expect(mocks.startImport).toHaveBeenLastCalledWith(notebook.id, expect.any(String));
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.selectNotebook).toHaveBeenCalledTimes(1);
     await emitImport('completed', undefined, 'other-book');
@@ -342,7 +342,7 @@ describe('first-run notebook setup', () => {
     expect(mocks.listeners.size).toBe(0);
     mocks.getImportStatus.mockResolvedValueOnce({ notebookId: notebook.id, status: 'completed' });
     await click('重试');
-    expect(mocks.startImport).toHaveBeenLastCalledWith(notebook.id);
+    expect(mocks.startImport).toHaveBeenLastCalledWith(notebook.id, expect.any(String));
     expect(mocks.startImport).toHaveBeenCalledTimes(2);
     expect(getActionableNotices()).toHaveLength(0);
     expect(mocks.listeners.size).toBe(0);

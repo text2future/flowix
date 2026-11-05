@@ -48,6 +48,49 @@ function merge(editor: Editor, fromRow: number, fromColumn: number, toRow: numbe
 afterEach(() => editors.splice(0).forEach(editor => editor.destroy()));
 
 describe('comparison table column decorations', () => {
+  it.each([0, 1, 3])('emphasizes the focused column %i and restores it after saving', column => {
+    const editor = createEditor('default');
+    const text = editor.state.doc.textContent;
+    editor.commands.setTextSelection(cellPosition(editor, 1, column) + 2);
+    setTableStyle(editor, 'comparison');
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual([`0:${column}`, `1:${column}`, `2:${column}`]);
+    expect(editor.state.doc.textContent).toBe(text);
+    const original = editor.getJSON();
+    const markdown = editor.getMarkdown();
+    expect(markdown).toContain(`"comparisonColumn":${column}`);
+    editor.commands.setContent(markdown, { contentType: 'markdown' });
+    expect(editor.getJSON()).toEqual(original);
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual([`0:${column}`, `1:${column}`, `2:${column}`]);
+    const html = editor.getHTML();
+    expect(html).toContain(`data-flowix-emphasis-column="${column}"`);
+    editor.commands.setContent(html, { contentType: 'html' });
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual([`0:${column}`, `1:${column}`, `2:${column}`]);
+  });
+
+  it('uses the leftmost selected column even when the selection is made in reverse', () => {
+    const editor = createEditor('default');
+    editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(
+      editor.state.doc, cellPosition(editor, 2, 3), cellPosition(editor, 1, 1),
+    )));
+    setTableStyle(editor, 'comparison');
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual(['0:1', '1:1', '2:1']);
+    editor.commands.setTextSelection(cellPosition(editor, 1, 0) + 2);
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual(['0:1', '1:1', '2:1']);
+    setTableStyle(editor, 'comparison');
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual(['0:0', '1:0', '2:0']);
+  });
+
+  it('supports applying emphasis in a two-column table and undoing the change', () => {
+    const editor = createEditor('default', 2);
+    const original = editor.getJSON();
+    editor.commands.setTextSelection(cellPosition(editor, 1, 1) + 2);
+    setTableStyle(editor, 'comparison');
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual(['0:1', '1:1', '2:1']);
+    expect(editor.commands.undo()).toBe(true);
+    expect(editor.getJSON()).toEqual(original);
+    expect(markedCells(editor)).toHaveLength(0);
+  });
+
   it('marks the third logical column and keeps it there after preceding cells merge', () => {
     const editor = createEditor();
     expect(markedCells(editor).map(cell => cell.textContent)).toEqual(['0:2', '1:2', '2:2']);
@@ -102,6 +145,25 @@ describe('comparison table column decorations', () => {
     expect(markedCells(editor)).toHaveLength(3);
     setTableStyle(editor, 'default');
     expect(markedCells(editor)).toHaveLength(0);
+  });
+
+  it('keeps cached markers aligned when content above the table moves it', () => {
+    const editor = createEditor();
+    const before = markedCells(editor).map(cell => cell.textContent);
+    // The decorations for an untouched table are reused; only their offset moves.
+    editor.view.dispatch(editor.state.tr.insertText('新增前文', 1));
+    expect(editor.state.doc.textContent).toContain('新增前文');
+    expect(markedCells(editor).map(cell => cell.textContent)).toEqual(before);
+    const row = editor.view.dom.querySelectorAll('tr')[1];
+    expect(row.children[2].hasAttribute('data-flowix-comparison-column')).toBe(true);
+    expect(row.children[1].hasAttribute('data-flowix-comparison-column')).toBe(false);
+  });
+
+  it('recomputes markers when the comparison table itself changes', () => {
+    const editor = createEditor();
+    editor.commands.setTextSelection(cellPosition(editor, 2, 2) + 2);
+    editor.commands.addRowAfter();
+    expect(markedCells(editor)).toHaveLength(4);
   });
 
   it('leaves default and tables with fewer than three columns unmarked', () => {

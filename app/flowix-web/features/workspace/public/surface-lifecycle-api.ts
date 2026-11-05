@@ -1,7 +1,7 @@
 export {
   getWorkspaceSurfaceLifecycle,
   getWorkspaceHostSurfaceLifecycle,
-  registerWorkspaceSurfaceHostView,
+  registerWorkspaceColumnIdView,
   registerWorkspaceSurfaceLifecycle,
   subscribeWorkspaceSurfaceLifecycle,
 } from '../store/surface-lifecycle-store';

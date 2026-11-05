@@ -20,7 +20,7 @@ function surface(kind: WorkColumnSurfaceKind): WorkColumnSurface {
       id: 'file-browser:1', title: 'Folder', icon: null,
       target: { kind: 'file-browser', folderPath: '/workspace', activeFilePath: null,
         scopePath: '/workspace', notebookId: null, fileTreeVisible: true, fileTreeWidth: 220 },
-    }, { runtimeHost: 'main-third' });
+    }, { columnId: 'column-1' });
     case 'folder-collection':
       return { kind, instanceKey: 'folder-collection:1', notebookId: 'notebook-1', notebookPath: '/notebook', folderPath: '/notebook/folder', folderName: 'folder' };
     case 'md':

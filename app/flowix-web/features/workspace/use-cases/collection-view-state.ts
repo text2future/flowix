@@ -1,3 +1,4 @@
+import { updateWorkColumnTargets } from '../store/session-mutations';
 import { ensureCollectionDisplay, type CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useWorkspaceRestoreStore } from '../store/workspace-restore-store';
@@ -5,13 +6,13 @@ import { useBrowserColumnStore } from '../store/browser-column-store';
 
 /** Update presentation state in place. Never start navigation or reload data. */
 export function setCollectionActiveView(
-  location: { host: 'main-third' } | { host: 'browser-column'; surfaceId: string },
+  location: { host: 'column-1' } | { host: 'column-2'; surfaceId: string },
   expected: Pick<CollectionDisplayDescriptor, 'notebookId' | 'collectionId'>,
   viewId: string | null,
 ): boolean {
   const matches = (target: Pick<CollectionDisplayDescriptor, 'notebookId' | 'collectionId'>) =>
     target.notebookId === expected.notebookId && target.collectionId === expected.collectionId;
-  if (location.host === 'main-third') {
+  if (location.host === 'column-1') {
     const state = useWorkColumnStore.getState();
     const target = state.navigation.target;
     if (state.navigation.phase === 'loading' || target.kind !== 'collection' || !matches(target)) return false;
@@ -20,7 +21,7 @@ export function setCollectionActiveView(
     ensureCollectionDisplay({ ...target, viewId }, target.displayId);
     const { unavailableReason: _reason, ...rest } = target;
     const next = { ...rest, viewId };
-    useWorkColumnStore.setState({ navigation: { ...state.navigation, target: next } });
+    updateWorkColumnTargets((current) => current === target ? next : current);
     useWorkspaceRestoreStore.getState().setDesiredTarget(next);
     return true;
   }
@@ -31,7 +32,8 @@ export function setCollectionActiveView(
   if (entry.target.collectionDisplay.viewId === viewId) return true;
   ensureCollectionDisplay({ ...entry.target.collectionDisplay, viewId }, entry.target.collectionDisplay.displayId);
   const target = entry.target;
-  useBrowserColumnStore.setState({ current: { ...entry, target: { ...target,
-    collectionDisplay: { ...target.collectionDisplay!, viewId }, collectionUnavailableReason: undefined } } });
+  state.updateFileBrowserContext(entry.id, {
+    collectionDisplay: { ...target.collectionDisplay!, viewId }, collectionUnavailableReason: undefined,
+  });
   return true;
 }

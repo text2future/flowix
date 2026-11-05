@@ -17,7 +17,7 @@ vi.mock('@platform/tauri/client', () => ({
 vi.mock('@features/workspace/public/main-window-api', () => ({
   openFolderCollectionFromFolder: calls.openFolderCollection,
 }));
-vi.mock('@features/workspace/public/open-surface-api', () => ({
+vi.mock('@features/workspace/public/session-opening-api', () => ({
   openWorkspaceSurface: calls.openWorkspaceSurface,
 }));
 // 图标只关心「行里有没有」，不关心具体画法。
@@ -43,7 +43,7 @@ const item = (overrides: Partial<Parameters<typeof CollectionFilesTab>[0]> & Rec
   id: 'x', name: 'x', fullPath: '/book/x', type: 'folder' as const, resourceKind: 'note' as const, ...overrides,
 });
 
-const baseProps: Parameters<typeof CollectionFilesTab>[0] = { rootPath: '/book/客户周报', notebookId: 'book-1', notebookPath: '/book', host: 'main-third' };
+const baseProps: Parameters<typeof CollectionFilesTab>[0] = { rootPath: '/book/客户周报', notebookId: 'book-1', notebookPath: '/book', host: 'column-1' };
 
 async function renderTab(props = baseProps): Promise<HTMLDivElement> {
   const node = document.createElement('div');
@@ -158,12 +158,12 @@ describe('collection files tab', () => {
       item({ id: 'f1', name: '子文件夹', fullPath: '/book/客户周报/子文件夹', type: 'folder', resourceKind: undefined }),
     ]);
 
-    const node = await renderTab({ ...baseProps, host: 'browser-column' });
+    const node = await renderTab({ ...baseProps, host: 'column-2' });
     await act(async () => node.querySelectorAll<HTMLButtonElement>('button[data-file-row]')[0]?.click());
 
     // 侧边栏用的是同一个函数（它自己固定 main-third），差别只有宿主。
     expect(calls.openFolderCollection).toHaveBeenCalledWith(
-      'book-1', '/book/客户周报/子文件夹', 'browser-column',
+      'book-1', '/book/客户周报/子文件夹', 'column-2',
     );
   });
 
@@ -172,12 +172,12 @@ describe('collection files tab', () => {
       item({ id: 'n1', name: '周报.md', fullPath: '/book/客户周报/周报.md', type: 'file' }),
     ]);
 
-    const node = await renderTab({ ...baseProps, host: 'browser-column' });
+    const node = await renderTab({ ...baseProps, host: 'column-2' });
     await act(async () => node.querySelectorAll<HTMLButtonElement>('button[data-file-row]')[0]?.click());
 
     expect(calls.openFolderCollection).not.toHaveBeenCalled();
     expect(calls.openWorkspaceSurface).toHaveBeenCalledWith({
-      host: 'browser-column',
+      columnId: 'column-2',
       target: { kind: 'external', path: '/book/客户周报/周报.md', scopePath: '/book', transitionId: null },
     });
   });
@@ -220,5 +220,25 @@ describe('collection files tab', () => {
 
     expect(node.querySelectorAll<HTMLButtonElement>('button[data-file-row]')).toHaveLength(0);
     expect(node.textContent).not.toBe('');
+  });
+
+  it('列表区域右键按文件树 tab 给出四项，新建文件夹就地开一行输入', async () => {
+    calls.getDirChildren.mockResolvedValue([
+      item({ id: 'n1', name: '周报.md', fullPath: '/book/客户周报/周报.md', type: 'file' }),
+    ]);
+    const node = await renderTab();
+
+    await act(async () => {
+      node.querySelector('[data-file-name]')!.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: 8, clientY: 8,
+      }));
+    });
+    const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items().map((entry) => entry.textContent?.trim()))
+      .toEqual(['新建笔记', '新建文件夹', '导入文件…', '导入文件夹…']);
+
+    await act(async () => items().find((entry) => entry.textContent?.includes('新建文件夹'))!.click());
+    expect(document.querySelector('[data-flowix-surface="context-menu"]')).toBeNull();
+    expect(node.querySelector<HTMLInputElement>('input[aria-label="新建文件夹"]')).not.toBeNull();
   });
 });

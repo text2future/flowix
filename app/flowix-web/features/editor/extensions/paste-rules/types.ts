@@ -1,3 +1,4 @@
+import type { LocalLinkContext } from '@/lib/local-link-reference';
 import type { Editor, JSONContent } from '@tiptap/core';
 import type { EditorView } from '@tiptap/pm/view';
 
@@ -6,7 +7,7 @@ export type PasteRuleResult = 'handled' | 'continue' | 'default';
 export type PasteKind =
   | 'video-link'
   | 'files'
-  | 'physical-path'
+  | 'local-document-link'
   | 'markdown-mime'
   | 'asset-link'
   | 'loose-code-block'
@@ -20,6 +21,7 @@ export interface PasteContext {
   view: EditorView;
   /** The memo that owns attachments inserted by this editor instance. */
   ownerPath?: string;
+  linkContext?: LocalLinkContext;
   event: ClipboardEvent;
   types: string[];
   markdown: string;

@@ -12,6 +12,7 @@ import '@features/shortcuts/actions';
 import { Toaster } from 'sonner';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
+import { useWorkspaceSessionStore } from '@features/workspace/store/workspace-session-store';
 import { ensureFileDisplayIdentity, reconcileFileDisplays, findFileDisplayPath, rebaseFileDisplayPath } from '@/lib/file-display-registry';
 import { getDocumentSession } from '../store/document-runtime-session';
 import { getDocumentBuffer, captureLatestDocumentContent, stageDocumentSnapshot } from '../store/document-session-service';
@@ -70,7 +71,7 @@ vi.mock('@platform/tauri/client/desktop', async importOriginal => {
 vi.mock('@features/memo/services/note-link-rewriter', () => ({ updateNoteLinksAfterMove: vi.fn() }));
 vi.mock('@features/workspace/use-cases/workspace-navigation', () => ({ replaceExternalDocumentPath: (displayId: string, oldPath: string, path: string) => {
   rebaseFileDisplayPath(oldPath, path, displayId); mocks.publish(path);
-}, openExternalTarget: vi.fn().mockResolvedValue({ host: 'main-third', state: 'active' }) }));
+}, openExternalTarget: vi.fn().mockResolvedValue({ host: 'column-1', state: 'active' }) }));
 vi.mock('../store/recovery-draft-store', () => ({
   persistRecoveryDraft: vi.fn().mockResolvedValue(true), readRecoveryDraft: mocks.recoveryRead,
   clearRecoveryDraftThrough: vi.fn().mockResolvedValue(undefined), rebaseRecoveryDraftPath: vi.fn(),
@@ -94,6 +95,7 @@ function pasteScreenshot(editor: Editor): ClipboardEvent {
 }
 
 function setup(initialBoth = true, callbacks: Pick<ComponentProps<typeof DocumentContainer>, 'onContentStateChange' | 'onSurfaceLifecycleReady'> = {}) {
+  useWorkspaceSessionStore.getState().setBrowserLayout({ visible: initialBoth });
   const identity = { kind: 'md' as const, ...ensureFileDisplayIdentity('/container-' + ++sequence + '/A.md') };
   reconcileFileDisplays([identity]);
   let path = identity.path; let both = initialBoth; let mounts = 0;
@@ -109,8 +111,8 @@ function setup(initialBoth = true, callbacks: Pick<ComponentProps<typeof Documen
   mocks.publish.mockImplementation(next => { path = next; render(); });
   mocks.rename.mockImplementation(async request => ({ path: path.replace(/[^/]+$/, request.name) }));
   return { identity, editors, render, mounts: () => mounts,
-    openRight: () => { both = true; render(); },
-    closeRight: () => { both = false; render(); },
+    openRight: () => { both = true; useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true }); render(); },
+    closeRight: () => { both = false; useWorkspaceSessionStore.getState().setBrowserLayout({ visible: false }); render(); },
     rename: (title: string) => {
       const input = container.querySelector('textarea.memo-title-editor')! as HTMLTextAreaElement;
       input.focus();
@@ -161,8 +163,8 @@ describe('real document container session lifecycle', () => {
     publishAgentLocationRequest({
       path: doc.identity.path,
       location: { line: 2, column: 3 },
-      host: 'main-third',
-      viewId: 'main-third',
+      host: 'column-1',
+      viewId: 'column-1',
     });
 
     await act(async () => { doc.render(); });
@@ -179,8 +181,8 @@ describe('real document container session lifecycle', () => {
     publishAgentLocationRequest({
       path: doc.identity.path,
       anchor: '实验步骤',
-      host: 'main-third',
-      viewId: 'main-third',
+      host: 'column-1',
+      viewId: 'column-1',
     });
 
     await act(async () => { doc.render(); });
@@ -236,7 +238,7 @@ describe('real document container session lifecycle', () => {
     mocks.write.mockReset().mockImplementation(async request => ({ status: 'saved', path: request.path, content: request.content }));
     mocks.rename.mockReset(); mocks.publish.mockReset();
     vi.spyOn(useNoteStore.getState(), 'handleMemoEvent').mockImplementation(() => {});
-    useWorkspaceFocusStore.getState().focusHost('main-third');
+    useWorkspaceFocusStore.getState().focusColumn('column-1');
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
     Object.defineProperties(Range.prototype, {
       getClientRects: { configurable: true, value: () => [] },
@@ -455,7 +457,7 @@ describe('real document container session lifecycle', () => {
     const input = document.body.querySelector<HTMLTextAreaElement>('.frontmatter-property__edit-input')!;
     expect(input).not.toBeNull();
     input.value = 'retained draft';
-    await act(async () => { useWorkspaceFocusStore.getState().focusHost('browser-column'); });
+    await act(async () => { useWorkspaceFocusStore.getState().focusColumn('column-2'); });
     expect(getDocumentBuffer(doc.identity).content).toContain('custom: retained draft');
     expect(doc.editors.right!.getMarkdown()).toContain('custom: retained draft');
     expect(document.body.querySelector('.frontmatter-property__edit-popover')).toBeNull();
@@ -463,7 +465,7 @@ describe('real document container session lifecycle', () => {
   it('captures outgoing input before enabling the other view and ignores inactive snapshots', async () => {
     const doc = setup(); await act(async () => { doc.render(); });
     act(() => { doc.editors.left!.commands.insertContent('left '); });
-    await act(async () => { useWorkspaceFocusStore.getState().focusHost('browser-column'); });
+    await act(async () => { useWorkspaceFocusStore.getState().focusColumn('column-2'); });
     expect(getDocumentBuffer(doc.identity).content).toContain('left');
     expect(doc.editors.right!.getMarkdown()).toContain('left');
     act(() => { doc.editors.right!.commands.insertContent('right '); });

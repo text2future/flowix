@@ -142,6 +142,7 @@
   if (!local) return;
 
   const pending = new Map();
+  const pendingTemplateInstalls = new Map();
   let sequence = 0;
   const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
   const post = (message) => window.parent.postMessage(message, '*');
@@ -162,17 +163,44 @@
     });
   };
 
+  const installTemplate = (templateId) => {
+    if (typeof templateId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(templateId) || templateId.length > 64) {
+      return Promise.reject(new Error('invalid template ID'));
+    }
+    if (pendingTemplateInstalls.size >= 4) return Promise.reject(new Error('too many template installations'));
+    const requestId = `fx-template-${Date.now().toString(36)}-${++sequence}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (pendingTemplateInstalls.delete(requestId)) reject(new Error('template installation timeout'));
+      }, 120000);
+      pendingTemplateInstalls.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
+      post({ type: 'flowix:local-html-template-install', url: location.href, requestId, templateId });
+    });
+  };
+
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;
     const data = event.data;
-    if (data?.type === 'flowix:local-html-data-response' && typeof data.requestId === 'string') {
+    if (data?.type === 'flowix:local-html-template-install-result' && typeof data.requestId === 'string') {
+      const entry = pendingTemplateInstalls.get(data.requestId);
+      if (!entry) return;
+      pendingTemplateInstalls.delete(data.requestId);
+      if (data.success === true) entry.resolve(data.result ?? null);
+      else entry.reject(new Error(typeof data.error === 'string' ? data.error : 'template installation failed'));
+    } else if (data?.type === 'flowix:local-html-data-response' && typeof data.requestId === 'string') {
       const entry = pending.get(data.requestId);
       if (!entry) return;
       pending.delete(data.requestId);
       if (data.ok) entry.resolve(data.payload);
       else entry.reject(new Error(typeof data.error === 'string' ? data.error : 'data request failed'));
     } else if (data?.type === 'flowix:local-html-data-changed') {
-      void refreshAuto();
+      const kinds = Array.isArray(data.kinds)
+        ? new Set(data.kinds.filter((kind) => typeof kind === 'string'))
+        : null;
+      void refreshAuto(kinds);
     }
   });
 
@@ -259,19 +287,24 @@
   const listeners = new Set();
   let autoSources = [];
   let lastRoot = null;
-  const refreshAuto = async () => {
+  const refreshAuto = async (changedKinds = null) => {
     if (!autoSources.length) return;
-    const entries = await Promise.all(autoSources.map(async (source) => [
+    const sources = changedKinds
+      ? autoSources.filter((source) => changedKinds.has(source.kind))
+      : autoSources;
+    if (!sources.length) return;
+    const entries = await Promise.all(sources.map(async (source) => [
       source.key,
       await request(source.kind).catch(() => null),
     ]));
-    lastRoot = Object.fromEntries(entries);
+    lastRoot = { ...(lastRoot ?? {}), ...Object.fromEntries(entries) };
     render(lastRoot);
     listeners.forEach((listener) => { try { listener(lastRoot); } catch { /* page errors stay local */ } });
   };
 
   window.flowix = {
     request,
+    installTemplate,
     render,
     onData: (listener) => {
       listeners.add(listener);
@@ -284,6 +317,7 @@
     'stats': 'notebook-stats',
     'views': 'notebook-views',
     'custom-views': 'notebook-custom-views',
+    'theme': 'product-theme',
   };
   const startAuto = () => {
     const content = document.querySelector('meta[name="flowix-data"]')?.getAttribute('content') ?? '';
@@ -298,6 +332,8 @@
   window.addEventListener('pagehide', () => {
     pending.forEach((entry) => entry.reject(new Error('page unloaded')));
     pending.clear();
+    pendingTemplateInstalls.forEach((entry) => entry.reject(new Error('page unloaded')));
+    pendingTemplateInstalls.clear();
     listeners.clear();
   }, { once: true });
 })();

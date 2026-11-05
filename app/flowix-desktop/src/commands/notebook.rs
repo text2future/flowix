@@ -350,11 +350,7 @@ fn activate_created_notebook(
     Ok(())
 }
 
-pub(crate) fn run_notebook_import(
-    app: AppHandle,
-    notebook_id: String,
-    seed_onboarding_docs: bool,
-) -> bool {
+pub(crate) fn run_notebook_import(app: AppHandle, notebook_id: String, language: String) -> bool {
     let started = std::time::Instant::now();
     tracing::info!(
         "[create_notebook] background import start id={}",
@@ -399,18 +395,16 @@ pub(crate) fn run_notebook_import(
                 report.removed
             );
 
-            if seed_onboarding_docs {
-                tracing::info!("[create_notebook] seed onboarding start id={}", notebook_id);
-                match memo_file.seed_onboarding_docs_for_notebook_id(&notebook_id) {
-                    Ok(true) => {
-                        onboarding_docs_seeded = true;
-                        tracing::info!("[create_notebook] seeded onboarding documents");
-                    }
-                    Ok(false) => tracing::debug!(
-                        "[create_notebook] onboarding documents skipped (notebook already has documents)"
-                    ),
-                    Err(error) => return Err(format!("seed onboarding documents failed: {error}")),
+            tracing::info!("[create_notebook] seed onboarding start id={}", notebook_id);
+            match memo_file.seed_onboarding_docs_for_notebook_id(&notebook_id, &language) {
+                Ok(true) => {
+                    onboarding_docs_seeded = true;
+                    tracing::info!("[create_notebook] seeded onboarding documents");
                 }
+                Ok(false) => tracing::debug!(
+                    "[create_notebook] onboarding documents skipped (notebook already has documents)"
+                ),
+                Err(error) => return Err(format!("seed onboarding documents failed: {error}")),
             }
         };
         if index_changed || onboarding_docs_seeded {
@@ -460,8 +454,8 @@ pub(crate) fn run_notebook_import(
     true
 }
 
-fn spawn_notebook_import(app: AppHandle, notebook_id: String) {
-    std::thread::spawn(move || run_notebook_import(app, notebook_id, true));
+fn spawn_notebook_import(app: AppHandle, notebook_id: String, language: String) {
+    std::thread::spawn(move || run_notebook_import(app, notebook_id, language));
 }
 
 #[tauri::command]
@@ -630,6 +624,7 @@ pub async fn create_notebook(
 #[tauri::command]
 pub fn start_notebook_import(
     notebook_id: String,
+    language: String,
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
@@ -663,7 +658,7 @@ pub fn start_notebook_import(
         NotebookImportStatusKind::Started,
         None,
     );
-    spawn_notebook_import(app, notebook_id);
+    spawn_notebook_import(app, notebook_id, language);
     Ok(())
 }
 
@@ -796,6 +791,72 @@ pub fn set_notebook_primary_directory(
     notify_notebook_workspace_changed(&app);
     dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
     Ok(notebook_from_config(updated))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookSettingsInput {
+    id: String,
+    name: String,
+    icon: Option<String>,
+    primary_path: String,
+    repository_paths: Vec<String>,
+    expected_primary_path: String,
+    expected_repository_paths: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookSettingsResult {
+    notebook: Notebook,
+    workspace: flowix_core::memo_file::NotebookWorkspaceSnapshot,
+}
+
+#[tauri::command]
+pub fn save_notebook_settings(
+    input: NotebookSettingsInput,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<NotebookSettingsResult, String> {
+    state.startup.wait_until_ready()?;
+    let (updated, workspace, path_changed) = {
+        let _transition = state
+            .notebook_transition
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let memo_file = write_lock(&state.memo_file, "memo_file");
+        let _change_guard = memo_file
+            .operation_locks()
+            .notebook_change(&[input.id.as_str()], "save_notebook_settings")
+            .map_err(|error| format!("NOTEBOOK_BUSY: {error}"))?;
+        let previous = memo_file
+            .get_notebook_config_by_id(&input.id)
+            .ok_or_else(|| "NOTEBOOK_NOT_FOUND".to_string())?;
+        let (updated, workspace) = memo_file
+            .save_notebook_settings(
+                &input.id,
+                &input.name,
+                normalize_notebook_icon(input.icon),
+                &input.primary_path,
+                &input.repository_paths,
+                &input.expected_primary_path,
+                &input.expected_repository_paths,
+            )
+            .map_err(|error| error.to_string())?;
+        let path_changed =
+            comparable_notebook_path(&previous.path) != comparable_notebook_path(&updated.path);
+        (updated, workspace, path_changed)
+    };
+    if path_changed {
+        record_created_notebook_access(state.inner(), &app, &updated);
+    }
+    record_notebook_metadata_change(state.inner(), &app, &updated);
+    notify_notebook_workspace_changed(&app);
+    dispatcher::emit_to(&app, NOTEBOOKS_CHANGED_EVENT, ());
+    Ok(NotebookSettingsResult {
+        notebook: notebook_from_config(updated),
+        workspace,
+    })
 }
 
 #[tauri::command]

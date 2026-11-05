@@ -1,4 +1,4 @@
-import { Editor, type JSONContent } from '@tiptap/core';
+import { Editor, getExtensionField, type JSONContent } from '@tiptap/core';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { sanitizeExternalHtml } from '../paste-rules/html-sanitizer';
 import { htmlTableToTableContent } from '../paste-rules/table';
@@ -10,6 +10,7 @@ import { Lexer } from 'marked';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createTablePlugin } from '@features/editor/extensions/table/table-plugin';
+import { FlowixTable } from '@features/editor/extensions/table/flowix-table';
 import { normalizeTableBorderStyle, type TableStyleId } from './table-presentation';
 
 const editors: Editor[] = [];
@@ -214,7 +215,9 @@ describe('table presentation persistence', () => {
         const markdown = editor.getMarkdown();
         expect(markdown).toContain('"version":1');
         expect(markdown).toContain('"rows":["body","group","body","subtotal","total"]');
-        expect(markdown).toContain('"cells":[["label","note","amount","default"]');
+        // Uniform column roles persist once per column instead of per cell.
+        expect(markdown).toContain('"columnRoles":["label","note","amount","default"]');
+        expect(markdown).not.toContain('"cells"');
         expect(markdown).not.toContain('<table');
         editor.commands.setContent(markdown, { contentType: 'markdown' });
         expect(editor.getJSON()).toEqual(expected);
@@ -259,14 +262,14 @@ describe('table presentation persistence', () => {
       const metadata = JSON.parse(markdown.match(/<!-- flowix:table (\{[^\n]+\}) -->/)![1]);
       expect(metadata.version).toBe(1);
       expect(metadata.columns).toEqual([{ width: 180 }, { width: 80 }, { width: 120 }, { width: 100 }]);
-      expect(metadata.borders).toEqual([
-        [{ top: 'none' }, null, { bottom: 'single' }, null],
-        [null, null, null, null],
-        [null, null, { top: 'single', bottom: 'double' }, null],
-        [null, null, null, null],
-        [null, null, { bottom: 'none' }, null],
+      // Sparse overrides only: untouched cells carry no entry at all.
+      expect(metadata.borderList).toEqual([
+        [0, 0, 'none', null],
+        [0, 2, null, 'single'],
+        [2, 2, 'single', 'double'],
+        [4, 2, null, 'none'],
       ]);
-      expect(JSON.stringify(metadata.borders)).not.toContain('auto');
+      expect(JSON.stringify(metadata.borderList)).not.toContain('auto');
       editor.commands.setContent(markdown, { contentType: 'markdown' });
       expect(editor.getJSON()).toEqual(expected);
     }
@@ -293,6 +296,27 @@ describe('table presentation persistence', () => {
     }
   });
 
+  it('reads dense cell and border metadata from older builds and rewrites the compact form', () => {
+    const legacy = '<!-- flowix:table {"version":1,"columns":[{"width":null},{"width":null}],"styleId":"striped",'
+      + '"cells":[["label","amount"],["label","amount"]],"borders":[[{"bottom":"single"},null],[null,null]]} -->';
+    const editor = createEditor([legacy, '| Name | Value |', '| --- | --- |', '| Alpha | 01 |'].join('\n'));
+    const table = editor.state.doc.firstChild!;
+    expect(table.attrs.styleId).toBe('striped');
+    expect(table.child(0).child(0).attrs).toMatchObject({ columnRole: 'label', borderBottom: 'single' });
+    expect(table.child(0).child(1).attrs.columnRole).toBe('amount');
+    expect(table.child(1).child(0).attrs.columnRole).toBe('label');
+
+    const markdown = editor.getMarkdown();
+    expect(markdown).toContain('"columnRoles":["label","amount"]');
+    expect(markdown).toContain('"borderList":[[0,0,null,"single"]]');
+    expect(markdown).not.toContain('"cells"');
+    expect(markdown).not.toContain('"borders"');
+
+    editor.commands.setContent(markdown, { contentType: 'markdown' });
+    expect(editor.state.doc.firstChild?.child(0).child(0).attrs)
+      .toMatchObject({ columnRole: 'label', borderBottom: 'single' });
+  });
+
   it('normalizes malformed border metadata without shifting later cells or losing widths and text', () => {
     const editor = createEditor([
       '<!-- flowix:table {"version":1,"columns":[{"width":180},{"width":120}],"borders":[[{"top":"dotted","bottom":"double"},42],false,[{"top":"none","bottom":"single"},["double"]]]} -->',
@@ -308,7 +332,7 @@ describe('table presentation persistence', () => {
     expect(table.child(2).child(1).textContent).toBe('01');
     const markdown = editor.getMarkdown();
     expect(markdown).not.toContain('dotted');
-    expect(markdown).toContain('"borders":[[{"bottom":"double"},null],[null,null],[{"top":"none","bottom":"single"},null]]');
+    expect(markdown).toContain('"borderList":[[0,0,null,"double"],[2,0,"none","single"]]');
   });
 
   it('drops default or wholly invalid borders instead of adding metadata', () => {
@@ -477,7 +501,7 @@ describe('table presentation persistence', () => {
     expect(table.lastChild?.content.content.map(cell => cell.attrs.columnRole)).toEqual(['label', 'note', 'amount', 'default']);
   });
 
-  it('inherits roles through the actual table edge insert button', () => {
+  it('inherits roles through the actual table edge insert button', async () => {
     const editor = createEditor('');
     editor.commands.setContent({ type: 'doc', content: [styledTable('hk-financial')] });
     const lastCell = editor.view.dom.querySelector('tr:last-child td:last-child')!;
@@ -485,6 +509,8 @@ describe('table presentation persistence', () => {
     document.elementFromPoint = () => lastCell;
     try {
       lastCell.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+      // Edge controls are placed once per frame, not once per mousemove.
+      await new Promise<void>(resolve => { requestAnimationFrame(() => resolve()); });
     } finally {
       document.elementFromPoint = elementFromPoint;
     }
@@ -543,5 +569,69 @@ describe('table presentation persistence', () => {
     const pasted = editor.state.doc.nodeAt(pastedPosition)!;
     expect(pasted.lastChild?.content.content.map(cell => cell.attrs.columnRole)).toEqual(['default', 'default']);
     expect(pasted.firstChild?.textContent).toBe('01(9,700)');
+  });
+});
+
+describe('renderer boundaries', () => {
+  const mergedCellTable = (): JSONContent => ({
+    type: 'table',
+    content: [{
+      type: 'tableRow',
+      content: [{ type: 'tableCell', attrs: { colspan: 2 }, content: [{ type: 'paragraph' }] }],
+    }],
+  });
+
+  it('refuses to downgrade a complex table without an editor schema', () => {
+    const renderMarkdown = getExtensionField(FlowixTable, 'renderMarkdown') as (
+      node: JSONContent, helpers: unknown, ctx: unknown,
+    ) => string;
+
+    // The parser worker path has no schema, so it cannot emit the HTML the
+    // table needs. Failing loud beats silently dropping merged cells.
+    expect(() => renderMarkdown(mergedCellTable(), {}, {})).toThrow(/needs HTML/);
+  });
+
+  it('still renders complex tables through the editor path', () => {
+    const editor = new Editor({
+      extensions: [StarterKit, createTablePlugin(), Markdown],
+      content: { type: 'doc', content: [mergedCellTable()] },
+    });
+    editors.push(editor);
+
+    expect(() => editor.getMarkdown()).not.toThrow();
+    expect(editor.getMarkdown()).toContain('colspan="2"');
+  });
+});
+
+describe('edge insert button labels', () => {
+  it('uses the labels the plugin was configured with', async () => {
+    const editor = new Editor({
+      extensions: [StarterKit, createTablePlugin({
+        labels: { insertColumnAfter: '右侧插入列', insertRowAfter: '下方插入行' },
+      })],
+      content: {
+        type: 'doc',
+        content: [{ type: 'table', content: [{
+          type: 'tableRow',
+          content: [{ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }],
+        }] }],
+      },
+    });
+    editors.push(editor);
+
+    const cell = editor.view.dom.querySelector('td')!;
+    const elementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => cell;
+    try {
+      cell.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+      await new Promise<void>(resolve => { requestAnimationFrame(() => resolve()); });
+    } finally {
+      document.elementFromPoint = elementFromPoint;
+    }
+
+    const root = editor.view.dom.parentElement ?? editor.view.dom;
+    // A single-cell table is both the last column and the last row.
+    expect(root.querySelector('.table-edge-insert-button--row')?.getAttribute('title')).toBe('下方插入行');
+    expect(root.querySelector('.table-edge-insert-button--column')?.getAttribute('title')).toBe('右侧插入列');
   });
 });

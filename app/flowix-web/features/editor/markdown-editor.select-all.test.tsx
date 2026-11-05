@@ -1,4 +1,6 @@
-﻿import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
+import { getSessionId } from '../workspace/public/session-api';
+import { sessionFor } from '../workspace/model/workspace-session';
+import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
 import { useWorkspaceSessionStore } from '@features/workspace/store/workspace-session-store';
 import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -102,17 +104,16 @@ describe('MarkdownEditor select all', () => {
 
   it('restores a backward selection after a session editor is recreated', async () => {
     useWorkspaceSessionStore.getState().reset();
-    useWorkspaceSessionStore.getState().commitTarget('secondary-session', { kind: 'external', path: '/book/note.md', scopePath: '/book', transitionId: null });
-    const entryId = useWorkspaceSessionStore.getState().sessions['secondary-session'].navigation.current!.id;
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(1), { kind: 'external', path: '/book/note.md', scopePath: '/book', transitionId: null });
+    const entryId = sessionFor(useWorkspaceSessionStore.getState(), 1).navigation.current!.id;
     let editor: Editor | null = null;
-    const renderEditor = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 'secondary-session', entryId }}>
+    const renderEditor = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 1, entryId }}>
       <MarkdownEditor ownerPath="/book/note.md" content="hello world" onBeforeCreate={(instance) => { editor = instance; }} />
     </SessionViewRecoveryContext.Provider>;
     await act(async () => root.render(renderEditor()));
     act(() => editor!.commands.setTextSelection({ from: 8, to: 2 }));
     const first = editor;
     await act(async () => root.render(null));
-    useWorkspaceSessionStore.getState().swap();
     await act(async () => root.render(renderEditor()));
     expect(editor).not.toBe(first);
     expect(editor!.state.selection.anchor).toBe(8);

@@ -45,7 +45,7 @@ describe('browser column collection navigation', () => {
   it.each(['table', 'media_library'] as const)('resolves .index.yaml as %s and clears collection state when selecting Markdown', async (type) => {
     const item = fixture(type, '项目.index.yaml');
     const opened = await openBrowserColumnText('/notes/项目.index.yaml', '/notes');
-    expect(opened?.host).toBe('browser-column');
+    expect(opened?.host).toBe('column-2');
     const tab = useBrowserColumnStore.getState().current!;
     expect(tab.target).toMatchObject({ collectionType: type, collectionDisplay: { collectionId: item.collectionId } });
     await selectBrowserColumnFile(tab.id, '/notes/plan.md');

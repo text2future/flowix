@@ -1,15 +1,24 @@
 'use client';
 
+import { getSessionId } from '../store/workspace-session-store';
+
+
+import { SESSION_VIEW_SLOT_LIMIT } from '../model/session-limits';
+
+
+import { sessionFor } from '../model/workspace-session';
+
 import { createContext, useContext, useMemo, useEffect } from 'react';
-import type { WorkspaceSessionId } from '../model/workspace-session';
+import type { WorkspaceSessionReference } from '../model/workspace-session';
 import { restoreViewSnapshot, type SessionViewSnapshot } from '../model/session-view-state';
 import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 
-export const SessionViewRecoveryContext = createContext<{ sessionId: WorkspaceSessionId; entryId: string } | null>(null);
+export const SessionViewRecoveryContext = createContext<{ sessionId: WorkspaceSessionReference; entryId: string } | null>(null);
 
 const captureOwners = new Map<string, symbol>();
 
-export function createSessionViewChannel(sessionId: WorkspaceSessionId, entryId: string, slot: string) {
+export function createSessionViewChannel(sessionId: WorkspaceSessionReference, entryId: string, slot: string) {
+  sessionId = sessionFor(useWorkspaceSessionStore.getState(), sessionId).id;
   const key = JSON.stringify([sessionId, entryId, slot]);
   const owner = Symbol();
   let claimed = false;
@@ -18,19 +27,19 @@ export function createSessionViewChannel(sessionId: WorkspaceSessionId, entryId:
       claimed = true; captureOwners.set(key, owner);
       return () => { if (captureOwners.get(key) === owner) captureOwners.delete(key); };
     },
-    read: () => useWorkspaceSessionStore.getState().sessions[sessionId].viewStates[entryId]?.recovery?.slots[slot],
+    read: () => sessionFor(useWorkspaceSessionStore.getState(), sessionId).viewStates[entryId]?.recovery?.slots[slot],
     write: (value: SessionViewSnapshot) => {
       const snapshot = restoreViewSnapshot(value);
       if (!snapshot || slot.length > 1024 || (claimed && captureOwners.get(key) !== owner)) return;
-      useWorkspaceSessionStore.getState().updateSession(sessionId, (session) => {
+      useWorkspaceSessionStore.getState().updateSession(getSessionId(sessionId), (session) => {
         // Old renderers may flush after navigation, but may only write retained entries.
         const n = session.navigation;
         if (![n.current, ...n.backStack, ...n.forwardStack].some((entry) => entry?.id === entryId)) return session;
         const previous = session.viewStates[entryId];
         if (JSON.stringify(previous?.recovery?.slots[slot]) === JSON.stringify(snapshot)) return session;
-        const slots = Object.fromEntries([...Object.entries(previous?.recovery?.slots ?? {}).filter(([key]) => key !== slot), [slot, snapshot]].slice(-32));
+        const slots = Object.fromEntries([...Object.entries(previous?.recovery?.slots ?? {}).filter(([key]) => key !== slot), [slot, snapshot]].slice(-SESSION_VIEW_SLOT_LIMIT));
         const viewStates = Object.fromEntries([...Object.entries(session.viewStates).filter(([key]) => key !== entryId),
-          [entryId, { ...previous, recovery: { version: 1 as const, slots } }]].slice(-200));
+          [entryId, { ...previous, recovery: { version: 1 as const, slots } }]]);
         return { ...session, viewStates };
       });
     },
@@ -42,7 +51,7 @@ export function useSessionViewChannel(slot: string) {
   const scope = useContext(SessionViewRecoveryContext);
   const sessionId = scope?.sessionId;
   const entryId = scope?.entryId;
-  return useMemo(() => sessionId && entryId ? createSessionViewChannel(sessionId, entryId, slot) : null,
+  return useMemo(() => sessionId !== undefined && entryId ? createSessionViewChannel(sessionId, entryId, slot) : null,
     [sessionId, entryId, slot]);
 }
 

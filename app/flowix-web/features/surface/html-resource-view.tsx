@@ -35,7 +35,7 @@ export function HtmlResourceView(props: HtmlResourceProps) {
 }
 
 function HtmlResourceSession({ filePath, scopePath, documentProps, reportPresentation }: HtmlResourceProps) {
-  const host = documentProps.workspaceHost ?? 'main-third';
+  const host = documentProps.workspaceHost ?? 'column-1';
   const identity = useMemo(() => documentIdentityFromFile(documentProps.fileIdentity), [documentProps.fileIdentity]);
   // Share the note's host-scoped mode preference; 'rich' renders the HTML preview.
   const mode = useDocumentEditorMode(host, identity);
@@ -84,7 +84,7 @@ function HtmlPreview({ filePath, scopePath, documentProps, reportPresentation, r
   const { iframeRef, src, content, phase, backgroundColor, onLoad } = useLocalHtmlPreview(
     filePath, scopePath, onLink, documentProps.notebookId ?? null,
   );
-  const focused = useWorkspaceFocusStore((state) => state.focusedHostId === (documentProps.workspaceHost ?? 'main-third'));
+  const focused = useWorkspaceFocusStore((state) => state.focusedColumnId === (documentProps.workspaceHost ?? 'column-1'));
   const documentKey = documentIdentityKey(documentIdentityFromFile(documentProps.fileIdentity));
   const charCount = useMemo(() => content === null ? 0 : countTextUnits(extractBodyContent(content)), [content]);
   const metadataCallback = useRef(documentProps.onMetainfoData);

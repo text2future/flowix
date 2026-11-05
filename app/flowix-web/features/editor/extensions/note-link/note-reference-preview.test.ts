@@ -1,3 +1,4 @@
+import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -23,8 +24,8 @@ afterEach(() => {
   document.body.replaceChildren();
   resetBrowserColumnCoordinator();
   useNoteStore.setState(initialNotes);
-  useWorkColumnStore.setState(initialWorkColumn);
-  useBrowserColumnStore.setState(initialBrowserColumn);
+  seedWorkColumn(initialWorkColumn);
+  seedBrowserColumn(initialBrowserColumn);
   useWorkspaceFocusStore.setState(initialFocus);
   vi.restoreAllMocks();
 });
@@ -38,7 +39,7 @@ it('opens the referenced note from its composer preview while a conversation is 
   useBrowserColumnStore.getState().reset();
   resetBrowserColumnCoordinator();
   const conversation = { kind: 'agent-conversation' as const, instanceId: 'current-conversation' };
-  useWorkColumnStore.setState({
+  seedWorkColumn({
     navigation: {
       ...initialWorkColumn.navigation,
       phase: 'committed', target: conversation,
@@ -101,7 +102,7 @@ it('keeps the current note (and its embedded conversation) in the work column', 
   const currentNote = {
     kind: 'external' as const, path: '/notes/Projects/Plan.md', scopePath: '/notes', transitionId: null,
   };
-  useWorkColumnStore.setState({
+  seedWorkColumn({
     navigation: {
       ...initialWorkColumn.navigation,
       phase: 'committed', target: currentNote,

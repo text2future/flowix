@@ -1,5 +1,7 @@
 'use client';
 
+import { columnAtIndex } from '@features/workspace/public/session-api';
+
 /**
  * 集合底部的悬浮 AI 输入框 ── **针对任意集合**，不区分文件夹集合还是独立集合文件。
  *
@@ -46,7 +48,7 @@ export function CollectionAgentComposer({
   collectionPath: string;
   indexPath: string | null;
   /** 集合自己所在的位置：新会话永远开到「另一侧」，避免把它顶掉。 */
-  host: 'main-third' | 'browser-column';
+  host: 'column-1' | 'column-2';
 }) {
   const { t } = useI18n();
   // 产品稿默认 Pi；用户设置里禁用 Pi 时回落到第一个可用（运行期就绪）类型。
@@ -115,7 +117,7 @@ export function CollectionAgentComposer({
     // 默认在右栏 browser 里新开会话，并把这段输入直接发出去（不是预填）。
     // 集合本身就在 browser 列时反过来开进 Work，否则会把正在编辑的集合顶掉。
     createAndOpenAgentConversationWithPrompt(agentType, notebookId, contextualPrompt, {
-      destination: host === 'browser-column' ? 'main-third' : 'browser-column',
+      destination: columnAtIndex(0) === host ? 1 : 0,
       autoSend: true,
     });
     setDraft('');

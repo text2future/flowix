@@ -20,12 +20,12 @@ function Content({ path, report }: { path: string; report: WorkspaceSurfaceRende
 const surface: Extract<WorkspaceSurfaceRendererData, { kind: 'file-browser' }> = { kind: 'file-browser', props: {
   kind: 'file-browser', activeFilePath: '/notes/browser.md', fileIdentity: { path: '/notes/browser.md', displayId: 'browser-file' },
   folderPath: '/notes', scopePath: '/notes', notebookId: 'notes', fileTreeVisible: false, fileTreeWidth: 220,
-  documentProps: { isExternalDocument: true, externalScopePath: '/notes', documentSessionMode: 'isolated', workspaceHost: 'browser-column' },
+  documentProps: { isExternalDocument: true, externalScopePath: '/notes', documentSessionMode: 'isolated', workspaceHost: 'column-2' },
   onSelectFile: () => {}, onOpenFileInNewTab: () => {}, onContextChange: () => {}, onSelectFolder: () => {}, onTreeVisibleChange: () => {}, onTreeWidthChange: () => {},
 } };
 let root: ReturnType<typeof createRoot>;
 afterEach(async () => { if (root) await act(async () => root.unmount()); vi.clearAllMocks(); });
-it.each(['main-third', 'browser-column'] as const)('resets an unavailable collection in its %s host', async (host) => {
+it.each(['column-1', 'column-2'] as const)('resets an unavailable collection in its %s host', async (host) => {
   root = createRoot(document.createElement('div'));
   const updates: SurfacePresentationUpdate[] = [];
   await act(async () => root.render(<FileBrowserRenderer
@@ -41,7 +41,7 @@ it.each(['main-third', 'browser-column'] as const)('resets an unavailable collec
   await act(async () => { await reset!.run(); });
   expect(resetCurrentCollectionView).toHaveBeenCalledExactlyOnceWith(
     '/notes/browser.md', '/notes', 'notes',
-    host === 'browser-column' ? { host, surfaceId: 'collection-view' } : { host },
+    host === 'column-2' ? { host, surfaceId: 'collection-view' } : { host },
   );
 });
 it('does not restart loading or replace a ready editor when layout, focus or reporting callbacks change', async () => {
@@ -50,7 +50,7 @@ it('does not restart loading or replace a ready editor when layout, focus or rep
   const updates: SurfacePresentationUpdate[] = [];
   const render = async (focused: boolean) => act(async () => root.render(<FileBrowserRenderer
     surface={{ ...surface, props: { ...surface.props } }}
-    context={{ host: 'browser-column', viewId: 'browser-view', focused, readOnly: false, reportPresentation: (update) => { updates.push(update); } }}
+    context={{ host: 'column-2', viewId: 'browser-view', focused, readOnly: false, reportPresentation: (update) => { updates.push(update); } }}
   />));
   await render(true);
   const editor = node.querySelector('textarea')!;

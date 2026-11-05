@@ -12,7 +12,7 @@ export {
 export type {
   WorkspaceFileSurfaceKind,
   WorkspaceSurfaceCapability,
-  WorkspaceSurfaceHost,
+  WorkspaceColumnId,
   WorkspaceSurfaceKind,
 } from '../surface-registry';
 

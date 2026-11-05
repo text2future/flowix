@@ -427,7 +427,7 @@ defineAction({
     linux: 'Alt+ArrowLeft',
   },
   run: () => {
-    void (useWorkspaceFocusStore.getState().focusedHostId === 'browser-column' ? navigateBrowserColumnHistory('back') : navigateDocumentHistory('back'));
+    void (useWorkspaceFocusStore.getState().focusedColumnId === 'column-2' ? navigateBrowserColumnHistory('back') : navigateDocumentHistory('back'));
   },
 });
 
@@ -443,7 +443,7 @@ defineAction({
     linux: 'Alt+ArrowRight',
   },
   run: () => {
-    void (useWorkspaceFocusStore.getState().focusedHostId === 'browser-column' ? navigateBrowserColumnHistory('forward') : navigateDocumentHistory('forward'));
+    void (useWorkspaceFocusStore.getState().focusedColumnId === 'column-2' ? navigateBrowserColumnHistory('forward') : navigateDocumentHistory('forward'));
   },
 });
 

@@ -2,7 +2,8 @@ import { usePropertyPresetStore } from '@features/properties/property-preset-sto
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { createTableDocument, serializeTableDocument } from './model';
+import { addCalendarDateView, createTableDocument, serializeTableDocument } from './model';
+import { publishCollectionContent } from '@features/collection/public/content-events-api';
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }));
 vi.mock('@platform/tauri/client', () => ({
@@ -92,5 +93,53 @@ it('retains data and pending writes across views, but reloads for another collec
     expect(session.saveFailed).toBe(false);
     await expect(previousFlush).resolves.toBe(false);
     await expect(session.flush()).resolves.toBe(true);
+  } finally { act(() => root.unmount()); }
+});
+
+it('adopts a view added by another entry without waiting for a reload', async () => {
+  const original = createTableDocument();
+  mocks.read.mockResolvedValue(serializeTableDocument(original));
+  let session!: ReturnType<typeof useTableSession>;
+  function Probe() {
+    session = useTableSession({ filePath: '/notebook/collection.index.yaml', notebookPath: '/notebook', notebookId: 'nb' });
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Probe />));
+    const readsBefore = mocks.read.mock.calls.length;
+    const added = addCalendarDateView(original);
+    const nextSource = serializeTableDocument(added.document);
+
+    // 外壳（tab 条「···」→ 日历）写盘后广播内容：文档立刻跟上，不重读、不等刷新。
+    await act(async () => {
+      publishCollectionContent({ indexPath: '/notebook/collection.index.yaml', notebookPath: '/notebook', content: nextSource });
+    });
+
+    expect(session.document?.views.items.some((view) => view.id === added.view.id)).toBe(true);
+    expect(mocks.read.mock.calls.length).toBe(readsBefore);
+  } finally { act(() => root.unmount()); }
+});
+
+it('ignores broadcasts for another collection file', async () => {
+  const original = createTableDocument();
+  mocks.read.mockResolvedValue(serializeTableDocument(original));
+  let session!: ReturnType<typeof useTableSession>;
+  function Probe() {
+    session = useTableSession({ filePath: '/notebook/collection.index.yaml', notebookPath: '/notebook', notebookId: 'nb' });
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Probe />));
+    const loaded = session.document;
+    const added = addCalendarDateView(original);
+    await act(async () => {
+      publishCollectionContent({
+        indexPath: '/notebook/other.index.yaml', notebookPath: '/notebook',
+        content: serializeTableDocument(added.document),
+      });
+    });
+    expect(session.document).toBe(loaded);
   } finally { act(() => root.unmount()); }
 });

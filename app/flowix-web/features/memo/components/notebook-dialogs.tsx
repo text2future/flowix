@@ -90,6 +90,8 @@ interface NotebookDialogsProps {
   onRemoveEditDirectory: (path: string) => void;
   onSetPrimaryEditDirectory: (path: string) => void;
   editNotebookStorageChanged: boolean;
+  editStorageStatus: 'loading' | 'ready' | 'error';
+  onRetryEditStorage: () => void;
 }
 
 function normalizeNotebookIconId(icon: string | null | undefined): string {
@@ -206,6 +208,8 @@ export function NotebookDialogs({
   onRemoveEditDirectory,
   onSetPrimaryEditDirectory,
   editNotebookStorageChanged,
+  editStorageStatus,
+  onRetryEditStorage,
 }: NotebookDialogsProps) {
   const { t } = useI18n();
   const experimental = useExperimentalMode();
@@ -427,6 +431,12 @@ export function NotebookDialogs({
                       </div>
                     </div>
                   </div>
+                  {editStorageStatus !== 'ready' && (
+                    <div role={editStorageStatus === 'error' ? 'alert' : 'status'} className="flex items-center justify-between gap-2 text-sm text-[var(--muted-foreground)]">
+                      <span>{t(editStorageStatus === 'error' ? 'notebook.edit.storageLoadFailed' : 'notebook.edit.storageLoading')}</span>
+                      {editStorageStatus === 'error' && <button type="button" onClick={onRetryEditStorage} className="rounded-md border border-[var(--border)] px-2 py-1">{t('error.retry')}</button>}
+                    </div>
+                  )}
                   <NotebookStorageLocationList
                     label={t('notebook.edit.pathLabel')}
                     locationLabel={experimental ? undefined : t('notebook.create.pathLocationDevice')}
@@ -444,8 +454,10 @@ export function NotebookDialogs({
                     setPrimaryFolderLabel={t('notebook.create.setPrimaryFolder')}
                     removeFolderLabel={t('notebook.create.removeFolder')}
                     addFolderLabel={t('notebook.create.addFolder')}
-                    disabled={editSaving}
+                    disabled={editSaving || editStorageStatus !== 'ready'}
                     minimumPaths={1}
+                    primarySwitchRoot={editingNotebook?.path}
+                    primarySwitchBlockedLabel={t('notebook.edit.primaryOverlap')}
                     onSelectDirectory={onSelectEditDirectory}
                     onRemoveDirectory={onRemoveEditDirectory}
                     onSetPrimaryDirectory={onSetPrimaryEditDirectory}
@@ -458,6 +470,7 @@ export function NotebookDialogs({
               variant="dialog"
               formId="flowix-edit-notebook-form"
               disabled={
+                editStorageStatus !== 'ready' ||
                 !editNotebookName.trim() ||
                 (editNotebookName.trim() === editingNotebook?.name &&
                   (editNotebookIcon ?? '') === normalizeNotebookIconId(editingNotebook?.icon) &&

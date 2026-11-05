@@ -3,12 +3,12 @@ import { Check, ChevronRight, Ellipsis, Globe, Palette } from 'lucide-react';
 import { LinkSimpleIcon, FolderOpenIcon, TrashSimpleIcon } from '@phosphor-icons/react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
-import { CollectionDisplayMenuItems } from '@features/collection/public/title-api';
+import { CollectionDisplayMenuItems } from '@features/collection/public/header-api';
 import { Tooltip } from '@shared/ui/tooltip';
 import { NOTE_COLORS, NOTE_COLOR_HEX } from '@features/memo/store/note-store';
 import type { NoteColor } from '@/types/note-item';
 import { useI18n, translate, type AppLanguage, type I18nKey } from '@/lib/i18n';
-import type { DocumentTitlebarTarget } from './document-titlebar-model';
+import type { DocumentTitlebarProps, DocumentTitlebarTarget } from './document-titlebar-model';
 
 export function ExternalTitlebarBadge({ target }: { target: DocumentTitlebarTarget }) {
   const { t } = useI18n();
@@ -186,13 +186,13 @@ export function NoteColorPicker({
 
 export function MediaActions({
   iconButtonClass,
-  collectionDisplayIndexPath,
+  collectionDisplay,
   onCopyLink,
   onRevealInFileManager,
   onRequestDelete,
 }: {
   iconButtonClass: string;
-  collectionDisplayIndexPath?: string;
+  collectionDisplay?: DocumentTitlebarProps['collectionDisplay'];
   onCopyLink: () => void | Promise<void>;
   onRevealInFileManager: () => void;
   onRequestDelete?: () => void;
@@ -214,8 +214,8 @@ export function MediaActions({
         </Tooltip>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[200px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-        {collectionDisplayIndexPath && <>
-          <CollectionDisplayMenuItems indexPath={collectionDisplayIndexPath} />
+        {collectionDisplay && <>
+          <CollectionDisplayMenuItems {...collectionDisplay} />
           <div role="separator" aria-hidden="true" className={POPUP_SEPARATOR_CLASS} />
         </>}
         <DropdownMenuItem

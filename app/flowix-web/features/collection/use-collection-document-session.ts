@@ -28,6 +28,7 @@ import { canonicalDirectoryPath } from '@/lib/path';
 import { toast } from '@/lib/toast';
 import { externalDocuments, files } from '@platform/tauri/client';
 import { collectionWriteContent, isLegacyCollectionSource, type CollectionDomain } from './model';
+import { publishCollectionContent } from './content-events';
 
 /** 一种集合文件类型的格式能力。 */
 export interface CollectionDocumentCodec<T> {
@@ -232,7 +233,10 @@ export function useCollectionDocumentSession<T>({
           scopePath: notebookPath,
         });
         if (cancelled) return;
-        if (migration.status === 'saved') currentSource = migration.content;
+        if (migration.status === 'saved') {
+          currentSource = migration.content;
+          publishCollectionContent({ indexPath: currentFilePath, notebookPath, content: migration.content });
+        }
         else if (migration.status === 'conflict') {
           const latest = active.parse(migration.diskContent);
           if (active.collectionId(latest) !== active.collectionId(parsed)) throw new Error('集合身份已变化，无法迁移旧格式');
@@ -288,6 +292,7 @@ export function useCollectionDocumentSession<T>({
         if (result.status === 'saved') {
           sourceContentRef.current = result.content;
           setDocument(next);
+          publishCollectionContent({ indexPath: currentFilePath, notebookPath, content: result.content });
           return true;
         }
         if (result.status === 'conflict') {

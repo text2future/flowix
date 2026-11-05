@@ -394,6 +394,7 @@ impl MemoFile {
         // Stage timings feed the slow-save log line; sampling only, no logic.
         let profile_started = Instant::now();
         let root = self.notebook_root_for_note(notebook_id)?;
+        let _link_admission = super::note_links::foreground_save(&root);
         let path = self.validate_note_path(&root, relative_path, true)?;
         super::frontmatter::extract_document_metadata_tolerant(content)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
@@ -2020,6 +2021,7 @@ impl MemoFile {
         )
         .map_err(io::Error::other)?;
         tx.commit().map_err(io::Error::other)?;
+        super::note_links::remember_snapshot(root, &relative, &hash, content);
         if previous.is_some() {
             report.updated += 1;
         } else {
@@ -2152,6 +2154,7 @@ impl MemoFile {
             conn.execute_batch("DROP TABLE IF EXISTS note_tags; DROP TABLE IF EXISTS note_todos; DROP TABLE IF EXISTS note_agents;")
                 .map_err(io::Error::other)?;
         }
+        super::note_links::initialize_schema(&mut conn)?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_notes_created_page ON notes(favorited DESC, created_at DESC, relative_path DESC); \
             CREATE INDEX IF NOT EXISTS idx_notes_updated_page ON notes(favorited DESC, updated_at DESC, relative_path DESC); \
             CREATE INDEX IF NOT EXISTS idx_notes_filename_page ON notes(favorited DESC, filename_lower ASC, filename ASC, relative_path ASC);")
@@ -2212,13 +2215,18 @@ impl MemoFile {
 fn note_schema_is_current(conn: &Connection, notebook_id: &str) -> io::Result<bool> {
     let objects: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE \
-         (type='table' AND name IN ('note_index_meta', 'notes', 'note_content_revisions', 'note_search_fts')) \
-         OR (type='index' AND name IN ('idx_notes_created_page', 'idx_notes_updated_page', 'idx_notes_filename_page'))",
+         (type='table' AND name IN ('note_index_meta', 'notes', 'note_content_revisions', 'note_search_fts', 'note_links', 'note_link_state')) \
+         OR (type='index' AND name IN ('idx_notes_created_page', 'idx_notes_updated_page', 'idx_notes_filename_page', 'idx_note_links_target', 'idx_note_links_pending', 'idx_notes_link_filename')) \
+         OR (type='trigger' AND name IN ('note_links_insert','note_links_content','note_links_move'))",
         [], |row| row.get(0),
     ).map_err(io::Error::other)?;
-    if objects != 7 { return Ok(false); }
+    if objects != 15 { return Ok(false); }
+    #[cfg(windows)]
+    if !conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_notes_link_path_nocase')", [], |r| r.get::<_, bool>(0)).map_err(io::Error::other)? {
+        return Ok(false);
+    }
     let mut statement = conn.prepare(
-        "SELECT key, value FROM note_index_meta WHERE key IN ('schema_version', 'notebook_id')"
+        "SELECT key, value FROM note_index_meta WHERE key IN ('schema_version', 'notebook_id', 'links_schema_version', 'links_parser_version')"
     ).map_err(io::Error::other)?;
     let values = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
         .map_err(io::Error::other)?
@@ -2227,6 +2235,10 @@ fn note_schema_is_current(conn: &Connection, notebook_id: &str) -> io::Result<bo
     if version != &SCHEMA_VERSION.to_string() {
         return Err(io::Error::new(io::ErrorKind::InvalidData,
             format!("unsupported Note index schema version: {version}")));
+    }
+    if values.get("links_schema_version").map(String::as_str) != Some(super::note_links::SCHEMA_VERSION)
+        || values.get("links_parser_version") != Some(&super::note_links::PARSER_VERSION.to_string()) {
+        return Ok(false);
     }
     match values.get("notebook_id") {
         Some(stored) if stored == notebook_id => Ok(true),

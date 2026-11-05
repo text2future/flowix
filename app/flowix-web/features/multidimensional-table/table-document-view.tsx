@@ -36,6 +36,10 @@ import { EyeIcon, EyeSlashIcon } from '@phosphor-icons/react';
 import { collections, windows, type NoteEntry } from '@platform/tauri/client';
 import { NOTE_COLOR_HEX } from '@features/memo/store';
 import { canonicalPath, joinNotebookMemoPath } from '@/lib/path';
+import { resolveNoteThumbnailSrc } from '@/lib/note-thumbnail';
+import { CollectionAreaMenu } from '@shared/ui/collection-area-menu';
+import type { CollectionAreaMenuItem } from '@shared/ui/collection-area-menu';
+import { useTableAreaNotes } from './use-table-area-notes';
 import { toast } from '@/lib/toast';
 import { canonicalizePropertyKey } from '@features/properties/property-key';
 import { getAllPresets, type PropertyPreset } from '@features/document/properties/presets';
@@ -120,7 +124,6 @@ import {
   isoDate,
   noteInCollectionSource,
   noteKeyForRecord,
-  noteThumbnailUrl,
   resolveTableNoteParentRelativePath,
   SCROLL_PAGE_SIZE,
   TABLE_ACTION_COLUMN_MIN_WIDTH,
@@ -180,16 +183,23 @@ export interface TableDocumentViewProps {
    * 画廊/日历是流式内容，撑宽了会凭空多出一条横向滚动条。
    */
   onActiveLayoutChange?: (layout: string | null, contentWidth: number | null) => void;
+  /**
+   * 集合外壳里打开时给列表区域挂上统一右键菜单（新建笔记 / 导入笔记 .md）。
+   * 独立打开的表格文档不传，避免在非集合场景多出一层菜单。
+   */
+  collectionAreaMenu?: boolean;
 }
 
 const EMPTY_CELL_STATUSES: ReadonlyMap<string, TableCellSaveStatus> = new Map();
+/** 不在集合外壳里时右键菜单为空：触发器不动系统菜单，也不渲染任何项。 */
+const NO_AREA_MENU_ITEMS: CollectionAreaMenuItem[] = [];
 
 export function TableDocumentView(props: TableDocumentViewProps) {
   const sessionKey = collectionSessionKey(props);
   return <TableDocumentViewSession key={sessionKey} {...props} />;
 }
 
-function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, initialViewId, onActiveViewChange, showNavigation = true, collectionActionsHost, assetFilterMenu, onOpenAssetFilter, onDatasetFilterOpenChange, panelControlsRef, showNavTitle = true, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange, bannerVisible = null, onToggleBannerVisibility, pageScroll = false, onActiveLayoutChange }: TableDocumentViewProps) {
+function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath, notebookId, expectedCollectionId, initialViewId, onActiveViewChange, showNavigation = true, collectionActionsHost, assetFilterMenu, onOpenAssetFilter, onDatasetFilterOpenChange, panelControlsRef, showNavTitle = true, editable = true, canCreateFields = true, canCreateRecords = true, showAssociateNoteAction = canCreateRecords, canDeleteViews = true, embeddedInEditor = false, onRemoveReference, trailingActions, onFilePathChange, bannerVisible = null, onToggleBannerVisibility, pageScroll = false, onActiveLayoutChange, collectionAreaMenu = false }: TableDocumentViewProps) {
   const noteFilterSlot = useContext(CollectionNoteFilterSlot);
   const tablePageSize = embeddedInEditor ? EMBEDDED_TABLE_PAGE_SIZE : SCROLL_PAGE_SIZE;
   const valueTypography = useMemo(() => propertyValueTypography(
@@ -924,23 +934,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     if (await save(next)) setTablePage(0);
   }, [activeViewId, document, editable, save, saving]);
 
-
-
   const handleAutoOpenHandled = useCallback(() => setAutoOpenPrimaryRecordId(null), []);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   const handleRowActionOpenChange = useCallback((open: boolean, recordId: string) => {
     setRowActionRecordId(open ? recordId : null);
@@ -950,21 +944,11 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     deleteRecord(recordId);
   }, [deleteRecord]);
 
-
-
-
-
-
-
-
-
-
-
   const openLinkedNote = useCallback((note: NoteEntry) => {
     if (!notebookPath) return;
     const path = joinNotebookMemoPath(notebookPath, note.relativePath);
     if (path) void openWorkspaceSurface({
-      host: 'browser-column',
+      index: 1,
       target: { ...createFileBrowserTarget(path, notebookPath), notebookId: resolvedNotebookId },
     });
   }, [notebookPath, notebookId, resolvedNotebookId]);
@@ -974,23 +958,16 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     if (note) openLinkedNote(note);
   }, [noteForRecord, openLinkedNote, visibleRecords]);
 
-
-
-  const createBlankGalleryNote = useCallback(async () => {
-    const nextNoteNumber = datasetRecords.reduce((max, record) => {
-      const title = noteForRecord(record)?.title ?? '';
-      const match = /^未命名笔记\s+(\d+)$/.exec(title.trim());
-      return match ? Math.max(max, Number(match[1])) : max;
-    }, 0) + 1;
-    await createBlankGalleryNoteBase(nextNoteNumber);
-  }, [createBlankGalleryNoteBase, datasetRecords, noteForRecord]);
+  /** 列表区域右键菜单（新建笔记 / 导入笔记 .md）：行为都在 `useTableAreaNotes` 里。 */
+  const { createBlankGalleryNote, areaMenuItems } = useTableAreaNotes({
+    session: tableSession, save, editable, saving, currentFilePath, notebookPath, noteField,
+    datasetRecords, noteForRecord, createBlankGalleryNote: createBlankGalleryNoteBase,
+  });
 
   const chooseGalleryData = useCallback(() => {
     setDatasetFilterOpen(false);
     setMatchingOpen(true);
   }, []);
-
-
 
   const groupFieldId = activeView?.layout === 'kanban' && typeof activeView.config.group_by === 'string' ? activeView.config.group_by : null;
   const groupField = groupFieldId ? document?.dataset.schema.fields.find((field) => field.id === groupFieldId) : undefined;
@@ -1410,6 +1387,9 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
           表格 / 画廊是流式内容，交给整页滚动（thead 才能吸在 tab 条下沿）；
           日历 / 看板锁在可见区域里自己滚 —— 看板的横向滚动必须留在内部，
           否则整页（连头图、tab 条）会跟着一起横滚。 */}
+      {/* 集合外壳里：整块记录区（表格 / 画廊 / 看板 / 日历）挂统一右键菜单。
+          独立打开的表格文档没有这条菜单，这里用空 items 让触发器直接放行。 */}
+      <CollectionAreaMenu items={collectionAreaMenu ? areaMenuItems : NO_AREA_MENU_ITEMS}>
       <OverlayScrollbar scrollerRef={recordsScrollerRef} horizontalScrollbar={activeView?.layout === 'kanban' || (!pageScroll && activeView?.layout === 'table')} className={`multidimensional-table__scrollbar--bottom-clearance min-h-0 flex-1 ${pageScroll ? `multidimensional-table__records--page-scroll multidimensional-table__records--layout-${activeLayout ?? 'none'}` : ''}`} scrollerClassName="min-h-0 flex h-full flex-col" onScroll={() => {
         window.dispatchEvent(new Event('flowix:multidimensional-table-scroll'));
         setHeaderMenuFieldId(null);
@@ -1665,7 +1645,11 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
           const path = imagePaths(notePropertyEditorValue(noteForRecord(record), field))[0];
           return path ? imageUrls[`${record.id}:${field.id}:${path}`] ?? null : null;
         }}
-        noteThumbnail={(record) => noteThumbnailUrl(noteForRecord(record)?.thumbnail)}
+        noteThumbnail={(record) => {
+          const note = noteForRecord(record);
+          const notePath = note && notebookPath ? joinNotebookMemoPath(notebookPath, note.relativePath) : null;
+          return resolveNoteThumbnailSrc(note?.thumbnail, notePath);
+        }}
         onOpenRecord={(record, anchorRect) => {
           const note = noteForRecord(record);
           if (note) openLinkedNote(note);
@@ -1707,6 +1691,7 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
         <div ref={loadMoreRecordsRef} className="h-8 shrink-0" aria-hidden="true" />
       )}
       </OverlayScrollbar>
+      </CollectionAreaMenu>
       {activeView?.layout === 'table' && <div className={`flex w-full min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 py-1.5 ${embeddedInEditor ? '' : 'px-4'}`}>
         {showAssociateNoteButton && (
           <button

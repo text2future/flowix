@@ -9,11 +9,18 @@ default grid. Templates and formatting controls use the existing editor menus.
   template submenu. Enter or Right opens the submenu; Escape or Left returns
   without deleting the slash query. Confirming a template inserts the table.
 - Search by a template name or its keywords to narrow the submenu choices.
-- Templates contain headings and, where appropriate, financial line-item labels.
-  Data cells are empty; templates do not invent financial or research results.
+- Default grid, Gray stripes, Business blue, and Comparison insert empty 3 × 3
+  grids. The remaining six styles appear below a separator and include headings
+  and, where appropriate, financial line-item labels. Data cells are empty;
+  templates do not invent financial or research results.
 - Select a cell and use the floating menu to change the table style, row role
   (body, group, subtotal, total), or column role (default, label, note, amount).
-- Switching styles preserves content, row/column roles, and manual cell borders.
+- Switching to a content template fills an empty table with that template,
+  replacing its grid structure and placing the cursor in the first blank cell.
+  Only cells containing empty paragraphs count as blank; non-text content also
+  prevents replacement. Once a table has content (including template labels),
+  switching styles preserves its content, row/column roles, and manual borders.
+  Switching between blank styles preserves the existing grid structure.
   Existing row/column insertion and deletion controls remain available.
 
 | Style | Initial presentation |
@@ -48,11 +55,25 @@ retains the template's thicker solid rule.
 
 ## Persistence and compatibility
 
-Ordinary Markdown tables use the existing `flowix:table` metadata mechanism for
-table style, row roles, cell column roles, and sparse versioned border settings.
-Tables requiring HTML (such as merged cells) use corresponding `data-flowix-*`
-attributes. Default border settings add no metadata. Existing tables continue to
-use the original default presentation unless a style is selected.
+Ordinary Markdown tables use the `flowix:table` metadata comment for table style,
+row roles, column roles, and border overrides. Column roles are written in one of
+two encodings:
+
+- `columnRoles`: one role per column, used whenever every cell in a column agrees.
+  This is the normal case and costs a few dozen bytes per table.
+- `cells`: the earlier dense per-cell matrix, still written for grids whose rows
+  disagree (or that mix spanning cells).
+
+Border overrides are sparse. `borderList` records only `[row, column, top, bottom]`
+for the cells that differ from the template, so a 30 × 6 table with one manual
+rule adds one entry instead of a matrix of 180 nulls. Both dense forms
+(`cells`/`borders`) produced by earlier builds are still read, and are rewritten in
+the compact form on the next save.
+
+Tables requiring HTML (such as merged cells) use the corresponding `data-flowix-*`
+attributes and keep their per-cell values there. Default border settings add no
+metadata. Existing tables continue to use the original default presentation unless
+a style is selected.
 
 This feature changes in-app presentation and note persistence. It does not add
 download or document-export controls, or modify the existing export adapters.

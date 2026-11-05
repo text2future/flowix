@@ -27,7 +27,7 @@ export function workspaceSurfaceRendererDataFromWorkSurface(surface: WorkColumnS
       return { kind: 'file-table', fileIdentity: surface.fileIdentity, props: {
         ...surface.props,
         onActiveViewChange: notebookId && expectedCollectionId
-          ? (viewId) => setCollectionActiveView({ host: 'main-third' }, { notebookId, collectionId: expectedCollectionId }, viewId)
+          ? (viewId) => setCollectionActiveView({ host: 'column-1' }, { notebookId, collectionId: expectedCollectionId }, viewId)
           : surface.props.onActiveViewChange,
       } };
     }

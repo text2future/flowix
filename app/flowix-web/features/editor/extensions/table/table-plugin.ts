@@ -5,8 +5,10 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableView } from '@tiptap/extension-table';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 
-import { createTableEdgeInsertPlugin } from '@features/editor/extensions/table/table-edge-insert-plugin';
+import { createTableEdgeInsertPlugin, type TableEdgeInsertLabels } from '@features/editor/extensions/table/table-edge-insert-plugin';
 import { createTableColumnDecorationsPlugin } from '@features/editor/extensions/table/table-column-decorations';
+import { createTableEditingCellPlugin } from './table-editing-cell';
+import { createTableCompositionPlugin } from './table-composition';
 import { createEditorTable } from '@features/editor/extensions/table/flowix-table';
 import { normalizeTableStyleId, TablePresentation } from '@features/editor/extensions/table/table-presentation';
 
@@ -28,13 +30,23 @@ class FlowixTableView extends TableView {
 
   private updateStyle(node: ProseMirrorNode): void {
     const styleId = normalizeTableStyleId(node.attrs.styleId);
-    if (styleId === 'default') this.table.removeAttribute('data-flowix-table-style');
-    else this.table.setAttribute('data-flowix-table-style', styleId);
+    const current = this.table.getAttribute('data-flowix-table-style');
+    if (styleId === 'default') {
+      if (current !== null) this.table.removeAttribute('data-flowix-table-style');
+      return;
+    }
+    // Same-value setAttribute still invalidates style for the table subtree.
+    if (current !== styleId) this.table.setAttribute('data-flowix-table-style', styleId);
   }
 }
 
+export interface TablePluginOptions {
+  /** Copy for DOM controls the plugins create outside React (edge insert buttons). */
+  labels?: TableEdgeInsertLabels;
+}
+
 /** Each editor owns its table renderer and schema binding. */
-export function createTablePlugin() {
+export function createTablePlugin({ labels }: TablePluginOptions = {}) {
   const table = createEditorTable().configure({
     resizable: true,
     handleWidth: TABLE_RESIZE_HANDLE_WIDTH,
@@ -50,7 +62,12 @@ export function createTablePlugin() {
     },
 
     addProseMirrorPlugins() {
-      return [createTableEdgeInsertPlugin(this.editor), createTableColumnDecorationsPlugin()];
+      return [
+        createTableCompositionPlugin(),
+        createTableEdgeInsertPlugin(this.editor, labels),
+        createTableColumnDecorationsPlugin(),
+        createTableEditingCellPlugin(),
+      ];
     },
   });
 }

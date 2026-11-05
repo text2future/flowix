@@ -14,7 +14,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("@features/memo/components/notebook-icon", () => ({
-  getNotebookIconMarkup: () => null,
+  getNotebookIconUrl: () => null,
 }));
 
 describe("workspace capabilities", () => {

@@ -1,3 +1,4 @@
+import { updateWorkColumnTargets } from '@features/workspace/public/session-runtime-api';
 import { useCallback, useRef } from 'react';
 import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
 import { openWorkspaceSurface as openSessionSurface } from '@features/workspace/public/session-opening-api';
@@ -14,10 +15,11 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
   const target = useWorkColumnStore((state) => state.navigation.target);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const { t } = useI18n();
+  const reportFlushReady = props.onFlushReady;
   const onFlushReady = useCallback((flush: (() => Promise<boolean>) | null) => {
     flushRef.current = flush;
-    props.onFlushReady?.(flush);
-  }, [props.onFlushReady]);
+    reportFlushReady?.(flush);
+  }, [reportFlushReady]);
   if (target.kind !== 'external') return <CodeSurfaceView props={props} fileTree={null} />;
   const context = target.fileBrowser ?? {
     notebookId: null, restoreNotebookContext: true, folderPath: null,
@@ -25,11 +27,8 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
     fileTreeVisible: true,
     fileTreeWidth: 220,
   };
-  const updateView = (patch: Partial<FileBrowserContext>) => useWorkColumnStore.setState((state) => ({
-    navigation: state.navigation.target === target ? {
-      ...state.navigation, target: { ...target, fileBrowser: { ...context, ...patch } },
-    } : state.navigation,
-  }));
+  const updateView = (patch: Partial<FileBrowserContext>) => updateWorkColumnTargets((current) =>
+    current === target ? { ...target, fileBrowser: { ...context, ...patch } } : current);
   const selectFile = async (path: string) => {
     try {
       if (flushRef.current && !await flushRef.current()) {
@@ -42,12 +41,12 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
       const fileKind = externalFileViewKind(path);
       if ((fileKind === 'image' || fileKind === 'video') && context.scopePath) {
         await openSessionSurface({
-          host: 'main-third',
+          columnId: 'column-1',
           target: { kind: 'media', filePath: path, notebookId: context.notebookId, notebookPath: context.scopePath, resourceKind: fileKind },
         });
       } else {
         await openSessionSurface({
-          host: 'main-third',
+          columnId: 'column-1',
           target: { kind: 'external', path, scopePath: context.scopePath, transitionId: null, fileBrowser: context },
         });
       }
@@ -67,7 +66,7 @@ export function CodeSurfaceFileBrowser({ surface }: { surface: CodeSurface }) {
       onSelectFile: (path) => { void selectFile(path); },
       onOpenFileInNewTab: (path) => {
         void openWorkspaceSurface({
-          host: 'browser-column',
+          index: 1,
           target: { ...context, kind: 'file-browser', activeFilePath: path, folderPath: null },
         });
       },

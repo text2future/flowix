@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
@@ -27,14 +28,14 @@ it('does not force the right document read-only when the same memo is open on th
   useBrowserColumnStore.getState().openContent(tab);
   try {
     await act(async () => root.render(<BrowserColumn width={500} layoutKey="test" onResize={() => {}} toolbarCollapsed={false} onToolbarCollapsedChange={() => {}} />));
-    for (const host of ['main-third', 'browser-column'] as const) {
-      await act(async () => useWorkspaceFocusStore.getState().focusHost(host));
+    for (const host of ['column-1', 'column-2'] as const) {
+      await act(async () => useWorkspaceFocusStore.getState().focusColumn(host));
       expect(resolveSurface.mock.lastCall?.[1].readOnly).toBe(false);
     }
   } finally {
     await act(async () => root.unmount());
     useBrowserColumnStore.getState().reset();
-    useWorkColumnStore.setState({ navigation: previousNavigation });
+    seedWorkColumn({ navigation: previousNavigation });
     useWorkspaceFocusStore.getState().reset();
     environment.IS_REACT_ACT_ENVIRONMENT = false;
   }

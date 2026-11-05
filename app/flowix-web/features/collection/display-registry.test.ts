@@ -1,3 +1,5 @@
+import { migrateLegacySessionData } from '@features/workspace/store/session-legacy-migration';
+import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ensureCollectionDisplay, bindCollectionDisplayPath, findCollectionDisplayPath, reconcileCollectionDisplays, pinCollectionDisplay } from '@/lib/collection-display-registry';
 import { useDocumentHistoryStore, documentHistoryEntryKey } from '@features/document/store/document-history-store';
@@ -43,7 +45,8 @@ describe('collection displays and navigation history', () => {
       { ...entry, displayId: 'old-view-a', viewId: 'a' },
       { ...entry, displayId: 'old-view-b', viewId: 'b' },
     ], forwardStack: [] }, version: 0 }));
-    await useDocumentHistoryStore.persist.rehydrate();
+    const migrated = migrateLegacySessionData();
+    useWorkspaceSessionStore.getState().updateSession('column-1', () => migrated.sessions['column-1']);
     expect(useDocumentHistoryStore.getState().backStack).toHaveLength(1);
     expect(useDocumentHistoryStore.getState().peekBack()).toMatchObject({ viewId: 'b', displayId: 'old-view-a' });
     expect(documentHistoryEntryKey(useDocumentHistoryStore.getState().peekBack())).toBe('old-view-a');

@@ -15,6 +15,7 @@ import { findFileDisplayPath, type FileDisplayIdentity } from '@/lib/file-displa
 import { parseTableDocumentAsync } from './parse-table-document';
 import { serializeTableDocument, parseTableDocument, validateTableDocument, type MultidimensionalTableDocument } from './model';
 import { isLegacyCollectionSource, collectionSourceDomain, collectionWriteContent, type CollectionDomain } from '@features/collection/model';
+import { isSameCollectionFile, publishCollectionContent, subscribeCollectionContent } from '@features/collection/public/content-events-api';
 import { bindTablePresetsFromSnapshot } from '@features/properties/property-preset-service';
 
 interface TableSessionOptions {
@@ -125,6 +126,9 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
     sourceContentRef.current = null;
     loadedSessionKeyRef.current = null;
 
+    /** 旧格式迁移改写了文件：等本次载入落定后再广播，避免自己的订阅在载入中途抢跑。 */
+    let migratedContent: string | null = null;
+
     try {
       const source = await externalDocuments.read(getCurrentFilePath(), notebookPath);
       if (!isCurrentSession(sequence, key)) return;
@@ -135,7 +139,10 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
       if (editableRef.current && isLegacyCollectionSource(source)) {
         const migration = await externalDocuments.write({ filePath: getCurrentFilePath(), content: serializeTableDocument(next), expectedContent: source, scopePath: notebookPath });
         if (!isCurrentSession(sequence, key)) return;
-        if (migration.status === 'saved') sourceContent = migration.content;
+        if (migration.status === 'saved') {
+          sourceContent = migration.content;
+          migratedContent = migration.content;
+        }
         else if (migration.status === 'conflict') {
           const latest = await parseTableDocumentAsync(migration.diskContent);
           if (latest.collection.id !== next.collection.id) throw new Error('表格身份已变化，无法迁移旧格式');
@@ -184,6 +191,9 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
       setNotes(entries);
       setResolvedNotebookId(resolvedId);
       setNotesLoadError(noteLoadError);
+      if (migratedContent !== null) {
+        publishCollectionContent({ indexPath: getCurrentFilePath(), notebookPath, content: migratedContent });
+      }
     } catch (error) {
       if (isCurrentSession(sequence, key)) setLoadError(friendlyErrorMessage(error, t, 'errors.friendly.tableLoad'));
     }
@@ -364,6 +374,9 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
         }
         sourceContentRef.current = { sessionKey: key, content: result.content };
         setDocument(next);
+        // 反向同步：表格自己的写盘（改单元格 / 表格内改视图）也要让外壳 summary、
+        // 图墙、列表知道，否则它们的副本还停在写之前。
+        publishCollectionContent({ indexPath: getCurrentFilePath(), notebookPath, content: result.content });
         return true;
       }
       if (!isCurrentSession(sequence, key)) return false;
@@ -405,6 +418,31 @@ export function useTableSession({ filePath, fileIdentity, notebookPath: rawNoteb
 
   const collectionId = document?.collection.id;
   const pendingCollectionRefreshRef = useRef<{ key: string; path: string } | null>(null);
+  /** 保存在进行中收到的内容广播：保存结束（saving=false）后补采用一次。 */
+  const pendingCollectionContentRef = useRef<{ key: string; content: string } | null>(null);
+
+  /**
+   * 本进程内别的入口改写了同一个集合文件（tab 条新增 / 改名 / 删除视图、属性面板、
+   * 图墙筛选…）。网关已经把落盘内容广播出来了，就地采用即可 —— 不要再等刷新：
+   * 否则 tab 已经切到「日历」，表格里还是旧视图，而且下一次保存会因为基线过期撞冲突。
+   */
+  useEffect(() => subscribeCollectionContent((change) => {
+    if (!isSameCollectionFile(change.indexPath, getCurrentFilePath())) return;
+    if (sourceContentRef.current?.content === change.content) return;
+    if (savingRef.current) {
+      pendingCollectionContentRef.current = { key: sessionKey, content: change.content };
+      return;
+    }
+    acceptContent(change.content);
+  }), [acceptContent, getCurrentFilePath, sessionKey]);
+  useEffect(() => {
+    if (saving) return;
+    const pending = pendingCollectionContentRef.current;
+    pendingCollectionContentRef.current = null;
+    if (!pending || pending.key !== sessionKey) return;
+    if (sourceContentRef.current?.content !== pending.content) acceptContent(pending.content);
+  }, [acceptContent, saving, sessionKey]);
+
   const refreshCollection = useCallback((path: string) => {
     const sequence = loadSequenceRef.current;
     const key = sessionKey;

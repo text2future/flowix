@@ -10,8 +10,6 @@ import type { WorkspaceSession } from '../model/workspace-session';
 
 const documentToSession = new WeakMap<object, SessionNavigationEntry>();
 const sessionToDocument = new WeakMap<object, DocumentHistoryEntry>();
-const browserTargetOrigins = new WeakMap<object, SessionCurrentEntry['target']>();
-const browserToSession = new WeakMap<object, SessionCurrentEntry>();
 const sessionToBrowser = new WeakMap<object, BrowserColumnEntry>();
 const browserStacks = new WeakMap<object, BrowserColumnEntry[]>();
 const documentStacks = new WeakMap<object, DocumentHistoryEntry[]>();
@@ -71,18 +69,13 @@ export function projectDocumentStack(stack: readonly SessionNavigationEntry[]): 
 }
 
 function toCanonicalBrowserTarget(target: BrowserColumnTarget): SessionCurrentEntry['target'] {
-  const origin = browserTargetOrigins.get(target);
-  if (origin) return origin;
   return target.kind === 'agent_conversation' ? { kind: 'agent-conversation', instanceId: target.instanceId } : target;
 }
 
 export function fromBrowserEntry(entry: BrowserColumnEntry, previous?: SessionNavigationEntry): SessionCurrentEntry {
-  const cached = browserToSession.get(entry);
-  if (cached) return cached;
   const value: SessionCurrentEntry = {
     ...entry, target: toCanonicalBrowserTarget(entry.target), openedAt: previous?.openedAt ?? Date.now(),
   };
-  browserToSession.set(entry, value);
   sessionToBrowser.set(value, entry);
   return value;
 }
@@ -118,12 +111,8 @@ export function toBrowserEntry(entry: SessionNavigationEntry): BrowserColumnEntr
     case 'empty': throw new Error('Empty is a session state, not a history entry');
     default: browserTarget = target;
   }
-  if (target.kind !== 'collection-reference') browserTargetOrigins.set(browserTarget, target.kind === 'external' ? { ...target, transitionId: target.transitionId ?? null } : target);
   const value = { id: entry.id, title: entry.title, icon: entry.icon, target: browserTarget };
   sessionToBrowser.set(entry, value);
-  if (target.kind !== 'collection-reference' && (target.kind !== 'external' || target.transitionId !== undefined)) {
-    browserToSession.set(value, entry as SessionCurrentEntry);
-  }
   return value;
 }
 

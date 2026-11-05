@@ -1,12 +1,12 @@
-import type { SurfaceLifecycle, WorkspaceSurfaceHost } from '../model/surface-contract';
+import type { SurfaceLifecycle, WorkspaceColumnId } from '../model/surface-contract';
 
 const defaultOwner = {};
 const lifecycles = new Map<string, { owner: object; lifecycle: SurfaceLifecycle }>();
 const subscribers = new Map<string, Set<() => void>>();
-const hostViews = new Map<WorkspaceSurfaceHost, { viewId: string }>();
+const hostViews = new Map<WorkspaceColumnId, { viewId: string }>();
 
 /** Hosts identify the mounted view; navigation need not reconstruct renderer IDs. */
-export function registerWorkspaceSurfaceHostView(host: WorkspaceSurfaceHost, viewId: string): () => void {
+export function registerWorkspaceColumnIdView(host: WorkspaceColumnId, viewId: string): () => void {
   const registration = { viewId };
   hostViews.set(host, registration);
   return () => {
@@ -14,7 +14,7 @@ export function registerWorkspaceSurfaceHostView(host: WorkspaceSurfaceHost, vie
   };
 }
 
-export function getWorkspaceHostSurfaceLifecycle(host: WorkspaceSurfaceHost): SurfaceLifecycle | null {
+export function getWorkspaceHostSurfaceLifecycle(host: WorkspaceColumnId): SurfaceLifecycle | null {
   const view = hostViews.get(host);
   return view ? getWorkspaceSurfaceLifecycle(view.viewId) : null;
 }

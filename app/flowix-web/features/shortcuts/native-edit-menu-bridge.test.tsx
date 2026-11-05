@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { NATIVE_CLIPBOARD_ACTION_EVENT } from '@shared/clipboard/native-clipboard-action';
 import { NativeEditMenuBridge } from './native-edit-menu-bridge';
 
 const mocks = vi.hoisted(() => ({
@@ -10,8 +11,11 @@ const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
   execCommand: vi.fn(),
+  invoke: vi.fn(),
   listeners: new Map<string, () => void>(),
 }));
+
+vi.mock('@platform/tauri/core', () => ({ invoke: mocks.invoke }));
 
 vi.mock('@/lib/shortcuts/registry', () => ({
   getAction: mocks.getAction,
@@ -28,6 +32,7 @@ describe('NativeEditMenuBridge', () => {
   let root: Root;
 
   beforeEach(async () => {
+    mocks.invoke.mockReset().mockResolvedValue(undefined);
     mocks.actionRun.mockReset();
     mocks.getAction.mockReset().mockReturnValue({ run: mocks.actionRun });
     mocks.unsubscribe.mockReset();
@@ -148,10 +153,36 @@ describe('NativeEditMenuBridge', () => {
     editor.remove();
   });
 
+  it.each(['cut', 'copy', 'paste'] as const)('offers native %s to the file surface before invoking WebKit', (action) => {
+    const claim = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toBe(action);
+      event.preventDefault();
+    });
+    document.addEventListener(NATIVE_CLIPBOARD_ACTION_EVENT, claim);
+    try {
+      mocks.listeners.get(`flowix://clipboard-${action}`)?.();
+      expect(claim).toHaveBeenCalledOnce();
+      expect(mocks.invoke).not.toHaveBeenCalled();
+      expect(mocks.execCommand).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener(NATIVE_CLIPBOARD_ACTION_EVENT, claim);
+    }
+  });
+
+  it.each(['cut', 'copy', 'paste'] as const)('preserves the real native %s pipeline for text fields', (action) => {
+    const input = document.createElement('textarea');
+    document.body.appendChild(input); input.focus();
+    try {
+      mocks.listeners.get(`flowix://clipboard-${action}`)?.();
+      expect(mocks.invoke).toHaveBeenCalledWith('perform_native_clipboard_action', { action });
+      expect(mocks.execCommand).not.toHaveBeenCalled();
+    } finally { input.remove(); }
+  });
+
   it('unsubscribes from the native event when unmounted', async () => {
     await act(async () => root.unmount());
 
-    expect(mocks.unsubscribe).toHaveBeenCalledTimes(3);
+    expect(mocks.unsubscribe).toHaveBeenCalledTimes(6);
     root = createRoot(container);
   });
 });

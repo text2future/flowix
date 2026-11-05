@@ -4,8 +4,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useCollectionSummary } from './use-collection-summary';
 import type { FolderCollectionSummary } from '@features/collection/public/folder-api';
 import { publishLocalCollectionChange, type LocalCollectionChange } from '@features/collection/events';
+import { publishCollectionContent } from '@features/collection/public/content-events-api';
 const io = vi.hoisted(() => ({ read: vi.fn(), events: new Set<(event: unknown) => void>() }));
-vi.mock('@features/collection/public/folder-api', () => ({ readCollectionSummary: io.read }));
+vi.mock('@features/collection/public/folder-api', () => ({
+  readCollectionSummary: io.read,
+  // 摘要由内容直接重算（本进程写入路径）：测试里用一个可从内容读出修订号的最小实现。
+  summarizeFolderCollectionSource: (content: string) => ({ collectionId: 'c1', revision: Number(content), views: [], source: content }),
+}));
 vi.mock('@platform/tauri/event-bus', () => ({ subscribe: (_: string, handler: (event: unknown) => void) => {
   io.events.add(handler); return () => io.events.delete(handler);
 } }));
@@ -96,4 +101,20 @@ it('follows a desktop rename event before the local mutation response and ignore
   expect(io.read).toHaveBeenCalledTimes(reads);
   await act(async () => root.render(<Probe id="main" path="/book/desktop-renamed.index.yaml" />));
   expect(node.textContent).toBe('2');
+});
+
+it('follows a local write broadcast without reading the file again', async () => {
+  io.read.mockResolvedValue(summary(1));
+  await render(<Probe id="main" />);
+  expect(node.textContent).toBe('1');
+  await act(async () => publishCollectionContent({ indexPath: '/book/a.index.yaml', notebookPath: '/book', content: '4' }));
+  expect(node.textContent).toBe('4');
+  expect(io.read).toHaveBeenCalledTimes(1);
+});
+
+it('ignores broadcasts for another collection file', async () => {
+  io.read.mockResolvedValue(summary(1));
+  await render(<Probe id="main" />);
+  await act(async () => publishCollectionContent({ indexPath: '/book/b.index.yaml', notebookPath: '/book', content: '5' }));
+  expect(node.textContent).toBe('1');
 });

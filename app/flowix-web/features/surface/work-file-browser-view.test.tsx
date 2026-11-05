@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +21,7 @@ let root: Root;
 let host: HTMLDivElement;
 beforeEach(async () => {
   vi.clearAllMocks();
-  useWorkColumnStore.setState({ navigation: { ...initial.navigation, phase: 'committed', target: {
+  seedWorkColumn({ navigation: { ...initial.navigation, phase: 'committed', target: {
     kind: 'external', path: '/book/main.ts', scopePath: '/book', transitionId: null,
   } } });
   host = document.createElement('div');
@@ -30,18 +31,18 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
-  useWorkColumnStore.setState(initial, true);
+  seedWorkColumn(initial, true);
 });
 
 describe('Work file tree open destination', () => {
   it.each(['docx', 'unsupported'])('keeps %s selection in Work', async (label) => {
     const button = [...host.querySelectorAll('button')].find((item) => item.textContent === label)!;
     await act(async () => button.click());
-    expect(openSessionSurface).toHaveBeenCalledWith(expect.objectContaining({ host: 'main-third', target: expect.objectContaining({ kind: 'external' }) }));
+    expect(openSessionSurface).toHaveBeenCalledWith(expect.objectContaining({ columnId: 'column-1', target: expect.objectContaining({ kind: 'external' }) }));
   });
   it('opens Browser when explicitly requested', async () => {
     const button = [...host.querySelectorAll('button')].find((item) => item.textContent === 'browser')!;
     await act(async () => button.click());
-    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ host: 'browser-column' }));
+    expect(openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({ index: 1 }));
   });
 });

@@ -2,7 +2,7 @@ import { useWorkspaceHeaderFullscreen } from '@features/workspace/public/header-
 import { useEffect, useState } from 'react';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
-import type { WorkspaceHostId } from '@features/workspace/public/host-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 import { ICON_FULLSCREEN_EXIT_PATH } from '@features/agent/thread-card/agent-thread-card-icons';
 import { useAgentSessionStore } from '@features/agent/store/agent-session-store';
 import type { AgentConversationInstance } from '@features/agent/store/agent-conversation-types';
@@ -15,20 +15,20 @@ const AGENT_THREAD_CARD_REQUEST_FULLSCREEN_EVENT =
   'flowix:agent-thread-card-request-fullscreen';
 
 /** Fullscreen state is published by its owning card, scoped to one host. */
-export type AgentThreadCardFullscreenHost = WorkspaceHostId;
+export type AgentThreadCardFullscreenHost = WorkspaceColumnId;
 
-export function useAgentThreadCardFullscreenActive(host: AgentThreadCardFullscreenHost = 'main-third'): boolean {
+export function useAgentThreadCardFullscreenActive(host: AgentThreadCardFullscreenHost = 'column-1'): boolean {
   return useWorkspaceHeaderFullscreen(host) !== null;
 }
 
-export function useFullscreenAgentThreadCardInfo(host: AgentThreadCardFullscreenHost = 'main-third') {
+export function useFullscreenAgentThreadCardInfo(host: AgentThreadCardFullscreenHost = 'column-1') {
   return useWorkspaceHeaderFullscreen(host);
 }
 
 /** The exit affordance for an embedded fullscreen Thread Card. */
 export function AgentThreadCardFullscreenExitButton({
   className,
-  host = 'main-third',
+  host = 'column-1',
 }: {
   className: string;
   host?: AgentThreadCardFullscreenHost;
@@ -67,7 +67,7 @@ export function AgentThreadCardFullscreenExitButton({
 /** Agent conversation menu rendered in the existing work-column titlebar slot. */
 export function AgentThreadCardFullscreenMoreMenu({
   iconButtonClass,
-  host = 'main-third',
+  host = 'column-1',
 }: {
   iconButtonClass: string;
   host?: AgentThreadCardFullscreenHost;
@@ -103,7 +103,7 @@ export function AgentThreadCardFullscreenMoreMenu({
 
 /** Shared Agent identity displayed in a column titlebar while a conversation is fullscreen. */
 export function AgentThreadCardFullscreenIdentity({
-  host = 'main-third',
+  host = 'column-1',
 }: {
   host?: AgentThreadCardFullscreenHost;
 } = {}) {

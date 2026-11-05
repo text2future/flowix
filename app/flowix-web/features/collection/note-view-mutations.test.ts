@@ -4,6 +4,7 @@ import { createMediaLibrary, serializeMediaLibrary } from '@features/media-libra
 import { parseHybridCollection } from './model';
 import { addCollectionDomain } from './folder-collection';
 import { addCollectionNoteView } from './note-view-mutations';
+import { subscribeCollectionContent } from './content-events';
 
 const io = vi.hoisted(() => ({ read: vi.fn(), create: vi.fn(), write: vi.fn() }));
 vi.mock('@platform/tauri/client', () => ({ files: { read: io.read, create: io.create }, externalDocuments: { write: io.write } }));
@@ -23,7 +24,7 @@ it.each(['table', 'gallery', 'kanban', 'calendar'] as const)('creates only the r
   expect(table.views.items).toHaveLength(1);
   expect(table.views.items[0].layout).toBe(layout);
   expect(table.views.default_id).toBe(result.viewId);
-  expect(table.dataset.source).toEqual({ scope: 'containing_folder', depth: 'direct_children' });
+  expect(table.dataset.source).toEqual({ scope: 'containing_folder' });
   expect(hybrid.collection.properties.banner_image).toBeUndefined();
   expect(hybrid.collection.properties.banner_hidden).toEqual({ type: 'Boolean', value: true });
   expect(io.write).not.toHaveBeenCalled();
@@ -74,7 +75,7 @@ it('expands a standalone media file with a list domain using notebook scope', as
   expect(hybrid.collection.placement).toBe('standalone');
   expect(hybrid.payload.file_tree).toBe(false);
   expect(hybrid.payload.domains.media).toEqual(media.dataset);
-  expect(hybrid.payload.domains.work_documents?.source).toEqual({ scope: 'notebook', depth: 'descendants' });
+  expect(hybrid.payload.domains.work_documents?.source).toEqual({ scope: 'notebook' });
   expect(result.domains).toEqual(['media', 'work_documents']);
 });
 
@@ -95,4 +96,24 @@ it('groups a new kanban by the chosen existing custom Select field', async () =>
   const saved = parseTableDocument(io.write.mock.calls[0][0].content);
   expect(saved.views.items.find((view) => view.id === result.viewId)?.config.group_by).toBe(field.id);
   expect(saved.dataset.schema.fields.some((item) => item.property_key === 'status')).toBe(false);
+});
+
+it('broadcasts the written content so mounted panels adopt the new view', async () => {
+  const source = serializeTableDocument(createTableDocument());
+  io.read.mockResolvedValue(source);
+  const seen: string[] = [];
+  const stop = subscribeCollectionContent((change) => {
+    if (change.indexPath === '/book/笔记.index.yaml') seen.push(change.content);
+  });
+  try {
+    const result = await addCollectionNoteView('/book/笔记.index.yaml', '/book', 'calendar');
+    expect(seen).toHaveLength(1);
+    expect(parseTableDocument(seen[0]).views.items.some((view) => view.id === result.viewId)).toBe(true);
+  } finally { stop(); }
+});
+
+it('reports a missing collection instead of creating one outside a folder', async () => {
+  io.read.mockResolvedValue(null);
+  await expect(addCollectionNoteView('/book/笔记.index.yaml', '/book', 'table')).rejects.toThrow('集合文件不存在');
+  expect(io.create).not.toHaveBeenCalled();
 });

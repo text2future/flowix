@@ -1,10 +1,13 @@
+import { reserveSessionNavigationIntent } from './session-navigation-intent';
+import { getColumnSessionId } from './workspace-session-store';
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useWorkColumnStore } from './work-column-store';
 
 describe('work-column store', () => {
   beforeEach(() => {
-    useWorkColumnStore.setState({
+    seedWorkColumn({
       navigation: {
         phase: 'idle',
         showWorkColumnLoading: false,
@@ -24,11 +27,11 @@ describe('work-column store', () => {
     const committed = store.beginNavigation(target, null);
     store.commitNavigation(committed, target);
     const oldLoader = store.beginNavigation({ kind: 'empty' }, 'retry-old');
-    const intent = store.reserveNavigationIntent();
+    const intent = reserveSessionNavigationIntent(getColumnSessionId('column-1')).requestId;
     expect(store.isCurrentNavigation(oldLoader)).toBe(false);
     expect(store.commitNavigation(oldLoader, { kind: 'empty' })).toBe(false);
     expect(useWorkColumnStore.getState().navigation).toMatchObject({
-      requestId: intent, target, phase: 'committed', pendingTarget: null,
+      requestId: intent, target, phase: 'preparing', pendingTarget: null,
       showWorkColumnLoading: false, retryToken: null,
     });
     store.beginNavigation({ kind: 'empty' }, null);
@@ -70,7 +73,7 @@ describe('work-column store', () => {
       path: '/notes/drafts/a.md', scopePath: '/notes', transitionId: null,
       fileBrowser: { folderPath: '/notes/drafts', notebookId: 'book', scopePath: '/notes', fileTreeVisible: true, fileTreeWidth: 220 },
     };
-    useWorkColumnStore.setState((state) => ({ navigation: { ...state.navigation, target } }));
+    seedWorkColumn((state) => ({ navigation: { ...state.navigation, target } }));
     useWorkColumnStore.getState().replaceExternalPath('/notes/drafts/a.md', '/notes/done/a.md');
     expect(useWorkColumnStore.getState().navigation.target).toMatchObject({
       path: '/notes/done/a.md', fileBrowser: { folderPath: '/notes/done' },

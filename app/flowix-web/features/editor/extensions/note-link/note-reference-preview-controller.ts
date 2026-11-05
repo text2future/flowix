@@ -1,5 +1,5 @@
 import type { I18nKey } from '@/lib/i18n';
-import { assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
+import { resolveNoteThumbnailSrc } from '@/lib/note-thumbnail';
 
 export interface NoteReferencePreviewData {
   title: string;
@@ -21,10 +21,9 @@ interface NoteReferencePreviewControllerOptions {
   onError: (error: unknown) => void;
 }
 
-function noteReferenceThumbnailUrl(thumbnail: string | null): string | null {
-  if (!thumbnail) return null;
-  const storageKey = decodeStorageKey(thumbnail);
-  return storageKey ? assetUrl(storageKey) : thumbnail;
+/** 缩略图可能是文档相对路径，按被引用笔记自身的绝对路径解析。 */
+function noteReferenceThumbnailUrl(data: NoteReferencePreviewData): string | null {
+  return resolveNoteThumbnailSrc(data.thumbnail, data.filePath);
 }
 
 /** Owns the composer note-reference preview's DOM, async lifecycle, and placement. */
@@ -197,7 +196,7 @@ export class NoteReferencePreviewController {
         this.text!.textContent = data.preview.trim()
           || this.options.t('editor.noteLink.previewEmpty');
         this.openButton!.disabled = false;
-        const thumbnailUrl = noteReferenceThumbnailUrl(data.thumbnail);
+        const thumbnailUrl = noteReferenceThumbnailUrl(data);
         if (thumbnailUrl && this.image) {
           this.image.hidden = false;
           if (this.image.src !== thumbnailUrl) this.image.src = thumbnailUrl;

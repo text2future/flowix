@@ -1,16 +1,16 @@
 import { useSyncExternalStore } from 'react';
-import type { SurfacePresentationUpdate, SurfaceState, WorkspaceSurfaceHost } from '@features/workspace/model/surface-contract';
+import type { SurfacePresentationUpdate, SurfaceState, WorkspaceColumnId } from '@features/workspace/model/surface-contract';
 
 const snapshots = new Map<string, Readonly<SurfacePresentationUpdate>>();
 const listeners = new Map<string, Set<() => void>>();
 const owners = new Map<string, object>();
 const pendingUpdates = new Map<string, { owner: object; update: Readonly<SurfacePresentationUpdate> }>();
-const hostViews = new Map<WorkspaceSurfaceHost, string>();
+const hostViews = new Map<WorkspaceColumnId, string>();
 const startupListeners = new Set<() => void>();
-let startupHosts: readonly WorkspaceSurfaceHost[] = [];
+let startupHosts: readonly WorkspaceColumnId[] = [];
 const startupOutcomes = new Map<string, 'ready' | 'failed'>();
-const emptySurfaceIdentityByHost = new Map<WorkspaceSurfaceHost, string>();
-let startupIdentities: Partial<Record<WorkspaceSurfaceHost, string>> = {};
+const emptySurfaceIdentityByHost = new Map<WorkspaceColumnId, string>();
+let startupIdentities: Partial<Record<WorkspaceColumnId, string>> = {};
 
 function emit(viewId: string) {
   listeners.get(viewId)?.forEach((listener) => listener());
@@ -22,8 +22,8 @@ function emitStartup() {
 
 /** Freeze the visible surface set for this startup attempt before waiting. */
 export function beginWorkspaceSurfaceStartup(
-  hosts: readonly WorkspaceSurfaceHost[],
-  identities: Partial<Record<WorkspaceSurfaceHost, string>> = {},
+  hosts: readonly WorkspaceColumnId[],
+  identities: Partial<Record<WorkspaceColumnId, string>> = {},
 ): void {
   startupHosts = hosts;
   startupIdentities = identities;
@@ -40,7 +40,7 @@ export function beginWorkspaceSurfaceStartup(
   emitStartup();
 }
 
-export function registerStartupSurfaceHostView(host: WorkspaceSurfaceHost, viewId: string): () => void {
+export function registerStartupSurfaceHostView(host: WorkspaceColumnId, viewId: string): () => void {
   emptySurfaceIdentityByHost.delete(host);
   hostViews.set(host, viewId);
   startupOutcomes.delete(host);
@@ -55,7 +55,7 @@ export function registerStartupSurfaceHostView(host: WorkspaceSurfaceHost, viewI
   };
 }
 
-export function reportEmptyWorkspaceSurfaceForIdentity(host: WorkspaceSurfaceHost, identity: string): void {
+export function reportEmptyWorkspaceSurfaceForIdentity(host: WorkspaceColumnId, identity: string): void {
   emptySurfaceIdentityByHost.set(host, identity);
   if (!startupHosts.includes(host)) return;
   if (startupIdentities[host] !== identity) return;

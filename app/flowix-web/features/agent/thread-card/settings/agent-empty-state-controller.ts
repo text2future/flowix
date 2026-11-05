@@ -200,7 +200,7 @@ export class AgentEmptyStateController {
     skillMarketButton.addEventListener("click", (event) => {
       event.stopPropagation();
       void openWorkspaceSurface({
-        host: "browser-column",
+        index: 1,
         target: { kind: "web", url: "https://skills.flowix.cc/i/index" },
       });
     });
@@ -310,7 +310,7 @@ export class AgentEmptyStateController {
       skillMarketButton.addEventListener("click", (event) => {
         event.stopPropagation();
         void openWorkspaceSurface({
-          host: "browser-column",
+          index: 1,
           target: { kind: "web", url: "https://skills.flowix.cc/i/index" },
         });
       });

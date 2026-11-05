@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import { windows, type PluginDescriptor } from '@platform/tauri/client';
 import { setMemoListViewPreference } from '@features/preferences/public/runtime-api';
-import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
+import { focusWorkspaceColumnFromEvent } from '@features/workspace/public/host-api';
 import { NoteNavigationDrawer, MemoList } from '@features/memo/public/shell-api';
 import type { Notebook } from '@features/memo/public/shell-api';
 import { ColumnResizeHandle } from './column-resize-handle';
@@ -113,7 +113,7 @@ export function MainListColumnSection({
         if (event.button !== 0) return;
         const target = event.target;
         if (target instanceof Element && target.closest('[data-folder-selection]')) return;
-        focusWorkspaceHostFromEvent(event, 'main-third');
+        focusWorkspaceColumnFromEvent(event, 'column-1');
       }}
     >
       <SurfaceBoundary

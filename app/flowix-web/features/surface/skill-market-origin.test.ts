@@ -8,15 +8,17 @@ describe('skill market origin allowlist', () => {
     expect(skillMarketOriginForUrl('https://skills.flowix.cc/i/')).toBe('https://skills.flowix.cc');
     expect(skillMarketOriginForUrl('https://skills.flowix.cc/i/en/index')).toBe('https://skills.flowix.cc');
   });
-  it('allows only the local development server in development builds', () => {
+  it('allows localhost development servers on any port only in development builds', () => {
     for (const host of ['localhost', '127.0.0.1']) {
-      const url = `http://${host}:8088/i/index.html`;
-      expect(skillMarketOriginForUrl(url)).toBeNull();
-      expect(skillMarketOriginForUrl(url, true)).toBe(`http://${host}:8088`);
+      for (const port of ['8080', '8088', '1420', '5173']) {
+        const url = `http://${host}:${port}/i/index.html`;
+        expect(skillMarketOriginForUrl(url)).toBeNull();
+        expect(skillMarketOriginForUrl(url, true)).toBe(`http://${host}:${port}`);
+      }
     }
   });
   it('rejects unrelated hosts, ports, protocols and routes', () => {
-    for (const url of ['http://localhost:1420/i/index.html', 'https://localhost:8088/i/',
+    for (const url of ['https://localhost:8088/i/', 'http://localhost:8080/other',
       'http://localhost.evil.test:8088/i/', 'http://192.168.1.2:8088/i/',
       'https://skills.flowix.cc/other', 'https://skills.flowix.cc.evil.test/i/', 'invalid']) {
       expect(skillMarketOriginForUrl(url, true)).toBeNull();

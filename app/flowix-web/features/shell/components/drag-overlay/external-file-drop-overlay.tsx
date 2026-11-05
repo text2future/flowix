@@ -15,7 +15,7 @@ export function ExternalFileDropOverlay() {
     logger.warn('failed to open dropped file', { error });
     toast.error(errorMessage(error));
   }, []);
-  const handleDropPaths = useCallback((paths: string[], destination?: 'main-third' | 'browser-column') => {
+  const handleDropPaths = useCallback((paths: string[], destination?: 0 | 1) => {
     requestExternalDocumentOpen({ filePaths: paths, source: 'drop', destination });
   }, []);
   const { isDraggingFile, draggingDestination } = useExternalFileDrop({
@@ -24,7 +24,7 @@ export function ExternalFileDropOverlay() {
   });
 
   // Keep one visual overlay across Work and Browser while hit testing stays per host.
-  const host = draggingDestination
+  const host = draggingDestination !== null
     ? document.querySelector<HTMLElement>('[data-workspace-drop-overlay-host]')
     : null;
   return host ? createPortal(<FullscreenDragOverlay visible={isDraggingFile} />, host) : null;

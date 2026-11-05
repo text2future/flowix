@@ -66,7 +66,9 @@
   -webkit-user-select: none;
 }
 
-.selection-bubble-button {
+.selection-bubble-button,
+.table-style-controls .toolbar-button,
+.table-bubble-menu-panel .table-bubble-menu button {
   display: inline-flex;
   width: 26px;
   height: 26px;
@@ -85,28 +87,37 @@
     transform 0.1s ease;
 }
 
-.selection-bubble-button:hover {
+.selection-bubble-button:hover,
+.table-style-controls .toolbar-button:hover,
+.table-bubble-menu-panel .table-bubble-menu button:hover {
   background: var(--brand);
   color: var(--primary-foreground);
 }
 
-.selection-bubble-button.is-active {
+.selection-bubble-button.is-active,
+.table-style-controls .toolbar-button.active {
   background: var(--brand);
   color: var(--primary-foreground);
 }
 
-.selection-bubble-button:active {
+.selection-bubble-button:active,
+.table-style-controls .toolbar-button:active,
+.table-bubble-menu-panel .table-bubble-menu button:active {
   background: var(--brand);
   color: var(--primary-foreground);
   transform: scale(0.98);
 }
 
-.selection-bubble-button:focus-visible {
+.selection-bubble-button:focus-visible,
+.table-style-controls .toolbar-button:focus-visible,
+.table-bubble-menu-panel .table-bubble-menu button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
-.selection-bubble-button:disabled {
+.selection-bubble-button:disabled,
+.table-style-controls .toolbar-button:disabled,
+.table-bubble-menu-panel .table-bubble-menu button:disabled {
   cursor: default;
   opacity: 0.35;
 }

@@ -1,41 +1,33 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveActiveAgentConversationInstanceId } from './active-conversation-api';
+import { resolveActiveConversationInstanceId } from './active-conversation-api';
 
 describe('active agent conversation resolution', () => {
-  it('follows the focused host when both surfaces show a conversation', () => {
-    expect(resolveActiveAgentConversationInstanceId({
-      focusedHostId: 'browser-column',
-      workInstanceId: 'conversation-work',
-      browserInstanceId: 'conversation-browser',
-    })).toBe('conversation-browser');
-
-    expect(resolveActiveAgentConversationInstanceId({
-      focusedHostId: 'main-third',
-      workInstanceId: 'conversation-work',
-      browserInstanceId: 'conversation-browser',
-    })).toBe('conversation-work');
+  it('always follows the main column, even while the side column holds another conversation', () => {
+    expect(resolveActiveConversationInstanceId({
+      mainInstanceId: 'conversation-main',
+      sideInstanceId: 'conversation-side',
+      sideVisible: true,
+    })).toBe('conversation-main');
   });
 
-  it('falls back to the other surface when the focused one has no conversation', () => {
-    expect(resolveActiveAgentConversationInstanceId({
-      focusedHostId: 'browser-column',
-      workInstanceId: 'conversation-work',
-      browserInstanceId: null,
-    })).toBe('conversation-work');
+  it('falls back to the side column only while it is on screen and the main column is empty', () => {
+    expect(resolveActiveConversationInstanceId({
+      mainInstanceId: null,
+      sideInstanceId: 'conversation-side',
+      sideVisible: true,
+    })).toBe('conversation-side');
 
-    expect(resolveActiveAgentConversationInstanceId({
-      focusedHostId: 'main-third',
-      workInstanceId: null,
-      browserInstanceId: 'conversation-browser',
-    })).toBe('conversation-browser');
+    expect(resolveActiveConversationInstanceId({
+      mainInstanceId: null,
+      sideInstanceId: 'conversation-side',
+      sideVisible: false,
+    })).toBeNull();
   });
 
-  it('reports nothing when neither surface shows a conversation', () => {
-    expect(resolveActiveAgentConversationInstanceId({
-      focusedHostId: 'main-third',
-      workInstanceId: null,
-      browserInstanceId: null,
+  it('reports nothing when neither column shows a conversation', () => {
+    expect(resolveActiveConversationInstanceId({
+      mainInstanceId: null, sideInstanceId: null, sideVisible: true,
     })).toBeNull();
   });
 });

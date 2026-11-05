@@ -277,6 +277,22 @@ function App() {
 
   const isPreferencesWindow = hash.startsWith("#preferences");
 
+  const returnToMain = async () => {
+    const [navigation, browserColumn, mainWindow] = await Promise.all([
+      import("@features/workspace/public/note-navigation-api"),
+      import("@features/workspace/public/browser-column-api"),
+      import("@features/workspace/public/main-window-api"),
+    ]);
+    mainWindow.closeAgentTarget();
+    const [, browserCleared] = await Promise.all([
+      navigation.clearWorkspaceDocument(),
+      browserColumn.clearBrowserColumnSession(),
+    ]);
+    if (!browserCleared) throw new Error("Browser column could not be cleared");
+    if (window.location.hash) window.location.hash = "";
+    else setHash("");
+  };
+
   if (isPreferencesWindow) {
     const tab = hash.split("/")[1] || undefined;
     return (
@@ -302,7 +318,7 @@ function App() {
   }
 
   return (
-    <ErrorBoundary language={language} resetKeys={[hash]} onError={handleRenderError}>
+    <ErrorBoundary language={language} resetKeys={[hash]} onError={handleRenderError} onReturnHome={returnToMain}>
       <I18nProvider language={language}>
         <ThemeProvider>
           <StartupGate>

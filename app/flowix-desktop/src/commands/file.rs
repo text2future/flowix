@@ -30,6 +30,7 @@ use super::helpers::{
 use crate::app::state::AppState;
 
 pub mod folder_import;
+pub mod path_copy;
 
 #[cfg(target_os = "macos")]
 fn is_cloud_file_not_downloaded(path: &Path) -> bool {
@@ -2131,6 +2132,7 @@ fn rename_path_and_notify(
 ) -> Result<Option<super::path_change::NotebookPathMove>, String> {
     let source_was_directory = source.is_dir();
     let mf = read_lock(&state.memo_file, "memo_file");
+    let roots_before = if source_was_directory { mf.read_notebook_configs().map_err(file_mutation_error)? } else { Vec::new() };
     let _watch_move = crate::commands::external_document_watch::begin_path_move(app, source);
     mf.rename_indexed_path(source, target)
         .map_err(file_mutation_error)?;
@@ -2208,7 +2210,15 @@ fn rename_path_and_notify(
         })
     };
     let rebase = address_for(source).zip(address_for(target));
+    let notebook_roots_changed = roots_before.iter().any(|previous| {
+        notebooks.iter().any(|current| current.id == previous.id && current.path != previous.path)
+    });
     drop(mf);
+    if notebook_roots_changed {
+        super::helpers::refresh_current_notebook_watcher(state, app);
+        let _ = app.emit(super::notebook::NOTEBOOKS_CHANGED_EVENT, ());
+        let _ = app.emit(super::agent_workspace::AGENT_WORKSPACE_CHANGED_EVENT, ());
+    }
     if let Some(((old_notebook_id, old_relative), (new_notebook_id, new_relative))) = rebase {
         if let Err(error) = state.thread_manager.rebase_agent_note_paths(
             &old_notebook_id,

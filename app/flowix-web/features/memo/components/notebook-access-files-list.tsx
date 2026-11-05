@@ -121,7 +121,7 @@ export function NotebookAccessFilesList({
                   canBrowse
                     ? () => {
                         void openWorkspaceSurface({
-                          host: 'browser-column',
+                          index: 1,
                           target: createFileBrowserTarget(null, item.path, item.path),
                         });
                         onOpenFile?.(item.path);
@@ -134,7 +134,7 @@ export function NotebookAccessFilesList({
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           void openWorkspaceSurface({
-                            host: 'browser-column',
+                            index: 1,
                             target: createFileBrowserTarget(null, item.path, item.path),
                           });
                           onOpenFile?.(item.path);

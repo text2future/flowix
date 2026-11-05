@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { FOLDER_SINGLE_CLICK_DELAY_MS } from './notebook-tree-row';
 import { createRoot } from 'react-dom/client';
@@ -456,6 +457,41 @@ describe('NotebookFileTree pointer dragging', () => {
     }
   });
 
+  it.each(['table', 'media_library', 'work_documents'])('uses shared selection for a pinned %s', async (kind) => {
+    const { root, tree } = await mount(successfulMove);
+    const openSurface = vi.spyOn(openSurfaceApi, 'openWorkspaceSurface').mockResolvedValue({ status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' });
+    const relativePath = kind === 'media_library' ? 'pinned.lib.yaml' : 'pinned.index.yaml';
+    vi.mocked(pinnedEntries.list).mockResolvedValueOnce({
+      entries: [{ entryKind: 'collection', relativePath, title: 'Pinned collection',
+        createdAt: 1, modifiedMs: 1, kind, collectionId: 'pinned-collection', sizeBytes: 1 }],
+      nextCursor: null, hasMore: false,
+    });
+    const onNoteSelect = vi.fn();
+    try {
+      await act(async () => root.render(
+        <NotebookFileTree notebookId="notebook-1" notebookPath="/notes" notebookName="Notes" tree={tree}
+          onNoteSelect={onNoteSelect} onCreateNote={vi.fn()} onMoveNote={successfulMove} />,
+      ));
+      const row = host.querySelector<HTMLElement>(`[data-notebook-pinned-section] [data-notebook-tree-path="/notes/${relativePath}"]`)!;
+      expect(row).not.toBeNull();
+      await act(async () => row.dispatchEvent(clickEvent()));
+      expect(useNotebookTreeSelectionStore.getState().paths).toEqual([`/notes/${relativePath}`]);
+      expect(row.getAttribute('aria-selected')).toBe('true');
+      if (kind !== 'media_library') expect(openSurface).toHaveBeenCalledTimes(1);
+      else expect(onNoteSelect).toHaveBeenCalledWith(`/notes/${relativePath}`);
+      // Modifier clicks change selection without reopening the collection.
+      openSurface.mockClear();
+      onNoteSelect.mockClear();
+      await act(async () => row.dispatchEvent(clickEvent({ metaKey: true })));
+      expect(useNotebookTreeSelectionStore.getState().paths).toEqual([]);
+      expect(openSurface).not.toHaveBeenCalled();
+      expect(onNoteSelect).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      openSurface.mockRestore();
+    }
+  });
+
   it('opens a pinned note using its complete nested notebook path', async () => {
     const { root, tree } = await mount(successfulMove);
     const onNoteSelect = vi.fn();
@@ -483,27 +519,47 @@ describe('NotebookFileTree pointer dragging', () => {
     }
   });
 
-  it('selects a folder on single click and toggles it on double click', async () => {
+  it('selects a folder after a single click and toggles without selecting on double click', async () => {
+    vi.useFakeTimers();
     const onFolderSelect = vi.fn();
     const { root, tree } = await mount(successfulMove, undefined, onFolderSelect);
     const folderRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="folder"]')!;
-    vi.useFakeTimers();
-
-    await act(async () => folderRow.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
-    expect(onFolderSelect).not.toHaveBeenCalled();
-    await act(async () => vi.advanceTimersByTime(FOLDER_SINGLE_CLICK_DELAY_MS + 1));
-    expect(onFolderSelect).toHaveBeenCalledWith('/notes/projects');
-    expect(tree.toggle).not.toHaveBeenCalled();
-
-    onFolderSelect.mockClear();
     await act(async () => {
       folderRow.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
       folderRow.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
       folderRow.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
-      vi.advanceTimersByTime(FOLDER_SINGLE_CLICK_DELAY_MS + 1);
     });
     expect(onFolderSelect).not.toHaveBeenCalled();
+    expect(folderRow.getAttribute('aria-selected')).toBe('false');
     expect(tree.toggle).toHaveBeenCalledWith('/notes/projects');
+
+    await act(async () => folderRow.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    expect(onFolderSelect).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(FOLDER_SINGLE_CLICK_DELAY_MS + 1));
+    expect(folderRow.getAttribute('aria-selected')).toBe('true');
+    expect(onFolderSelect).toHaveBeenCalledWith('/notes/projects');
+
+    // detail 0 是程序化 / 辅助技术激活, 没有双击窗口, 立即生效且不用等定时器。
+    onFolderSelect.mockClear();
+    await act(async () => folderRow.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onFolderSelect).toHaveBeenCalledWith('/notes/projects');
+    await act(async () => root.unmount());
+  });
+
+  it('drops the pending folder click when another row is clicked within the double-click window', async () => {
+    vi.useFakeTimers();
+    const onFolderSelect = vi.fn();
+    const { root } = await mount(successfulMove, undefined, onFolderSelect);
+    const folderRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="folder"]')!;
+    const noteRow = host.querySelector<HTMLElement>('[data-notebook-tree-kind="note"]')!;
+
+    // 单击文件夹后立刻点另一行: 后一次交互必须作废前一次待定的选中/打开。
+    await act(async () => folderRow.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    await act(async () => noteRow.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    expect(useNotebookTreeSelectionStore.getState().paths).toEqual(['/notes/a.md']);
+    await act(async () => vi.advanceTimersByTime(FOLDER_SINGLE_CLICK_DELAY_MS + 1));
+    expect(onFolderSelect).not.toHaveBeenCalled();
+    expect(useNotebookTreeSelectionStore.getState().paths).toEqual(['/notes/a.md']);
     await act(async () => root.unmount());
   });
 
@@ -511,7 +567,7 @@ describe('NotebookFileTree pointer dragging', () => {
     const previousNavigation = useWorkColumnStore.getState().navigation;
     const { root } = await mount(successfulMove);
     try {
-      await act(async () => useWorkColumnStore.setState({ navigation: {
+      await act(async () => seedWorkColumn({ navigation: {
         ...previousNavigation,
         target: kind === 'collection' ? {
           kind: 'collection', displayId: 'collection:projects', notebookId: 'notes',
@@ -525,7 +581,7 @@ describe('NotebookFileTree pointer dragging', () => {
       expect(folderRow.getAttribute('aria-selected')).toBe('true');
       expect(folderRow.classList.contains('bg-[var(--muted)]')).toBe(true);
 
-      await act(async () => useWorkColumnStore.setState({ navigation: {
+      await act(async () => seedWorkColumn({ navigation: {
         ...previousNavigation, target: { kind: 'empty' },
       } }));
       expect(folderRow.getAttribute('aria-selected')).toBe('false');
@@ -533,7 +589,7 @@ describe('NotebookFileTree pointer dragging', () => {
     } finally {
       await act(async () => {
         root.unmount();
-        useWorkColumnStore.setState({ navigation: previousNavigation });
+        seedWorkColumn({ navigation: previousNavigation });
       });
     }
   });
@@ -1076,7 +1132,7 @@ describe('NotebookFileTree pointer dragging', () => {
       relativePath: 'library.lib.yaml', collectionId: 'media-1', name: 'Library',
       modifiedMs: 1, inViews: false,
     }]);
-    const openSurface = vi.spyOn(openSurfaceApi, 'openWorkspaceSurface').mockResolvedValue({ status: 'cancelled', host: 'main-third', reason: 'navigation-cancelled' });
+    const openSurface = vi.spyOn(openSurfaceApi, 'openWorkspaceSurface').mockResolvedValue({ status: 'cancelled', host: 'column-1', reason: 'navigation-cancelled' });
     const { root, tree } = await mountFlatNotes(successfulMove);
     const first = item('/notes/a.md', 'document');
     const library = item('/notes/library.lib.yaml', 'document');
@@ -1113,7 +1169,7 @@ describe('NotebookFileTree pointer dragging', () => {
     }
   });
 
-  it('only offers deletion when opening the context menu on multiple selected notes', async () => {
+  it('keeps only deletion in the multi-selection menu without clipboard entries', async () => {
     const { root } = await mountFlatNotes(successfulMove);
     const rows = host.querySelectorAll<HTMLElement>('[data-notebook-tree-kind="note"]');
     await act(async () => rows[0].dispatchEvent(clickEvent()));
@@ -1121,6 +1177,7 @@ describe('NotebookFileTree pointer dragging', () => {
     await act(async () => rows[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })));
     const menus = Array.from(host.querySelectorAll('[role="menu"]'));
     expect(menus.filter(menu => menu.textContent === 'memo.fileTree.delete')).toHaveLength(3);
+    expect(useNotebookTreeSelectionStore.getState().paths).toEqual(Array.from(rows).slice(0, 3).map(row => row.dataset.notebookTreePath));
     await act(async () => root.unmount());
   });
 

@@ -19,7 +19,7 @@ beforeEach(() => vi.resetAllMocks());
 it('applies the confirmed folder move and sequence once without repairing files in the view layer', async () => {
   const original = createMediaLibrary('Old');
   original.collection.placement = 'folder';
-  original.dataset.source = { scope: 'containing_folder', depth: 'descendants' };
+  original.dataset.source = { scope: 'containing_folder' };
   const next = { ...original, collection: { ...original.collection, name: 'New', revision: 1 } };
   mocks.resolve.mockResolvedValue({ relativePath: 'Old/.index.yaml', collectionId: original.collection.id, indexSequence: 1 });
   mocks.read.mockResolvedValue(serializeMediaLibrary(original));

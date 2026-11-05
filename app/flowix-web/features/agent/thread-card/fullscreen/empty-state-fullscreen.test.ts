@@ -69,7 +69,7 @@ vi.mock("@features/memo/store/note-store", () => ({
 
 vi.mock("@features/memo/components/notebook-icon", () => ({
   getNotebookIconLetter: () => "N",
-  getNotebookIconMarkup: () => null,
+  getNotebookIconUrl: () => null,
 }));
 
 vi.mock("@features/document/properties/property-icons", () => ({

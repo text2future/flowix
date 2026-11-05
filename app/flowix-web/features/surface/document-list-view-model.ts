@@ -5,7 +5,7 @@ export interface DocumentListViewContext {
   notebookPath: string;
   notebookId: string | null;
   filters: { resourceKinds?: string[]; tags?: string[]; customFilterId?: string };
-  mediaScope?: { relativePath: string; depth: 'direct_children' | 'descendants' };
+  mediaScope?: { relativePath: string; depth: 'descendants' };
   mediaDatasetActive?: boolean;
   workDocumentsFilter?: {
     file_name_contains?: string;

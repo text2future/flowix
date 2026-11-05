@@ -4,6 +4,7 @@ pub mod export_access;
 pub mod native_menu;
 pub mod open_targets;
 pub mod notebook_background;
+mod note_link_background;
 pub mod panic;
 pub mod paths;
 pub mod startup;

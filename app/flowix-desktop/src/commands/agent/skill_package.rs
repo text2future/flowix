@@ -77,8 +77,7 @@ pub(super) fn validate_skill_archive_request(
         && url.port_or_known_default() == Some(443);
     let local = cfg!(debug_assertions)
         && url.scheme() == "http"
-        && matches!(url.host_str(), Some("localhost" | "127.0.0.1"))
-        && url.port() == Some(8088);
+        && matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
     if (!production && !local)
         || !url.username().is_empty()
         || url.password().is_some()
@@ -371,10 +370,11 @@ fn write_project_skill_bundle_recorded(
 ) -> Result<PathBuf, String> {
     let folder = root.join(".agents/skills").join(name);
     validate_skill_folder(root, &folder)?;
-    let work = root.join(".agents/.skill-installs");
+    let work = root.join(".flowix/skill-installs");
     for directory in [
         root.join(".agents"),
         root.join(".agents/skills"),
+        root.join(".flowix"),
         work.clone(),
     ] {
         ensure_skill_directory(root, &directory)?;
@@ -558,7 +558,7 @@ mod skill_install_tests {
         let root = tempfile::tempdir().unwrap();
         let abandoned = root
             .path()
-            .join(".agents/.skill-installs/example/stage-crashed");
+            .join(".flowix/skill-installs/example/stage-crashed");
         fs::create_dir_all(&abandoned).unwrap();
         fs::write(abandoned.join("SKILL.md"), b"partial").unwrap();
         assert!(!root.path().join(".agents/skills/example").exists());
@@ -582,7 +582,7 @@ mod skill_install_tests {
     #[test]
     fn retry_never_cleans_another_skills_staging_namespace() {
         let root = tempfile::tempdir().unwrap();
-        let work = root.path().join(".agents/.skill-installs");
+        let work = root.path().join(".flowix/skill-installs");
         let other_stage = work.join("example-stage-child/stage-active");
         fs::create_dir_all(&other_stage).unwrap();
         fs::write(other_stage.join("resource"), b"other installation").unwrap();
@@ -616,7 +616,7 @@ mod skill_install_tests {
         assert!(write_project_skill_bundle(root.path(), "example", "entry", &resources).is_err());
         assert!(!root.path().join(".agents/skills/example").exists());
         assert!(
-            fs::read_dir(root.path().join(".agents/.skill-installs/example"))
+            fs::read_dir(root.path().join(".flowix/skill-installs/example"))
                 .unwrap()
                 .all(|entry| !entry
                     .unwrap()

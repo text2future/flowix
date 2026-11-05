@@ -48,7 +48,7 @@ const surface: Extract<WorkspaceSurfaceRendererData, { kind: 'collection' }> = {
   folderName: 'skills',
 };
 const context: WorkspaceSurfaceRenderContext = {
-  host: 'main-third',
+  host: 'column-1',
   viewId: 'work',
   focused: true,
   readOnly: false,
@@ -178,7 +178,7 @@ describe('folder home inside index-excluded folders', () => {
 
 
 describe('standalone asset collection files', () => {
-  it.each(['main-third', 'browser-column'] as const)('新建列表文件在 %s 进入集合外壳并选中列表 tab，不补写笔记域', async (host) => {
+  it.each(['column-1', 'column-2'] as const)('新建列表文件在 %s 进入集合外壳并选中列表 tab，不补写笔记域', async (host) => {
     const document = createWorkDocumentsCollection('资料 (2)');
     const source = serializeWorkDocumentsCollection(document);
     calls.read.mockResolvedValue(source);

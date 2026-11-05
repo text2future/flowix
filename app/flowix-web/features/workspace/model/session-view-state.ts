@@ -1,3 +1,4 @@
+import { SESSION_VIEW_SLOT_LIMIT } from './session-limits';
 /** Serializable renderer state. DOM, editor instances and callbacks stay in adapters. */
 export type SessionViewSnapshot =
   | { kind: 'editor'; anchor: number; head: number; selectionType?: 'text' | 'node' | 'all'; scrollTop: number; scrollLeft: number }
@@ -33,7 +34,7 @@ export function restoreViewRecovery(value: unknown): SessionViewRecovery | undef
   if (!value || typeof value !== 'object') return undefined;
   const v = value as Record<string, unknown>;
   if (v.version !== 1 || !v.slots || typeof v.slots !== 'object' || Array.isArray(v.slots)) return undefined;
-  const slots = Object.fromEntries(Object.entries(v.slots).slice(-32).flatMap(([key, raw]) => {
+  const slots = Object.fromEntries(Object.entries(v.slots).slice(-SESSION_VIEW_SLOT_LIMIT).flatMap(([key, raw]) => {
     const snapshot = restoreViewSnapshot(raw);
     return snapshot && key.length <= 1024 ? [[key, snapshot]] : [];
   }));

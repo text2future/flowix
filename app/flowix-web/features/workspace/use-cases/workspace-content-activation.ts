@@ -16,8 +16,8 @@ import type { WorkspaceContentLocation } from '../model/surface-opening';
 export type { WorkspaceContentLocation } from '../model/surface-opening';
 
 export interface WorkspaceContentLocations {
-  workColumn: Extract<WorkspaceContentLocation, { host: 'main-third' }> | null;
-  browserColumn: Extract<WorkspaceContentLocation, { host: 'browser-column' }> | null;
+  workColumn: Extract<WorkspaceContentLocation, { host: 'column-1' }> | null;
+  browserColumn: Extract<WorkspaceContentLocation, { host: 'column-2' }> | null;
 }
 
 export function workColumnTargetIdentity(target: WorkColumnTarget): ContentIdentity | null {
@@ -46,7 +46,7 @@ export function workColumnTargetIdentity(target: WorkColumnTarget): ContentIdent
 export { browserColumnTargetIdentity };
 
 function currentCollectionView(location: WorkspaceContentLocation): string | null {
-  if (location.host === 'main-third') {
+  if (location.host === 'column-1') {
     const target = getWorkColumnContentState();
     if (target.status === 'empty' || target.status === 'transitioning') return null;
     return target.target.kind === 'collection' ? target.target.viewId : null;
@@ -65,20 +65,20 @@ export function activateExistingWorkspaceContent(
   host?: WorkspaceContentLocation['host'],
 ): WorkspaceContentLocation | null {
   const locations = findWorkspaceContentLocations(identity);
-  const location = host === 'main-third'
+  const location = host === 'column-1'
     ? locations.workColumn
-    : host === 'browser-column'
+    : host === 'column-2'
       ? locations.browserColumn
       : locations.workColumn ?? locations.browserColumn;
   if (!location) return null;
 
   if (identity.kind === 'collection') {
     // Start a new transaction for pending requests; requestId makes the latest win.
-    if (location.host === 'main-third' && location.state === 'pending') return null;
+    if (location.host === 'column-1' && location.state === 'pending') return null;
     if (!setCollectionActiveView(location, identity, identity.viewId ?? currentCollectionView(location))) return null;
   }
-  if (location.host === 'main-third') {
-    useWorkspaceFocusStore.getState().focusHost('main-third');
+  if (location.host === 'column-1') {
+    useWorkspaceFocusStore.getState().focusColumn('column-1');
   } else {
     useBrowserColumnStore.getState().focusContent(location.surfaceId);
   }
@@ -94,19 +94,19 @@ export async function activateExistingWorkspaceContentAsync(
   host?: WorkspaceContentLocation['host'],
 ): Promise<WorkspaceContentLocation | null> {
   const locations = findWorkspaceContentLocations(identity);
-  const location = host === 'main-third'
+  const location = host === 'column-1'
     ? locations.workColumn
-    : host === 'browser-column'
+    : host === 'column-2'
       ? locations.browserColumn
       : locations.workColumn ?? locations.browserColumn;
   if (!location) return null;
 
-  if (location.host === 'main-third') {
+  if (location.host === 'column-1') {
     if (identity.kind === 'collection') {
       if (location.state === 'pending') return null;
       if (!setCollectionActiveView(location, identity, identity.viewId ?? currentCollectionView(location))) return null;
     }
-    useWorkspaceFocusStore.getState().focusHost('main-third');
+    useWorkspaceFocusStore.getState().focusColumn('column-1');
     return location;
   }
 
@@ -145,9 +145,9 @@ export function findWorkspaceContentLocations(
     ? browserColumn.current : null;
   return {
     workColumn: pendingMatch
-      ? { host: 'main-third', state: 'pending' }
-      : activeMatch ? { host: 'main-third', state: 'active' } : null,
-    browserColumn: tab ? { host: 'browser-column', surfaceId: tab.id } : null,
+      ? { host: 'column-1', state: 'pending' }
+      : activeMatch ? { host: 'column-1', state: 'active' } : null,
+    browserColumn: tab ? { host: 'column-2', surfaceId: tab.id } : null,
   };
 }
 
@@ -165,7 +165,7 @@ export function findWorkspaceContentForNavigation(
   destination?: WorkspaceContentLocation['host'],
 ): WorkspaceContentLocation | null {
   const locations = findWorkspaceContentLocations(identity);
-  if (destination === 'main-third') return locations.workColumn;
-  if (destination === 'browser-column') return locations.browserColumn;
+  if (destination === 'column-1') return locations.workColumn;
+  if (destination === 'column-2') return locations.browserColumn;
   return locations.workColumn;
 }

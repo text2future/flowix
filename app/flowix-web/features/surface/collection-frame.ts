@@ -11,6 +11,7 @@ import type { WorkColumnSurface } from './types';
  */
 export function collectionIndexPath(surface: WorkColumnSurface | null): string | null {
   switch (surface?.kind) {
+    case 'file-browser': return surface.collectionDisplay || surface.collectionType ? surface.activeFilePath : null;
     case 'folder-collection': return `${surface.folderPath.replace(/[\\/]+$/, '')}/.index.yaml`;
     case 'table-file':
     case 'media-library-file':

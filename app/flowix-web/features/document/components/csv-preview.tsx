@@ -9,6 +9,7 @@ import { clearActionableNotice, upsertActionableNotice } from '@features/notific
 import { CsvTableLoadingSkeleton } from '@shared/ui/csv-table-loading-skeleton';
 import { useI18n } from '@/lib/i18n';
 import './csv-preview.css';
+import { ensureCsvPointerRange } from './csv-range-selection';
 
 const MAX_CSV_BYTES = 20 * 1024 * 1024;
 const MAX_CELL_BYTES = 256 * 1024;
@@ -690,6 +691,9 @@ export function CsvPreview({ filePath, scopePath, onSurfaceLifecycleReady, repor
       editTriggerEvent: 'dblclick',
       validationMode: 'blocking',
       selectableRange: 1,
+      // Tabulator supports these options, but its published types omit them.
+      // Opening a preview must not create a selection or take keyboard focus.
+      ...{ selectableRangeInitializeDefault: false, selectableRangeAutoFocus: false },
       selectableRangeColumns: true,
       selectableRangeRows: true,
       selectableRangeClearCells: false,
@@ -699,6 +703,8 @@ export function CsvPreview({ filePath, scopePath, onSurfaceLifecycleReady, repor
       clipboardPasteAction: pasteIntoRange as unknown as 'range',
       history: false,
     });
+    const preparePointerRange = (event: MouseEvent) => ensureCsvPointerRange(table, event);
+    table.element.addEventListener('mousedown', preparePointerRange, true);
     table.on('validationFailed', () => {
       setSaveState({ status: 'error', message: '单元格不能超过 256 KiB，且 CSV 最多支持 100,000 行、500,000 个单元格。' });
     });
@@ -816,6 +822,7 @@ export function CsvPreview({ filePath, scopePath, onSurfaceLifecycleReady, repor
     table.element.addEventListener('cut', cutSelection);
     table.element.addEventListener('keydown', handleClipboardShortcut);
     return () => {
+      table.element.removeEventListener('mousedown', preparePointerRange, true);
       table.element.removeEventListener('copy', copySelection);
       table.element.removeEventListener('cut', cutSelection);
       table.element.removeEventListener('keydown', handleClipboardShortcut);

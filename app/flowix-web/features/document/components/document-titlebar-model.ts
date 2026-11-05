@@ -28,14 +28,16 @@ export function resolveDocumentTitlebarTarget(
   const matchingSession = session?.fileIdentity.displayId === fileIdentity.displayId
     && canonicalPath(session.fileIdentity.path) === canonicalPath(fileIdentity.path)
     ? session : null;
+  const notebookPath = matchingSession?.notebookId && matchingSession.scopePath
+    ? matchingSession.scopePath : currentNotebookPath;
   return {
     fileIdentity,
     scopePath: matchingSession ? matchingSession.scopePath : currentNotebookPath,
     notebookId: matchingSession?.notebookId ?? null,
     relativePath: matchingSession?.relativePath ?? null,
     indexable: matchingSession?.indexable === true,
-    isOutsideCurrentNotebook: !currentNotebookPath
-      || notebookRelativeDirectoryPath(currentNotebookPath, fileIdentity.path) === null,
+    isOutsideCurrentNotebook: !notebookPath
+      || notebookRelativeDirectoryPath(notebookPath, fileIdentity.path) === null,
   };
 }
 
@@ -54,6 +56,8 @@ export interface DocumentTitlebarProps {
   onSetEditorMode?: (mode: DocumentEditorMode) => void;
   document: {
     target: DocumentTitlebarTarget | null;
+    /** File-browser editors own their buffer and commands independently of the primary document store. */
+    isolated?: boolean;
   };
   sidebar: {
     hidden: boolean;
@@ -90,16 +94,9 @@ export interface DocumentTitlebarProps {
     onRevealInFileManager: () => void;
     onRequestDelete: () => void;
   };
-  folderCollectionViewType?: {
-    /** `work_documents` collections are non-switchable; the menu only offers table/media. */
-    current: 'table' | 'media_library' | 'work_documents';
-    onSelect: (type: 'table' | 'media_library') => void;
-    isDefaultFolder: boolean;
-    onToggleDefaultFolder: () => void;
-  };
   /**
-   * 当前 Work 面是集合时给出集合体地址：有文档/媒体操作菜单时将显示标题/头图并入该菜单；
-   * 文件夹入口没有其它操作菜单时，标题栏单独渲染集合显示菜单。
+   * 当前内容是集合时给出地址与所属笔记本；文档、媒体和文件夹菜单共享集合操作。
+   * 文件夹入口没有其它操作菜单时，标题栏单独渲染集合菜单。
    */
-  collectionDisplay?: { indexPath: string } | null;
+  collectionDisplay?: { indexPath: string; notebookPath?: string | null; notebookId?: string | null } | null;
 }

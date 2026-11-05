@@ -1,6 +1,6 @@
 'use client';
 
-import { useSessionHostEnvironment } from './session-host-environment';
+import { useColumnEnvironment } from './column-environment';
 
 import type { ComponentPropsWithRef, ReactNode } from 'react';
 import type { WorkspaceHeaderModel } from '@features/workspace/public/header-api';
@@ -21,10 +21,10 @@ export function WorkspaceHeaderShell({
   as: Tag = 'div', isWindows, reserveWindowsControls = true,
   showTrafficLightSpacer = false, header, className = '', style, children, ...domProps
 }: WorkspaceHeaderShellProps) {
-  const environment = useSessionHostEnvironment();
+  const environment = useColumnEnvironment();
   if (environment) {
-    reserveWindowsControls = environment.host === 'browser-column' || !environment.browserVisible;
-    showTrafficLightSpacer = environment.host === 'main-third'
+    reserveWindowsControls = environment.index === 1 || !environment.browserVisible;
+    showTrafficLightSpacer = environment.index === 0
       && environment.sidebarHidden && !environment.navigationVisible;
   }
   const skin = header?.chrome === 'agent' ? 'agent-surface-titlebar' : header?.chrome === 'media' ? 'media-surface-titlebar' : '';

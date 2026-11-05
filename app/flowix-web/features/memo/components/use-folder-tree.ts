@@ -912,7 +912,7 @@ function compareTreeItems(
 
 export function flattenVisibleTree(
   state: Pick<FolderTreeState, 'rootChildren' | 'nodes' | 'expanded'>,
-  sort: FolderTreeSort = 'createdAt',
+  sort: FolderTreeSort = 'filenameAsc',
 ): VisibleTreeNode[] {
   return flattenFolderSubtrees(state, state.rootChildren, state.expanded, sort);
 }
@@ -931,7 +931,7 @@ export function flattenFolderSubtrees(
   state: { nodes: ReadonlyMap<string, DocTreeItem> },
   roots: readonly DocTreeItem[],
   expanded: ReadonlySet<string>,
-  sort: FolderTreeSort = 'createdAt',
+  sort: FolderTreeSort = 'filenameAsc',
   pinnedFolderPaths: readonly string[] = [],
   ownRootKeys: ReadonlySet<string> = new Set<string>(),
 ): VisibleTreeNode[] {

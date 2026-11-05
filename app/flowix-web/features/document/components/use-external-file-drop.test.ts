@@ -25,7 +25,7 @@ import {
 } from './use-external-file-drop';
 
 interface HarnessProps {
-  onDropPaths: (paths: string[], destination?: 'main-third' | 'browser-column') => void | Promise<void>;
+  onDropPaths: (paths: string[], destination?: 0 | 1) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -58,7 +58,7 @@ describe('useExternalFileDrop', () => {
     root = createRoot(container);
     previousElementFromPoint = document.elementFromPoint;
     const host = document.createElement('div');
-    host.dataset.workspaceHost = 'main-third';
+    host.dataset.columnIndex = '0';
     document.body.appendChild(host);
     Object.defineProperty(document, 'elementFromPoint', {
       configurable: true,
@@ -120,7 +120,7 @@ describe('useExternalFileDrop', () => {
     });
     expect(container.textContent).toBe('idle');
     expect(onDropPaths).toHaveBeenCalledOnce();
-    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.txt', '/notes/b.markdown', '/notes/c.md'], 'main-third');
+    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.txt', '/notes/b.markdown', '/notes/c.md'], 0);
   });
 
   it('treats empty or undefined paths as a no-op drop', async () => {
@@ -190,7 +190,7 @@ describe('useExternalFileDrop', () => {
   });
 
   it('resolves each native event position once', async () => {
-    const elementFromPoint = vi.fn(() => document.querySelector('[data-workspace-host]'));
+    const elementFromPoint = vi.fn(() => document.querySelector('[data-column-index]'));
     Object.defineProperty(document, 'elementFromPoint', {
       configurable: true,
       value: elementFromPoint,
@@ -219,7 +219,7 @@ describe('useExternalFileDrop', () => {
     });
 
     expect(onDropPaths).toHaveBeenCalledOnce();
-    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.md'], 'main-third');
+    expect(onDropPaths).toHaveBeenCalledWith(['/notes/a.md'], 0);
   });
 
   it('ignores late native events after the host unmounts', async () => {

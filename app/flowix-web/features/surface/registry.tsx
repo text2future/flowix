@@ -25,7 +25,7 @@ import { primaryCurrentEntryId, updatePrimarySurfaceMetadata } from '@features/w
 import { workspaceSurfaceRendererDataFromWorkSurface } from './work-column-surface-adapter';
 import { registerStartupSurfaceHostView, registerWorkspaceSurfacePresentationOwner, reportEmptyWorkspaceSurfaceForIdentity, reportWorkspaceSurfacePresentation } from './workspace-surface-runtime';
 import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/workspace/model/surface-contract';
-import { registerWorkspaceSurfaceLifecycle } from '@features/workspace/public/surface-lifecycle-api';
+import { registerWorkspaceColumnIdView, registerWorkspaceSurfaceLifecycle } from '@features/workspace/public/surface-lifecycle-api';
 
 export interface WorkColumnSurfaceDefinition {
   contentKind: WorkspaceSurfaceKind;
@@ -55,7 +55,7 @@ export function getWorkColumnSurfaceDefinition(
     render: () => <WorkspaceSurfaceRendererView
       surface={data}
       context={{
-        sessionEntryId, host: 'main-third', viewId: surface.instanceKey, focused,
+        sessionEntryId, host: 'column-1', viewId: surface.instanceKey, focused,
         initialFocus: initialFocusForSurface(surface),
         readOnly: 'props' in surface && 'readOnly' in surface.props ? Boolean(surface.props.readOnly) : false,
         reportPresentation: reportPresentation ?? ((update) => reportWorkspaceSurfacePresentation(surface.instanceKey, update)),
@@ -127,8 +127,12 @@ function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { su
   const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
     if (reportWorkspaceSurfacePresentation(surface.instanceKey, update, presentationOwner)) {
       updatePrimarySurfaceMetadata(entryId, update);
+      if (transitionId !== null && update.state && ['ready', 'error', 'unavailable'].includes(update.state.status)) {
+        useDocumentStore.getState().finishDocumentTransition(transitionId,
+          update.state.status === 'ready' ? 'ready' : 'unavailable');
+      }
     }
-  }, [entryId, presentationOwner, surface.instanceKey]);
+  }, [entryId, presentationOwner, surface.instanceKey, transitionId]);
   const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
     registerWorkspaceSurfaceLifecycle(surface.instanceKey, lifecycle, owner);
   }, [surface.instanceKey]);
@@ -138,7 +142,8 @@ function WorkColumnSurfaceMount({ surface, focused, webAddressBarVisible }: { su
     }
   }, [transitionId]);
 
-  useLayoutEffect(() => registerStartupSurfaceHostView('main-third', surface.instanceKey), [surface.instanceKey]);
+  useLayoutEffect(() => registerStartupSurfaceHostView('column-1', surface.instanceKey), [surface.instanceKey]);
+  useLayoutEffect(() => registerWorkspaceColumnIdView('column-1', surface.instanceKey), [surface.instanceKey]);
 
   useLayoutEffect(() => {
     // These views have no DocumentContainer to finish the transition after
@@ -163,7 +168,7 @@ export function WorkColumnSurfaceHost({ surface, focused = false, webAddressBarV
 
 export function WorkColumnContentHost({ content, focused = false, startupIdentity = '', webAddressBarVisible = false }: { content: WorkColumnContentPresentation; focused?: boolean; startupIdentity?: string; webAddressBarVisible?: boolean }) {
   if (content.status === 'empty') {
-    reportEmptyWorkspaceSurfaceForIdentity('main-third', startupIdentity);
+    reportEmptyWorkspaceSurfaceForIdentity('column-1', startupIdentity);
     const baseAppearance = content.tone === 'agent' ? workspaceSurfaceAppearance('agent-conversation')
       : workspaceSurfaceAppearance('file-markdown');
     const appearance = content.actions?.length ? { ...baseAppearance, emptyDecoration: 'none' as const } : baseAppearance;

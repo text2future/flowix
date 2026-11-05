@@ -8,6 +8,8 @@ import { MediaLibraryView } from './media-library-view';
 type ListActions = {
   onMediaLibraryFilterChange: (filter: { file_type: 'image' }) => Promise<boolean>;
   onAddMedia: () => Promise<boolean>;
+  listContext: { mediaScope?: { relativePath: string; depth: string } };
+  mediaLibraryRecords: Array<{ relative_path: string }>;
 };
 const mocks = vi.hoisted(() => ({
   read: vi.fn(), write: vi.fn(), importFiles: vi.fn(),
@@ -172,4 +174,25 @@ it('read-only media rejects mutations even when handlers are called directly', a
   expect((mocks.actions as unknown as { libraryActionsDisabled: boolean }).libraryActionsDisabled).toBe(true);
   expect(mocks.write).not.toHaveBeenCalled();
   expect(mocks.importFiles).not.toHaveBeenCalled();
+});
+
+it('pushes the standalone selected directory into paged gallery reads', async () => {
+  const document = createMediaLibrary('Gallery');
+  document.dataset.source = { scope: 'folder', path: 'Old' };
+  document.dataset.filter = { path: 'New', match: 'all', conditions: [] };
+  mocks.read.mockResolvedValue(serializeMediaLibrary(document));
+  await act(async () => root.render(<MediaLibraryView filePath="/book/Views/gallery.index.yaml" notebookPath="/book" notebookId="book" />));
+  expect(mocks.actions?.listContext.mediaScope).toEqual({ relativePath: 'New', depth: 'descendants' });
+});
+
+it('reads descendant media from an old moved folder collection', async () => {
+  const document = createMediaLibrary('Gallery');
+  document.collection.placement = 'folder';
+  document.dataset.source = { scope: 'containing_folder' };
+  document.dataset.filter = { path: 'Old', match: 'all', conditions: [] };
+  document.dataset.records.include = [{ id: `rec_${'a'.repeat(32)}`, updated_at: new Date().toISOString(), resource_id: 'book::New/sub/a.png', relative_path: 'New/sub/a.png' }];
+  mocks.read.mockResolvedValue(serializeMediaLibrary(document));
+  await act(async () => root.render(<MediaLibraryView filePath="/book/New/.index.yaml" notebookPath="/book" notebookId="book" />));
+  expect(mocks.actions?.listContext.mediaScope).toEqual({ relativePath: 'New', depth: 'descendants' });
+  expect(mocks.actions?.mediaLibraryRecords.map((record) => record.relative_path)).toEqual(['New/sub/a.png']);
 });

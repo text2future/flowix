@@ -1,7 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useNoteStore } from '@features/memo/store/note-store';
-import { noteRepository } from '@features/memo/services/note-repository';
-import { notes as noteApi, type NoteTemplate } from '@platform/tauri/client';
+import type { NoteTemplate } from '@platform/tauri/client';
 
 export { MemoList } from '@features/memo/components/memo-list';
 export { useNotebookNoteIcon } from '@features/memo/hooks/use-notebook-note-icon';
@@ -24,25 +23,7 @@ export {
 export type { NoteTemplate };
 export { startNotebookImportWithMonitoring } from '@features/memo/services/notebook-creation-service';
 
-export function useShellSelectedNotebook() {
-  return useNoteStore((state) => state.selectedNotebook);
-}
-
-export async function createShellNote(notebookId: string) {
-  const created = await noteRepository.create(undefined, notebookId);
-  useNoteStore.getState().upsertCreatedNote(created);
-  return created;
-}
-
-export function listShellNoteTemplates(): Promise<NoteTemplate[]> {
-  return noteApi.listTemplates();
-}
-
-export async function createShellNoteFromTemplate(templateId: string, notebookId: string) {
-  const created = await noteApi.createFromTemplate(templateId, notebookId);
-  useNoteStore.getState().upsertCreatedNote(created);
-  return created;
-}
+export { useShellSelectedNotebook, createShellNote, listShellNoteTemplates, createShellNoteFromTemplate } from './note-creation-api';
 
 export function useShellMemoViewModel() {
   return useNoteStore(useShallow((state) => ({

@@ -95,7 +95,7 @@ function formatTimestamp(value: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function builtinTableFieldValue(id: string, note: NoteEntry | undefined, notebookPath: string | null): string {
+export function builtinTableFieldValue(id: string, note: NoteEntry | undefined, _notebookPath: string | null): string {
   if (!note) return '';
   if (BUILTIN_TABLE_FIELDS.some((field) => field.id === id && field.propertyKey)) {
     const value = builtinPresetValue(id, note);
@@ -111,10 +111,7 @@ export function builtinTableFieldValue(id: string, note: NoteEntry | undefined, 
     return `${(bytes / 1_000_000).toFixed(2)} MB`;
   }
   if (id === NOTE_PATH_FIELD_ID) {
-    const rootName = notebookPath?.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop();
-    if (!rootName) return '—';
-    const directory = note.relativePath.replace(/\\/g, '/').split('/').slice(0, -1).filter(Boolean);
-    return `${[rootName, ...directory].join('/')}/`;
+    return note.relativePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
   }
   return '—';
 }

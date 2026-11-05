@@ -71,7 +71,7 @@ export async function startNotebookImportWithMonitoring(
 
   unlisten = listenToNotebookImportStatus(handleStatus);
   try {
-    await notebookRepository.startImport(notebookId);
+    await notebookRepository.startImport(notebookId, getCurrentAppLanguage());
     try {
       const status = await notebookRepository.getImportStatus(notebookId);
       if (status) handleStatus(status);

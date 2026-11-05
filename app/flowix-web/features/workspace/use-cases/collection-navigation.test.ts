@@ -66,7 +66,7 @@ it('re-resolves an explicit main-column open after collection type changes and r
   store.commitNavigation(store.beginNavigation(target, null), target);
   mocks.resolve.mockResolvedValue({ relativePath: '.index.yaml', parseState: 'valid', collectionType: 'media_library', name: 'Media', indexSequence: 1 });
   mocks.read.mockResolvedValue(serializeMediaLibrary(media));
-  await openCollectionTarget({ ...display, viewId: null }, { destination: 'main-third', history: 'skip' });
+  await openCollectionTarget({ ...display, viewId: null }, { destination: 'column-1', history: 'skip' });
   expect(mocks.resolve).toHaveBeenCalledTimes(1);
   expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ displayId: display.displayId, collectionType: 'media_library', viewId: null });
 });
@@ -124,7 +124,7 @@ it('opens a malformed calendar without withdrawing selection, then repairs it ev
 
 it('keeps a malformed folder collection selected and recoverable', async () => {
   const document = createTableDocument('table', '项目', 'folder');
-  document.dataset.source = { scope: 'containing_folder', depth: 'descendants' };
+  document.dataset.source = { scope: 'containing_folder' };
   mocks.read.mockResolvedValue(serializeTableDocument(document).replace('placement: folder', 'placement: broken'));
   const { files } = await import('@platform/tauri/client');
   const read = vi.spyOn(files, 'read').mockResolvedValue(await mocks.read());

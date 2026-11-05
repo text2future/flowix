@@ -23,13 +23,13 @@ export function skillMarketUrlForLanguage(url: string, language: string, allowLo
   return parsed.href;
 }
 
-/** Local skill pages may access the native bridge only in development builds. */
+/** Local skill pages may access the native bridge on loopback ports only in development builds. */
 export function skillMarketOriginForUrl(url: string, allowLocal = false): string | null {
   try {
     const parsed = new URL(url);
     if (parsed.pathname !== '/i' && !parsed.pathname.startsWith('/i/')) return null;
     if (parsed.origin === PRODUCTION_ORIGIN) return parsed.origin;
-    if (allowLocal && parsed.protocol === 'http:' && parsed.port === '8088'
+    if (allowLocal && parsed.protocol === 'http:'
       && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) return parsed.origin;
   } catch {
     // Invalid addresses cannot activate the native installation bridge.

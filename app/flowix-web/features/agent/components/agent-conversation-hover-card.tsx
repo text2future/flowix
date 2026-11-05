@@ -45,7 +45,7 @@ function ConversationPreviewCard({ instance }: { instance: AgentConversationInst
       ? openNoteByNotebookPath(source.notebookId, source.relativePath)
       : source.documentPath
         ? openNoteByPhysicalPath(source.documentPath).catch(() => openWorkspaceSurface({
-          host: 'main-third',
+          index: 0,
           target: { kind: 'external', path: source.documentPath!, scopePath: null, transitionId: null },
         }).then(() => undefined))
         : Promise.resolve();

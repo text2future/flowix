@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { externalDocuments, files } from '@platform/tauri/client';
+import { agent, externalDocuments, files } from '@platform/tauri/client';
 import type { LocalHtmlLink } from '@/lib/local-html-link';
-import { HTML_DATA_KINDS, resolveHtmlDataRequest, type HtmlDataKind } from './html-data-bridge';
+import { marketInstallFailure } from './market-install-handler';
+import { HTML_DATA_KINDS, resolveHtmlDataRequest, type HtmlDataKind, type HtmlProductTheme } from './html-data-bridge';
 
 export const HTML_PREVIEW_TIMEOUT_MS = 10_000;
 const HTML_DATA_MAX_INFLIGHT = 8;
@@ -67,6 +68,15 @@ export function useLocalHtmlPreview(
     iframeRef.current?.contentWindow?.postMessage({ type: 'flowix:local-html-document-probe' }, '*');
   }, []);
 
+  const notifyProductThemeChanged = useCallback(() => {
+    const target = iframeRef.current?.contentWindow;
+    if (!target) return;
+    target.postMessage({
+      type: 'flowix:local-html-data-changed',
+      kinds: ['product-theme'],
+    }, '*');
+  }, []);
+
   const dataInflight = useRef(0);
   const handleDataRequest = useCallback((data: Record<string, unknown>) => {
     const respond = (requestId: string, ok: boolean, payload?: unknown, error?: string) => {
@@ -88,8 +98,22 @@ export function useLocalHtmlPreview(
     const params = data.params !== null && typeof data.params === 'object' && !Array.isArray(data.params)
       ? data.params as Record<string, unknown>
       : null;
+    const root = document.documentElement;
+    const styles = window.getComputedStyle(root);
+    const productTheme: HtmlProductTheme = {
+      id: root.dataset.theme ?? null,
+      tokens: {
+        background: styles.getPropertyValue('--background').trim(),
+        foreground: styles.getPropertyValue('--foreground').trim(),
+        secondaryForeground: styles.getPropertyValue('--secondary-foreground').trim(),
+        mutedForeground: styles.getPropertyValue('--muted-foreground').trim(),
+        border: styles.getPropertyValue('--border').trim(),
+        brand: styles.getPropertyValue('--brand').trim(),
+        card: styles.getPropertyValue('--card').trim(),
+      },
+    };
     dataInflight.current += 1;
-    void resolveHtmlDataRequest(kind as HtmlDataKind, { notebookId, scopePath }, params)
+    void resolveHtmlDataRequest(kind as HtmlDataKind, { notebookId, scopePath, productTheme }, params)
       .then((payload) => respond(requestId, true, payload))
       .catch((error: unknown) => respond(requestId, false, undefined, error instanceof Error ? error.message : String(error)))
       .finally(() => { dataInflight.current -= 1; });
@@ -124,17 +148,54 @@ export function useLocalHtmlPreview(
         linkCallback.current?.({ href: event.data.href, baseHref: event.data.baseHref });
       } else if (event.data.type === 'flowix:local-html-data-request') {
         handleDataRequest(event.data);
+      } else if (event.data.type === 'flowix:local-html-template-install') {
+        const requestId = typeof event.data.requestId === 'string' && event.data.requestId.length <= 64
+          ? event.data.requestId
+          : '';
+        const templateId = typeof event.data.templateId === 'string' ? event.data.templateId : '';
+        const respond = (success: boolean, result?: { path: string; templateId: string }, error?: string) => {
+          iframeRef.current?.contentWindow?.postMessage({
+            type: 'flowix:local-html-template-install-result',
+            requestId,
+            success,
+            ...(success ? { result } : { error }),
+          }, '*');
+        };
+        if (!requestId) return;
+        const isQuickStartGuide = filePath.replace(/\\/g, '/').split('/').pop() === '快速开始指南.html';
+        if (!scopePath || !isQuickStartGuide || templateId !== 'self-media-management') {
+          respond(false, undefined, !scopePath ? 'Notebook unavailable' : 'Template is not supported');
+          return;
+        }
+        const archiveOrigin = import.meta.env.DEV ? 'http://localhost:8088' : 'https://skills.flowix.cc';
+        void agent.installNotebookTemplateZip(scopePath, templateId, {
+          url: `${archiveOrigin}/templates/archives/${templateId}.zip`,
+          // This guide action explicitly installs its featured example. Market installs use manifest metadata.
+          targetDirectory: '自媒体管理',
+        }).then((result) => respond(true, result)).catch((error: unknown) => {
+          const failure = marketInstallFailure(error);
+          const message = failure.code === 'already_exists' ? '同名模板目录已存在，本次没有覆盖任何内容。'
+            : failure.code === 'permission_denied' ? '笔记本目录无写入权限。'
+              : failure.code === 'installation_unsupported' ? '请升级 Flowix 后重试。' : '模板安装失败，请检查网络后重试。';
+          respond(false, undefined, message);
+        });
       }
     };
     const iframe = iframeRef.current;
     iframe?.addEventListener('error', fail);
     window.addEventListener('message', onMessage);
+    const themeObserver = new MutationObserver(notifyProductThemeChanged);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'style', 'class'],
+    });
     probe();
     return () => {
       iframe?.removeEventListener('error', fail);
       window.removeEventListener('message', onMessage);
+      themeObserver.disconnect();
     };
-  }, [fail, handleDataRequest, probe, ready, src]);
+  }, [fail, filePath, handleDataRequest, notifyProductThemeChanged, probe, ready, scopePath, src]);
 
   return { iframeRef, src, content, phase, backgroundColor, onLoad: probe };
 }

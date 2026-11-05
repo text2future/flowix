@@ -6,7 +6,7 @@ vi.mock('@platform/tauri/client', () => ({ files: { resolveLocation: mocks.resol
 vi.mock('@platform/tauri/opener', () => ({ openUrl: mocks.external }));
 vi.mock('@features/memo/public/note-navigation-api', () => ({ openNoteByDeepLink: mocks.note }));
 vi.mock('@features/document/public/heading-navigation-api', () => ({ publishHeadingAnchorRequest: mocks.heading }));
-vi.mock('./surface-opening', () => ({ openWorkspaceSurface: mocks.open }));
+vi.mock('../public/open-surface-api', () => ({ openWorkspaceSurface: mocks.open }));
 vi.mock('@features/memo/public/workspace-api', () => ({
   getWorkspaceMemoState: () => ({ notebooks: [{ id: 'book', path: '/book' }, { id: 'target', path: '/other' }] }),
 }));
@@ -15,13 +15,13 @@ vi.mock('@features/agent/public/workspace-api', () => ({ getWorkspaceAgentResour
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.resolve.mockImplementation(async (path: string) => ({ path, notebookId: null, notebookPath: null }));
-  mocks.open.mockResolvedValue({ status: 'opened', location: { host: 'browser-column', surfaceId: 'browser:1' } });
+  mocks.open.mockResolvedValue({ status: 'opened', location: { host: 'column-2', surfaceId: 'browser:1' } });
 });
 
 it.each(['README.md', 'report.pdf', 'data.json', 'next.html', 'archive.zip'])('opens %s through existing Browser file surfaces', async (filename) => {
   await openHtmlLink({ href: `file:///repo/${filename}`, baseHref: null }, '/book/index.html', '/book');
   expect(mocks.open).toHaveBeenCalledWith(expect.objectContaining({
-    host: 'browser-column', source: 'html-link',
+    index: 1, source: 'html-link',
     target: expect.objectContaining({ kind: 'external', path: `/repo/${filename}`, scopePath: '/repo' }),
   }));
   expect(mocks.external).not.toHaveBeenCalled();
@@ -33,7 +33,7 @@ it('uses target ownership and publishes headings only after a successful open', 
   expect(mocks.open).toHaveBeenCalledWith(expect.objectContaining({
     target: expect.objectContaining({ scopePath: '/other' }), options: { notebookId: 'target' },
   }));
-  expect(mocks.heading).toHaveBeenCalledWith('/other/a.md', { host: 'browser-column', surfaceId: 'browser:1' }, 'intro');
+  expect(mocks.heading).toHaveBeenCalledWith('/other/a.md', { host: 'column-2', surfaceId: 'browser:1' }, 'intro');
   mocks.heading.mockClear();
   mocks.open.mockResolvedValue({ status: 'cancelled' });
   await openHtmlLink({ href: '/other/a.md#intro', baseHref: null }, '/book/index.html', '/book');
@@ -53,9 +53,9 @@ it('retains notebook context for chained resource HTML links without extending t
 
 it('routes websites and note deep links to Browser and communication links to the system', async () => {
   await openHtmlLink({ href: 'https://example.com/report.pdf', baseHref: null }, '/book/index.html', '/book');
-  expect(mocks.open).toHaveBeenCalledWith({ host: 'browser-column', source: 'html-link', target: { kind: 'web', url: 'https://example.com/report.pdf' } });
+  expect(mocks.open).toHaveBeenCalledWith({ index: 1, source: 'html-link', target: { kind: 'web', url: 'https://example.com/report.pdf' } });
   await openHtmlLink({ href: 'flowix://open?notebookId=book&relativePath=a.md', baseHref: null }, '/book/index.html', '/book');
-  expect(mocks.note).toHaveBeenCalledWith(expect.any(String), null, { destination: 'browser-column', source: 'html-link' });
+  expect(mocks.note).toHaveBeenCalledWith(expect.any(String), null, { destination: 1, source: 'html-link' });
   await openHtmlLink({ href: 'mailto:a@example.com', baseHref: null }, '/book/index.html', '/book');
   expect(mocks.external).toHaveBeenCalledWith('mailto:a@example.com');
 });

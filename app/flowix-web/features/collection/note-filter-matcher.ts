@@ -57,7 +57,7 @@ export function noteMatchesCollectionFilter(
     else if (field === primaryFieldId || field === NOTE_TITLE_FIELD_ID) actual = note.title;
     else if (field === NOTE_CREATED_AT_FIELD_ID) actual = formatTimestamp(note.createdAt);
     else if (field === NOTE_UPDATED_AT_FIELD_ID) actual = formatTimestamp(note.updatedAt);
-    else if (field === NOTE_PATH_FIELD_ID) actual = note.relativePath.replace(/\\/g, '/');
+    else if (field === NOTE_PATH_FIELD_ID) actual = directory;
     else if (field === NOTE_SIZE_FIELD_ID) actual = note.sizeBytes;
     else {
       actual = configuredField?.type === 'primary'

@@ -4,6 +4,7 @@ export { createUuidV7 } from '@features/collection/model';
 import { sanitizeFileName } from '@/lib/export-utils';
 import { ASSET_KINDS, matchesAssetCollectionFilter, type AssetKind } from '@features/collection/public/asset-filter-api';
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
+import { normalizeCollectionLocation } from '@features/collection/public/dataset-filter-api';
 
 export type MediaLibraryKind = 'image' | 'video';
 export interface MediaLibraryFileCondition {
@@ -186,7 +187,7 @@ export function createMediaLibrary(name: string): MediaLibraryDocument {
   return {
     collection: createCollectionMetadata('media_library', name),
     dataset: {
-      source: { scope: 'notebook', depth: 'descendants' },
+      source: { scope: 'notebook' },
       schema: { fields: [] }, records: { include: [], exclude: [] },
       filter: null,
     },
@@ -202,8 +203,8 @@ export function serializeMediaLibrary(document: MediaLibraryDocument): string {
 
 export function parseMediaLibrary(source: string): MediaLibraryDocument {
   const document = parseCollectionDocumentV2(source, 'media_library');
-  return { collection: document.collection, dataset: document.payload.dataset as unknown as MediaLibraryDocument['dataset'],
-    views: document.payload.views as unknown as MediaLibraryDocument['views'] };
+  return normalizeCollectionLocation({ collection: document.collection, dataset: document.payload.dataset as unknown as MediaLibraryDocument['dataset'],
+    views: document.payload.views as unknown as MediaLibraryDocument['views'] });
 }
 
 export function validateMediaLibraryDocument(value: unknown): MediaLibraryDocument {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getWorkspaceSurfaceLifecycle, registerWorkspaceSurfaceLifecycle, registerWorkspaceSurfaceHostView, getWorkspaceHostSurfaceLifecycle } from './surface-lifecycle-store';
+import { getWorkspaceSurfaceLifecycle, registerWorkspaceSurfaceLifecycle, registerWorkspaceColumnIdView, getWorkspaceHostSurfaceLifecycle } from './surface-lifecycle-store';
 
 describe('surface lifecycle ownership', () => {
   it('keeps the replacement editor when an old editor releases its registration', () => {
@@ -29,13 +29,13 @@ describe('surface lifecycle ownership', () => {
 });
 
 it('keeps the mounted host view when the old view cleans up after a replacement', () => {
-  const old = registerWorkspaceSurfaceHostView('main-third', 'old-view');
-  const current = registerWorkspaceSurfaceHostView('main-third', 'current-view');
+  const old = registerWorkspaceColumnIdView('column-1', 'old-view');
+  const current = registerWorkspaceColumnIdView('column-1', 'current-view');
   const lifecycle = { status: 'ready' as const, flush: vi.fn().mockResolvedValue(true) };
   registerWorkspaceSurfaceLifecycle('current-view', lifecycle);
   old();
-  expect(getWorkspaceHostSurfaceLifecycle('main-third')).toBe(lifecycle);
+  expect(getWorkspaceHostSurfaceLifecycle('column-1')).toBe(lifecycle);
   current();
-  expect(getWorkspaceHostSurfaceLifecycle('main-third')).toBeNull();
+  expect(getWorkspaceHostSurfaceLifecycle('column-1')).toBeNull();
   registerWorkspaceSurfaceLifecycle('current-view', null);
 });

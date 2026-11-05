@@ -1,3 +1,30 @@
+/*
+ * Table presentation themes.
+ *
+ * Three selector scopes, each with one job — do not add a fourth:
+ *
+ * 1. Variable assignment (`--flowix-table-*`):
+ *    `.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="…"]`.
+ *    Only attaches values to the table root. Low specificity is deliberate: it
+ *    keeps an explicit cell border (scope 3) able to win.
+ * 2. Structural rules (borders, radii, fonts, alignment):
+ *    `.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content)
+ *    table:not(.multidimensional-table)`. High specificity is required to beat
+ *    the theme's own table grid and the rounded grid defaults.
+ * 3. Explicit cell borders: `.markdown-editor .tiptap table:not(…)
+ *    :is(td, th)[data-flowix-border-*]`. `!important` is deliberate — a border
+ *    the user set by hand must beat every template and row rule.
+ *
+ * Every scope carries `:not(.multidimensional-table)`; that exclusion is
+ * load-bearing because the database view renders real `<table>` elements inside
+ * the same editor container. The `agent-composer__input-content` exclusion is
+ * redundant for tables (the composer schema has no table node) but every
+ * sibling stylesheet carries it, so a future composer table cannot silently
+ * pick up document themes.
+ *
+ * `editor-table-presentation.test.ts` guards all three.
+ */
+
 /* Extra ProseMirror scope overrides the grid's corner and first-cell rules. */
 .markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] {
   --flowix-table-rule: color-mix(in srgb, var(--foreground) 16%, transparent);
@@ -45,6 +72,11 @@
   line-height: 1.5;
 }
 
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] {
+  border-top: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+}
+
 .markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr[data-flowix-row-role="group"] > :is(td, th) {
   padding-top: 1rem;
   font-weight: 600;
@@ -76,36 +108,70 @@
 }
 
 /* Presentation variables keep template rules below explicit cell borders. */
-.markdown-editor table[data-flowix-table-style="business-blue"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"] {
   --flowix-table-head-fill: #234d82;
   --flowix-table-head-ink: #fff;
   --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table[data-flowix-table-style="business-blue"] tr[data-flowix-row-role="total"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="business-blue"], [data-flowix-table-style="literature"]) tr:first-child > :is(td, th) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"] tr[data-flowix-row-role="total"] {
   --flowix-table-cell-fill: var(--flowix-table-tint);
   --flowix-table-cell-ink: var(--flowix-table-accent);
 }
 
-.markdown-editor table[data-flowix-table-style="striped"] {
-  --flowix-table-head-fill: var(--flowix-table-soft);
-  --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] {
+  --flowix-table-head-fill: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --flowix-table-head-bottom: 1px solid var(--border);
 }
 
-.markdown-editor table[data-flowix-table-style="striped"] tr:nth-child(odd):not(:first-child) {
-  --flowix-table-cell-fill: var(--flowix-table-soft);
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
-.markdown-editor table[data-flowix-table-style="striped"] tr[data-flowix-row-role="total"] {
+/* Match the 8px outer frame with 7px inner corners without clipping resize handles. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:first-child > :first-child {
+  border-top-left-radius: 7px;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:first-child > :last-child {
+  border-top-right-radius: 7px;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:last-child > :first-child {
+  border-bottom-left-radius: 7px;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:last-child > :last-child {
+  border-bottom-right-radius: 7px;
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:nth-child(odd):not(:first-child) {
+  --flowix-table-cell-fill: color-mix(in srgb, var(--foreground) 2%, var(--background));
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr[data-flowix-row-role="total"] {
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table[data-flowix-table-style="comparison"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] {
   --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
+  --flowix-table-head-top: 1px solid var(--flowix-table-rule);
   --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table[data-flowix-table-style="comparison"] [data-flowix-comparison-column] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] tr:first-child {
+  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-column] {
   --flowix-table-cell-fill: var(--flowix-table-tint);
   --flowix-table-cell-ink: var(--flowix-table-accent);
   --flowix-table-head-fill: var(--flowix-table-tint);
@@ -113,42 +179,46 @@
   font-weight: 600;
 }
 
-.markdown-editor table[data-flowix-table-style="comparison"] [data-flowix-comparison-first] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-first] {
   --flowix-table-row-top: 3px solid var(--flowix-table-accent);
   --flowix-table-head-top: 3px solid var(--flowix-table-accent);
 }
 
-.markdown-editor table[data-flowix-table-style="comparison"] [data-flowix-comparison-last] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-last] {
   --flowix-table-row-bottom: 3px solid var(--flowix-table-accent);
 }
 
-.markdown-editor table[data-flowix-table-style="financial-brief"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] {
   --flowix-table-head-top: 1px solid currentColor;
   --flowix-table-head-bottom: 1px solid currentColor;
   --flowix-table-cell-padding: 0.4rem 0.75rem;
 }
 
-.markdown-editor table[data-flowix-table-style="financial-brief"] tr:not([data-flowix-row-role]) > td:first-child {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] {
+  border-bottom: 1px solid currentColor;
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr:not([data-flowix-row-role]) > td:first-child {
   --flowix-table-cell-padding: 0.4rem 0.75rem 0.4rem 1.5rem;
   --flowix-table-cell-ink: var(--foreground);
 }
 
-.markdown-editor table[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="subtotal"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="subtotal"] {
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="total"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="total"] {
   --flowix-table-row-top: 1px solid currentColor;
   --flowix-table-row-bottom: 3px double currentColor;
 }
 
-.markdown-editor table[data-flowix-table-style="grouped"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] {
   --flowix-table-head-top: 2px solid currentColor;
   --flowix-table-head-bottom: 1px solid currentColor;
   --flowix-table-cell-padding: 0.4rem 0.75rem;
 }
 
-.markdown-editor table[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] {
   --flowix-table-cell-fill: var(--flowix-table-soft);
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
@@ -157,21 +227,35 @@
   padding: 0.4rem 0.75rem;
 }
 
-.markdown-editor table[data-flowix-table-style="grouped"] tr:last-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr:last-child {
   --flowix-table-row-bottom: 1px solid currentColor;
 }
 
-.markdown-editor table[data-flowix-table-style="minimal"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] {
+  --flowix-table-custom-edge-color: var(--flowix-table-rule);
   --flowix-table-head-ink: var(--foreground);
+  --flowix-table-head-top: 1px solid var(--flowix-table-rule);
   --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
   --flowix-table-cell-padding: 0.85rem 0.75rem;
 }
 
-.markdown-editor table[data-flowix-table-style="minimal"] tr:not(:last-child) {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] tr:first-child {
+  --flowix-table-row-top: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] tr {
   --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table[data-flowix-table-style="literature"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="minimal"] {
+  /* WebKit paints shared collapsed edges twice. An opaque theme blend keeps
+   * outer and inner rules equal, near the existing inner rule's visual depth. */
+  --flowix-table-rule: color-mix(in srgb, var(--foreground) 30%, var(--background));
+  border-top: 1px solid var(--flowix-table-rule);
+  border-bottom: 1px solid var(--flowix-table-rule);
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="literature"] {
   --flowix-table-grid: 1px solid var(--flowix-table-rule);
   --flowix-table-head-fill: var(--flowix-table-soft);
   --flowix-table-cell-padding: 0.3rem 0.6rem;
@@ -179,7 +263,7 @@
   line-height: 1.4;
 }
 
-.markdown-editor table[data-flowix-table-style="literature"] tr > :first-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="literature"] tr > th:first-child {
   --flowix-table-cell-fill: var(--flowix-table-soft);
   font-weight: 500;
 }
@@ -192,11 +276,11 @@
 
 /* Explicit cell borders take priority over all template/row rules. Hidden also suppresses a neighbor's automatic rule. */
 .markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="single"] {
-  border-top: 1px solid currentColor !important;
+  border-top: 1px solid var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
 .markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="double"] {
-  border-top: 3px double currentColor !important;
+  border-top: 3px double var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
 .markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="none"] {
@@ -204,69 +288,104 @@
 }
 
 .markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="single"] {
-  border-bottom: 1px solid currentColor !important;
+  border-bottom: 1px solid var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
 .markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="double"] {
-  border-bottom: 3px double currentColor !important;
+  border-bottom: 3px double var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
 .markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="none"] {
   border-bottom: hidden !important;
 }
 
+.table-style-menu-scroll-frame {
+  display: flex;
+  min-height: 0;
+  margin-right: -0.25rem;
+}
+
+.table-style-menu-scroller {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
 .table-bubble-menu-panel {
+  display: flex;
   width: max-content;
-  max-width: min(460px, calc(100vw - 24px));
-  background: var(--card);
-  color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow:
-    0 0 0 1px color-mix(in oklch, var(--foreground) 3%, transparent),
-    0 0 14px color-mix(in oklch, var(--foreground) 7%, transparent);
+  max-width: var(--table-menu-max-width, min(720px, calc(100vw - 24px)));
+  overflow-x: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+
+.table-bubble-menu-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.table-bubble-menu-panel .table-style-controls {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .table-bubble-menu-panel .table-bubble-menu {
+  flex: 0 0 auto;
   justify-content: center;
   border: 0;
   box-shadow: none;
-  border-top: 1px solid var(--border);
-  border-radius: 0 0 8px 8px;
-  padding: 4px 8px;
-}
-
-.table-bubble-menu-panel .table-bubble-menu button {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  color: var(--muted-foreground);
-}
-
-.table-bubble-menu-panel .table-bubble-menu button:hover {
-  background: var(--muted);
-  color: var(--foreground);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .editor-toolbar.table-style-controls {
   position: static;
+  align-items: center;
   flex-wrap: wrap;
   gap: 2px;
   padding: 4px 8px;
 }
 
+.table-bubble-menu-panel .editor-toolbar.table-style-controls {
+  flex-wrap: nowrap;
+  padding: 0;
+}
+
+.table-style-controls > .table-toolbar-divider,
+.table-bubble-menu-panel > .table-toolbar-divider {
+  flex: 0 0 1px;
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--divider, var(--border));
+  pointer-events: none;
+}
+
 .table-style-controls .toolbar-button {
-  gap: 5px;
+  width: auto;
+  min-width: 26px;
+  gap: 2px;
   padding: 0 6px;
   font-size: 12px;
+  line-height: 16px;
+}
+
+.table-style-controls .table-style-menu-trigger {
+  display: flex;
+  align-items: center;
+}
+
+.table-style-controls .toolbar-button > svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .table-style-controls .toolbar-button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
-}
-
-.editor-toolbar.table-border-controls {
-  border-top: 1px solid var(--border);
-  justify-content: center;
 }

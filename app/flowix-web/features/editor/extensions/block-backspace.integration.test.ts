@@ -18,7 +18,7 @@ function createEditor(content: JSONContent[]) {
     extensions: createMarkdownEditorExtensions({
       getOwnerPath: () => undefined,
       getAttachmentNotebookId: () => undefined,
-      workspaceHost: 'main-third',
+      workspaceHost: 'column-1',
       getPlaceholder: () => '',
     }),
     content: { type: 'doc', content },

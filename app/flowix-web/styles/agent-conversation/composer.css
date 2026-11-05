@@ -571,12 +571,6 @@
   line-height: 1.2;
 }
 
-.agent-composer-slash-menu__item--back {
-  margin-bottom: 0.2rem;
-  border-radius: 0;
-  color: var(--muted-foreground);
-}
-
 .agent-composer-slash-menu__empty {
   padding: 0.5rem;
   color: var(--muted-foreground);
@@ -622,13 +616,6 @@
 /* The skill picker has a navigation row, not a selectable command. Keep
  * hovering/focusing that row to a text-color change, without the command
  * highlight background. */
-.agent-composer-slash-menu:not(.is-keyboard-navigation)
-  .agent-composer-slash-menu__item--back:hover,
-.agent-composer-slash-menu:not(.is-keyboard-navigation)
-  .agent-composer-slash-menu__item--back:focus-visible {
-  background: transparent;
-  color: var(--foreground);
-}
 
 .agent-composer-slash-menu__name {
   flex: 0 0 6.6rem;
@@ -761,28 +748,7 @@
 
 /* 发送按钮 ── 28×28 圆形, 内嵌 16×16 Phosphor 图标。
  * 尺寸取自 --atc-send-size, 与输入区 min-height 公式联动。 */
-.agent-composer__access-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--atc-send-size);
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  padding: 0 0.5rem;
-  font: inherit;
-  font-size: calc(var(--font-size, 16px) * 0.9); /* text-xs */
-  line-height: 1;
-  white-space: nowrap;
-}
 
-.agent-composer__access-trigger:hover,
-.agent-composer__access-trigger--open {
-  color: var(--foreground);
-}
 /* Shared input, inline token and caret rules for Agent conversation composer. */
 
 /* The surface sets `cursor: default` on descendants. Keep the input surface
@@ -1231,38 +1197,6 @@
   padding: 0.25rem;
 }
 
-/* 滚动容器 ── 装整个可滚动内容: notebook section、folder section、
- * 末尾的"添加文件夹"按钮。 max-height 由 JS 动态计算 (= 可用空间)。
- * 内容超出时整体滚动, 不再有 sticky footer ── 按钮作为列表最后一项
- * 跟随内容滚动, 长列表下滚到底才能看到, 避免按钮在视觉上"凭空"出现
- * 在分隔很远的列表底部, 维持"按钮属于 folder 区域"的归属感。 */
-.agent-composer__access-popover-scroll {
-  overflow-y: auto;
-  margin-right: -0.25rem;
-  padding-right: 0.25rem;
-}
-
-/* "添加文件夹"按钮容器 ── 挂在 folder 列表末尾 (folderEntries 非空
- * 时), 或作为空态时唯一的引导 (folderEntries 空时)。 视觉上是 folder
- * section 的自然延伸, 不是独立的全局操作 ── 用户打开弹窗扫到 folder
- * 列表就能立刻看到"加一个"。
- *
- * 仅 margin-top: 4px 给一个柔和的呼吸空间, 不加 border-top 或 padding-
- * top, 让按钮与 folder row 视觉连续。 长列表下跟随内容滚动, 不再被钉
- * 在弹窗底部固定可见 ── 配合自定义 overlay scrollbar, Windows 下滚
- * 动条体验与 mention 下拉同源。
- *
- * 演变: 顶部 actions → 底部 sticky footer → folder 区域末尾
- *   - 顶部 actions: 用户先看到按钮再看列表, 视觉重音错位。
- *   - 底部 sticky footer: 列表滚动时按钮被钉在弹窗底部固定可见, 长列
- *     表下按钮与列表末尾分隔很远, 与 folder 语义割裂。
- *   - 现在: 紧贴 folder 列表末尾, notebook section 之前, 按钮与 folder
- *     section 视觉归属一致 ── 用户读完 folder 列表, 续上"加一个"再
- *     去翻 notebook, 路径自然。 */
-.agent-composer__access-popover-footer {
-  margin-top: 4px;
-}
-
 .agent-composer__access-popover[hidden] {
   display: none;
 }
@@ -1370,21 +1304,6 @@
   line-height: 1.2;
 }
 
-.agent-composer__note-popover-meta {
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-}
-
-.agent-composer__access-empty {
-  padding: 12px 8px;
-  text-align: center;
-  color: var(--muted-foreground);
-  font-size: calc(var(--font-size, 16px) * 0.9); /* text-xs */
-}
-
 .agent-composer__access-section-label {
   padding: 0.35rem 0.375rem 0.35rem;
   color: var(--muted-foreground);
@@ -1393,79 +1312,10 @@
   letter-spacing: 0;
 }
 
-.agent-composer__access-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  border-radius: 6px;
-  padding: 6px 8px;
-  transition: background-color 120ms ease;
-}
-
-/* row 整体不再 clickable ── 改用 cursor: default 让用户视觉上知道这块不是
- * 按钮。 真正的交互入口只有 checkbox / star / remove, 鼠标移上去会自然
- * 触发对应 button 的 hover 高亮 (CSS 已经处理)。 这里不再让整行 hover
- * 也染色, 避免"整行像 button 但点了没反应"的误判。 */
-.agent-composer__access-row:hover {
-  background: transparent;
-}
-
-.agent-composer__access-row--disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.agent-composer__access-row--disabled:hover {
-  background: transparent;
-}
-
-.agent-composer__access-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  background: var(--muted);
-  color: var(--secondary-foreground);
-  font-size: calc(var(--font-size, 16px) * 0.9);
-  font-weight: 600;
-}
-
-.agent-composer__access-avatar--icon {
-  background: var(--muted);
-  color: var(--secondary-foreground);
-}
-
-.agent-composer__access-avatar--icon svg {
-  display: block;
-  width: 72%;
-  height: 72%;
-  opacity: 0.9;
-}
-
 .agent-composer__access-row-icon {
   width: 14px;
   height: 14px;
   color: var(--muted-foreground);
-}
-
-.agent-composer__access-name-wrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.agent-composer__access-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: calc(var(--font-size, 16px) * 0.9);
 }
 
 .agent-composer__access-alert-icon {
@@ -1475,194 +1325,12 @@
   color: var(--warning);
 }
 
-.agent-composer__access-default-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--primary);
-  padding: 0 6px;
-  font-size: calc(var(--font-size, 16px) * 0.9);
-  line-height: 1;
-}
-
-.agent-composer__access-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  opacity: 0;
-  padding: 0;
-}
-
-.agent-composer__access-row:hover .agent-composer__access-remove,
-.agent-composer__access-remove:focus {
-  opacity: 1;
-}
-
-.agent-composer__access-remove:hover {
-  color: var(--destructive);
-}
-
-.agent-composer__access-remove .agent-icon__trash {
-  width: 14px;
-  height: 14px;
-}
-
-/* Workspace row 视觉 ── workspace entry (folder 或 notebook) 的 avatar 渲染
- * 原图标 + 左侧竖长条标记 (.access-workspace-mark) 作为 "主空间" 标记
- * (workspace 全局唯一), 不可点击。 非 workspace + 非 missing 的 entry
- * (folder 或 notebook) 整个 avatar 就是一个 button, 点击直接 setWorkspace ──
- * 不再 hover 出 star 按钮覆盖, 交互入口即图标本身。 */
-
-/* workspace avatar 不做特殊背景/颜色覆盖 ── 直接走基类 `.agent-composer__access-avatar`
- * (背景 `var(--muted)` + 颜色 `var(--secondary-foreground)`); folder 图标走
- * `.access-row-icon` 的 `var(--muted-foreground)`, notebook 图标走
- * `.access-avatar--icon` ── 与同 kind 的普通 entry 视觉重量完全一致, "workspace"
- * 这个角色标记只靠左侧竖长条体现, 不靠图标形状或颜色暗示。 avatar 设
- * position/overflow, 让长条能贴左边缘定位; 长条自带全圆角呈胶囊形。 (不再用
- * `--workspace svg` 统一 14px ── 那会误把 notebook 的 20px 图标也缩小;
- * folder 图标尺寸由 `.access-row-icon` 自带, notebook 由 `--icon svg` 自带。) */
-
-.agent-composer__access-avatar--workspace {
-  position: relative;
-  overflow: hidden;
-  /* 已是主空间的 avatar 虽不可点击 (没有 set-workspace 入口), 也用 hand cursor ──
-   * 与同列其它 avatar 视觉一致, 避免 "选中后变箭头" 的突兀感。 */
-  cursor: pointer;
-}
-
-/* workspace 侧边标记 ── 贴 avatar 左边缘的竖长条, 用 var(--primary) 实色
- * 填充, 作为 "主空间" 的标记。 3px 宽 × 12px 高, 上下居中 (top:50% +
- * translateY(-50%)); 仅右侧上下圆角 (border-radius:0 9999px 9999px 0, 受
- * 3px 宽限制实际半径 1.5px 呈右半圆), 左侧贴 avatar 边缘保持直角, 既能
- * 一眼识别又不喧宾夺主。 pointer-events:none 让标记不挡 avatar 上的点击。 */
-.agent-composer__access-workspace-mark {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 3px;
-  height: 12px;
-  transform: translateY(-50%);
-  background: var(--primary);
-  border-radius: 0 9999px 9999px 0;
-  pointer-events: none;
-}
-
-/* The notebook sidebar uses a right-aligned star, which is a different
- * affordance from the legacy avatar-side workspace mark above. Keep it in the
- * row's flex flow so it stays at the far right after the flexible name cell. */
+/* The notebook sidebar uses a right-aligned star. Keep it in the row's flex
+ * flow so it stays at the far right after the flexible name cell. */
 .agent-composer__access-workspace-star {
   position: static;
   flex: 0 0 auto;
   color: var(--primary);
-}
-
-/* 可点击 avatar ── 非 workspace + 非 missing 的 entry (folder 或 notebook)
- * avatar 本身是 <button>, 点击 setWorkspace。 不再有 star 按钮覆盖层: hover
- * 只给一层 primary 薄底提示 "这个图标可点", 视觉重量与普通 avatar 一致。
- * button 重置 (border/padding) 走这里; 背景/颜色/尺寸/圆角都复用基类
- * `.agent-composer__access-avatar`。 */
-.agent-composer__access-avatar--set-workspace {
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  transition: background-color 120ms ease;
-}
-
-.agent-composer__access-avatar--set-workspace:hover {
-  background: color-mix(in oklch, var(--primary) 14%, var(--muted));
-}
-
-.agent-composer__access-checkbox {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  border: 1px solid var(--muted-foreground);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--primary-foreground);
-  cursor: pointer;
-  padding: 0;
-  font-size: calc(var(--font-size, 16px) * 0.9);
-  line-height: 1;
-}
-
-.agent-composer__access-checkbox--checked {
-  border-color: var(--primary);
-  background: var(--primary);
-}
-
-.agent-composer__access-checkbox-mark {
-  width: 11px;
-  height: 9px;
-  color: var(--primary-foreground);
-}
-
-.agent-composer__access-checkbox:disabled {
-  cursor: not-allowed;
-}
-
-.agent-composer__access-add {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  min-height: 28px;
-  padding: 2px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  font: inherit;
-  font-size: calc(var(--font-size, 16px) * 0.9);
-  line-height: 1;
-  text-align: left;
-  box-sizing: border-box;
-  user-select: none;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
-}
-
-.agent-composer__access-add:hover {
-  background: var(--brand);
-  color: var(--primary-foreground);
-}
-
-.agent-composer__access-add-icon-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  border-radius: 6px;
-  background: var(--muted);
-  color: var(--secondary-foreground);
-}
-
-.agent-composer__access-add-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .agent-composer__access-add-icon {

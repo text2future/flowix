@@ -3,7 +3,15 @@ import { scanHead } from '@features/editor/markdown-tokenizer-start';
 import { decodeStorageKey } from './asset-markdown';
 import { parseFlowixMediaStyleComment, parseFlowixMediaStyleSuffix } from './media-style';
 
-const MARKDOWN_IMAGE_RE = /^!\[([^\]]*)\]\(([^)\n]+)\)/;
+const MARKDOWN_IMAGE_RE = /^!\[((?:\\.|[^\]\\])*)\]\(([^)\n]+)\)/;
+
+export function escapeImageAlt(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]').replace(/[\r\n]+/g, ' ');
+}
+
+function unescapeImageAlt(value: string): string {
+  return value.replace(/\\([\\[\]])/g, '$1');
+}
 const ASSET_IMAGE_RE = /^(asset:\/\/|https?:\/\/asset\.localhost\/)/i;
 export const DEFAULT_IMAGE_WIDTH_PERCENT = 100;
 const MIN_IMAGE_WIDTH_PERCENT = 20;
@@ -71,7 +79,7 @@ export const imageMarkdownSpec = {
         type: 'image',
         raw: (metadata?.raw ?? '') + match[0] + suffix.raw,
         href: match[2],
-        text: match[1],
+        text: unescapeImageAlt(match[1]),
         title: null,
         widthPercent: metadata ? normalizeWidthPercent(metadata.style.widthPercent) : suffix.widthPercent,
         align: metadata ? normalizeImageAlignment(metadata.style.align) : suffix.align,

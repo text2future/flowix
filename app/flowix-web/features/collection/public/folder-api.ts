@@ -21,9 +21,11 @@ export {
 } from '../folder-collection';
 export { ASSET_KINDS, MEDIA_ASSET_KINDS, WORK_ASSET_KINDS, assetConditionFromFilter, assetKindsForUniverse, normalizeAssetFilterCondition, type AssetFilterCondition, type AssetFilterSaveOptions, type AssetKind } from '../asset-filter';
 export type { FolderCollectionSummary } from '../folder-collection';
-export { parseCollectionDocumentV2 } from '../model';
+export { parseCollectionDocumentV2, reviseCollection } from '../model';
 export { FolderCollectionSwitchConfirmDialog } from '../folder-collection-switch-confirm-dialog';
-export { resolveCollectionScope, type CollectionScope } from '../collection-scope';
+export { resolveCollectionLocationScope, pathInCollectionScope, resolveCollectionScope, type CollectionScope } from '../collection-scope';
+/** 集合的保存目录：新建笔记 / 导入文件 / 媒体上传的唯一落点策略。 */
+export { resolveCollectionSaveDirectory } from '../save-location';
 export { ONLINE_BANNER_IMAGES, onlineBannerBase, onlineBannerCropUrl, onlineBannerThumbUrl } from '../online-banner-images';
 export type { CollectionType, CollectionDomain, CollectionProperty } from '../model';
 

@@ -11,7 +11,7 @@ export function movedFilePath(path: string, previous: string, next: string, dire
 }
 
 /** Rebase address hints, preserving display identity, view selection and host state. */
-export function rebaseWorkspaceTargetPath<T extends WorkspaceContentTarget | BrowserColumnTarget | LegacyFolderListTarget>(
+export function rebaseWorkspaceTargetPath<T extends WorkspaceContentTarget | BrowserColumnTarget | LegacyFolderListTarget | import('./surface-target').CollectionReferenceSurfaceTarget>(
   target: T, previous: string, next: string, directory: boolean,
 ): T {
   const move = (path: string) => movedFilePath(path, previous, next, directory);

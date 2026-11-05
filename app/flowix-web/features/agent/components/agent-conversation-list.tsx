@@ -269,7 +269,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
   const revealConversation = useCallback((instance: AgentConversationInstance) => {
     prepareConversation(instance);
     if (instance.threadId) markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ host: 'browser-column', target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       logger.error('Failed to open conversation in browser column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
@@ -279,7 +279,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
   const openConversationInWorkColumn = useCallback((instance: AgentConversationInstance) => {
     prepareConversation(instance);
     if (instance.threadId) markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ host: 'main-third', target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       logger.error('Failed to open conversation in work column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
@@ -510,7 +510,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
                               <DropdownMenuContent align="end" className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                                 <ConversationActionItems
                                   favorite={favoriteIds.has(instance.instanceId)}
-                                  openHost="main-third"
+                                  openHost="column-1"
                                   onOpen={() => openConversationInWorkColumn(instance)}
                                   onFavorite={() => toggleFavorite(instance.instanceId)}
                                   onRename={() => renameConversation(instance)}
@@ -545,7 +545,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
                       <ConversationActionItems
                         context
                         favorite={favoriteIds.has(instance.instanceId)}
-                        openHost="main-third"
+                        openHost="column-1"
                         onOpen={() => openConversationInWorkColumn(instance)}
                         onFavorite={() => toggleFavorite(instance.instanceId)}
                         onRename={() => renameConversation(instance)}

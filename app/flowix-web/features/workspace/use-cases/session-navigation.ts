@@ -1,21 +1,26 @@
+import { getSessionId } from '../store/workspace-session-store';
+import { SESSION_HISTORY_LIMIT } from '../model/session-limits';
+import { sessionFor } from '../model/workspace-session';
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
-import { useWorkspaceSessionStore, getSessionAtHost } from '../store/workspace-session-store';
+import { useWorkspaceSessionStore, getColumnSessionId, getColumnIdForSession } from '../store/workspace-session-store';
 import { sessionTargetKey } from '../model/session-target-key';
-import type { WorkspaceSessionId } from '../model/workspace-session';
-import type { WorkspaceSurfaceHost } from '../model/surface-contract';
+import type { WorkspaceSessionReference } from '../model/workspace-session';
+import type { WorkspaceColumnId } from '../model/surface-contract';
 import type { SessionNavigationEntry } from '../model/session-navigation';
 
-const sequences: Record<WorkspaceSessionId, number> = { 'primary-session': 0, 'secondary-session': 0 };
+const sequences = new Map<WorkspaceSessionReference, number>();
 
 /** Direct canonical state: there are no per-container navigation read models. */
-export function getWorkspaceSessionNavigation(sessionId: WorkspaceSessionId) {
-  return useWorkspaceSessionStore.getState().sessions[sessionId].navigation;
+export function getWorkspaceSessionNavigation(sessionId: WorkspaceSessionReference) {
+  return sessionFor(useWorkspaceSessionStore.getState(), sessionId).navigation;
 }
 
 /** One history algorithm for both containers, with save/load delegated to Surface opening. */
-export async function navigateWorkspaceSession(sessionId: WorkspaceSessionId, direction: 'back' | 'forward'): Promise<boolean | null> {
-  const sequence = ++sequences[sessionId];
-  const session = useWorkspaceSessionStore.getState().sessions[sessionId];
+export async function navigateWorkspaceSession(sessionId: WorkspaceSessionReference, direction: 'back' | 'forward'): Promise<boolean | null> {
+  sessionId = sessionFor(useWorkspaceSessionStore.getState(), sessionId).id;
+  const sequence = (sequences.get(sessionId) ?? 0) + 1;
+  sequences.set(sessionId, sequence);
+  const session = sessionFor(useWorkspaceSessionStore.getState(), sessionId);
   const before = session.navigation;
   const stack = direction === 'back' ? before.backStack : before.forwardStack;
   const currentKey = before.current ? sessionTargetKey(before.current.target) : null;
@@ -36,24 +41,24 @@ export async function navigateWorkspaceSession(sessionId: WorkspaceSessionId, di
   try {
     // Loading the renderer adapter is optional; session state itself has no renderer dependency.
     const { openWorkspaceSurface } = await import('./surface-opening');
-    if (sequences[sessionId] !== sequence) return false;
+    if (sequences.get(sessionId) !== sequence) return false;
     const result = await openWorkspaceSurface({
-      host: session.runtime === 'primary-runtime' ? 'main-third' : 'browser-column', target,
+      host: getColumnIdForSession(session.id), target,
       options: { history: 'skip', navigationEntryId: next.id },
     });
     if (result.status === 'cancelled') return null;
   } catch {
     return false;
   }
-  if (sequences[sessionId] !== sequence) return false;
+  if (sequences.get(sessionId) !== sequence) return false;
   let committed = false;
-  useWorkspaceSessionStore.getState().updateSession(sessionId, (latest) => {
+  useWorkspaceSessionStore.getState().updateSession(getSessionId(sessionId), (latest) => {
     const navigation = latest.navigation;
     const currentStack = direction === 'back' ? navigation.backStack : navigation.forwardStack;
     if (currentStack !== stack || navigation.current?.id !== next.id
       || sessionTargetKey(navigation.current.target) !== sessionTargetKey(next.target)) return latest;
     const append = (items: SessionNavigationEntry[]) => before.current
-      ? [...items, before.current].slice(-100) : items;
+      ? [...items, before.current].slice(-SESSION_HISTORY_LIMIT) : items;
     committed = true;
     return { ...latest, navigation: { ...navigation,
       backStack: direction === 'back' ? stack.slice(0, -discardCount) : append(before.backStack),
@@ -63,8 +68,8 @@ export async function navigateWorkspaceSession(sessionId: WorkspaceSessionId, di
   return committed;
 }
 
-export function navigateWorkspaceHost(host: WorkspaceSurfaceHost, direction: 'back' | 'forward') {
-  return navigateWorkspaceSession(getSessionAtHost(host), direction);
+export function navigateWorkspaceHost(host: WorkspaceColumnId, direction: 'back' | 'forward') {
+  return navigateWorkspaceSession(getColumnSessionId(host), direction);
 }
 
 export function subscribeWorkspaceSessionNavigation(listener: () => void) {

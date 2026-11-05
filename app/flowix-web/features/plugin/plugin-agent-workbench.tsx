@@ -102,7 +102,7 @@ export function AgentPluginWorkbench({
   const handleOpenArtifact = useCallback(() => {
     if (!artifact) return;
     const opening = openWorkspaceSurface({
-      host: 'browser-column',
+      index: 1,
       target: { kind: 'external', path: artifact.path, scopePath: null, transitionId: null },
     });
     void opening.catch((error) => {

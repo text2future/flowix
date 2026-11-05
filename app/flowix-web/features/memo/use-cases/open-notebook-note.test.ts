@@ -16,7 +16,7 @@ const notebook = { id: 'book-1', path: '/notes' } as Notebook;
 describe('openNotebookNote', () => {
   beforeEach(() => {
     mocks.openWorkspaceSurface.mockResolvedValue({
-      status: 'opened', location: { host: 'main-third', state: 'active' },
+      status: 'opened', location: { host: 'column-1', state: 'active' },
     });
   });
 
@@ -34,7 +34,7 @@ describe('openNotebookNote', () => {
     mocks.openWorkspaceSurface.mockClear();
     await openNotebookNote('/notes/a.md', notebook);
     expect(mocks.openWorkspaceSurface).toHaveBeenCalledWith({
-      host: 'main-third',
+      index: 0,
       target: { kind: 'external', path: '/notes/a.md', scopePath: '/notes', transitionId: null },
       options: { history: undefined, initialFocus: undefined },
     });
@@ -44,7 +44,7 @@ describe('openNotebookNote', () => {
     mocks.openWorkspaceSurface.mockClear();
     await openNotebookNote('/notes/map.md', notebook);
     expect(mocks.openWorkspaceSurface).toHaveBeenCalledWith(expect.objectContaining({
-      host: 'main-third',
+      index: 0,
       target: { kind: 'external', path: '/notes/map.md', scopePath: '/notes', transitionId: null },
     }));
   });

@@ -28,12 +28,11 @@ import { useImportNotebookSelection } from '@features/memo/hooks/use-import-note
 import { useEmptyNotebookPrompt } from '@features/memo/hooks/use-empty-notebook-prompt';
 import {
   attachNotebookFolder,
-  detachNotebookFolder,
-  ensureAgentWorkspaceReady,
-  getWorkspaceAgentRepositories,
+  applyAgentWorkspaceSnapshot,
   loadAgentWorkspace,
+  getWorkspaceAgentRepositories,
 } from '@features/agent/public/workspace-api';
-import { noteRepository, notebookRepository } from '@features/memo/services/note-repository';
+import { noteRepository } from '@features/memo/services/note-repository';
 import { getVisibleCreateFilter, useNoteStore, useTagStore, type NoteListItem, type Notebook } from '@features/memo/store';
 import { noteListItemRelativePath } from '@/types/note-item';
 import {
@@ -292,6 +291,8 @@ export function MemoListServicesHost({
   const [editName, setEditName] = useState('');
   const [editIcon, setEditIcon] = useState<string | null>(DEFAULT_NOTEBOOK_ICON_ID);
   const [editPaths, setEditPaths] = useState<string[]>([]);
+  const [editStorageStatus, setEditStorageStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const editLoadGenerationRef = useRef(0);
   const [editOriginalPaths, setEditOriginalPaths] = useState<string[]>([]);
   const [editCloudSync, setEditCloudSync] = useState(false);
   const [originalEditCloudSync, setOriginalEditCloudSync] = useState(false);
@@ -341,10 +342,11 @@ export function MemoListServicesHost({
     openCreate,
   });
 
+  const editingNotebookId = editingNotebook?.id;
   useEffect(() => {
-    if (!editOpen || !editingNotebook) return;
+    if (!editOpen || !editingNotebookId) return;
     let cancelled = false;
-    void Promise.all([cloud.getState(), cloud.getNotebookState(editingNotebook.id)])
+    void Promise.all([cloud.getState(), cloud.getNotebookState(editingNotebookId)])
       .then(([cloudState, link]) => {
         if (cancelled) return;
         const enabled = Boolean(link?.enabled);
@@ -358,11 +360,35 @@ export function MemoListServicesHost({
     return () => {
       cancelled = true;
     };
-  }, [editOpen, editingNotebook]);
+  }, [editOpen, editingNotebookId]);
 
   useEffect(() => listenToCloudStateChanges((state) => {
     setCloudSyncAvailable(getCloudSyncAccess(state).canRead);
   }), []);
+
+  const loadEditStorage = useCallback(async (notebook: Notebook) => {
+    const generation = ++editLoadGenerationRef.current;
+    setEditStorageStatus('loading');
+    try {
+      let loaded = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (await loadAgentWorkspace()) { loaded = true; break; }
+        if (editingNotebookIdRef.current !== notebook.id || generation !== editLoadGenerationRef.current) return;
+      }
+      if (!loaded) throw new Error('Workspace load superseded');
+      if (editingNotebookIdRef.current !== notebook.id || generation !== editLoadGenerationRef.current) return;
+      const repositories = getWorkspaceAgentRepositories(notebook.id);
+      const paths = [notebook.path, ...repositories.map((repository) => repository.path)
+        .filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(notebook.path))];
+      setEditOriginalPaths(paths);
+      setEditPaths(paths);
+      setEditStorageStatus('ready');
+    } catch {
+      if (editingNotebookIdRef.current === notebook.id && generation === editLoadGenerationRef.current) {
+        setEditStorageStatus('error');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const handleOpenCreate = () => openCreate();
@@ -377,21 +403,7 @@ export function MemoListServicesHost({
       setEditPaths([notebook.path]);
       setEditOriginalPaths([notebook.path]);
       setEditOpen(true);
-      void ensureAgentWorkspaceReady().then(() => {
-        if (editingNotebookIdRef.current !== notebook.id) return;
-        const repositories = getWorkspaceAgentRepositories(notebook.id);
-        const paths = [notebook.path, ...repositories.map((repository) => repository.path)
-          .filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(notebook.path))];
-        setEditOriginalPaths(paths);
-        setEditPaths((current) => {
-          const newSelections = current.filter((path) => !paths.some(
-            (loadedPath) => canonicalDirectoryPath(loadedPath) === canonicalDirectoryPath(path),
-          ));
-          return [...paths, ...newSelections];
-        });
-      }).catch(() => {
-        if (editingNotebookIdRef.current === notebook.id) toast.error(t('agent.access.saveFailed'));
-      });
+      void loadEditStorage(notebook);
     };
     const handleDeleteMemo = (event: Event) => {
       const memo = (event as CustomEvent<NoteListItem>).detail;
@@ -417,7 +429,7 @@ export function MemoListServicesHost({
       window.removeEventListener('flowix:toggle-palette', handleTogglePalette);
       window.removeEventListener('flowix:open-palette', handleOpenPalette);
     };
-  }, [openCreate, t]);
+  }, [openCreate, loadEditStorage]);
 
   const handleCreateMemo = useCallback(async () => {
     if (!selectedNotebook) return;
@@ -606,6 +618,7 @@ export function MemoListServicesHost({
     if (editSaving) return;
     setEditOpen(false);
     editingNotebookIdRef.current = null;
+    ++editLoadGenerationRef.current;
     setEditingNotebook(null);
     setEditName('');
     setEditIcon(DEFAULT_NOTEBOOK_ICON_ID);
@@ -616,8 +629,21 @@ export function MemoListServicesHost({
     setEditSaving(false);
   }, [editSaving]);
 
+  const selectEditDirectory = useCallback(async () => {
+    const generation = editLoadGenerationRef.current;
+    try {
+      const path = await request<string | null>('select_directory');
+      if (path && editingNotebookIdRef.current && generation === editLoadGenerationRef.current) {
+        setEditPaths((current) => current.some((item) => canonicalDirectoryPath(item) === canonicalDirectoryPath(path))
+          ? current : [...current, path]);
+      }
+    } catch {
+      toast.error(t('agent.access.saveFailed'));
+    }
+  }, [request, t]);
+
   const confirmEdit = useCallback(async () => {
-    if (!editingNotebook || editSaving) return;
+    if (!editingNotebook || editSaving || editStorageStatus !== 'ready') return;
     const name = editName.trim();
     const icon = normalizeNotebookIconId(editIcon);
     const iconChanged = icon !== normalizeNotebookIconId(editingNotebook.icon);
@@ -637,49 +663,48 @@ export function MemoListServicesHost({
     }
     try {
       setEditSaving(true);
-      let updated = editingNotebook;
-      if (primaryChanged) {
-        updated = await notebookCommands.setPrimaryDirectory(editingNotebook.id, primaryPath);
-        const workspaceLoaded = await loadAgentWorkspace();
-        if (!workspaceLoaded) throw new Error(t('agent.access.saveFailed'));
-      }
-
-      const existingRepositoryPaths = getWorkspaceAgentRepositories(editingNotebook.id)
-        .map((repository) => repository.path);
-      const desiredPathKeys = new Set(desiredRepositoryPaths.map(canonicalDirectoryPath));
-      for (const path of desiredRepositoryPaths) {
-        if (existingRepositoryPaths.some((existing) => canonicalDirectoryPath(existing) === canonicalDirectoryPath(path))) continue;
-        const result = await attachNotebookFolder(editingNotebook.id, path);
-        if (result === false) throw new Error(t('agent.access.saveFailed'));
-      }
-      for (const path of existingRepositoryPaths) {
-        if (desiredPathKeys.has(canonicalDirectoryPath(path))) continue;
-        const result = await detachNotebookFolder(editingNotebook.id, path);
-        if (result === false) throw new Error(t('agent.access.saveFailed'));
-      }
-
-      if (metadataChanged) {
-        const metadataUpdated = await notebookRepository.update(editingNotebook.id, name, icon);
-        if (!metadataUpdated) throw new Error(t('memo.list.updateFailed'));
-        updated = metadataUpdated;
-      }
-      if (!updated) throw new Error(t('memo.list.updateFailed'));
-      if (cloudChanged) await cloud.setNotebookEnabled(editingNotebook.id, editCloudSync);
+      const result = await notebookCommands.saveSettings({
+        id: editingNotebook.id, name, icon, primaryPath,
+        repositoryPaths: desiredRepositoryPaths,
+        expectedPrimaryPath: editingNotebook.path,
+        expectedRepositoryPaths: originalRepositoryPaths,
+      });
+      const updated = result.notebook;
+      applyAgentWorkspaceSnapshot(result.workspace);
       setNotebooks(useNoteStore.getState().notebooks.map((item) => item.id === updated.id ? updated : item));
       if (useNoteStore.getState().selectedNotebook?.id === updated.id) setSelectedNotebook(updated);
+      setEditingNotebook(updated);
+      const savedPaths = [updated.path, ...getWorkspaceAgentRepositories(updated.id).map((repository) => repository.path)];
+      setEditPaths(savedPaths);
+      setEditOriginalPaths(savedPaths);
+      if (primaryChanged) onRefresh();
+      if (cloudChanged) {
+        try {
+          await cloud.setNotebookEnabled(updated.id, editCloudSync);
+          setOriginalEditCloudSync(editCloudSync);
+        } catch {
+          toast.error(t('notebook.edit.cloudPartialFailure'));
+          setEditSaving(false);
+          return;
+        }
+      }
       if (cloudChanged && editCloudSync) {
         void cloud.syncNow(editingNotebook.id).catch((error) => {
           toast.error(cloudSyncErrorMessage(error, t));
         });
       }
-      if (primaryChanged) onRefresh();
       toast.success(t('memo.list.updated'));
       closeEdit();
     } catch (error) {
-      toast.error(cloudSyncErrorMessage(error, t));
+      const message = String(error);
+      toast.error(t(message.includes('NOTEBOOK_SETTINGS_CONFLICT')
+        ? 'notebook.edit.storageConflict'
+        : message.includes('PRIMARY_DIRECTORY_OVERLAP')
+          ? 'notebook.edit.primaryOverlap'
+          : 'agent.access.saveFailed'));
       setEditSaving(false);
     }
-  }, [closeEdit, editCloudSync, editIcon, editName, editOriginalPaths, editPaths, editSaving, editingNotebook, onRefresh, originalEditCloudSync, setNotebooks, setSelectedNotebook, t]);
+  }, [closeEdit, editCloudSync, editIcon, editName, editOriginalPaths, editPaths, editSaving, editStorageStatus, editingNotebook, onRefresh, originalEditCloudSync, setNotebooks, setSelectedNotebook, t]);
 
   const editNotebookStorageChanged = Boolean(editingNotebook) && (
     canonicalDirectoryPath(editPaths[0] ?? '') !== canonicalDirectoryPath(editingNotebook?.path ?? '')
@@ -809,16 +834,9 @@ export function MemoListServicesHost({
             onConfirmEdit={() => void confirmEdit()}
             onCancelEdit={closeEdit}
             editNotebookPaths={editPaths}
-            onSelectEditDirectory={async () => {
-              try {
-                const path = await request<string | null>('select_directory');
-                if (path) setEditPaths((current) => current.some((item) => canonicalDirectoryPath(item) === canonicalDirectoryPath(path))
-                  ? current
-                  : [...current, path]);
-              } catch {
-                toast.error(t('agent.access.saveFailed'));
-              }
-            }}
+            editStorageStatus={editStorageStatus}
+            onRetryEditStorage={() => { if (editingNotebook) void loadEditStorage(editingNotebook); }}
+            onSelectEditDirectory={() => void selectEditDirectory()}
             onRemoveEditDirectory={(path) => {
               setEditPaths((current) => current.length > 1
                 ? current.filter((item) => canonicalDirectoryPath(item) !== canonicalDirectoryPath(path))

@@ -1,9 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useDocumentStore } from '@features/document/store/document-store';
 import { useDocumentHistoryStore } from '@features/document/store/document-history-store';
-import { getBuffer } from '../store/buffer-registry';
-import type { DocumentIdentity } from '../store/document-identity';
-import { captureLatestDocumentContent } from '@features/document/store';
 
 export { resolveDocumentTitlebarTarget } from '../components/document-titlebar-model';
 export {
@@ -12,6 +9,7 @@ export {
 } from '../components/document-titlebar-model';
 export { NoteColorPicker } from '../components/document-titlebar-controls';
 export { MediaActions } from '../components/document-titlebar-controls';
+export { ExternalTitlebarBadge, SurfaceHeaderIcon } from '../components/document-titlebar-controls';
 export { DocumentTitlebarActions as ExternalDocumentActions } from '../components/document-titlebar-actions';
 export { useDocumentTitlebarColors } from '../components/use-document-titlebar-colors';
 export { DocumentTitlebarWin } from '@features/document/components/document-titlebar-win';
@@ -35,11 +33,7 @@ export {
   useDocumentEditorMode,
   type DocumentEditorMode,
 } from '@features/document/store';
-/** Read a host's freshest editor snapshot for path-based titlebar commands. */
-export function readLatestDocumentContent(identity: DocumentIdentity, hostId: 'main-third' | 'browser-column'): string {
-  captureLatestDocumentContent(identity, hostId);
-  return getBuffer(identity)?.content ?? '';
-}
+export { readLatestDocumentContent } from './header-api';
 export { navigateDocumentHistory } from '@features/document/use-cases/document-navigation';
 export { documentIdentityFromFile } from '@features/document/store/document-identity';
 export { documentHistoryEntryKey } from '@features/document/store/document-history-store';

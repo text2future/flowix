@@ -93,7 +93,7 @@ export function AgentConversationMoreMenuItems({
       />
       <ConversationActionItems
         favorite={isFavorite}
-        onOpen={() => void openWorkspaceSurface({ host: 'browser-column', target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) =>
+        onOpen={() => void openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) =>
           toast.error(error instanceof Error ? error.message : String(error)))}
         onFavorite={() => setIsFavorite(toggleFavoriteConversation(instance.instanceId).has(instance.instanceId))}
         onRename={onRename}

@@ -1222,7 +1222,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-cli"
-version = "1.5.16"
+version = "1.5.17"
 dependencies = [
  "chrono",
  "clap",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-core"
-version = "1.5.16"
+version = "1.5.17"
 dependencies = [
  "chrono",
  "diffy",
@@ -1252,6 +1252,8 @@ dependencies = [
  "libc",
  "nanoid",
  "once_cell",
+ "percent-encoding",
+ "pulldown-cmark",
  "regex",
  "rusqlite",
  "serde",
@@ -1261,6 +1263,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tracing",
+ "url",
  "uuid",
  "walkdir",
  "windows-sys 0.59.0",
@@ -1268,7 +1271,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-desktop"
-version = "1.5.16"
+version = "1.5.17"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1330,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-installer-helper"
-version = "1.5.16"
+version = "1.5.17"
 dependencies = [
  "dunce",
  "windows",
@@ -1338,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-plugin-runtime"
-version = "1.5.16"
+version = "1.5.17"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -1353,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-sync"
-version = "1.5.16"
+version = "1.5.17"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -3478,6 +3481,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
+dependencies = [
+ "bitflags 2.13.0",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5436,6 +5450,12 @@ checksum = "96bd2f2237fe450fcd0a1d2f5f4e91711124f7857ba2e964247776ebeeb7b0c4"
 dependencies = [
  "unic-common",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-ident"

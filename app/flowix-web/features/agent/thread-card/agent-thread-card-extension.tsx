@@ -2,7 +2,7 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { AgentTypeKey } from "@/types/agent";
-import type { WorkspaceHostId } from "@features/workspace/public/host-api";
+import type { WorkspaceColumnId } from "@features/workspace/public/host-api";
 import {
   DEFAULT_AGENT_TYPE_KEY,
   getAgentType,
@@ -72,9 +72,9 @@ declare module "@tiptap/core" {
   }
 }
 
-export const AgentThreadCard = Node.create<{ workspaceHost: WorkspaceHostId }>({
+export const AgentThreadCard = Node.create<{ workspaceHost: WorkspaceColumnId }>({
   addOptions() {
-    return { workspaceHost: "main-third" };
+    return { workspaceHost: "column-1" };
   },
 
   name: "agentThreadCard",

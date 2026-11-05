@@ -1,4 +1,5 @@
 import { setDocumentProperties } from '@features/document/public/path-properties';
+import type { AppLanguage } from '@/lib/i18n';
 import {
   notes,
   notebooks,
@@ -58,7 +59,7 @@ export const notebookRepository = {
     notebooks.create(name, path, icon, activate),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null, activate = true) =>
     notebooks.createFromCloud(id, name, path, icon, activate),
-  startImport: (notebookId: string) => notebooks.startImport(notebookId),
+  startImport: (notebookId: string, language: AppLanguage) => notebooks.startImport(notebookId, language),
   getImportStatus: (notebookId: string) => notebooks.getImportStatus(notebookId),
   update: (id: string, name?: string, icon?: string | null) =>
     notebooks.update(id, name, icon),

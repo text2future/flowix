@@ -142,7 +142,7 @@ class NoteReferenceView implements ProseMirrorNodeView {
             data.notebookId,
             data.relativePath,
             null,
-            { destination: 'browser-column' },
+            { destination: 1 },
           );
         },
         t: (key) => tKey(key),

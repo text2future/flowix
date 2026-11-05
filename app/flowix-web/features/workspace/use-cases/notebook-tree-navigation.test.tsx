@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -86,6 +87,7 @@ import { openWorkspaceSurface } from '../public/open-surface-api';
 import { clearWorkspaceDocument, selectNotebook } from './workspace-navigation';
 import { NotebookFolderView } from '@features/memo/components/notebook-folder-view';
 import { useWorkspaceFocusStore } from '../store/workspace-focus-store';
+import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 import { registerWorkspaceSurfaceLifecycle } from '../store/surface-lifecycle-store';
 import { createFolderCollectionContent } from '@features/collection/folder-collection';
 import type { Notebook } from '@features/memo/store/note-store';
@@ -107,7 +109,7 @@ vi.mock('@platform/tauri/notebook-change-events', () => ({ subscribeNotebookChan
 vi.mock('@features/memo/services/note-link-rewriter', () => ({ updateNoteLinksAfterMove: vi.fn() }));
 
 function resetWorkspace() {
-  useWorkColumnStore.setState({
+  seedWorkColumn({
     navigation: {
       phase: 'idle',
       showWorkColumnLoading: false,
@@ -131,6 +133,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
 
   beforeEach(async () => {
     environment.IS_REACT_ACT_ENVIRONMENT = true;
+    useWorkspaceSessionStore.getState().reset();
     resetWorkspace();
     useBrowserColumnStore.getState().reset();
     mocks.memoState.selectedNotebook = notebook;
@@ -153,7 +156,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
       id: 'agent:active', title: 'Agent', icon: null,
       target: { kind: 'agent_conversation', instanceId: 'active' },
     });
-    useWorkspaceFocusStore.getState().focusHost('browser-column');
+    useWorkspaceFocusStore.getState().focusColumn('column-2');
     container = document.createElement('div');
     root = createRoot(container);
     await act(async () => root.render(createElement(NotebookFolderView, { notebook, onCreateNote: vi.fn() })));
@@ -187,7 +190,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
   });
 
   it('folder click opens Work even when Browser owns focus', async () => {
-    expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('browser-column');
+    expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-2');
     await click(3);
     expect(useWorkColumnStore.getState().navigation.target).toMatchObject({ kind: 'folder-collection', folderPath: '/notes/folder' });
     expect(useBrowserColumnStore.getState().current?.id).toBe('agent:active');
@@ -215,6 +218,17 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     await act(async () => {});
     expect(mocks.memoState.selectedNotebook?.id).toBe('next');
     expect(useWorkColumnStore.getState().navigation.target).toEqual({ kind: 'empty' });
+  });
+
+  it('switching notebooks after a swap clears index zero and preserves the column on the right', async () => {
+    await click(3);
+    useWorkspaceSessionStore.getState().swapColumnContents();
+    const right = useWorkspaceSessionStore.getState().sessions['column-1'];
+    await act(async () => { await selectNotebook({ ...notebook, id: 'next', path: '/next' }); });
+    expect(useWorkspaceSessionStore.getState().sessions['column-1']).toBe(right);
+    expect(useBrowserColumnStore.getState().current).toBeNull();
+    expect(mocks.memoState.selectedNotebook?.id).toBe('next');
+    expect(useWorkspaceSessionStore.getState().sessions['column-2'].notebookSwitchesInFlight).toBe(0);
   });
 
   it('folder intent retires an older note loader and lands on the folder view', async () => {
@@ -312,7 +326,7 @@ describe('notebook tree navigation with an Agent in Browser', () => {
     mocks.readDocument.mockReset().mockImplementationOnce(() => new Promise<string>(resolve => { finishRead = resolve; }));
     let opening!: ReturnType<typeof openWorkspaceSurface>;
     await act(async () => {
-      opening = openWorkspaceSurface({ host: 'main-third', target: {
+      opening = openWorkspaceSurface({ index: 0, target: {
         kind: 'table', filePath: '/notes/slow.table.yaml', notebookPath: '/notes', notebookId: 'notes',
       } });
     });

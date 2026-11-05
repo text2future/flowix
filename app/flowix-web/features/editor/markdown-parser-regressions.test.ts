@@ -34,7 +34,7 @@ function createEditor(content: string | JSONContent): Editor {
     extensions: createMarkdownEditorExtensions({
       getOwnerPath: () => undefined,
       getAttachmentNotebookId: () => undefined,
-      workspaceHost: 'main-third',
+      workspaceHost: 'column-1',
       getPlaceholder: () => '',
     }),
     content,

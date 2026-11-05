@@ -17,16 +17,16 @@ import {
 function buildHybridSource(options?: { fileTree?: boolean; placement?: 'standalone' | 'folder' }): string {
   const placement = options?.placement ?? 'folder';
   const source = placement === 'folder'
-    ? { scope: 'containing_folder' as const, depth: 'direct_children' as const }
-    : { scope: 'notebook' as const, depth: 'descendants' as const };
+    ? { scope: 'containing_folder' as const }
+    : { scope: 'notebook' as const };
   const table = createTableDocument('table', '项目', placement);
   table.dataset.source = source;
   const media = createMediaLibrary('项目');
   media.collection.placement = placement;
-  media.dataset.source = { ...source, depth: 'descendants' as const };
+  media.dataset.source = source;
   const work = createWorkDocumentsCollection('项目');
   work.collection.placement = placement;
-  work.dataset.source = { ...source, depth: 'descendants' as const };
+  work.dataset.source = source;
   const document: HybridCollectionDocument = {
     format: 'flowix.collection',
     schema_version: 3,
@@ -63,10 +63,10 @@ describe('hybrid collection model', () => {
     const table = parseTableDocument(source);
     expect(table.collection.type).toBe('table');
     expect(table.collection.placement).toBe('folder');
-    expect(table.dataset.source).toEqual({ scope: 'containing_folder', depth: 'direct_children' });
+    expect(table.dataset.source).toEqual({ scope: 'containing_folder' });
     const media = parseMediaLibrary(source);
     expect(media.collection.type).toBe('media_library');
-    expect(media.dataset.source).toEqual({ scope: 'containing_folder', depth: 'descendants' });
+    expect(media.dataset.source).toEqual({ scope: 'containing_folder' });
     const untyped = parseCollectionDocumentV2(source);
     expect(untyped.collection.type).toBe('table');
     expect(() => parseTableDocument(serializeTableDocument(table)).dataset).toBeDefined();

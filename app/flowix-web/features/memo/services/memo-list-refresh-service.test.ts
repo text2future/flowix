@@ -6,11 +6,13 @@ const mocks = vi.hoisted(() => ({
   notify: null as null | ((change: NotebookChange) => void),
   ready: null as null | (() => void),
   metadata: vi.fn(),
+  loadNotebooks: vi.fn(async () => {}),
+  nativeEvents: new Map<string, () => void>(),
   getIndexed: vi.fn(), batch: vi.fn(), apply: vi.fn(), refresh: vi.fn(), stale: vi.fn(), rebase: vi.fn(),
   notes: [] as { notebookId: string; relativePath: string }[],
 }));
 vi.mock('@platform/tauri/window', () => ({ getCurrentWindow: () => ({ label: 'main' }) }));
-vi.mock('@platform/tauri/event-bus', () => ({ subscribe: () => () => {} }));
+vi.mock('@platform/tauri/event-bus', () => ({ subscribe: (event: string, callback: () => void) => { mocks.nativeEvents.set(event, callback); return () => { mocks.nativeEvents.delete(event); }; } }));
 vi.mock('@platform/tauri/notebook-change-events', () => ({
   subscribeNotebookChanges: (handler: (change: NotebookChange) => void, options: { onListenerReady: () => void }) => {
     mocks.ready = options.onListenerReady;
@@ -21,7 +23,7 @@ vi.mock('@platform/tauri/notebook-change-events', () => ({
 vi.mock('./note-repository', () => ({ noteRepository: { getIndexed: mocks.getIndexed } }));
 vi.mock('@features/memo/store/note-store', () => ({
   useNoteStore: { getState: () => ({
-    selectedNotebook: { id: 'book' }, notes: mocks.notes,
+    selectedNotebook: { id: 'book' }, notes: mocks.notes, loadNotebooks: mocks.loadNotebooks,
     handleMemoListInvalidation: mocks.stale, rebaseNoteListPaths: mocks.rebase, triggerNotebookMetadataRefresh: mocks.metadata,
     applyNoteListChange: mocks.apply, applyNoteListBatch: mocks.batch,
     triggerMemoListRefresh: mocks.refresh, triggerRefresh: mocks.refresh,
@@ -45,6 +47,14 @@ describe('memo list path updates', () => {
   });
   afterEach(() => { dispose(); vi.useRealTimers(); });
   const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  it('reloads notebook locations when a registered folder moves and unsubscribes on disposal', async () => {
+    mocks.nativeEvents.get('notebooks-changed')?.();
+    await settle();
+    expect(mocks.loadNotebooks).toHaveBeenCalledOnce();
+    dispose();
+    expect(mocks.nativeEvents.has('notebooks-changed')).toBe(false);
+  });
 
   it('reconciles the selected notebook on listener recovery and discards stale queued events', async () => {
     vi.useFakeTimers();

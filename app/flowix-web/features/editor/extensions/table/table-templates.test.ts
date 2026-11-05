@@ -23,7 +23,7 @@ afterEach(() => editors.splice(0).forEach(editor => editor.destroy()));
 
 describe('editor table templates', () => {
   it('registers the default and all nine named templates in the shared menu order', () => {
-    const expected = ['default', 'business-blue', 'striped', 'comparison', 'financial-brief', 'hk-financial', 'three-line', 'grouped', 'minimal', 'literature'];
+    const expected = ['default', 'striped', 'business-blue', 'comparison', 'financial-brief', 'hk-financial', 'three-line', 'minimal', 'literature', 'grouped'];
     expect(TABLE_TEMPLATE_OPTIONS.map(option => option.styleId)).toEqual(expected);
     expect(TABLE_STYLE_IDS).toEqual(expected);
     expect(new Set(TABLE_TEMPLATE_OPTIONS.map(option => option.styleId)).size).toBe(10);
@@ -36,9 +36,9 @@ describe('editor table templates', () => {
     }
   });
 
-  it('keeps the original default as an empty 3 by 3 table', () => {
-    const table = createTableTemplate('default');
-    expect(table.attrs?.styleId).toBe('default');
+  it.each(['default', 'striped', 'business-blue', 'comparison'] as const)('keeps %s as an empty 3 by 3 table', styleId => {
+    const table = createTableTemplate(styleId);
+    expect(table.attrs?.styleId).toBe(styleId);
     expect(table.content).toHaveLength(3);
     table.content!.forEach((row, index) => {
       expect(row.content).toHaveLength(3);
@@ -74,7 +74,7 @@ describe('editor table templates', () => {
     });
   });
 
-  it.each(['business-blue', 'striped', 'comparison', 'financial-brief'] as const)(
+  it.each(['financial-brief'] as const)(
     'creates the same empty operating statement for %s without fixed column widths', styleId => {
       const table = createTableTemplate(styleId);
       expect(table.content).toHaveLength(7);

@@ -39,6 +39,25 @@ pub struct NotebookWorkspaceSnapshot {
     pub notebook_configs: HashMap<String, NotebookWorkspaceConfig>,
 }
 
+// A failed SQLite commit must not leave a newly selected folder claiming the
+// notebook identity. Existing manifests are never rewritten by the save.
+struct PendingNotebookManifest {
+    file: Option<(std::path::PathBuf, Option<Vec<u8>>)>,
+}
+impl Drop for PendingNotebookManifest {
+    fn drop(&mut self) {
+        if let Some((path, previous)) = self.file.take() {
+            let result = match previous {
+                Some(bytes) => super::file_io::atomic_write_bytes(&path, &bytes),
+                None => fs::remove_file(&path),
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, path = %path.display(), "could not restore uncommitted notebook manifest");
+            }
+        }
+    }
+}
+
 impl MemoFile {
     pub(super) fn workspace_connection(&self) -> std::io::Result<rusqlite::Connection> {
         let conn = self.open_registry_db()?;
@@ -169,39 +188,7 @@ impl MemoFile {
         let conn = self.workspace_connection()?;
         let mut notebook_configs = HashMap::new();
         for notebook in &notebooks {
-            let revision = conn
-                .query_row(
-                    "SELECT revision FROM notebook_workspace_state WHERE notebook_id=?1",
-                    [&notebook.id],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(sqlite_to_io)?
-                .unwrap_or(0);
-            let mut stmt = conn.prepare("SELECT id,path,label,enabled FROM notebook_add_dirs WHERE notebook_id=?1 ORDER BY sort,id").map_err(sqlite_to_io)?;
-            let add_dirs = stmt
-                .query_map([&notebook.id], |r| {
-                    let path: String = r.get(1)?;
-                    let missing = !Path::new(&path).is_dir();
-                    Ok(NotebookAddDir {
-                        id: r.get(0)?,
-                        path,
-                        label: r.get(2)?,
-                        enabled: r.get(3)?,
-                        missing,
-                    })
-                })
-                .map_err(sqlite_to_io)?
-                .collect::<Result<_, _>>()
-                .map_err(sqlite_to_io)?;
-            notebook_configs.insert(
-                notebook.id.clone(),
-                NotebookWorkspaceConfig {
-                    version: 1,
-                    revision,
-                    add_dirs,
-                },
-            );
+            notebook_configs.insert(notebook.id.clone(), read_workspace_config(&conn, &notebook.id)?);
         }
         Ok(NotebookWorkspaceSnapshot {
             notebooks,
@@ -252,96 +239,218 @@ impl MemoFile {
         self.read_notebook_workspace()
     }
 
-    /// Promote a selected storage directory to the notebook root and keep the
-    /// previous root in the repository list when it is available.
+    /// Compatibility entry point; use the same validation and transaction as
+    /// the complete settings form.
     pub fn set_notebook_primary_directory(
         &self,
         notebook_id: &str,
         path: &str,
     ) -> std::io::Result<NotebookConfig> {
-        let configs = self.read_notebook_configs()?;
+        let snapshot = self.read_notebook_workspace()?;
+        let notebook = snapshot
+            .notebooks
+            .iter()
+            .find(|item| item.id == notebook_id)
+            .ok_or_else(|| std::io::Error::other("NOTEBOOK_NOT_FOUND"))?;
+        let expected = snapshot.notebook_configs[notebook_id]
+            .add_dirs
+            .iter()
+            .filter(|item| item.enabled && !item.missing)
+            .map(|item| item.path.clone())
+            .collect::<Vec<_>>();
+        let mut desired = expected
+            .iter()
+            .filter(|item| directory_key(item) != directory_key(path))
+            .cloned()
+            .collect::<Vec<_>>();
+        if directory_key(&notebook.path) != directory_key(path)
+            && Path::new(&notebook.path).is_dir()
+        {
+            desired.push(notebook.path.clone());
+        }
+        self.save_notebook_settings(
+            notebook_id,
+            &notebook.name,
+            notebook.icon.clone(),
+            path,
+            &desired,
+            &notebook.path,
+            &expected,
+        )
+        .map(|(notebook, _)| notebook)
+    }
+
+    /// Save the local notebook form as one transaction. Hidden/unavailable
+    /// attachments are preserved; only the displayed baseline may be removed.
+    pub fn save_notebook_settings(
+        &self,
+        notebook_id: &str,
+        name: &str,
+        icon: Option<String>,
+        primary_path: &str,
+        repository_paths: &[String],
+        expected_primary_path: &str,
+        expected_repository_paths: &[String],
+    ) -> std::io::Result<(NotebookConfig, NotebookWorkspaceSnapshot)> {
+        if name.trim().is_empty() || !Path::new(primary_path).is_absolute() {
+            return Err(std::io::Error::other("INVALID_NOTEBOOK_SETTINGS"));
+        }
+        let mut snapshot = self.read_notebook_workspace()?;
+        let configs = snapshot.notebooks.clone();
         let mut updated = configs
             .iter()
-            .find(|notebook| notebook.id == notebook_id)
+            .find(|item| item.id == notebook_id)
             .cloned()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "notebook not found"))?;
-        let target = dunce::canonicalize(path)?;
-        if !target.is_dir() {
-            return Err(std::io::Error::other("primary directory is unavailable"));
-        }
-        let target_string = target.to_string_lossy().into_owned();
-        let target_key = directory_key(&target_string);
-        let old_path = updated.path.clone();
-        let old_target = normalized_directory(&old_path);
-        if directory_key(&old_path) == target_key {
-            return Ok(updated);
-        }
-        if configs.iter().any(|notebook| {
-            notebook.id != notebook_id && directory_key(&notebook.path) == target_key
-        }) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                "primary directory is registered to another notebook",
+            .ok_or_else(|| std::io::Error::other("NOTEBOOK_NOT_FOUND"))?;
+        let primary_changed = directory_key(&updated.path) != directory_key(primary_path);
+        let primary = if primary_changed {
+            let target = dunce::canonicalize(primary_path)?;
+            if !target.is_dir() {
+                return Err(std::io::Error::other("PRIMARY_DIRECTORY_UNAVAILABLE"));
+            }
+            let old = normalized_directory(&updated.path);
+            if target.starts_with(&old) || old.starts_with(&target) {
+                return Err(std::io::Error::other("PRIMARY_DIRECTORY_OVERLAP"));
+            }
+            target.to_string_lossy().into_owned()
+        } else {
+            updated.path.clone()
+        };
+        let primary_key = directory_key(&primary);
+        if configs
+            .iter()
+            .any(|item| item.id != notebook_id && directory_key(&item.path) == primary_key)
+        {
+            return Err(std::io::Error::other(
+                "PRIMARY_DIRECTORY_ALREADY_REGISTERED",
             ));
         }
-
-        let mut conn = self.workspace_connection()?;
-        if old_target.is_dir() {
-            validate_add_dir(&target_string, &old_path, true)?;
+        let mut desired = std::collections::BTreeMap::new();
+        for path in repository_paths {
+            if primary_changed
+                && directory_key(path) == directory_key(&updated.path)
+                && !Path::new(path).is_dir()
+            {
+                continue;
+            }
+            validate_add_dir(&primary, path, true)?;
+            desired.insert(directory_key(path), normalized_directory(path));
         }
-
-        updated.path = target_string;
-        updated.updated_at = chrono::Utc::now().timestamp_millis();
-        Self::ensure_notebook_manifest(&updated)?;
-
+        let expected: std::collections::BTreeSet<_> = expected_repository_paths
+            .iter()
+            .map(|path| directory_key(path))
+            .collect();
+        let mut conn = self.workspace_connection()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(sqlite_to_io)?;
-        let changed = tx
-            .execute(
-                "UPDATE notebooks SET path=?1,updated_at=?2 WHERE id=?3",
-                params![updated.path, updated.updated_at, notebook_id],
+        let current_path: String = tx
+            .query_row(
+                "SELECT path FROM notebooks WHERE id=?1",
+                [notebook_id],
+                |row| row.get(0),
             )
             .map_err(sqlite_to_io)?;
-        if changed == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "notebook not found",
-            ));
+        let current = {
+            let mut stmt = tx
+                .prepare("SELECT path FROM notebook_add_dirs WHERE notebook_id=?1 AND enabled=1")
+                .map_err(sqlite_to_io)?;
+            let paths = stmt
+                .query_map([notebook_id], |row| row.get::<_, String>(0))
+                .map_err(sqlite_to_io)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_to_io)?;
+            paths
+                .into_iter()
+                .filter(|path| Path::new(path).is_dir())
+                .map(|path| directory_key(&path))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        if directory_key(&current_path) != directory_key(expected_primary_path)
+            || current != expected
+        {
+            return Err(std::io::Error::other("NOTEBOOK_SETTINGS_CONFLICT"));
+        }
+        updated.path = primary;
+        updated.name = name.trim().to_string();
+        updated.icon = icon;
+        updated.updated_at = chrono::Utc::now().timestamp_millis();
+        let manifest_path = Path::new(&updated.path).join(".flowix/notebook.json");
+        let needs_manifest = Path::new(&updated.path).is_dir()
+            && Self::read_notebook_manifest(Path::new(&updated.path))?.is_none();
+        let previous_manifest = if needs_manifest {
+            match fs::read(&manifest_path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
+        if Path::new(&updated.path).is_dir() {
+            Self::ensure_notebook_manifest(&updated)?;
+        }
+        let mut pending_manifest = PendingNotebookManifest {
+            file: needs_manifest.then_some((manifest_path, previous_manifest)),
+        };
+        tx.execute(
+            "UPDATE notebooks SET name=?1,icon=?2,path=?3,updated_at=?4 WHERE id=?5",
+            params![
+                updated.name,
+                updated.icon,
+                updated.path,
+                updated.updated_at,
+                notebook_id
+            ],
+        )
+        .map_err(sqlite_to_io)?;
+        for key in &expected {
+            if !desired.contains_key(key) {
+                tx.execute(
+                    "DELETE FROM notebook_add_dirs WHERE notebook_id=?1 AND path_key=?2",
+                    params![notebook_id, key],
+                )
+                .map_err(sqlite_to_io)?;
+            }
         }
         tx.execute(
             "DELETE FROM notebook_add_dirs WHERE notebook_id=?1 AND path_key=?2",
-            params![notebook_id, target_key],
+            params![notebook_id, primary_key],
         )
         .map_err(sqlite_to_io)?;
-        if old_target.is_dir() {
-            let old_path = old_target.to_string_lossy().into_owned();
-            let old_key = directory_key(&old_path);
-            let label = old_target
+        for (key, path) in desired {
+            let id = uuid::Uuid::new_v4().to_string();
+            let label = path
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let now = chrono::Utc::now().timestamp_millis();
             tx.execute(
-                "INSERT INTO notebook_add_dirs (id,notebook_id,path,path_key,label,enabled,sort,created_at,updated_at) \
-                 VALUES (?1,?2,?3,?4,?5,1,COALESCE((SELECT MAX(sort)+1 FROM notebook_add_dirs WHERE notebook_id=?2),0),?6,?6) \
+                "INSERT INTO notebook_add_dirs (id,notebook_id,path,path_key,label,enabled,sort,created_at,updated_at)
+                 VALUES (?1,?2,?3,?4,?5,1,COALESCE((SELECT MAX(sort)+1 FROM notebook_add_dirs WHERE notebook_id=?2),0),?6,?6)
                  ON CONFLICT(notebook_id,path_key) DO UPDATE SET enabled=1,updated_at=excluded.updated_at",
-                params![uuid::Uuid::new_v4().to_string(), notebook_id, old_path, old_key, label, now],
-            )
-            .map_err(sqlite_to_io)?;
+                params![id, notebook_id, path.to_string_lossy(), key, label, updated.updated_at],
+            ).map_err(sqlite_to_io)?;
         }
-        tx.execute(
-            "INSERT INTO notebook_workspace_state VALUES (?1,1) ON CONFLICT(notebook_id) DO UPDATE SET revision=revision+1",
-            [notebook_id],
-        )
-        .map_err(sqlite_to_io)?;
+        snapshot
+            .notebooks
+            .iter_mut()
+            .filter(|item| item.id == notebook_id)
+            .for_each(|item| *item = updated.clone());
+        tx.execute("INSERT INTO notebook_workspace_state VALUES (?1,1) ON CONFLICT(notebook_id) DO UPDATE SET revision=revision+1", [notebook_id])
+            .map_err(sqlite_to_io)?;
+        snapshot.notebook_configs.insert(
+            notebook_id.to_string(),
+            read_workspace_config(&tx, notebook_id)?,
+        );
         tx.commit().map_err(sqlite_to_io)?;
-
-        self.read_notebook_configs()?
-            .into_iter()
-            .find(|notebook| notebook.id == notebook_id)
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "notebook not found"))
+        pending_manifest.file = None;
+        *self
+            .registry
+            .configs_cache
+            .write()
+            .expect("notebook_configs_cache poisoned") = Some(snapshot.notebooks.clone());
+        Ok((updated, snapshot))
     }
 
     pub fn attached_directory_paths(&self) -> std::io::Result<Vec<std::path::PathBuf>> {
@@ -361,6 +470,42 @@ impl MemoFile {
             .collect())
     }
 }
+fn read_workspace_config(
+    conn: &rusqlite::Connection,
+    notebook_id: &str,
+) -> std::io::Result<NotebookWorkspaceConfig> {
+    let revision = conn
+        .query_row(
+            "SELECT revision FROM notebook_workspace_state WHERE notebook_id=?1",
+            [notebook_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sqlite_to_io)?
+        .unwrap_or(0);
+    let mut stmt = conn.prepare("SELECT id,path,label,enabled FROM notebook_add_dirs WHERE notebook_id=?1 ORDER BY sort,id").map_err(sqlite_to_io)?;
+    let add_dirs = stmt
+        .query_map([notebook_id], |r| {
+            let path: String = r.get(1)?;
+            let missing = !Path::new(&path).is_dir();
+            Ok(NotebookAddDir {
+                id: r.get(0)?,
+                path,
+                label: r.get(2)?,
+                enabled: r.get(3)?,
+                missing,
+            })
+        })
+        .map_err(sqlite_to_io)?
+        .collect::<Result<_, _>>()
+        .map_err(sqlite_to_io)?;
+    Ok(NotebookWorkspaceConfig {
+        version: 1,
+        revision,
+        add_dirs,
+    })
+}
+
 fn normalized_directory(path: &str) -> std::path::PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| {
         let mut normalized = std::path::PathBuf::new();
@@ -416,6 +561,164 @@ mod tests {
             .unwrap();
         (temp, memo, notebook)
     }
+    #[test]
+    fn settings_commit_primary_metadata_and_repository_snapshot_together() {
+        let (temp, memo, original) = fixture();
+        let repo = temp.path().join("repo");
+        let added = temp.path().join("added");
+        fs::create_dir(&repo).unwrap();
+        fs::create_dir(&added).unwrap();
+        memo.update_notebook_add_dir(&original.id, repo.to_str().unwrap(), true)
+            .unwrap();
+        let expected = vec![repo.to_string_lossy().into_owned()];
+        let desired = vec![original.path.clone(), added.to_string_lossy().into_owned()];
+        let (updated, snapshot) = memo
+            .save_notebook_settings(
+                &original.id,
+                "Renamed",
+                Some("icon".into()),
+                repo.to_str().unwrap(),
+                &desired,
+                &original.path,
+                &expected,
+            )
+            .unwrap();
+        assert_eq!(updated.name, "Renamed");
+        assert_eq!(
+            directory_key(&updated.path),
+            directory_key(repo.to_str().unwrap())
+        );
+        assert_eq!(updated.icon.as_deref(), Some("icon"));
+        let persisted = memo.read_notebook_workspace().unwrap();
+        let paths = |value: &NotebookWorkspaceSnapshot| {
+            value.notebook_configs[&original.id]
+                .add_dirs
+                .iter()
+                .map(|item| directory_key(&item.path))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert_eq!(paths(&snapshot), paths(&persisted));
+        assert_eq!(
+            paths(&snapshot),
+            desired.iter().map(|path| directory_key(path)).collect()
+        );
+        assert_eq!(
+            snapshot.notebook_configs[&original.id].revision,
+            persisted.notebook_configs[&original.id].revision
+        );
+    }
+
+    #[test]
+    fn settings_database_failure_rolls_back_root_metadata_and_repositories() {
+        let (temp, memo, original) = fixture();
+        let repo = temp.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        memo.update_notebook_add_dir(&original.id, repo.to_str().unwrap(), true)
+            .unwrap();
+        memo.workspace_connection().unwrap().execute_batch(
+            "CREATE TRIGGER reject_settings_insert BEFORE INSERT ON notebook_add_dirs BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+        ).unwrap();
+        let result = memo.save_notebook_settings(
+            &original.id,
+            "Must roll back",
+            None,
+            repo.to_str().unwrap(),
+            &[original.path.clone()],
+            &original.path,
+            &[repo.to_string_lossy().into_owned()],
+        );
+        assert!(result.is_err());
+        assert!(!repo.join(".flowix/notebook.json").exists());
+        let stored = memo.read_notebook_workspace().unwrap();
+        assert_eq!(stored.notebooks[0].name, original.name);
+        assert_eq!(stored.notebooks[0].path, original.path);
+        assert_eq!(stored.notebook_configs[&original.id].add_dirs.len(), 1);
+        assert_eq!(
+            directory_key(&stored.notebook_configs[&original.id].add_dirs[0].path),
+            directory_key(repo.to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn settings_reject_stale_repository_baseline_without_removing_concurrent_addition() {
+        let (temp, memo, original) = fixture();
+        let repo = temp.path().join("concurrent");
+        fs::create_dir(&repo).unwrap();
+        memo.update_notebook_add_dir(&original.id, repo.to_str().unwrap(), true)
+            .unwrap();
+        let result = memo.save_notebook_settings(
+            &original.id,
+            "Stale edit",
+            None,
+            &original.path,
+            &[],
+            &original.path,
+            &[],
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("NOTEBOOK_SETTINGS_CONFLICT"));
+        let stored = memo.read_notebook_workspace().unwrap();
+        assert_eq!(stored.notebooks[0].name, original.name);
+        assert_eq!(stored.notebook_configs[&original.id].add_dirs.len(), 1);
+    }
+
+    #[test]
+    fn metadata_save_preserves_unavailable_attachments_and_does_not_recreate_missing_root() {
+        let (temp, memo, original) = fixture();
+        let repo = temp.path().join("offline-repository");
+        fs::create_dir(&repo).unwrap();
+        memo.update_notebook_add_dir(&original.id, repo.to_str().unwrap(), true)
+            .unwrap();
+        fs::remove_dir(&repo).unwrap();
+        fs::remove_dir_all(&original.path).unwrap();
+        let (updated, snapshot) = memo
+            .save_notebook_settings(
+                &original.id,
+                "Offline rename",
+                None,
+                &original.path,
+                &[],
+                &original.path,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(updated.name, "Offline rename");
+        assert!(!Path::new(&original.path).exists());
+        assert_eq!(snapshot.notebook_configs[&original.id].add_dirs.len(), 1);
+        assert!(snapshot.notebook_configs[&original.id].add_dirs[0].missing);
+        assert_eq!(
+            memo.read_notebook_workspace().unwrap().notebook_configs[&original.id]
+                .add_dirs
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn settings_reject_parent_child_primary_switches_before_writing() {
+        let (temp, memo, original) = fixture();
+        let child = Path::new(&original.path).join("child");
+        fs::create_dir(&child).unwrap();
+        for target in [child.as_path(), temp.path()] {
+            let result = memo.save_notebook_settings(
+                &original.id,
+                "Invalid",
+                None,
+                target.to_str().unwrap(),
+                &[],
+                &original.path,
+                &[],
+            );
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("PRIMARY_DIRECTORY_OVERLAP"));
+        }
+        assert_eq!(memo.read_notebook_configs().unwrap()[0].path, original.path);
+    }
+
     #[test]
     fn workspace_mounts_are_read_from_sqlite_not_legacy_json() {
         let (temp, memo, notebook) = fixture();

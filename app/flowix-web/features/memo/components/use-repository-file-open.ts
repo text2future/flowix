@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import { createLogger } from '@/lib/logger';
 import { toast } from '@/lib/toast';
 
-type RepositoryFileHost = 'main-third' | 'browser-column';
+type RepositoryFileHost = 0 | 1;
 
 const logger = createLogger('notebook-repositories-open');
 
@@ -19,21 +19,21 @@ export function useRepositoryFileOpen(): {
   openRepositoryFileInWork: (path: string, scopePath: string) => void;
 } {
   const { t } = useI18n();
-  const open = useCallback((path: string, scopePath: string, host: RepositoryFileHost) => {
+  const open = useCallback((path: string, scopePath: string, index: RepositoryFileHost) => {
     void openWorkspaceSurface({
-      host,
+      index: index,
       target: { kind: 'external', path, scopePath, transitionId: null },
     }).catch((error) => {
-      logger.warn('failed to open repository file', { error, path, host });
+      logger.warn('failed to open repository file', { error, path, index });
       toast.error(t('memo.fileTree.openFailed'));
     });
   }, [t]);
   return {
     openRepositoryFileInBrowser: useCallback((path: string, scopePath: string) => {
-      open(path, scopePath, 'browser-column');
+      open(path, scopePath, 1);
     }, [open]),
     openRepositoryFileInWork: useCallback((path: string, scopePath: string) => {
-      open(path, scopePath, 'main-third');
+      open(path, scopePath, 0);
     }, [open]),
   };
 }

@@ -30,7 +30,6 @@ import { openTableReferencePicker } from '@features/multidimensional-table/table
 import { openMediaLibraryReferencePicker } from '@features/media-library/media-library-reference-picker';
 import type { TableViewType } from '@features/multidimensional-table/model';
 import { insertTableTemplate } from './table/table-templates';
-import { getTableSlashMenuItems } from './table/table-slash-menu';
 
 export const slashMenuPluginKey = new PluginKey('slashMenu');
 
@@ -47,7 +46,6 @@ interface MenuInstance {
   hasNavigated: boolean;
   availableItems: SlashMenuItem[];
   items: SlashMenuItem[];
-  submenu: 'table' | null;
 }
 
 let menuState: SlashMenuState | null = null;
@@ -124,7 +122,6 @@ function filterItems(query: string, availableItems = getAvailableSlashMenuItems(
   const language = getCurrentAppLanguage();
 
   return availableItems.filter((item) => {
-    if (item.id === 'table' && getTableSlashMenuItems(query, language).length > 0) return true;
     const labelText = getSlashMenuItemLabel(item, language);
     const haystack = [
       item.id,
@@ -429,10 +426,7 @@ function renderMenu(view: EditorView, reposition = true) {
       onSelect={(item) => {
         if (isCurrentMenuView(view, openId)) handleSelect(item);
       }}
-      onBack={instance.submenu ? () => {
-        if (isCurrentMenuView(view, openId)) closeTableSubmenu(view);
-      } : undefined}
-      onAddAgent={instance.submenu ? undefined : () => {
+      onAddAgent={() => {
         if (isCurrentMenuView(view, openId)) void handleAddAgentClick(view, openId);
       }}
     />
@@ -466,7 +460,6 @@ function openMenu(view: EditorView, editor: Editor, triggerFrom: number, deleteF
     hasNavigated: false,
     availableItems,
     items: availableItems,
-    submenu: null,
   };
 
   menuContainer = document.createElement('div');
@@ -569,39 +562,11 @@ function getSlashReferencePickerContext(editor: Editor, blockRange: { from: numb
   return { anchor, replaceRange };
 }
 
-function openTableSubmenu(view: EditorView): void {
-  if (!isCurrentMenuView(view) || !menuInstance || !menuState || !activeEditor) return;
-  if (!activeEditor.isEditable || activeEditor.isActive('table')) {
-    closeMenu(view);
-    return;
-  }
-  menuInstance.submenu = 'table';
-  menuInstance.items = getTableSlashMenuItems(menuState.query, getCurrentAppLanguage());
-  menuInstance.selectedIndex = 0;
-  menuInstance.scrollSelectedItem = true;
-  menuInstance.hasNavigated = true;
-  renderMenu(view);
-}
-
-function closeTableSubmenu(view: EditorView): void {
-  if (!isCurrentMenuView(view) || !menuInstance || !menuState) return;
-  menuInstance.submenu = null;
-  menuInstance.items = filterItems(menuState.query, menuInstance.availableItems);
-  menuInstance.selectedIndex = Math.max(menuInstance.items.findIndex(item => item.id === 'table'), 0);
-  menuInstance.scrollSelectedItem = true;
-  renderMenu(view);
-}
-
 function handleSelect(item: SlashMenuItem): void {
   if (!activeEditor || !menuState) return;
 
   const editor = activeEditor;
   const slashBlockRange = getSlashBlockRange(editor);
-
-  if (item.id === 'table') {
-    openTableSubmenu(editor.view);
-    return;
-  }
 
   if (item.id === 'create-child-note') {
     void createChildNoteReference(editor);
@@ -615,8 +580,7 @@ function handleSelect(item: SlashMenuItem): void {
     return;
   }
 
-  const tableStyle = item.tableStyle;
-  if (tableStyle) {
+  if (item.id === 'table') {
     if (editor.isDestroyed || !editor.isEditable || editor.isActive('table')) {
       closeMenu();
       return;
@@ -626,7 +590,7 @@ function handleSelect(item: SlashMenuItem): void {
     // A paragraph-start slash can leave existing text after the cursor.
     const replaceRange = target?.isTextblock && target.content.size === 0 ? targetRange : undefined;
     closeMenu();
-    insertTableTemplate(editor, tableStyle, { language: getCurrentAppLanguage(), replaceRange });
+    insertTableTemplate(editor, 'default', { language: getCurrentAppLanguage(), replaceRange });
     return;
   }
 
@@ -750,9 +714,7 @@ function refreshMenuFromEditor(view: EditorView, force = false) {
 
   state.query = query;
   state.cursorPos = view.state.selection.from;
-  instance.items = instance.submenu
-    ? getTableSlashMenuItems(query, getCurrentAppLanguage())
-    : filterItems(query, instance.availableItems);
+  instance.items = filterItems(query, instance.availableItems);
   instance.selectedIndex = Math.min(
     instance.selectedIndex,
     Math.max(instance.items.length - 1, 0)
@@ -844,20 +806,7 @@ export const SlashMenu = Extension.create({
 
             if (event.key === 'Escape') {
               event.preventDefault();
-              if (menuInstance.submenu) closeTableSubmenu(view);
-              else closeMenu(view);
-              return true;
-            }
-
-            if (event.key === 'ArrowLeft' && menuInstance.submenu) {
-              event.preventDefault();
-              closeTableSubmenu(view);
-              return true;
-            }
-
-            if (event.key === 'ArrowRight' && (menuInstance.submenu || menuInstance.items[menuInstance.selectedIndex]?.id === 'table')) {
-              event.preventDefault();
-              if (!menuInstance.submenu) openTableSubmenu(view);
+              closeMenu(view);
               return true;
             }
 

@@ -1,5 +1,7 @@
 'use client';
 
+import { useColumnSessionId } from '@features/workspace/public/session-api';
+
 import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
 
 import { Suspense, useEffect, type ComponentType, type ReactNode } from 'react';
@@ -13,7 +15,7 @@ import type {
   SurfaceAppearance,
   SurfaceState,
   WorkspaceSurfaceCapability,
-  WorkspaceSurfaceHost,
+  WorkspaceColumnId,
   WorkspaceSurfaceKind,
 } from '@features/workspace/public/surface-api';
 import { useWorkspaceSurfaceRendererLazy, WorkspaceSurfaceErrorBoundary, WorkspaceSurfaceStateView } from './workspace-surface-state-view';
@@ -44,7 +46,7 @@ interface RendererImplementation {
 
 export interface WorkspaceSurfaceRendererDefinition extends RendererImplementation {
   kind: WorkspaceSurfaceRendererKind;
-  hosts: readonly WorkspaceSurfaceHost[];
+  hosts: readonly WorkspaceColumnId[];
   appearance: Readonly<SurfaceAppearance>;
   capabilities: readonly WorkspaceSurfaceCapability[];
 }
@@ -126,7 +128,7 @@ function buildWorkspaceSurfaceRendererRegistry() {
 /** Derived from the public registration: hosts never maintain renderer maps. */
 export const workspaceSurfaceRendererRegistry = buildWorkspaceSurfaceRendererRegistry();
 
-export function workspaceSurfaceRendererSupportsHost(kind: WorkspaceSurfaceRendererData['kind'], host: WorkspaceSurfaceHost): boolean {
+export function workspaceSurfaceRendererSupportsHost(kind: WorkspaceSurfaceRendererData['kind'], host: WorkspaceColumnId): boolean {
   return workspaceSurfaceRendererRegistry[kind].hosts.includes(host);
 }
 
@@ -173,12 +175,13 @@ export function WorkspaceSurfaceRendererView({
   context: WorkspaceSurfaceRenderContext;
   state?: SurfaceState;
 }) {
+  const sessionId = useColumnSessionId(context.host);
   const definition = getWorkspaceSurfaceRendererDefinition(surface);
   const runtime = useWorkspaceSurfacePresentation(context.viewId);
   useEffect(() => registerStartupSurfaceHostView(context.host, context.viewId), [context.host, context.viewId]);
   const appearance = runtime.appearance ?? definition.appearance;
   const resolvedState = runtime.state ?? state;
-  const loadingOwner = context.host === 'main-third' ? 'host' : 'surface';
+  const loadingOwner = context.host === 'column-1' ? 'host' : 'surface';
   const contentIdentity = surface.kind === 'file-browser'
     ? surface.props.fileIdentity?.displayId ?? surface.props.activeFilePath ?? 'folder'
     : 'fileIdentity' in surface ? surface.fileIdentity.displayId : '';
@@ -201,7 +204,7 @@ export function WorkspaceSurfaceRendererView({
       appearance={appearance}
       state={{ status: 'loading', loadingMode: 'blocking', retainContent: false }}
     />;
-  return <SessionViewRecoveryContext.Provider value={context.sessionEntryId ? { sessionId: context.host === 'main-third' ? 'primary-session' : 'secondary-session', entryId: context.sessionEntryId } : null}><div data-workspace-surface={surface.kind} data-surface-capabilities={(runtime.capabilities ?? definition.capabilities).join(' ')} className={`flex h-full min-h-0 w-full flex-col ${backgroundClass}`}>
+  return <SessionViewRecoveryContext.Provider value={context.sessionEntryId ? { sessionId, entryId: context.sessionEntryId } : null}><div data-workspace-surface={surface.kind} data-surface-capabilities={(runtime.capabilities ?? definition.capabilities).join(' ')} className={`flex h-full min-h-0 w-full flex-col ${backgroundClass}`}>
     <WorkspaceSurfaceErrorBoundary key={`${context.viewId}:${surface.kind}:${contentIdentity}`} appearance={appearance} reportPresentation={context.reportPresentation} onRendererError={context.onRendererError}>
       <WorkspaceSurfaceStateView state={resolvedState} appearance={appearance} keepContentMounted loadingOwner={loadingOwner}>
         <Suspense fallback={suspenseFallback}>

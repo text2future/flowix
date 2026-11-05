@@ -1,3 +1,4 @@
+import { SESSION_HISTORY_LIMIT } from '../model/session-limits';
 import { restoreWorkspaceWebRuntime } from '../model/web-navigation';
 import { createJSONStorage, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
@@ -153,7 +154,7 @@ function normalizeHistory(value: unknown): BrowserColumnEntry[] {
   return value.flatMap((item) => {
     const tab = parseBrowserColumnEntry(item);
     return tab && !(tab.target.kind === 'file-browser' && tab.target.activeFilePath?.split(/[\\/]/).pop() === 'AGENTS.md') ? [tab] : [];
-  }).slice(-100);
+  }).slice(-SESSION_HISTORY_LIMIT);
 }
 
 function readLegacySplitRatio(): number | null {

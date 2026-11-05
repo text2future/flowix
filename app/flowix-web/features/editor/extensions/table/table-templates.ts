@@ -5,17 +5,17 @@ import { translate } from '@/lib/i18n/provider';
 import type { TableColumnRole, TableRowRole, TableStyleId } from './table-presentation';
 
 export const TABLE_TEMPLATE_OPTIONS = [
-  { styleId: 'default', labelKey: 'editor.table.styleDefault', keywords: ['table', 'biaoge', 'grid', '表格'] },
-  { styleId: 'business-blue', labelKey: 'editor.table.styleBusinessBlue', keywords: ['table', 'biaoge', 'business', 'blue', '商务蓝', '表格'] },
-  { styleId: 'striped', labelKey: 'editor.table.styleStriped', keywords: ['table', 'biaoge', 'striped', 'zebra', '灰白', '条纹', '表格'] },
-  { styleId: 'comparison', labelKey: 'editor.table.styleComparison', keywords: ['table', 'biaoge', 'comparison', 'compare', '对比', '表格'] },
-  { styleId: 'financial-brief', labelKey: 'editor.table.styleFinancialBrief', keywords: ['table', 'biaoge', 'financial brief', 'finance', '财务', '财报', '简报', '表格'] },
-  { styleId: 'hk-financial', labelKey: 'editor.table.styleHkFinancial', keywords: ['table', 'biaoge', 'financial', 'hong kong', 'caibao', '港股', '财报', '表格'] },
-  { styleId: 'three-line', labelKey: 'editor.table.styleThreeLine', keywords: ['table', 'biaoge', 'three-line', 'academic', 'sanxian', '三线表', '科研', '表格'] },
-  { styleId: 'grouped', labelKey: 'editor.table.styleGrouped', keywords: ['table', 'biaoge', 'grouped', 'research', '分组', '横线', '科研', '表格'] },
-  { styleId: 'minimal', labelKey: 'editor.table.styleMinimal', keywords: ['table', 'biaoge', 'minimal', 'research', '极简', '细线', '科研', '表格'] },
-  { styleId: 'literature', labelKey: 'editor.table.styleLiterature', keywords: ['table', 'biaoge', 'literature', 'compact', '文献', '紧凑', '科研', '表格'] },
-] as const satisfies ReadonlyArray<{ styleId: TableStyleId; labelKey: I18nKey; keywords: readonly string[] }>;
+  { styleId: 'default', menuGroup: 'blank', hasContent: false, labelKey: 'editor.table.styleDefault', keywords: ['table', 'biaoge', 'grid', '表格'] },
+  { styleId: 'striped', menuGroup: 'blank', hasContent: false, labelKey: 'editor.table.styleStriped', keywords: ['table', 'biaoge', 'striped', 'zebra', '间隔', '条纹', '表格'] },
+  { styleId: 'business-blue', menuGroup: 'blank', hasContent: false, labelKey: 'editor.table.styleBusinessBlue', keywords: ['table', 'biaoge', 'business', 'blue', '商务蓝', '表格'] },
+  { styleId: 'comparison', menuGroup: 'blank', hasContent: false, labelKey: 'editor.table.styleComparison', keywords: ['table', 'biaoge', 'comparison', 'compare', '对比', '表格'] },
+  { styleId: 'financial-brief', menuGroup: 'financial', hasContent: true, labelKey: 'editor.table.styleFinancialBrief', keywords: ['table', 'biaoge', 'financial brief', 'finance', '财务', '财报', '简报', '表格'] },
+  { styleId: 'hk-financial', menuGroup: 'financial', hasContent: true, labelKey: 'editor.table.styleHkFinancial', keywords: ['table', 'biaoge', 'financial', 'hong kong', 'caibao', '港股', '财报', '表格'] },
+  { styleId: 'three-line', menuGroup: 'academic', hasContent: true, labelKey: 'editor.table.styleThreeLine', keywords: ['table', 'biaoge', 'three-line', 'academic', 'sanxian', '三线表', '科研', '表格'] },
+  { styleId: 'minimal', menuGroup: 'literature', hasContent: true, labelKey: 'editor.table.styleMinimal', keywords: ['table', 'biaoge', 'minimal', 'research', '极简', '细线', '科研', '表格'] },
+  { styleId: 'literature', menuGroup: 'literature', hasContent: true, labelKey: 'editor.table.styleLiterature', keywords: ['table', 'biaoge', 'literature', 'compact', '文献', '紧凑', '科研', '表格'] },
+  { styleId: 'grouped', menuGroup: 'grouped', hasContent: true, labelKey: 'editor.table.styleGrouped', keywords: ['table', 'biaoge', 'grouped', 'research', '分组', '横线', '科研', '表格'] },
+] as const satisfies ReadonlyArray<{ styleId: TableStyleId; menuGroup: string; hasContent: boolean; labelKey: I18nKey; keywords: readonly string[] }>;
 
 export function createTableTemplate(styleId: TableStyleId, language: AppLanguage = DEFAULT_APP_LANGUAGE): JSONContent {
   const t = (key: I18nKey) => translate(language, key);
@@ -39,7 +39,7 @@ export function createTableTemplate(styleId: TableStyleId, language: AppLanguage
       ['', '', '', ''], ['', '', '', ''], ['', '', '', ''],
     ];
     columns = ['label', 'amount', 'amount', 'amount'];
-  } else if (['business-blue', 'striped', 'comparison', 'financial-brief'].includes(styleId)) {
+  } else if (styleId === 'financial-brief') {
     rows = [
       [t('editor.table.template.operatingMetric'), t('editor.table.template.priorPeriod'), t('editor.table.template.currentPeriod'), t('editor.table.template.yearOverYear')],
       ...([

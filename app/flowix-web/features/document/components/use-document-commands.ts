@@ -49,7 +49,7 @@ interface UseDocumentCommandsOptions {
   currentDocumentPath: string | null;
   getCurrentDocumentContent: () => string;
   getCurrentDocumentEditor: () => Editor | null;
-  pdfHost?: 'main-third' | 'browser-column';
+  pdfHost?: 'column-1' | 'column-2';
   onExported?: (filePath: string) => void;
 }
 
@@ -102,7 +102,7 @@ export function useDocumentCommands({
   currentDocumentPath,
   getCurrentDocumentContent,
   getCurrentDocumentEditor,
-  pdfHost = 'main-third',
+  pdfHost = 'column-1',
   onExported,
 }: UseDocumentCommandsOptions) {
   const getExportableDocument = useCallback(async (): Promise<ExportableDocument | null> => {

@@ -6,10 +6,8 @@ export type CollectionType = 'table' | 'media_library' | 'work_documents';
 /** 集合身份里的类型：v3 hybrid 额外允许 'hybrid'。 */
 export type CollectionMetadataType = CollectionType | 'hybrid';
 export type CollectionPlacement = 'standalone' | 'folder';
-export type CollectionDepth = 'direct_children' | 'descendants';
 export interface CollectionSource {
   scope: 'containing_folder' | 'notebook' | 'folder';
-  depth: CollectionDepth;
   path?: string;
 }
 export type CollectionPropertyType = 'Text' | 'Number' | 'Boolean' | 'Date' | 'URL' | 'Icon' | 'Color' | 'Tag';
@@ -216,13 +214,19 @@ function validateV2Envelope(value: Record<string, unknown>): { collection: Colle
   const source = dataset.source;
   if (!hasOnlyKeys(source, ['scope', 'depth', 'path'])
     || !['containing_folder', 'notebook', 'folder'].includes(String(source.scope))
-    || !['direct_children', 'descendants'].includes(String(source.depth))) throw new Error('集合数据范围无效');
+    || (source.depth !== undefined && !['direct_children', 'descendants'].includes(String(source.depth)))) throw new Error('集合数据范围无效');
   if (collection.placement === 'folder') {
     if (source.scope !== 'containing_folder' || source.path !== undefined) throw new Error('文件夹集合的数据范围必须绑定所在目录');
   } else if (source.scope === 'containing_folder' || (source.scope === 'folder' && !isNotebookRelativePath(source.path))) {
     throw new Error('独立集合的数据范围无效');
   }
   if (source.scope !== 'folder' && source.path !== undefined) throw new Error('集合数据范围不应包含 path');
+  // `depth` was an earlier user setting. Keep accepting its old valid values,
+  // but drop it from the normalized model so all collection domains recurse.
+  const normalizedSource: CollectionSource = {
+    scope: source.scope as CollectionSource['scope'],
+    ...(source.scope === 'folder' ? { path: source.path as string } : {}),
+  };
   if (!hasOnlyKeys(dataset.schema, collection.type === 'table' ? ['primary_field_id', 'fields', 'field_order', 'preset_fields', 'deleted_presets'] : ['fields'])) throw new Error('集合字段定义包含未知字段');
   if (collection.type === 'table' && (typeof dataset.schema.primary_field_id !== 'string' || !dataset.schema.primary_field_id.trim())) throw new Error('笔记集合缺少主字段');
   if (dataset.schema.preset_fields !== undefined && (!Array.isArray(dataset.schema.preset_fields)
@@ -266,7 +270,7 @@ function validateV2Envelope(value: Record<string, unknown>): { collection: Colle
     throw new Error('集合规则筛选格式无效');
   }
 
-  return { collection, payload: value.payload };
+  return { collection, payload: { ...value.payload, dataset: { ...dataset, source: normalizedSource } } };
 }
 
 /** 校验 v3 hybrid 信封。每个数据域复用 v2 校验器（合成单类型文档），与
@@ -338,9 +342,10 @@ function validateHybridEnvelope(value: Record<string, unknown>): { collection: C
     || Object.keys(defaultsByKey).some((key) => !domainKeys.includes(key as CollectionDomain))) {
     throw new Error('集合数据域与默认视图不匹配');
   }
+  const normalizedDomains: HybridCollectionPayload['domains'] = {};
   for (const domain of domainKeys) {
     const items = (viewsByDomain.get(domain) ?? []).map(({ domain: _domain, ...rest }) => rest);
-    validateV2Envelope({
+    const checkedDomain = validateV2Envelope({
       collection: { ...collection, type: DOMAIN_RUNTIME_TYPES[domain] },
       payload: {
         schema_version: 2,
@@ -348,13 +353,14 @@ function validateHybridEnvelope(value: Record<string, unknown>): { collection: C
         views: { default_id: defaultsByKey[domain], items },
       },
     });
+    normalizedDomains[domain] = checkedDomain.payload.dataset as Record<string, unknown>;
   }
   return {
     collection,
     payload: {
       schema_version: 3,
       file_tree: fileTree,
-      domains: rawDomains as HybridCollectionPayload['domains'],
+      domains: normalizedDomains,
       views: {
         default_by_domain: defaultsByKey as HybridCollectionPayload['views']['default_by_domain'],
         items: rawViews.items as unknown as HybridCollectionView[],
@@ -372,7 +378,7 @@ export function parseHybridCollection(source: string): { collection: CollectionM
 }
 
 export function serializeHybridCollectionDocument(document: { collection: CollectionMetadata; payload: HybridCollectionPayload }): string {
-  validateHybridEnvelope({ collection: { ...document.collection }, payload: document.payload });
+  const validated = validateHybridEnvelope({ collection: { ...document.collection }, payload: document.payload });
   const checked = validateCollectionMetadata(document.collection);
   const wireCollection = {
     id: checked.id,
@@ -383,7 +389,7 @@ export function serializeHybridCollectionDocument(document: { collection: Collec
     updated_at: checked.updated_at,
     properties: checked.properties,
   };
-  return YAML.stringify({ format: 'flowix.collection', schema_version: 3, collection: wireCollection, payload: document.payload }, { lineWidth: 0, indent: 2 });
+  return YAML.stringify({ format: 'flowix.collection', schema_version: 3, collection: wireCollection, payload: validated.payload }, { lineWidth: 0, indent: 2 });
 }
 
 /** 各域视图运行时的扁平文档形态（表格 / 媒体库 / 工作文档模型共用）。 */
@@ -418,8 +424,7 @@ export function serializeProjectedCollectionDocument(source: string, document: P
     },
   };
   const previousDataset = parsed.payload.domains[domain]!;
-  if (datasetLocation(previousDataset) !== datasetLocation(document.dataset)
-    || JSON.stringify(previousDataset.source) !== JSON.stringify(document.dataset.source)) {
+  if (datasetLocation(previousDataset) !== datasetLocation(document.dataset)) {
     payload.domains = shareDatasetLocation(payload.domains, document.dataset);
   }
   return serializeHybridCollectionDocument({
@@ -494,8 +499,8 @@ export function parseCollectionDocumentV2(source: string, type?: CollectionType)
     const payload = migrateLegacyPayload(collection, legacyCollection, value.payload);
     const document = { format: 'flowix.collection' as const, schema_version: 2 as const, collection,
       payload: payload as CollectionDocumentV2['payload'] };
-    validateV2Envelope({ collection: { ...collection }, payload });
-    return document;
+    const validated = validateV2Envelope({ collection: { ...collection }, payload });
+    return { ...document, payload: validated.payload as CollectionDocumentV2['payload'] };
   }
   if (value.schema_version === 3 && value.payload.schema_version === 3) {
     // v3 hybrid：按请求类型投影出对应数据域的 v2 视图。写回必须走
@@ -514,9 +519,9 @@ export function parseCollectionDocumentV2(source: string, type?: CollectionType)
       dataset,
       views: { default_id: hybrid.payload.views.default_by_domain[domain], items },
     };
-    validateV2Envelope({ collection, payload });
+    const validated = validateV2Envelope({ collection, payload });
     return { format: 'flowix.collection' as const, schema_version: 2 as const, collection,
-      payload: payload as CollectionDocumentV2['payload'] };
+      payload: validated.payload as CollectionDocumentV2['payload'] };
   }
   if (value.schema_version === 2 && value.payload.schema_version === 2) {
     // v2 集合文件不存 name：后端 `CollectionMetadata.name` 是标注了
@@ -530,8 +535,8 @@ export function parseCollectionDocumentV2(source: string, type?: CollectionType)
     const collection = validateCollectionMetadata(v2Metadata, type);
     const document = { format: 'flowix.collection' as const, schema_version: 2 as const, collection,
       payload: value.payload as CollectionDocumentV2['payload'] };
-    validateV2Envelope({ collection: { ...collection }, payload: value.payload });
-    return document;
+    const validated = validateV2Envelope({ collection: { ...collection }, payload: value.payload });
+    return { ...document, payload: validated.payload as CollectionDocumentV2['payload'] };
   }
   throw new Error('不支持的集合文件格式或版本');
 }
@@ -578,8 +583,8 @@ function mediaFilterFromLegacyRuntime(condition: unknown): { all: Record<string,
 /** Convert legacy v1 business data to the v2 dataset and views model. */
 function migrateLegacyPayload(collection: CollectionMetadata, legacy: Record<string, unknown>, payload: Record<string, unknown>): Record<string, unknown> {
   const source = isRecord(legacy.source) ? legacy.source : collection.placement === 'folder'
-    ? { scope: 'containing_folder', depth: 'descendants' }
-    : { scope: 'notebook', depth: 'descendants' };
+    ? { scope: 'containing_folder' }
+    : { scope: 'notebook' };
   const oldViewSettings = isRecord(legacy.viewSettings) ? legacy.viewSettings : {};
   const viewSetting = (id: unknown): { name?: string; filter?: Record<string, unknown>; sort?: unknown[]; config?: Record<string, unknown> } => {
     const entry = typeof id === 'string' ? oldViewSettings[id] : undefined;
@@ -660,7 +665,7 @@ function migrateLegacyPayload(collection: CollectionMetadata, legacy: Record<str
 
 export function serializeCollectionDocumentV2(document: CollectionDocumentV2): string {
   if (document.format !== 'flowix.collection' || document.schema_version !== 2) throw new Error('集合文件版本无效');
-  validateV2Envelope({ collection: { ...document.collection }, payload: document.payload });
+  const validated = validateV2Envelope({ collection: { ...document.collection }, payload: document.payload });
   const checked = validateCollectionMetadata(document.collection);
   const wireCollection = {
     id: checked.id,
@@ -671,7 +676,7 @@ export function serializeCollectionDocumentV2(document: CollectionDocumentV2): s
     updated_at: checked.updated_at,
     properties: checked.properties,
   };
-  return YAML.stringify({ format: 'flowix.collection', schema_version: 2, collection: wireCollection, payload: document.payload }, { lineWidth: 0, indent: 2 });
+  return YAML.stringify({ format: 'flowix.collection', schema_version: 2, collection: wireCollection, payload: validated.payload }, { lineWidth: 0, indent: 2 });
 }
 export function reviseCollection(collection: CollectionMetadata): CollectionMetadata {
   return { ...collection, revision: collection.revision + 1, updated_at: new Date().toISOString() };

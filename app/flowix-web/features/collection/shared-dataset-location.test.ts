@@ -1,10 +1,10 @@
 import { expect, it, vi } from 'vitest';
-import { createTableDocument, serializeTableDocument } from '@features/multidimensional-table/model';
+import { createTableDocument, parseTableDocument, serializeTableDocument } from '@features/multidimensional-table/model';
 import { createMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
 import { matchesDatasetFilter, type DatasetFilter } from './rule-filter';
-import { parseHybridCollection, serializeProjectedCollectionDocument } from './model';
+import { parseHybridCollection, serializeHybridCollectionDocument, serializeProjectedCollectionDocument } from './model';
 import { assetConditionFromFilter } from './asset-filter';
-import { addCollectionDomain, setCollectionAssetFilter } from './folder-collection';
+import { createFolderHybridCollectionContent, addCollectionDomain, setCollectionAssetFilter } from './folder-collection';
 
 const disk = vi.hoisted(() => ({ content: '' }));
 vi.mock('@platform/tauri/client', () => ({
@@ -97,4 +97,33 @@ it.each(['客户', '', null])('secondary asset saves preserve the latest disk lo
   expect((domains.media!.filter as Record<string, unknown>).conditions).toEqual([
     { field: 'file_name', op: 'contains', value: '新条件' },
   ]);
+});
+
+it('a note-only save upgrades old folder notes without changing sibling datasets', () => {
+  const old = parseHybridCollection(createFolderHybridCollectionContent('Project', 'Project'));
+  old.payload.domains.notes!.source = { scope: 'containing_folder', depth: 'direct_children' };
+  const source = serializeHybridCollectionDocument(old);
+  const saved = parseHybridCollection(serializeProjectedCollectionDocument(source, parseTableDocument(source), 'notes'));
+  expect(saved.payload.domains.notes!.source).toEqual({ scope: 'containing_folder' });
+  expect(saved.payload.domains.media).toEqual(old.payload.domains.media);
+  expect(saved.payload.domains.work_documents).toEqual(old.payload.domains.work_documents);
+});
+
+it('sharing a changed location keeps every domain recursive without a depth setting', () => {
+  const old = parseHybridCollection(createFolderHybridCollectionContent('Project', 'Old'));
+  const source = serializeHybridCollectionDocument(old);
+  const table = parseTableDocument(source);
+  table.dataset.filter = { path: 'Project', match: 'all', conditions: [] };
+  const saved = parseHybridCollection(serializeProjectedCollectionDocument(source, table, 'notes'));
+  expect((saved.payload.domains.media!.filter as Record<string, unknown>).path).toBe('Project');
+  expect(saved.payload.domains.media!.source).toEqual(old.payload.domains.media!.source);
+  expect(saved.payload.domains.work_documents!.source).toEqual(old.payload.domains.work_documents!.source);
+});
+
+it('adding an asset domain to recursive folder notes uses the same recursive scope', async () => {
+  disk.content = createFolderHybridCollectionContent('Project', 'Project', ['notes']);
+  await addCollectionDomain('/book/Project/.index.yaml', '/book', 'media');
+  const domains = parseHybridCollection(disk.content).payload.domains;
+  expect(domains.notes!.source).toEqual({ scope: 'containing_folder' });
+  expect(domains.media!.source).toEqual({ scope: 'containing_folder' });
 });

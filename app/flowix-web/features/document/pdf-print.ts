@@ -11,7 +11,7 @@ function nextFrame(): Promise<void> {
   });
 }
 
-function findCurrentDocumentRoot(editor: Editor | null, host: 'main-third' | 'browser-column'): HTMLElement | null {
+function findCurrentDocumentRoot(editor: Editor | null, host: 'column-1' | 'column-2'): HTMLElement | null {
   if (editor && !editor.isDestroyed) {
     const editorRoot = editor.view.dom.closest<HTMLElement>('.document-container');
     if (editorRoot) return editorRoot;
@@ -20,7 +20,7 @@ function findCurrentDocumentRoot(editor: Editor | null, host: 'main-third' | 'br
   // Source mode is owned by CodeMirror and therefore has no Tiptap Editor.
   // Scope the fallback to the titlebar's host so an export never prints the
   // other column's document.
-  const sessionMode = host === 'browser-column' ? 'isolated' : 'main';
+  const sessionMode = host === 'column-2' ? 'isolated' : 'main';
   return document.querySelector<HTMLElement>(
     `[data-workspace-host="${host}"] .document-container[data-document-session-mode="${sessionMode}"]`,
   );
@@ -104,7 +104,7 @@ async function waitForPrintResources(root: HTMLElement): Promise<void> {
  * surface that the user is viewing; print-only CSS expands its scroll surface
  * to the complete document and hides surrounding application chrome.
  */
-export async function preparePdfPrint(editor: Editor | null, host: 'main-third' | 'browser-column' = 'main-third'): Promise<() => void> {
+export async function preparePdfPrint(editor: Editor | null, host: 'column-1' | 'column-2' = 'column-1'): Promise<() => void> {
   const root = findCurrentDocumentRoot(editor, host);
   if (!root) {
     throw new Error('Current document editor is not mounted');

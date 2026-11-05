@@ -217,7 +217,6 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
   object-fit: cover;
 }
 
-
 .agent-conversation-surface .agent-thread-card__message-mode-tag {
   display: flex;
   width: fit-content;
@@ -260,11 +259,6 @@ html:not([data-theme="dark"]):not([data-theme="mist"])
   );
   line-height: 1.4;
   font-style: italic;
-}
-
-.agent-conversation-surface .agent-thread-card__message-context-compaction-summary {
-  margin-top: 4px;
-  font-style: normal;
 }
 
 /* DSH goal prompts are internal model-control messages. They remain visible

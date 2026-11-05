@@ -6,7 +6,7 @@ export interface AgentLocationRequest {
   path: string;
   location?: SourceLocation;
   anchor?: string;
-  host: 'main-third' | 'browser-column';
+  host: 'column-1' | 'column-2';
   viewId: string;
 }
 

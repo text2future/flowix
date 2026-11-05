@@ -3,6 +3,7 @@ import { openBrowserColumnWebpage, openBrowserColumnMarkdown, selectBrowserColum
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { resetBrowserColumnCoordinator } from './browser-column-coordinator';
 import { registerWorkspaceSurfaceLifecycle } from '../store/surface-lifecycle-store';
+import { findFileDisplayIdentity } from '@/lib/file-display-registry';
 const ids: string[] = [];
 beforeEach(() => { useBrowserColumnStore.getState().reset(); resetBrowserColumnCoordinator(); });
 afterEach(() => { for (const id of ids.splice(0)) registerWorkspaceSurfaceLifecycle(id, null); });
@@ -40,6 +41,11 @@ it('records file-tree selections and restores their full browser context', async
   expect(useBrowserColumnStore.getState().backStack).toHaveLength(1);
   await navigateBrowserColumnHistory('back');
   expect(useBrowserColumnStore.getState().current!.target).toMatchObject({ activeFilePath: '/workspace/a.md', fileTreeVisible: false });
+});
+it('registers identity before opening a non-previewable local file', async () => {
+  const filePath = '/workspace/build/Flowix.dmg';
+  await openBrowserColumnMarkdown(filePath);
+  expect(findFileDisplayIdentity(filePath)).toMatchObject({ path: filePath });
 });
 it('serializes a new open behind an unfinished save', async () => {
   await openBrowserColumnWebpage('https://a.example/');

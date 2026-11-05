@@ -8,6 +8,8 @@ export interface WorkspaceHeaderInput {
   sourceKind?: WorkspaceSurfaceKind | null;
   capabilities?: readonly WorkspaceSurfaceCapability[];
   runtime?: Readonly<SurfacePresentationUpdate>;
+  /** Keep provisional identity hidden until domain hydration completes. */
+  identity?: { title?: string | null; icon?: string | null; ready?: boolean };
   indexable?: boolean;
   collection?: boolean;
   fullscreen?: boolean;
@@ -25,6 +27,10 @@ export function resolveWorkspaceHeaderModel(input: WorkspaceHeaderInput) {
   const chrome = input.fullscreen ? 'agent' : input.runtime?.appearance?.headerStyle ?? input.chrome ?? 'document';
   const showSurfaceActions = !input.fullscreen;
   const sourceKind = input.sourceKind ?? contentKind;
+  const identity = showSurfaceActions && !input.collection && input.identity?.ready !== false
+    && (input.identity?.title || input.identity?.icon)
+    ? { title: input.identity.title, icon: input.identity.icon }
+    : null;
   return {
     contentKind,
     sourceKind,
@@ -35,7 +41,8 @@ export function resolveWorkspaceHeaderModel(input: WorkspaceHeaderInput) {
       : input.collection && input.collectionScrolled ? 'var(--document-bg)'
         : input.runtime?.headerBackgroundColor ?? input.backgroundColor ?? undefined,
     gradient: chrome !== 'media',
-    showIdentity: showSurfaceActions && !input.collection,
+    identity,
+    showIdentity: identity !== null,
     showSurfaceActions,
     showWebAddressBar: showSurfaceActions && capabilities.includes('web-navigation'),
     documentControls: {

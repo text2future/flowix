@@ -3,8 +3,9 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { CellSelection } from '@tiptap/pm/tables';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createTableTemplate } from './table-templates';
 import { createTablePlugin } from './table-plugin';
-import { getTablePresentationSelection, setTableCellBorder, setTableColumnRole, setTableRowRole, setTableStyle } from './table-style-commands';
+import { getBorderExtendsHint, getTablePresentationSelection, setTableCellBorder, setTableColumnRole, setTableRowRole, setTableStyle } from './table-style-commands';
 
 const editors: Editor[] = [];
 const table: JSONContent = {
@@ -38,6 +39,57 @@ function cellPosition(editor: Editor, row: number, column: number): number {
 afterEach(() => editors.splice(0).forEach((editor) => editor.destroy()));
 
 describe('table presentation commands', () => {
+  it('fills a blank table with the selected localized template and restores it with undo/redo', () => {
+    const editor = createEditor();
+    editor.commands.setContent({ type: 'doc', content: [createTableTemplate('default'), { type: 'paragraph' }, table] });
+    editor.commands.setTextSelection(cellPosition(editor, 2, 2) + 2);
+    const original = editor.getJSON();
+    expect(setTableStyle(editor, 'financial-brief', 'en-US')).toBe(true);
+    expect(editor.state.doc.firstChild!.eq(editor.schema.nodeFromJSON(createTableTemplate('financial-brief', 'en-US')))).toBe(true);
+    expect(editor.state.doc.child(2).toJSON()).toEqual(original.content![2]);
+    expect(editor.state.selection.$from.parent.content.size).toBe(0);
+    expect(editor.isActive('table')).toBe(true);
+    const populated = editor.getJSON();
+    editor.commands.undo();
+    expect(editor.getJSON()).toEqual(original);
+    editor.commands.redo();
+    expect(editor.getJSON()).toEqual(populated);
+    const text = editor.state.doc.textContent;
+    setTableStyle(editor, 'hk-financial');
+    expect(editor.state.doc.textContent).toBe(text);
+    const saved = editor.getJSON();
+    editor.commands.setContent(editor.getMarkdown(), { contentType: 'markdown' });
+    expect(editor.getJSON().content!.filter(node => node.type === 'table'))
+      .toEqual(saved.content!.filter(node => node.type === 'table'));
+  });
+
+  it('preserves an empty grid when switching between themes without template content', () => {
+    const editor = createEditor();
+    editor.commands.setContent({ type: 'doc', content: [createTableTemplate('default')] });
+    editor.commands.setTextSelection(cellPosition(editor, 1, 1) + 2);
+    for (const style of ['striped', 'business-blue', 'comparison'] as const) {
+      expect(setTableStyle(editor, style)).toBe(true);
+      expect(editor.state.doc.firstChild!.childCount).toBe(3);
+      expect(editor.state.doc.firstChild!.firstChild!.childCount).toBe(3);
+      expect(editor.state.doc.textContent).toBe('');
+    }
+  });
+
+  it('treats non-text cell content as populated and respects read-only editors', () => {
+    const editor = createEditor();
+    const grid = createTableTemplate('default');
+    grid.content![1].content![1].content = [{ type: 'paragraph', content: [{ type: 'hardBreak' }] }];
+    editor.commands.setContent({ type: 'doc', content: [grid] });
+    editor.commands.setTextSelection(cellPosition(editor, 1, 1) + 2);
+    const expected = editor.getJSON();
+    expected.content![0].attrs!.styleId = 'financial-brief';
+    expect(setTableStyle(editor, 'financial-brief')).toBe(true);
+    expect(editor.getJSON()).toEqual(expected);
+    editor.setEditable(false);
+    expect(setTableStyle(editor, 'hk-financial')).toBe(false);
+    expect(editor.getJSON()).toEqual(expected);
+  });
+
   it('changes only the current table, preserving text and supporting undo', () => {
     const editor = createEditor();
     const text = editor.state.doc.textContent;
@@ -203,7 +255,9 @@ describe('cell border commands', () => {
     )));
     editor.commands.mergeCells();
     editor.commands.setTextSelection(cellPosition(editor, 1, 1) + 2);
-    expect(getTablePresentationSelection(editor)).toMatchObject({ borderBottomExtends: true, borderTopExtends: false });
+    expect(getTablePresentationSelection(editor)).toMatchObject({ rowHeader: true });
+    expect(getBorderExtendsHint(editor, 'bottom')).toBe(true);
+    expect(getBorderExtendsHint(editor, 'top')).toBe(false);
     setTableCellBorder(editor, 'bottom', 'single');
     for (const column of [1, 2]) expect(editor.state.doc.firstChild?.child(1).child(column).attrs.borderBottom).toBe('single');
     expect(editor.state.doc.firstChild?.child(2).child(1).attrs).toMatchObject({ colspan: 2, borderTop: 'single' });
@@ -234,7 +288,7 @@ describe('cell border commands', () => {
       editor.commands.mergeCells();
     }
     editor.commands.setTextSelection(cellPosition(editor, 2, 0) + 2);
-    expect(getTablePresentationSelection(editor)?.borderTopExtends).toBe(true);
+    expect(getBorderExtendsHint(editor, 'top')).toBe(true);
     setTableCellBorder(editor, 'top', 'double');
     const first = editor.state.doc.firstChild!;
     first.child(1).forEach(cell => expect(cell.attrs.borderBottom).toBe('double'));

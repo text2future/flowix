@@ -55,6 +55,8 @@ export function AgentTasksSection({
   onShowAllConversations,
   sectionActions,
   onHideSection,
+  onConversationSelect,
+  selectedConversationId,
 }: {
   notebookId: string;
   edgeGutter?: number;
@@ -64,6 +66,8 @@ export function AgentTasksSection({
   sectionActions?: ReactNode;
   /** 空状态里的「隐藏模块」入口，由文件树注入。 */
   onHideSection?: () => void;
+  onConversationSelect?: (instanceId: string) => void;
+  selectedConversationId?: string | null;
 }) {
   const { t } = useI18n();
   const recentConversationLimit = useRecentAgentConversationsLimit();
@@ -197,19 +201,20 @@ export function AgentTasksSection({
    * here rather than in the shared navigation use-cases.
    */
   const openConversation = useCallback((instance: AgentConversationInstance) => {
+    onConversationSelect?.(instance.instanceId);
     prepareConversation(instance);
     if (instance.threadId) useAgentSessionStore.getState().markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ host: 'browser-column', target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       logger.error('Failed to open conversation in browser column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
-  }, [prepareConversation]);
+  }, [prepareConversation, onConversationSelect]);
 
   /** Menu escape hatch: the row click no longer targets Work. */
   const openConversationInWorkColumn = useCallback((instance: AgentConversationInstance) => {
     prepareConversation(instance);
     if (instance.threadId) useAgentSessionStore.getState().markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ host: 'main-third', target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       logger.error('Failed to open conversation in work column', { error });
       toast.error(error instanceof Error ? error.message : String(error));
     });
@@ -365,6 +370,7 @@ export function AgentTasksSection({
       {!collapsed && (tasks.items.length > 0 ? (
         <div className="group/conversation-list relative flex flex-col gap-0.5">
           {tasks.items.map((instance) => {
+            const selected = (selectedConversationId === undefined ? activeConversationInstanceId : selectedConversationId) === instance.instanceId;
             const running = isAgentConversationRunning(instance, conversationRunIndex);
             const unread = !!instance.threadId
               && latestCompletedRunIds[instance.threadId] !== readThroughRunIds[instance.threadId]
@@ -378,15 +384,22 @@ export function AgentTasksSection({
                   onContextMenu={(event) => showConversationContextMenu(event, instance.instanceId)}
                   className={cn(
                     'group flex h-8 w-full items-center gap-1.5 rounded-lg px-1.5 text-left text-sm transition-colors hover:bg-[var(--muted)]',
-                    activeConversationInstanceId === instance.instanceId && 'bg-[var(--muted)]',
+                    selected && 'bg-[var(--muted)]',
                   )}
                   style={{ marginLeft: edgeGutter, width }}
                 >
                   <button
                     type="button"
+                    data-notebook-conversation-item={instance.instanceId}
                     title={instance.title?.trim() || t('common.untitled')}
-                    onClick={() => openConversation(instance)}
-                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
+                    aria-pressed={selected}
+                    onClick={(event) => {
+                      openConversation(instance);
+                      // WebKit does not focus buttons on pointer clicks by default.
+                      // Keep navigation in the sidebar, just like arrow selection.
+                      event.currentTarget.focus({ preventScroll: true });
+                    }}
+                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus:outline-none"
                   >
                     <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
                       <AgentIcon typeKey={instance.agentType} alt="" className="h-4 w-4 object-contain" />
@@ -402,7 +415,7 @@ export function AgentTasksSection({
                     </span>
                     <span className={cn(
                       'min-w-0 flex-1 truncate text-[var(--foreground)]',
-                      activeConversationInstanceId === instance.instanceId ? 'opacity-100' : 'opacity-[0.82]',
+                      selected ? 'opacity-100' : 'opacity-[0.82]',
                     )}>
                       {instance.title?.trim() || t('common.untitled')}
                     </span>
@@ -420,7 +433,7 @@ export function AgentTasksSection({
                     <DropdownMenuContent align="end" className="w-[160px] space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
                       <ConversationActionItems
                         favorite={favoriteIds.has(instance.instanceId)}
-                        openHost="main-third"
+                        openHost="column-1"
                         onOpen={() => openConversationInWorkColumn(instance)}
                         onFavorite={() => toggleFavorite(instance.instanceId)}
                         onRename={() => renameConversation(instance)}

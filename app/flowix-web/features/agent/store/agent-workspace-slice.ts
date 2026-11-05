@@ -22,6 +22,7 @@ export interface AgentWorkspaceState {
   validatedAt?: number;
 }
 export interface AgentWorkspaceActions {
+  applySnapshot: (snapshot: AgentWorkspaceSnapshot) => void;
   loadInitial: () => Promise<boolean>;
   getNotebookFiles: (notebookId: string | null | undefined) => FilesConfig | undefined;
   /** The picker and mount commit share one notebook-scoped backend operation. */
@@ -59,6 +60,7 @@ export function createAgentWorkspaceSlice(
     setLoadState({ status: 'ready' });
   };
   return {
+    applySnapshot: publish,
     getNotebookFiles: (notebookId) => {
       if (!notebookId || getStore().loadState.workspace.status !== 'ready') return undefined;
       const notebook = getStore().workspace.byNotebookId[notebookId];

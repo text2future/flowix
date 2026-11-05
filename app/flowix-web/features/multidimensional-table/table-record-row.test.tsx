@@ -119,7 +119,7 @@ describe('TableRecordRow builtin metadata', () => {
     expect(cells).toHaveLength(3 + BUILTIN_TABLE_FIELDS.length);
     const pathIndex = BUILTIN_TABLE_FIELDS.findIndex((field) => field.id === NOTE_PATH_FIELD_ID);
     const sizeIndex = BUILTIN_TABLE_FIELDS.findIndex((field) => field.id === NOTE_SIZE_FIELD_ID);
-    expect(cells[pathIndex + 2].textContent).toBe('notebook/项目/');
+    expect(cells[pathIndex + 2].textContent).toBe('项目');
     expect(cells[sizeIndex + 2].textContent).toBe('1.25 MB');
     BUILTIN_TABLE_FIELDS.forEach((field, index) => {
       const editor = cells[index + 2].querySelector('input,button,textarea');

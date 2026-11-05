@@ -9,7 +9,7 @@ import {
 } from './memo-title-editor';
 import type { RenameDocumentTitle } from './memo-title-session';
 import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
-import type { WorkspaceHostId } from '@features/workspace/public/host-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 
 interface MemoDocumentHeaderProps {
   displayId: string;
@@ -18,7 +18,7 @@ interface MemoDocumentHeaderProps {
   updatedAt: Date | null;
   editable: boolean;
   propertyActionsEnabled?: boolean;
-  workspaceHost?: WorkspaceHostId;
+  workspaceHost?: WorkspaceColumnId;
   onActivateProperties?: () => void;
   autoFocus?: boolean;
   sourceMode?: boolean;

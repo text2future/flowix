@@ -13,7 +13,7 @@ const { hasLiveUnsavedDocumentAtPath, acceptBackgroundDocumentContent, notebooks
 
 vi.mock('@platform/tauri/client/desktop', () => ({ files: { getDirChildren } }));
 vi.mock('@platform/tauri/client', () => ({ externalDocuments: { read: readDocument }, notes: { writeDocument } }));
-vi.mock('@features/document/public/workspace-api', () => ({ hasLiveUnsavedDocumentAtPath, acceptBackgroundDocumentContent }));
+vi.mock('@features/document/public/workspace-api', () => ({ hasLiveUnsavedDocumentAtPath, acceptBackgroundDocumentContent, getWorkspaceDocumentLinkStage: () => undefined }));
 vi.mock('@features/memo/store/note-store', () => ({
   useNoteStore: { getState: () => ({
     notebooksInitialized: true,
@@ -21,10 +21,11 @@ vi.mock('@features/memo/store/note-store', () => ({
   }) },
 }));
 
-import { rewriteLinksInNotebooks } from './note-link-rewriter';
+import { rewriteLinksInNotebooks, rewriteNoteLinkMoves, updateNoteLinksAfterMove } from './note-link-rewriter';
 
 describe('background link update', () => {
   beforeEach(() => {
+    localStorage.removeItem('flowix:pending-note-link-moves');
     getDirChildren.mockReset();
     readDocument.mockReset();
     writeDocument.mockReset();
@@ -86,4 +87,96 @@ describe('background link update', () => {
     expect(getDirChildren.mock.calls[0][0]).toBe('C:/Notes');
     expect(acceptBackgroundDocumentContent).toHaveBeenCalledWith('C:/Notes/A.md', '[B2](flowix://open?b=Work&f=B2.md)');
   });
+  it('updates relative image references without a Flowix URL in the document', async () => {
+    getDirChildren.mockResolvedValue([{ type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' }]);
+    readDocument.mockResolvedValue('![chart](./old.png)');
+    writeDocument.mockImplementation(async request => ({ path: request.filePath, content: request.content }));
+    expect(await rewriteLinksInNotebooks('C:/Notes/old.png', 'C:/Notes/new.png')).toBe(true);
+    expect(writeDocument).toHaveBeenCalledWith({ filePath: 'C:/Notes/Index.md', expectedContent: '![chart](./old.png)', content: '![chart](./new.png)' });
+  });
+
+  it('recovers a source rebase after a write succeeds but its response is lost', async () => {
+    getDirChildren.mockResolvedValue([{ type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' }]);
+    let disk = '[custom](./target.md)';
+    readDocument.mockImplementation(async () => disk);
+    writeDocument.mockImplementationOnce(async request => { disk = request.content; throw new Error('lost response'); });
+    const jobs: Parameters<typeof rewriteNoteLinkMoves>[0] = [{ oldPath: 'C:/Notes/sub/Index.md', newPath: 'C:/Notes/Index.md' }];
+    const persist = vi.fn();
+    expect(await rewriteNoteLinkMoves(jobs, () => false, persist)).toBe(false);
+    expect(disk).toBe('[custom](./sub/target.md)');
+    expect(persist).toHaveBeenCalled();
+    const recovered = JSON.parse(JSON.stringify(jobs));
+    expect(await rewriteNoteLinkMoves(recovered)).toBe(true);
+    expect(writeDocument).toHaveBeenCalledTimes(1);
+    // Later edits must not trigger another source-directory conversion on retry.
+    disk += ' updated';
+    expect(await rewriteNoteLinkMoves(recovered)).toBe(true);
+    expect(writeDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rebase a dirty source or overwrite an edit racing the write', async () => {
+    getDirChildren.mockResolvedValue([{ type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' }]);
+    readDocument.mockResolvedValue('[x](./target.md)');
+    writeDocument.mockResolvedValue(null);
+    expect(await rewriteLinksInNotebooks('C:/Notes/sub/Index.md', 'C:/Notes/Index.md')).toBe(false);
+    expect(writeDocument).toHaveBeenCalledWith(expect.objectContaining({ expectedContent: '[x](./target.md)', content: '[x](./sub/target.md)' }));
+  });
+
+  it('does not reapply target swaps when another document causes a batch retry', async () => {
+    getDirChildren.mockResolvedValue([
+      { type: 'document', fullPath: 'C:/Notes/Index.md', name: 'Index.md' },
+      { type: 'document', fullPath: 'C:/Notes/Dirty.md', name: 'Dirty.md' },
+    ]);
+    let disk = '[a](./A.md)';
+    hasLiveUnsavedDocumentAtPath.mockImplementation((...args: unknown[]) => args[0] === 'C:/Notes/Dirty.md');
+    readDocument.mockImplementation(async () => disk);
+    writeDocument.mockImplementation(async request => { disk = request.content; return { content: disk }; });
+    const jobs: Parameters<typeof rewriteNoteLinkMoves>[0] = [
+      { oldPath: 'C:/Notes/A.md', newPath: 'C:/Notes/Temp.md' },
+      { oldPath: 'C:/Notes/B.md', newPath: 'C:/Notes/A.md' },
+      { oldPath: 'C:/Notes/Temp.md', newPath: 'C:/Notes/B.md' },
+    ];
+    expect(await rewriteNoteLinkMoves(jobs)).toBe(false);
+    expect(disk).toBe('[a](./B.md)');
+    const recovered = JSON.parse(JSON.stringify(jobs));
+    expect(await rewriteNoteLinkMoves(recovered)).toBe(false);
+    expect(disk).toBe('[a](./B.md)');
+    expect(writeDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues from each document stage when another source move is appended', async () => {
+    let source = 'C:/Notes/B/n.md';
+    getDirChildren.mockImplementation(async () => [{ type: 'document', fullPath: source, name: 'n.md' }]);
+    let disk = '[asset](./asset.png)';
+    readDocument.mockImplementation(async () => disk);
+    writeDocument.mockImplementation(async request => { disk = request.content; return { content: disk }; });
+    const jobs: Parameters<typeof rewriteNoteLinkMoves>[0] = [{ oldPath: 'C:/Notes/A/n.md', newPath: source }];
+    expect(await rewriteNoteLinkMoves(jobs)).toBe(true);
+    expect(disk).toBe('[asset](../A/asset.png)');
+    source = 'C:/Notes/C/n.md';
+    jobs.push({ oldPath: 'C:/Notes/B/n.md', newPath: source });
+    expect(await rewriteNoteLinkMoves(jobs)).toBe(true);
+    expect(disk).toBe('[asset](../A/asset.png)');
+  });
+
+  it('keeps the full timeline when a move arrives during the background scan', async () => {
+    let source = 'C:/Notes/B/n.md';
+    let disk = '[asset](./asset.png)';
+    let appended = false;
+    getDirChildren.mockImplementation(async () => [{ type: 'document', fullPath: source, name: 'n.md' }]);
+    readDocument.mockImplementation(async () => {
+      if (!appended) {
+        appended = true;
+        source = 'C:/Notes/C/n.md';
+        updateNoteLinksAfterMove('C:/Notes/B/n.md', source);
+      }
+      return disk;
+    });
+    writeDocument.mockImplementation(async request => { disk = request.content; return { content: disk }; });
+    updateNoteLinksAfterMove('C:/Notes/A/n.md', source);
+    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('flowix:pending-note-link-moves') ?? '[]')).toEqual([]));
+    expect(disk).toBe('[asset](../A/asset.png)');
+    expect(writeDocument).toHaveBeenCalledTimes(1);
+  });
+
 });

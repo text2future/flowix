@@ -12,19 +12,40 @@ import type { NotebookBackgroundStatus } from '@platform/tauri/client';
  * aggregates only — no absolute paths, no raw YAML, no file access grants.
  */
 
-export type HtmlDataKind = 'notebook-stats' | 'notebook-views' | 'notebook-custom-views' | 'view-data';
+export type HtmlDataKind =
+  | 'notebook-stats'
+  | 'notebook-views'
+  | 'notebook-custom-views'
+  | 'view-data'
+  | 'product-theme';
 
 export const HTML_DATA_KINDS: readonly HtmlDataKind[] = [
   'notebook-stats',
   'notebook-views',
   'notebook-custom-views',
   'view-data',
+  'product-theme',
 ];
 
 export interface HtmlDataContext {
   notebookId: string;
   /** Notebook root used as the authorized read scope for collection files. */
   scopePath: string | null;
+  /** Current app palette, captured by the preview host for this request. */
+  productTheme?: HtmlProductTheme;
+}
+
+export interface HtmlProductTheme {
+  id: string | null;
+  tokens: {
+    background: string;
+    foreground: string;
+    secondaryForeground: string;
+    mutedForeground: string;
+    border: string;
+    brand: string;
+    card: string;
+  };
 }
 
 export interface HtmlDataTagCount {
@@ -300,5 +321,9 @@ export function resolveHtmlDataRequest(
     case 'notebook-views': return resolveNotebookViews(ctx);
     case 'notebook-custom-views': return resolveNotebookCustomViews(ctx);
     case 'view-data': return resolveViewData(ctx, params);
+    case 'product-theme':
+      return ctx.productTheme
+        ? Promise.resolve(ctx.productTheme)
+        : Promise.reject(new Error('product theme unavailable'));
   }
 }

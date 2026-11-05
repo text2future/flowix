@@ -65,7 +65,7 @@ export function NotebookMoreSection({
         <button
           type="button"
           onClick={() => void openWorkspaceSurface({
-            host: 'main-third',
+            index: 0,
             target: { kind: 'web', url: 'https://skills.flowix.cc/i/index' },
           })}
           className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]"

@@ -4,7 +4,7 @@ import type { CollectionSource } from './model';
 
 const table = {
   filePath: '/notes/tables/project.index.yaml', notebookPath: '/notes',
-  placement: 'standalone' as const, source: { scope: 'notebook', depth: 'descendants' } as CollectionSource,
+  placement: 'standalone' as const, source: { scope: 'notebook' } as CollectionSource,
   defaultDirectory: '/notes/tables',
 };
 
@@ -14,19 +14,19 @@ describe('table Browse and Save directory policy', () => {
   });
 
   it('uses the selected folder ahead of the YAML directory', () => {
-    expect(resolveCollectionSaveDirectory({ ...table, configuredFolder: 'projects/notes' }))
+    expect(resolveCollectionSaveDirectory({ ...table, filter: { path: 'projects/notes', match: 'all', conditions: [] } }))
       .toBe('/notes/projects/notes');
   });
 
   it('keeps folder tables bound to their folder even if an old filter specifies another location', () => {
-    expect(resolveCollectionSaveDirectory({ ...table, placement: 'folder', configuredFolder: 'old-location',
-      source: { scope: 'containing_folder', depth: 'direct_children' },
+    expect(resolveCollectionSaveDirectory({ ...table, placement: 'folder', filter: { path: 'old-location', match: 'all', conditions: [] },
+      source: { scope: 'containing_folder' },
     })).toBe('/notes/tables');
   });
 
   it('rejects creation outside the source so a new note cannot disappear from the table', () => {
-    expect(() => resolveCollectionSaveDirectory({ ...table, configuredFolder: 'outside',
-      source: { scope: 'folder', path: 'tables', depth: 'descendants' },
+    expect(() => resolveCollectionSaveDirectory({ ...table, filter: { path: 'outside', match: 'all', conditions: [] },
+      source: { scope: 'folder', path: 'tables' },
     })).toThrow('保存目录不在集合数据范围内');
   });
 });

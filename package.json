@@ -1,7 +1,7 @@
 {
   "name": "flowix",
   "private": true,
-  "version": "1.5.16",
+  "version": "1.5.17",
   "license": "AGPL-3.0-only",
   "type": "module",
   "packageManager": "npm@10.8.2",
@@ -100,6 +100,7 @@
     "marked": "^17.0.1",
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
+    "mdast-util-from-markdown": "^2.1.0",
     "mermaid": "^11.15.0",
     "papaparse": "^5.7.0",
     "pinyin-pro": "^3.28.1",

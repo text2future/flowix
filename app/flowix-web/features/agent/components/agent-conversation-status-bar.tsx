@@ -87,7 +87,7 @@ export function AgentConversationStatusBar() {
 
   const openConversation = useCallback((instance: AgentConversationInstance) => {
     if (instance.threadId) markThreadRead(instance.threadId);
-    void openWorkspaceSurface({ host: 'main-third', target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
+    void openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: instance.instanceId } }).catch((error) => {
       toast.error(error instanceof Error ? error.message : t('status.agent.conversationNotFound'));
     });
   }, [markThreadRead, t]);

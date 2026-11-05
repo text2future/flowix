@@ -34,7 +34,6 @@ payload:
   dataset:
     source:
       scope: containing_folder # containing_folder | notebook | folder
-      depth: descendants      # direct_children | descendants
     schema:
       primary_field_id: fld_01900000000070008000000000000001
       fields:
@@ -68,7 +67,7 @@ payload:
             - fld_01900000000070008000000000000002
 ```
 
-`dataset.source` 限定取数位置和目录深度。文件夹集合必须使用 `containing_folder`，默认使用 `descendants` 包含下层子目录；路径由 `.index.yaml` 的实际父目录解析，不在文件内重复保存路径。独立集合可以使用整个笔记本范围，或用相对笔记本路径指定目录范围。
+`dataset.source` 只限定取数位置，不配置目录深度。图墙、列表和笔记等数据域固定递归读取该位置下满足筛选条件的内容；文件树固定只展示该位置的第一层。文件夹集合必须使用 `containing_folder`，路径由 `.index.yaml` 的实际父目录解析，不在文件内重复保存路径。独立集合可以使用整个笔记本范围，或用相对笔记本路径指定目录范围。旧文件中的 `source.depth` 会被忽略，并在下一次写回时移除。
 
 `dataset.schema` 描述笔记属性字段；笔记属性值仍保存在各笔记 frontmatter。`records.include` 和 `records.exclude` 保存显式记录引用；笔记记录使用 `note_path`，媒体记录使用 `resource_id` 和 `relative_path`。尚未关联笔记的表格草稿行允许 `include.note_path: ""`。`dataset.filter` 保存规则取数条件。媒体集合当前不开放自定义字段，`schema.fields` 应为空；图片和视频身份仍由 `media_resources` 管理。
 
@@ -93,7 +92,7 @@ collection:
 payload:
   schema_version: 2
   dataset:
-    source: { scope: containing_folder, depth: descendants }
+    source: { scope: containing_folder }
     schema: { fields: [] }
     records:
       include:

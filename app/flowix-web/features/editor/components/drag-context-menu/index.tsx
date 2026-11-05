@@ -21,7 +21,7 @@ import type { BlockMenuItem } from '@features/editor/components/drag-context-men
 import { HANDLE_SIZE } from '@features/editor/components/drag-context-menu/style'
 import { useDragHandlePosition } from '@features/editor/components/drag-context-menu/use-drag-handle-position'
 import { BlockActionMenu } from '@features/editor/components/drag-context-menu/block-action-menu'
-import { getTableHeaderState, useBlockMenuActions } from '@features/editor/components/drag-context-menu/block-menu-actions'
+import { useBlockMenuActions } from '@features/editor/components/drag-context-menu/block-menu-actions'
 import { useEditorTypography } from '@features/preferences/public/runtime-api'
 
 interface DragContextMenuProps {
@@ -234,21 +234,11 @@ export function DragContextMenu({ editor }: DragContextMenuProps) {
     unpinBlock(editor)
     setMenuTarget(null)
   }, [editor, menuTarget])
-  const onTableHeaderToggle = useCallback((header: 'row' | 'column') => {
-    if (header === 'row') {
-      editor.chain().focus().toggleHeaderRow().run()
-    } else {
-      editor.chain().focus().toggleHeaderColumn().run()
-    }
-    closeMenu()
-  }, [closeMenu, editor])
   const menuActions = useBlockMenuActions(
     onMenuItem,
     onDelete,
     menuTarget?.typeName,
     onImageAlign,
-    menuTarget?.typeName === 'table' ? getTableHeaderState(menuTarget.node) : undefined,
-    onTableHeaderToggle,
   )
 
   const openMenu = useCallback((anchorRect?: DOMRect) => {

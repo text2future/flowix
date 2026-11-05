@@ -113,7 +113,21 @@ impl MemoFile {
     ) -> std::io::Result<()> {
         let source_is_directory = source.is_dir();
         let source_absolute = std::fs::canonicalize(source)?;
-        let notebook_ids = self.notebook_ids_for_paths(&[source, target])?;
+        // Moving a directory also moves notebook roots nested below it. Their
+        // relative indexes stay unchanged, but their registered roots must follow.
+        let affected_notebooks = || -> std::io::Result<Vec<String>> {
+            let mut ids = self.notebook_ids_for_paths(&[source, target])?;
+            if source_is_directory {
+                for notebook in self.read_notebook_configs()? {
+                    if std::fs::canonicalize(&notebook.path).is_ok_and(|root| root.starts_with(&source_absolute)) {
+                        ids.push(notebook.id);
+                    }
+                }
+                ids.sort(); ids.dedup();
+            }
+            Ok(ids)
+        };
+        let notebook_ids = affected_notebooks()?;
         let _change_guard = if notebook_ids.is_empty() {
             None
         } else {
@@ -125,7 +139,7 @@ impl MemoFile {
         } else {
             None
         };
-        if !notebook_ids.is_empty() && self.notebook_ids_for_paths(&[source, target])? != notebook_ids {
+        if !notebook_ids.is_empty() && affected_notebooks()? != notebook_ids {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "notebook registration changed while waiting for path rename",
@@ -133,6 +147,7 @@ impl MemoFile {
         }
         let _guard = self.current_index_io.lock().expect("index_io poisoned");
         let mut directory_rebases: Vec<(String, String, String)> = Vec::new();
+        let mut relocated_roots: Vec<(String, String, String)> = Vec::new();
         if source_is_directory {
             let source_absolute = std::fs::canonicalize(source)?;
             let target_parent = target.parent().ok_or_else(|| {
@@ -147,15 +162,19 @@ impl MemoFile {
                 let notebook = self.get_notebook_config_by_id(notebook_id).ok_or_else(|| {
                     std::io::Error::new(std::io::ErrorKind::NotFound, "notebook not found")
                 })?;
-                let root = std::fs::canonicalize(notebook.path)?;
-                let previous = source_absolute
-                    .strip_prefix(&root)
-                    .map_err(std::io::Error::other)?
-                    .to_string_lossy().replace('\\', "/");
-                let next = target_absolute
-                    .strip_prefix(&root)
-                    .map_err(std::io::Error::other)?
-                    .to_string_lossy().replace('\\', "/");
+                let root = std::fs::canonicalize(&notebook.path)?;
+                if let Ok(suffix) = root.strip_prefix(&source_absolute) {
+                    let next_root = target_absolute.join(suffix);
+                    let next_path = format!("{}/", dunce::simplified(&next_root).to_string_lossy().replace('\\', "/").trim_end_matches('/'));
+                    relocated_roots.push((notebook_id.clone(), notebook.path.clone(), next_path));
+                    continue;
+                }
+                let (Ok(previous), Ok(next)) = (source_absolute.strip_prefix(&root), target_absolute.strip_prefix(&root)) else {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,
+                        "directory move crosses a registered notebook boundary"));
+                };
+                let previous = previous.to_string_lossy().replace('\\', "/");
+                let next = next.to_string_lossy().replace('\\', "/");
                 self.validate_directory_index_rebase(notebook_id, &previous, &next)?;
                 directory_rebases.push((notebook_id.clone(), previous, next));
             }
@@ -197,6 +216,36 @@ impl MemoFile {
                 if let Err(error) = update {
                     tracing::warn!(notebook_id, %error, "resource catalog package rename update failed");
                 }
+            }
+        }
+        if !relocated_roots.is_empty() {
+            // Registry reads also initialize their connection, so never hold a
+            // registry write transaction while rebasing notebook-owned indexes.
+            // All root changes commit together; on failure restore indexes/disk.
+            let update_registry = (|| -> std::io::Result<()> {
+                let mut connection = self.open_registry_db()?;
+                let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sqlite_to_io)?;
+                for (id, previous, next) in &relocated_roots {
+                    let changed = transaction.execute(
+                        "UPDATE notebooks SET path=?1, updated_at=?2 WHERE id=?3 AND path=?4",
+                        params![next, chrono::Utc::now().timestamp_millis(), id, previous],
+                    ).map_err(sqlite_to_io)?;
+                    if changed != 1 {
+                        return Err(std::io::Error::other("notebook registration changed while moving directory"));
+                    }
+                }
+                transaction.commit().map_err(sqlite_to_io)?;
+                *self.registry.configs_cache.write().expect("notebook_configs_cache poisoned") = None;
+                Ok(())
+            })();
+            if let Err(error) = update_registry {
+                for (id, previous, next) in rebased_directories.iter().rev() {
+                    if let Err(rollback_error) = self.rebase_directory_indexes(id, next, previous) {
+                        tracing::error!(notebook_id = %id, "failed to roll back directory index rebase: {rollback_error}");
+                    }
+                }
+                rename_file_noclobber(target, source)?;
+                return Err(error);
             }
         }
         if !source_is_directory {
@@ -1259,3 +1308,6 @@ fn collect_markdown_paths(
     }
     Ok(complete)
 }
+
+#[cfg(test)]
+mod tests;

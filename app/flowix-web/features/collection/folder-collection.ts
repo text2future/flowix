@@ -19,10 +19,10 @@ import {
   type CollectionSource,
   type HybridCollectionDocument,
   type HybridCollectionView,
-  type ProjectedCollectionDocument,
 } from './model';
 import { externalDocuments, files } from '@platform/tauri/client';
 import { canonicalPath, notebookRelativeDirectoryPath } from '@/lib/path';
+import { createCollectionDocument, mutateCollectionDocument, type CollectionDocumentMutation } from './document-gateway';
 import { assetFilterFromCondition, type AssetFilterCondition, type AssetFilterSaveOptions } from './asset-filter';
 import type { CollectionType } from './model';
 
@@ -36,9 +36,8 @@ export function initializeFolderCollectionBanner(properties: Record<string, Coll
 export function createFolderCollectionContent(kind: FolderCollectionKind, folderName: string, folderPath: string | null = null): string {
   if (kind === 'notes') {
     const document = createTableDocument('table', folderName, 'folder');
-    // 文件夹首页（folder-home）的口径是「仅第一层」：新集合默认不深度遍历，
-    // 旧 .index.yaml 里已落盘的 descendants 保持原样，不做迁移。
-    document.dataset.source = { scope: 'containing_folder', depth: 'direct_children' };
+    // 笔记视图按文件夹位置递归收集；文件树与其它数据域保留各自的展示范围。
+    document.dataset.source = { scope: 'containing_folder' };
     document.dataset.filter = {
       path: folderPath,
       match: 'all',
@@ -50,14 +49,14 @@ export function createFolderCollectionContent(kind: FolderCollectionKind, folder
 
   const document = createMediaLibrary(folderName);
   document.collection.placement = 'folder';
-  document.dataset.source = { scope: 'containing_folder', depth: 'direct_children' };
+  document.dataset.source = { scope: 'containing_folder' };
   document.dataset.filter = { path: folderPath, match: 'all', conditions: [] };
   initializeFolderCollectionBanner(document.collection.properties);
   return serializeMediaLibrary(document);
 }
 
-function directChildrenSource() {
-  return { scope: 'containing_folder' as const, depth: 'direct_children' as const };
+function folderSource() {
+  return { scope: 'containing_folder' as const };
 }
 
 function folderFilter(relativeFolder: string | null) {
@@ -68,7 +67,8 @@ function folderFilter(relativeFolder: string | null) {
 function buildDomainTemplate(domain: CollectionDomain, relativeFolder: string | null, placement: CollectionMetadata['placement'] = 'folder'): { dataset: Record<string, unknown>; view: Record<string, unknown> } {
   if (domain === 'notes') {
     const document = createTableDocument('table', 'folder', placement);
-    document.dataset.source = placement === 'folder' ? directChildrenSource() : { scope: 'notebook', depth: 'descendants' };
+    document.dataset.source = placement === 'folder'
+      ? { scope: 'containing_folder' } : { scope: 'notebook' };
     document.dataset.filter = placement === 'folder' ? {
       path: relativeFolder,
       match: 'all',
@@ -80,13 +80,13 @@ function buildDomainTemplate(domain: CollectionDomain, relativeFolder: string | 
   if (domain === 'media') {
     const document = createMediaLibrary('folder');
     document.collection.placement = placement;
-    document.dataset.source = placement === 'folder' ? directChildrenSource() : { scope: 'notebook', depth: 'descendants' };
+    document.dataset.source = placement === 'folder' ? folderSource() : { scope: 'notebook' };
     document.dataset.filter = placement === 'folder' ? folderFilter(relativeFolder) : { all: [], any: [] };
     return { dataset: document.dataset as unknown as Record<string, unknown>, view: document.views.items[0] as unknown as Record<string, unknown> };
   }
   const document = createWorkDocumentsCollection('folder');
   document.collection.placement = placement;
-  document.dataset.source = placement === 'folder' ? directChildrenSource() : { scope: 'notebook', depth: 'descendants' };
+  document.dataset.source = placement === 'folder' ? folderSource() : { scope: 'notebook' };
   document.dataset.filter = placement === 'folder' ? folderFilter(relativeFolder) : { all: [], any: [] };
   return { dataset: document.dataset as unknown as Record<string, unknown>, view: document.views.items[0] as unknown as Record<string, unknown> };
 }
@@ -197,11 +197,11 @@ function domainSources(domains: Partial<Record<CollectionDomain, Record<string, 
   for (const domain of COLLECTION_DOMAINS) {
     const raw = domains[domain]?.source;
     if (!isRecord(raw) || !['containing_folder', 'notebook', 'folder'].includes(String(raw.scope))) continue;
-    sources[domain] = {
-      scope: raw.scope as CollectionSource['scope'],
-      depth: raw.depth === 'descendants' ? 'descendants' : 'direct_children',
-      ...(typeof raw.path === 'string' ? { path: raw.path } : {}),
-    };
+    const path = datasetLocation(domains[domain]!) ?? (typeof raw.path === 'string' ? raw.path : null);
+    sources[domain] = raw.scope === 'containing_folder'
+      ? { scope: 'containing_folder' }
+      : path !== null ? { scope: 'folder', path }
+        : { scope: 'notebook' };
   }
   return sources;
 }
@@ -219,7 +219,8 @@ export async function ensureFolderCollection(folderPath: string, notebookPath: s
   const relativeFolder = notebookRelativeDirectoryPath(notebookPath, folderPath);
   const content = createFolderHybridCollectionContent(folderName, relativeFolder, [initialDomain]);
   try {
-    await files.create(indexPath, content, notebookPath);
+    // 建文件也走网关：它同时广播内容，已挂载的外壳 / 面板不会停在「文件还不存在」的状态。
+    await createCollectionDocument({ indexPath, notebookPath, content });
     return summarizeFolderCollectionSource(content);
   } catch {
     // 并发兜底：另一个入口可能刚好建好了同名索引。
@@ -246,9 +247,15 @@ export async function addCollectionDomain(
   notebookPath: string,
   domain: CollectionDomain,
 ): Promise<FolderCollectionSummary> {
+  const { content } = await mutateCollectionDocument({
+    indexPath, notebookPath, mutate: (source) => ({ content: appendDomain(source, indexPath, notebookPath, domain), result: null }),
+  });
+  return summarizeFolderCollectionSource(content);
+}
+
+/** 追加一个数据域（纯函数）：已存在时原样返回 source，网关据此不写盘、不广播。 */
+function appendDomain(source: string, indexPath: string, notebookPath: string, domain: CollectionDomain): string {
   const folderPath = canonicalPath(indexPath).replace(/[\\/][^\\/]*$/, '');
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
   const relativeFolder = notebookRelativeDirectoryPath(notebookPath, folderPath);
   const hybrid = isHybridSource(source) ? parseHybridCollection(source) : null;
   const placement = hybrid?.collection.placement ?? parseCollectionDocumentV2(source).collection.placement;
@@ -256,7 +263,7 @@ export async function addCollectionDomain(
   const view: HybridCollectionView = { ...(template.view as unknown as HybridCollectionView), domain };
   let next: HybridCollectionDocument;
   if (hybrid) {
-    if (hybrid.payload.domains[domain]) return summarizeFolderCollectionSource(source);
+    if (hybrid.payload.domains[domain]) return source;
     next = {
       format: 'flowix.collection',
       schema_version: 3,
@@ -279,7 +286,7 @@ export async function addCollectionDomain(
     const items: HybridCollectionView[] = existingViews.items
       .map((item) => ({ ...(item as unknown as HybridCollectionView), domain: existingDomain }));
     if (domain === existingDomain) {
-      return summarizeFolderCollectionSource(source);
+      return source;
     }
     const newTemplate = buildDomainTemplate(domain, relativeFolder, placement);
     const newView: HybridCollectionView = { ...(newTemplate.view as unknown as HybridCollectionView), domain };
@@ -319,12 +326,7 @@ export async function addCollectionDomain(
       domain !== 'notes' && assetOwner ? { ...newDataset, filter: assetOwner.filter } : newDataset,
       datasetLocation(owner), owner.source);
   }
-  const content = serializeHybridCollectionDocument(next);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-  return summarizeFolderCollectionSource(result.content);
+  return serializeHybridCollectionDocument(next);
 }
 
 /** 移除 hybrid 集合里的一个数据域（连同该域的视图）。
@@ -342,11 +344,17 @@ export async function removeCollectionDomain(
   notebookPath: string,
   domain: CollectionDomain,
 ): Promise<FolderCollectionSummary> {
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
+  const { content } = await mutateCollectionDocument({
+    indexPath, notebookPath, mutate: (source) => ({ content: stripDomain(source, domain), result: null }),
+  });
+  return summarizeFolderCollectionSource(content);
+}
+
+/** 移除一个数据域及其视图（纯函数）：域不存在时原样返回 source。 */
+function stripDomain(source: string, domain: CollectionDomain): string {
   if (!isHybridSource(source)) throw new Error('仅 v3 集合支持移除数据域');
   const parsed = parseHybridCollection(source);
-  if (!parsed.payload.domains[domain]) return summarizeFolderCollectionSource(source);
+  if (!parsed.payload.domains[domain]) return source;
   const domains = { ...parsed.payload.domains };
   delete domains[domain];
   const defaultByDomain = { ...parsed.payload.views.default_by_domain };
@@ -365,12 +373,7 @@ export async function removeCollectionDomain(
       },
     },
   };
-  const content = serializeHybridCollectionDocument(next);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-  return summarizeFolderCollectionSource(result.content);
+  return serializeHybridCollectionDocument(next);
 }
 
 /**
@@ -384,8 +387,15 @@ export async function setCollectionAssetFilter(
   condition: AssetFilterCondition,
   options: AssetFilterSaveOptions = { updateLocation: true },
 ): Promise<FolderCollectionSummary> {
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
+  const { content } = await mutateCollectionDocument({
+    indexPath, notebookPath,
+    mutate: (source) => ({ content: applyAssetFilter(source, condition, options), result: null }),
+  });
+  return summarizeFolderCollectionSource(content);
+}
+
+/** 把一份资料筛选写进两个资料数据域（纯函数）：无变化时返回 source。 */
+function applyAssetFilter(source: string, condition: AssetFilterCondition, options: AssetFilterSaveOptions): string {
   if (!isHybridSource(source)) throw new Error('仅集合文件支持共享资料筛选');
   const parsed = parseHybridCollection(source);
   const owner = parsed.payload.domains.notes ?? parsed.payload.domains.media ?? parsed.payload.domains.work_documents!;
@@ -401,7 +411,7 @@ export async function setCollectionAssetFilter(
     domains[domain] = { ...dataset, filter };
     changed = true;
   }
-  if (!changed && Object.values(domains).every((dataset) => datasetLocation(dataset) === datasetLocation({ filter }))) return summarizeFolderCollectionSource(source);
+  if (!changed && Object.values(domains).every((dataset) => datasetLocation(dataset) === datasetLocation({ filter }))) return source;
   const next: HybridCollectionDocument = {
     format: 'flowix.collection',
     schema_version: 3,
@@ -413,12 +423,7 @@ export async function setCollectionAssetFilter(
       views: parsed.payload.views,
     },
   };
-  const content = serializeHybridCollectionDocument(next);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-  return summarizeFolderCollectionSource(result.content);
+  return serializeHybridCollectionDocument(next);
 }
 
 /** 资料视图（图墙 / 列表）新增时的默认名：与笔记视图「表格/日历…」平行对齐。 */
@@ -456,31 +461,42 @@ export async function addCollectionView(
   domain: CollectionDomain,
 ): Promise<AddCollectionViewResult> {
   if (domain === 'notes') throw new Error('笔记视图请使用表格自身的添加视图入口');
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
-  if (!isHybridSource(source)) {
-    const document = parseCollectionDocumentV2(source);
-    const existingDomain = collectionTypeDomain(document.collection.type as CollectionType);
-    if (domain !== existingDomain) {
-      const summary = await addCollectionDomain(indexPath, notebookPath, domain);
-      return { summary, viewId: summary.defaultByDomain[domain] ?? '' };
-    }
-    const parsed = domain === 'media' ? parseMediaLibrary(source) : parseWorkDocumentsCollection(source);
-    const view = buildAssetView(domain, parsed.views.items.map((item) => item.name));
-    await writeProjection(indexPath, notebookPath, source, {
-      collection: reviseCollection(document.collection),
-      dataset: document.payload.dataset,
-      views: { default_id: String(parsed.views.default_id), items: [...parsed.views.items, view] },
-    }, null);
-    const summary = await readCollectionSummary(indexPath, notebookPath);
-    if (!summary) throw new Error('集合文件读取失败');
-    return { summary, viewId: String(view.id) };
-  }
-  const parsed = parseHybridCollection(source);
-  if (!parsed.payload.domains[domain]) {
+  const { content, result } = await mutateCollectionDocument({
+    indexPath, notebookPath, mutate: (source) => planAssetView(source, domain),
+  });
+  if (result === 'domain-missing') {
+    // 域还不存在：补域这一步自己就是一次读改写，直接复用它（它的默认视图即新建视图）。
     const summary = await addCollectionDomain(indexPath, notebookPath, domain);
     return { summary, viewId: summary.defaultByDomain[domain] ?? '' };
   }
+  return { summary: summarizeFolderCollectionSource(content), viewId: result.viewId };
+}
+
+/**
+ * 在已有数据域里追加一个视图（纯函数）。域不存在时交回 `'domain-missing'`，
+ * 由调用方走补域路径 —— 补域本身要写盘，不能塞进这个纯函数里。
+ */
+function planAssetView(
+  source: string,
+  domain: Exclude<CollectionDomain, 'notes'>,
+): CollectionDocumentMutation<'domain-missing' | { viewId: string }> {
+  if (!isHybridSource(source)) {
+    const document = parseCollectionDocumentV2(source);
+    const existingDomain = collectionTypeDomain(document.collection.type as CollectionType);
+    if (domain !== existingDomain) return { content: source, result: 'domain-missing' };
+    const parsed = domain === 'media' ? parseMediaLibrary(source) : parseWorkDocumentsCollection(source);
+    const view = buildAssetView(domain, parsed.views.items.map((item) => item.name));
+    return {
+      content: serializeProjectedCollectionDocument(source, {
+        collection: reviseCollection(document.collection),
+        dataset: document.payload.dataset,
+        views: { default_id: String(parsed.views.default_id), items: [...parsed.views.items, view] },
+      }, null),
+      result: { viewId: String(view.id) },
+    };
+  }
+  const parsed = parseHybridCollection(source);
+  if (!parsed.payload.domains[domain]) return { content: source, result: 'domain-missing' };
   const view = buildAssetView(domain, parsed.payload.views.items
     .filter((item) => item.domain === domain)
     .map((item) => item.name));
@@ -498,12 +514,7 @@ export async function addCollectionView(
       },
     },
   };
-  const content = serializeHybridCollectionDocument(next);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-  return { summary: summarizeFolderCollectionSource(result.content), viewId: String(view.id) };
+  return { content: serializeHybridCollectionDocument(next), result: { viewId: String(view.id) } };
 }
 
 /** 重命名一个视图（含图墙 / 列表的视图；notes 域视图通常仍走表格自身的改名）。
@@ -516,14 +527,20 @@ export async function renameCollectionView(
 ): Promise<FolderCollectionSummary> {
   const name = rawName.trim();
   if (!name) throw new Error('视图名称不能为空');
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
+  const { content } = await mutateCollectionDocument({
+    indexPath, notebookPath, mutate: (source) => ({ content: renameView(source, viewId, name), result: null }),
+  });
+  return summarizeFolderCollectionSource(content);
+}
+
+/** 给一个视图改名（纯函数）：视图不存在时返回 source，重名直接抛错。 */
+function renameView(source: string, viewId: string, name: string): string {
   if (!isHybridSource(source)) {
     const document = parseCollectionDocumentV2(source);
     const views = document.payload.views as { default_id: unknown; items: Array<Record<string, unknown>> };
-    if (!views.items.some((item) => String(item.id) === viewId)) return summarizeFolderCollectionSource(source);
+    if (!views.items.some((item) => String(item.id) === viewId)) return source;
     if (views.items.some((item) => String(item.id) !== viewId && String(item.name) === name)) throw new Error('视图名称已存在');
-    await writeProjection(indexPath, notebookPath, source, {
+    return serializeProjectedCollectionDocument(source, {
       collection: reviseCollection(document.collection),
       dataset: document.payload.dataset,
       views: {
@@ -531,12 +548,9 @@ export async function renameCollectionView(
         items: views.items.map((item) => String(item.id) === viewId ? { ...item, name } : item),
       },
     }, null);
-    const summary = await readCollectionSummary(indexPath, notebookPath);
-    if (!summary) throw new Error('集合文件读取失败');
-    return summary;
   }
   const parsed = parseHybridCollection(source);
-  if (!parsed.payload.views.items.some((item) => item.id === viewId)) return summarizeFolderCollectionSource(source);
+  if (!parsed.payload.views.items.some((item) => item.id === viewId)) return source;
   if (parsed.payload.views.items.some((item) => item.id !== viewId && item.name === name)) throw new Error('视图名称已存在');
   const next: HybridCollectionDocument = {
     format: 'flowix.collection',
@@ -552,12 +566,7 @@ export async function renameCollectionView(
       },
     },
   };
-  const content = serializeHybridCollectionDocument(next);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-  return summarizeFolderCollectionSource(result.content);
+  return serializeHybridCollectionDocument(next);
 }
 
 /** Save the shared tab order while preserving each view's domain and defaults. */
@@ -566,8 +575,14 @@ export async function reorderCollectionViews(
   notebookPath: string,
   viewIds: readonly string[],
 ): Promise<FolderCollectionSummary> {
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
+  const { content } = await mutateCollectionDocument({
+    indexPath, notebookPath, mutate: (source) => ({ content: reorderViews(source, viewIds), result: null }),
+  });
+  return summarizeFolderCollectionSource(content);
+}
+
+/** 按给定顺序重排视图（纯函数），各域的默认视图与域归属原样保留；顺序没变时返回 source。 */
+function reorderViews(source: string, viewIds: readonly string[]): string {
   const ordered = <T extends { id: unknown }>(items: T[]): T[] => {
     const byId = new Map(items.map((item) => [String(item.id), item]));
     const result: T[] = [];
@@ -592,7 +607,7 @@ export async function reorderCollectionViews(
   if (isHybridSource(source)) {
     const parsed = parseHybridCollection(source);
     const items = ordered(parsed.payload.views.items);
-    if (sameOrder(parsed.payload.views.items, items)) return summarizeFolderCollectionSource(source);
+    if (sameOrder(parsed.payload.views.items, items)) return source;
     const next: HybridCollectionDocument = {
       format: 'flowix.collection',
       schema_version: 3,
@@ -604,26 +619,18 @@ export async function reorderCollectionViews(
         views: { default_by_domain: parsed.payload.views.default_by_domain, items },
       },
     };
-    const result = await externalDocuments.write({
-      filePath: indexPath, scopePath: notebookPath, expectedContent: source,
-      content: serializeHybridCollectionDocument(next),
-    });
-    if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-    return summarizeFolderCollectionSource(result.content);
+    return serializeHybridCollectionDocument(next);
   }
 
   const document = parseCollectionDocumentV2(source);
   const views = document.payload.views as { default_id: unknown; items: Array<Record<string, unknown> & { id: unknown }> };
   const items = ordered(views.items);
-  if (sameOrder(views.items, items)) return summarizeFolderCollectionSource(source);
-  await writeProjection(indexPath, notebookPath, source, {
+  if (sameOrder(views.items, items)) return source;
+  return serializeProjectedCollectionDocument(source, {
     collection: reviseCollection(document.collection),
     dataset: document.payload.dataset,
     views: { default_id: String(views.default_id), items },
   }, null);
-  const summary = await readCollectionSummary(indexPath, notebookPath);
-  if (!summary) throw new Error('集合文件读取失败');
-  return summary;
 }
 
 /** 删除一个视图：若它是所在域的最后一个视图，连同数据域一起移除。文件夹集合允许
@@ -633,24 +640,27 @@ export async function removeCollectionView(
   notebookPath: string,
   viewId: string,
 ): Promise<FolderCollectionSummary> {
-  const source = await files.read(indexPath, notebookPath);
-  if (source === null) throw new Error('集合文件不存在');
+  const { content } = await mutateCollectionDocument({
+    indexPath, notebookPath, mutate: (source) => ({ content: removeView(source, viewId), result: null }),
+  });
+  return summarizeFolderCollectionSource(content);
+}
+
+/** 删除一个视图（纯函数）：视图不存在时返回 source；域内最后一个视图会连域一起移除。 */
+function removeView(source: string, viewId: string): string {
   if (!isHybridSource(source)) {
     const document = parseCollectionDocumentV2(source);
     const views = document.payload.views as { default_id: unknown; items: Array<Record<string, unknown>> };
-    if (!views.items.some((item) => String(item.id) === viewId)) return summarizeFolderCollectionSource(source);
+    if (!views.items.some((item) => String(item.id) === viewId)) return source;
     if (views.items.length <= 1) {
       if (document.collection.placement !== 'folder') throw new Error('至少保留一个视图');
-      const content = serializeHybridCollectionDocument({
+      return serializeHybridCollectionDocument({
         collection: reviseCollection({ ...document.collection, type: 'hybrid' }),
         payload: { schema_version: 3, file_tree: true, domains: {}, views: { default_by_domain: {}, items: [] } },
       });
-      const result = await externalDocuments.write({ filePath: indexPath, scopePath: notebookPath, expectedContent: source, content });
-      if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-      return summarizeFolderCollectionSource(result.content);
     }
     const items = views.items.filter((item) => String(item.id) !== viewId);
-    await writeProjection(indexPath, notebookPath, source, {
+    return serializeProjectedCollectionDocument(source, {
       collection: reviseCollection(document.collection),
       dataset: document.payload.dataset,
       views: {
@@ -658,13 +668,10 @@ export async function removeCollectionView(
         items,
       },
     }, null);
-    const summary = await readCollectionSummary(indexPath, notebookPath);
-    if (!summary) throw new Error('集合文件读取失败');
-    return summary;
   }
   const parsed = parseHybridCollection(source);
   const target = parsed.payload.views.items.find((item) => item.id === viewId);
-  if (!target) return summarizeFolderCollectionSource(source);
+  if (!target) return source;
   const remaining = parsed.payload.views.items.filter((item) => item.id !== viewId);
   if (remaining.length === 0 && !(parsed.collection.placement === 'folder' && parsed.payload.file_tree)) {
     throw new Error('至少保留一个视图');
@@ -689,12 +696,7 @@ export async function removeCollectionView(
       views: { default_by_domain: defaultByDomain, items: remaining },
     },
   };
-  const content = serializeHybridCollectionDocument(next);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
-  return summarizeFolderCollectionSource(result.content);
+  return serializeHybridCollectionDocument(next);
 }
 
 function uniqueViewName(existing: string[], base: string): string {
@@ -705,21 +707,6 @@ function uniqueViewName(existing: string[], base: string): string {
 
 function viewId(): string {
   return `view_${crypto.randomUUID().replace(/-/g, '')}`;
-}
-
-async function writeProjection(
-  indexPath: string,
-  notebookPath: string,
-  source: string,
-  document: ProjectedCollectionDocument,
-  domain: CollectionDomain | null,
-): Promise<void> {
-  // v1/v2 单类型文件走通用 v2 序列化（domain 为 null 时由它自己处理）；hybrid 按域合并。
-  const content = serializeProjectedCollectionDocument(source, document, domain);
-  const result = await externalDocuments.write({
-    filePath: indexPath, scopePath: notebookPath, expectedContent: source, content,
-  });
-  if (result.status !== 'saved') throw new Error('集合文件已变化，请重试');
 }
 
 /** 兼容旧「切换集合类型」入口。v3 hybrid 的类型不再互斥：这个动作的语义是

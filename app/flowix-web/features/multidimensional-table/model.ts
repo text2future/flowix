@@ -2,6 +2,7 @@ import type { PropertyFieldConfig } from '@/lib/constants';
 import { createCollectionMetadata, createCollectionId, createUuidV7, parseCollectionDocumentV2, serializeCollectionDocumentV2, validateCollectionMetadata, reviseCollection, hasOnlyKeys, isRecord, type CollectionMetadata, type CollectionSource } from '@features/collection/model';
 export { createUuidV7 } from '@features/collection/model';
 import { isTablePropertyKind } from '@/lib/property-types';
+import { normalizeCollectionLocation } from '@features/collection/public/dataset-filter-api';
 import { TAG_COLUMN_MIN_WIDTH, TAG_COLUMN_MAX_WIDTH } from './tag-column-width';
 
 import { NOTE_CREATED_AT_FIELD_ID, NOTE_UPDATED_AT_FIELD_ID, NOTE_CALENDAR_DATE_FIELD_ID, NOTE_TAGS_FIELD_ID, NOTE_ICON_FIELD_ID, NOTE_STATUS_FIELD_ID, BUILTIN_TABLE_FIELDS, builtinPresetTableField, isBuiltinTableFieldId } from './builtin-fields';
@@ -79,7 +80,8 @@ export interface MultidimensionalTableDocument {
 
 export function tableAutoCollectConfig(document: MultidimensionalTableDocument): TableAutoCollectConfig | null {
   const filter = document.dataset.filter;
-  if (!filter) return null;
+  if (!filter) return document.dataset.source.scope === 'folder'
+    ? { condition: { path: document.dataset.source.path, match: 'all' } } : null;
   if (Array.isArray(filter.conditions) && (filter.match === 'all' || filter.match === 'any')) {
     const path = typeof filter.path === 'string' ? filter.path : null;
     return { condition: tableConditionFromRules(filter.conditions as Record<string, unknown>[], filter.match, path) };
@@ -122,8 +124,8 @@ function tableConditionFromRules(rules: Record<string, unknown>[], match: 'all' 
 }
 
 export function withTableAutoCollect(document: MultidimensionalTableDocument, config: TableAutoCollectConfig | null): MultidimensionalTableDocument {
-  if (!config) return { ...document, dataset: { ...document.dataset, filter: null } };
-  return { ...document, dataset: { ...document.dataset, filter: tableAutoCollectFilter(config.condition) } };
+  const next = { ...document, dataset: { ...document.dataset, filter: config ? tableAutoCollectFilter(config.condition) : null } };
+  return normalizeCollectionLocation(next, true);
 }
 
 export const tableAutoCollectFilter = compileNoteFilter;
@@ -331,7 +333,7 @@ export function createTableDocument(initialViewType: TableViewType = 'table', na
   const noteFieldId = `fld_${createUuidV7()}`;
   let document: MultidimensionalTableDocument = {
     collection: { ...createCollectionMetadata('table', name), placement },
-    dataset: { source: { scope: 'notebook', depth: 'descendants' },
+    dataset: { source: { scope: 'notebook' },
       schema: {
         primary_field_id: noteFieldId,
         fields: [{ id: noteFieldId, type: 'primary', property_key: 'note' }],
@@ -359,7 +361,7 @@ export function createTableDocument(initialViewType: TableViewType = 'table', na
 
 export function parseTableDocument(source: string): MultidimensionalTableDocument {
   const parsed = parseCollectionDocumentV2(source, 'table');
-  const document = validateTableDocument({ collection: parsed.collection, dataset: parsed.payload.dataset, views: parsed.payload.views });
+  const document = normalizeCollectionLocation(validateTableDocument({ collection: parsed.collection, dataset: parsed.payload.dataset, views: parsed.payload.views }), true);
   const removedTodoId = '__note_todos__';
   document.dataset.schema.field_order = document.dataset.schema.field_order.filter((id) => id !== removedTodoId);
   for (const view of document.views.items) {

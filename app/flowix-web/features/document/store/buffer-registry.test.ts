@@ -32,11 +32,11 @@ describe('document buffer change notifications', () => {
     const identity = { kind: 'md' as const, path: '/memo-capture-host.md', displayId: 'display-capture-host' };
     const mainCapture = vi.fn(() => '# main');
     const browserCapture = vi.fn(() => '# browser');
-    const unregisterMain = registerDocumentCapture(identity, mainCapture, 'main-third');
-    const unregisterBrowser = registerDocumentCapture(identity, browserCapture, 'browser-column');
+    const unregisterMain = registerDocumentCapture(identity, mainCapture, 'column-1');
+    const unregisterBrowser = registerDocumentCapture(identity, browserCapture, 'column-2');
 
     try {
-      captureLatestDocumentContent(identity, 'main-third');
+      captureLatestDocumentContent(identity, 'column-1');
       expect(mainCapture).toHaveBeenCalledOnce();
       expect(browserCapture).not.toHaveBeenCalled();
 

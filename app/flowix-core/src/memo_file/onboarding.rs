@@ -26,9 +26,8 @@ struct OnboardingPage {
 // The array order is the reverse of the final display order. The path index
 // records creation time and the UI sorts createdAt descending.
 // Expected display order (top to bottom):
-//   1. Flowix 介绍.html (plain file, created last)
-//   2. 欢迎文档
-//   3. Welcome
+//   1. 快速开始指南.html (plain file, created last)
+//   2. One welcome note, selected by the app language.
 const ONBOARDING_DOCS: &[OnboardingDoc] = &[
     OnboardingDoc {
         title: "Welcome",
@@ -40,35 +39,47 @@ const ONBOARDING_DOCS: &[OnboardingDoc] = &[
     },
 ];
 
+fn onboarding_doc_for_language(language: &str) -> &'static OnboardingDoc {
+    if language == "en-US" {
+        &ONBOARDING_DOCS[0]
+    } else {
+        &ONBOARDING_DOCS[1]
+    }
+}
+
 /// Self-contained product introduction page (CSS inlined, no external assets) so
 /// it renders offline inside the notebook's browser surface.
 const ONBOARDING_INTRO_PAGE: OnboardingPage = OnboardingPage {
-    filename: "Flowix 介绍.html",
-    body: include_str!("../../resources/welcome/Flowix 介绍.html"),
+    filename: "快速开始指南.html",
+    body: include_str!("../../resources/welcome/快速开始指南.html"),
 };
 
 impl MemoFile {
     /// Seed onboarding documents into a newly created notebook.
     ///
-    /// Called every time `create_notebook` runs, so each fresh notebook gets its
-    /// own guide documents.
+    /// Called during the initial import. The app language selects one localized
+    /// welcome note; the HTML guide is shared by both languages.
     ///
     /// Safety guard: if the target folder already contains memos (for example,
     /// the user registered a folder full of notes), this is a no-op.
-    pub fn seed_onboarding_docs(&self) -> std::io::Result<bool> {
+    pub fn seed_onboarding_docs(&self, language: &str) -> std::io::Result<bool> {
         let notebook_id = self.current_notebook_id_for_index();
         if !self.note_index_is_ready(&notebook_id)? {
             self.reconcile_note_index_blocking(&notebook_id)?;
         }
         let empty = self.note_count(&notebook_id)? == 0;
-        seed_onboarding_docs_if_empty(self, self.get_memo_base(), empty, None)
+        seed_onboarding_docs_if_empty(self, self.get_memo_base(), empty, None, language)
     }
 
     /// Seed onboarding documents into a notebook without changing the
     /// process-local current notebook. This is important for background
     /// imports: importing a newly registered notebook must not change the
     /// user's active notebook while they are browsing another one.
-    pub fn seed_onboarding_docs_for_notebook_id(&self, notebook_id: &str) -> std::io::Result<bool> {
+    pub fn seed_onboarding_docs_for_notebook_id(
+        &self,
+        notebook_id: &str,
+        language: &str,
+    ) -> std::io::Result<bool> {
         if !self.note_index_is_ready(notebook_id)? {
             self.reconcile_note_index_blocking(notebook_id)?;
         }
@@ -76,7 +87,7 @@ impl MemoFile {
         let base = self
             .memo_base_for_notebook_id_result(notebook_id)
             .map_err(std::io::Error::other)?;
-        seed_onboarding_docs_if_empty(self, base, empty, Some(notebook_id))
+        seed_onboarding_docs_if_empty(self, base, empty, Some(notebook_id), language)
     }
 }
 
@@ -85,6 +96,7 @@ fn seed_onboarding_docs_if_empty(
     base: std::path::PathBuf,
     index_is_empty: bool,
     notebook_id: Option<&str>,
+    language: &str,
 ) -> std::io::Result<bool> {
     // The index can be absent or stale when an existing folder is first
     // registered. Never create welcome files merely because the index has not
@@ -96,9 +108,8 @@ fn seed_onboarding_docs_if_empty(
     let target_notebook = notebook_id.map(str::to_owned)
         .or_else(|| memo_file.current_notebook_id_value())
         .ok_or_else(|| std::io::Error::other("no notebook selected for onboarding"))?;
-    for doc in ONBOARDING_DOCS {
-        memo_file.create_note_by_path(&target_notebook, None, doc.title, doc.body)?;
-    }
+    let doc = onboarding_doc_for_language(language);
+    memo_file.create_note_by_path(&target_notebook, None, doc.title, doc.body)?;
     // Created last so the newest file sorts to the top of the folder tree, right
     // above the welcome notes.
     seed_onboarding_intro_page(memo_file, &target_notebook, &base);
@@ -197,12 +208,12 @@ mod tests {
     fn seeds_welcome_docs_into_empty_notebook() {
         let (_dir, mf) = test_memo_file();
 
-        assert!(mf.seed_onboarding_docs().unwrap());
+        assert!(mf.seed_onboarding_docs("zh-CN").unwrap());
         let filenames = mf.list_note_paths_from_disk("nb_default").unwrap();
 
-        assert!(filenames.contains(&"Welcome.md".to_string()));
         assert!(filenames.contains(&"欢迎文档.md".to_string()));
-        assert_eq!(filenames.len(), ONBOARDING_DOCS.len());
+        assert!(!filenames.contains(&"Welcome.md".to_string()));
+        assert_eq!(filenames.len(), 1);
         assert!(!filenames.iter().any(|filename| {
             matches!(
                 filename.as_str(),
@@ -210,14 +221,8 @@ mod tests {
             )
         }));
 
-        let english = fs::read_to_string(mf.get_memo_base().join("Welcome.md")).unwrap();
         let chinese = fs::read_to_string(mf.get_memo_base().join("欢迎文档.md")).unwrap();
         // 正文不再带 H1（标题由文件名派生），开头的 YAML 属性块直接进入正文。
-        assert!(english.contains("flowix_icon: pizza"));
-        assert!(english.contains("status: 进行中"));
-        assert!(english.contains("a documentation workspace for AI agents"));
-        assert!(english.contains("## Quick Start"));
-        assert!(english.contains("https://flowix-memo.com/docs/"));
         assert!(chinese.contains("flowix_icon: carrot"));
         assert!(chinese.contains("status: 完成"));
         assert!(chinese.contains("AI Agents 的文档空间"));
@@ -256,7 +261,7 @@ mod tests {
         assert!(!intro_html.contains("rel=\"stylesheet\""));
         assert!(!filenames.contains(&ONBOARDING_INTRO_PAGE.filename.to_string()));
 
-        // 新笔记本根目录就只有三样：两份欢迎笔记 + 一个介绍网页。
+        // 新笔记本根目录只有一份当前语言的欢迎笔记和一个介绍网页。
         // 介绍页必须落在根目录（不是子文件夹），否则文件树里看不到它。
         let mut root_entries: Vec<String> = fs::read_dir(mf.get_memo_base())
             .unwrap()
@@ -269,7 +274,6 @@ mod tests {
             root_entries,
             vec![
                 ONBOARDING_INTRO_PAGE.filename.to_string(),
-                "Welcome.md".to_string(),
                 "欢迎文档.md".to_string(),
             ]
         );
@@ -279,8 +283,8 @@ mod tests {
         assert!(filenames.contains(&"欢迎文档.md".to_string()));
 
         // A second call for the same non-empty notebook is a no-op.
-        assert!(!mf.seed_onboarding_docs().unwrap());
-        assert_eq!(mf.list_note_paths_from_disk("nb_default").unwrap().len(), ONBOARDING_DOCS.len());
+        assert!(!mf.seed_onboarding_docs("zh-CN").unwrap());
+        assert_eq!(mf.list_note_paths_from_disk("nb_default").unwrap().len(), 1);
     }
 
     #[test]
@@ -289,7 +293,7 @@ mod tests {
 
         mf.create_memo("Existing Note", "# Existing Note\n", None)
             .unwrap();
-        assert!(!mf.seed_onboarding_docs().unwrap());
+        assert!(!mf.seed_onboarding_docs("zh-CN").unwrap());
         assert_eq!(mf.read_index().unwrap().memos.len(), 1);
         assert!(!mf.get_memo_base().join(ONBOARDING_INTRO_PAGE.filename).exists());
     }
@@ -300,7 +304,7 @@ mod tests {
         let existing = mf.get_memo_base().join("Existing from disk.md");
         fs::write(&existing, "# Existing from disk\n").unwrap();
 
-        assert!(!mf.seed_onboarding_docs().unwrap());
+        assert!(!mf.seed_onboarding_docs("zh-CN").unwrap());
         assert!(existing.exists());
         assert!(mf.read_index().unwrap_or_default().memos.is_empty());
         assert!(!mf.get_memo_base().join("Welcome.md").exists());
@@ -354,15 +358,18 @@ mod tests {
         });
         mf.write_notebook_configs(&configs).unwrap();
 
-        assert!(mf.seed_onboarding_docs_for_notebook_id("nb_other").unwrap());
+        assert!(mf
+            .seed_onboarding_docs_for_notebook_id("nb_other", "en-US")
+            .unwrap());
         assert_eq!(
             mf.current_notebook_id_value().as_deref(),
             Some("nb_default")
         );
         assert!(other_path.join("Welcome.md").exists());
+        assert!(!other_path.join("欢迎文档.md").exists());
         assert!(other_path.join(ONBOARDING_INTRO_PAGE.filename).exists());
         assert_eq!(mf.read_index().unwrap_or_default().memos.len(), 0);
-        assert_eq!(mf.list_note_paths_from_disk("nb_other").unwrap().len(), ONBOARDING_DOCS.len());
+        assert_eq!(mf.list_note_paths_from_disk("nb_other").unwrap().len(), 1);
         // The active notebook must stay untouched, intro page included.
         assert!(!mf.get_memo_base().join(ONBOARDING_INTRO_PAGE.filename).exists());
     }
@@ -371,36 +378,34 @@ mod tests {
     fn reseeds_after_clearing_index_for_a_fresh_notebook() {
         let (_dir, mf) = test_memo_file();
 
-        assert!(mf.seed_onboarding_docs().unwrap());
-        assert_eq!(mf.list_note_paths_from_disk("nb_default").unwrap().len(), ONBOARDING_DOCS.len());
+        assert!(mf.seed_onboarding_docs("zh-CN").unwrap());
+        assert_eq!(mf.list_note_paths_from_disk("nb_default").unwrap().len(), 1);
 
         // Simulate another new, empty notebook by clearing the memo index.
         mf.write_index(&MemoIndexFile::default()).unwrap();
-        fs::remove_file(mf.get_memo_base().join("Welcome.md")).unwrap();
         fs::remove_file(mf.get_memo_base().join("欢迎文档.md")).unwrap();
         // The path projection is authoritative for emptiness. Reconcile the
         // externally removed files before asking onboarding to seed again.
         mf.reconcile_note_index_blocking("nb_default").unwrap();
 
-        assert!(mf.seed_onboarding_docs().unwrap());
-        assert_eq!(mf.list_note_paths_from_disk("nb_default").unwrap().len(), ONBOARDING_DOCS.len());
+        assert!(mf.seed_onboarding_docs("zh-CN").unwrap());
+        assert_eq!(mf.list_note_paths_from_disk("nb_default").unwrap().len(), 1);
     }
 
     #[test]
     fn keeps_user_edits_to_the_intro_page() {
         let (_dir, mf) = test_memo_file();
-        assert!(mf.seed_onboarding_docs().unwrap());
+        assert!(mf.seed_onboarding_docs("zh-CN").unwrap());
         let intro = mf.get_memo_base().join(ONBOARDING_INTRO_PAGE.filename);
         fs::write(&intro, "<!DOCTYPE html><p>edited by user</p>").unwrap();
 
         // Clear the notes so the same folder seeds again; the existing page must
         // survive because the seed never clobbers a file it did not create.
         mf.write_index(&MemoIndexFile::default()).unwrap();
-        fs::remove_file(mf.get_memo_base().join("Welcome.md")).unwrap();
         fs::remove_file(mf.get_memo_base().join("欢迎文档.md")).unwrap();
         mf.reconcile_note_index_blocking("nb_default").unwrap();
 
-        assert!(mf.seed_onboarding_docs().unwrap());
+        assert!(mf.seed_onboarding_docs("zh-CN").unwrap());
         assert_eq!(
             fs::read_to_string(&intro).unwrap(),
             "<!DOCTYPE html><p>edited by user</p>"

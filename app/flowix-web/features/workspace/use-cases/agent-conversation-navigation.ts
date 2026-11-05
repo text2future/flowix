@@ -10,7 +10,7 @@ import { createLogger } from '@/lib/logger';
 const logger = createLogger('workspace/use-cases/agent-conversation-navigation');
 export async function selectAndOpenAgentConversation(
   instanceId: string,
-  options?: { history?: 'push' | 'skip'; destination?: 'main-third'; blankIfMissing?: true; restoreRequestId?: number },
+  options?: { history?: 'push' | 'skip'; destination?: 'column-1'; blankIfMissing?: true; restoreRequestId?: number },
 ): Promise<void> {
   const normalized = instanceId.trim();
   if (!normalized || !isRestoreRequestCurrent(options?.restoreRequestId)) return;
@@ -39,13 +39,13 @@ export async function selectAndOpenAgentConversation(
   // path serves Work-targeted opens (row menu) and workspace restore.
   const host = await openAgentTarget(normalized, {
     ...options,
-    destination: options?.destination ?? 'main-third',
+    destination: options?.destination ?? 'column-1',
   });
   const activeTarget = useWorkColumnStore.getState().navigation.target;
   if (activeTarget.kind !== 'agent-conversation' || activeTarget.instanceId !== normalized) return;
   useWorkspaceRestoreStore.getState().selectAgentConversation(
     normalized,
-    host === 'main-third',
+    host === 'column-1',
   );
 }
 

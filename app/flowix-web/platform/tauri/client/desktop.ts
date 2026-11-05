@@ -278,6 +278,8 @@ export const files = {
     invoke<boolean>('delete_folder', { folderPath, spacePath }),
   rename: (filePath: string, name: string, spacePath: string) =>
     invokeDocumentMutation<PathMutationResult>('rename_file', { filePath, name, spacePath }).then(acceptPathMutationResult),
+  copyPath: (sourcePath: string, targetDirectoryPath: string, sourceSpacePath: string, spacePath: string, copySuffix: string) =>
+    invokeDocumentMutation<string>('copy_path', { sourcePath, targetDirectoryPath, sourceSpacePath, spacePath, copySuffix }),
   move: (filePath: string, targetDirectoryPath: string, spacePath: string) =>
     invoke<PathMutationResult>('move_file', { filePath, targetDirectoryPath, spacePath }).then(acceptPathMutationResult),
   moveFolder: (folderPath: string, targetDirectoryPath: string, spacePath: string) =>

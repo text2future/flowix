@@ -1,9 +1,15 @@
-import { fromBrowserEntry } from './session-legacy-projections';
-import { useWorkspaceSessionStore, getHostForSessionRuntime, getSessionRuntimeAtHost } from './workspace-session-store';
+import { SESSION_HISTORY_LIMIT } from '../model/session-limits';
+import { sessionFor } from '../model/workspace-session';
+import { toBrowserEntry } from './session-legacy-projections';
+import { mapSessionEntries } from './session-mutations';
+import type { SessionNavigationEntry } from '../model/session-navigation';
+import { emptySessionTransaction } from '../model/session-navigation';
+import type { WorkspaceSurfaceOpenTarget } from '../model/surface-target';
+import { useWorkspaceSessionStore } from './workspace-session-store';
 import { resolveWorkspaceFileSurfaceKind, workspaceSurfaceSupportsHost } from '../surface-registry';
 import { createWorkspaceWebRuntime, navigateWorkspaceWebRuntime, moveWorkspaceWebHistory, reloadWorkspaceWebRuntime } from '../model/web-navigation';
-import type { FileBrowserContext, FileBrowserTarget } from './file-browser-target';
-import { createSecondaryNavigationFacade } from './session-compatibility';
+import type { FileBrowserTarget } from './file-browser-target';
+import { createBrowserColumnView } from './session-read-models';
 import { canonicalPath, canonicalDirectoryPath, isPathInDirectory, parentDirectoryPath } from '@/lib/path';
 import { displayTitleFromFilename } from '@/lib/utils';
 import { canonicalUrl } from '../model/surface-identity';
@@ -22,15 +28,15 @@ export { browserColumnTargetIdentity, browserColumnTargetKey } from '../model/br
 /** Opening in Work uses the same public support declaration as normal navigation. */
 export function canOpenBrowserColumnTargetInWorkColumn(target: BrowserColumnTarget): boolean {
   if (target.kind === 'file-browser') {
-    if (!target.activeFilePath) return workspaceSurfaceSupportsHost('file-browser', 'main-third');
+    if (!target.activeFilePath) return workspaceSurfaceSupportsHost('file-browser', 'column-1');
     const fileKind = target.collectionType === 'table' ? 'table'
       : target.collectionType === 'media_library' ? 'media-library'
       : target.collectionType === 'work_documents' ? 'work-documents'
       : resolveWorkspaceFileSurfaceKind(target.activeFilePath);
-    return workspaceSurfaceSupportsHost(`file-${fileKind}`, 'main-third');
+    return workspaceSurfaceSupportsHost(`file-${fileKind}`, 'column-1');
   }
   return workspaceSurfaceSupportsHost(target.kind === 'agent_conversation' ? 'agent-conversation'
-    : target.kind === 'folder-collection' ? 'collection' : target.kind, 'main-third');
+    : target.kind === 'folder-collection' ? 'collection' : target.kind, 'column-1');
 }
 
 export type { BrowserColumnEntry } from '../model/browser-column-session';
@@ -38,7 +44,7 @@ export type { WorkspaceWebRuntime as BrowserColumnWebRuntime } from '../model/su
 
 interface BrowserColumnState extends BrowserColumnSessionState {
   webRuntime: BrowserColumnWebRuntime | null;
-  updateEntries: (transform: (entry: BrowserColumnEntry) => BrowserColumnEntry | null) => void;
+  updateEntries: (transform: (entry: SessionNavigationEntry) => SessionNavigationEntry | null) => void;
   setVisible: (visible: boolean) => void;
   setSplitRatio: (ratio: number) => void;
   openContent: (entry: BrowserColumnEntry, options?: { history?: 'push' | 'skip' }) => string;
@@ -46,7 +52,7 @@ interface BrowserColumnState extends BrowserColumnSessionState {
   clearContent: () => void;
   clearSession: () => void;
   restoreHistoryEntry: (entry: BrowserColumnEntry, direction: 'back' | 'forward') => void;
-  updateFileBrowserContext: (surfaceId: string, patch: Partial<FileBrowserContext>) => void;
+  updateFileBrowserContext: (surfaceId: string, patch: Partial<Omit<FileBrowserTarget, 'kind'>>) => void;
   selectFileBrowserFile: (surfaceId: string, path: string | null, display?: FileBrowserTarget['collectionDisplay'], type?: FileBrowserTarget['collectionType'], reason?: string) => void;
   setFileBrowserTreeVisible: (surfaceId: string, visible: boolean) => void;
   setFileBrowserTreeWidth: (surfaceId: string, width: number) => void;
@@ -63,197 +69,201 @@ interface BrowserColumnState extends BrowserColumnSessionState {
   reset: () => void;
 }
 
-function targetPaths(target: BrowserColumnTarget): string[] {
-  if (target.kind === 'file-browser') return [target.activeFilePath, target.folderPath].filter((path): path is string => !!path);
-  if (target.kind === 'media') return [target.filePath];
-  if (target.kind === 'folder-collection') return [target.folderPath];
-  return [];
+function targetPaths(target: WorkspaceSurfaceOpenTarget): string[] {
+  switch (target.kind) {
+    case 'file-browser': return [target.activeFilePath, target.folderPath].filter((path): path is string => !!path);
+    case 'external': return [target.path];
+    case 'media': case 'table': case 'media-library': case 'collection': return [target.filePath];
+    case 'folder-collection': return [target.folderPath];
+    default: return [];
+  }
 }
-
-function usesPath(entry: BrowserColumnEntry, path: string): boolean {
+function usesPath(entry: SessionNavigationEntry, path: string): boolean {
   return targetPaths(entry.target).some((candidate) => canonicalPath(candidate) === path);
 }
-
 function releaseBrowserFocus(): void {
   const focus = useWorkspaceFocusStore.getState();
-  if (focus.focusedHostId === getSessionRuntimeAtHost('browser-column')) focus.focusHost(getSessionRuntimeAtHost('main-third'));
+  const left = useWorkspaceSessionStore.getState().placement[0];
+  if (focus.focusedColumnId !== left) focus.focusColumn(left);
 }
-
 export function getBrowserColumnEntries(state: BrowserColumnSessionState): BrowserColumnEntry[] {
   return [...(state.current ? [state.current] : []), ...state.backStack, ...state.forwardStack];
 }
-
-/** Transform current content and both histories in one atomic store update. */
-function transformEntries(
-  state: BrowserColumnState,
-  transform: (entry: BrowserColumnEntry) => BrowserColumnEntry | null,
-): Partial<BrowserColumnState> {
-  const current = state.current ? transform(state.current) : null;
-  if (state.current && !current) releaseBrowserFocus();
-  const mapStack = (stack: BrowserColumnEntry[]) => {
-    const next = stack.flatMap((entry) => { const value = transform(entry); return value ? [value] : []; });
-    return next.length === stack.length && next.every((entry, index) => entry === stack[index]) ? stack : next;
-  };
-  const backStack = mapStack(state.backStack);
-  const forwardStack = mapStack(state.forwardStack);
-  if (current === state.current && backStack === state.backStack && forwardStack === state.forwardStack) return state;
-  return {
-    current, backStack, forwardStack,
-    visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? state.visible && current !== null : state.visible,
-    webRuntime: current?.target.kind === 'web' ? state.webRuntime : null,
-  };
+function session() { return sessionFor(useWorkspaceSessionStore.getState(), 'column-2'); }
+function updateEntries(transform: (entry: SessionNavigationEntry) => SessionNavigationEntry | null) {
+  const before = session().navigation.current;
+  mapSessionEntries(session().id, transform);
+  if (before && !session().navigation.current) {
+    if (useWorkspaceSessionStore.getState().placement[1] === 'column-2') useWorkspaceSessionStore.getState().setBrowserLayout({ visible: false });
+    releaseBrowserFocus();
+  }
+}
+function updateContext(surfaceId: string, patch: Partial<Omit<FileBrowserTarget, 'kind'>>) {
+  useWorkspaceSessionStore.getState().updateSession(session().id, (currentSession) => {
+    const entry = currentSession.navigation.current;
+    if (entry?.id !== surfaceId) return currentSession;
+    let target = entry.target;
+    if (target.kind === 'file-browser') target = { ...target, ...patch };
+    else if (target.kind === 'external') {
+      const view = toBrowserEntry(entry).target;
+      if (view.kind !== 'file-browser') return currentSession;
+      const context = { ...view, ...patch };
+      target = { ...target, scopePath: context.scopePath, fileBrowser: {
+        folderPath: context.folderPath, notebookId: context.notebookId, scopePath: context.scopePath,
+        fileTreeVisible: context.fileTreeVisible, fileTreeWidth: context.fileTreeWidth,
+        restoreNotebookContext: context.restoreNotebookContext, notebookContextPath: context.notebookContextPath,
+      } };
+    } else if (target.kind === 'collection') {
+      target = { ...target, ...(patch.collectionDisplay ? { viewId: patch.collectionDisplay.viewId } : {}),
+        ...('collectionUnavailableReason' in patch ? { unavailableReason: patch.collectionUnavailableReason } : {}) };
+    } else return currentSession;
+    return { ...currentSession, navigation: { ...currentSession.navigation, current: { ...entry, target } } };
+  });
+}
+function changeWeb(id: string, change: (runtime: BrowserColumnWebRuntime) => BrowserColumnWebRuntime | null): boolean {
+  const owner = session();
+  const entry = owner.navigation.current;
+  if (entry?.id !== id || entry.target.kind !== 'web') return false;
+  const runtime = change(owner.viewStates[id]?.webRuntime ?? createWorkspaceWebRuntime(entry.target.url));
+  if (!runtime) return false;
+  useWorkspaceSessionStore.getState().updateSession(owner.id, (current) => ({ ...current,
+    navigation: { ...current.navigation, current: { ...entry, target: { kind: 'web', url: runtime.currentUrl } } },
+    viewStates: { ...current.viewStates, [id]: { ...current.viewStates[id], webRuntime: runtime } },
+  }));
+  return true;
+}
+function clearSession(history: boolean) {
+  useWorkspaceSessionStore.getState().updateSession(session().id, (current) => ({ ...current,
+    navigation: { ...current.navigation, current: null,
+      backStack: history ? [] : current.navigation.backStack,
+      forwardStack: history ? [] : current.navigation.forwardStack,
+      transaction: { ...emptySessionTransaction(), requestId: current.navigation.transaction.requestId + 1 } },
+  }));
+  if (useWorkspaceSessionStore.getState().placement[1] === 'column-2') useWorkspaceSessionStore.getState().setBrowserLayout({ visible: false });
+  releaseBrowserFocus();
+}
+function emptyFileBrowser(entry: SessionNavigationEntry, folderPath?: string | null): SessionNavigationEntry | null {
+  const view = toBrowserEntry(entry).target;
+  if (view.kind !== 'file-browser') return null;
+  const folder = folderPath === undefined ? view.folderPath : folderPath;
+  return { ...entry, title: displayTitleFromFilename(folder?.split(/[\\/]/).filter(Boolean).pop() ?? ''),
+    target: { ...view, folderPath: folder, activeFilePath: null,
+      collectionDisplay: undefined, collectionType: undefined, collectionUnavailableReason: undefined } };
 }
 
-const emptySession = (): BrowserColumnSessionState => ({
+export const useBrowserColumnStore = createBrowserColumnView<BrowserColumnState>({
   visible: false, splitRatio: BROWSER_COLUMN_DEFAULT_SPLIT_RATIO,
-  current: null, backStack: [], forwardStack: [],
-});
-
-export const useBrowserColumnStore = createSecondaryNavigationFacade<BrowserColumnState>((set, get) => {
-    const updateEntries = (transform: (entry: BrowserColumnEntry) => BrowserColumnEntry | null) => set((state) => transformEntries(state, transform));
-    const updateContext = (surfaceId: string, patch: Partial<FileBrowserContext>) => set((state) => {
-      const entry = state.current;
-      if (entry?.id !== surfaceId || entry.target.kind !== 'file-browser') return state;
-      return { current: { ...entry, target: { ...entry.target, ...patch } } };
+  current: null, backStack: [], forwardStack: [], webRuntime: null,
+  updateEntries,
+  setVisible: (visible) => {
+    if (visible) useWorkspaceFocusStore.getState().focusColumn(useWorkspaceSessionStore.getState().placement[1]); else releaseBrowserFocus();
+    useWorkspaceSessionStore.getState().setBrowserLayout({ visible });
+  },
+  setSplitRatio: (ratio) => useWorkspaceSessionStore.getState().setBrowserLayout({ splitRatio: clampSplitRatio(ratio) }),
+  openContent: (incoming, options) => {
+    const state = useBrowserColumnStore.getState();
+    const current = state.current;
+    const same = current && browserColumnTargetKey(current.target) === browserColumnTargetKey(incoming.target);
+    const input = same && current.target.kind === 'file-browser' && incoming.target.kind === 'file-browser'
+      ? { ...incoming.target, fileTreeVisible: current.target.fileTreeVisible, fileTreeWidth: current.target.fileTreeWidth }
+      : incoming.target;
+    const occupied = [current, ...state.backStack, ...state.forwardStack].some((entry) => entry?.id === incoming.id);
+    const id = same ? current.id : options?.history === 'skip' ? incoming.id : occupied ? `browser:${crypto.randomUUID()}` : incoming.id;
+    // Only the explicit open request accepts the old agent discriminant.
+    const target = input.kind === 'agent_conversation' ? { kind: 'agent-conversation' as const, instanceId: input.instanceId } : input;
+    useWorkspaceSessionStore.getState().commitTarget(session().id, target, {
+      entryId: id, title: incoming.title, icon: incoming.icon, history: options?.history ?? 'push',
     });
-    const changeWeb = (surfaceId: string, change: (runtime: BrowserColumnWebRuntime) => BrowserColumnWebRuntime | null): boolean => {
-      const state = get();
-      const entry = state.current;
-      if (entry?.id !== surfaceId || entry.target.kind !== 'web') return false;
-      const runtime = change(state.webRuntime ?? createWorkspaceWebRuntime(entry.target.url));
-      if (!runtime) return false;
-      set({ current: runtime.currentUrl === entry.target.url ? entry : { ...entry, target: { ...entry.target, url: runtime.currentUrl } }, webRuntime: runtime });
-      return true;
-    };
-    return {
-      ...emptySession(),
-      webRuntime: null,
-      updateEntries,
-      setVisible: (visible) => {
-        if (visible) useWorkspaceFocusStore.getState().focusHost(getSessionRuntimeAtHost('browser-column'));
-        else releaseBrowserFocus();
-        set({ visible });
-      },
-      setSplitRatio: (ratio) => set({ splitRatio: clampSplitRatio(ratio) }),
-      openContent: (incoming, options) => {
-        const state = get();
-        const current = state.current;
-        const same = current && browserColumnTargetKey(current.target) === browserColumnTargetKey(incoming.target);
-        const target = same && current.target.kind === 'file-browser' && incoming.target.kind === 'file-browser'
-          ? { ...incoming.target, fileTreeVisible: current.target.fileTreeVisible, fileTreeWidth: current.target.fileTreeWidth }
-          : incoming.target;
-        const occupied = [current, ...state.backStack, ...state.forwardStack].some((entry) => entry?.id === incoming.id);
-        const entry = { ...incoming, target, id: same ? current.id : options?.history === 'skip' ? incoming.id : occupied ? `browser:${crypto.randomUUID()}` : incoming.id };
-        const canonical = fromBrowserEntry(entry);
-        useWorkspaceSessionStore.getState().commitTarget('secondary-session', canonical.target, {
-          entryId: entry.id, title: entry.title, icon: entry.icon, history: options?.history ?? 'push',
-        });
-        if (getHostForSessionRuntime('browser-column') === 'browser-column') {
-          useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true });
-        }
-        useWorkspaceFocusStore.getState().focusHost('browser-column');
-        return useWorkspaceSessionStore.getState().sessions['secondary-session'].navigation.current!.id;
-      },
-      focusContent: (surfaceId) => {
-        if (get().current?.id !== surfaceId) return;
-        set({ visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? true : get().visible });
-        useWorkspaceFocusStore.getState().focusHost('browser-column');
-      },
-      clearContent: () => {
-        set({ current: null, visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? false : get().visible, webRuntime: null });
-        releaseBrowserFocus();
-      },
-      clearSession: () => {
-        set({ current: null, backStack: [], forwardStack: [], visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? false : get().visible, webRuntime: null });
-        releaseBrowserFocus();
-      },
-      restoreHistoryEntry: (entry, direction) => {
-        const state = get();
-        const current = state.current;
-        set({ current: entry, visible: getHostForSessionRuntime('browser-column') === 'browser-column' ? true : state.visible, webRuntime: null,
-          backStack: direction === 'back' ? state.backStack.slice(0, -1) : current ? [...state.backStack, current].slice(-100) : state.backStack,
-          forwardStack: direction === 'forward' ? state.forwardStack.slice(0, -1) : current ? [...state.forwardStack, current].slice(-100) : state.forwardStack });
-        useWorkspaceFocusStore.getState().focusHost('browser-column');
-      },
-      updateFileBrowserContext: updateContext,
-      setFileBrowserTreeVisible: (id, visible) => updateContext(id, { fileTreeVisible: visible }),
-      setFileBrowserTreeWidth: (id, width) => updateContext(id, { fileTreeWidth: clampFileTreeWidth(width) }),
-      selectFileBrowserFile: (id, path, display, type, reason) => {
-        const entry = get().current;
-        if (entry?.id !== id || entry.target.kind !== 'file-browser') return;
-        const name = (path ?? entry.target.folderPath)?.split(/[\\/]/).filter(Boolean).pop() ?? '';
-        get().openContent({ ...entry, title: displayTitleFromFilename(name), target: { ...entry.target,
-          activeFilePath: path, collectionDisplay: display, collectionType: type, collectionUnavailableReason: reason } });
-      },
-      replaceExternalPath: (previousPath, path) => {
-        const previous = canonicalPath(previousPath);
-        const next = canonicalPath(path);
-        const previousParent = previous.replace(/\/[^/]*$/, '');
-        const nextParent = next.replace(/\/[^/]*$/, '');
-        set((state) => transformEntries(state, (entry) => {
-          const target = entry.target;
-          if (target.kind === 'file-browser' && target.activeFilePath && canonicalPath(target.activeFilePath) === previous) {
-            return { ...entry, title: displayTitleFromFilename(next.split('/').pop() ?? next), target: { ...target, activeFilePath: next,
-              folderPath: target.folderPath && canonicalPath(target.folderPath) === previousParent ? nextParent : target.folderPath } };
-          }
-          if (target.kind === 'media' && canonicalPath(target.filePath) === previous) {
-            return { ...entry, title: next.split('/').pop() ?? next, target: { ...target, filePath: next } };
-          }
-          return entry;
-        }));
-      },
-      clearExternalPath: (path) => {
-        const wanted = canonicalPath(path);
-        set((state) => ({
-          ...transformEntries(state, (entry) => {
-            if (!usesPath(entry, wanted)) return entry;
-            const target = entry.target;
-            if (entry !== state.current || target.kind !== 'file-browser') return null;
-            return { ...entry, title: displayTitleFromFilename(target.folderPath?.split(/[\\/]/).filter(Boolean).pop() ?? ''), target: { ...target,
-              activeFilePath: null, collectionDisplay: undefined, collectionType: undefined, collectionUnavailableReason: undefined } };
-          }),
-        }));
-      },
-      clearTargetsUnderDirectory: (directoryPath) => {
-        const directory = canonicalDirectoryPath(directoryPath);
-        set((state) => transformEntries(state, (entry) => {
-          if (!targetPaths(entry.target).some((path) => isPathInDirectory(path, directory))) return entry;
-          const target = entry.target;
-          if (entry !== state.current || target.kind !== 'file-browser') return null;
-          const folderRemoved = !!target.folderPath && isPathInDirectory(target.folderPath, directory);
-          const fileRemoved = !!target.activeFilePath && isPathInDirectory(target.activeFilePath, directory);
-          const folderPath = folderRemoved ? parentDirectoryPath(directory, directory) : target.folderPath;
-          return { ...entry, title: displayTitleFromFilename(folderPath?.split(/[\\/]/).filter(Boolean).pop() ?? ''), target: { ...target,
-            folderPath, activeFilePath: fileRemoved ? null : target.activeFilePath,
-            collectionDisplay: fileRemoved ? undefined : target.collectionDisplay,
-            collectionType: fileRemoved ? undefined : target.collectionType,
-            collectionUnavailableReason: fileRemoved ? undefined : target.collectionUnavailableReason } };
-        }));
-      },
-      removeContentByFilePath: (path) => {
-        const wanted = canonicalPath(path);
-        if (!wanted) return [];
-        const current = get().current;
-        const removed = current && usesPath(current, wanted) ? [current.id] : [];
-        set((state) => transformEntries(state, (entry) => usesPath(entry, wanted) ? null : entry));
-        return removed;
-      },
-      updateContentMetadata: (id, metadata) => set((state) => {
-        const entry = state.current;
-        if (entry?.id !== id || Object.entries(metadata).every(([key, value]) => entry[key as keyof typeof metadata] === value)) return state;
-        return { current: { ...entry, ...metadata } };
-      }),
-      setWebRuntime: (id, runtime) => { changeWeb(id, () => runtime); },
-      navigateWeb: (id, url) => {
-        const normalized = canonicalUrl(url);
-        return normalized ? changeWeb(id, (runtime) => navigateWorkspaceWebRuntime(runtime, normalized)) : false;
-      },
-      goBackWeb: (id) => changeWeb(id, (runtime) => moveWorkspaceWebHistory(runtime, -1)),
-      goForwardWeb: (id) => changeWeb(id, (runtime) => moveWorkspaceWebHistory(runtime, 1)),
-      reloadWeb: (id) => changeWeb(id, reloadWorkspaceWebRuntime),
-      reset: () => {
-        useWorkspaceFocusStore.getState().reset();
-        set({ ...emptySession(), webRuntime: null });
-      },
-    };
-  });
+    if (useWorkspaceSessionStore.getState().placement[1] === 'column-2') useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true });
+    useWorkspaceFocusStore.getState().focusColumn('column-2');
+    return session().navigation.current!.id;
+  },
+  focusContent: (id) => {
+    if (session().navigation.current?.id !== id) return;
+    if (useWorkspaceSessionStore.getState().placement[1] === 'column-2') useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true });
+    useWorkspaceFocusStore.getState().focusColumn('column-2');
+  },
+  clearContent: () => clearSession(false),
+  clearSession: () => clearSession(true),
+  restoreHistoryEntry: (entry, direction) => {
+    useWorkspaceSessionStore.getState().updateSession(session().id, (current) => {
+      const navigation = current.navigation;
+      const retained = [...navigation.backStack, ...navigation.forwardStack].find((item) => item.id === entry.id);
+      if (!retained || retained.target.kind === 'collection-reference') return current;
+      const append = (stack: SessionNavigationEntry[]) => navigation.current ? [...stack, navigation.current].slice(-SESSION_HISTORY_LIMIT) : stack;
+      return { ...current, navigation: { current: retained as typeof navigation.current,
+        backStack: direction === 'back' ? navigation.backStack.slice(0, -1) : append(navigation.backStack),
+        forwardStack: direction === 'forward' ? navigation.forwardStack.slice(0, -1) : append(navigation.forwardStack),
+        transaction: { ...emptySessionTransaction(), phase: 'committed', requestId: navigation.transaction.requestId + 1 } } };
+    });
+    if (useWorkspaceSessionStore.getState().placement[1] === 'column-2') useWorkspaceSessionStore.getState().setBrowserLayout({ visible: true });
+    useWorkspaceFocusStore.getState().focusColumn('column-2');
+  },
+  updateFileBrowserContext: updateContext,
+  setFileBrowserTreeVisible: (id, visible) => updateContext(id, { fileTreeVisible: visible }),
+  setFileBrowserTreeWidth: (id, width) => updateContext(id, { fileTreeWidth: clampFileTreeWidth(width) }),
+  selectFileBrowserFile: (id, path, display, type, reason) => {
+    const entry = useBrowserColumnStore.getState().current;
+    if (entry?.id !== id || entry.target.kind !== 'file-browser') return;
+    const name = (path ?? entry.target.folderPath)?.split(/[\\/]/).filter(Boolean).pop() ?? '';
+    useBrowserColumnStore.getState().openContent({ ...entry, title: displayTitleFromFilename(name), target: { ...entry.target,
+      activeFilePath: path, collectionDisplay: display, collectionType: type, collectionUnavailableReason: reason } });
+  },
+  replaceExternalPath: (previousPath, path) => {
+    const previous = canonicalPath(previousPath), next = canonicalPath(path);
+    const previousParent = previous.replace(/\/[^/]*$/, ''), nextParent = next.replace(/\/[^/]*$/, '');
+    updateEntries((entry) => {
+      const target = entry.target;
+      if (target.kind === 'external' && canonicalPath(target.path) === previous) return { ...entry,
+        title: displayTitleFromFilename(next.split('/').pop() ?? next), target: { ...target, path: next,
+          fileBrowser: target.fileBrowser ? { ...target.fileBrowser, folderPath: target.fileBrowser.folderPath && canonicalPath(target.fileBrowser.folderPath) === previousParent ? nextParent : target.fileBrowser.folderPath } : undefined } };
+      if (target.kind === 'file-browser' && target.activeFilePath && canonicalPath(target.activeFilePath) === previous) return { ...entry,
+        title: displayTitleFromFilename(next.split('/').pop() ?? next), target: { ...target, activeFilePath: next,
+          folderPath: target.folderPath && canonicalPath(target.folderPath) === previousParent ? nextParent : target.folderPath } };
+      if ((target.kind === 'media' || target.kind === 'table' || target.kind === 'media-library' || target.kind === 'collection') && canonicalPath(target.filePath) === previous)
+        return { ...entry, title: displayTitleFromFilename(next.split('/').pop() ?? next), target: { ...target, filePath: next } };
+      return entry;
+    });
+  },
+  clearExternalPath: (path) => {
+    const wanted = canonicalPath(path), currentId = session().navigation.current?.id;
+    updateEntries((entry) => !usesPath(entry, wanted) ? entry : entry.id === currentId ? emptyFileBrowser(entry) : null);
+  },
+  clearTargetsUnderDirectory: (directoryPath) => {
+    const directory = canonicalDirectoryPath(directoryPath), currentId = session().navigation.current?.id;
+    updateEntries((entry) => {
+      if (!targetPaths(entry.target).some((path) => isPathInDirectory(path, directory))) return entry;
+      if (entry.id !== currentId) return null;
+      const view = toBrowserEntry(entry).target;
+      if (view.kind !== 'file-browser') return null;
+      const folderRemoved = !!view.folderPath && isPathInDirectory(view.folderPath, directory);
+      const fileRemoved = !!view.activeFilePath && isPathInDirectory(view.activeFilePath, directory);
+      const folderPath = folderRemoved ? parentDirectoryPath(directory, directory) : view.folderPath;
+      return fileRemoved ? emptyFileBrowser(entry, folderPath) : { ...entry, target: { ...view, folderPath } };
+    });
+  },
+  removeContentByFilePath: (path) => {
+    const wanted = canonicalPath(path);
+    if (!wanted) return [];
+    const current = session().navigation.current;
+    const removed = current && usesPath(current, wanted) ? [current.id] : [];
+    updateEntries((entry) => usesPath(entry, wanted) ? null : entry);
+    return removed;
+  },
+  updateContentMetadata: (id, metadata) => {
+    useWorkspaceSessionStore.getState().updateSession(session().id, (current) => {
+      const entry = current.navigation.current;
+      if (entry?.id !== id || Object.entries(metadata).every(([key, value]) => entry[key as keyof typeof metadata] === value)) return current;
+      return { ...current, navigation: { ...current.navigation, current: { ...entry, ...metadata } } };
+    });
+  },
+  setWebRuntime: (id, runtime) => { changeWeb(id, () => runtime); },
+  navigateWeb: (id, url) => { const normalized = canonicalUrl(url); return normalized ? changeWeb(id, (runtime) => navigateWorkspaceWebRuntime(runtime, normalized)) : false; },
+  goBackWeb: (id) => changeWeb(id, (runtime) => moveWorkspaceWebHistory(runtime, -1)),
+  goForwardWeb: (id) => changeWeb(id, (runtime) => moveWorkspaceWebHistory(runtime, 1)),
+  reloadWeb: (id) => changeWeb(id, reloadWorkspaceWebRuntime),
+  reset: () => {
+    useWorkspaceFocusStore.getState().reset(); clearSession(true);
+    useWorkspaceSessionStore.getState().setBrowserLayout({ splitRatio: BROWSER_COLUMN_DEFAULT_SPLIT_RATIO });
+  },
+});

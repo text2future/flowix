@@ -31,6 +31,7 @@ mod local_migrations;
 mod media_resource;
 mod migration;
 mod note_index;
+mod note_links;
 mod notebook;
 mod notebook_registry;
 mod onboarding;
@@ -46,6 +47,7 @@ pub mod types;
 mod versions;
 
 pub(crate) use note_index::NoteWriteResult;
+pub use note_links::{NoteLink, NoteLinkPage, NoteLinkStatus, NoteLinkBatch};
 pub use note_index::{
     NoteEntry, NoteIndexReconcileReport, NoteSearchHit, NoteSummary, NoteTitleCondition,
     NoteTitleFilter, NoteTreeMetadata, NoteWriteOutcome,

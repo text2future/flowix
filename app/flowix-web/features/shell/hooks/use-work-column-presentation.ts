@@ -61,8 +61,6 @@ export function useWorkColumnPresentation({
   const workRuntimePresentation = useWorkspaceSurfacePresentation(workSurfaceViewId);
   const workSurfaceBlockingLoading = workRuntimePresentation.state?.status === 'loading'
     && workRuntimePresentation.state.loadingMode === 'blocking';
-  const workSurfaceFailed = workRuntimePresentation.state?.status === 'error'
-    || workRuntimePresentation.state?.status === 'unavailable';
   const effectiveWorkPresentation = resolveWorkColumnRuntimePresentation(
     workColumnPresentation,
     workRuntimePresentation,
@@ -72,7 +70,6 @@ export function useWorkColumnPresentation({
     workColumnPresentation,
     workRuntimePresentation,
     workSurfaceBlockingLoading,
-    workSurfaceFailed,
     effectiveWorkPresentation,
     workCapabilities: effectiveWorkPresentation.capabilities,
     workHeaderStyle: effectiveWorkPresentation.chrome,

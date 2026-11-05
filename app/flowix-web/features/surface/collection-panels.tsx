@@ -34,6 +34,7 @@ export function CollectionPanels({ tabs, domains, filesRoot, notebookId, noteboo
     {tabs.showFiles ? (
       <div className={tabs.active === 'files' ? 'flex flex-col' : 'hidden'}>
         <CollectionFilesTab rootPath={filesRoot} notebookId={notebookId} notebookPath={notebookPath} collectionId={expectedCollectionId} host={host}
+          editable={editable}
           reportPresentation={tabs.active === 'files' ? reportPresentation : undefined} />
       </div>
     ) : null}

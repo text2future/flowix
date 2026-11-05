@@ -1,6 +1,7 @@
+import { updateWorkColumnTargets } from '../store/session-mutations';
 import { canonicalPath } from '@/lib/path';
 import { findFileDisplayId, listFileDisplayIdentities, suspendFileDisplayReconciliation } from '@/lib/file-display-registry';
-import { getWorkspaceDocumentState, getWorkspaceDocumentHistory, replaceWorkspaceDocumentHistoryPath } from '@features/document/public/workspace-api';
+import { rebaseWorkspaceDocumentLinkSources, getWorkspaceDocumentState, getWorkspaceDocumentHistory, replaceWorkspaceDocumentHistoryPath } from '@features/document/public/workspace-api';
 import { getWorkspaceMemoState, updateNoteLinksAfterMove } from '@features/memo/public/workspace-api';
 import { getBrowserColumnEntries, useBrowserColumnStore } from '../store/browser-column-store';
 import { useWorkColumnStore } from '../store/work-column-store';
@@ -9,13 +10,13 @@ import { replaceExternalDocumentPath } from './workspace-navigation';
 import { rebaseWorkspaceTargetPath } from '../model/path-move';
 
 /** Apply only a confirmed filesystem rename pair, never a guessed path match. */
-export function applyNotebookPathMove(input: {
+export async function applyNotebookPathMove(input: {
   notebookId: string;
   notebookPath: string;
   previousRelativePath: string;
   relativePath: string;
   directory: boolean;
-}): void {
+}): Promise<void> {
   const root = canonicalPath(input.notebookPath).replace(/\/+$/, '');
   const previousRelative = canonicalPath(input.previousRelativePath).replace(/^\/+|\/+$/g, '');
   const nextRelative = canonicalPath(input.relativePath).replace(/^\/+|\/+$/g, '');
@@ -23,9 +24,8 @@ export function applyNotebookPathMove(input: {
     || previousRelative.split('/').includes('..') || nextRelative.split('/').includes('..')) return;
   const previous = `${root}/${previousRelative}`;
   const next = `${root}/${nextRelative}`;
-  if (input.directory || /\.(?:md|markdown)$/i.test(previous)) {
-    updateNoteLinksAfterMove(previous, next, input.directory);
-  }
+  const linkMove = updateNoteLinksAfterMove(previous, next, input.directory);
+  if (linkMove) await rebaseWorkspaceDocumentLinkSources(previous, next, input.directory, linkMove);
   const movedPath = (candidate: string): string | null => {
     const path = canonicalPath(candidate);
     if (path === previous) return next;
@@ -64,7 +64,7 @@ export function applyNotebookPathMove(input: {
     const pendingTarget = navigation.pendingTarget ? rebase(navigation.pendingTarget) : null;
     const previousTarget = navigation.previousTarget ? rebase(navigation.previousTarget) : null;
     if (target !== navigation.target || pendingTarget !== navigation.pendingTarget || previousTarget !== navigation.previousTarget) {
-      useWorkColumnStore.setState({ navigation: { ...navigation, target, pendingTarget, previousTarget } });
+      updateWorkColumnTargets(rebase);
     }
     const browser = useBrowserColumnStore.getState();
     browser.updateEntries((tab) => {

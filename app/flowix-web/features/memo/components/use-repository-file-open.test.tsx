@@ -48,7 +48,7 @@ describe('repository file open placement', () => {
     handlers.openRepositoryFileInBrowser('/repo/notes/a.md', '/repo');
 
     expect(openWorkspaceSurface).toHaveBeenCalledWith({
-      host: 'browser-column',
+      index: 1,
       target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
     });
   });
@@ -59,7 +59,7 @@ describe('repository file open placement', () => {
     handlers.openRepositoryFileInWork('/repo/notes/a.md', '/repo');
 
     expect(openWorkspaceSurface).toHaveBeenCalledWith({
-      host: 'main-third',
+      index: 0,
       target: { kind: 'external', path: '/repo/notes/a.md', scopePath: '/repo', transitionId: null },
     });
   });

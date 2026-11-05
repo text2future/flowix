@@ -1,4 +1,6 @@
-﻿import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
+import { getSessionId } from '../workspace/public/session-api';
+import { sessionFor } from '../workspace/model/workspace-session';
+import { SessionViewRecoveryContext } from '@features/workspace/public/session-view-state-api';
 import { useWorkspaceSessionStore } from '@features/workspace/store/workspace-session-store';
 import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -58,16 +60,15 @@ describe('CodeEditor', () => {
 
   it('restores selection after destroying and recreating a session editor', async () => {
     useWorkspaceSessionStore.getState().reset();
-    useWorkspaceSessionStore.getState().commitTarget('primary-session', { kind: 'external', path: '/project/test.txt', scopePath: '/project', transitionId: null });
-    const entryId = useWorkspaceSessionStore.getState().sessions['primary-session'].navigation.current!.id;
-    const renderEditor = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 'primary-session', entryId }}>
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), { kind: 'external', path: '/project/test.txt', scopePath: '/project', transitionId: null });
+    const entryId = sessionFor(useWorkspaceSessionStore.getState(), 0).navigation.current!.id;
+    const renderEditor = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 0, entryId }}>
       <CodeEditor filePath="/project/test.txt" content="hello world" onChange={vi.fn()} />
     </SessionViewRecoveryContext.Provider>;
     await act(async () => root.render(renderEditor()));
     const first = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!)!;
     act(() => first.dispatch({ selection: { anchor: 8, head: 2 } }));
     await act(async () => root.render(null));
-    useWorkspaceSessionStore.getState().swap();
     await act(async () => root.render(renderEditor()));
     const next = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!)!;
     expect(next).not.toBe(first);

@@ -1,3 +1,5 @@
+import { getSessionId } from '../store/workspace-session-store';
+import { sessionFor } from '../model/workspace-session';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it } from 'vitest';
@@ -12,15 +14,15 @@ let top: number;
 function Harness() { useSessionScrollRecovery(element, 'page'); return null; }
 beforeEach(() => {
   useWorkspaceSessionStore.getState().reset();
-  useWorkspaceSessionStore.getState().commitTarget('primary-session', { kind: 'web', url: 'https://example.com/' });
-  entryId = useWorkspaceSessionStore.getState().sessions['primary-session'].navigation.current!.id;
+  useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), { kind: 'web', url: 'https://example.com/' });
+  entryId = sessionFor(useWorkspaceSessionStore.getState(), 0).navigation.current!.id;
   root = createRoot(document.createElement('div'));
   element = document.createElement('div'); max = 0; top = 0;
   Object.defineProperty(element, 'scrollTop', { get: () => top, set: (value: number) => { top = Math.min(value, max); } });
 });
 afterEach(async () => { await act(async () => root.unmount()); });
-const channel = () => createSessionViewChannel('primary-session', entryId, 'page');
-const render = () => act(async () => root.render(<SessionViewRecoveryContext.Provider value={{ sessionId: 'primary-session', entryId }}><Harness /></SessionViewRecoveryContext.Provider>));
+const channel = () => createSessionViewChannel(0, entryId, 'page');
+const render = () => act(async () => root.render(<SessionViewRecoveryContext.Provider value={{ sessionId: 0, entryId }}><Harness /></SessionViewRecoveryContext.Provider>));
 
 it('waits for asynchronous content to support the saved scroll offset', async () => {
   channel().write({ kind: 'scroll', scrollTop: 400, scrollLeft: 0 });

@@ -1,8 +1,9 @@
+import { canSwapSessions } from '../model/column-swap';
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useWorkColumnStore } from '../store/work-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
 import { useWorkspaceFocusStore } from '../store/workspace-focus-store';
+import { useWorkspaceSessionStore } from '../store/workspace-session-store';
 
 export { openWorkspaceSurface } from './open-surface-api';
 export type { OpenWorkspaceSurfaceRequest, BrowserWorkspaceSurfaceRequest } from './open-surface-api';
@@ -22,9 +23,9 @@ export function useBrowserColumnViewModel() {
 }
 
 export function useBrowserColumnFocusViewModel() {
-  const isFocused = useWorkspaceFocusStore((state) => state.focusedHostId === 'browser-column');
-  const focusHost = useWorkspaceFocusStore((state) => state.focusHost);
-  const focusBrowserColumn = useCallback(() => focusHost('browser-column'), [focusHost]);
+  const isFocused = useWorkspaceFocusStore((state) => state.focusedColumnId === 'column-2');
+  const focusColumn = useWorkspaceFocusStore((state) => state.focusColumn);
+  const focusBrowserColumn = useCallback(() => focusColumn('column-2'), [focusColumn]);
   return { isFocused, focusBrowserColumn };
 }
 
@@ -41,14 +42,13 @@ export function toggleBrowserColumn(): void {
   state.setVisible(!state.visible);
 }
 
-export { swapWorkspaceColumnContent } from '../use-cases/swap-column-content';
+export { swapColumnContents } from '../use-cases/swap-column-contents';
 
-export function useCanSwapWorkspaceColumnContent(): boolean {
-  const visible = useBrowserColumnStore((state) => state.visible);
-  const switching = useWorkColumnStore((state) => state.notebookSwitchesInFlight > 0);
-  const work = useWorkColumnStore((state) => state.navigation);
-  return visible && work.phase !== 'loading' && !switching;
+/** Enabled when both sessions are idle, including when the second column is hidden. */
+export function useCanSwapColumnContents(): boolean {
+  return useWorkspaceSessionStore((state) => canSwapSessions(state.sessions));
 }
+
 
 /** Compatibility port for the secondary session renderer. */
 export function browserSessionRuntime() {

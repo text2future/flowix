@@ -5,18 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocumentTitlebarMac } from './document-titlebar-mac';
 import { DocumentTitlebarWin } from './document-titlebar-win';
 import type { DocumentTitlebarProps } from './document-titlebar-model';
+import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 import { registerCollectionBannerControl } from '@/lib/collection-banner-visibility';
 
-const mocks = vi.hoisted(() => ({ hideBrowser: vi.fn(), transfer: vi.fn() }));
+const mocks = vi.hoisted(() => ({ hideBrowser: vi.fn(), transfer: vi.fn(), commandOptions: vi.fn(), copyFullText: vi.fn() }));
 vi.mock('@features/workspace/public/shell-api', () => ({
   useWorkColumnTransferViewModel: () => ({ canOpenInBrowserColumn: true, openInBrowserColumn: mocks.transfer }),
 }));
-vi.mock('@features/workspace/public/browser-column-api', () => ({ hideBrowserColumn: mocks.hideBrowser, toggleBrowserColumn: mocks.hideBrowser, useBrowserColumnVisible: () => true, useCanSwapWorkspaceColumnContent: () => false, swapWorkspaceColumnContent: vi.fn() }));
+vi.mock('@features/workspace/public/browser-column-api', () => ({ hideBrowserColumn: mocks.hideBrowser, toggleBrowserColumn: mocks.hideBrowser, useBrowserColumnVisible: () => true, useCanSwapColumnContents: () => false, swapColumnContents: vi.fn() }));
 vi.mock('@/lib/i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/i18n')>(),
   useI18n: () => ({ t: (key: string) => key, language: 'zh-CN' }),
   translate: (_language: string, key: string) => key,
 }));
+vi.mock('./use-document-commands', () => ({ useDocumentCommands: (options: unknown) => {
+  mocks.commandOptions(options);
+  return { handleCopyFullText: mocks.copyFullText };
+} }));
 vi.mock('./use-document-titlebar-actions', () => ({
   useDocumentTitlebarActions: () => ({
     colors: [], changeColors: vi.fn(), fontSwitch: {}, selectedFontSizeMode: null,
@@ -37,7 +42,7 @@ let props: DocumentTitlebarProps;
 beforeEach(() => {
   vi.clearAllMocks();
   host = document.createElement('div');
-  host.dataset.workspaceHost = 'main-third';
+  host.dataset.workspaceHost = 'column-1';
   container = document.createElement('div');
   host.append(container);
   document.body.append(host);
@@ -95,13 +100,6 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
       expect(image.parentElement!.querySelector('svg')).not.toBeNull();
     });
 
-    it.each(['table', 'media_library'] as const)('renders the selected %s folder preference without crashing', async (current) => {
-      props.folderCollectionViewType = {
-        current, onSelect: vi.fn(), isDefaultFolder: false, onToggleDefaultFolder: vi.fn(),
-      };
-      await act(async () => root.render(<Titlebar {...props} />));
-      expect(container.querySelector('[aria-label="document.titlebar.moreTooltip"]')).not.toBeNull();
-    });
 
     it.each([
       ['a.md', 'document.action.richTextMode'],
@@ -134,12 +132,12 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
       card.dataset.agentType = 'codex';
       card.dataset.instanceId = 'agent-instance';
       host.append(card);
-      await act(async () => reportWorkspaceHeaderFullscreen('main-third', card, { title: 'agent title', typeKey: 'codex', instanceId: 'agent-instance', threadId: null }));
+      await act(async () => reportWorkspaceHeaderFullscreen('column-1', card, { title: 'agent title', typeKey: 'codex', instanceId: 'agent-instance', threadId: null }));
       expect(color()).toBeNull();
       expect(container.querySelector('[aria-label="document.titlebar.moreTooltip"]')).toBeNull();
       expect(container.textContent).not.toContain('note A');
       card.remove();
-      await act(async () => clearWorkspaceHeaderFullscreen('main-third', card));
+      await act(async () => clearWorkspaceHeaderFullscreen('column-1', card));
       expect(color()).not.toBeNull();
       expect(container.textContent).toContain('note A');
     });
@@ -228,6 +226,35 @@ for (const [platform, Titlebar] of [['mac', DocumentTitlebarMac], ['windows', Do
         .some((item) => item.textContent?.includes('collection.display.title'))).toBe(true);
       expect([...document.querySelectorAll<HTMLButtonElement>('button')]
         .some((item) => item.textContent?.includes('document.action.copyLink'))).toBe(true);
+    });
+
+    it('binds primary file-browser commands to the displayed file instead of the main document callbacks', async () => {
+      const fileIdentity = ensureFileDisplayIdentity('/other/isolated.md');
+      props.document = { isolated: true, target: { fileIdentity, scopePath: '/other', notebookId: 'other',
+        relativePath: 'isolated.md', indexable: true, isOutsideCurrentNotebook: false } };
+      await act(async () => root.render(<Titlebar {...props} />));
+      expect(mocks.commandOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+        currentDocumentPath: '/other/isolated.md', pdfHost: 'column-1',
+      }));
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.moreTooltip"]')!.click());
+      const copy = [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.includes('document.action.copyFullText'))!;
+      await act(async () => copy.click());
+      expect(mocks.copyFullText).toHaveBeenCalledOnce();
+      expect(props.actions.onCopyFullText).not.toHaveBeenCalled();
+    });
+
+    it('clears a pending delete confirmation when the displayed file changes', async () => {
+      await act(async () => root.render(<Titlebar {...props} />));
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.moreTooltip"]')!.click());
+      const deleteItem = [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.includes('memo.delete.confirm'))!;
+      await act(async () => deleteItem.click());
+      expect(document.body.textContent).toContain('memo.delete.title');
+      props.document.target!.fileIdentity = { path: '/book/b.md', displayId: 'b' };
+      await act(async () => root.render(<Titlebar {...props} />));
+      expect(document.body.textContent).not.toContain('memo.delete.title');
+      expect(props.actions.onDeleteExternalFile).not.toHaveBeenCalled();
     });
 
     it('preserves navigation callbacks and the host context menu through the shared frame', async () => {

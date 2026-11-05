@@ -1,6 +1,7 @@
 import { Component, Fragment, ErrorInfo, ReactNode } from "react";
 import { translate, type AppLanguage, DEFAULT_APP_LANGUAGE } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
+import { Button } from "@shared/ui/button";
 
 const logger = createLogger("error-boundary");
 
@@ -21,6 +22,7 @@ interface ErrorBoundaryProps {
 	children: ReactNode;
 	fallback?: ReactNode;
 	language?: AppLanguage;
+	onReturnHome?: () => void | Promise<void>;
 	onError?: (error: Error, errorInfo: ErrorInfo) => void;
 	/** 这些值变化时自动重试，避免"换了文档仍停在错误页"。 */
 	resetKeys?: readonly unknown[];
@@ -29,6 +31,7 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
 	hasError: boolean;
 	error?: Error;
+	homeError: boolean;
 	/** 每次重试自增，作为 children 的 key 强制重新挂载子树。 */
 	epoch: number;
 }
@@ -39,7 +42,7 @@ interface ErrorBoundaryState {
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 	constructor(props: ErrorBoundaryProps) {
 		super(props);
-		this.state = { hasError: false, epoch: 0 };
+		this.state = { hasError: false, homeError: false, epoch: 0 };
 	}
 
 	static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
@@ -69,7 +72,20 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 	handleRetry = (): void => {
 		// 只清 error 会让确定性错误立即再次抛出（用户看到永远无效的"重试"）。
 		// 同时递增 epoch，用 key 重新挂载子树，给上层一次真正的重建机会。
-		this.setState((state) => ({ hasError: false, error: undefined, epoch: state.epoch + 1 }));
+		this.setState((state) => ({ hasError: false, error: undefined, homeError: false, epoch: state.epoch + 1 }));
+	};
+
+	handleReturnHome = async (): Promise<void> => {
+		this.setState({ homeError: false });
+		try {
+			await this.props.onReturnHome?.();
+			this.handleRetry();
+		} catch (error) {
+			logger.error("return to home failed", {
+				message: error instanceof Error ? error.message : String(error),
+			});
+			this.setState({ homeError: true });
+		}
 	};
 
 	render(): ReactNode {
@@ -113,12 +129,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 							<p className="text-sm text-muted-foreground mb-4">
 								{this.state.error?.message || translate(lang, "error.unexpected")}
 							</p>
-							<button
-								onClick={this.handleRetry}
-								className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-[color-mix(in_oklch,var(--primary)_90%,transparent)] transition-colors text-sm font-medium"
-							>
-								{translate(lang, "error.retry")}
-							</button>
+							{this.state.homeError && (
+								<p role="alert" className="text-sm text-destructive mb-4">
+									{translate(lang, "error.homeFailed")}
+								</p>
+							)}
+							<div className="flex items-center gap-2">
+								<Button variant="outline" className="px-3" onClick={this.handleRetry}>
+									{translate(lang, "error.retry")}
+								</Button>
+								{this.props.onReturnHome && (
+									<Button variant="outline" className="px-3" onClick={() => void this.handleReturnHome()}>
+										{translate(lang, "error.home")}
+									</Button>
+								)}
+							</div>
 						</div>
 					</div>
 				</div>

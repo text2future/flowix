@@ -9,7 +9,7 @@ import {
 import { parseAgentLink } from './agent-link-parser';
 
 const navigation = vi.hoisted(() => ({
-  openSurface: vi.fn(async () => ({ status: 'opened' as const, host: 'browser-column' as const, location: { host: 'browser-column' as const, surfaceId: 'text' } })),
+  openSurface: vi.fn(async () => ({ status: 'opened' as const, host: 'column-2' as const, location: { host: 'column-2' as const, surfaceId: 'text' } })),
 }));
 vi.mock('@features/workspace/public/browser-column-api', () => ({
   createFileBrowserTarget: (path: string, scopePath: string) => ({
@@ -34,6 +34,29 @@ function errorCode(href: string, context: Parameters<typeof parseAgentLink>[1] =
 }
 
 describe('parseAgentLink', () => {
+  it.each(['/data/flowix', '/projects/flowix', '/usr/local/flowix', '/自定义目录/项目'])(
+    'recognizes complete file links under the captured workspace %s', (root) => {
+      const context = {
+        localOrigins: ['http://localhost:1420', 'tauri://localhost'],
+        isWorkspaceFilePath: (path: string) => agentFileScopePath(path, [root]) !== null,
+      };
+      const path = `${root}/build/Flowix installer.dmg`;
+      expect(target(`http://localhost:1420${encodeURI(path)}`, context)).toMatchObject({ kind: 'local-file', path });
+      expect(target(`tauri://localhost${encodeURI(path)}`, context)).toMatchObject({ kind: 'local-file', path });
+      expect(target(`http://localhost:1421${encodeURI(path)}`, context)).toMatchObject({ kind: 'web' });
+      expect(target(`http://localhost:1420${root}-other/file.dmg`, context)).toMatchObject({ kind: 'web' });
+      expect(target(`http://localhost:1420${root}/../outside.dmg`, context)).toMatchObject({ kind: 'web' });
+    },
+  );
+  it('recognizes a POSIX file path only at a registered application origin', () => {
+    const path = '/Users/rop/Desktop/vibe/flowix-main/.build/cargo-target/aarch64-apple-darwin/release/bundle/dmg/Flowix_1.5.16_aarch64.dmg';
+    expect(target(`http://localhost:1420${path}`, { localOrigins: ['http://localhost:1420'] }))
+      .toMatchObject({ kind: 'local-file', path });
+    expect(target(`http://localhost:1421${path}`, { localOrigins: ['http://localhost:1420'] }))
+      .toMatchObject({ kind: 'web' });
+    expect(target('http://localhost:1420/index.html', { localOrigins: ['http://localhost:1420'] }))
+      .toMatchObject({ kind: 'web' });
+  });
   it('decodes the Windows Tauri HTTP link and retains its source line', () => {
     expect(target('http://tauri.localhost/D:/Notes/%E6%8E%A8%E5%B9%BF%E8%AE%BE%E8%AE%A1/Flowix%20Agent.md:144'))
       .toMatchObject({
@@ -134,6 +157,39 @@ describe("localFilePathFromAgentHref", () => {
 });
 
 describe('shared Agent link click dispatcher', () => {
+  it.each(['/data/flowix', '/projects/flowix', '/usr/local/flowix'])(
+    'opens a dev file link under the custom captured workspace %s', async (scopePath) => {
+      const path = `${scopePath}/build/Flowix.dmg`;
+      vi.stubGlobal('location', new URL('http://localhost:1420/'));
+      navigation.openSurface.mockClear();
+      try {
+        await openAgentLink(`http://localhost:1420${path}`, {
+          workspaceSnapshot: { workspacePaths: [scopePath] },
+        } as Parameters<typeof openAgentLink>[1]);
+        expect(navigation.openSurface).toHaveBeenCalledWith({
+          index: 1, source: 'agent-message',
+          target: expect.objectContaining({ kind: 'file-browser', activeFilePath: path, scopePath }),
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+  it('opens the full dev DMG link as a file in the captured workspace', async () => {
+    const scopePath = '/Users/rop/Desktop/vibe/flowix-main';
+    const path = `${scopePath}/.build/cargo-target/aarch64-apple-darwin/release/bundle/dmg/Flowix_1.5.16_aarch64.dmg`;
+    vi.stubGlobal('location', new URL('http://localhost:1420/'));
+    navigation.openSurface.mockClear();
+    try {
+      await openAgentLink(`http://localhost:1420${path}`, { cwd: scopePath } as Parameters<typeof openAgentLink>[1]);
+      expect(navigation.openSurface).toHaveBeenCalledWith({
+        index: 1, source: 'agent-message',
+        target: expect.objectContaining({ kind: 'file-browser', activeFilePath: path, scopePath }),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('intercepts a raw DOM href and sends the same local-file target to navigation', async () => {
     navigation.openSurface.mockClear();
     const root = document.createElement('div');
@@ -148,7 +204,7 @@ describe('shared Agent link click dispatcher', () => {
     expect(handled).toBe(true);
     expect(event.defaultPrevented).toBe(true);
     expect(navigation.openSurface).toHaveBeenCalledWith({
-      host: 'browser-column',
+      index: 1,
       source: 'agent-message',
       target: { kind: 'external', path: '/Users/u/a b.md', scopePath: null, transitionId: null },
     });
@@ -158,7 +214,7 @@ describe('shared Agent link click dispatcher', () => {
     const { peekAgentLocationRequest, consumeAgentLocationRequest } = await import(
       '@features/document/use-cases/agent-location-navigation',
     );
-    type OpenResult = { status: 'opened'; host: 'browser-column'; location: { host: 'browser-column'; surfaceId: string } };
+    type OpenResult = { status: 'opened'; host: 'column-2'; location: { host: 'column-2'; surfaceId: string } };
     let resolveFirst!: (value: OpenResult) => void;
     let resolveSecond!: (value: OpenResult) => void;
     navigation.openSurface
@@ -167,9 +223,9 @@ describe('shared Agent link click dispatcher', () => {
 
     const first = openAgentLink('/Users/u/a.md:10', null);
     const second = openAgentLink('/Users/u/a.md:144', null);
-    resolveSecond({ status: 'opened', host: 'browser-column', location: { host: 'browser-column', surfaceId: 'a' } });
+    resolveSecond({ status: 'opened', host: 'column-2', location: { host: 'column-2', surfaceId: 'a' } });
     await second;
-    resolveFirst({ status: 'opened', host: 'browser-column', location: { host: 'browser-column', surfaceId: 'a' } });
+    resolveFirst({ status: 'opened', host: 'column-2', location: { host: 'column-2', surfaceId: 'a' } });
     await first;
 
     const request = peekAgentLocationRequest('/Users/u/a.md');
@@ -186,7 +242,7 @@ describe('shared Agent link click dispatcher', () => {
     expect(openNoteByDeepLink).toHaveBeenCalledWith(
       'flowix://open?b=Notes&f=Projects%2FPlan.md',
       null,
-      { destination: 'browser-column', source: 'agent-message' },
+      { destination: 1, source: 'agent-message' },
     );
   });
 });

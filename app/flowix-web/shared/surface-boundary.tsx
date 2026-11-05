@@ -70,9 +70,6 @@ export class SurfaceBoundary extends Component<SurfaceBoundaryProps, SurfaceBoun
           <p className="text-sm font-medium text-foreground">
             {translate(language, "error.surfaceTitle")}
           </p>
-          <p className="max-w-xs text-xs text-muted-foreground">
-            {translate(language, "error.surfaceDescription")}
-          </p>
           <button
             type="button"
             onClick={this.retry}

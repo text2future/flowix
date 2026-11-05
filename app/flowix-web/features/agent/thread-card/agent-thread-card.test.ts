@@ -48,18 +48,18 @@ vi.mock("@features/workspace/use-cases/browser-column-navigation", () => ({
     }),
   ),
   openBrowserColumnFileBrowser: vi.fn(() => ({
-    host: 'browser-column',
+    host: 'column-2',
     surfaceId: 'file-browser:/Users/rop/Desktop/vibe/flowix-main',
     alreadyOpen: false,
   })),
   openBrowserColumnNotebookNote: vi.fn(() => ({
-    host: 'browser-column', surfaceId: 'file:external-note', alreadyOpen: false,
+    host: 'column-2', surfaceId: 'file:external-note', alreadyOpen: false,
   })),
   openBrowserColumnText: vi.fn(() => ({
-    host: 'browser-column', surfaceId: 'file:external-text', alreadyOpen: false,
+    host: 'column-2', surfaceId: 'file:external-text', alreadyOpen: false,
   })),
   openBrowserColumnWebpage: vi.fn(() => ({
-    host: 'browser-column',
+    host: 'column-2',
     surfaceId: 'web:https://example.com/docs',
     alreadyOpen: false,
   })),
@@ -74,7 +74,7 @@ vi.mock("@features/workspace/public/open-surface-api", () => ({
     status: "opened",
     surfaceId: "browser:test",
     // 行号/锚点定位会读 opened.location 的 host 与 surfaceId。
-    location: { host: "browser-column", surfaceId: "browser:test" },
+    location: { host: "column-2", surfaceId: "browser:test" },
   })),
 }));
 
@@ -202,7 +202,7 @@ vi.mock("@features/memo/store/note-store", () => ({
 
 vi.mock("@features/memo/components/notebook-icon", () => ({
   getNotebookIconLetter: () => "N",
-  getNotebookIconMarkup: () => null,
+  getNotebookIconUrl: () => null,
 }));
 
 vi.mock("@features/document/properties/property-icons", () => ({
@@ -2619,26 +2619,26 @@ describe("AgentThreadCard NodeView streaming", () => {
     button?.click();
 
     expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(true);
-    expect(getWorkspaceHeaderFullscreen('main-third')?.instanceId).toBe('instance-fullscreen-persist');
+    expect(getWorkspaceHeaderFullscreen('column-1')?.instanceId).toBe('instance-fullscreen-persist');
 
     button?.click();
 
     expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(false);
-    expect(getWorkspaceHeaderFullscreen('main-third')).toBeNull();
+    expect(getWorkspaceHeaderFullscreen('column-1')).toBeNull();
   });
 
   it("does not exit a Browser Column fullscreen card when main-third leaves agent view", async () => {
     const { AgentThreadCard } =
       await import("@features/agent/thread-card");
     const workspaceHost = document.createElement("section");
-    workspaceHost.dataset.workspaceHost = "browser-column";
+    workspaceHost.dataset.workspaceHost = "column-2";
     const host = document.createElement("div");
     workspaceHost.append(host);
     document.body.append(workspaceHost);
 
     editor = new Editor({
       element: host,
-      extensions: [StarterKit, AgentThreadCard.configure({ workspaceHost: "browser-column" })],
+      extensions: [StarterKit, AgentThreadCard.configure({ workspaceHost: "column-2" })],
       content: {
         type: "doc",
         content: [
@@ -2664,13 +2664,13 @@ describe("AgentThreadCard NodeView streaming", () => {
     const card = host.querySelector<HTMLElement>(".agent-thread-card");
     expect(card?.classList.contains("agent-thread-card--fullscreen")).toBe(true);
     expect(editor.state.doc.firstChild?.attrs.fullscreen).toBe(true);
-    expect(getWorkspaceHeaderFullscreen('browser-column')?.title).toBe(card?.dataset.title);
-    expect(getWorkspaceHeaderFullscreen('browser-column')?.instanceId).toBe('instance-browser-column-fullscreen');
-    expect(getWorkspaceHeaderFullscreen('main-third')).toBeNull();
+    expect(getWorkspaceHeaderFullscreen('column-2')?.title).toBe(card?.dataset.title);
+    expect(getWorkspaceHeaderFullscreen('column-2')?.instanceId).toBe('instance-browser-column-fullscreen');
+    expect(getWorkspaceHeaderFullscreen('column-1')).toBeNull();
 
     window.dispatchEvent(
       new CustomEvent("flowix:agent-thread-card-request-fullscreen", {
-        detail: { host: "main-third", exitOthers: true, persist: true },
+        detail: { host: "column-1", exitOthers: true, persist: true },
       }),
     );
 
@@ -2682,7 +2682,7 @@ describe("AgentThreadCard NodeView streaming", () => {
     const { AgentThreadCard } =
       await import("@features/agent/thread-card");
     const workspaceHost = document.createElement("section");
-    workspaceHost.dataset.workspaceHost = "main-third";
+    workspaceHost.dataset.workspaceHost = "column-1";
     const host = document.createElement("div");
     workspaceHost.append(host);
     document.body.append(workspaceHost);
@@ -2716,7 +2716,7 @@ describe("AgentThreadCard NodeView streaming", () => {
 
     window.dispatchEvent(
       new CustomEvent("flowix:agent-thread-card-request-fullscreen", {
-        detail: { host: "main-third", exitOthers: true, persist: true },
+        detail: { host: "column-1", exitOthers: true, persist: true },
       }),
     );
 
@@ -2815,14 +2815,14 @@ describe("AgentThreadCard NodeView streaming", () => {
     const { AgentThreadCard } =
       await import("@features/agent/thread-card");
     const workspaceHost = document.createElement("section");
-    workspaceHost.dataset.workspaceHost = "browser-column";
+    workspaceHost.dataset.workspaceHost = "column-2";
     const host = document.createElement("div");
     workspaceHost.append(host);
     document.body.append(workspaceHost);
 
     editor = new Editor({
       element: host,
-      extensions: [StarterKit, AgentThreadCard.configure({ workspaceHost: "browser-column" })],
+      extensions: [StarterKit, AgentThreadCard.configure({ workspaceHost: "column-2" })],
       content: {
         type: "doc",
         content: [

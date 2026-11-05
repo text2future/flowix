@@ -43,7 +43,7 @@ export function mountMainWindowNotebookEvents(): () => void {
         if (disposed) return;
         const notebookPath = await getAppNotebookPath(notebookId);
         if (!disposed && notebookPath) {
-          applyNotebookPathMove({ notebookId, notebookPath, previousRelativePath, relativePath, directory });
+          await applyNotebookPathMove({ notebookId, notebookPath, previousRelativePath, relativePath, directory });
           const previous = joinNotebookMemoPath(notebookPath, previousRelativePath);
           const next = joinNotebookMemoPath(notebookPath, relativePath);
           if (previous && next) {

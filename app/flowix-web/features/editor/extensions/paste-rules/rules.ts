@@ -1,3 +1,4 @@
+import { isImageFilePath } from '@features/editor/code-file';
 import { parseVideoUrl } from '../video-embed/providers';
 import { pasteVideoLink } from '../video-embed/paste';
 import type { Editor, JSONContent } from '@tiptap/core';
@@ -6,7 +7,7 @@ import { mergeFrontmatterYaml } from '@features/document/properties/frontmatter-
 import type { ManagedPasteRule, PasteContext, PasteRuleResult } from '@features/editor/extensions/paste-rules/types';
 import { handleFileUpload } from '@features/editor/extensions/attachment-link/upload/plugin';
 import { filterFilesByMimeTypes } from '@features/editor/extensions/attachment-link/upload/file-source';
-import { tryMatchPhysicalMemoPath } from '@features/editor/extensions/note-link';
+import { localLinkReference } from '@/lib/local-link-reference';
 import { containsLooseCodeBlock } from '@features/editor/extensions/paste-rules/code-block-detector';
 import {
   containsMarkdownTable,
@@ -22,6 +23,13 @@ import {
   looksLikeTsvTable,
   tsvToTableContent,
 } from '@features/editor/extensions/paste-rules/table';
+
+function isSingleAddressHtml(html: string, text: string): boolean {
+  if (!html.trim()) return true;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return doc.body.textContent?.trim() === text.trim()
+    && !doc.body.querySelector('img,table,pre,code,video,audio,hr');
+}
 
 const ASSET_MARKDOWN_LINK_RE = /^\s*!?\[[^\]\n]*\]\((?:asset:\/\/|https?:\/\/asset\.localhost\/)[^)]+\)\s*$/i;
 
@@ -137,25 +145,21 @@ export function createManagedPasteRules(options: {
       },
     },
     {
-      id: 'physical-memo-path',
-      kind: 'physical-path',
+      id: 'local-document-link',
+      kind: 'local-document-link',
       priority: 900,
-      match: ({ text, editor }) => {
-        const trimmed = text.trim();
-        return !!trimmed &&
-          !/[\r\n]/.test(trimmed) &&
-          !!editor.schema.nodes.noteReference &&
-          !!tryMatchPhysicalMemoPath(trimmed);
-      },
-      run: ({ text, editor }) => {
-        const hit = tryMatchPhysicalMemoPath(text.trim());
-        if (!hit || !editor.schema.nodes.noteReference) return 'continue';
-
-        insertPastedContent({
-          type: 'noteReference',
-          attrs: hit,
-        }, editor);
-        return 'handled';
+      match: ({ text, files, html, editor, linkContext }) => files.length === 0
+        && isSingleAddressHtml(html, text) && !editor.isActive('codeBlock') && !editor.isActive('code')
+        && !!editor.schema.marks.link && !!linkContext && !!text.trim(),
+      run: ({ text, editor, linkContext }) => {
+        const reference = linkContext && localLinkReference(text, linkContext);
+        if (!reference) return 'continue';
+        if (isImageFilePath(reference.path) && editor.schema.nodes.image) {
+          return insertPastedContent({ type: 'image', attrs: { src: reference.href, alt: reference.label } }, editor)
+            ? 'handled' : 'continue';
+        }
+        return insertPastedContent({ type: 'text', text: reference.label,
+          marks: [{ type: 'link', attrs: { href: reference.href } }] }, editor) ? 'handled' : 'continue';
       },
     },
     {

@@ -9,6 +9,12 @@ const UNDO_MENU_ID: &str = "flowix.undo";
 const UNDO_EVENT: &str = "flowix://editor-undo";
 const REDO_MENU_ID: &str = "flowix.redo";
 const REDO_EVENT: &str = "flowix://editor-redo";
+const CUT_MENU_ID: &str = "flowix.cut";
+const COPY_MENU_ID: &str = "flowix.copy";
+const PASTE_MENU_ID: &str = "flowix.paste";
+const CUT_EVENT: &str = "flowix://clipboard-cut";
+const COPY_EVENT: &str = "flowix://clipboard-copy";
+const PASTE_EVENT: &str = "flowix://clipboard-paste";
 const FILE_SUBMENU_ID: &str = "flowix.file";
 const EDIT_SUBMENU_ID: &str = "flowix.edit";
 const VIEW_SUBMENU_ID: &str = "flowix.view";
@@ -90,7 +96,8 @@ fn menu_labels(language: &str) -> MenuLabels {
 ///
 /// Tauri's predefined macOS edit items invoke Cocoa's responder chain. That
 /// consumes their accelerators before ProseMirror can handle them, so Select
-/// All, Undo, and Redo use regular items forwarded to the focused WebView.
+/// All, Undo, Redo and clipboard commands use regular items forwarded to the
+/// focused WebView. Unclaimed clipboard commands return to the native responder.
 pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
         .enable_macos_default_menu(false)
@@ -100,6 +107,9 @@ pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
                 SELECT_ALL_MENU_ID => SELECT_ALL_EVENT,
                 UNDO_MENU_ID => UNDO_EVENT,
                 REDO_MENU_ID => REDO_EVENT,
+                CUT_MENU_ID => CUT_EVENT,
+                COPY_MENU_ID => COPY_EVENT,
+                PASTE_MENU_ID => PASTE_EVENT,
                 _ => return,
             };
             if let Some(window) = app
@@ -190,6 +200,21 @@ fn build_app_menu_for_language(
         Some("CmdOrCtrl+Shift+Z"),
     )?;
 
+    // Generic tree rows do not have a native text selection. Cocoa otherwise
+    // disables Cut and consumes Cmd+X before the WebView sees a keydown.
+    #[cfg(target_os = "macos")]
+    let cut = MenuItem::with_id(app, CUT_MENU_ID, labels.cut, true, Some("CmdOrCtrl+X"))?;
+    #[cfg(target_os = "macos")]
+    let copy = MenuItem::with_id(app, COPY_MENU_ID, labels.copy, true, Some("CmdOrCtrl+C"))?;
+    #[cfg(target_os = "macos")]
+    let paste = MenuItem::with_id(app, PASTE_MENU_ID, labels.paste, true, Some("CmdOrCtrl+V"))?;
+    #[cfg(not(target_os = "macos"))]
+    let cut = PredefinedMenuItem::cut(app, Some(labels.cut))?;
+    #[cfg(not(target_os = "macos"))]
+    let copy = PredefinedMenuItem::copy(app, Some(labels.copy))?;
+    #[cfg(not(target_os = "macos"))]
+    let paste = PredefinedMenuItem::paste(app, Some(labels.paste))?;
+
     Menu::with_items(
         app,
         &[
@@ -236,9 +261,9 @@ fn build_app_menu_for_language(
                     &undo,
                     &redo,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::cut(app, Some(labels.cut))?,
-                    &PredefinedMenuItem::copy(app, Some(labels.copy))?,
-                    &PredefinedMenuItem::paste(app, Some(labels.paste))?,
+                    &cut,
+                    &copy,
+                    &paste,
                     &select_all,
                 ],
             )?,
@@ -257,4 +282,46 @@ fn build_app_menu_for_language(
             &help_menu,
         ],
     )
+}
+
+/// Preserve the native text/image clipboard pipeline when no app surface claims
+/// an edit-menu action. Sending the selector invokes WebKit, not our menu item.
+#[tauri::command]
+pub fn perform_native_clipboard_action(
+    window: tauri::WebviewWindow,
+    action: String,
+) -> Result<(), String> {
+    if !matches!(action.as_str(), "cut" | "copy" | "paste") {
+        return Err("INVALID_CLIPBOARD_ACTION".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let app = window.app_handle().clone();
+        app.run_on_main_thread(move || {
+            if !window.is_focused().unwrap_or(false) {
+                return;
+            }
+            let Some(marker) = objc2::MainThreadMarker::new() else {
+                return;
+            };
+            let selector = match action.as_str() {
+                "cut" => objc2::sel!(cut:),
+                "copy" => objc2::sel!(copy:),
+                _ => objc2::sel!(paste:),
+            };
+            // All selectors are standard NSResponder clipboard commands, with
+            // AppKit choosing the currently focused text field or WebView.
+            unsafe {
+                objc2_app_kit::NSApp(marker).sendAction_to_from(selector, None, None);
+            }
+        })
+        .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    window
+        .eval(&format!(
+            "document.execCommand({})",
+            serde_json::to_string(&action).map_err(|error| error.to_string())?
+        ))
+        .map_err(|error| error.to_string())
 }

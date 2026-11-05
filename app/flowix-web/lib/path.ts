@@ -69,10 +69,9 @@ export function samePath(left: string, right: string): boolean {
 
 /** Whether a path is the directory itself or one of its descendants. */
 export function isPathInDirectory(path: string, directoryPath: string): boolean {
-  const candidate = canonicalDirectoryPath(path);
-  const directory = canonicalDirectoryPath(directoryPath);
-  return candidate === directory
-    || candidate.startsWith(directory === '/' ? '/' : `${directory}/`);
+  const candidate = pathComparisonKey(path);
+  const directory = pathComparisonKey(directoryPath);
+  return candidate === directory || candidate.startsWith(directory === '/' ? '/' : `${directory}/`);
 }
 
 export function uniquePaths(paths: string[]): string[] {
@@ -95,4 +94,15 @@ export function pathInDirectory(directoryPath: string, filePath: string): string
   const directory = canonicalDirectoryPath(directoryPath);
   const name = fileNameFromPath(filePath);
   return directory === '/' ? `/${name}` : `${directory}/${name}`;
+}
+
+/** Filesystem comparison policy shared by notebook ownership and relative links. */
+export function pathComparisonKey(path: string): string {
+  const value = canonicalDirectoryPath(path);
+  return /^[a-z]:(?:\/|$)/i.test(value) || value.startsWith('//') ? value.toLowerCase() : value;
+}
+
+export function notebookForPath<T extends { path: string }>(path: string, notebooks: readonly T[]): T | undefined {
+  return notebooks.filter(book => isPathInDirectory(path, book.path))
+    .reduce<T | undefined>((best, book) => !best || book.path.length > best.path.length ? book : best, undefined);
 }

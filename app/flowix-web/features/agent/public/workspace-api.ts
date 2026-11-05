@@ -1,3 +1,4 @@
+import type { AgentWorkspaceSnapshot } from '@/lib/types/agent-workspace';
 /**
  * Workspace 需要的 Agent **目录**查询。
  *
@@ -48,4 +49,8 @@ export function detachNotebookFolder(notebookId: string, path: string) {
 
 export function loadAgentWorkspace() {
   return useAgentWorkspaceStore.getState().workspaceActions.loadInitial();
+}
+
+export function applyAgentWorkspaceSnapshot(snapshot: AgentWorkspaceSnapshot) {
+  useAgentWorkspaceStore.getState().workspaceActions.applySnapshot(snapshot);
 }

@@ -40,7 +40,7 @@ it.each([
   expect(repaired.collection.id).toBe(wire.collection.id);
   expect(repaired.dataset.records.include).toEqual([type === 'notes' ? record : { ...record, resource_id: 'book::photo.png' }]);
   expect(repaired.views).toEqual(wire.payload.views);
-  if (placement === 'folder') expect(repaired.dataset.source).toEqual({ scope: 'containing_folder', depth: 'descendants' });
+  if (placement === 'folder') expect(repaired.dataset.source).toEqual({ scope: 'containing_folder' });
 });
 
 it('falls back to a valid table when the file has no recoverable YAML or collection type', async () => {

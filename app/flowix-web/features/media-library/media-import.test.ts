@@ -58,14 +58,14 @@ describe('media upload destination', () => {
   it('binds folder libraries to the index file directory', () => {
     const document = setFolder(createMediaLibrary('Library'), 'elsewhere');
     document.collection.placement = 'folder';
-    document.dataset.source = { scope: 'containing_folder', depth: 'descendants' };
+    document.dataset.source = { scope: 'containing_folder' };
     expect(resolveMediaLibraryAddDirectory({ document, notebookPath, filePath: '/notes/gallery/.index.yaml' }))
       .toBe('/notes/gallery');
   });
 
   it('rejects a save directory outside a restricted source before copying', async () => {
     const document = setFolder(createMediaLibrary('Library'), 'elsewhere');
-    document.dataset.source = { scope: 'folder', path: 'gallery', depth: 'descendants' };
+    document.dataset.source = { scope: 'folder', path: 'gallery' };
     await expect(importMediaLibraryFiles(options(document))).rejects.toThrow('保存目录不在集合数据范围内');
     expect(notebookAssets.saveFromPath).not.toHaveBeenCalled();
   });
@@ -142,4 +142,16 @@ describe('media import persistence and rollback', () => {
     expect(result.failed).toBe(1);
     expect(result.completed).toEqual(['/notes/attachments/photo.jpg']);
   });
+});
+
+it('uses a mandatory legacy path without decoding the secondary OR rules', () => {
+  const document = createMediaLibrary('Gallery');
+  document.dataset.filter = {
+    all: [{ field: 'path', op: 'contains', value: 'projects/photos' }],
+    any: [
+      { field: 'file_name', op: 'contains', value: 'cover' },
+      { field: 'file_name', op: 'contains', value: 'banner' },
+    ],
+  };
+  expect(resolveMediaLibraryAddDirectory({ document, notebookPath, filePath })).toBe('/notes/projects/photos');
 });

@@ -976,17 +976,10 @@ fn source_contains(source: &Value, collection_path: &str, relative: &str) -> boo
             .to_owned(),
         _ => String::new(),
     };
-    let depth = source
-        .get("depth")
-        .and_then(Value::as_str)
-        .unwrap_or("descendants");
     if base.is_empty() {
-        return depth != "direct_children" || !relative.contains('/');
+        return true;
     }
-    let Some(remainder) = relative.strip_prefix(&format!("{base}/")) else {
-        return false;
-    };
-    depth != "direct_children" || !remainder.contains('/')
+    relative.starts_with(&format!("{base}/"))
 }
 
 fn normalize_slashes(path: &str) -> String {

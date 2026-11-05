@@ -19,10 +19,10 @@ export function useCollectionAppearance({ existing, indexPath, notebookPath, not
   const bannerScope = useMemo(() => {
     if (!notebookPath) return undefined;
     // 头图是文件夹集合的外观属性，即使尚未添加图墙域，也允许从集合目录选图。
-    // 首次打开且还没有集合文件时，按新建文件夹集合的默认媒体范围（当前层）取图。
+    // 首次打开且还没有集合文件时，按新建文件夹集合的默认媒体范围（含子目录）取图。
     const source = existing?.domains.includes('media')
       ? existing.sources?.media
-      : isFolderCollection ? { scope: 'containing_folder' as const, depth: 'direct_children' as const } : undefined;
+      : isFolderCollection ? { scope: 'containing_folder' as const } : undefined;
     if (!source) return undefined;
     return resolveCollectionScope(source, indexPath, notebookPath);
   }, [existing, indexPath, isFolderCollection, notebookPath]);

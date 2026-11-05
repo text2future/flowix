@@ -10,6 +10,8 @@ import { createUniqueNotebookFile } from '@features/collection/create-unique-not
 import { ASSET_KINDS, type AssetKind } from '@features/collection/public/asset-filter-api';
 import { sanitizeFileName } from '@/lib/export-utils';
 
+import { normalizeCollectionLocation } from '@features/collection/public/dataset-filter-api';
+
 export const WORK_DOCUMENT_KINDS = ['document', 'spreadsheet', 'presentation', 'web', 'archive', 'database'] as const;
 export type WorkDocumentsKind = typeof WORK_DOCUMENT_KINDS[number];
 
@@ -124,7 +126,7 @@ export function createWorkDocumentsCollection(name: string): WorkDocumentsDocume
   return {
     collection: createCollectionMetadata('work_documents', name),
     dataset: {
-      source: { scope: 'notebook', depth: 'descendants' },
+      source: { scope: 'notebook' },
       schema: { fields: [] },
       records: { include: [], exclude: [] },
       filter: null,
@@ -145,11 +147,11 @@ export function serializeWorkDocumentsCollection(document: WorkDocumentsDocument
 
 export function parseWorkDocumentsCollection(source: string): WorkDocumentsDocument {
   const document = parseCollectionDocumentV2(source, 'work_documents');
-  return {
+  return normalizeCollectionLocation({
     collection: document.collection,
     dataset: document.payload.dataset as unknown as WorkDocumentsDocument['dataset'],
     views: document.payload.views as unknown as WorkDocumentsDocument['views'],
-  };
+  });
 }
 
 export async function createWorkDocumentsCollectionFile(

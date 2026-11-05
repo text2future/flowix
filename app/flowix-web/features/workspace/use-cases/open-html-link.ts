@@ -4,17 +4,17 @@ import { openUrl } from '@platform/tauri/opener';
 import { openNoteByDeepLink } from '@features/memo/public/note-navigation-api';
 import { publishHeadingAnchorRequest } from '@features/document/public/heading-navigation-api';
 import { resolveFileBrowserContext } from './file-browser-context';
-import { openWorkspaceSurface } from './surface-opening';
+import { openWorkspaceSurface } from '../public/open-surface-api';
 
 /** HTML links use the same file classification, save barrier and history as other opens. */
 export async function openHtmlLink(link: LocalHtmlLink, sourcePath: string, scopePath: string | null, sourceNotebookId: string | null = null): Promise<void> {
   const target = resolveLocalHtmlLink(link, sourcePath);
   if (target.kind === 'external') return openUrl(target.url);
   if (target.kind === 'flowix') {
-    return openNoteByDeepLink(target.url, null, { destination: 'browser-column', source: 'html-link' });
+    return openNoteByDeepLink(target.url, null, { destination: 1, source: 'html-link' });
   }
   if (target.kind === 'web') {
-    await openWorkspaceSurface({ host: 'browser-column', source: 'html-link', target: { kind: 'web', url: target.url } });
+    await openWorkspaceSurface({ index: 1, source: 'html-link', target: { kind: 'web', url: target.url } });
     return;
   }
   const location = await files.resolveLocation(target.path);
@@ -29,7 +29,7 @@ export async function openHtmlLink(link: LocalHtmlLink, sourcePath: string, scop
     scopePath: location.notebookPath, folderPath: null, fileTreeVisible: true, fileTreeWidth: 220,
   });
   const opened = await openWorkspaceSurface({
-    host: 'browser-column', source: 'html-link',
+    index: 1, source: 'html-link',
     target: { kind: 'external', path: location.path, scopePath: context.scopePath, fileBrowser: context },
     options: { notebookId: context.notebookId },
   });

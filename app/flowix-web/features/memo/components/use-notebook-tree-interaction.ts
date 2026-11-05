@@ -44,7 +44,7 @@ interface UseNotebookTreeInteractionOptions {
   activeFilePath: string | null;
   visibleTreeItems: VisibleTreeNode[];
   treeItemPaths: ReadonlySet<string>;
-  pinnedDocumentPaths?: string[];
+  pinnedItemPaths?: string[];
   contentKinds?: ReadonlyMap<string, ContentKind>;
   tree: NotebookTreeController;
   treeRootRef: RefObject<HTMLDivElement | null>;
@@ -54,14 +54,21 @@ interface UseNotebookTreeInteractionOptions {
   isActive?: boolean;
   activeFileRevealRatio?: number;
   onNoteSelect: (path: string) => void;
+  onFolderSelect?: (path: string) => void;
+  folderPaths?: ReadonlySet<string>;
 }
+
+type SidebarSelection =
+  | { kind: 'files'; paths: string[] }
+  | { kind: 'conversation'; instanceId: string };
+const EMPTY_SELECTED_PATHS: string[] = [];
 
 /** Owns the file tree's selection, keyboard focus, and active-row navigation. */
 export function useNotebookTreeInteraction({
   activeFilePath,
   visibleTreeItems,
   treeItemPaths,
-  pinnedDocumentPaths = [],
+  pinnedItemPaths = [],
   contentKinds = EMPTY_SELECTION_CONTENT_KINDS,
   tree,
   treeRootRef,
@@ -71,8 +78,12 @@ export function useNotebookTreeInteraction({
   isActive = true,
   activeFileRevealRatio,
   onNoteSelect,
+  onFolderSelect,
+  folderPaths,
 }: UseNotebookTreeInteractionOptions) {
-  const [selectedFilePaths, setSelectedFilePaths] = useState<string[]>([]);
+  const [selection, setSelection] = useState<SidebarSelection>({ kind: 'files', paths: [] });
+  const selectedFilePaths = selection.kind === 'files' ? selection.paths : EMPTY_SELECTED_PATHS;
+  const selectedConversationId = selection.kind === 'conversation' ? selection.instanceId : null;
   const selectionOwner = useRef(Symbol('notebook-tree-selection'));
   useLayoutEffect(() => {
     const owner = selectionOwner.current;
@@ -113,9 +124,8 @@ export function useNotebookTreeInteraction({
     () => new Set(selectedFilePaths.map((path) => canonicalPath(path))),
     [selectedFilePaths],
   );
-  const visibleDocumentPaths = useMemo(
+  const visibleItemPaths = useMemo(
     () => visibleTreeItems
-      .filter(({ item }) => item.type === 'document')
       .map(({ item }) => item.fullPath),
     [visibleTreeItems],
   );
@@ -124,7 +134,12 @@ export function useNotebookTreeInteraction({
     const nextPaths = uniquePaths(paths);
     selectedFilePathsRef.current = nextPaths;
     selectionAnchorPathRef.current = anchorPath;
-    setSelectedFilePaths(nextPaths);
+    setSelection({ kind: 'files', paths: nextPaths });
+  }, []);
+  const selectConversation = useCallback((instanceId: string) => {
+    selectedFilePathsRef.current = [];
+    selectionAnchorPathRef.current = null;
+    setSelection({ kind: 'conversation', instanceId });
   }, []);
   const getSelectionAnchorPath = useCallback(() => selectionAnchorPathRef.current, []);
 
@@ -160,7 +175,9 @@ export function useNotebookTreeInteraction({
       // locator even if the tree's asynchronous directory read is still stale.
       const rebase = (path: string) => samePath(path, previousPath) ? nextActivePath : path;
       const anchor = selectionAnchorPathRef.current;
-      updateSelection(selectedFilePathsRef.current.map(rebase), anchor ? rebase(anchor) : null);
+      if (selectedFilePathsRef.current.length > 0) {
+        updateSelection(selectedFilePathsRef.current.map(rebase), anchor ? rebase(anchor) : null);
+      }
       setFocusedTreePath(current => current ? rebase(current) : null);
       setNavigationPolicies(current => ({
         active: current.active ? { ...current.active, path: rebase(current.active.path) } : null,
@@ -197,16 +214,16 @@ export function useNotebookTreeInteraction({
     );
   }, [treeItemPaths, activeFilePath, updateSelection]);
 
-  const focusTreeItem = useCallback((path: string) => {
+  const focusTreeItem = useCallback((path: string, root: HTMLElement | null = treeRootRef.current) => {
     setFocusedTreePath(path);
     const focusMountedRow = () => {
       const row = Array.from(
-        treeRootRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [],
+        root?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [],
       ).find((candidate) => samePath(candidate.dataset.notebookTreePath ?? '', path));
       row?.focus();
       return Boolean(row);
     };
-    if (focusMountedRow()) return;
+    if (focusMountedRow() || root !== treeRootRef.current) return;
 
     const index = renderRowIndexByPath.get(canonicalPath(path));
     const scroller = treeScrollerRef.current;
@@ -220,61 +237,6 @@ export function useNotebookTreeInteraction({
     window.requestAnimationFrame(() => { focusMountedRow(); });
   }, [renderRowIndexByPath, treeContentOffset, treeRootRef, treeScrollerRef]);
 
-  const handleTreeItemKeyDown = useCallback((path: string, event: KeyboardEvent<HTMLDivElement>) => {
-    const currentIndex = visibleTreeItems.findIndex(({ item }) => samePath(item.fullPath, path));
-    if (currentIndex < 0) return;
-    const current = visibleTreeItems[currentIndex];
-    const nextVisibleItem = (step: number) => visibleTreeItems[currentIndex + step];
-
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      const target = nextVisibleItem(event.key === 'ArrowDown' ? 1 : -1);
-      if (!target) return;
-      event.preventDefault();
-      focusTreeItem(target.item.fullPath);
-      return;
-    }
-    if (event.key === 'Home' || event.key === 'End') {
-      const target = event.key === 'Home'
-        ? visibleTreeItems[0]
-        : visibleTreeItems[visibleTreeItems.length - 1];
-      if (!target) return;
-      event.preventDefault();
-      focusTreeItem(target.item.fullPath);
-      return;
-    }
-
-    if (event.key === 'ArrowRight' && current.item.type === 'folder') {
-      const expanded = tree.expanded.has(canonicalPath(current.item.fullPath));
-      if (!expanded) {
-        event.preventDefault();
-        tree.toggle(current.item.fullPath);
-        return;
-      }
-      const child = nextVisibleItem(1);
-      if (child && child.depth > current.depth) {
-        event.preventDefault();
-        focusTreeItem(child.item.fullPath);
-      }
-      return;
-    }
-
-    if (event.key === 'ArrowLeft') {
-      if (current.item.type === 'folder'
-        && tree.expanded.has(canonicalPath(current.item.fullPath))) {
-        event.preventDefault();
-        tree.toggle(current.item.fullPath);
-        return;
-      }
-      const parent = visibleTreeItems
-        .slice(0, currentIndex)
-        .reverse()
-        .find(({ item, depth }) => item.type === 'folder' && depth < current.depth);
-      if (parent) {
-        event.preventDefault();
-        focusTreeItem(parent.item.fullPath);
-      }
-    }
-  }, [focusTreeItem, tree, visibleTreeItems]);
 
   useEffect(() => {
     const fallback = activeFileShouldReveal && activeFilePath && visibleTreeItems.some(({ item }) => samePath(item.fullPath, activeFilePath))
@@ -326,16 +288,16 @@ export function useNotebookTreeInteraction({
     treeScrollerRef,
   ]);
 
-  const selectNote = useCallback((filePath: string, modifiers?: NotebookTreeSelectionModifiers, list: 'tree' | 'pinned' = 'tree') => {
-    const documentPaths = list === 'pinned' ? pinnedDocumentPaths : visibleDocumentPaths;
+  const selectItem = useCallback((filePath: string, modifiers?: NotebookTreeSelectionModifiers, list: 'tree' | 'pinned' = 'tree') => {
+    const itemPaths = list === 'pinned' ? pinnedItemPaths : visibleItemPaths;
     const sameList = selectionListRef.current === list;
     const currentPaths = sameList ? selectedFilePathsRef.current : [];
     const isToggle = Boolean(modifiers?.ctrlKey || modifiers?.metaKey);
     const anchorPath = sameList ? selectionAnchorPathRef.current : null;
     selectionListRef.current = list;
-    const targetIndex = documentPaths.findIndex((path) => samePath(path, filePath));
+    const targetIndex = itemPaths.findIndex((path) => samePath(path, filePath));
     const anchorIndex = anchorPath
-      ? documentPaths.findIndex((path) => samePath(path, anchorPath))
+      ? itemPaths.findIndex((path) => samePath(path, anchorPath))
       : -1;
 
     let nextPaths: string[];
@@ -343,7 +305,7 @@ export function useNotebookTreeInteraction({
     if (modifiers?.shiftKey && anchorIndex >= 0 && targetIndex >= 0) {
       const start = Math.min(anchorIndex, targetIndex);
       const end = Math.max(anchorIndex, targetIndex);
-      const range = documentPaths.slice(start, end + 1);
+      const range = itemPaths.slice(start, end + 1);
       nextPaths = isToggle ? [...currentPaths, ...range] : range;
       nextAnchor = anchorPath;
     } else if (isToggle) {
@@ -359,9 +321,88 @@ export function useNotebookTreeInteraction({
     // previously active document was removed from a multi-selection.
     const isPlainClick = !modifiers?.shiftKey && !isToggle;
     if (nextPaths.length === 1 && (isPlainClick || !activeFilePath || !samePath(nextPaths[0], activeFilePath))) {
+      if (folderPaths?.has(canonicalPath(nextPaths[0])) || visibleTreeItems.some(({ item }) => item.type === 'folder' && samePath(item.fullPath, nextPaths[0]))) {
+        if (isPlainClick) onFolderSelect?.(nextPaths[0]);
+        return;
+      }
       navigateToNote(nextPaths[0], list === 'pinned' ? 'preserve' : 'reveal');
     }
-  }, [activeFilePath, navigateToNote, updateSelection, visibleDocumentPaths, pinnedDocumentPaths]);
+  }, [activeFilePath, navigateToNote, updateSelection, visibleItemPaths, pinnedItemPaths, visibleTreeItems, onFolderSelect, folderPaths]);
+
+  const handleTreeItemKeyDown = useCallback((path: string, event: KeyboardEvent<HTMLDivElement>, context?: {
+    items: VisibleTreeNode[];
+    tree: NotebookTreeController;
+    root: HTMLElement | null;
+    list: 'pinned';
+  }) => {
+    const items = context?.items ?? visibleTreeItems;
+    const controller = context?.tree ?? tree;
+    const list = context?.list ?? 'tree';
+    const currentIndex = items.findIndex(({ item }) => samePath(item.fullPath, path));
+    if (currentIndex < 0) return;
+    const current = items[currentIndex];
+    const nextVisibleItem = (step: number) => items[currentIndex + step];
+    const moveToItem = (targetPath: string) => {
+      // Keep the original row as the range anchor when navigating before a click.
+      if (event.shiftKey && (selectionListRef.current !== list || selectionAnchorPathRef.current === null)) {
+        selectionListRef.current = list;
+        updateSelection([path], path);
+      }
+      // Navigation replaces selection; only Shift extends a range. Ctrl/Cmd
+      // toggle semantics belong to pointer selection, not arrow movement.
+      selectItem(targetPath, { shiftKey: event.shiftKey }, list);
+      focusTreeItem(targetPath, context ? context.root : treeRootRef.current);
+    };
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const target = nextVisibleItem(event.key === 'ArrowDown' ? 1 : -1);
+      if (!target) return;
+      event.preventDefault();
+      moveToItem(target.item.fullPath);
+      return;
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      const target = event.key === 'Home'
+        ? items[0]
+        : items[items.length - 1];
+      if (!target) return;
+      event.preventDefault();
+      moveToItem(target.item.fullPath);
+      return;
+    }
+
+    if (event.key === 'ArrowRight' && current.item.type === 'folder') {
+      const expanded = controller.expanded.has(canonicalPath(current.item.fullPath));
+      if (!expanded) {
+        event.preventDefault();
+        controller.toggle(current.item.fullPath);
+        return;
+      }
+      const child = nextVisibleItem(1);
+      if (child && child.depth > current.depth) {
+        event.preventDefault();
+        moveToItem(child.item.fullPath);
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowLeft') {
+      if (current.item.type === 'folder'
+        && controller.expanded.has(canonicalPath(current.item.fullPath))) {
+        event.preventDefault();
+        controller.toggle(current.item.fullPath);
+        return;
+      }
+      const parent = items
+        .slice(0, currentIndex)
+        .reverse()
+        .find(({ item, depth }) => item.type === 'folder' && depth < current.depth);
+      if (parent) {
+        event.preventDefault();
+        moveToItem(parent.item.fullPath);
+      }
+    }
+  }, [focusTreeItem, selectItem, updateSelection, tree, visibleTreeItems, treeRootRef]);
 
   const treeFocusPath = focusedTreePath
     ?? (activeFileShouldReveal && activeFilePath && visibleTreeItems.some(({ item }) => samePath(item.fullPath, activeFilePath))
@@ -372,6 +413,8 @@ export function useNotebookTreeInteraction({
     focusedTreePath,
     setFocusedTreePath,
     selectedFilePaths,
+    selectedConversationId,
+    selectConversation,
     selectedFilePathSet,
     updateSelection,
     getSelectionAnchorPath,
@@ -380,6 +423,7 @@ export function useNotebookTreeInteraction({
     activeFileShouldReveal,
     treeFocusPath,
     handleTreeItemKeyDown,
-    selectNote,
+    focusTreeItem,
+    selectItem,
   };
 }

@@ -1,12 +1,11 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
 
 import { createLogger } from '@/lib/logger';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
-import { notebookRelativeDirectoryPath, parentDirectoryPath } from '@/lib/path';
+import { parentDirectoryPath } from '@/lib/path';
 import {
   files,
   type CollectionIndexItem,
@@ -18,14 +17,6 @@ import { buildCollectionPinTargets, resolveTreePinRoute, type CollectionPinKind 
 import type { PinnedTreeItem } from './use-notebook-pinned-notes';
 
 const logger = createLogger('pinned-entry-actions');
-
-export interface PinnedOpeners {
-  openTableDocument: (relativePath: string) => void;
-  openMediaLibrary: (path: string) => void;
-  openWorkDocuments: (path: string) => void;
-  /** Opens notes and plain documents; the tree supplies the navigation policy. */
-  openPinnedPath: (path: string, event?: ReactMouseEvent<HTMLDivElement>) => void;
-}
 
 interface UsePinnedEntryActionsOptions {
   notebookId: string | null;
@@ -43,7 +34,6 @@ interface UsePinnedEntryActionsOptions {
   workDocumentCollectionByPath: ReadonlyMap<string, CollectionIndexItem>;
   /** Unpin a folder; folders live in view preferences, not the indexes. */
   toggleFolderPinned: (folderPath: string) => void | Promise<void>;
-  openers: PinnedOpeners;
 }
 
 /** Pin entry a file-tree row should show, and the command behind it. */
@@ -53,8 +43,7 @@ export interface TreePinProps {
 }
 
 /**
- * Pin toggles for documents and collections, plus the row wiring the pinned
- * section needs to open each entry kind. Notes stay on frontmatter and keep
+ * Pin toggles for documents and collections. Notes stay on frontmatter and keep
  * their own menu, so they deliberately have no entry here.
  */
 export function usePinnedEntryActions({
@@ -69,7 +58,6 @@ export function usePinnedEntryActions({
   mediaLibraryByPath,
   workDocumentCollectionByPath,
   toggleFolderPinned,
-  openers,
 }: UsePinnedEntryActionsOptions) {
   const { t } = useI18n();
 
@@ -142,25 +130,6 @@ export function usePinnedEntryActions({
     };
   }, [collectionPinByPath, toggleCollectionPinned, toggleDocumentPinned]);
 
-  const openPinnedEntry = useCallback((
-    item: PinnedTreeItem,
-    path: string,
-    event?: ReactMouseEvent<HTMLDivElement>,
-  ) => {
-    if (item.pinnedEntryKind !== 'collection') {
-      openers.openPinnedPath(path, event);
-      return;
-    }
-    if (item.pinnedCollectionType === 'table') {
-      const relativePath = notebookRelativeDirectoryPath(notebookPath, path);
-      if (relativePath) openers.openTableDocument(relativePath);
-    } else if (item.pinnedCollectionType === 'media_library') {
-      openers.openMediaLibrary(path);
-    } else {
-      openers.openWorkDocuments(path);
-    }
-  }, [notebookPath, openers]);
-
   const pinnedRowToggle = useCallback((item: PinnedTreeItem) => {
     if (item.pinnedEntryKind === 'folder') {
       // A folder inside the pinned group is either pinned itself or shown only
@@ -189,7 +158,6 @@ export function usePinnedEntryActions({
     toggleDocumentPinned,
     toggleCollectionPinned,
     treePinProps,
-    openPinnedEntry,
     pinnedRowToggle,
   };
 }

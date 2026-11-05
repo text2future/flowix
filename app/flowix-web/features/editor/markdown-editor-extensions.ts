@@ -1,3 +1,5 @@
+import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
+import type { EditorImageContext } from './editor-image-source';
 import { FlowixOrderedList } from './markdown-ordered-list';
 import { VideoEmbed } from './extensions/video-embed/node';
 import { Editor, Extension, renderNestedMarkdownContent } from '@tiptap/core';
@@ -36,11 +38,14 @@ import { TabAgentRun } from '@features/editor/extensions/tab-agent-run';
 import { TabCharacter } from '@features/editor/extensions/tab-character';
 import { tableNeedsHtml } from '@features/editor/extensions/table/flowix-table';
 import { createTablePlugin } from '@features/editor/extensions/table/table-plugin';
+import type { TableEdgeInsertLabels } from '@features/editor/extensions/table/table-edge-insert-plugin';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
+import { translate } from '@/lib/i18n/provider';
 import { BlockGapCursor } from './extensions/block-gap-cursor';
 import { StableCaret } from '@features/editor/extensions/stable-caret';
 import { MarkdownParagraph, MarkdownTaskItem } from './markdown-parser-common-extensions';
 import { isEmptyMarkdownPlaceholderOnly } from './markdown-normalization';
-import type { WorkspaceHostId } from '@features/workspace/public/host-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 
 type MarkdownRenderContext = {
   parentType?: string | null;
@@ -277,6 +282,7 @@ const PreservedTaskItem = MarkdownTaskItem.extend({
 });
 
 export interface MarkdownEditorExtensionContext {
+  getImageContext?: () => EditorImageContext | undefined;
   ownerPath?: string;
   getOwnerPath: () => string | undefined;
   getAttachmentNotebookId: () => string | undefined;
@@ -284,13 +290,25 @@ export interface MarkdownEditorExtensionContext {
   onPropertyAreaHoverChange?: (hovered: boolean) => void;
   onViewSourceMode?: () => void;
   transitionId?: number | null;
-  workspaceHost: WorkspaceHostId;
+  workspaceHost: WorkspaceColumnId;
   getPlaceholder: () => string;
 }
 
 /** Full interactive editor registry; parser specs are shared through pure Markdown modules. */
+function tableEdgeInsertLabels(): TableEdgeInsertLabels {
+  // The edge buttons are plain DOM created by the plugin, so they cannot read
+  // i18n at render time. Labels are resolved when the editor is built — the
+  // same tradeoff `insertTableTemplate` makes for template cell text.
+  const language = getCurrentAppLanguage();
+  return {
+    insertColumnAfter: translate(language, 'editor.table.insertColumnAfter'),
+    insertRowAfter: translate(language, 'editor.table.insertRowAfter'),
+  };
+}
+
 export function createMarkdownEditorExtensions({
   ownerPath,
+  getImageContext,
   getOwnerPath,
   getAttachmentNotebookId,
   propertyTargetId,
@@ -330,7 +348,7 @@ export function createMarkdownEditorExtensions({
     MarkdownEscape,
     HTMLStrongFallback,
     LegacyAdjacentStrongMarkdown,
-    AttachmentLink.configure({ ownerPath, getOwnerPath, getNotebookId: getAttachmentNotebookId }),
+    AttachmentLink.configure({ ownerPath, getOwnerPath, getNotebookId: getAttachmentNotebookId, getImageContext }),
     MarkdownLink,
     LinkSelectionHighlight,
     codeBlockExtension.configure({ traceId: transitionId }),
@@ -340,7 +358,7 @@ export function createMarkdownEditorExtensions({
     TableReference,
     MediaLibraryReference,
     FlowixHighlight.configure({ multicolor: true }),
-    createTablePlugin(),
+    createTablePlugin({ labels: tableEdgeInsertLabels() }),
     TaskList,
     PreservedTaskItem.configure({ nested: true }),
     Markdown.configure({ markedOptions: { gfm: true, breaks: true } }),
@@ -360,7 +378,12 @@ export function createMarkdownEditorExtensions({
       },
     }),
     Tag,
-    ManagedPasteRules.configure({ ownerPath, getOwnerPath }),
+    ManagedPasteRules.configure({ ownerPath, getOwnerPath,
+      getLinkContext: (documentPath) => documentPath ? {
+        documentPath, notebookId: getAttachmentNotebookId(),
+        notebooks: getWorkspaceMemoState().notebooks,
+      } : undefined,
+    }),
     MarkdownPaste,
     Frontmatter.configure({
       propertyTargetId,

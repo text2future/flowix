@@ -248,3 +248,21 @@ it("waits for the newer startup read when its own read was superseded", async ()
   await Promise.all([ready,newer]);
   expect(useAgentWorkspaceStore.getState().loadState.workspace.status).toBe('ready');
 });
+
+describe("saved settings workspace snapshot", () => {
+  it("keeps the committed snapshot when an older background reload completes", async () => {
+    let finish!: (value: AgentWorkspaceSnapshot) => void;
+    backend.get.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const loading = useAgentWorkspaceStore.getState().workspaceActions.loadInitial();
+    const committed = snapshot();
+    committed.notebooks[0].path = "/new-primary";
+    committed.notebookConfigs.one.addDirs = [];
+    useAgentWorkspaceStore.getState().workspaceActions.applySnapshot(committed);
+    finish(snapshot());
+    await loading;
+    const state = useAgentWorkspaceStore.getState();
+    expect(state.workspace.byNotebookId.one.notebook.path).toBe("/new-primary");
+    expect(state.workspace.byNotebookId.one.addDirs).toEqual([]);
+    expect(state.loadState.workspace.status).toBe("ready");
+  });
+});

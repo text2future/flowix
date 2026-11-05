@@ -1,4 +1,3 @@
-import { assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
 import type { CollectionSource } from '@features/collection/model';
 import { canonicalDirectoryPath, notebookRelativeDirectoryPath, parentDirectoryPath } from '@/lib/path';
 import type { I18nKey } from '@/lib/i18n';
@@ -49,10 +48,9 @@ export function noteInCollectionSource(
   }
   const normalized = notePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   const prefix = base.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  if (!prefix) return source.depth === 'descendants' || !normalized.includes('/');
+  if (!prefix) return true;
   if (!normalized.startsWith(`${prefix}/`)) return false;
-  const remainder = normalized.slice(prefix.length + 1);
-  return source.depth === 'descendants' || !remainder.includes('/');
+  return true;
 }
 
 /** Resolve the table YAML's folder as the second choice for notes created from its rows. */
@@ -81,12 +79,6 @@ export function fieldLabel(
   // A user preset's key IS its display name; only system presets resolve a
   // separate localized label.
   return resolvePropertyDisplayName(field.property_key ?? '', propertyFields, t);
-}
-
-export function noteThumbnailUrl(thumbnail: string | null | undefined): string | null {
-  if (!thumbnail) return null;
-  const storageKey = decodeStorageKey(thumbnail);
-  return storageKey ? assetUrl(storageKey) : thumbnail;
 }
 
 export function isoDate(date: Date): string {

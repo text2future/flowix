@@ -117,3 +117,13 @@ that filename requires a separate, downgrade-aware migration.
   source for rebuildable note metadata; the note index has no document ID key.
 
 The global `index.db` is retired. Version initialization no longer copies or imports it. After current stores initialize successfully, both old locations and their SQLite companions are archived under `rebuild-backups/<UUID>/` before initialization is marked complete. Cleanup failures are logged and skipped independently for each location; they do not block initialization or schedule a retry on normal startup. Old-only installations must re-register their notebook folders; Markdown files are unchanged.
+
+
+Market installation workspaces live in notebook-local `.flowix/skill-installs/` and
+`.flowix/template-installs/`. Each package ID has a persistent lock file and its own
+`<id>/stage-*` namespace. These are internal installation state, excluded from the
+notebook watcher. Complete skills publish to `.agents/skills/<id>/`; complete templates
+publish to the validated manifest directory in the notebook root. Template identity
+comes from `.flowix-template.json` inside the installed directory, so renaming that
+directory does not lose its installed ID. Legacy installation workspaces are not
+automatically moved while lock files may still be in use.

@@ -25,6 +25,7 @@ pub mod creates;
 pub mod deletes;
 pub(crate) mod helpers;
 pub mod reads;
+pub mod links;
 pub mod versions;
 
 // `helpers` is `pub(crate)`: memo commands access it via `super::helpers`.

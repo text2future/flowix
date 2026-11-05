@@ -25,11 +25,6 @@
       "count": 2
     }
   },
-  "app/flowix-web/features/agent/components/agent-conversation-titlebar.tsx": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "app/flowix-web/features/agent/components/use-agent-conversation-surface.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -240,11 +235,6 @@
   "app/flowix-web/features/document/components/document-titlebar-controls.tsx": {
     "no-restricted-imports": {
       "count": 1
-    }
-  },
-  "app/flowix-web/features/document/components/document-titlebar.tsx": {
-    "no-restricted-imports": {
-      "count": 2
     }
   },
   "app/flowix-web/features/document/components/lazy-code-editor.tsx": {
@@ -502,11 +492,6 @@
       "count": 2
     }
   },
-  "app/flowix-web/features/memo/components/memo-card.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "app/flowix-web/features/memo/components/memo-create-location.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -519,7 +504,7 @@
   },
   "app/flowix-web/features/memo/components/memo-list.tsx": {
     "no-restricted-imports": {
-      "count": 3
+      "count": 2
     }
   },
   "app/flowix-web/features/memo/components/notebook-access-files-list.test.ts": {
@@ -549,12 +534,7 @@
   },
   "app/flowix-web/features/memo/components/notebook-file-tree.tsx": {
     "no-restricted-imports": {
-      "count": 2
-    }
-  },
-  "app/flowix-web/features/memo/components/notebook-folder-view.tsx": {
-    "no-restricted-imports": {
-      "count": 2
+      "count": 1
     }
   },
   "app/flowix-web/features/memo/components/notebook-list.tsx": {
@@ -581,9 +561,6 @@
     }
   },
   "app/flowix-web/features/memo/components/tag-tree.tsx": {
-    "@typescript-eslint/no-unused-expressions": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     }
@@ -696,7 +673,7 @@
   },
   "app/flowix-web/features/multidimensional-table/table-view-helpers.ts": {
     "no-restricted-imports": {
-      "count": 4
+      "count": 3
     }
   },
   "app/flowix-web/features/multidimensional-table/use-auto-content-column-widths.ts": {

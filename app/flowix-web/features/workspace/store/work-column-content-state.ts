@@ -1,12 +1,10 @@
 import type { ExternalDocumentSession } from '@features/document/public/workspace-api';
 import { getWorkspaceDocumentState } from '@features/document/public/workspace-api';
 
-import { useWorkColumnStore } from './work-column-store';
-import type {
-  WorkColumnNavigationFailure,
-  WorkColumnNavigationState,
-  WorkColumnTarget,
-} from './work-column-target';
+import { columnNavigation } from './column-navigation';
+import { EMPTY_WORK_COLUMN_TARGET, type WorkColumnTarget } from './work-column-target';
+import type { SessionNavigationState } from '../model/session-navigation';
+import type { WorkColumnNavigationFailure } from './work-column-target';
 
 export type WorkColumnSession
   =
@@ -47,42 +45,41 @@ function activeSession(document: WorkColumnDocumentSnapshot): WorkColumnSession 
 }
 
 /**
- * Read model for workColumn content. Navigation owns target intent and
+ * Read model for a column's content. The session owns target intent and
  * transaction status; DocumentStore owns loaded editable sessions.
  */
 export function resolveWorkColumnContentState(
-  navigation: WorkColumnNavigationState,
+  navigation: SessionNavigationState,
   document: WorkColumnDocumentSnapshot,
 ): WorkColumnContentState {
   const session = activeSession(document);
+  const target = navigation.current?.target ?? EMPTY_WORK_COLUMN_TARGET;
+  const { transaction } = navigation;
 
-  if (navigation.phase === 'loading' && navigation.pendingTarget) {
+  if (transaction.phase === 'loading' && transaction.pendingTarget) {
     return {
       status: 'transitioning',
-      from: navigation.target,
-      to: navigation.pendingTarget,
+      from: target,
+      to: transaction.pendingTarget,
       session,
     };
   }
 
-  if (navigation.phase === 'failed' && navigation.pendingTarget && navigation.failure) {
+  if (transaction.phase === 'failed' && transaction.pendingTarget && transaction.failure) {
     return {
       status: 'failed',
-      target: navigation.target,
-      attemptedTarget: navigation.pendingTarget,
+      target,
+      attemptedTarget: transaction.pendingTarget,
       session,
-      failure: navigation.failure,
+      failure: transaction.failure,
     };
   }
 
-  if (navigation.target.kind === 'empty' && !session) return { status: 'empty' };
-  return { status: 'ready', target: navigation.target, session };
+  if (target.kind === 'empty' && !session) return { status: 'empty' };
+  return { status: 'ready', target, session };
 }
 
 /** Imperative read entry for use-cases outside React rendering. */
 export function getWorkColumnContentState(): WorkColumnContentState {
-  return resolveWorkColumnContentState(
-    useWorkColumnStore.getState().navigation,
-    getWorkspaceDocumentState(),
-  );
+  return resolveWorkColumnContentState(columnNavigation(0), getWorkspaceDocumentState());
 }

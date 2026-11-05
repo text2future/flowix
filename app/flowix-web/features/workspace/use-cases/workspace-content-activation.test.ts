@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
@@ -6,7 +7,7 @@ import { activateExistingWorkspaceContent } from './workspace-content-activation
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
 
 function resetWorkspace() {
-  useWorkColumnStore.setState({
+  seedWorkColumn({
     navigation: {
       phase: 'idle',
       showWorkColumnLoading: false,
@@ -39,13 +40,13 @@ describe('workspace content activation', () => {
       scopePath: '/notes',
       transitionId: 1,
     });
-    useWorkspaceFocusStore.getState().focusHost('browser-column');
+    useWorkspaceFocusStore.getState().focusColumn('column-2');
 
     expect(activateExistingWorkspaceContent({ kind: 'external', path: '/notes/a.md' })).toEqual({
-      host: 'main-third',
+      host: 'column-1',
       state: 'active',
     });
-    expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('main-third');
+    expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');
   });
 
   it('reveals the browser column and activates its matching tab and host', () => {
@@ -76,13 +77,13 @@ describe('workspace content activation', () => {
     browserColumn.setVisible(false);
 
     expect(activateExistingWorkspaceContent({ kind: 'external', path: '/notes/a.md' })).toEqual({
-      host: 'browser-column',
+      host: 'column-2',
       surfaceId: 'memo:a',
     });
     expect(useBrowserColumnStore.getState()).toMatchObject({
       visible: true,
     });
-    expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('browser-column');
+    expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-2');
   });
 
   it('treats Markdown and text views of the same canonical path as one document', () => {
@@ -100,7 +101,7 @@ describe('workspace content activation', () => {
       kind: 'external',
       path: '/notes/a.md',
     })).toEqual({
-      host: 'browser-column',
+      host: 'column-2',
       surfaceId: 'file:/notes/a.md',
     });
   });
@@ -117,8 +118,8 @@ describe('workspace content activation', () => {
     expect(activateExistingWorkspaceContent({
       kind: 'agent-conversation',
       instanceId: 'agent-a',
-    })).toEqual({ host: 'main-third', state: 'active' });
-    expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('main-third');
+    })).toEqual({ host: 'column-1', state: 'active' });
+    expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');
   });
 
   it('treats a pending work-column open as existing content', () => {
@@ -132,8 +133,8 @@ describe('workspace content activation', () => {
     expect(activateExistingWorkspaceContent({
       kind: 'external',
       path: '/notes/pending.md',
-    })).toEqual({ host: 'main-third', state: 'pending' });
+    })).toEqual({ host: 'column-1', state: 'pending' });
     expect(useBrowserColumnStore.getState().current).toBeNull();
-    expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('main-third');
+    expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');
   });
 });

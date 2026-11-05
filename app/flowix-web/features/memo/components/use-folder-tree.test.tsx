@@ -597,7 +597,7 @@ describe('flattenVisibleTree', () => {
       error: null,
     };
 
-    expect(flattenVisibleTree(state).map(({ item }) => item.name)).toEqual([
+    expect(flattenVisibleTree(state, 'createdAt').map(({ item }) => item.name)).toEqual([
       'folder',
       'newer-note.md',
       'image.png',
@@ -621,12 +621,12 @@ describe('flattenVisibleTree', () => {
       error: null,
     };
 
-    // createdAt: 隐藏组整体置顶, 组内仍按「新→旧」。
+    // 默认 A-Z: 隐藏组整体置顶, 每组内按文件名升序。
     expect(flattenVisibleTree(state).map(({ item }) => item.name)).toEqual([
       '.plugin-output',
       '.trash',
-      'notes',
       'archive',
+      'notes',
     ]);
     // filenameDesc: 组内与普通组都反序, 隐藏组的位置不变。
     expect(flattenVisibleTree(state, 'filenameDesc').map(({ item }) => item.name)).toEqual([
@@ -652,12 +652,12 @@ describe('flattenVisibleTree', () => {
       error: null,
     };
 
-    // archive 被置顶后, 访问空间仍把它排在隐藏组之后、按创建时间就地排序;
+    // archive 被置顶后, 访问空间仍把它排在隐藏组之后、按 A-Z 就地排序;
     // 置顶只负责把它复制到「置顶」分组, 不参与这里的排序。
     expect(flattenVisibleTree(state).map(({ item }) => item.name)).toEqual([
       '.trash',
-      'notes',
       'archive',
+      'notes',
     ]);
   });
 });

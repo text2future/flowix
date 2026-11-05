@@ -218,15 +218,6 @@ html[data-platform="mac"] .multidimensional-table__scrollbar--bottom-clearance.o
   background-color: color-mix(in srgb, var(--card) 50%, var(--hover-bg) 50%);
 }
 
-.multidimensional-table__kanban-drop-target {
-  background-color: color-mix(in srgb, var(--brand) 8%, var(--background));
-  transition: background-color 120ms ease;
-}
-
-.multidimensional-table__kanban-lane[data-kanban-unassigned='true'].multidimensional-table__kanban-drop-target {
-  background-color: color-mix(in srgb, var(--brand) 8%, var(--background));
-}
-
 .multidimensional-table__calendar-card,
 .multidimensional-table__calendar-card * {
   -webkit-user-select: none;

@@ -9,7 +9,7 @@ import { publishAgentLocationRequest } from './agent-location-navigation';
  */
 export function locationViewId(opened: { host: string; surfaceId?: string; runtimeLocation?: { host: string; surfaceId?: string } }): string {
   opened = opened.runtimeLocation ?? opened;
-  return opened.host === 'browser-column' ? (opened.surfaceId ?? opened.host) : opened.host;
+  return opened.host === 'column-2' ? (opened.surfaceId ?? opened.host) : opened.host;
 }
 
 /**

@@ -9,6 +9,8 @@ import { toast } from '@/lib/toast';
 import { canonicalPath } from '@/lib/path';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Button } from '@shared/ui/button';
+import { CollectionAreaMenu } from '@shared/ui/collection-area-menu';
+import { assetAreaMenuItems } from '@shared/ui/collection-area-menu-items';
 import { useI18n } from '@/lib/i18n';
 import type { MediaLibraryRecord } from '@features/media-library/public/model-api';
 import type { AssetFilterCondition, AssetFilterSaveOptions } from '@features/collection/public/folder-api';
@@ -29,9 +31,11 @@ import { useDatasetFilter } from './use-dataset-filter';
 
 // Keep the loading effect stable when ordinary folders omit media records.
 const EMPTY_MEDIA_LIBRARY_RECORDS: MediaLibraryRecord[] = [];
+/** 非集合外壳场景（独立媒体库 / 文档列表）：右键菜单不挂任何项。 */
+const NO_AREA_MENU_ITEMS: ReturnType<typeof assetAreaMenuItems> = [];
 const ROW_HEIGHT = 224;
 
-export function DocumentListView({ listContext, mediaLibrary = false, workDocuments = false, libraryName = '媒体库', libraryFilePath, mediaLibraryFolderPath, workDocumentsFolderPath, mediaLibraryFilter = {}, workDocumentsFilter = {}, mediaLibraryRecords = EMPTY_MEDIA_LIBRARY_RECORDS, mediaLibraryExcludedPaths = [], mediaLibraryDatasetFilter, mediaLibraryViewFilter, assetViewFilter, onMediaLibraryFilterChange, onWorkDocumentsFilterChange, onOpenNoteFilter, onDatasetFilterOpenChange, onLoadingChange, onRenameLibrary, onAddMedia, onDeleteMedia, onSwitchToTable, libraryActionsDisabled = false, refreshPaused = false, workspaceHost = 'main-third', actionsHost, pageScroll = false }: {
+export function DocumentListView({ listContext, mediaLibrary = false, workDocuments = false, libraryName = '媒体库', libraryFilePath, mediaLibraryFolderPath, workDocumentsFolderPath, mediaLibraryFilter = {}, workDocumentsFilter = {}, mediaLibraryRecords = EMPTY_MEDIA_LIBRARY_RECORDS, mediaLibraryExcludedPaths = [], mediaLibraryDatasetFilter, mediaLibraryViewFilter, assetViewFilter, onMediaLibraryFilterChange, onWorkDocumentsFilterChange, onOpenNoteFilter, onDatasetFilterOpenChange, onLoadingChange, onRenameLibrary, onAddMedia, onDeleteMedia, onImportFiles, onSwitchToTable, libraryActionsDisabled = false, refreshPaused = false, workspaceHost = 'column-1', actionsHost, pageScroll = false }: {
   listContext: DocumentListViewContext;
   mediaLibrary?: boolean;
   workDocuments?: boolean;
@@ -51,6 +55,8 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   assetViewFilter?: Record<string, unknown> | null;
   mediaLibraryViewFilter?: Record<string, unknown> | null;
   onAddMedia?: () => Promise<boolean>;
+  /** 列表（work_documents）集合的「导入文件…」：把外部文件复制进集合的数据范围。 */
+  onImportFiles?: () => Promise<boolean>;
   onDeleteMedia?: (item: DocumentPageItem) => Promise<boolean>;
   onMediaLibraryFilterChange?: (condition: AssetFilterCondition, options?: AssetFilterSaveOptions) => Promise<boolean>;
   onWorkDocumentsFilterChange?: (condition: AssetFilterCondition, options?: AssetFilterSaveOptions) => Promise<boolean>;
@@ -62,7 +68,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   onSwitchToTable?: () => void;
   libraryActionsDisabled?: boolean;
   refreshPaused?: boolean;
-  workspaceHost?: 'main-third' | 'browser-column';
+  workspaceHost?: 'column-1' | 'column-2';
   /** 集合外壳里的 tab 面板：本组件不再渲染自己的标题/操作行（tab 下只有数据列表），
    *  只把「一行操作」portal 进外壳 nav 右侧的操作槽（集合名由外壳统一给）。 */
   actionsHost?: CollectionActionsHost;
@@ -358,7 +364,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
       refresh();
       const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
       await openWorkspaceSurface({
-        host: 'main-third',
+        index: 0,
         target: { kind: 'external', path: created.path, scopePath: listContext.notebookPath, transitionId: null },
       });
     } catch {
@@ -372,7 +378,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
       if (workDocuments) {
         const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
         await openWorkspaceSurface({
-          host: 'browser-column',
+          index: 1,
           target: { kind: 'external', path: item.fullPath, scopePath: listContext.notebookPath, transitionId: null },
           options: { notebookId: listContext.notebookId },
         });
@@ -388,16 +394,16 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
         await openPath(item.fullPath);
         return;
       }
-      const { openWorkspaceSurface } = await import('@features/workspace/public/open-surface-api');
+      const { openWorkspaceSurface } = await import('@features/workspace/public/session-opening-api');
       const kind = item.resourceKind ?? resourceKindFromPath(item.fullPath);
       if (kind === 'image' || kind === 'video') {
-        await openWorkspaceSurface({ host: 'browser-column', target: {
+        await openWorkspaceSurface({ columnId: workspaceHost, target: {
           kind: 'media', filePath: item.fullPath, notebookId: listContext.notebookId,
           notebookPath: listContext.notebookPath, resourceKind: kind,
         } });
       } else {
         const target = { kind: 'external' as const, path: item.fullPath, scopePath: listContext.notebookPath, transitionId: null };
-        await openWorkspaceSurface({ host: workspaceHost, target });
+        await openWorkspaceSurface({ columnId: workspaceHost, target });
       }
     } catch {
       toast.error('打开文件失败');
@@ -405,6 +411,24 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   }, [listContext.notebookId, listContext.notebookPath, workDocuments, workspaceHost]);
 
   const mode: DocumentListMode = mediaLibrary ? 'media' : workDocuments ? 'work' : 'documents';
+  /**
+   * 列表区域右键菜单 ── 只在集合外壳里出现（actionsHost 由外壳注入）：
+   * 图墙与列表都属于资料视图，菜单只有一项「导入文件…」（媒体库添加图片 / 视频，
+   * 列表导入普通文件），两者各自走已有的导入通道。
+   */
+  const importFilesFromMenu = () => {
+    if (!onImportFiles || libraryActionsDisabled) return;
+    void onImportFiles().then((changed) => { if (changed) refresh(); }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : t('mediaLibrary.addMediaFailed'));
+    });
+  };
+  const areaMenuItems = !actionsHost
+    ? NO_AREA_MENU_ITEMS
+    : mediaLibrary
+      ? assetAreaMenuItems({ t, onImportFiles: onAddMedia && !libraryActionsDisabled ? addMedia : undefined })
+      : workDocuments
+        ? assetAreaMenuItems({ t, onImportFiles: onImportFiles && !libraryActionsDisabled ? importFilesFromMenu : undefined })
+        : NO_AREA_MENU_ITEMS;
   const folderTitle = listContext.folderPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || listContext.folderPath;
   const headerNode = <DocumentListHeader
     mode={mode}
@@ -507,6 +531,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
     {hasMore && !moreError && <div ref={endRef} className="h-1" aria-hidden="true" />}
   </>;
   return <section className={`flex min-h-0 flex-col bg-transparent text-[var(--foreground)] ${pageScroll ? '' : 'h-full'}`}>
+    <CollectionAreaMenu items={areaMenuItems}>
     {pageScroll
       ? <div ref={listRef} className="flex min-w-0 flex-1 flex-col">{body}</div>
       : <OverlayScrollbar
@@ -514,6 +539,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
           scrollerClassName={`h-full min-h-0 min-w-0 w-full flex-1 overflow-auto ${headerEmbedded ? 'px-0' : 'px-5'} pb-4`}
           scrollerRef={scrollRef}
         >{body}</OverlayScrollbar>}
+    </CollectionAreaMenu>
     {mediaLibrary && <Dialog open={!!mediaToDelete} onOpenChange={(open) => { if (!open && !deletingMedia) setMediaToDelete(null); }}>
       <DialogContent className="max-w-sm" showCloseButton={false}>
         <DialogHeader>

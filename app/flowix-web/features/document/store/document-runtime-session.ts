@@ -23,6 +23,8 @@ export interface DocumentRuntimeSession {
   loaded: boolean;
   capturing: boolean;
   recoveryRevision: number;
+  /** Link semantics already applied to this live body; revision guards canonical-save hints. */
+  linkRewriteStage?: { batchId: string; through: number; revision: number };
   openingRead?: { path: string; promise: Promise<string | null> };
   openingRecovery?: { path: string; promise: Promise<RecoveryDraft | null> };
   title?: MemoTitleSession;

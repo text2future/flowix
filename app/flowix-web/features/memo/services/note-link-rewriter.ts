@@ -1,4 +1,5 @@
 import { canonicalPath } from '@/lib/path';
+import { createNoteLinkRewriteProgress, mergeDocumentRewriteStages, pathBeforeMoves, type NoteLinkMoveJob } from './note-link-rewrite-progress';
 import { buildNoteOpenLinkFromPath } from '@platform/open-target/path-link';
 import { externalDocuments, notes } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
@@ -9,7 +10,8 @@ import { createLogger } from '@/lib/logger';
 const logger = createLogger('note-link-rewriter');
 
 type Notebook = { id: string; name: string; path: string };
-type MoveJob = { oldPath: string; newPath: string; folder: boolean };
+type MoveJob = NoteLinkMoveJob;
+
 const JOBS_KEY = 'flowix:pending-note-link-moves';
 
 function readJobs(): MoveJob[] {
@@ -21,19 +23,35 @@ function writeJobs(jobs: MoveJob[]): void {
   localStorage.setItem(JOBS_KEY, JSON.stringify(jobs));
 }
 
+function persistQueuedProgress(jobs: MoveJob[]): void {
+  const latest = readJobs();
+  mergeDocumentRewriteStages(jobs, latest);
+  writeJobs([...jobs, ...latest.slice(jobs.length)]);
+}
+
+/** A save receipt survives closing the source tab before the background scan resumes. */
+export function acceptWorkspaceDocumentLinkSave(notice: { path: string; linkStage?: { batchId: string; through: number } }): void {
+  const jobs = readJobs();
+  if (notice.linkStage && jobs[0]?.id === notice.linkStage.batchId) {
+    createNoteLinkRewriteProgress(jobs, () => {}).acknowledge(notice.path, notice.linkStage.through);
+    writeJobs(jobs);
+  }
+  resumePendingNoteLinkUpdates();
+}
+
 /** Change Flowix note destinations and their filename-based display names. */
-export function rewriteMovedNoteLinks(
+export async function rewriteMovedNoteLinks(
   content: string,
   before: { book: string; file: string; notebookId: string; path: string },
   after: { book: string; file: string },
   folder = false,
-): string {
-  const rewriteLine = (line: string): string => line.replace(/(\[((?:\\.|[^\]\\\n])*)\]\()(flowix:\/\/open\?[^\s)]+)(\))/gi, (whole, _prefix: string, _label: string, href: string, suffix: string, offset: number) => {
-    // A URL shown as inline code is an example, not a note reference.
-    const beforeLink = line.slice(0, offset);
-    if ((beforeLink.match(/(?<!\\)`/g)?.length ?? 0) % 2 !== 0) return whole;
+): Promise<string> {
+  const { mapMarkdownLinks } = await import('@/lib/markdown-path-references');
+  return mapMarkdownLinks(content, link => {
+    const href = link.href;
+    if (!/^flowix:\/\/open\?/i.test(href)) return link;
     let url: URL;
-    try { url = new URL(href); } catch { return whole; }
+    try { url = new URL(href); } catch { return link; }
     const params = url.searchParams;
     const movedFile = (file: string | null): string | null => {
       if (file === before.file) return after.file;
@@ -46,7 +64,7 @@ export function rewriteMovedNoteLinks(
       && movedFile(params.get('relativePath')) !== null;
     const physical = params.get('path');
     const matchesPhysicalPath = physical === before.path || (folder && physical?.startsWith(`${before.path}/`));
-    if (!matchesBookPath && !matchesLegacyBookPath && !matchesOldIdPath && !matchesPhysicalPath) return whole;
+    if (!matchesBookPath && !matchesLegacyBookPath && !matchesOldIdPath && !matchesPhysicalPath) return link;
     const targetFile = movedFile(params.get('f') ?? params.get('file') ?? params.get('relativePath'))
       ?? (matchesPhysicalPath && physical ? `${after.file}${physical.slice(before.path.length)}` : after.file);
     params.delete('book');
@@ -59,19 +77,8 @@ export function rewriteMovedNoteLinks(
     const label = displayTitleFromFilename(targetFile).replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
     // url.hash is the heading anchor fragment (e.g. `#目标与范围`); searchParams
     // never carries it, so it must be re-appended or moves would drop it.
-    return `[${label}](flowix://open?${params.toString()}${url.hash}${suffix}`;
+    return { ...link, label, href: `flowix://open?${params.toString()}${url.hash}` };
   });
-  let fence: { marker: string; length: number } | null = null;
-  return content.split(/(\r?\n)/).map((part) => {
-    if (part === '\n' || part === '\r\n') return part;
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(part)?.[1];
-    if (marker) {
-      if (!fence) fence = { marker: marker[0], length: marker.length };
-      else if (marker[0] === fence.marker && marker.length >= fence.length) fence = null;
-      return part;
-    }
-    return fence ? part : rewriteLine(part);
-  }).join('');
 }
 
 let pending: Promise<void> = Promise.resolve();
@@ -79,21 +86,28 @@ let running = false;
 let retryCount = 0;
 let rerunRequested = false;
 
-export function updateNoteLinksAfterMove(oldPath: string, newPath: string, folder = false): void {
+export function updateNoteLinksAfterMove(oldPath: string, newPath: string, folder = false) {
   oldPath = canonicalPath(oldPath);
   newPath = canonicalPath(newPath);
   if (oldPath === newPath) return;
+  const jobs = readJobs();
   try {
-    const jobs = readJobs();
     const last = jobs[jobs.length - 1];
     // Only coalesce adjacent identical confirmations. A->B, B->A, A->B
     // are distinct operations and must retain their order.
     if (!last || canonicalPath(last.oldPath) !== oldPath
       || canonicalPath(last.newPath) !== newPath || last.folder !== folder) {
-      writeJobs([...jobs, { oldPath, newPath, folder }]);
+      jobs.push({ oldPath, newPath, folder });
     }
+    jobs[0].id ??= crypto.randomUUID();
+    writeJobs(jobs);
   } catch { return; }
   resumePendingNoteLinkUpdates();
+  const { rewrite } = createBatchRewrite(jobs, useNoteStore.getState().notebooks);
+  return { id: jobs[0].id, through: jobs.length,
+    rewriteSource: (content: string, path: string, applied: number) =>
+      rewrite(content, pathBeforeMoves(path, jobs.slice(applied)), path, applied),
+  };
 }
 
 /** Called on startup too, so an interrupted scan can finish after a restart. */
@@ -107,13 +121,15 @@ export function resumePendingNoteLinkUpdates(): void {
         // Apply consecutive renames in order during ONE scan, not a full scan
         // for every keystroke/old queued rename (B -> B2 -> B3).
         const jobs = readJobs();
-        const complete = await rewriteNoteLinkMoves(jobs, () => readJobs().length > jobs.length);
-        if (complete) writeJobs(readJobs().slice(jobs.length));
-        if (!complete) {
-          if (++retryCount <= 3) window.setTimeout(resumePendingNoteLinkUpdates, 5000);
-        } else {
+        const complete = await rewriteNoteLinkMoves(jobs, () => readJobs().length > jobs.length, () => persistQueuedProgress(jobs));
+        const appended = readJobs().length > jobs.length;
+        // Retain the prefix and its document checkpoints when new moves arrive.
+        if (complete && !appended) writeJobs([]);
+        if (complete || appended) {
           retryCount = 0;
           if (readJobs().length) window.setTimeout(resumePendingNoteLinkUpdates, 0);
+        } else if (++retryCount <= 3) {
+          window.setTimeout(resumePendingNoteLinkUpdates, 5000);
         }
       } finally {
         running = false;
@@ -127,14 +143,8 @@ export async function rewriteLinksInNotebooks(oldPath: string, newPath: string, 
   return rewriteNoteLinkMoves([{ oldPath, newPath, folder }]);
 }
 
-export async function rewriteNoteLinkMoves(jobs: MoveJob[], shouldYield: () => boolean = () => false): Promise<boolean> {
-  // The save pipeline imports this scheduler. Load document sessions only when
-  // executing a job, after their module-level subscriptions are initialized.
-  const { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath } = await import('@features/document/public/workspace-api');
-  const state = useNoteStore.getState();
-  if (!state.notebooksInitialized) await state.loadNotebooks();
-  const notebooks: Notebook[] = useNoteStore.getState().notebooks;
-  const moves = jobs.flatMap(({ oldPath, newPath, folder }) => {
+function createBatchRewrite(jobs: MoveJob[], notebooks: readonly Notebook[]) {
+  const moves = jobs.flatMap(({ oldPath, newPath, folder }, index) => {
     const beforeLink = buildNoteOpenLinkFromPath(oldPath, notebooks);
     const afterLink = buildNoteOpenLinkFromPath(newPath, notebooks);
     if (!beforeLink || !afterLink) return [];
@@ -143,16 +153,39 @@ export async function rewriteNoteLinkMoves(jobs: MoveJob[], shouldYield: () => b
     const book = beforeUrl.searchParams.get('b')!;
     const notebook = notebooks.find((item) => item.name === book)!;
     return [{
+      index,
       before: { book, file: beforeUrl.searchParams.get('f')!, notebookId: notebook.id, path: canonicalPath(oldPath) },
       after: { book: afterUrl.searchParams.get('b')!, file: afterUrl.searchParams.get('f')! },
       folder,
     }];
   });
-  if (!moves.length) return true;
-  const rewrite = (content: string) => moves.reduce(
-    (value, move) => rewriteMovedNoteLinks(value, move.before, move.after, move.folder), content);
+  const rewrite = async (content: string, sourceBefore: string, sourceAfter: string, applied: number) => {
+    const { rewriteDocumentPathLinks } = await import('@/lib/markdown-path-references');
+    let value = await rewriteDocumentPathLinks(content, sourceBefore, sourceAfter, jobs.slice(applied));
+    for (const move of moves) {
+      if (move.index >= applied) value = await rewriteMovedNoteLinks(value, move.before, move.after, move.folder);
+    }
+    return value;
+  };
+  return { moves, rewrite };
+}
 
-  let complete = moves.length === jobs.length;
+export async function rewriteNoteLinkMoves(
+  jobs: MoveJob[],
+  shouldYield: () => boolean = () => false,
+  persistProgress: () => void = () => {},
+): Promise<boolean> {
+  if (!jobs.length) return true;
+  const progress = createNoteLinkRewriteProgress(jobs, persistProgress);
+  // The save pipeline imports this scheduler. Load document sessions only when
+  // executing a job, after their module-level subscriptions are initialized.
+  const { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath, getWorkspaceDocumentLinkStage } = await import('@features/document/public/workspace-api');
+  const state = useNoteStore.getState();
+  if (!state.notebooksInitialized) await state.loadNotebooks();
+  const notebooks: Notebook[] = useNoteStore.getState().notebooks;
+  const { moves, rewrite } = createBatchRewrite(jobs, notebooks);
+
+  let complete = true;
 
   // Update references in the affected notebook before scanning unrelated books.
   const preferredBooks = [...moves].reverse().map((move) => move.before.notebookId);
@@ -194,20 +227,31 @@ export async function rewriteNoteLinkMoves(jobs: MoveJob[], shouldYield: () => b
             if (hasLiveUnsavedDocumentAtPath(entry.fullPath)) { complete = false; continue; }
             let content = await externalDocuments.read(entry.fullPath, notebook.path);
             if (content === null) { complete = false; continue; }
-            if (!content.toLowerCase().includes('flowix://open?')) continue;
             for (let attempt = 0; attempt < 2; attempt++) {
-              const updated = rewrite(content);
+              if (shouldYield() || hasLiveUnsavedDocumentAtPath(entry.fullPath)) { complete = false; break; }
+              const canonicalStage = jobs[0].id ? getWorkspaceDocumentLinkStage(entry.fullPath, jobs[0].id, content) : undefined;
+              const document = await progress.open(entry.fullPath, content, canonicalStage);
+              if (!document) { complete = false; break; }
+              const updated = await rewrite(content, document.sourcePath, entry.fullPath, document.applied);
+              if (shouldYield()) { complete = false; break; }
               if (updated === content) {
+                document.commit(false);
                 if (!acceptBackgroundDocumentContent(entry.fullPath, content)) complete = false;
                 break;
               }
-              // Input may have arrived while the disk read was pending.
-              if (hasLiveUnsavedDocumentAtPath(entry.fullPath)) { complete = false; break; }
+              await document.prepare(updated);
+              // Input or a later move may have arrived while hashing the write intent.
+              if (shouldYield() || hasLiveUnsavedDocumentAtPath(entry.fullPath)) {
+                document.rollback();
+                complete = false; break;
+              }
               const result = await notes.writeDocument({ filePath: entry.fullPath, content: updated, expectedContent: content });
               if (result) {
+                document.commit();
                 if (!acceptBackgroundDocumentContent(entry.fullPath, result.content)) complete = false;
                 break;
               }
+              document.rollback();
               if (attempt === 1) { complete = false; break; }
               const latest = await externalDocuments.read(entry.fullPath, notebook.path);
               if (latest === null) { complete = false; break; }
@@ -219,7 +263,29 @@ export async function rewriteNoteLinkMoves(jobs: MoveJob[], shouldYield: () => b
           }
         }
       }));
+      // No-op documents also advance; batch their progress after bounded I/O.
+      persistProgress();
     }
   }
   return complete;
+}
+
+/** A closed moved source must catch up before its first editable body is published. */
+export async function prepareMovedDocumentForRead(path: string): Promise<void> {
+  const queued = readJobs();
+  if (!queued.length || pathBeforeMoves(path, queued) === canonicalPath(path)) return;
+  const { getWorkspaceDocumentLinkStage } = await import('@features/document/public/workspace-api');
+  if (queued[0].id && (getWorkspaceDocumentLinkStage(path, queued[0].id) ?? 0) >= queued.length) return;
+  const ready = pending.then(async () => {
+    const jobs = readJobs();
+    if (!jobs.length || pathBeforeMoves(path, jobs) === canonicalPath(path)) return;
+    const persist = () => persistQueuedProgress(jobs);
+    const complete = await rewriteNoteLinkMoves(jobs, () => readJobs().length > jobs.length, persist);
+    const caughtUp = createNoteLinkRewriteProgress(jobs, persist).stage(path) >= jobs.length;
+    if (complete && readJobs().length === jobs.length) writeJobs([]);
+    if (!caughtUp) throw new Error('Document references are still being reconciled; retry opening this document');
+  });
+  // Both loading and background scans share the same serialized persistence owner.
+  pending = ready.catch(() => {});
+  await ready;
 }

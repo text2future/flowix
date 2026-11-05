@@ -131,7 +131,7 @@ describe('agent conversation navigation', () => {
     expect(useBrowserColumnStore.getState()).toMatchObject({
       visible: true,
     });
-    expect(useWorkspaceFocusStore.getState().focusedHostId).toBe('main-third');
+    expect(useWorkspaceFocusStore.getState().focusedColumnId).toBe('column-1');
     expect(mocks.selectAgentConversation).toHaveBeenCalledWith('conversation-a', true);
   });
 

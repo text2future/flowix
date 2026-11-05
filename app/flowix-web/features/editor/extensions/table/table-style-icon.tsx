@@ -1,4 +1,4 @@
-import type { TableStyleId } from './table-presentation';
+import type { TableBorderStyle, TableStyleId } from './table-presentation';
 
 export function TableStyleIcon({ styleId, compact = false }: { styleId: TableStyleId; compact?: boolean }) {
   return (
@@ -19,6 +19,32 @@ export function TableStyleIcon({ styleId, compact = false }: { styleId: TableSty
         {styleId === 'grouped' && <><path d="M3 3h26M3 22h26" /><path d="M3 7h26M3 17h26" strokeWidth="4" strokeOpacity="0.2" /></>}
         {styleId === 'minimal' && <path d="M3 7h26M3 13h26M3 18h26" strokeOpacity="0.45" strokeWidth="0.8" />}
       </>}
+    </svg>
+  );
+}
+
+/**
+ * Border menu affordances. They show what the option does to one edge, which is
+ * why they live next to the theme thumbnails instead of inside the controls.
+ */
+export function TableBorderIcon({ edge, style = 'single' }: { edge: 'top' | 'bottom'; style?: TableBorderStyle }) {
+  const y = edge === 'top' ? 4 : 16;
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+      <rect x="3" y="4" width="14" height="12" strokeDasharray="2 2" opacity="0.3" />
+      {style === 'double' ? <path d={`M3 ${y - 1.5}h14M3 ${y + 1.5}h14`} />
+        : style === 'none' ? null
+        : <path d={`M3 ${y}h14`} strokeWidth="1.5" strokeDasharray={style === 'auto' ? '3 2' : undefined} />}
+    </svg>
+  );
+}
+
+/** Trigger icon for the border menu: both outer edges highlighted. */
+export function TableBordersIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+      <rect x="3" y="4" width="14" height="12" strokeDasharray="2 2" opacity="0.3" />
+      <path d="M3 4h14M3 16h14" strokeWidth="1.5" />
     </svg>
   );
 }

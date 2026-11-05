@@ -1,5 +1,6 @@
+import type { StoreView } from '@shared/create-store-view';
 import { ensureCollectionDisplay } from '@/lib/collection-display-registry';
-import { createPrimaryHistoryFacade } from '@features/workspace/public/session-history-api';
+import { createDocumentHistoryView, updateDocumentHistory, fromDocumentHistory, toDocumentHistory, type SessionNavigationEntry, SESSION_HISTORY_LIMIT } from '@features/workspace/public/session-history-api';
 import { canonicalPath, fileLocatorKey } from '@/lib/path';
 import { canonicalUrl } from '@/lib/url';
 
@@ -21,7 +22,7 @@ interface DocumentHistoryStore {
   clear: () => void;
 }
 
-const MAX_HISTORY_ENTRIES = 100;
+
 
 export function documentHistoryEntryKey(entry: DocumentHistoryEntry | null): string | null {
   if (!entry) return null;
@@ -45,79 +46,50 @@ function normalizeEntry(entry: DocumentHistoryEntry): DocumentHistoryEntry {
 }
 
 
-function pushCapped(
-  stack: DocumentHistoryEntry[],
-  entry: DocumentHistoryEntry,
-): DocumentHistoryEntry[] {
-  entry = normalizeEntry(entry);
-  if (stack[stack.length - 1]
-    && documentHistoryEntryKey(stack[stack.length - 1]) === documentHistoryEntryKey(entry)) {
-    return stack;
-  }
-  return [...stack, entry].slice(-MAX_HISTORY_ENTRIES);
+function pushCapped(stack: SessionNavigationEntry[], input: DocumentHistoryEntry): SessionNavigationEntry[] {
+  const entry = normalizeEntry(input);
+  const last = stack[stack.length - 1];
+  if (last && documentHistoryEntryKey(toDocumentHistory(last)) === documentHistoryEntryKey(entry)) return stack;
+  return [...stack, fromDocumentHistory(entry)].slice(-SESSION_HISTORY_LIMIT);
 }
 
-export const useDocumentHistoryStore = createPrimaryHistoryFacade<DocumentHistoryStore>((set, get) => ({
-  backStack: [],
-  forwardStack: [],
-  pushBack: (entry) => set((state) => ({
-    backStack: pushCapped(state.backStack, entry),
-    forwardStack: [],
-  })),
-  pushForward: (entry) => set((state) => ({
-    forwardStack: pushCapped(state.forwardStack, entry),
-  })),
-  peekBack: () => get().backStack[get().backStack.length - 1] ?? null,
-  peekForward: () => get().forwardStack[get().forwardStack.length - 1] ?? null,
-  commitBackNavigation: (current, discardCount = 1) => set((state) => {
-    if (state.backStack.length === 0) return state;
-    return {
-      backStack: state.backStack.slice(0, -Math.max(1, discardCount)),
-      forwardStack: current
-        ? pushCapped(state.forwardStack, current)
-        : state.forwardStack,
-    };
-  }),
-  commitForwardNavigation: (current, discardCount = 1) => set((state) => {
-    if (state.forwardStack.length === 0) return state;
-    return {
-      backStack: current
-        ? pushCapped(state.backStack, current)
-        : state.backStack,
-      forwardStack: state.forwardStack.slice(0, -Math.max(1, discardCount)),
-    };
-  }),
-  recordNavigation: (current, next) => set((state) => {
+export const useDocumentHistoryStore: StoreView<DocumentHistoryStore> = createDocumentHistoryView<DocumentHistoryStore>({
+  backStack: [], forwardStack: [],
+  pushBack: (entry) => updateDocumentHistory((navigation) => ({ ...navigation,
+    backStack: pushCapped(navigation.backStack, entry), forwardStack: [] })),
+  pushForward: (entry) => updateDocumentHistory((navigation) => ({ ...navigation,
+    forwardStack: pushCapped(navigation.forwardStack, entry) })),
+  peekBack: () => { const stack = useDocumentHistoryStore.getState().backStack; return stack[stack.length - 1] ?? null; },
+  peekForward: () => { const stack = useDocumentHistoryStore.getState().forwardStack; return stack[stack.length - 1] ?? null; },
+  commitBackNavigation: (current, discardCount = 1) => updateDocumentHistory((navigation) => navigation.backStack.length ? {
+    ...navigation, backStack: navigation.backStack.slice(0, -Math.max(1, discardCount)),
+    forwardStack: current ? pushCapped(navigation.forwardStack, current) : navigation.forwardStack,
+  } : navigation),
+  commitForwardNavigation: (current, discardCount = 1) => updateDocumentHistory((navigation) => navigation.forwardStack.length ? {
+    ...navigation, forwardStack: navigation.forwardStack.slice(0, -Math.max(1, discardCount)),
+    backStack: current ? pushCapped(navigation.backStack, current) : navigation.backStack,
+  } : navigation),
+  recordNavigation: (current, next) => {
     current = current ? normalizeEntry(current) : null;
     next = next ? normalizeEntry(next) : null;
-    const currentKey = documentHistoryEntryKey(current);
-    const nextKey = documentHistoryEntryKey(next);
-    if (!nextKey || currentKey === nextKey) return state;
-    return {
-      backStack: current
-        ? pushCapped(state.backStack, current)
-        : state.backStack,
-      forwardStack: [],
-    };
-  }),
-  replaceFilePath: (previousPath, path) => set((state) => {
-    const previous = canonicalPath(previousPath);
-    const next = canonicalPath(path);
-    if (!previous || !next || previous === next) return state;
-    const replace = (entry: DocumentHistoryEntry): DocumentHistoryEntry => {
-      if (entry.kind === 'external') {
-        return canonicalPath(entry.path) === previous ? { ...entry, path: next } : entry;
-      }
-      if (entry.kind === 'media') {
-        return canonicalPath(entry.filePath) === previous ? { ...entry, filePath: next } : entry;
-      }
+    if (!documentHistoryEntryKey(next) || documentHistoryEntryKey(current) === documentHistoryEntryKey(next)) return;
+    updateDocumentHistory((navigation) => ({ ...navigation,
+      backStack: current ? pushCapped(navigation.backStack, current) : navigation.backStack, forwardStack: [],
+    }));
+  },
+  replaceFilePath: (previousPath, path) => {
+    const previous = canonicalPath(previousPath), next = canonicalPath(path);
+    if (!previous || !next || previous === next) return;
+    const replace = (entry: SessionNavigationEntry): SessionNavigationEntry => {
+      const target = entry.target;
+      if (target.kind === 'external' && canonicalPath(target.path) === previous) return { ...entry, target: { ...target, path: next } };
+      if (target.kind === 'media' && canonicalPath(target.filePath) === previous) return { ...entry, target: { ...target, filePath: next } };
       return entry;
     };
-    return {
-      backStack: state.backStack.map(replace),
-      forwardStack: state.forwardStack.map(replace),
-    };
-  }),
-  clearForward: () => set({ forwardStack: [] }),
-  clear: () => set({ backStack: [], forwardStack: [] }),
-}));
+    updateDocumentHistory((navigation) => ({ ...navigation,
+      backStack: navigation.backStack.map(replace), forwardStack: navigation.forwardStack.map(replace),
+    }));
+  },
+  clearForward: () => updateDocumentHistory((navigation) => ({ ...navigation, forwardStack: [] })),
+  clear: () => updateDocumentHistory((navigation) => ({ ...navigation, backStack: [], forwardStack: [] })),
+});

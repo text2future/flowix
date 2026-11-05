@@ -12,7 +12,6 @@ export interface NotebookIconOption {
 const NOTEBOOK_ICON_MODULES = import.meta.glob<string>('../../../assets/notebook-icons/*.svg', {
   eager: true,
   import: 'default',
-  query: '?raw',
 });
 
 export const DEFAULT_NOTEBOOK_ICON_ID = 'notebook_2_fill';
@@ -32,12 +31,6 @@ const NOTEBOOK_ICON_PREFERRED_ORDER = [
   'planet_fill',
 ] as const;
 
-const NOTEBOOK_ICON_COLOR_ATTRIBUTE_RE =
-  /\b(fill|stroke)=(["'])(?!none\b|transparent\b|currentColor\b|url\()[^"']+\2/gi;
-const NOTEBOOK_ICON_SVG_TAG_RE = /<svg\b([^>]*)>/i;
-const NOTEBOOK_ICON_VIEWBOX_RE = /\bviewBox=(["'])[^"']+\1/i;
-const NOTEBOOK_ICON_WIDTH_RE = /\bwidth=(["'])(\d+(?:\.\d+)?)\1/i;
-const NOTEBOOK_ICON_HEIGHT_RE = /\bheight=(["'])(\d+(?:\.\d+)?)\1/i;
 
 function getNotebookIconIdFromPath(path: string): string {
   return path.split('/').pop()?.replace(/\.svg$/i, '') ?? path;
@@ -64,17 +57,6 @@ function getNotebookIconSortIndex(id: string): number {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-function normalizeNotebookIconMarkup(markup: string): string {
-  const withCurrentColor = markup.replace(NOTEBOOK_ICON_COLOR_ATTRIBUTE_RE, '$1="currentColor"');
-
-  return withCurrentColor.replace(NOTEBOOK_ICON_SVG_TAG_RE, (svgTag, attrs: string) => {
-    if (NOTEBOOK_ICON_VIEWBOX_RE.test(attrs)) return svgTag;
-
-    const width = attrs.match(NOTEBOOK_ICON_WIDTH_RE)?.[2] ?? '24';
-    const height = attrs.match(NOTEBOOK_ICON_HEIGHT_RE)?.[2] ?? '24';
-    return `<svg${attrs} viewBox="0 0 ${width} ${height}">`;
-  });
-}
 
 export const NOTEBOOK_ICON_OPTIONS: readonly NotebookIconOption[] = Object.keys(NOTEBOOK_ICON_MODULES)
   .map((path) => {
@@ -90,10 +72,10 @@ const DEFAULT_NOTEBOOK_ICON_OPTION = NOTEBOOK_ICON_BY_ID.get(DEFAULT_NOTEBOOK_IC
   ?? NOTEBOOK_ICON_OPTIONS[0]
   ?? { id: DEFAULT_NOTEBOOK_ICON_ID, label: getNotebookIconLabel(DEFAULT_NOTEBOOK_ICON_ID) };
 
-const NOTEBOOK_ICON_MARKUP_BY_ID = Object.fromEntries(
-  Object.entries(NOTEBOOK_ICON_MODULES).map(([path, markup]) => [
+const NOTEBOOK_ICON_URL_BY_ID = Object.fromEntries(
+  Object.entries(NOTEBOOK_ICON_MODULES).map(([path, url]) => [
     getNotebookIconIdFromPath(path),
-    normalizeNotebookIconMarkup(markup),
+    url,
   ]),
 ) as Record<string, string>;
 
@@ -110,9 +92,9 @@ export function resolveNotebookIconId(icon: string | null | undefined): string {
   return resolveNotebookIconOption(icon).id;
 }
 
-export function getNotebookIconMarkup(icon: string | null | undefined): string | null {
+export function getNotebookIconUrl(icon: string | null | undefined): string | null {
   const option = getNotebookIconOption(icon);
-  return option ? NOTEBOOK_ICON_MARKUP_BY_ID[option.id] ?? null : null;
+  return option ? NOTEBOOK_ICON_URL_BY_ID[option.id] ?? null : null;
 }
 
 interface NotebookIconProps {
@@ -130,9 +112,9 @@ export function NotebookIcon({
   disableTitle,
 }: NotebookIconProps) {
   const option = resolveNotebookIconOption(icon);
-  const iconMarkup = option ? NOTEBOOK_ICON_MARKUP_BY_ID[option.id] : null;
+  const iconUrl = option ? NOTEBOOK_ICON_URL_BY_ID[option.id] : null;
 
-  if (option && iconMarkup) {
+  if (option && iconUrl) {
     return (
       <span
         className={cn(
@@ -144,11 +126,10 @@ export function NotebookIcon({
         <span
           aria-hidden="true"
           className={cn(
-            '[&_svg]:block [&_svg]:h-full [&_svg]:w-full [&_svg]:opacity-90',
+            '[&_img]:block [&_img]:h-full [&_img]:w-full [&_img]:object-contain [&_img]:opacity-90',
             imageClassName ?? 'h-[78%] w-[78%]',
           )}
-          dangerouslySetInnerHTML={{ __html: iconMarkup }}
-        />
+        ><img src={iconUrl} alt="" draggable={false} /></span>
       </span>
     );
   }

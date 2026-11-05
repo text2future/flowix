@@ -1,4 +1,4 @@
-import type { CollectionDomain } from './model';
+import type { CollectionDomain, CollectionPlacement, CollectionSource } from './model';
 
 type Dataset = Record<string, unknown>;
 type Domains = Partial<Record<CollectionDomain, Dataset>>;
@@ -25,10 +25,31 @@ export function withDatasetLocation(dataset: Dataset, path: string | null, sourc
       nextFilter = { all: [...all, ...(path !== null ? [{ field: 'path', op: 'contains', value: path }] : [])], any };
     } else nextFilter = { path, match: any.length ? 'any' : 'all', conditions: any.length ? any : all };
   }
-  return { ...dataset, source, filter: nextFilter };
+  // `depth` is no longer a collection setting; remove it when locations are
+  // copied across domains so old documents are cleaned on their next write.
+  const nextSource = record(source)
+    ? Object.fromEntries(Object.entries(source).filter(([key]) => key !== 'depth')) : source;
+  return { ...dataset, source: nextSource, filter: nextFilter };
 }
 
 export function shareDatasetLocation(domains: Domains, owner: Dataset): Domains {
   return Object.fromEntries(Object.entries(domains).map(([domain, dataset]) =>
     [domain, withDatasetLocation(dataset, datasetLocation(owner), owner.source)]));
+}
+
+/** One location policy for notes, galleries and lists; manual note links stay manual. */
+export function normalizeCollectionLocation<T extends {
+  collection: { placement: CollectionPlacement };
+  dataset: { source: CollectionSource; filter: Record<string, unknown> | null };
+}>(document: T, preserveManual = false): T {
+  const { source, filter } = document.dataset;
+  if (document.collection.placement === 'folder') {
+    return { ...document, dataset: { ...document.dataset, source: { scope: 'containing_folder' } } };
+  }
+  if (preserveManual && source.scope === 'folder' && filter === null) {
+    return { ...document, dataset: { ...document.dataset, source: { scope: 'folder', path: source.path } } };
+  }
+  const nextFilter = source.scope === 'folder' && datasetLocation({ filter }) === null
+    ? withDatasetLocation({ filter }, source.path ?? '').filter as Record<string, unknown> : filter;
+  return { ...document, dataset: { ...document.dataset, filter: nextFilter, source: { scope: 'notebook' } } };
 }

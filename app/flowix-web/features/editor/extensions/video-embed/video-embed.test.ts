@@ -157,7 +157,7 @@ describe('paste choice', () => {
   it('offers conversion above a natively pasted link in the full editor', async () => {
     const e = new Editor({ extensions: createMarkdownEditorExtensions({
       getOwnerPath: () => undefined, getAttachmentNotebookId: () => undefined,
-      workspaceHost: 'main-third', getPlaceholder: () => '',
+      workspaceHost: 'column-1', getPlaceholder: () => '',
     }), content: '<p></p>' });
     vi.spyOn(e.view, 'coordsAtPos').mockReturnValue({ top: 100, bottom: 120, left: 50, right: 150 });
     editors.push(e);

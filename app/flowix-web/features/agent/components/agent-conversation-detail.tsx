@@ -262,7 +262,7 @@ function AgentConversationDetailContent({
         },
         source: { kind: 'dedicated', notebookId: currentInstance.source.notebookId ?? null },
       });
-      await openWorkspaceSurface({ host: 'main-third', target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
+      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
     } catch (error) {
       logger.error(`Failed to fork ${agentType} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));

@@ -44,7 +44,7 @@ function resolveExternalDocumentSurface(
   const filePath = fileIdentity.path;
   const scopePath = document.identity.scopePath;
   const fileSurfaceKind = resolveWorkspaceFileSurfaceKind(filePath);
-  if (!workspaceFileSurfaceSupportsHost(fileSurfaceKind, 'main-third')) {
+  if (!workspaceFileSurfaceSupportsHost(fileSurfaceKind, 'column-1')) {
     throw new Error(`Work column does not support file surface '${fileSurfaceKind}'`);
   }
 
@@ -150,7 +150,7 @@ function resolveWorkColumnTarget(
     case 'file-browser':
       return surfaceContent(resolveBrowserColumnSurface({
         id: 'primary-file-browser', title: target.activeFilePath ?? target.folderPath ?? '', icon: null, target,
-      }, { runtimeHost: 'main-third' }));
+      }, { columnId: 'column-1' }));
     case 'folder-collection':
       return surfaceContent({ kind: 'folder-collection', instanceKey: `${target.notebookId}:${target.folderPath}:${target.viewMode ?? 'chooser'}`,
         notebookId: target.notebookId, notebookPath: target.notebookPath, folderPath: target.folderPath, folderName: target.folderName,

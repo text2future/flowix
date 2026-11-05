@@ -209,6 +209,10 @@ export function mountMemoListRefreshService(): () => void {
     { onListenerReady: reconcileSelectedNotebook },
   );
 
+  const stopNotebookRegistry = subscribe('notebooks-changed', () => {
+    void useNoteStore.getState().loadNotebooks().catch(error => logger.warn('notebook registry refresh failed', { error }));
+  });
+
   return () => {
     disposed = true;
     if (cardTimer) clearTimeout(cardTimer);
@@ -219,5 +223,6 @@ export function mountMemoListRefreshService(): () => void {
     pendingReads.clear();
     stopNotebookChanges();
     stopFileManagement();
+    stopNotebookRegistry();
   };
 }

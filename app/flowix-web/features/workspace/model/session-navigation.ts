@@ -20,7 +20,7 @@ export interface SessionNavigationState {
 export type SessionCurrentEntry = Omit<SessionNavigationEntry, 'target'> & {
   target: SessionSurfaceTarget;
 };
-export type SessionNavigationPhase = 'idle' | 'loading' | 'committed' | 'failed';
+export type SessionNavigationPhase = 'idle' | 'preparing' | 'loading' | 'committed' | 'failed';
 export interface SessionNavigationFailure {
   code: 'navigation-failed' | 'navigation-stale';
   message: string;
@@ -43,4 +43,4 @@ export function emptySessionTransaction(): SessionNavigationTransaction {
     previousTarget: null, failure: null, retryToken: null };
 }
 
-export const SESSION_HISTORY_LIMIT = 100;
+export { SESSION_HISTORY_LIMIT } from './session-limits';

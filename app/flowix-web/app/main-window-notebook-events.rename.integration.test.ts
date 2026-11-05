@@ -1,3 +1,4 @@
+import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -81,13 +82,13 @@ function prepareWorkspace(oldPath: string): void {
   });
 
   const target = { kind: 'external' as const, path: oldPath, scopePath: root, transitionId: null };
-  useWorkColumnStore.setState({
+  seedWorkColumn({
     navigation: {
       phase: 'committed', showWorkColumnLoading: false, requestId: 1,
       target, pendingTarget: null, previousTarget: null, failure: null, retryToken: null,
     },
   });
-  useBrowserColumnStore.setState({
+  seedBrowserColumn({
     visible: true,
     current: {
       id: 'rename-integration-tab', title: 'Old.md', icon: null,
@@ -111,7 +112,7 @@ describe('main-window rename event integration', () => {
     useDocumentHistoryStore.getState().clear();
     useBrowserColumnStore.getState().reset();
     useWorkspaceRestoreStore.getState().setDesiredTarget(null);
-    useWorkColumnStore.setState((state) => ({
+    seedWorkColumn((state) => ({
       navigation: {
         ...state.navigation,
         phase: 'idle', showWorkColumnLoading: false,

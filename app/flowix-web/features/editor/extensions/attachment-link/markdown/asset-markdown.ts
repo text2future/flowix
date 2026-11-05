@@ -1,24 +1,5 @@
-export function decodeStorageKey(src: string): string | null {
-  if (!src.startsWith('asset://') && !src.startsWith('http://asset.localhost/') && !src.startsWith('https://asset.localhost/')) return null;
-  try {
-    const encoded = src
-      .replace('asset://localhost/', '')
-      .replace('http://asset.localhost/', '')
-      .replace('https://asset.localhost/', '');
-    return decodeURIComponent(encoded);
-  } catch {
-    return null;
-  }
-}
-
-export function assetMarkdownUrl(storageKey: string | null | undefined): string {
-  if (!storageKey) return '';
-  const encoded = encodeURIComponent(storageKey)
-    .replace(/\(/g, '%28')
-    .replace(/\)/g, '%29');
-  return `asset://localhost/${encoded}`;
-}
-
-export function isVideoUrl(src: string | null | undefined): boolean {
-  return !!src && /\.(mp4|mov|webm)(\?|$)/i.test(src);
-}
+/**
+ * 实现已上移到 `lib/asset-markdown.ts`（卡片/表格等 foundation 层消费者需要）。
+ * 这里保留原路径的 re-export，避免改动编辑器侧全部 import。
+ */
+export { assetMarkdownUrl, decodeStorageKey, isVideoUrl } from '@/lib/asset-markdown';

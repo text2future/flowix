@@ -25,7 +25,7 @@ import { canonicalizePropertyKey } from '@features/properties/property-key';
 import { getPropertyPresets, usePropertyPresets } from '@features/properties/public-api';
 import { savePropertyPreset, usePropertyPresetStore } from '@features/properties/property-preset-store';
 import { SYSTEM_FRONTMATTER_KEYS } from '@features/document/properties/frontmatter-model';
-import type { WorkspaceHostId } from '@features/workspace/public/host-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 
 type EditorAddablePropertyType = Exclude<TableFieldType, 'primary' | 'Note'>;
 
@@ -35,7 +35,7 @@ interface MemoTitleEditorProps {
   renameTitle: RenameDocumentTitle;
   editable: boolean;
   propertyActionsEnabled?: boolean;
-  workspaceHost?: WorkspaceHostId;
+  workspaceHost?: WorkspaceColumnId;
   onActivateProperties?: () => void;
   autoFocus?: boolean;
   /** Use a DOM selection surface when a host needs to avoid native textarea selection rendering. */

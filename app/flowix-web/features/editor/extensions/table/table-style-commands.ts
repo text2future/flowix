@@ -1,7 +1,11 @@
 import type { Editor } from '@tiptap/core';
+import { TextSelection } from '@tiptap/pm/state';
+import { DEFAULT_APP_LANGUAGE, type AppLanguage } from '@/lib/i18n/locales';
+import { createTableTemplate, TABLE_TEMPLATE_OPTIONS } from './table-templates';
 import { closeHistory } from '@tiptap/pm/history';
 import { isInTable, selectedRect } from '@tiptap/pm/tables';
-import { normalizeTableBorderStyle, normalizeTableColumnRole, normalizeTableRowRole, normalizeTableStyleId, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
+import { tableHeaderModesFromTable } from './table-header-modes';
+import { TABLE_STYLE_REQUIRES_HEADER_ROW, normalizeTableBorderStyle, normalizeTableColumnRole, normalizeTableRowRole, normalizeTableStyleId, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
 
 type BorderAttribute = 'borderTop' | 'borderBottom';
 
@@ -47,32 +51,49 @@ export function getTablePresentationSelection(editor: Editor) {
   if (editor.isDestroyed) return null;
   if (!isInTable(editor.state)) return null;
   const rect = selectedRect(editor.state);
-  const { table, map, top, bottom, left, right } = rect;
+  const { table, top, bottom } = rect;
+  const { rowHeader, columnHeader } = tableHeaderModesFromTable(table);
+  const style = normalizeTableStyleId(table.attrs.styleId);
+  const headerRowLocked = rowHeader && TABLE_STYLE_REQUIRES_HEADER_ROW[style];
   const rowRoles = new Set<TableRowRole>();
   for (let row = top; row < bottom; row += 1) rowRoles.add(normalizeTableRowRole(table.child(row).attrs.role));
+
+  // Aggregate everything the toolbar shows in one pass over the selected cells.
+  // Column roles used to scan every row of the table on each transaction.
   const columnRoles = new Set<TableColumnRole>();
-  for (let row = 0; row < map.height; row += 1) {
-    for (let column = left; column < right; column += 1) {
-      const cell = table.nodeAt(map.map[row * map.width + column]);
-      columnRoles.add(normalizeTableColumnRole(cell?.attrs.columnRole));
-    }
-  }
   const borderTops = new Set<TableBorderStyle>();
   const borderBottoms = new Set<TableBorderStyle>();
-  for (const position of map.cellsInRect(rect)) {
+  for (const position of rect.map.cellsInRect(rect)) {
     const cell = table.nodeAt(position);
+    columnRoles.add(normalizeTableColumnRole(cell?.attrs.columnRole));
     borderTops.add(normalizeTableBorderStyle(cell?.attrs.borderTop));
     borderBottoms.add(normalizeTableBorderStyle(cell?.attrs.borderBottom));
   }
+
   return {
-    style: normalizeTableStyleId(table.attrs.styleId),
+    rowHeader,
+    columnHeader,
+    headerRowLocked,
+    canToggleHeaderRow: editor.isEditable && !headerRowLocked && editor.can().toggleHeaderRow(),
+    canToggleHeaderColumn: editor.isEditable && editor.can().toggleHeaderColumn(),
+    style,
     row: rowRoles.size === 1 ? [...rowRoles][0] : 'mixed',
     column: columnRoles.size === 1 ? [...columnRoles][0] : 'mixed',
     borderTop: borderTops.size === 1 ? [...borderTops][0] : 'mixed',
     borderBottom: borderBottoms.size === 1 ? [...borderBottoms][0] : 'mixed',
-    borderTopExtends: getSharedBorderEdges(rect, 'top').extendsSelection,
-    borderBottomExtends: getSharedBorderEdges(rect, 'bottom').extendsSelection,
   };
+}
+
+/**
+ * Whether an edge edit would reach cells outside the selection.
+ *
+ * Only the border menu's notice uses this, and its walk is superlinear in the
+ * selected cell count (measured ~4 ms for a whole 200x8 table). Computing it
+ * inside the menu, which mounts on open, keeps it off the per-transaction path.
+ */
+export function getBorderExtendsHint(editor: Editor, edge: 'top' | 'bottom'): boolean {
+  if (editor.isDestroyed || !isInTable(editor.state)) return false;
+  return getSharedBorderEdges(selectedRect(editor.state), edge).extendsSelection;
 }
 
 /** A horizontal border is shared with the adjoining cell's opposite edge. */
@@ -94,11 +115,35 @@ export function setTableCellBorder(editor: Editor, edge: 'top' | 'bottom', style
   }).run();
 }
 
-export function setTableStyle(editor: Editor, styleId: TableStyleId): boolean {
-  if (!isInTable(editor.state)) return false;
+export function setTableStyle(editor: Editor, styleId: TableStyleId, language: AppLanguage = DEFAULT_APP_LANGUAGE): boolean {
+  if (editor.isDestroyed || !editor.isEditable || !isInTable(editor.state)) return false;
+  if (normalizeTableStyleId(styleId) !== styleId) return false;
   return editor.chain().focus().command(({ tr, state }) => {
-    const { table, tableStart } = selectedRect(state);
-    tr.setNodeMarkup(tableStart - 1, undefined, { ...table.attrs, styleId });
+    const { table, tableStart, left } = selectedRect(state);
+    if (TABLE_TEMPLATE_OPTIONS.find(option => option.styleId === styleId)?.hasContent) {
+      // Only empty paragraphs are blank; media, references and other nodes are content.
+      let empty = true;
+      table.descendants(node => {
+        if (!['tableRow', 'tableCell', 'tableHeader', 'paragraph'].includes(node.type.name)) empty = false;
+        return empty;
+      });
+      if (empty) {
+        const template = editor.schema.nodeFromJSON(createTableTemplate(styleId, language));
+        closeHistory(tr);
+        tr.replaceWith(tableStart - 1, tableStart - 1 + table.nodeSize, template);
+        let blankPosition: number | undefined;
+        template.descendants((node, position) => {
+          if (blankPosition === undefined && node.isTextblock && node.content.size === 0) blankPosition = position + 1;
+        });
+        tr.setSelection(TextSelection.near(tr.doc.resolve(tableStart + (blankPosition ?? 0))));
+        tr.scrollIntoView();
+        return true;
+      }
+    }
+    tr.setNodeMarkup(tableStart - 1, undefined, {
+      ...table.attrs, styleId,
+      ...(styleId === 'comparison' ? { comparisonColumn: left } : {}),
+    });
     return true;
   }).run();
 }

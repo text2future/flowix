@@ -124,7 +124,7 @@ describe('collection shell', () => {
       filePath: '/book/客户周报/.index.yaml',
       notebookId: 'book',
       notebookPath: '/book',
-      host: 'main-third',
+      host: 'column-1',
     });
 
     // 大标题独占一行：`.index.yaml` 用所在文件夹名当集合名。
@@ -142,7 +142,7 @@ describe('collection shell', () => {
 
   it('集合变更事件更新唯一 tab 栏，不依赖表格回调', async () => {
     calls.summary.current = HYBRID_NOTES_ONLY;
-    const node = await renderShell({ filePath: '/book/集合.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    const node = await renderShell({ filePath: '/book/集合.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
     calls.summary.current = { ...HYBRID_NOTES_ONLY, views: [{ id: 'v1', name: '新名称', domain: 'notes' }, { id: 'calendar1', name: '日历', domain: 'notes' }] };
     await act(async () => { for (const handler of calls.subscriptions) handler({ notebookId: 'book', collectionId: 'c1', relativePath: '集合.index.yaml' }); });
     expect(node.querySelectorAll('[aria-label="集合视图"]')).toHaveLength(1);
@@ -157,7 +157,7 @@ describe('collection shell', () => {
       filePath: '/book/客户周报/.index.yaml',
       notebookId: 'book',
       notebookPath: '/book',
-      host: 'main-third',
+      host: 'column-1',
     });
 
     // 宿主 tab 的 label 就是资料视图自身的名字（可改名），不做 i18n 兜底。
@@ -171,7 +171,7 @@ describe('collection shell', () => {
       folderPath: '/book/客户周报',
       notebookId: 'book',
       notebookPath: '/book',
-      host: 'main-third',
+      host: 'column-1',
     });
 
     expect(node.querySelector('h2')?.textContent).toBe('客户周报');
@@ -188,7 +188,7 @@ describe('collection shell', () => {
       filePath: '/book/客户周报/.index.yaml',
       notebookId: 'book',
       notebookPath: '/book',
-      host: 'main-third',
+      host: 'column-1',
     });
 
     const titleButton = node.querySelector('h2 button');
@@ -222,7 +222,7 @@ it('rename failure restores the original title and allows editing again', async 
   calls.summary.current = HYBRID_NOTES_ONLY;
   let failRename!: (reason: Error) => void;
   calls.rename.mockImplementation(() => new Promise((_resolve, reject) => { failRename = reject; }));
-  const node = await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+  const node = await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
   await act(async () => {
     node.querySelector('h2 button')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   });
@@ -240,7 +240,7 @@ it('rename failure restores the original title and allows editing again', async 
 });
 
 describe('collection shell active tab', () => {
-  const folderProps = { folderPath: '/book/客户周报', notebookId: 'book', notebookPath: '/book', host: 'main-third' as const };
+  const folderProps = { folderPath: '/book/客户周报', notebookId: 'book', notebookPath: '/book', host: 'column-1' as const };
 
   it('文件夹集合默认落在「文件树」tab', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
@@ -287,7 +287,7 @@ describe('collection shell active tab', () => {
   it('独立日历添加图墙后，日历操作菜单也提供集合资料筛选', async () => {
     calls.summary.current = { ...HYBRID_WITH_FILE_TREE, fileTree: false,
       views: [{ id: 'v1', name: '日历', domain: 'notes' }, { id: 'v2', name: '图墙', domain: 'media' }] };
-    const node = await renderShell({ filePath: '/book/日历.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    const node = await renderShell({ filePath: '/book/日历.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
     expect(activeTab()).toBe('日历');
     expect(node.querySelector('[data-testid="inline-assets-filter"]')).not.toBeNull();
     expect(calls.tableProps.current?.assetFilterMenu).toBeTruthy();
@@ -295,7 +295,7 @@ describe('collection shell active tab', () => {
 
   it('普通打开笔记数据集合时不发送二级筛选打开请求', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
     const listener = vi.fn();
     window.addEventListener('flowix:collection-dataset-filter-request', listener);
     try {
@@ -306,7 +306,7 @@ describe('collection shell active tab', () => {
 
   it('表格提供内嵌资料筛选，保留笔记操作区', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
-    const node = await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    const node = await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
     expect(activeTab()).toBe('表格');
 
     const requests: unknown[] = [];
@@ -376,7 +376,7 @@ describe('collection shell active tab', () => {
     document.body.append(browser);
     const browserRoot = createRoot(browser);
     try {
-      await act(async () => browserRoot.render(<CollectionShell filePath="/book/客户周报/.index.yaml" notebookId="book" notebookPath="/book" host="browser-column" />));
+      await act(async () => browserRoot.render(<CollectionShell filePath="/book/客户周报/.index.yaml" notebookId="book" notebookPath="/book" host="column-2" />));
       const mainSlot = main.querySelector('[data-host-actions-slot]');
       expect(mainSlot?.querySelector('button[aria-label="管理数据集"]')).not.toBeNull();
       expect(mainSlot?.textContent).not.toContain('媒体操作');
@@ -390,7 +390,7 @@ describe('collection shell active tab', () => {
 
   it('集合文件入口默认仍落在表格视图（没有文件树 tab）', async () => {
     calls.summary.current = HYBRID_WITH_FILE_TREE;
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
 
     expect(activeTab()).toBe('表格');
   });
@@ -512,7 +512,7 @@ describe('standalone list collection', () => {
   it.each([null, 'notes', 'files'])('没有笔记域时从旧偏好 %s 回到列表，并且打开不修改集合', async (preference) => {
     calls.summary.current = summary;
     if (preference) window.localStorage.setItem('flowix:collection:active-host-tab:list-collection', preference);
-    const node = await renderShell({ filePath: '/book/资料 (2).index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    const node = await renderShell({ filePath: '/book/资料 (2).index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
     expect(node.querySelector('[aria-label="集合视图"] button[aria-current="page"]')?.textContent).toBe('列表');
     expect(node.querySelector('[data-testid="work-panel"]')).not.toBeNull();
     expect(node.querySelector('[data-testid="table-host"]')).toBeNull();
@@ -530,13 +530,13 @@ describe('collection shell banner', () => {
       { id: 'v2', name: '媒体', domain: 'media' as const },
     ],
     defaultByDomain: { notes: 'v1', media: 'v2' },
-    sources: { media: { scope: 'containing_folder' as const, depth: 'descendants' as const } },
+    sources: { media: { scope: 'containing_folder' as const } },
     collectionId: 'c1', revision: 1, properties: { banner_hidden: { type: 'Boolean', value: false } },
   };
 
   it('有媒体域且未隐藏时，向表格传入 bannerVisible=true', async () => {
     calls.summary.current = HYBRID_MEDIA;
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
 
     expect(calls.tableProps.current?.bannerVisible).toBe(true);
     expect(typeof calls.tableProps.current?.onToggleBannerVisibility).toBe('function');
@@ -544,14 +544,14 @@ describe('collection shell banner', () => {
 
   it('集合属性 banner_hidden=true 时，传入 bannerVisible=false', async () => {
     calls.summary.current = { ...HYBRID_MEDIA, properties: { banner_hidden: { type: 'Boolean', value: true } } };
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
 
     expect(calls.tableProps.current?.bannerVisible).toBe(false);
   });
 
   it('没有媒体域时仍可开关头图（bannerVisible=true：顶部是渐变占位）', async () => {
     calls.summary.current = { ...HYBRID_NOTES_ONLY, properties: { banner_hidden: { type: 'Boolean', value: false } } };
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
 
     expect(calls.tableProps.current?.bannerVisible).toBe(true);
   });
@@ -559,7 +559,7 @@ describe('collection shell banner', () => {
   it('切换头图显示写入集合属性 banner_hidden', async () => {
     const updateCollectionProperties = (await import('@features/collection/public/folder-api')).updateCollectionProperties as unknown as ReturnType<typeof vi.fn>;
     calls.summary.current = HYBRID_MEDIA;
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
 
     updateCollectionProperties.mockResolvedValue(HYBRID_MEDIA);
     const toggle = calls.tableProps.current?.onToggleBannerVisibility as (() => void) | undefined;
@@ -575,7 +575,7 @@ describe('collection shell banner', () => {
   it('把「显示头图」的写入口登记给 header 的「···」，并跟着属性变化', async () => {
     const updateCollectionProperties = (await import('@features/collection/public/folder-api')).updateCollectionProperties as unknown as ReturnType<typeof vi.fn>;
     calls.summary.current = HYBRID_MEDIA;
-    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'main-third' });
+    await renderShell({ filePath: '/book/客户周报/.index.yaml', notebookId: 'book', notebookPath: '/book', host: 'column-1' });
 
     // 一个探针读注册表：header 的「···」就是这么拿到状态与写入口的。
     const probeHost = document.createElement('div');

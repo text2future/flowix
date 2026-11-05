@@ -83,7 +83,7 @@ export default defineConfig(({ command }) => {
       // (164 张时就已经占 260KB)。这里对这批文件关掉内联, 让它们作为独立
       // 资源产出 —— picker 只渲染当前分类, 未展示的图标根本不会被请求。
       assetsInlineLimit: (filePath) => (
-        filePath.includes("/assets/property-icons/") ? false : undefined
+        filePath.includes("/assets/property-icons/") || filePath.includes("/assets/notebook-icons/") ? false : undefined
       ),
       // The bundle budget follows the desktop startup graph through this
       // manifest instead of looking only at index.html.

@@ -1,3 +1,5 @@
+import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
+import { collectionIndexPath } from './collection-frame';
 import { describe, expect, it } from 'vitest';
 import type { WorkColumnNavigationState, WorkColumnTarget } from '@features/workspace/store/work-column-target';
 import { workspaceSurfaceContentPresentation } from '@features/workspace/public/surface-api';
@@ -88,6 +90,27 @@ describe('work column presentation', () => {
     expect(presentation.content).toMatchObject({ status: 'surface', surface: { kind: 'md' } });
     expect(presentation.contentKind).toBe('file-markdown');
     expect(presentation.capabilities).toContain('edit');
+  });
+
+  it.each([
+    ['/book/note.md', undefined],
+    ['/book/main.ts', undefined],
+    ['/book/folder/.index.yaml', 'table'],
+  ] as const)('exposes header context for a primary file-browser target: %s', (path, collectionType) => {
+    ensureFileDisplayIdentity(path);
+    const initial = resolveWorkColumnPresentation({
+      navigation: navigation({ kind: 'file-browser', activeFilePath: path, folderPath: '/book',
+        scopePath: '/book', notebookId: 'book', fileTreeVisible: true, fileTreeWidth: 220, collectionType }),
+      document: null, emptyMessage: 'Empty',
+    });
+    expect(initial.header).toEqual({ kind: 'document', document: { externalFilePath: path } });
+    if (initial.content.status !== 'surface') throw new Error('Expected file-browser surface');
+    expect(collectionIndexPath(initial.content.surface)).toBe(collectionType ? path : null);
+    if (path.endsWith('.md')) {
+      const runtime = resolveWorkColumnRuntimePresentation(initial, workspaceSurfaceContentPresentation('file-markdown'), null);
+      expect(runtime.capabilities).toContain('memo-colors');
+      expect(runtime.capabilities).toContain('version-history');
+    }
   });
 
   it('preserves the empty reason and uses the document header for the empty surface', () => {

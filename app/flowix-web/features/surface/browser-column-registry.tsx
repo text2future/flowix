@@ -18,7 +18,7 @@ import { registerWorkspaceSurfacePresentationOwner, reportWorkspaceSurfacePresen
 import { workspaceSurfaceRetainsInitialContent } from './workspace-surface-renderer-registry';
 import type { SurfacePresentationUpdate } from '@features/workspace/public/surface-api';
 import type { SurfaceLifecycle } from '@features/workspace/public/surface-api';
-import { registerWorkspaceSurfaceLifecycle, registerWorkspaceSurfaceHostView } from '@features/workspace/public/surface-lifecycle-api';
+import { registerWorkspaceSurfaceLifecycle, registerWorkspaceColumnIdView } from '@features/workspace/public/surface-lifecycle-api';
 
 export type BrowserColumnSurfaceCapability = WorkspaceSurfaceCapability;
 
@@ -89,7 +89,7 @@ export interface BrowserColumnSurfaceDefinition {
 }
 
 interface BrowserColumnSurfaceOptions {
-  runtimeHost?: 'main-third' | 'browser-column';
+  columnId?: 'column-1' | 'column-2';
   readOnly?: boolean;
   webRuntime?: BrowserColumnWebRuntime | null;
   toolbarCollapsed?: boolean;
@@ -100,7 +100,7 @@ export function resolveBrowserColumnSurface(entry: BrowserColumnEntry & { target
 export function resolveBrowserColumnSurface(entry: BrowserColumnEntry, options?: BrowserColumnSurfaceOptions): BrowserColumnSurface;
 export function resolveBrowserColumnSurface(
   entry: BrowserColumnEntry,
-  { runtimeHost = 'browser-column', readOnly = false, webRuntime = null, toolbarCollapsed = false, onToolbarCollapsedChange }: BrowserColumnSurfaceOptions = {},
+  { columnId = 'column-2', readOnly = false, webRuntime = null, toolbarCollapsed = false, onToolbarCollapsedChange }: BrowserColumnSurfaceOptions = {},
 ): BrowserColumnSurface {
   const base = {
     instanceKey: `browser:${entry.id}`,
@@ -126,7 +126,7 @@ export function resolveBrowserColumnSurface(
       const updatePrimaryContext = (patch: Partial<import('@features/workspace/public/surface-api').FileBrowserContext>) =>
         updatePrimaryFileBrowserContext(sourceTarget, patch);
       const selectPrimary = (activeFilePath: string | null, folderPath?: string) => {
-        void openWorkspaceSurface({ host: 'main-third', target: {
+        void openWorkspaceSurface({ columnId: 'column-1', target: {
           ...sourceTarget, ...(folderPath === undefined ? {} : { folderPath }),
           activeFilePath, collectionDisplay: undefined, collectionType: undefined,
         } });
@@ -139,18 +139,18 @@ export function resolveBrowserColumnSurface(
           isExternalDocument: true,
           externalScopePath: target.scopePath,
           documentSessionMode: 'isolated',
-          workspaceHost: runtimeHost,
+          workspaceHost: columnId,
           readOnly, toolbarCollapsed, onToolbarCollapsedChange,
         },
-        onSelectFile: (path) => { if (runtimeHost === 'main-third') selectPrimary(path); else void selectBrowserColumnFile(entry.id, path); },
+        onSelectFile: (path) => { if (columnId === 'column-1') selectPrimary(path); else void selectBrowserColumnFile(entry.id, path); },
         onOpenFileInNewTab: (path) => { void openSurfaceAtHost({
-          host: 'browser-column',
+          index: 1,
           target: { ...target, activeFilePath: path, collectionDisplay: undefined, folderPath: null },
         }); },
-        onContextChange: (patch) => runtimeHost === 'main-third' ? updatePrimaryContext(patch) : browserSessionRuntime().updateFileBrowserContext(entry.id, patch),
-        onSelectFolder: (path) => { if (runtimeHost === 'main-third') selectPrimary(null, path); else void selectBrowserColumnFile(entry.id, null, path); },
-        onTreeVisibleChange: (visible) => runtimeHost === 'main-third' ? updatePrimaryContext({ fileTreeVisible: visible }) : browserSessionRuntime().setFileBrowserTreeVisible(entry.id, visible),
-        onTreeWidthChange: (width) => runtimeHost === 'main-third' ? updatePrimaryContext({ fileTreeWidth: width }) : browserSessionRuntime().setFileBrowserTreeWidth(entry.id, width),
+        onContextChange: (patch) => columnId === 'column-1' ? updatePrimaryContext(patch) : browserSessionRuntime().updateFileBrowserContext(entry.id, patch),
+        onSelectFolder: (path) => { if (columnId === 'column-1') selectPrimary(null, path); else void selectBrowserColumnFile(entry.id, null, path); },
+        onTreeVisibleChange: (visible) => columnId === 'column-1' ? updatePrimaryContext({ fileTreeVisible: visible }) : browserSessionRuntime().setFileBrowserTreeVisible(entry.id, visible),
+        onTreeWidthChange: (width) => columnId === 'column-1' ? updatePrimaryContext({ fileTreeWidth: width }) : browserSessionRuntime().setFileBrowserTreeWidth(entry.id, width),
       };
       return target.activeFilePath
         ? {
@@ -220,7 +220,7 @@ function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible =
     const entry = (browserSessionRuntime().current?.id === surface.surfaceId ? browserSessionRuntime().current : null);
     if (entry?.target.kind !== 'file-browser' || !entry.target.collectionDisplay) return;
     const { notebookId, collectionId } = entry.target.collectionDisplay;
-    setCollectionActiveView({ host: 'browser-column', surfaceId: surface.surfaceId }, { notebookId, collectionId }, viewId);
+    setCollectionActiveView({ host: 'column-2', surfaceId: surface.surfaceId }, { notebookId, collectionId }, viewId);
   }, [surface.surfaceId]);
   const reportPresentation = useCallback((update: SurfacePresentationUpdate) => {
     const accepted = reportWorkspaceSurfacePresentation(surface.surfaceId, update, presentationOwner);
@@ -236,13 +236,13 @@ function BrowserRegisteredSurfaceView({ surface, focused, webAddressBarVisible =
   const registerLifecycle = useCallback((lifecycle: SurfaceLifecycle | null, owner?: object) => {
     registerWorkspaceSurfaceLifecycle(surface.surfaceId, lifecycle, owner);
   }, [surface.surfaceId]);
-  useLayoutEffect(() => registerWorkspaceSurfaceHostView('browser-column', surface.surfaceId), [surface.surfaceId]);
+  useLayoutEffect(() => registerWorkspaceColumnIdView('column-2', surface.surfaceId), [surface.surfaceId]);
   useLayoutEffect(() => registerWorkspaceSurfacePresentationOwner(surface.surfaceId, presentationOwner, {
     state: { status: 'loading', loadingMode: 'blocking', retainContent: retainInitialContent },
   }),
     [presentationOwner, retainInitialContent, surface.surfaceId]);
   const data = useMemo(() => browserSurfaceData(surface), [surface]);
-  const context = useMemo(() => ({ sessionEntryId: surface.surfaceId, host: 'browser-column' as const, viewId: surface.surfaceId, focused,
+  const context = useMemo(() => ({ sessionEntryId: surface.surfaceId, host: 'column-2' as const, viewId: surface.surfaceId, focused,
       initialFocus: surface.kind === 'file-browser' ? surface.documentProps.initialFocus : undefined,
       webNavigation, webAddressBarVisible, onCollectionActiveViewChange,
       readOnly: surface.kind === 'file-browser' && Boolean(surface.documentProps.readOnly),

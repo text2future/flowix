@@ -133,7 +133,7 @@ function ArtifactToolWorkbench({
                   onClick={() => {
                     const path = joinNotebookMemoPath(selectedNotebook.path, note.relativePath);
                     if (path) void openWorkspaceSurface({
-                      host: 'browser-column',
+                      index: 1,
                       target: { kind: 'external', path, scopePath: null, transitionId: null },
                     });
                   }}>

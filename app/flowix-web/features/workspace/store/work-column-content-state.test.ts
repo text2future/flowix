@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { WorkColumnNavigationState, WorkColumnTarget } from './work-column-target';
+import type { SessionNavigationFailure, SessionNavigationState } from '../model/session-navigation';
+import type { WorkColumnTarget } from './work-column-target';
 import { resolveWorkColumnContentState } from './work-column-content-state';
 
 const emptyDocument = {
@@ -10,18 +11,24 @@ const emptyDocument = {
 
 function navigation(
   target: WorkColumnTarget,
-  overrides: Partial<WorkColumnNavigationState> = {},
-): WorkColumnNavigationState {
+  overrides: Partial<SessionNavigationState['transaction']> = {},
+): SessionNavigationState {
   return {
-    phase: target.kind === 'empty' ? 'idle' : 'committed',
-    showWorkColumnLoading: false,
-    requestId: 1,
-    target,
-    pendingTarget: null,
-    previousTarget: null,
-    failure: null,
-    retryToken: null,
-    ...overrides,
+    current: target.kind === 'empty'
+      ? null
+      : { id: 'surface:test', target, title: '', icon: null, openedAt: 0 },
+    backStack: [],
+    forwardStack: [],
+    transaction: {
+      phase: target.kind === 'empty' ? 'idle' : 'committed',
+      showBlockingLoading: false,
+      requestId: 1,
+      pendingTarget: null,
+      previousTarget: null,
+      failure: null,
+      retryToken: null,
+      ...overrides,
+    },
   };
 }
 
@@ -59,8 +66,8 @@ describe('work-column content state', () => {
   });
 
   it('retains A as the active target and reports B after B fails', () => {
-    const failure = {
-      code: 'navigation-failed' as const,
+    const failure: SessionNavigationFailure = {
+      code: 'navigation-failed',
       message: 'save refused',
       requestId: 2,
       retryToken: 'retry-b',

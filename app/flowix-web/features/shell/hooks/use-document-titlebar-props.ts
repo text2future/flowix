@@ -1,7 +1,8 @@
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { useSessionAddressBar } from '@features/workspace/public/session-header-api';
+import { resolveWorkspaceFileSurfaceKind } from '@features/workspace/public/surface-api';
+import { notebookRelativeDirectoryPath } from '@/lib/path';
 
-import { canonicalPath, notebookRelativeDirectoryPath, parentDirectoryPath } from '@/lib/path';
 import {
   resolveDocumentTitlebarTarget,
   type DocumentEditorMode,
@@ -17,11 +18,7 @@ import type { Notebook } from '@features/memo/public/shell-api';
 import type {
   useShellDocumentViewModel,
 } from '@features/document/public/shell-api';
-import type {
-  useShellWorkspaceViewModel,
-} from '@features/workspace/public/shell-api';
 
-type WorkspaceNavigation = ReturnType<typeof useShellWorkspaceViewModel>['navigation'];
 type ActiveExternalSession = ReturnType<typeof useShellDocumentViewModel>['activeExternalSession'];
 type RuntimePresentation = ReturnType<typeof useWorkspaceSurfacePresentation>;
 type WorkCapabilities = ReturnType<typeof resolveWorkColumnRuntimePresentation>['capabilities'];
@@ -32,7 +29,6 @@ export interface UseDocumentTitlebarPropsInput {
   workRuntimePresentation: RuntimePresentation;
   workCapabilities: WorkCapabilities;
   workHeaderStyle: WorkHeaderStyle;
-  navigationState: WorkspaceNavigation;
   browserColumnVisible: boolean;
   mainEditorMode: DocumentEditorMode;
   handleSetMainEditorMode: (mode: DocumentEditorMode) => void;
@@ -51,26 +47,13 @@ export interface UseDocumentTitlebarPropsInput {
   handleExportPdf: () => void;
   handleDeleteExternalFile: (expectedFilePath: string, notebookPath: string | null) => Promise<void>;
   mediaActions: DocumentTitlebarProps['mediaActions'];
-  defaultCreateFolderState: { notebookId: string; path: string | null } | null;
-  defaultCreateFolder: string | null;
-  handleToggleDefaultFolder: (target: {
-    filePath: string;
-    notebookPath: string;
-    notebookId: string;
-  }) => Promise<void>;
-  handleSwitchFolderCollectionType: (target: {
-    filePath: string;
-    notebookPath: string;
-    notebookId: string;
-  }, type: 'table' | 'media_library') => Promise<void>;
   activeExternalSession: ActiveExternalSession;
   selectedNotebook: Notebook | null;
 }
 
 /**
  * Assembles the `DocumentTitlebarProps` object shared by the Windows and Mac
- * document titlebars, including the web address bar state and the collection
- * view type switcher for `.index.yaml` collections.
+ * document titlebars, including session address state and collection context.
  */
 export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): DocumentTitlebarProps {
   const {
@@ -78,7 +61,6 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     workRuntimePresentation,
     workCapabilities,
     workHeaderStyle,
-    navigationState,
     browserColumnVisible,
     mainEditorMode,
     handleSetMainEditorMode,
@@ -97,31 +79,41 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     handleExportPdf,
     handleDeleteExternalFile,
     mediaActions,
-    defaultCreateFolderState,
-    defaultCreateFolder,
-    handleToggleDefaultFolder,
-    handleSwitchFolderCollectionType,
     activeExternalSession,
     selectedNotebook,
   } = input;
   const workWebSurfaceId = workColumnPresentation.content.status === 'surface'
     && workColumnPresentation.content.surface.kind === 'web'
     ? workColumnPresentation.content.surface.instanceKey : null;
-  const addressBar = useSessionAddressBar('primary-session', workWebSurfaceId);
+  const addressBar = useSessionAddressBar('column-1', workWebSurfaceId);
   const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
     ? workColumnPresentation.content.surface : null);
 
   const source = workColumnPresentation.content.status === 'surface' ? workColumnPresentation.content.surface : null;
+  const fileBrowser = source?.kind === 'file-browser' && source.fileIdentity ? source : null;
+  const relativePath = fileBrowser?.scopePath && fileBrowser.activeFilePath
+    ? notebookRelativeDirectoryPath(fileBrowser.scopePath, fileBrowser.activeFilePath) : null;
   const header = resolveWorkspaceHeaderModel({
     chrome: workHeaderStyle, contentKind: workRuntimePresentation.contentKind ?? workColumnPresentation.contentKind,
-    sourceKind: source?.kind === 'md' ? 'file-markdown' : source?.kind === 'html-file' ? 'file-html' : null,
+    sourceKind: fileBrowser?.activeFilePath ? `file-${resolveWorkspaceFileSurfaceKind(fileBrowser.activeFilePath)}`
+      : source?.kind === 'md' ? 'file-markdown' : source?.kind === 'html-file' ? 'file-html' : null,
     capabilities: workCapabilities,
   });
+
+  const documentTarget = workColumnPresentation.header.kind === 'document'
+    && workColumnPresentation.header.document.externalFilePath
+    && source && 'fileIdentity' in source && source.fileIdentity
+    ? resolveDocumentTitlebarTarget(source.fileIdentity, fileBrowser ? {
+        fileIdentity: source.fileIdentity, scopePath: fileBrowser.scopePath,
+        notebookId: fileBrowser.notebookId, relativePath,
+        indexable: header.contentKind === 'file-markdown' && Boolean(fileBrowser.notebookId) && relativePath !== null,
+      } : activeExternalSession, selectedNotebook?.path ?? null)
+    : null;
 
   return {
     headerBackgroundColor: workRuntimePresentation.headerBackgroundColor,
     webAddressBarVisible: addressBar.visible,
-    onToggleWebAddressBar: addressBar.toggle,
+    onToggleWebAddressBar: workWebSurfaceId ? addressBar.toggle : undefined,
     reserveWindowsControls: !browserColumnVisible,
     surfaceChrome: workHeaderStyle === 'media' ? 'media' as const : 'document' as const,
     showEditorFontSwitcher: header.showEditorFontSwitcher,
@@ -129,17 +121,8 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     editorMode: mainEditorMode,
     onSetEditorMode: handleSetMainEditorMode,
     document: {
-      target: workColumnPresentation.header.kind === 'document'
-        && workColumnPresentation.header.document.externalFilePath
-        && workColumnPresentation.content.status === 'surface'
-        && 'fileIdentity' in workColumnPresentation.content.surface
-        && workColumnPresentation.content.surface.fileIdentity !== undefined
-        ? resolveDocumentTitlebarTarget(
-            workColumnPresentation.content.surface.fileIdentity,
-            activeExternalSession,
-            selectedNotebook?.path ?? null,
-          )
-        : null,
+      target: documentTarget,
+      isolated: Boolean(fileBrowser),
     },
     sidebar: {
       hidden: isMemoListHidden,
@@ -163,42 +146,19 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
       onExportWord: handleExportWord,
       onExportPdf: handleExportPdf,
       onDeleteExternalFile: () => {
-        const header = workColumnPresentation.header;
-        if (header.kind === 'document' && header.document.externalFilePath) {
-          void handleDeleteExternalFile(header.document.externalFilePath, selectedNotebook?.path ?? null);
+        if (documentTarget) {
+          void handleDeleteExternalFile(documentTarget.fileIdentity.path, documentTarget.scopePath);
         }
       },
     },
     mediaActions,
-    collectionDisplay: collectionPath ? { indexPath: collectionPath } : null,
-    folderCollectionViewType: navigationState.target.kind === 'collection'
-      && canonicalPath(navigationState.target.filePath).endsWith('/.index.yaml')
-      && navigationState.target.notebookId
-      ? {
-          current: navigationState.target.collectionType,
-          isDefaultFolder: defaultCreateFolderState?.notebookId === navigationState.target.notebookId
-            && notebookRelativeDirectoryPath(
-              navigationState.target.notebookPath,
-              parentDirectoryPath(navigationState.target.filePath, navigationState.target.notebookPath),
-            ) === defaultCreateFolder,
-          onToggleDefaultFolder: () => {
-            const target = navigationState.target;
-            if (target.kind === 'collection') void handleToggleDefaultFolder({
-              filePath: target.filePath,
-              notebookPath: target.notebookPath,
-              notebookId: target.notebookId,
-            });
-          },
-          onSelect: (type: 'table' | 'media_library') => {
-            const target = navigationState.target;
-            if (target.kind !== 'collection' || target.collectionType === type) return;
-            void handleSwitchFolderCollectionType({
-              filePath: target.filePath,
-              notebookPath: target.notebookPath,
-              notebookId: target.notebookId,
-            }, type);
-          },
-        }
-      : undefined,
+    collectionDisplay: collectionPath ? {
+      indexPath: collectionPath,
+      notebookId: source?.kind === 'table-file' ? source.props.notebookId
+        : source && 'notebookId' in source ? source.notebookId : null,
+      notebookPath: source?.kind === 'table-file' ? source.props.notebookPath
+        : source && 'notebookPath' in source ? source.notebookPath
+          : source?.kind === 'file-browser' ? source.scopePath : null,
+    } : null,
   };
 }

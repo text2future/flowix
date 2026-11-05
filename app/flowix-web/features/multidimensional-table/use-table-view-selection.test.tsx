@@ -58,3 +58,25 @@ it('keeps a local selection after a write failure and blocks overlapping selecti
     expect(added.document.views.default_id).toBe(added.view.id);
   } finally { act(() => root.unmount()); }
 });
+
+it('adopts an externally requested view once its content arrives', async () => {
+  const original = createTableDocument();
+  const added = addTableView(original, 'calendar');
+  // 磁盘上文件的「记住的视图」仍是原来那个表格视图：内容迟到时先落回它。
+  const arriving: MultidimensionalTableDocument = {
+    ...added.document,
+    views: { ...added.document.views, default_id: original.views.default_id },
+  };
+  let selection!: ReturnType<typeof useTableViewSelection>;
+  function Probe({ doc }: { doc: MultidimensionalTableDocument }) {
+    selection = useTableViewSelection({ document: doc, initialViewId: added.view.id, editable: true, saving: false, save: async () => true });
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Probe doc={original} />));
+    expect(selection.activeView?.id).toBe(original.views.default_id);
+    await act(async () => root.render(<Probe doc={arriving} />));
+    expect(selection.activeView?.id).toBe(added.view.id);
+  } finally { act(() => root.unmount()); }
+});

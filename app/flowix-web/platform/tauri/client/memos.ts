@@ -1,3 +1,5 @@
+import type { AgentWorkspaceSnapshot } from '@/lib/types/agent-workspace';
+import type { AppLanguage } from '@/lib/i18n';
 import { invokeDocumentMutation } from './document-mutation';
 import { invoke } from '@tauri-apps/api/core';
 import type { NotebookImportStatus } from './agent';
@@ -134,12 +136,16 @@ export const notebooks = {
     invoke<NotebookRecord>('create_notebook', { name, path, icon, activate }),
   createFromCloud: (id: string, name: string, path: string, icon?: string | null, activate = true) =>
     invoke<NotebookRecord>('create_notebook_from_cloud', { id, name, path, icon, activate }),
-  startImport: (notebookId: string) =>
-    invoke<void>('start_notebook_import', { notebookId }),
+  startImport: (notebookId: string, language: AppLanguage) =>
+    invoke<void>('start_notebook_import', { notebookId, language }),
   getImportStatus: (notebookId: string) =>
     invoke<NotebookImportStatus | null>('get_notebook_import_status', { notebookId }),
   update: (id: string, name?: string, icon?: string | null) =>
     invoke<NotebookRecord | null>('update_notebook', { id, name, icon }),
+  saveSettings: (input: {
+    id: string; name: string; icon: string | null; primaryPath: string;
+    repositoryPaths: string[]; expectedPrimaryPath: string; expectedRepositoryPaths: string[];
+  }) => invoke<{ notebook: NotebookRecord; workspace: AgentWorkspaceSnapshot }>('save_notebook_settings', { input }),
   setPrimaryDirectory: (id: string, path: string) =>
     invoke<NotebookRecord>('set_notebook_primary_directory', { id, path }),
   delete: (id: string, deleteLocalFiles = false) =>

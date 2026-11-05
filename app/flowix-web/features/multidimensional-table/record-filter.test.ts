@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NoteEntry } from '@platform/tauri/client';
 import { noteMatchesCollectionFilter } from './record-filter';
-import { NOTE_CREATED_AT_FIELD_ID } from './builtin-fields';
+import { NOTE_CREATED_AT_FIELD_ID, NOTE_PATH_FIELD_ID } from './builtin-fields';
 import type { TableField } from './model';
 
 const primaryField: TableField = {
@@ -46,5 +46,24 @@ describe('noteMatchesCollectionFilter', () => {
     const filter = { path: null, match: 'all' as const, conditions: [{ field: NOTE_CREATED_AT_FIELD_ID, op: 'eq', value: '2026-05-03' }] };
 
     expect(noteMatchesCollectionFilter(datedNote, [primaryField], primaryField.id, filter)).toBe(true);
+  });
+});
+
+describe('relative directory equality', () => {
+  it.each(['eq', 'equals'])('matches only documents directly in the displayed directory with %s', (op) => {
+    const filter = { all: [{ field: NOTE_PATH_FIELD_ID, op, value: '项目/子目录' }], any: [] };
+    const matches = (relativePath: string) => noteMatchesCollectionFilter({ ...note, relativePath }, [], '', filter);
+    expect(matches('项目/子目录/方案.md')).toBe(true);
+    expect(matches('项目/子目录/其他.md')).toBe(true);
+    expect(matches('项目\\子目录\\方案.md')).toBe(true);
+    expect(matches('项目/子目录/更深/方案.md')).toBe(false);
+    expect(matches('项目/子目录2/方案.md')).toBe(false);
+    expect(matches('项目/方案.md')).toBe(false);
+  });
+
+  it('matches root documents with the empty displayed directory', () => {
+    const filter = { all: [{ field: NOTE_PATH_FIELD_ID, op: 'eq', value: '' }], any: [] };
+    expect(noteMatchesCollectionFilter(note, [], '', filter)).toBe(true);
+    expect(noteMatchesCollectionFilter({ ...note, relativePath: '项目/方案.md' }, [], '', filter)).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { useSessionWebRuntimeStore } from '@features/workspace/public/session-web-api';
+import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,6 @@ let host: HTMLDivElement;
 const url = 'https://example.com/';
 
 beforeEach(() => {
-  useSessionWebRuntimeStore.setState({ runtimes: {} });
   vi.useFakeTimers();
   host = document.createElement('div');
   document.body.append(host);
@@ -41,7 +40,7 @@ async function click(label: string) {
 
 describe('shared web renderer', () => {
   it('provides navigation, history and reload in Work without Browser state', async () => {
-    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'main-third', viewId: 'work-web', focused: true, readOnly: false }} />));
+    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'column-1', viewId: 'work-web', focused: true, readOnly: false }} />));
     await navigate('https://example.org/next');
     expect(host.querySelector('iframe')!.src).toBe('https://example.org/next');
     await click('后退');
@@ -59,7 +58,7 @@ describe('shared web renderer', () => {
       getRuntime: vi.fn(() => runtime), setRuntime: vi.fn(), navigate: vi.fn(), back: vi.fn(),
       forward: vi.fn(), reload: vi.fn(), updateMetadata: vi.fn(),
     };
-    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url, runtime }} context={{ host: 'browser-column', viewId: 'tab-web', focused: true, readOnly: false, webNavigation: port }} />));
+    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url, runtime }} context={{ host: 'column-2', viewId: 'tab-web', focused: true, readOnly: false, webNavigation: port }} />));
     await click('后退'); await click('前进'); await click('重新加载');
     await navigate('https://example.org/');
     expect(port.back).toHaveBeenCalledOnce();
@@ -70,7 +69,7 @@ describe('shared web renderer', () => {
   });
 
   it('clears the timeout after a cross-origin iframe load', async () => {
-    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'main-third', viewId: 'work-web', focused: true, readOnly: false }} />));
+    await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{ host: 'column-1', viewId: 'work-web', focused: true, readOnly: false }} />));
     const frame = host.querySelector('iframe')!;
     Object.defineProperty(frame, 'contentWindow', { get: () => { throw new DOMException('Cross origin', 'SecurityError'); } });
     await act(async () => { frame.dispatchEvent(new Event('load')); vi.advanceTimersByTime(6000); });
@@ -83,7 +82,7 @@ it('retains the mounted iframe and current page when only the container geometry
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
       <section style={{ gridColumn: column }}>
         <WebRenderer surface={{ kind: 'web', url }} context={{
-          host: 'main-third', viewId: 'relocatable-web', focused: true, readOnly: false,
+          host: 'column-1', viewId: 'relocatable-web', focused: true, readOnly: false,
         }} />
       </section>
     </div>,
@@ -95,4 +94,14 @@ it('retains the mounted iframe and current page when only the container geometry
   await act(async () => render(2));
   expect(host.querySelector('iframe')).toBe(iframe);
   expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://retained.example/');
+});
+
+it('keeps standalone web navigation outside workspace session state', async () => {
+  const before = useWorkspaceSessionStore.getState();
+  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url }} context={{
+    host: 'column-1', viewId: 'standalone-web', focused: true, readOnly: false,
+  }} />));
+  await navigate('https://local.example/');
+  expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://local.example/');
+  expect(useWorkspaceSessionStore.getState()).toBe(before);
 });

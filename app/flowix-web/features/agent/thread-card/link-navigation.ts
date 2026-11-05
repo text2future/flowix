@@ -15,6 +15,7 @@ import {
 } from '@features/document/use-cases/agent-location-navigation';
 import { locationViewId } from '@features/document/public/heading-navigation-api';
 import {
+  DEFAULT_LOCAL_ORIGINS,
   parseAgentLink,
   type AgentLinkParseResult,
   type AgentLinkTarget,
@@ -109,6 +110,15 @@ function explainParseError(result: Extract<AgentLinkParseResult, { ok: false }>)
   return error;
 }
 
+function currentLocalOrigins(): readonly string[] {
+  if (import.meta.env.DEV && typeof location !== 'undefined'
+    && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+    && ['http:', 'https:'].includes(location.protocol)) {
+    return [...DEFAULT_LOCAL_ORIGINS, location.origin];
+  }
+  return DEFAULT_LOCAL_ORIGINS;
+}
+
 /** Shared click dispatcher for both Agent message surfaces. */
 export async function openAgentLink(
   rawHref: string | null | undefined,
@@ -116,7 +126,10 @@ export async function openAgentLink(
 ): Promise<void> {
   // Agent Markdown historically treats bare domains as web links. Relative
   // file references remain rejected because no trusted base directory exists.
-  const parsed = parseAgentLink(rawHref, { platform: currentPlatform(), relativeMode: 'web' });
+  const parsed = parseAgentLink(rawHref, {
+    platform: currentPlatform(), relativeMode: 'web', localOrigins: currentLocalOrigins(),
+    isWorkspaceFilePath: (path) => agentFileScopePathForRuntime(path, runtimeConfig) !== null,
+  });
   if (!parsed.ok) throw explainParseError(parsed);
   const target: AgentLinkTarget = parsed.target;
   switch (target.kind) {
@@ -126,10 +139,10 @@ export async function openAgentLink(
       // Notes and code share the same right-column destination. Opening a note
       // deep link must not replace the conversation already shown by the work
       // column (that is what the note card's “打开笔记” action does too).
-      await openNoteByDeepLink(target.url, null, { destination: 'browser-column', source: 'agent-message' });
+      await openNoteByDeepLink(target.url, null, { destination: 1, source: 'agent-message' });
       return;
     case 'web':
-      await openWorkspaceSurface({ host: 'browser-column', source: 'agent-message', target: { kind: 'web', url: target.url } });
+      await openWorkspaceSurface({ index: 1, source: 'agent-message', target: { kind: 'web', url: target.url } });
       return;
     case 'external':
       await openUrl(target.url);
@@ -150,11 +163,11 @@ export async function openAgentLink(
       try {
         opened = scopePath
           ? await openWorkspaceSurface({
-            host: 'browser-column', source: 'agent-message',
+            index: 1, source: 'agent-message',
             target: createFileBrowserTarget(target.path, scopePath, scopePath),
           })
           : await openWorkspaceSurface({
-            host: 'browser-column', source: 'agent-message',
+            index: 1, source: 'agent-message',
             target: { kind: 'external', path: target.path, scopePath: null, transitionId: null },
           });
       } catch (error) {
@@ -201,7 +214,7 @@ export function handleAgentLinkClick(
 
 /** Compatibility helper for code that only needs a local file path. */
 export function localFilePathFromAgentHref(rawHref: string | null | undefined): string | null {
-  const parsed = parseAgentLink(rawHref);
+  const parsed = parseAgentLink(rawHref, { localOrigins: currentLocalOrigins() });
   return parsed.ok && parsed.target.kind === 'local-file' ? parsed.target.path : null;
 }
 

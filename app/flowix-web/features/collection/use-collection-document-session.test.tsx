@@ -38,15 +38,15 @@ const CODEC: CollectionDocumentCodec<MediaLibraryDocument> = {
 
 /** 同时带 notes / media / work_documents 三个域的 hybrid 来源（v3）。 */
 function hybridSource(): string {
-  const source = { scope: 'containing_folder' as const, depth: 'direct_children' as const };
+  const source = { scope: 'containing_folder' as const };
   const table = createTableDocument('table', '项目', 'folder');
   table.dataset.source = source;
   const media = createMediaLibrary('项目');
   media.collection.placement = 'folder';
-  media.dataset.source = { ...source, depth: 'descendants' as const };
+  media.dataset.source = source;
   const work = createWorkDocumentsCollection('项目');
   work.collection.placement = 'folder';
-  work.dataset.source = { ...source, depth: 'descendants' as const };
+  work.dataset.source = source;
   const document: HybridCollectionDocument = {
     format: 'flowix.collection',
     schema_version: 3,

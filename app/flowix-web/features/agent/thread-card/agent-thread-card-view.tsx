@@ -19,7 +19,7 @@ import { translate, type AppLanguage, type I18nKey, type I18nParams } from "@/li
 import { createLogger } from "@/lib/logger";
 import { errorMessage } from "@/lib/error-message";
 import type { AgentTypeKey } from "@/types/agent";
-import type { WorkspaceHostId } from "@features/workspace/public/host-api";
+import type { WorkspaceColumnId } from "@features/workspace/public/host-api";
 import { deriveThreadTitleFromPrompt, defaultThreadTitle } from "@features/agent/store/thread-titles";
 import { toast } from "@/lib/toast";
 import { useNoteStore } from "@features/memo/store/note-store";
@@ -237,7 +237,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     const detail = (event as CustomEvent<{
       element?: HTMLElement;
       threadId?: string | null;
-      host?: WorkspaceHostId;
+      host?: WorkspaceColumnId;
       exitOthers?: boolean;
       persist?: boolean;
     }>).detail;
@@ -354,7 +354,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     node: ProseMirrorNode,
     view: EditorView,
     getPos?: () => number | undefined,
-    private readonly hostId: WorkspaceHostId = "main-third",
+    private readonly hostId: WorkspaceColumnId = "column-1",
   ) {
     this.node = node;
     this.view = view;
@@ -796,7 +796,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         },
         source: { kind: "dedicated", notebookId: source?.source.notebookId ?? null },
       });
-      await openWorkspaceSurface({ host: 'main-third', target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
+      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
     } catch (error) {
       logger.error(`Failed to fork ${this.typeKey} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));
@@ -811,7 +811,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       const instance = await this.ensureInstanceBinding();
       if (!instance || this.isDestroyed) return;
       await openWorkspaceSurface({
-        host: "browser-column",
+        index: 1,
         target: { kind: "agent-conversation", instanceId: instance.instanceId },
       });
     } catch (error) {
@@ -1021,7 +1021,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     return !!this.node.attrs.fullscreen;
   }
 
-  private get workspaceHost(): WorkspaceHostId | null {
+  private get workspaceHost(): WorkspaceColumnId | null {
     return this.hostId;
   }
 
@@ -1235,7 +1235,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
    * stays inline when a note opens so its surrounding text remains visible.
    */
   private shouldRestorePersistedFullscreen(): boolean {
-    return this.workspaceHost === 'main-third';
+    return this.workspaceHost === 'column-1';
   }
 
   /**

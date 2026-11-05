@@ -47,9 +47,18 @@ export function acceptBackgroundDocumentContent(path: string, content: string): 
   return accepted;
 }
 
-export function subscribeWorkspaceDocumentSaves(listener: () => void): () => void {
-  return subscribeDocumentBufferChanges((_identity, reason) => {
-    if (reason === 'save_settled') listener();
+export interface WorkspaceDocumentSaveNotice {
+  path: string;
+  linkStage?: { batchId: string; through: number };
+}
+
+export function subscribeWorkspaceDocumentSaves(listener: (notice: WorkspaceDocumentSaveNotice) => void): () => void {
+  return subscribeDocumentBufferChanges((identity, reason) => {
+    if (reason !== 'save_settled' && reason !== 'merged') return;
+    const session = getDocumentSession(identity);
+    const stage = session.linkRewriteStage;
+    const canonical = stage && session.buffer && session.buffer.savedRevision >= stage.revision;
+    listener({ path: session.identity.path, ...(canonical ? { linkStage: { batchId: stage.batchId, through: stage.through } } : {}) });
   });
 }
 
@@ -169,3 +178,20 @@ export function getWorkspaceDocumentNavigation() {
   const { backStack, forwardStack } = useDocumentHistoryStore.getState();
   return { backStack, forwardStack };
 }
+
+/** Save live drafts and update these transfer snapshots if a title save renamed a source. */
+export async function saveWorkspaceTransferSources(sources: { path: string; isFolder?: boolean }[], scopePath: string): Promise<boolean> {
+  for (const session of listDocumentSessions()) {
+    const path = canonicalPath(session.identity.path);
+    if (!sources.some(source => path === canonicalPath(source.path)
+      || (source.isFolder && path.startsWith(`${canonicalPath(source.path)}/`)))) continue;
+    const saved = await saveDocumentPath(session.identity, session.identity.path, scopePath);
+    for (const source of sources) {
+      if (!source.isFolder && canonicalPath(source.path) === path) source.path = session.identity.path;
+    }
+    if (!saved) return false;
+  }
+  return true;
+}
+
+export { rebaseWorkspaceDocumentLinkSources, getWorkspaceDocumentLinkStage } from '../use-cases/document-link-source-rebase';

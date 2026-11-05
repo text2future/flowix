@@ -1,6 +1,7 @@
 import type { WorkspaceSurfaceIdentity } from './surface-identity';
 
-export type WorkspaceSurfaceHost = 'main-third' | 'browser-column';
+export type { WorkspaceColumnId } from './workspace-session';
+import type { WorkspaceColumnId } from './workspace-session';
 
 export type WorkspaceSurfaceCapability =
   | 'edit' | 'search' | 'memo-colors' | 'properties' | 'copy-content'
@@ -59,7 +60,7 @@ export type SurfaceState =
 
 /** A content identity may have independent Work and Browser view instances. */
 export interface SurfaceViewContext {
-  host: WorkspaceSurfaceHost;
+  host: WorkspaceColumnId;
   viewId: string;
   focused: boolean;
   readOnly: boolean;

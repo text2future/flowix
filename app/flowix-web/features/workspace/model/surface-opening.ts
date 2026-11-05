@@ -2,8 +2,8 @@ import type { MarkdownLocation } from '@platform/tauri/client';
 import type { WorkWorkspaceSurfaceTarget, BrowserWorkspaceSurfaceTarget } from './surface-target';
 
 export type RuntimeWorkspaceContentLocation =
-  | { host: 'main-third'; state: 'active' | 'pending' }
-  | { host: 'browser-column'; surfaceId: string };
+  | { host: 'column-1'; state: 'active' | 'pending' }
+  | { host: 'column-2'; surfaceId: string };
 
 /** Physical placement plus the stable runtime address used by legacy editor ports. */
 export type WorkspaceContentLocation = RuntimeWorkspaceContentLocation & {
@@ -28,27 +28,27 @@ export type WorkspaceNavigationSource = 'notebook-tree' | 'notebook-tree-new-tab
 export interface WorkWorkspaceSurfaceRequest {
   source?: WorkspaceNavigationSource;
   /** Callers own the destination; focus and runtime state must not infer it. */
-  host: 'main-third';
+  host: 'column-1';
   target: WorkWorkspaceSurfaceTarget;
   options?: WorkWorkspaceSurfaceOptions;
 }
 export interface BrowserWorkspaceSurfaceRequest {
   source?: WorkspaceNavigationSource;
-  host: 'browser-column';
+  host: 'column-2';
   target: BrowserWorkspaceSurfaceTarget;
   options?: BrowserWorkspaceSurfaceOptions;
 }
 export type OpenWorkspaceSurfaceRequest = WorkWorkspaceSurfaceRequest | BrowserWorkspaceSurfaceRequest;
 export type WorkWorkspaceOpenResult =
-  | { status: 'opened' | 'activated'; host: 'main-third'; location: Extract<WorkspaceContentLocation, { host: 'main-third' }> }
-  | { status: 'cancelled'; host: 'main-third'; reason: 'navigation-cancelled' };
+  | { status: 'opened' | 'activated'; host: 'column-1'; location: Extract<WorkspaceContentLocation, { host: 'column-1' }> }
+  | { status: 'cancelled'; host: 'column-1'; reason: 'navigation-cancelled' };
 export type BrowserWorkspaceOpenResult =
-  | { status: 'opened' | 'activated'; host: 'browser-column'; location: Extract<WorkspaceContentLocation, { host: 'browser-column' }> }
-  | { status: 'cancelled'; host: 'browser-column'; reason: 'navigation-cancelled' };
+  | { status: 'opened' | 'activated'; host: 'column-2'; location: Extract<WorkspaceContentLocation, { host: 'column-2' }> }
+  | { status: 'cancelled'; host: 'column-2'; reason: 'navigation-cancelled' };
 export type WorkspaceSurfaceOpenResult = WorkWorkspaceOpenResult | BrowserWorkspaceOpenResult;
 /** Internal Browser adapter detail, normalized by openWorkspaceSurface. */
 export type BrowserColumnNavigationResult = {
-  host: 'browser-column';
+  host: 'column-2';
   surfaceId: string;
   alreadyOpen: boolean;
 } | null;

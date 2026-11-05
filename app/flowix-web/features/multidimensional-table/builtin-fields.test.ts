@@ -9,8 +9,8 @@ const note = { relativePath: '项目/方案.md', sizeBytes: 1_250_000, createdAt
 
 describe('builtin table fields', () => {
   it('formats notebook-relative directories and decimal file sizes', () => {
-    expect(builtinTableFieldValue(NOTE_PATH_FIELD_ID, note, '/Notes/开发任务管理/')).toBe('开发任务管理/项目/');
-    expect(builtinTableFieldValue(NOTE_PATH_FIELD_ID, { ...note, relativePath: '方案.md' }, '/Notes/开发任务管理')).toBe('开发任务管理/');
+    expect(builtinTableFieldValue(NOTE_PATH_FIELD_ID, note, '/Notes/开发任务管理/')).toBe('项目');
+    expect(builtinTableFieldValue(NOTE_PATH_FIELD_ID, { ...note, relativePath: '方案.md' }, '/Notes/开发任务管理')).toBe('');
     expect(builtinTableFieldValue(NOTE_SIZE_FIELD_ID, note, null)).toBe('1.25 MB');
     expect(builtinTableFieldValue(NOTE_SIZE_FIELD_ID, { ...note, sizeBytes: 0 }, null)).toBe('0 B');
   });

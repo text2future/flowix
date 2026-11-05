@@ -2,7 +2,8 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { canonicalPath } from '@/lib/path';
 import { subscribe } from '@platform/tauri/event-bus';
 import type { CollectionChangedEvent } from '@platform/tauri/client';
-import { readCollectionSummary, type FolderCollectionSummary } from '@features/collection/public/folder-api';
+import { readCollectionSummary, summarizeFolderCollectionSource, type FolderCollectionSummary } from '@features/collection/public/folder-api';
+import { isSameCollectionFile, subscribeCollectionContent } from './content-events';
 import { subscribeLocalCollectionChanges } from './events';
 
 type Snapshot = FolderCollectionSummary | 'missing' | null;
@@ -30,9 +31,13 @@ function createEntry(path: string, scope: string | null, notebookId: string | nu
   let addressRevision = 0;
   const listeners = new Set<() => void>();
   let stop: (() => void) | undefined;
+  let stopContent: (() => void) | undefined;
   const publish = (next: Snapshot) => {
     if (snapshot && snapshot !== 'missing' && next && next !== 'missing'
       && snapshot.collectionId === next.collectionId && next.revision < snapshot.revision) return;
+    // 同一份内容必然归纳出同一份 summary：本进程内的写入会先经内容广播推一次，
+    // 调用方随后又用写回结果推一次，这里挡掉第二遍（否则外壳白重渲染一次）。
+    if (next && next !== 'missing' && next.source && snapshot !== 'missing' && snapshot?.source === next.source) return;
     sequence += 1;
     snapshot = next;
     if (next && next !== 'missing') addressRevision = Math.max(addressRevision, next.revision);
@@ -73,6 +78,16 @@ function createEntry(path: string, scope: string | null, notebookId: string | nu
       entries.set(entryKey(path, scope, notebookId), entry);
       listeners.add(listener);
       if (listeners.size === 1) {
+        // 本进程内任何入口改写这个集合文件（含表格自己保存）都会广播落盘内容：
+        // 直接由内容重算 summary，省掉一次读盘，也不会漏掉被自写抑制吃掉的 watcher 事件。
+        stopContent = subscribeCollectionContent((change) => {
+          if (!isSameCollectionFile(change.indexPath, path)) return;
+          try {
+            publish(summarizeFolderCollectionSource(change.content));
+          } catch {
+            void refresh();
+          }
+        });
         stop = subscribe<CollectionChangedEvent>('collection-changed', (event) => {
           if (notebookId && event.notebookId !== notebookId) return;
           if (scope && event.notebookPath && canonicalPath(event.notebookPath) !== canonicalPath(scope)) return;
@@ -97,6 +112,7 @@ function createEntry(path: string, scope: string | null, notebookId: string | nu
       return () => {
         listeners.delete(listener);
         if (listeners.size === 0) {
+          stopContent?.(); stopContent = undefined;
           stop?.(); stop = undefined; sequence += 1; snapshot = null; addressRevision = 0;
           for (const [address, cached] of entries) if (cached === entry) entries.delete(address);
         }

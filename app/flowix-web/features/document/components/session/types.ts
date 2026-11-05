@@ -1,6 +1,6 @@
 import type { Editor } from '@tiptap/core';
 import type { FileDisplayIdentity } from '@/lib/file-display-registry';
-import type { SurfaceLifecycle, WorkspaceSurfaceHost } from '@features/workspace/public/surface-api';
+import type { SurfaceLifecycle, WorkspaceColumnId } from '@features/workspace/public/surface-api';
 
 export interface LoadContentOptions {
   preservePending?: boolean;
@@ -58,7 +58,7 @@ export interface DocumentContainerProps {
   /** Keep this editor out of the main workspace's singleton document session. */
   documentSessionMode?: 'main' | 'isolated';
   /** Explicit host supplied by the workspace surface protocol. */
-  workspaceHost?: WorkspaceSurfaceHost;
+  workspaceHost?: WorkspaceColumnId;
   /** Runtime surface identity used to bind one-shot Agent navigation requests. */
   navigationViewId?: string;
   /** Render the document without edit or metadata mutation controls. */

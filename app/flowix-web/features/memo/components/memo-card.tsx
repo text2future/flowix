@@ -3,7 +3,7 @@
 import { memo, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ListTodo, Loader2 } from 'lucide-react';
 import { PushPin } from '@phosphor-icons/react';
-import { NOTE_COLOR_HEX, useNoteStore } from '@features/memo/store/note-store';
+import { NOTE_COLOR_HEX } from '@features/memo/store/note-store';
 import {
   noteListItemRelativePath,
   type NoteColor,
@@ -22,7 +22,8 @@ import {
   ContextMenuItem,
 } from '@shared/ui/context-menu';
 import { MemoCardActions } from '@features/memo/components/memo-card-actions';
-import { assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
+import { resolveNoteThumbnailSrc } from '@/lib/note-thumbnail';
+import { useNoteContext, type NoteContext } from '@features/memo/hooks/use-note-context';
 import { TagIcon } from '@shared/ui/tag-icon';
 import { joinNotebookMemoPath } from '@/lib/path';
 import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
@@ -64,6 +65,8 @@ interface MemoCardBodyProps {
 
 interface MemoCardShellProps {
   memo: NoteListItem;
+  /** 由卡片主体解析一次后下发，避免每张卡重复订阅笔记本状态。 */
+  noteContext: NoteContext;
   isSelected: boolean;
   children: ReactNode;
   onSelect: (memo: NoteListItem) => void;
@@ -72,12 +75,6 @@ interface MemoCardShellProps {
   onDelete: (memo: NoteListItem) => void;
   onColorsChange?: (memo: NoteListItem, colors: NoteColor[]) => void;
   onKeepAliveChange?: (memo: NoteListItem, active: boolean) => void;
-}
-
-function thumbnailSrc(thumbnail: string | null | undefined): string | null {
-  if (!thumbnail) return null;
-  const storageKey = decodeStorageKey(thumbnail);
-  return storageKey ? assetUrl(storageKey) : thumbnail;
 }
 
 function AgentTodoIcons({
@@ -139,6 +136,7 @@ function ColorDots({ colors, limit, className }: { colors: NoteListItem['colors'
 
 function MemoCardShell({
   memo,
+  noteContext,
   isSelected,
   children,
   onSelect,
@@ -149,6 +147,7 @@ function MemoCardShell({
   onKeepAliveChange,
 }: MemoCardShellProps) {
   const { t } = useI18n();
+  const { notebook, documentPath } = noteContext;
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
@@ -168,7 +167,6 @@ function MemoCardShell({
   const submitRename = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const title = renameDraft.trim();
-    const notebook = useNoteStore.getState().selectedNotebook;
     if (!title || !notebook?.path) return;
 
     const relativePath = noteListItemRelativePath(memo);
@@ -196,11 +194,7 @@ function MemoCardShell({
     }
   };
 
-  const notebook = useNoteStore.getState().selectedNotebook;
-  const relativePath = noteListItemRelativePath(memo);
-  const filePath = notebook?.path
-    ? joinNotebookMemoPath(notebook.path, relativePath) ?? relativePath
-    : relativePath;
+  const filePath = documentPath ?? noteListItemRelativePath(memo);
 
   const card = (
     <div
@@ -303,6 +297,7 @@ function DetailedMemoCardBody({
               src={thumbnail}
               alt=""
               loading="lazy"
+              decoding="async"
               draggable={false}
               onError={onThumbnailFailed}
               className="h-full w-full rounded-md object-cover"
@@ -374,7 +369,9 @@ export function MemoCardImpl({
   onKeepAliveChange,
 }: MemoCardProps) {
   const { t } = useI18n();
-  const thumbnail = thumbnailSrc(memo.thumbnail);
+  const noteContext = useNoteContext(memo);
+  // 缩略图可能是文档相对路径，需要笔记自身的绝对路径才能落到具体文件。
+  const thumbnail = resolveNoteThumbnailSrc(memo.thumbnail, noteContext.documentPath);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const hasAgents = (memo.agents?.length ?? 0) > 0;
   const hasTodos = (memo.todos?.length ?? 0) > 0;
@@ -405,6 +402,7 @@ export function MemoCardImpl({
   return (
     <MemoCardShell
       memo={memo}
+      noteContext={noteContext}
       isSelected={isSelected}
       onSelect={onSelect}
       onOpenInWindow={onOpenInWindow}

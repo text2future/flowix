@@ -21,6 +21,7 @@ function startFileDisplayTracking(): () => void {
       navigation.phase === 'loading' ? navigation.pendingTarget : null,
     ];
     for (const target of workTargets) {
+      if (target?.kind === 'file-browser') addFile(target.activeFilePath);
       if (target?.kind === 'external') addFile(target.path);
       if (target?.kind === 'table') addFile(target.filePath);
       if (target?.kind === 'media-library') addFile(target.filePath);

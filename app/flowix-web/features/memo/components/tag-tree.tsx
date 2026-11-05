@@ -1,5 +1,6 @@
-import { useNotebookBackgroundStore } from '@features/memo/store/notebook-background-store';
 'use client';
+
+import { useNotebookBackgroundStore } from '@features/memo/store/notebook-background-store';
 
 import {
   useCallback,

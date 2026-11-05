@@ -1533,7 +1533,7 @@ mod tests {
         let mut value = document(kind).normalized_v2().unwrap();
         value.collection.placement = CollectionPlacement::Folder;
         value.payload["dataset"]["source"] =
-            serde_json::json!({"scope":"containing_folder","depth":"descendants"});
+            serde_json::json!({"scope":"containing_folder"});
         value
     }
 

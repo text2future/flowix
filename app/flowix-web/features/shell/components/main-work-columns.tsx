@@ -1,6 +1,5 @@
-import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
-import { useBrowserColumnViewModel } from '@features/workspace/public/browser-column-api';
-import { SessionHostProvider, type SessionHostEnvironment } from './session-host-environment';
+import { useColumnSessionId, useColumnIndex } from '@features/workspace/public/session-api';
+import { ColumnProvider, type ColumnEnvironment } from './column-environment';
 import { ColumnResizeHandle } from './column-resize-handle';
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
 import { lazy, Suspense, type CSSProperties } from 'react';
@@ -8,8 +7,7 @@ import { lazy, Suspense, type CSSProperties } from 'react';
 import { isWindowsPlatform } from '@/lib/path';
 import { useI18n } from '@/lib/i18n';
 import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
-import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
-import { workspaceSurfaceUsesCollectionFrame } from '@features/workspace/public/surface-api';
+import { focusWorkspaceColumnFromEvent } from '@features/workspace/public/host-api';
 import {
   DocumentTitlebarWin,
   DocumentTitlebarMac,
@@ -59,7 +57,7 @@ export interface MainWorkColumnsProps {
   handleBrowserColumnResize: ReturnType<typeof useMainPanelController>['handleBrowserColumnResize'];
   toolbarCollapsed: boolean;
   setToolbarCollapsed: (value: boolean) => void;
-  focusedHostId: ReturnType<typeof useShellWorkspaceViewModel>['focusedHostId'];
+  focusedColumnId: ReturnType<typeof useShellWorkspaceViewModel>['focusedColumnId'];
   isMemoListHidden: boolean;
   isMemoListAnimating: boolean;
   noteNavigationPhase: ReturnType<typeof useMainPanelController>['noteNavigationPhase'];
@@ -79,9 +77,7 @@ export interface MainWorkColumnsProps {
   handleToggleMemoList: () => void;
   recentExportPath: string | null;
   onDismissExportNotice: () => void;
-  isDocumentTransitioning: boolean;
   workSurfaceBlockingLoading: boolean;
-  workSurfaceFailed: boolean;
   notebookSwitching: boolean;
   language: 'zh-CN' | 'en-US';
 }
@@ -100,7 +96,7 @@ export function MainWorkColumns({
   handleBrowserColumnResize,
   toolbarCollapsed,
   setToolbarCollapsed,
-  focusedHostId,
+  focusedColumnId,
   isMemoListHidden,
   isMemoListAnimating,
   noteNavigationPhase,
@@ -120,17 +116,16 @@ export function MainWorkColumns({
   handleToggleMemoList,
   recentExportPath,
   onDismissExportNotice,
-  isDocumentTransitioning,
   workSurfaceBlockingLoading,
-  workSurfaceFailed,
   notebookSwitching,
   language,
 }: MainWorkColumnsProps) {
+  const sessionId = useColumnSessionId('column-1');
+  const columnIndex = useColumnIndex('column-1');
+  const columnHasSelection = hasMultipleDocumentsSelected && columnIndex === 0;
   const { t } = useI18n();
-  const primaryAtWork = useWorkspaceSessionStore((state) => state.hosts['main-third'] === 'primary-session');
-  const { current: browserCurrent } = useBrowserColumnViewModel();
-  const environment = (host: SessionHostEnvironment['host']): SessionHostEnvironment => ({
-    host, browserVisible: browserColumnVisible, sidebarHidden: isMemoListHidden,
+  const environment = (index: ColumnEnvironment['index']): ColumnEnvironment => ({
+    index, browserVisible: browserColumnVisible, sidebarHidden: isMemoListHidden,
     navigationVisible: noteNavigationPhase !== 'closed', onToggleSidebar: handleToggleMemoList,
   });
   const selectionLabel = t('memo.fileTree.selectedDocumentCount', { count: accessSpaceSelectionCount });
@@ -139,17 +134,15 @@ export function MainWorkColumns({
    * 顶部从标题栏下方经过；隐藏头图后撤掉上移，集合内容从标题栏下方正常开始。
    * 集合内部的吸顶偏移（tab 条 / 表头）引用 `--work-titlebar-h`，随负 margin 一起开关。
    */
-  const isCollectionShellSurface = workColumnPresentation.content.status === 'surface'
-    && workspaceSurfaceUsesCollectionFrame(workColumnPresentation.contentKind);
   const collectionPath = collectionIndexPath(workColumnPresentation.content.status === 'surface'
     ? workColumnPresentation.content.surface : null);
   const collectionBanner = useCollectionBannerControl(collectionPath);
   // Registry 尚未就绪时按默认可见处理，避免集合初次渲染时内容短暂跳位。
   const collectionBannerVisible = !collectionBanner.available || collectionBanner.visible;
-  const workTitlebarH = isCollectionShellSurface && collectionBannerVisible
+  const workTitlebarH = collectionPath && collectionBannerVisible
     ? 'var(--window-titlebar-height)'
     : null;
-  const contentHostStyle: CSSProperties | undefined = hasMultipleDocumentsSelected
+  const contentHostStyle: CSSProperties | undefined = columnHasSelection
     ? { display: 'none' }
     : workTitlebarH
       ? ({ marginTop: `calc(0px - ${workTitlebarH})`, '--work-titlebar-h': workTitlebarH } as CSSProperties)
@@ -177,28 +170,28 @@ export function MainWorkColumns({
         title={t('document.titlebar.showSidebarTooltip')}
       />
     )}
-    <SessionHostProvider value={environment(primaryAtWork ? 'main-third' : 'browser-column')}>
+    <ColumnProvider key="column-1" value={environment(columnIndex)}>
       <div
-        className={`relative h-full min-w-0 flex flex-col bg-[var(--document-bg)]${
+        className={`relative h-full min-w-0 flex flex-col bg-[var(--document-bg)]${columnIndex === 1 ? ' border-l border-[var(--divider)]' : ''}${
           browserColumnVisible && isMemoListAnimating
             ? ' transition-[flex-basis] flowix-motion'
             : ''
         }`}
         style={{
-          minWidth: DOCUMENT_PANEL_MIN_WIDTH, gridColumn: primaryAtWork ? 1 : 2, gridRow: 1,
-          display: !primaryAtWork && !browserColumnVisible ? 'none' : undefined,
-          borderLeft: !primaryAtWork ? '1px solid var(--divider)' : undefined,
+          minWidth: DOCUMENT_PANEL_MIN_WIDTH, gridColumn: columnIndex + 1, gridRow: 1,
+          display: columnIndex === 1 && !browserColumnVisible ? 'none' : undefined,
         }}
-        data-workspace-host={primaryAtWork ? 'main-third' : 'browser-column'}
-        data-workspace-session="primary-session"
-        data-workspace-focused={focusedHostId === 'main-third' ? '' : undefined}
+        data-workspace-host="column-1"
+        data-column-index={columnIndex}
+        data-workspace-session={sessionId}
+        data-workspace-focused={focusedColumnId === 'column-1' ? '' : undefined}
         onPointerDown={(event) => {
-          focusWorkspaceHostFromEvent(event, 'main-third');
+          focusWorkspaceColumnFromEvent(event, 'column-1');
         }}
-        onFocusCapture={(event) => focusWorkspaceHostFromEvent(event, 'main-third')}
+        onFocusCapture={(event) => focusWorkspaceColumnFromEvent(event, 'column-1')}
       >
       {/* Fixed top navigation bar */}
-      {hasMultipleDocumentsSelected ? (
+      {columnHasSelection ? (
         <WorkColumnTitlebar
           isWindows={isWindowsPlatform()}
           reserveWindowsControls={!browserColumnVisible}
@@ -241,10 +234,10 @@ export function MainWorkColumns({
       )}
 
       {/* Content area */}
-      {hasMultipleDocumentsSelected && (
+      {columnHasSelection && (
         <WorkColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
       )}
-      <div className="relative isolate flex-1 min-w-0 overflow-hidden" hidden={hasMultipleDocumentsSelected}
+      <div className="relative isolate flex-1 min-w-0 overflow-hidden" hidden={columnHasSelection}
         style={contentHostStyle}>
         {recentExportPath && workColumnPresentation.header.kind === 'document' && (
           <MainLayoutExportNotice
@@ -260,12 +253,11 @@ export function MainWorkColumns({
           <WorkColumnContentHost
             webAddressBarVisible={documentTitlebarProps.webAddressBarVisible ?? false}
             content={workColumnPresentation.content}
-            focused={!hasMultipleDocumentsSelected && focusedHostId === 'main-third'}
+            focused={!columnHasSelection && focusedColumnId === 'column-1'}
             startupIdentity={JSON.stringify(navigationState.target)}
           />
         </SurfaceBoundary>
-        {((isDocumentTransitioning && !workSurfaceFailed)
-          || workSurfaceBlockingLoading
+        {(workSurfaceBlockingLoading
           || (navigationState.phase === 'loading' && navigationState.showWorkColumnLoading)) && (
           <CenteredLoadingSpinner
             className="pointer-events-none absolute inset-0 z-40"
@@ -274,30 +266,33 @@ export function MainWorkColumns({
         )}
       </div>
     </div>
-    </SessionHostProvider>
-    {(browserColumnVisible || !primaryAtWork || browserCurrent !== null) && (
+    </ColumnProvider>
+    {(
       <Suspense fallback={null}>
         <SurfaceBoundary
-          name="browser-column"
+          name="column-2"
           language={language}
           resetKeys={[browserColumnLayoutKey]}
         >
-          <SessionHostProvider value={environment(primaryAtWork ? 'browser-column' : 'main-third')}>
+          <ColumnProvider key="column-2" value={environment(columnIndex === 0 ? 1 : 0)}>
           <BrowserColumn
-            width={primaryAtWork ? browserColumnLayout.browserColumnWidth : browserColumnLayout.mainColumnWidth}
+            width={browserColumnLayout.browserColumnWidth}
             layoutKey={browserColumnLayoutKey}
             onResize={handleBrowserColumnResize}
             toolbarCollapsed={toolbarCollapsed}
             onToolbarCollapsedChange={setToolbarCollapsed}
             animated={isMemoListAnimating}
+            selectionView={hasMultipleDocumentsSelected && columnIndex === 1
+              ? <WorkColumnSelectionView paths={accessSpaceSelectedPaths} contentKinds={accessSpaceSelectionContentKinds} label={selectionLabel} />
+              : undefined}
           />
-          </SessionHostProvider>
+          </ColumnProvider>
         </SurfaceBoundary>
       </Suspense>
     )}
     {browserColumnVisible && (
       <div className="absolute inset-y-0 z-[70]" style={{ left: browserColumnLayout.mainColumnWidth }}>
-        <ColumnResizeHandle label="调整浏览器列宽度" width={browserColumnLayout.browserColumnWidth}
+        <ColumnResizeHandle label="调整列 2 宽度" width={browserColumnLayout.browserColumnWidth}
           direction={-1} onResize={handleBrowserColumnResize} />
       </div>
     )}

@@ -20,6 +20,7 @@ import {
   type CollectionReferencePickerAnchor,
 } from '@features/collection/reference-picker';
 import { collectionSourceDomain, collectionWriteContent } from '@features/collection/public/hybrid-api';
+import { publishCollectionContent } from '@features/collection/public/content-events-api';
 
 function TableReferencePicker({ editor, replaceRange, generation, preferredViewType, ownerNotebookId }: {
   editor: Editor;
@@ -162,6 +163,9 @@ function TableReferencePicker({ editor, replaceRange, generation, preferredViewT
           scopePath: candidate.notebookPath,
         });
         if (result.status !== 'saved') throw new Error(result.status === 'conflict' ? '多维表格已被其他操作修改，请重新选择' : '多维表格文件已不存在');
+        // 补建的视图也是集合内容的一部分：已挂载的集合外壳 / 表格面板要立刻知道，
+        // 不然它们的 tab 与视图列表还停在写之前（广播是写盘方的义务）。
+        publishCollectionContent({ indexPath: filePath, notebookPath: candidate.notebookPath, content: result.content });
       }
       if (!view) throw new Error('多维表格没有可用视图');
       attachReference(candidate, document.collection.id, view.id);

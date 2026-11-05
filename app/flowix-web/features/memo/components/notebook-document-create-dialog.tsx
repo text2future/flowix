@@ -64,7 +64,7 @@ export function NotebookDocumentCreateDialog({ request, onClose }: {
       onClose();
       await request.refresh?.();
       await openWorkspaceSurface({
-        host: 'main-third',
+        index: 0,
         target: { kind: 'external', path: filePath, scopePath: notebook.path, transitionId: null },
         options: { notebookId: notebook.id },
       });

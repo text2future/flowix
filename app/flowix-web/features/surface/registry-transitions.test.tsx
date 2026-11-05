@@ -1,4 +1,4 @@
-import { act } from 'react';
+import { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,8 +6,13 @@ import { useDocumentStore } from '@features/document/store/document-store';
 import { WorkColumnSurfaceHost } from './registry';
 import type { WorkColumnSurface } from './types';
 
+const mockedDocument = vi.hoisted(() => ({ ready: false }));
+
 vi.mock('@features/document/components/document-container', () => ({
-  DocumentContainer: () => <div>document reader</div>,
+  DocumentContainer: ({ onContentStateChange }: { onContentStateChange?: (state: { status: 'ready' }) => void }) => {
+    useEffect(() => { if (mockedDocument.ready) onContentStateChange?.({ status: 'ready' }); }, [onContentStateChange]);
+    return <div>document reader</div>;
+  },
   UnavailableFileView: ({ filePath, openContainingFolder }: {
     filePath: string;
     openContainingFolder?: boolean;
@@ -22,6 +27,7 @@ vi.mock('./html-resource-view', () => ({ HtmlResourceView: () => <div>html reade
 const initialDocumentState = useDocumentStore.getState();
 
 afterEach(() => {
+  mockedDocument.ready = false;
   useDocumentStore.setState(initialDocumentState, true);
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
 });
@@ -78,6 +84,7 @@ describe('work column external-file transition completion', () => {
         await act(async () => root.render(<WorkColumnSurfaceHost surface={externalSurface(kind, 12)} />));
         expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
         if (kind === 'unavailable-file') {
+          await act(async () => { await vi.dynamicImportSettled(); });
           await vi.waitFor(async () => {
             await act(async () => {});
             expect(element.querySelector('[data-file-path]')?.getAttribute('data-file-path')).toBe('/notebook/report.pdf');
@@ -118,4 +125,18 @@ describe('work column external-file transition completion', () => {
       }
     },
   );
+});
+
+it('finishes the legacy navigation marker when an independent column document reports ready', async () => {
+  mockedDocument.ready = true;
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  useDocumentStore.setState({ documentTransitionId: 31, isDocumentTransitioning: true });
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<WorkColumnSurfaceHost surface={contentSurface('md', 31)} />));
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
+    });
+  } finally { await act(async () => root.unmount()); }
 });

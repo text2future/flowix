@@ -33,12 +33,24 @@ export type AgentLinkParseResult =
 export interface ParseContext {
   platform?: AgentPlatform;
   localOrigins?: readonly string[];
+  /** Recognize normalized paths in the conversation workspace, including custom filesystem roots. */
+  isWorkspaceFilePath?: (path: string) => boolean;
   baseDirectory?: string;
   relativeMode?: RelativeLinkMode;
   allowForwardSlashUnc?: boolean;
 }
 
-const DEFAULT_LOCAL_ORIGINS = ['http://tauri.localhost', 'tauri://localhost'] as const;
+export const DEFAULT_LOCAL_ORIGINS = ['http://tauri.localhost', 'tauri://localhost'] as const;
+
+function isApplicationFilePath(path: string, context: ParseContext): boolean {
+  if (context.isWorkspaceFilePath) {
+    const parsed = parseLocalPath(path, context);
+    if (parsed.ok && parsed.target.kind === 'local-file' && context.isWorkspaceFilePath(parsed.target.path)) return true;
+  }
+  // Preserve links without a captured workspace, including older conversations.
+  return /^\/[a-z]:[\\/]/i.test(path)
+    || /^\/(?:Users|home|root|tmp|var|private|Volumes|mnt|media|opt|etc|srv|workspace|workspaces)(?:\/|$)/i.test(path);
+}
 
 function fail(code: AgentLinkErrorCode, message: string): AgentLinkParseResult {
   return { ok: false, code, message };
@@ -249,8 +261,7 @@ export function parseAgentLink(rawHref: string | null | undefined, context: Pars
     if (url.search) return fail('INVALID_LINK', 'Tauri file links cannot contain query parameters.');
     const rawPath = rawUriPath(href);
     if (!rawPath || rawPath.includes('\\')) return fail('INVALID_PATH', 'The Tauri file URL contains an invalid path.');
-    if (!/^\/[a-z]:[\\/]/i.test(rawPath)
-      && !/^\/(?:Users|home|root|tmp|var|private|Volumes|mnt|media|opt|etc|srv|workspace|workspaces)(?:\/|$)/i.test(rawPath)) {
+    if (!isApplicationFilePath(rawPath, context)) {
       return fail('INVALID_PATH', 'The Tauri URL is not a recognized local file path.');
     }
     return applyFragment(parseLocalPath(rawPath, context), url.hash);
@@ -261,8 +272,9 @@ export function parseAgentLink(rawHref: string | null | undefined, context: Pars
     const origins = context.localOrigins ?? DEFAULT_LOCAL_ORIGINS;
     if (isRegisteredOrigin(url, origins)) {
       const rawPath = rawUriPath(href);
-      if (rawPath && /^\/[a-z]:[\\/]/i.test(rawPath)) {
+      if (rawPath && isApplicationFilePath(rawPath, context)) {
         if (url.search) return fail('INVALID_LINK', 'Local file links cannot contain query parameters.');
+        if (rawPath.includes('\\')) return fail('INVALID_PATH', 'The local file URL contains an invalid path.');
         return applyFragment(parseLocalPath(rawPath, context), url.hash);
       }
     }

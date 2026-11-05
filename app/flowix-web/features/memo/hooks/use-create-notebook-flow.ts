@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
+import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { notebookCreateErrorMessage } from '@platform/tauri/errors';
 import { listenToNotebookImportStatus } from '@platform/tauri/client';
 import { notebookRepository } from '@features/memo/services/note-repository';
@@ -166,7 +167,7 @@ export function useCreateNotebookFlow({
           activeImportNotebookIdRef.current = created.id;
           setCreationState({ status: 'importing', notebookId: created.id });
           try {
-            await notebookRepository.startImport(created.id);
+            await notebookRepository.startImport(created.id, getCurrentAppLanguage());
             void monitorImportStatus(created.id, generation);
           } catch (error) {
             const message = notebookCreateErrorMessage(error, t);

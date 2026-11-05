@@ -1,47 +1,33 @@
-import { useWorkspaceSessionStore } from './session-api';
-/** Workspace surface state consumed by the agent task panel. */
+/** Workspace surface state consumed by the agent task panel and conversation list. */
 import { useBrowserColumnStore } from '@features/workspace/store/browser-column-store';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
-import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
-import type { WorkspaceSurfaceHost } from '../model/surface-contract';
-import { pickFocusedHostValue } from '../model/focused-host-value';
+import { useColumnNavigation } from '@features/workspace/store/column-navigation';
 
 /**
- * The agent conversation currently on screen, or null when neither visible
- * surface is showing one. The conversation can live in the work column or in
- * the Browser column (the lists default conversations to Browser), so the
- * focused host decides when both show a different conversation.
+ * 主内容区（紧邻笔记列表的那一列）是唯一会话落点：会话列表与任务面板的
+ * 「正在看」高亮只读它，不读焦点。焦点停在辅助栏不代表用户在看辅助栏。
  */
-export function resolveActiveAgentConversationInstanceId(input: {
-  focusedHostId: WorkspaceSurfaceHost;
-  workInstanceId: string | null;
-  browserInstanceId: string | null;
+export function resolveActiveConversationInstanceId(input: {
+  mainInstanceId: string | null;
+  sideInstanceId: string | null;
+  sideVisible: boolean;
 }): string | null {
-  return pickFocusedHostValue({
-    focusedHostId: input.focusedHostId,
-    work: input.workInstanceId,
-    browser: input.browserInstanceId,
-  });
+  if (input.mainInstanceId) return input.mainInstanceId;
+  return input.sideVisible ? input.sideInstanceId : null;
 }
 
 /**
- * Used to highlight the row the user is already reading without exposing the
- * whole navigation model.
+ * Used to highlight the conversation the user is already reading without
+ * exposing the whole navigation model.
  */
 export function useActiveAgentConversationInstanceId(): string | null {
-  const primaryAtWork = useWorkspaceSessionStore((state) => state.hosts['main-third'] === 'primary-session');
-  const visible = useBrowserColumnStore((state) => state.visible);
-  const workInstanceId = useWorkColumnStore((state) => (
-    state.navigation.target.kind === 'agent-conversation'
-      ? state.navigation.target.instanceId
+  const sideVisible = useBrowserColumnStore((state) => state.visible);
+  const mainInstanceId = useColumnNavigation(0, (navigation) => (
+    navigation.current?.target.kind === 'agent-conversation'
+      ? navigation.current.target.instanceId
       : null
   ));
-  // A hidden Browser column keeps its last entry; it is not on screen then.
-  const browserInstanceId = useBrowserColumnStore((state) => (
-    state.current?.target.kind === 'agent_conversation'
-      ? state.current.target.instanceId
-      : null
+  const sideInstanceId = useColumnNavigation(1, (navigation) => (
+    navigation.current?.target.kind === 'agent-conversation' ? navigation.current.target.instanceId : null
   ));
-  const focusedHostId = useWorkspaceFocusStore((state) => state.focusedHostId);
-  return resolveActiveAgentConversationInstanceId({ focusedHostId, workInstanceId: primaryAtWork || visible ? workInstanceId : null, browserInstanceId: !primaryAtWork || visible ? browserInstanceId : null });
+  return resolveActiveConversationInstanceId({ mainInstanceId, sideInstanceId, sideVisible });
 }

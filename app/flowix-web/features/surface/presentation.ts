@@ -1,4 +1,5 @@
 import { resolveWorkspaceHeaderModel } from '@features/workspace/public/header-api';
+import { notebookRelativeDirectoryPath } from '@/lib/path';
 import { getWorkColumnSurfaceDefinition } from './registry';
 import { resolveWorkColumnContent } from './resolver';
 import type {
@@ -39,10 +40,15 @@ export function resolveWorkColumnRuntimePresentation(
   runtime: Readonly<SurfacePresentationUpdate>,
   identity: DocumentSurfaceIdentity | null | undefined,
 ): WorkColumnPresentation {
+  const surface = initial.content.status === 'surface' ? initial.content.surface : null;
+  const indexable = surface?.kind === 'file-browser'
+    ? Boolean(surface.notebookId && surface.scopePath && surface.activeFilePath
+      && notebookRelativeDirectoryPath(surface.scopePath, surface.activeFilePath) !== null)
+    : surface?.kind === 'md' && identity?.indexable === true;
   const header = resolveWorkspaceHeaderModel({
     chrome: initial.chrome, contentKind: initial.contentKind,
     capabilities: initial.capabilities, runtime,
-    indexable: initial.content.status === 'surface' && initial.content.surface.kind === 'md' && identity?.indexable === true,
+    indexable,
   });
   return { ...initial, contentKind: header.contentKind, chrome: header.chrome, capabilities: header.capabilities };
 }
@@ -51,6 +57,7 @@ function documentHeaderPresentation(
   surface: Extract<WorkColumnContentPresentation, { status: 'surface' }>['surface'],
 ): WorkColumnDocumentHeaderPresentation {
   switch (surface.kind) {
+    case 'file-browser': return { externalFilePath: surface.activeFilePath };
     case 'code':
     case 'md':
     case 'html-file':

@@ -29,5 +29,5 @@ export async function restoreSessionTarget(
   if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
   const { openWorkspaceSurface } = await import('../use-cases/surface-opening');
   if (useWorkColumnStore.getState().navigation.requestId !== requestId) return;
-  await openWorkspaceSurface({ host: 'main-third', target, options: { history: 'skip' } });
+  await openWorkspaceSurface({ host: 'column-1', target, options: { history: 'skip' } });
 }

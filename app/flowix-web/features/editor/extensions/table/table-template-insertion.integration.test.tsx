@@ -72,45 +72,38 @@ afterEach(async () => {
 });
 
 describe('table templates in the real editor menus', () => {
-  it.each([
-    { query: 'grid', styleId: 'default' },
-    { query: '商务蓝', styleId: 'business-blue' },
-    { query: '灰白', styleId: 'striped' },
-    { query: '对比', styleId: 'comparison' },
-    { query: '简报', styleId: 'financial-brief' },
-    { query: '三线', styleId: 'three-line' },
-    { query: '港股', styleId: 'hk-financial' },
-    { query: '分组', styleId: 'grouped' },
-    { query: '极简', styleId: 'minimal' },
-    { query: '文献', styleId: 'literature' },
-  ])('inserts $styleId through the searchable slash menu', async ({ query, styleId }) => {
+  it.each(['表格', 'table', 'biaoge'])('inserts the default grid with one Enter for %s', async query => {
     const editor = createEditor();
     await act(async () => { type(editor, '/'); type(editor, query); });
     expect(isSlashMenuOpen(editor.view)).toBe(true);
-    expect(editor.state.doc.child(1).textContent).toBe(`/${query}`);
-    await act(async () => { press(editor, 'Enter'); });
-    expect(isSlashMenuOpen(editor.view)).toBe(true);
-    expect(editor.state.doc.child(1).textContent).toBe(`/${query}`);
+    expect(slashOption('表格').hasAttribute('aria-haspopup')).toBe(false);
+    expect(slashOption('表格').querySelector('svg')).not.toBeNull();
     await act(async () => { press(editor, 'Enter'); });
     expect(isSlashMenuOpen(editor.view)).toBe(false);
     expect(editor.state.doc.child(0).textContent).toBe('before');
     expect(editor.state.doc.child(1).type.name).toBe('table');
-    expect(editor.state.doc.child(1).attrs.styleId).toBe(styleId);
+    expect(editor.state.doc.child(1).attrs.styleId).toBe('default');
+    expect(editor.state.doc.child(1).childCount).toBe(3);
+    expect(editor.state.doc.child(1).firstChild?.childCount).toBe(3);
     expect(editor.state.doc.child(2).textContent).toBe('after');
     expect(editor.getMarkdown()).not.toContain(`/${query}`);
   });
 
-  it.each(['TAIL', '正文🙂保留'])('preserves trailing text "%s" when inserting at a paragraph-start slash and undoing', async trailingText => {
+  it('inserts directly on click without exposing a table style submenu', async () => {
+    const editor = createEditor();
+    await act(async () => { type(editor, '/'); });
+    expect(document.querySelector('[aria-label="返回插入菜单"]')).toBeNull();
+    await act(async () => { clickSlashOption('表格'); });
+    expect(isSlashMenuOpen(editor.view)).toBe(false);
+    expect(editor.state.doc.child(1).attrs.styleId).toBe('default');
+  });
+
+  it.each(['TAIL', '正文🙂保留'])('preserves trailing text "%s" and supports undo/redo', async trailingText => {
     const editor = createEditor(`<p>before</p><p>${trailingText}</p><p>after</p>`);
     const original = editor.getJSON();
-    await act(async () => { type(editor, '/'); type(editor, '港股'); });
-    expect(editor.state.doc.child(1).textContent).toBe(`/港股${trailingText}`);
-    await act(async () => { press(editor, 'Enter'); });
-    await act(async () => { press(editor, 'Enter'); });
-    expect(isSlashMenuOpen(editor.view)).toBe(false);
+    await act(async () => { type(editor, '/'); type(editor, '表格'); press(editor, 'Enter'); });
     expect(editor.state.doc.childCount).toBe(4);
-    expect(editor.state.doc.child(0).textContent).toBe('before');
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('hk-financial');
+    expect(editor.state.doc.child(1).attrs.styleId).toBe('default');
     expect(editor.state.doc.child(2).textContent).toBe(trailingText);
     expect(editor.state.doc.child(3).textContent).toBe('after');
     const inserted = editor.getJSON();
@@ -120,78 +113,16 @@ describe('table templates in the real editor menus', () => {
     expect(editor.getJSON()).toEqual(inserted);
   });
 
-  it('keeps the slash text untouched when returning from the submenu and cancelling', async () => {
+  it('cancels without modifying the slash query', async () => {
     const editor = createEditor();
-    await act(async () => { type(editor, '/'); type(editor, '港股'); });
+    await act(async () => { type(editor, '/'); type(editor, '表格'); });
     const original = editor.getJSON();
-    await act(async () => { press(editor, 'Enter'); });
-    await act(async () => { press(editor, 'Escape'); });
-    expect(isSlashMenuOpen(editor.view)).toBe(true);
-    expect(slashOption('表格').getAttribute('aria-haspopup')).toBe('listbox');
-    expect(editor.getJSON()).toEqual(original);
     await act(async () => { press(editor, 'Escape'); });
     expect(isSlashMenuOpen(editor.view)).toBe(false);
     expect(editor.getJSON()).toEqual(original);
   });
 
-  it('opens with Right, navigates children, and goes back with Left without moving the editor selection', async () => {
-    const editor = createEditor();
-    await act(async () => { type(editor, '/'); type(editor, '表格'); });
-    const selection = editor.state.selection;
-    await act(async () => { press(editor, 'ArrowRight'); });
-    expect(document.querySelectorAll('.slash-menu-item[role="option"]')).toHaveLength(10);
-    await act(async () => { press(editor, 'ArrowDown'); });
-    expect(editor.state.selection.eq(selection)).toBe(true);
-    expect(editor.state.doc.child(1).textContent).toBe('/表格');
-    expect(slashOption('商务蓝').getAttribute('aria-selected')).toBe('true');
-    await act(async () => { press(editor, 'ArrowLeft'); });
-    expect(slashOption('表格').getAttribute('aria-selected')).toBe('true');
-    expect(editor.state.selection.eq(selection)).toBe(true);
-    await act(async () => { press(editor, 'ArrowRight'); press(editor, 'ArrowUp'); });
-    expect(slashOption('紧凑文献表').getAttribute('aria-selected')).toBe('true');
-    await act(async () => { press(editor, 'Enter'); });
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('literature');
-  });
-
-  it('opens the parent by mouse and inserts only after choosing a child', async () => {
-    const editor = createEditor();
-    await act(async () => { type(editor, '/'); type(editor, '表格'); });
-    const original = editor.getJSON();
-    expect(document.querySelector('[aria-label="返回插入菜单"]')).toBeNull();
-    expect(SLASH_MENU_ITEMS.filter(item => item.id.startsWith('table-style-'))).toHaveLength(0);
-    await act(async () => { clickSlashOption('表格'); });
-    expect(editor.getJSON()).toEqual(original);
-    expect(document.querySelectorAll('.slash-menu-item[role="option"]')).toHaveLength(TABLE_TEMPLATE_OPTIONS.length);
-    const back = document.querySelector<HTMLButtonElement>('[aria-label="返回插入菜单"]')!;
-    await act(async () => { back.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); });
-    expect(editor.getJSON()).toEqual(original);
-    await act(async () => { clickSlashOption('表格'); });
-    await act(async () => { clickSlashOption('港股财报式'); });
-    expect(isSlashMenuOpen(editor.view)).toBe(false);
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('hk-financial');
-  });
-
-  it('filters a financial query to matching children and preserves arrow navigation', async () => {
-    const editor = createEditor();
-    await act(async () => { type(editor, '/'); type(editor, '财报'); press(editor, 'Enter'); });
-    expect([...document.querySelectorAll('.slash-menu-item[role="option"]')].map(item => item.textContent))
-      .toEqual(['财务简报', '港股财报式']);
-    await act(async () => { press(editor, 'ArrowDown'); press(editor, 'Enter'); });
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('hk-financial');
-  });
-
-  it('keeps live filtering inside the table submenu without consuming the slash query', async () => {
-    const editor = createEditor();
-    await act(async () => { type(editor, '/'); });
-    await act(async () => { clickSlashOption('表格'); type(editor, '科研'); });
-    expect(editor.state.doc.child(1).textContent).toBe('/科研');
-    expect([...document.querySelectorAll('.slash-menu-item[role="option"]')].map(item => item.textContent))
-      .toEqual(['标准三线表', '分组横线表', '极简细线表', '紧凑文献表']);
-    await act(async () => { press(editor, 'Enter'); });
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('three-line');
-  });
-
-  it('keeps non-table slash commands and multidimensional table entries at the root', async () => {
+  it('keeps non-table commands and multidimensional table entries at the root', async () => {
     const editor = createEditor();
     await act(async () => { type(editor, '/'); type(editor, 'h1'); press(editor, 'Enter'); });
     expect(isSlashMenuOpen(editor.view)).toBe(false);
@@ -201,15 +132,12 @@ describe('table templates in the real editor menus', () => {
       .toHaveLength(4);
   });
 
-  it('preserves slash text when the editor becomes read-only before confirmation', async () => {
+  it('preserves slash text if the editor becomes read-only before the click', async () => {
     const editor = createEditor();
-    await act(async () => { type(editor, '/'); type(editor, '港股'); });
-    expect(isSlashMenuOpen(editor.view)).toBe(true);
-    await act(async () => { press(editor, 'Enter'); });
+    await act(async () => { type(editor, '/'); type(editor, '表格'); });
     const original = editor.getJSON();
     await act(async () => { editor.setEditable(false); });
-    const option = slashOption('港股财报式');
-    await act(async () => { option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); });
+    await act(async () => { clickSlashOption('表格'); });
     expect(editor.getJSON()).toEqual(original);
     expect(isSlashMenuOpen(editor.view)).toBe(false);
   });
@@ -217,8 +145,7 @@ describe('table templates in the real editor menus', () => {
   it('does not delete slash text or insert a nested table inside an existing table', async () => {
     const editor = createEditor();
     insertTableTemplate(editor, 'default');
-    await act(async () => { type(editor, '/'); type(editor, '港股'); });
-    expect(isSlashMenuOpen(editor.view)).toBe(true);
+    await act(async () => { type(editor, '/'); type(editor, '表格'); });
     const original = editor.getJSON();
     await act(async () => { press(editor, 'Enter'); });
     expect(editor.getJSON()).toEqual(original);

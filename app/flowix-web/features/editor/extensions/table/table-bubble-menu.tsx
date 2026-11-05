@@ -1,12 +1,13 @@
 'use client';
 
 import { Editor } from '@tiptap/core';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { hasFormattableTextSelection } from '@features/editor/components/selection-bubble-menu-state';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
 import { TableStyleControls } from './table-style-controls';
+import { getTableMenuHorizontalLayout } from './table-menu-position';
 
 interface TableBubbleMenuProps {
   editor: Editor;
@@ -19,6 +20,7 @@ const AGENT_TRASH_ICON_PATH =
 interface TableMenuPosition {
   left: number;
   top: number;
+  maxWidth: number;
 }
 
 function getCurrentTableElement(editor: Editor): HTMLElement | null {
@@ -38,7 +40,7 @@ function getCurrentTableElement(editor: Editor): HTMLElement | null {
   return null;
 }
 
-function getMenuPosition(editor: Editor, overlayRoot: HTMLElement): TableMenuPosition | null {
+function getMenuPosition(editor: Editor, overlayRoot: HTMLElement, menuWidth?: number): TableMenuPosition | null {
   if (!editor.isEditable || !editor.isActive('table')) return null;
   if (hasFormattableTextSelection(editor)) return null;
 
@@ -47,95 +49,15 @@ function getMenuPosition(editor: Editor, overlayRoot: HTMLElement): TableMenuPos
 
   const tableRect = tableElement.getBoundingClientRect();
   const rootRect = overlayRoot.getBoundingClientRect();
+  const horizontal = getTableMenuHorizontalLayout(
+    tableRect.left + tableRect.width / 2, rootRect, window.innerWidth, menuWidth,
+  );
+  if (!horizontal) return null;
 
   return {
-    left: tableRect.left - rootRect.left + tableRect.width / 2,
+    ...horizontal,
     top: tableRect.top - rootRect.top - TABLE_MENU_OFFSET,
   };
-}
-
-function TableToolIcon({
-  size = 18,
-  children,
-}: {
-  size?: number;
-  children: ReactNode;
-}) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 256 256"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="16"
-    >
-      {children}
-    </svg>
-  );
-}
-
-function ColumnsPlusLeftIcon({ size = 18 }: { size?: number }) {
-  return (
-    <TableToolIcon size={size}>
-      <rect x="148" y="44" width="40" height="168" rx="8" />
-      <line x1="56" y1="128" x2="120" y2="128" />
-      <line x1="88" y1="96" x2="88" y2="160" />
-    </TableToolIcon>
-  );
-}
-
-function ColumnsPlusRightIcon({ size = 18 }: { size?: number }) {
-  return (
-    <TableToolIcon size={size}>
-      <rect x="68" y="44" width="40" height="168" rx="8" />
-      <line x1="136" y1="128" x2="200" y2="128" />
-      <line x1="168" y1="96" x2="168" y2="160" />
-    </TableToolIcon>
-  );
-}
-
-function RowsPlusTopIcon({ size = 18 }: { size?: number }) {
-  return (
-    <TableToolIcon size={size}>
-      <rect x="44" y="148" width="168" height="40" rx="8" />
-      <line x1="128" y1="56" x2="128" y2="120" />
-      <line x1="96" y1="88" x2="160" y2="88" />
-    </TableToolIcon>
-  );
-}
-
-function RowsPlusBottomIcon({ size = 18 }: { size?: number }) {
-  return (
-    <TableToolIcon size={size}>
-      <rect x="44" y="68" width="168" height="40" rx="8" />
-      <line x1="128" y1="136" x2="128" y2="200" />
-      <line x1="96" y1="168" x2="160" y2="168" />
-    </TableToolIcon>
-  );
-}
-
-function RowsDeleteIcon({ size = 18 }: { size?: number }) {
-  return (
-    <TableToolIcon size={size}>
-      <rect x="44" y="148" width="168" height="40" rx="8" />
-      <line x1="104" y1="64" x2="152" y2="112" />
-      <line x1="152" y1="64" x2="104" y2="112" />
-    </TableToolIcon>
-  );
-}
-
-function ColumnsDeleteIcon({ size = 18 }: { size?: number }) {
-  return (
-    <TableToolIcon size={size}>
-      <rect x="148" y="44" width="40" height="168" rx="8" />
-      <line x1="64" y1="104" x2="112" y2="152" />
-      <line x1="112" y1="104" x2="64" y2="152" />
-    </TableToolIcon>
-  );
 }
 
 function AgentTrashIcon({ size = 18 }: { size?: number }) {
@@ -157,6 +79,23 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
   const { t } = useI18n();
   const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
   const [position, setPosition] = useState<TableMenuPosition | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const menuVisible = position !== null;
+
+  // Refine the initial estimate after the panel mounts or its content changes.
+  useLayoutEffect(() => {
+    if (!overlayRoot || !panelRef.current) return;
+    const panel = panelRef.current;
+    const update = () => {
+      const next = getMenuPosition(editor, overlayRoot, panel.offsetWidth);
+      setPosition(previous => previous?.left === next?.left && previous?.top === next?.top
+        && previous?.maxWidth === next?.maxWidth ? previous : next);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [editor, overlayRoot, menuVisible]);
 
   useEffect(() => {
     // editor 可能在 effect 排队时已被销毁 (切语言/切文档的卸载路径),
@@ -175,7 +114,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
       if (frameId !== null) return;
       frameId = window.requestAnimationFrame(() => {
         frameId = null;
-        setPosition(getMenuPosition(editor, overlayRoot));
+        setPosition(getMenuPosition(editor, overlayRoot, panelRef.current?.offsetWidth));
       });
     };
 
@@ -186,6 +125,8 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
     editor.on('blur', updatePosition);
     window.addEventListener('resize', updatePosition);
     document.addEventListener('scroll', updatePosition, true);
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(overlayRoot);
 
     return () => {
       if (frameId !== null) window.cancelAnimationFrame(frameId);
@@ -195,6 +136,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
       editor.off('blur', updatePosition);
       window.removeEventListener('resize', updatePosition);
       document.removeEventListener('scroll', updatePosition, true);
+      resizeObserver.disconnect();
     };
   }, [editor, overlayRoot]);
 
@@ -206,81 +148,13 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps) {
       style={{
         left: `${position.left}px`,
         top: `${position.top}px`,
-      }}
+        '--table-menu-max-width': `${position.maxWidth}px`,
+      } as CSSProperties}
     >
-      <div className="table-bubble-menu-panel">
+      <div className="selection-bubble-menu table-bubble-menu-panel" ref={panelRef}>
       <TableStyleControls editor={editor} />
+      <span className="table-toolbar-divider" aria-hidden="true" />
       <div className="table-bubble-menu" role="toolbar" aria-label={t('editor.table.operations')}>
-        <Tooltip content={t('editor.table.insertRowBefore')}>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().addRowBefore().run();
-            }}
-            type="button"
-          >
-            <RowsPlusTopIcon size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip content={t('editor.table.insertRowAfter')}>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().addRowAfter().run();
-            }}
-            type="button"
-          >
-            <RowsPlusBottomIcon size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip content={t('editor.table.deleteRow')}>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().deleteRow().run();
-            }}
-            type="button"
-            className="destructive"
-          >
-            <RowsDeleteIcon size={18} />
-          </button>
-        </Tooltip>
-        <div className="menu-divider" />
-        <Tooltip content={t('editor.table.insertColumnBefore')}>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().addColumnBefore().run();
-            }}
-            type="button"
-          >
-            <ColumnsPlusLeftIcon size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip content={t('editor.table.insertColumnAfter')}>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().addColumnAfter().run();
-            }}
-            type="button"
-          >
-            <ColumnsPlusRightIcon size={18} />
-          </button>
-        </Tooltip>
-        <Tooltip content={t('editor.table.deleteColumn')}>
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              editor.chain().focus().deleteColumn().run();
-            }}
-            type="button"
-            className="destructive"
-          >
-            <ColumnsDeleteIcon size={18} />
-          </button>
-        </Tooltip>
-        <div className="menu-divider" />
         <Tooltip content={t('editor.table.deleteTable')}>
           <button
             onMouseDown={(e) => {

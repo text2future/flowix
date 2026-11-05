@@ -1,7 +1,7 @@
 export interface ExternalDocumentOpenRequest {
   filePaths: string[];
   source?: 'open' | 'drop' | 'picker';
-  destination?: 'main-third' | 'browser-column';
+  destination?: 0 | 1;
 }
 
 export const FLOWIX_EXTERNAL_DOCUMENT_OPEN_EVENT = 'flowix:external-document-open';

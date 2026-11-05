@@ -7,7 +7,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -60,8 +59,37 @@ const TREE_MENU_ITEM_CLASS =
 
 const TREE_EDGE_GUTTER = 6;
 const INDENT_PER_LEVEL = 20;
-/** 单击选中文件夹的延迟：需要小于系统双击间隔，否则双击会先触发选中。 */
+/** 等待区分单击和双击，避免双击文件夹时先触发选择和打开。 */
 export const FOLDER_SINGLE_CLICK_DELAY_MS = 300;
+
+/** 文件夹单击要带上的修饰键快照: 定时器回调里不能再读合成事件。 */
+export interface TreeRowClickModifiers {
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+}
+
+/**
+ * 待确认的文件夹单击。树里同一时刻只可能有一次待定单击, 后一次交互
+ * (按下任意行、双击、点展开按钮) 直接顶掉它, 否则慢一拍的回调会盖掉
+ * 用户刚做出的新选择。
+ */
+let pendingFolderClickTimer: ReturnType<typeof setTimeout> | null = null;
+
+const cancelPendingFolderClick = () => {
+  if (pendingFolderClickTimer === null) return;
+  clearTimeout(pendingFolderClickTimer);
+  pendingFolderClickTimer = null;
+};
+
+const scheduleFolderSingleClick = (run: () => void) => {
+  cancelPendingFolderClick();
+  pendingFolderClickTimer = setTimeout(() => {
+    pendingFolderClickTimer = null;
+    run();
+  }, FOLDER_SINGLE_CLICK_DELAY_MS);
+};
+
 /**
  * 隐藏文件夹 (`.` 开头) 的弱化: 图标压到 50%, 名称文案再乘 80%。
  * 文案本身还有一层 0.82 (选中/激活时为 1) 的行内弱化, 隐藏时再乘一次,
@@ -115,6 +143,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   workDocumentsCollection = false,
   tabIndex = 0,
   moveStatus,
+  cut = false,
 }: {
   item: DocTreeItem;
   notebookPath: string;
@@ -129,7 +158,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   active: boolean;
   selected: boolean;
   onToggle: (path: string) => void;
-  onSelectFolder?: (path: string) => void;
+  onSelectFolder?: (path: string, modifiers?: TreeRowClickModifiers) => void;
   onOpen: (path: string, event?: ReactMouseEvent<HTMLDivElement>) => void;
   onOpenInNewTab?: (path: string) => void;
   onCreateNote: (parentPath: string) => void;
@@ -166,32 +195,29 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
   workDocumentsCollection?: boolean;
   tabIndex?: number;
   moveStatus?: 'moving' | 'success';
+  cut?: boolean;
 }) {
   const { t } = useI18n();
   const isFolder = item.type === 'folder';
-  const folderClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (folderClickTimer.current !== null) clearTimeout(folderClickTimer.current);
-  }, []);
   const selectFolderOnSingleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.detail !== 1) {
-      if (folderClickTimer.current !== null) {
-        clearTimeout(folderClickTimer.current);
-        folderClickTimer.current = null;
-      }
+    // 第二次点击 (detail > 1) 属于双击, 取消待定的单击, 只保留展开。
+    if (event.detail > 1) {
+      cancelPendingFolderClick();
       return;
     }
-    if (folderClickTimer.current !== null) clearTimeout(folderClickTimer.current);
-    folderClickTimer.current = setTimeout(() => {
-      folderClickTimer.current = null;
+    // detail === 0 是程序化 / 辅助技术激活: 没有双击窗口, 按普通单击立即处理。
+    if (event.detail === 0) {
+      cancelPendingFolderClick();
       onSelectFolder?.(item.fullPath);
-    }, FOLDER_SINGLE_CLICK_DELAY_MS);
+      return;
+    }
+    const modifiers: TreeRowClickModifiers = {
+      ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey,
+    };
+    scheduleFolderSingleClick(() => onSelectFolder?.(item.fullPath, modifiers));
   };
   const toggleFolderOnDoubleClick = () => {
-    if (folderClickTimer.current !== null) {
-      clearTimeout(folderClickTimer.current);
-      folderClickTimer.current = null;
-    }
+    cancelPendingFolderClick();
     onToggle(item.fullPath);
   };
   const sourceFolderName = item.fullPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? item.name;
@@ -460,7 +486,10 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
           title={item.fullPath}
           onClick={isFolder
             ? selectFolderOnSingleClick
-            : (event) => onOpen(item.fullPath, event)}
+            : (event) => {
+              cancelPendingFolderClick();
+              onOpen(item.fullPath, event);
+            }}
           onDoubleClick={isFolder
             ? toggleFolderOnDoubleClick
             : undefined}
@@ -470,11 +499,23 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               event.stopPropagation();
               return;
             }
+            // 有任何新的按下都作废上一次待定的文件夹单击。
+            cancelPendingFolderClick();
             if (event.button !== 0) return;
             onPointerDown(item, event);
           }}
+          onKeyUp={(event) => {
+            if (event.key !== 'Tab' || event.target !== event.currentTarget) return;
+            if (isFolder) onSelectFolder?.(item.fullPath); else onOpen(item.fullPath);
+          }}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
+            cancelPendingFolderClick();
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (isFolder) onToggle(item.fullPath); else onOpen(item.fullPath);
+              return;
+            }
+            if (event.key === ' ') {
               event.preventDefault();
               if (isFolder) onSelectFolder?.(item.fullPath); else onOpen(item.fullPath);
               return;
@@ -482,7 +523,8 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
             onKeyDown?.(item.fullPath, event);
           }}
           className={cn(
-            'folder-file-tree__item group relative flex h-8 cursor-default items-center rounded-lg px-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]',
+            'folder-file-tree__item group relative flex h-8 cursor-default items-center rounded-lg px-1.5 text-sm transition-colors focus:outline-none',
+            cut && 'opacity-50',
             moveStatus === 'moving' && 'notebook-file-tree__item--moving',
             moveStatus === 'success' && 'notebook-file-tree__item--move-success',
             active || selected
@@ -547,10 +589,7 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
               onDoubleClick={(event) => event.stopPropagation()}
               onPointerDown={(event) => {
                 event.stopPropagation();
-                if (folderClickTimer.current !== null) {
-                  clearTimeout(folderClickTimer.current);
-                  folderClickTimer.current = null;
-                }
+                cancelPendingFolderClick();
               }}
               onKeyDown={(event) => event.stopPropagation()}
               className={cn(

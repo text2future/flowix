@@ -39,7 +39,7 @@ export function FileBrowserRenderer({ surface: data, context }: {
   const resetUnavailableCollectionView = useCallback(async () => {
     if (!surface.activeFilePath) return;
     try {
-      const location = context.host === 'browser-column'
+      const location = context.host === 'column-2'
         ? { host: context.host, surfaceId: context.viewId } as const
         : { host: context.host } as const;
       await resetCurrentCollectionView(surface.activeFilePath, surface.scopePath, surface.notebookId, location);

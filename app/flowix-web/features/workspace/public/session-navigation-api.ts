@@ -6,9 +6,9 @@ export type { SessionNavigationState, SessionNavigationEntry } from '../model/se
 
 import { useCallback, useSyncExternalStore } from 'react';
 import { getWorkspaceSessionNavigation, navigateWorkspaceSession, subscribeWorkspaceSessionNavigation } from '../use-cases/session-navigation';
-import type { WorkspaceSessionId } from '../model/workspace-session';
+import type { WorkspaceSessionReference } from '../model/workspace-session';
 
-export function useWorkspaceSessionNavigation(sessionId: WorkspaceSessionId) {
+export function useWorkspaceSessionNavigation(sessionId: WorkspaceSessionReference) {
   const availability = useSyncExternalStore(subscribeWorkspaceSessionNavigation, () => {
     const state = getWorkspaceSessionNavigation(sessionId);
     return (state.backStack.length ? 1 : 0) | (state.forwardStack.length ? 2 : 0);

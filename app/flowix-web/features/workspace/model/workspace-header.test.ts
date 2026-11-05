@@ -3,6 +3,22 @@ import { workspaceSurfaceRegistry } from '../surface-registry';
 import { resolveWorkspaceHeaderModel } from './workspace-header';
 
 describe('shared header policy', () => {
+  it('shows published identity and preserves icon-only identity', () => {
+    const identity = { title: 'example.ts', icon: null };
+    expect(resolveWorkspaceHeaderModel({ identity })).toMatchObject({ identity, showIdentity: true });
+    expect(resolveWorkspaceHeaderModel({ identity: { icon: '🌐' } }).showIdentity).toBe(true);
+  });
+
+  it.each([
+    { identity: undefined },
+    { identity: { title: '', icon: null } },
+    { identity: { title: 'Provisional session', ready: false } },
+    { identity: { title: 'Collection' }, collection: true },
+    { identity: { title: 'Underlying document' }, fullscreen: true },
+  ])('hides absent, unhydrated or replaced identity: %j', (input) => {
+    expect(resolveWorkspaceHeaderModel(input)).toMatchObject({ identity: null, showIdentity: false });
+  });
+
   it('uses runtime content capabilities when a Markdown note becomes a plugin preview', () => {
     const input = { ...workspaceSurfaceRegistry['file-markdown'], contentKind: 'file-markdown' as const,
       sourceKind: 'file-markdown' as const, indexable: true };

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { WorkspaceHostId } from '@features/workspace/public/host-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 import { subscribeFileDisplayRelease } from '@/lib/file-display-registry';
 import {
   documentIdentityKey,
@@ -19,7 +19,7 @@ interface DocumentEditorViewState {
 }
 
 export function documentEditorViewKey(
-  hostId: WorkspaceHostId,
+  hostId: WorkspaceColumnId,
   identity: DocumentIdentity,
 ): string {
   return `${hostId}:${documentIdentityKey(identity)}`;
@@ -42,7 +42,7 @@ export const useDocumentEditorViewStore = create<DocumentEditorViewState>((set) 
 }));
 
 export function getDocumentEditorMode(
-  hostId: WorkspaceHostId,
+  hostId: WorkspaceColumnId,
   identity: DocumentIdentity,
 ): DocumentEditorMode {
   return useDocumentEditorViewStore.getState().modes[documentEditorViewKey(hostId, identity)]
@@ -50,7 +50,7 @@ export function getDocumentEditorMode(
 }
 
 export function setDocumentEditorMode(
-  hostId: WorkspaceHostId,
+  hostId: WorkspaceColumnId,
   identity: DocumentIdentity,
   mode: DocumentEditorMode,
 ): void {
@@ -70,7 +70,7 @@ export function clearDocumentEditorViews(displayId: string): void {
 subscribeFileDisplayRelease(clearDocumentEditorViews);
 
 export function useDocumentEditorMode(
-  hostId: WorkspaceHostId,
+  hostId: WorkspaceColumnId,
   identity: DocumentIdentity,
 ): DocumentEditorMode {
   const key = documentEditorViewKey(hostId, identity);

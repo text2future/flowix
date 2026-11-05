@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginDescriptor } from '@platform/tauri/client';
 import type { WorkColumnTarget } from '@features/workspace/store/work-column-target';
@@ -95,6 +96,44 @@ import {
 } from './workspace-navigation';
 
 describe('workspace navigation', () => {
+  it('flushes the mounted left surface before replacing an isolated document after a swap', async () => {
+    const { registerWorkspaceColumnIdView, registerWorkspaceSurfaceLifecycle } = await import('../store/surface-lifecycle-store');
+    const { openExternalTarget } = await import('./workspace-navigation');
+    const flush = vi.fn().mockResolvedValue(false);
+    const release = registerWorkspaceColumnIdView('column-1', 'isolated-A');
+    const owner = {};
+    registerWorkspaceSurfaceLifecycle('isolated-A', { status: 'ready', flush }, owner);
+    try {
+      await expect(openExternalTarget('/after-swap.md', { destination: 'column-1' })).rejects.toThrow();
+      expect(flush).toHaveBeenCalledOnce();
+      expect(mocks.openExternalDocument).not.toHaveBeenCalled();
+    } finally {
+      release();
+      registerWorkspaceSurfaceLifecycle('isolated-A', null, owner);
+    }
+  });
+
+  it('reloads the document runtime when only the persisted target survives a window refresh', async () => {
+    const { useWorkspaceSessionStore } = await import('../store/workspace-session-store');
+    const { getSessionId } = await import('../store/workspace-session-store');
+    const { restoreExternalDocumentWorkspace } = await import('./workspace-navigation');
+    const target = { kind: 'external' as const, path: '/restored.md', scopePath: null, transitionId: null };
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), target);
+    mocks.navigationTarget = target;
+    mocks.documentState.activeExternalSession = null;
+    mocks.openExternalDocument.mockImplementationOnce(async () => {
+      mocks.documentState.activeExternalSession = {
+        fileIdentity: { displayId: 'restored-document', path: '/restored.md' }, scopePath: null, transitionId: 1,
+      };
+    });
+    await restoreExternalDocumentWorkspace(target, 1);
+    expect(mocks.openExternalDocument).toHaveBeenCalledWith('/restored.md', expect.any(Object));
+    expect(mocks.commitNavigation).toHaveBeenCalledWith(1, expect.objectContaining({
+      kind: 'external', path: '/restored.md', transitionId: 1,
+    }), 'skip');
+    useWorkspaceSessionStore.getState().reset();
+  });
+
   it('does not replace user navigation after a delayed Markdown restore lookup', async () => {
     const { notes } = await import('@platform/tauri/client');
     const { restoreExternalDocumentWorkspace } = await import('./workspace-navigation');
@@ -111,7 +150,7 @@ describe('workspace navigation', () => {
   it('publishes loading before metadata work and skips a superseded request after yielding', async () => {
     const { notes } = await import('@platform/tauri/client');
     const { openExternalTarget } = await import('./workspace-navigation');
-    const opening = openExternalTarget('/new.md', { destination: 'main-third' });
+    const opening = openExternalTarget('/new.md', { destination: 'column-1' });
     expect(mocks.beginNavigation).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'external', path: '/new.md' }), expect.any(String), false, true,
     );
@@ -131,7 +170,7 @@ describe('workspace navigation', () => {
     );
     const previousState = realStore.getState();
     const getState = vi.spyOn(mockedStore, 'getState').mockImplementation(realStore.getState);
-    realStore.setState({ navigation: {
+    seedWorkColumn({ navigation: {
       phase: 'committed', showWorkColumnLoading: false, requestId: 10,
       target: { kind: 'external', path: '/A.md', scopePath: null, transitionId: null },
       pendingTarget: null, previousTarget: null, failure: null, retryToken: null,
@@ -147,10 +186,10 @@ describe('workspace navigation', () => {
         ? new Promise((resolve) => { finishB = () => resolve(location); })
         : Promise.resolve(location);
     });
-    const openingB = openExternalTarget('/B.md', { destination: 'main-third' }).catch(() => undefined);
+    const openingB = openExternalTarget('/B.md', { destination: 'column-1' }).catch(() => undefined);
     try {
       await vi.waitFor(() => expect(notes.resolveLocation).toHaveBeenCalledWith('/B.md'));
-      await openExternalTarget('/A.md', { destination: 'main-third' });
+      await openExternalTarget('/A.md', { destination: 'column-1' });
       finishB();
       await openingB;
       expect(mocks.openExternalDocument.mock.calls.some(([path]) => path === '/B.md')).toBe(false);
@@ -161,7 +200,7 @@ describe('workspace navigation', () => {
       finishB?.();
       await openingB;
       getState.mockRestore();
-      realStore.setState(previousState, true);
+      seedWorkColumn(previousState, true);
       if (previousResolveLocation) vi.mocked(notes.resolveLocation).mockImplementation(previousResolveLocation);
     }
   });

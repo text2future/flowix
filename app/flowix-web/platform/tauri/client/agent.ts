@@ -53,6 +53,11 @@ export interface ProjectSkillArchive {
   source?: ProjectSkillSource | null;
 }
 
+export interface NotebookTemplateArchive {
+  url: string;
+  targetDirectory?: string;
+}
+
 export interface ProjectSkillResourceFile {
   path: string;
   content: string;
@@ -490,6 +495,12 @@ export const agent = {
     invoke<unknown>('codex_project_mcp_upsert', { cwd, name, definition, expectedVersion: expectedVersion ?? null }),
   installCodexProjectSkillZip: (cwd: string, name: string, archive: ProjectSkillArchive) =>
     invoke<{ path: string }>('codex_project_skill_install_zip', { cwd, name, archive }),
+  installNotebookTemplateZip: (cwd: string, templateId: string, archive: NotebookTemplateArchive) =>
+    invoke<{ path: string; templateId: string }>('notebook_template_install_zip', { cwd, templateId, archive }),
+  listInstalledNotebookTemplates: (cwd: string) =>
+    invoke<string[]>('notebook_template_list_installed', { cwd }),
+  isNotebookTemplateInstalled: (cwd: string, templateId: string) =>
+    invoke<boolean>('notebook_template_is_installed', { cwd, templateId }),
   writeCodexProjectSkill: (
     cwd: string,
     name: string,

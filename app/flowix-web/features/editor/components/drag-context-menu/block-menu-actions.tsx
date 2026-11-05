@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
-import { ColumnsIcon, RowsIcon, TrashSimpleIcon } from '@phosphor-icons/react'
+import { TrashSimpleIcon } from '@phosphor-icons/react'
 import {
   headingMenuItems,
   listMenuItems,
@@ -8,7 +8,6 @@ import {
   type BlockMenuItem,
 } from '@features/editor/components/drag-context-menu/items'
 import type { ImageAlignment } from '@features/editor/components/drag-context-menu/items'
-import type { CurrentBlockInfo } from '@features/editor/components/drag-context-menu/block-info'
 import { useI18n } from '@/lib/i18n'
 
 export type BlockMenuActionGroup = 'heading' | 'list' | 'block' | 'image' | 'table' | 'mode' | 'danger'
@@ -39,39 +38,11 @@ export interface BlockMenuAction {
   childrenGroupLabel?: string
 }
 
-export interface TableHeaderState {
-  rowHeader: boolean
-  columnHeader: boolean
-}
-
-/** Keep the menu state aligned with FlowixTable's Markdown header semantics. */
-export function getTableHeaderState(node: CurrentBlockInfo['node'] | undefined): TableHeaderState {
-  if (!node || node.type.name !== 'table' || node.childCount === 0) {
-    return { rowHeader: false, columnHeader: false }
-  }
-
-  const firstRow = node.firstChild
-  if (!firstRow || firstRow.type.name !== 'tableRow' || firstRow.childCount === 0) {
-    return { rowHeader: false, columnHeader: false }
-  }
-
-  const rows = Array.from({ length: node.childCount }, (_, index) => node.child(index))
-  const columnHeader = firstRow.childCount > 1
-    && rows.length > 1
-    && rows.every((row) => row.type.name === 'tableRow' && row.firstChild?.type.name === 'tableHeader')
-  const rowHeader = Array.from({ length: firstRow.childCount }, (_, index) => firstRow.child(index))
-    .some((cell, index) => cell.type.name === 'tableHeader' && (index > 0 || !columnHeader))
-
-  return { rowHeader, columnHeader }
-}
-
 export function useBlockMenuActions(
   onMenuItem: (item: BlockMenuItem) => void,
   onDelete: () => void,
   blockTypeName?: string,
   onImageAlign?: (alignment: ImageAlignment) => void,
-  tableHeaderState?: TableHeaderState,
-  onTableHeaderToggle?: (header: 'row' | 'column') => void,
 ): BlockMenuAction[] {
   const { t } = useI18n()
   return useMemo(() => {
@@ -96,22 +67,6 @@ export function useBlockMenuActions(
 
     if (blockTypeName === 'table') {
       return [
-        {
-          id: 'table-header-row',
-          group: 'table',
-          icon: <RowsIcon size={16} weight="bold" />,
-          label: t('editor.table.headerRow'),
-          checked: tableHeaderState?.rowHeader ?? false,
-          onSelect: () => onTableHeaderToggle?.('row'),
-        },
-        {
-          id: 'table-header-column',
-          group: 'table',
-          icon: <ColumnsIcon size={16} weight="bold" />,
-          label: t('editor.table.headerColumn'),
-          checked: tableHeaderState?.columnHeader ?? false,
-          onSelect: () => onTableHeaderToggle?.('column'),
-        },
         {
           id: 'delete',
           group: 'danger',
@@ -164,5 +119,5 @@ export function useBlockMenuActions(
     return blockTypeName === 'agentThreadCard'
       ? actions.filter((action) => action.id === 'delete')
       : actions
-  }, [blockTypeName, onMenuItem, onDelete, onImageAlign, onTableHeaderToggle, tableHeaderState, t])
+  }, [blockTypeName, onMenuItem, onDelete, onImageAlign, t])
 }

@@ -1,5 +1,6 @@
-import { useWorkspaceSessionStore } from './workspace-session-store';
-import { createPrimaryNavigationFacade } from './session-compatibility';
+import { getColumnSessionId, useWorkspaceSessionStore } from './workspace-session-store';
+import type { SessionNavigationState } from '../model/session-navigation';
+import { createWorkColumnView } from './session-read-models';
 import { canonicalPath } from '@/lib/path';
 
 import {
@@ -8,17 +9,10 @@ import {
   type WorkColumnTarget,
 } from './work-column-target';
 
-/**
- * Runtime state owned by the workColumn.
- *
- * This store owns target intent and navigation transactions only. Document
- * data and editable sessions remain in DocumentStore; list and notebook
- * selection remain in NoteLibraryStore.
- */
+/** Compatibility API for the first column. Canonical state belongs to WorkspaceSessionStore. */
 export interface WorkColumnStore {
   navigation: WorkColumnNavigationState;
   notebookSwitchesInFlight: number;
-  reserveNavigationIntent: () => number;
   beginNavigation: (
     pendingTarget: WorkColumnTarget,
     retryToken: string | null,
@@ -34,125 +28,68 @@ export interface WorkColumnStore {
   replaceExternalPath: (previousPath: string, path: string) => void;
 }
 
-export const useWorkColumnStore = createPrimaryNavigationFacade<WorkColumnStore>((set, get) => ({
+/** Legacy read shape; actions write canonical session state directly. */
+function navigation() {
+  return useWorkspaceSessionStore.getState().sessions[getColumnSessionId('column-1')].navigation;
+}
+function updateNavigation(update: (state: SessionNavigationState) => SessionNavigationState) {
+  useWorkspaceSessionStore.getState().updateSession(getColumnSessionId('column-1'), (session) => {
+    const next = update(session.navigation);
+    return next === session.navigation ? session : { ...session, navigation: next };
+  });
+}
+
+export const useWorkColumnStore = createWorkColumnView<WorkColumnStore>({
   notebookSwitchesInFlight: 0,
-  navigation: {
-    phase: 'idle',
-    showWorkColumnLoading: false,
-    requestId: 0,
-    target: EMPTY_WORK_COLUMN_TARGET,
-    pendingTarget: null,
-    previousTarget: null,
-    failure: null,
-    retryToken: null,
-  },
-  // Reserve the same revision used by clear/switch/open transactions before
-  // asynchronous save or metadata work. A new intent retires any older loader.
-  reserveNavigationIntent: () => {
-    const navigation = get().navigation;
-    const requestId = navigation.requestId + 1;
-    set({ navigation: {
-      ...navigation, requestId,
-      phase: navigation.target.kind === 'empty' ? 'idle' : 'committed',
-      showWorkColumnLoading: false, pendingTarget: null, failure: null, retryToken: null,
-    } });
-    return requestId;
-  },
-  beginNavigation: (
-    pendingTarget,
-    retryToken,
-    preservePreviousTarget = false,
-    showWorkColumnLoading = true,
-  ) => {
-    const requestId = get().navigation.requestId + 1;
-    set((state) => ({
-      navigation: {
-        phase: 'loading',
-        showWorkColumnLoading,
-        requestId,
-        target: state.navigation.target,
-        pendingTarget,
-        previousTarget: preservePreviousTarget
-          ? state.navigation.previousTarget
-          : state.navigation.target,
-        failure: null,
-        retryToken,
-      },
-    }));
+  navigation: { phase: 'idle', showWorkColumnLoading: false, requestId: 0,
+    target: EMPTY_WORK_COLUMN_TARGET, pendingTarget: null, previousTarget: null, failure: null, retryToken: null },
+  beginNavigation: (pendingTarget, retryToken, preservePreviousTarget = false, showBlockingLoading = true) => {
+    const requestId = navigation().transaction.requestId + 1;
+    updateNavigation((state) => ({ ...state, transaction: { ...state.transaction,
+      phase: 'loading', showBlockingLoading, requestId, pendingTarget,
+      previousTarget: preservePreviousTarget ? state.transaction.previousTarget : state.current?.target ?? EMPTY_WORK_COLUMN_TARGET,
+      failure: null, retryToken } }));
     return requestId;
   },
   commitNavigation: (requestId, target, history = 'skip') =>
-    useWorkspaceSessionStore.getState().commitTarget('primary-session', target, { expectedRequestId: requestId, history }),
-
+    useWorkspaceSessionStore.getState().commitTarget(getColumnSessionId('column-1'), target, { expectedRequestId: requestId, history }),
   failNavigation: (requestId, error) => {
-    if (get().navigation.requestId !== requestId) return false;
-    set((state) => ({
-      navigation: {
-        phase: 'failed',
-        showWorkColumnLoading: false,
-        requestId,
-        target: state.navigation.target,
-        pendingTarget: state.navigation.pendingTarget,
-        previousTarget: state.navigation.previousTarget,
-        failure: {
-          code: 'navigation-failed',
-          message: error instanceof Error ? error.message : String(error),
-          requestId,
-          retryToken: state.navigation.retryToken,
-        },
-        retryToken: state.navigation.retryToken,
-      },
-    }));
+    if (navigation().transaction.requestId !== requestId) return false;
+    updateNavigation((state) => ({ ...state, transaction: { ...state.transaction,
+      phase: 'failed', showBlockingLoading: false,
+      failure: { code: 'navigation-failed', message: error instanceof Error ? error.message : String(error),
+        requestId, retryToken: state.transaction.retryToken } } }));
     return true;
   },
   dismissNavigationFailure: () => {
-    const navigation = get().navigation;
-    if (navigation.phase !== 'failed') return null;
-    set({
-      navigation: {
-        phase: navigation.target.kind === 'empty' ? 'idle' : 'committed',
-        showWorkColumnLoading: false,
-        requestId: navigation.requestId,
-        target: navigation.target,
-        pendingTarget: null,
-        previousTarget: navigation.previousTarget,
-        failure: null,
-        retryToken: null,
-      },
-    });
-    return navigation.retryToken;
+    const state = navigation();
+    if (state.transaction.phase !== 'failed') return null;
+    updateNavigation((current) => ({ ...current, transaction: { ...current.transaction,
+      phase: current.current ? 'committed' : 'idle', showBlockingLoading: false,
+      pendingTarget: null, failure: null, retryToken: null } }));
+    return state.transaction.retryToken;
   },
-  beginNotebookSwitch: () => set((state) => ({
-    notebookSwitchesInFlight: state.notebookSwitchesInFlight + 1,
-  })),
-  endNotebookSwitch: () => set((state) => ({
-    notebookSwitchesInFlight: Math.max(0, state.notebookSwitchesInFlight - 1),
-  })),
-  replaceExternalPath: (previousPath, path) => set((state) => {
+  beginNotebookSwitch: () => useWorkspaceSessionStore.getState().updateSession(getColumnSessionId('column-1'),
+    (session) => ({ ...session, notebookSwitchesInFlight: session.notebookSwitchesInFlight + 1 })),
+  endNotebookSwitch: () => useWorkspaceSessionStore.getState().updateSession(getColumnSessionId('column-1'),
+    (session) => ({ ...session, notebookSwitchesInFlight: Math.max(0, session.notebookSwitchesInFlight - 1) })),
+  replaceExternalPath: (previousPath, path) => {
     const previousParent = canonicalPath(previousPath).replace(/\/[^/]*$/, '');
     const nextParent = canonicalPath(path).replace(/\/[^/]*$/, '');
     const replace = (target: WorkColumnTarget): WorkColumnTarget => (
       target.kind === 'external' && canonicalPath(target.path) === canonicalPath(previousPath)
         ? { ...target, path, fileBrowser: target.fileBrowser
           ? { ...target.fileBrowser, folderPath: target.fileBrowser.folderPath
-            && canonicalPath(target.fileBrowser.folderPath) === previousParent
-            ? nextParent : target.fileBrowser.folderPath }
+            && canonicalPath(target.fileBrowser.folderPath) === previousParent ? nextParent : target.fileBrowser.folderPath }
           : undefined }
-        : (target.kind === 'collection' || target.kind === 'table') && canonicalPath(target.filePath) === canonicalPath(previousPath)
-          ? { ...target, filePath: path }
-          : target.kind === 'media-library' && canonicalPath(target.filePath) === canonicalPath(previousPath)
-            ? { ...target, filePath: path }
-          : target
+        : (target.kind === 'collection' || target.kind === 'table' || target.kind === 'media-library')
+          && canonicalPath(target.filePath) === canonicalPath(previousPath) ? { ...target, filePath: path } : target
     );
-    const navigation = state.navigation;
-    return {
-      navigation: {
-        ...navigation,
-        target: replace(navigation.target),
-        pendingTarget: navigation.pendingTarget ? replace(navigation.pendingTarget) : null,
-        previousTarget: navigation.previousTarget ? replace(navigation.previousTarget) : null,
-      },
-    };
-  }),
-  isCurrentNavigation: (requestId) => get().navigation.requestId === requestId,
-}));
+    updateNavigation((state) => ({ ...state,
+      current: state.current ? { ...state.current, target: replace(state.current.target) } : null,
+      transaction: { ...state.transaction,
+        pendingTarget: state.transaction.pendingTarget ? replace(state.transaction.pendingTarget) : null,
+        previousTarget: state.transaction.previousTarget ? replace(state.transaction.previousTarget) : null } }));
+  },
+  isCurrentNavigation: (requestId) => navigation().transaction.requestId === requestId,
+});

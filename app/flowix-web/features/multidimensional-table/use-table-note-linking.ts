@@ -14,7 +14,7 @@ import { resolveDatasetFilterForLocation } from '@features/collection/dataset-fi
 import { notes as notesClient, type NoteEntry } from '@platform/tauri/client';
 import type { NoteListItem } from '@/types/note-item';
 import { useI18n } from '@/lib/i18n';
-import { createUuidV7, tableAutoCollectConfig, type MultidimensionalTableDocument, type TableField, type TableRecord } from './model';
+import { createUuidV7, type MultidimensionalTableDocument, type TableField, type TableRecord } from './model';
 import { builtinPresetTableField } from './builtin-fields';
 import { noteMatchesCollectionFilter } from './record-filter';
 import { upsertTableRecord } from './table-view-helpers';
@@ -125,7 +125,7 @@ export function useTableNoteLinking(input: UseTableNoteLinkingInput) {
     const directory = resolveCollectionSaveDirectory({
       filePath: currentFilePath, notebookPath, placement: document.collection.placement,
       source: document.dataset.source,
-      configuredFolder: tableAutoCollectConfig(document)?.condition.path || undefined,
+      filter: document.dataset.filter,
       defaultDirectory: parentDirectoryPath(currentFilePath, notebookPath),
     });
     const parentRelativePath = notebookRelativeDirectoryPath(notebookPath, directory) ?? undefined;

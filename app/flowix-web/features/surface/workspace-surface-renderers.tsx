@@ -18,8 +18,13 @@ import type { DocumentContentStatus } from '@features/document/components/sessio
 import { notes } from '@platform/tauri/client';
 import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
+import { displayTitleFromFilename } from '@/lib/utils';
 
 const NO_SURFACE_ACTIONS: readonly [] = [];
+
+function fileHeaderTitle(path: string): string {
+  return displayTitleFromFilename(path) || '文件';
+}
 
 function publishDocumentContentState(
   reportPresentation: WorkspaceSurfaceRenderContext['reportPresentation'],
@@ -90,13 +95,16 @@ export function MarkdownRenderer({ surface, context }: RendererProps<'file-markd
     documentProps={{ ...surface.documentProps, workspaceHost: context.host,
       initialFocus: context.initialFocus ?? surface.documentProps.initialFocus,
       onContentStateChange: context.reportPresentation ? onContentStateChange : undefined }}
-    navigationViewId={context.host === 'browser-column' ? context.viewId : undefined}
+    navigationViewId={context.host === 'column-2' ? context.viewId : undefined}
     reportPresentation={context.reportPresentation}
     registerLifecycle={context.registerLifecycle}
   />;
 }
 
 export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
+  useEffect(() => {
+    context.reportPresentation?.({ title: fileHeaderTitle(surface.fileIdentity.path) });
+  }, [context.reportPresentation, surface.fileIdentity.path]);
   const onContentStateChange = useCallback((state: DocumentContentStatus) => {
     publishDocumentContentState(context.reportPresentation, state);
   }, [context.reportPresentation]);
@@ -106,7 +114,7 @@ export function CodeRenderer({ surface, context }: RendererProps<'file-code'>) {
     initialFocus: context.initialFocus ?? surface.documentProps.initialFocus,
     onContentStateChange: context.reportPresentation ? onContentStateChange : undefined,
   }, context.registerLifecycle);
-  if (context.host === 'main-third') {
+  if (context.host === 'column-1') {
     const workSurface = {
       kind: 'code' as const,
       instanceKey: surface.instanceKey,
@@ -172,6 +180,9 @@ export function WorkDocumentsCollectionRenderer(props: RendererProps<'file-work-
 }
 
 export function HtmlRenderer({ surface, context }: RendererProps<'file-html'>) {
+  useEffect(() => {
+    context.reportPresentation?.({ title: fileHeaderTitle(surface.fileIdentity.path) });
+  }, [context.reportPresentation, surface.fileIdentity.path]);
   const documentProps = useWorkspaceSurfaceLifecycleBridge({
     ...surface.documentProps,
     fileIdentity: surface.fileIdentity,
@@ -188,7 +199,7 @@ export function HtmlRenderer({ surface, context }: RendererProps<'file-html'>) {
 
 export function DocxRenderer({ surface, context }: RendererProps<'file-docx'>) {
   const preview = <DocxPreview filePath={surface.fileIdentity.path} scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
-  return context.host === 'browser-column' ? context.wrapInFileBrowser?.(preview) ?? preview : preview;
+  return context.host === 'column-2' ? context.wrapInFileBrowser?.(preview) ?? preview : preview;
 }
 
 export function UnavailableRenderer({ surface, context }: RendererProps<'file-unavailable'>) {
@@ -213,12 +224,12 @@ export function UnavailableRenderer({ surface, context }: RendererProps<'file-un
         status: 'loading', loadingMode: 'blocking', retainContent: false,
       } });
     } else if (resolvedFileKind === 'code' && hasDocumentProps) {
-      context.reportPresentation?.({ ...workspaceSurfaceContentPresentation('file-code'), actions: NO_SURFACE_ACTIONS });
+      context.reportPresentation?.({ title: fileHeaderTitle(filePath), ...workspaceSurfaceContentPresentation('file-code'), actions: NO_SURFACE_ACTIONS });
     }
   }, [baseFileKind, context.reportPresentation, hasDocumentProps, contentDetectionLoading, resolvedFileKind]);
   if (baseFileKind === 'docx') {
     const preview = <DocxPreview filePath={filePath} scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
-    return context.host === 'browser-column' ? context.wrapInFileBrowser?.(preview) ?? preview : preview;
+    return context.host === 'column-2' ? context.wrapInFileBrowser?.(preview) ?? preview : preview;
   }
   if (baseFileKind === 'csv') return <CsvPreview filePath={filePath} scopePath={surface.scopePath}
     onSurfaceLifecycleReady={documentProps.onSurfaceLifecycleReady} reportPresentation={context.reportPresentation} />;
@@ -231,10 +242,10 @@ export function UnavailableRenderer({ surface, context }: RendererProps<'file-un
       {...documentProps}
       initialFocus={context.initialFocus ?? surface.documentProps.initialFocus}
       fileIdentity={surface.fileIdentity}
-      navigationViewId={context.host === 'browser-column' ? context.viewId : undefined}
+      navigationViewId={context.host === 'column-2' ? context.viewId : undefined}
       externalScopePath={surface.scopePath}
     />;
-    return context.host === 'browser-column' ? context.wrapInFileBrowser?.(content) ?? content : content;
+    return context.host === 'column-2' ? context.wrapInFileBrowser?.(content) ?? content : content;
   }
   return <UnavailableFileView filePath={filePath} openContainingFolder scopePath={surface.scopePath} reportPresentation={context.reportPresentation} />;
 }

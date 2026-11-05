@@ -2,13 +2,15 @@
 
 import type { CollectionActionsHost } from '@shared/ui/collection-actions';
 
-import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
+import { canonicalDirectoryPath, canonicalPath, parentDirectoryPath } from '@/lib/path';
+import { dialogs, files } from '@platform/tauri/client';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { subscribe } from '@platform/tauri/event-bus';
 import type { CollectionChangedEvent } from '@platform/tauri/client';
 import { collectionDisplayName, collectionSourceDomain } from '@features/collection/model';
 import { useCollectionDocumentSession, type CollectionDocumentCodec } from '@features/collection/public/collection-session-api';
-import { assetConditionFromFilter, assetKindsForUniverse, normalizeAssetFilterCondition, resolveCollectionScope, setCollectionAssetFilter, WORK_ASSET_KINDS, type AssetFilterCondition, type AssetFilterSaveOptions } from '@features/collection/public/folder-api';
+import { assetConditionFromFilter, assetKindsForUniverse, normalizeAssetFilterCondition, resolveCollectionSaveDirectory, resolveCollectionLocationScope, setCollectionAssetFilter, WORK_ASSET_KINDS, type AssetFilterCondition, type AssetFilterSaveOptions } from '@features/collection/public/folder-api';
+import { isSameCollectionFile, subscribeCollectionContent } from '@features/collection/public/content-events-api';
 import { renameCollectionAtPath } from '@features/collection/mutations';
 import { DocumentListView } from './document-list-view';
 import type { DocumentListViewContext } from './document-list-view-model';
@@ -39,7 +41,7 @@ const WORK_DOCUMENTS_CODEC: CollectionDocumentCodec<WorkDocumentsDocument> = {
   sourceDomain: (content) => collectionSourceDomain(content, 'work_documents'),
 };
 
-export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'main-third', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false }: {
+export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'column-1', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false }: {
   onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void;
   reportPresentation?: (update: SurfacePresentationUpdate) => void;
   filePath: string;
@@ -47,7 +49,7 @@ export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPre
   notebookPath: string | null;
   notebookId?: string | null;
   expectedCollectionId?: string | null;
-  workspaceHost?: 'main-third' | 'browser-column';
+  workspaceHost?: 'column-1' | 'column-2';
   /** 集合外壳里的 tab 面板：只把操作区 portal 进 nav 右侧操作槽（见 DocumentListView）。 */
   actionsHost?: CollectionActionsHost;
   onOpenNoteFilter?: () => void;
@@ -100,12 +102,17 @@ export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPre
       refreshContent(currentFilePath);
     };
     const stopCollection = subscribe<CollectionChangedEvent>('collection-changed', refresh);
+    // 本进程内的写入经集合网关广播内容（tab 条增删视图、共享资料筛选、表格保存…）。
+    const stopContent = subscribeCollectionContent((change) => {
+      if (!isSameCollectionFile(change.indexPath, currentFilePath)) return;
+      refreshContent(change.indexPath);
+    });
     const stopCatalog = subscribe<{ notebookId: string; operationId?: string; resourceKinds?: string[] }>('file-management-changed', (event) => {
       if (event.notebookId === resolvedNotebookId && !event.operationId && event.resourceKinds === undefined) {
         refreshContent(currentFilePath);
       }
     });
-    return () => { stopCollection(); stopCatalog(); };
+    return () => { stopCollection(); stopContent(); stopCatalog(); };
   }, [currentFilePath, document?.collection.id, notebookPath, refreshContent, resolvedNotebookId]);
 
   const updateFilterCondition = useCallback(async (condition: AssetFilterCondition, options?: AssetFilterSaveOptions) => {
@@ -155,21 +162,61 @@ export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPre
     });
   }, [applyRename, currentFilePath, document, notebookPath, reportSaveFailure, resolvedNotebookId, runSaveLocked, saveInFlightRef, saving, editable]);
 
+  /**
+   * 列表 tab 的「导入文件…」── 把外部文件复制到集合的保存目录。
+   * 落点走唯一的 `resolveCollectionSaveDirectory`（与新建笔记 / 媒体库添加同一口径），
+   * 保证导入的文件落在集合的数据范围内，否则列表里根本看不到。
+   */
+  const importFiles = useCallback(async (): Promise<boolean> => {
+    if (!editable || !notebookPath || !document || !resolvedNotebookId || saving || saveInFlightRef.current) return false;
+    const selected = await dialogs.selectFiles({ multiple: true });
+    if (!selected?.length) return false;
+    let directory: string;
+    try {
+      directory = resolveCollectionSaveDirectory({
+        filePath: currentFilePath,
+        notebookPath,
+        placement: document.collection.placement,
+        source: document.dataset.source,
+        filter: document.dataset.filter,
+        defaultDirectory: parentDirectoryPath(currentFilePath, notebookPath),
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '集合保存目录无效');
+      return false;
+    }
+    let imported = 0;
+    let failed = 0;
+    for (const sourcePath of selected) {
+      try {
+        await files.importFile(sourcePath, directory, notebookPath);
+        imported += 1;
+      } catch (error) {
+        failed += 1;
+        console.warn('[work-documents] importing file failed', error);
+      }
+    }
+    if (failed) toast.error(`${failed} 个文件导入失败`);
+    return imported > 0;
+  }, [currentFilePath, document, editable, notebookPath, resolvedNotebookId, saveInFlightRef, saving]);
+
   const collectionId = document?.collection.id;
   const collectionName = document ? collectionDisplayName(currentFilePath, document.collection.placement) : '工作文档';
   /**
    * 共享「资料筛选」：列表 / 图墙同一份配置。列表面板的类目为 6 种文档类，
    * 从共享条件里取自己的子集（空子集 = 本面板无内容）；空共享条件 = 全类目。
    */
-  const condition = useMemo(() => assetConditionFromFilter(document?.dataset.filter), [document?.dataset.filter]);
-  /** 查询用子集：共享类型里属于列表类目的部分（仅进 listContext，不进筛选面板）。 */
+  const scope = useMemo(() => document
+    ? resolveCollectionLocationScope(document, currentFilePath, notebookPath) : undefined,
+  [currentFilePath, document, notebookPath]);
+  const condition = useMemo(() => ({
+    ...assetConditionFromFilter(document?.dataset.filter),
+    // Location belongs to the collection, independently of secondary filter syntax.
+    path_contains: scope?.relativePath || undefined,
+    path_scope: scope?.relativePath === '' ? 'all' as const : undefined,
+  }), [document?.dataset.filter, scope]);
   const workKinds = useMemo(() => assetKindsForUniverse(condition, WORK_ASSET_KINDS), [condition]);
-  /** 文件夹类型的集合：取值范围就是所在文件夹，位置固定不可改（与笔记数据集同一口径）。 */
-  const fixedFolderPath = useMemo(() => {
-    if (!document || document.collection.placement !== 'folder' || !notebookPath) return undefined;
-    const scope = resolveCollectionScope(document.dataset.source, currentFilePath, notebookPath);
-    return scope?.relativePath || notebook?.name || '';
-  }, [currentFilePath, document, notebook?.name, notebookPath]);
+  const fixedFolderPath = document?.collection.placement === 'folder' ? scope?.relativePath : undefined;
   const listContext: DocumentListViewContext | null = useMemo(() => {
     if (!resolvedNotebookId || !notebookPath || !collectionId) return null;
     return {
@@ -212,6 +259,7 @@ export function WorkDocumentsCollectionView({ onSurfaceLifecycleReady, reportPre
       onOpenNoteFilter={onOpenNoteFilter}
       onDatasetFilterOpenChange={onDatasetFilterOpenChange}
       onRenameLibrary={renameCollection}
+      onImportFiles={importFiles}
       libraryActionsDisabled={saving || !editable}
       refreshPaused={saving}
       actionsHost={actionsHost}

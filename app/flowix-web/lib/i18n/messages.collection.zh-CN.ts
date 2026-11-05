@@ -113,6 +113,10 @@ const zhCN = {
   "collection.readOnlySystemTime": "创建时间和更新时间由系统维护，不能通过拖动修改",
   "collection.filter.notes": "笔记筛选",
   "collection.filter.assets": "资料筛选",
+  // 列表区域右键菜单（各 tab 共用一套，条目按 tab 类型给）
+  "collection.areaMenu.importNotes": "导入笔记 .md",
+  "collection.areaMenu.importFilesFailed": "{count} 个文件导入失败",
+  "collection.areaMenu.onlyMarkdown": "只能导入 Markdown 笔记（.md）",
   // 文件树 tab 的数据集合按钮：位置固定（= 集合所在文件夹），只有一条只读位置行
   "collection.dataset.location": "数据集合",
   "collection.dataset.manage": "管理数据集",

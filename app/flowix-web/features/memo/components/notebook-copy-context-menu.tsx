@@ -28,8 +28,7 @@ export function NotebookCopyContextMenu({ path, isNote }: { path: string; isNote
         <CopyIcon className="mr-2 h-4 w-4" aria-hidden="true" />
         {t('memo.fileTree.copyPath')}
       </ContextMenuItem>
-      {isNote && (
-        <>
+      <>
           <ContextMenuItem onClick={() => void copy(() => {
             const link = buildNoteOpenLinkFromPath(path, useNoteStore.getState().notebooks);
             if (!link) throw new Error('Cannot create an unambiguous notebook link');
@@ -38,12 +37,11 @@ export function NotebookCopyContextMenu({ path, isNote }: { path: string; isNote
             <LinkIcon className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('memo.fileTree.copyDeepLink')}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => void copy(async () => (await memoDocumentOperations.read({ path, scopePath: null })) ?? '', 'document.command.copySuccess')} className={ITEM_CLASS}>
+          {isNote && <ContextMenuItem onClick={() => void copy(async () => (await memoDocumentOperations.read({ path, scopePath: null })) ?? '', 'document.command.copySuccess')} className={ITEM_CLASS}>
             <FileTextIcon className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('document.action.copyFullText')}
-          </ContextMenuItem>
-        </>
-      )}
+          </ContextMenuItem>}
+      </>
     </ContextMenuSubmenu>
   );
 }

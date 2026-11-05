@@ -1,3 +1,4 @@
+import { seedWorkColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
@@ -41,7 +42,7 @@ it('retains Browser iframe, URL, history and ready state throughout Work loading
       const target = { kind: 'web' as const, url: `https://example.com/work-${outcome}` };
       let request = 0;
       await act(async () => {
-        useWorkspaceFocusStore.getState().focusHost('main-third');
+        useWorkspaceFocusStore.getState().focusColumn('column-1');
         request = work.beginNavigation(target, null);
       });
       expect(node.querySelector('[data-work-state="loading"]')).not.toBeNull();
@@ -66,7 +67,7 @@ it('retains Browser iframe, URL, history and ready state throughout Work loading
     expect(node.querySelector('iframe')?.getAttribute('src')).toBe('https://example.com/browser-next');
   } finally {
     await act(async () => root.unmount()); node.remove();
-    useWorkColumnStore.setState(beforeWork);
+    seedWorkColumn(beforeWork);
     useBrowserColumnStore.getState().reset();
   }
 });

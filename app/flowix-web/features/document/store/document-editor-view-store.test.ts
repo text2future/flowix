@@ -15,21 +15,21 @@ describe('document editor view store', () => {
   });
 
   it('defaults every document host to rich mode', () => {
-    expect(getDocumentEditorMode('main-third', memoIdentity)).toBe('rich');
+    expect(getDocumentEditorMode('column-1', memoIdentity)).toBe('rich');
   });
 
   it('keeps modes isolated by host and document identity', () => {
-    setDocumentEditorMode('main-third', memoIdentity, 'source');
+    setDocumentEditorMode('column-1', memoIdentity, 'source');
 
-    expect(getDocumentEditorMode('main-third', memoIdentity)).toBe('source');
-    expect(getDocumentEditorMode('browser-column', memoIdentity)).toBe('rich');
-    expect(getDocumentEditorMode('main-third', { kind: 'md', path: '/memo-2.md', displayId: 'display-2' })).toBe('rich');
+    expect(getDocumentEditorMode('column-1', memoIdentity)).toBe('source');
+    expect(getDocumentEditorMode('column-2', memoIdentity)).toBe('rich');
+    expect(getDocumentEditorMode('column-1', { kind: 'md', path: '/memo-2.md', displayId: 'display-2' })).toBe('rich');
   });
 
   it('uses stable keys for equivalent identity objects', () => {
-    expect(documentEditorViewKey('main-third', memoIdentity)).toBe('main-third:md:display-1');
-    expect(documentEditorViewKey('main-third', { ...memoIdentity })).toBe(
-      documentEditorViewKey('main-third', memoIdentity),
+    expect(documentEditorViewKey('column-1', memoIdentity)).toBe('column-1:md:display-1');
+    expect(documentEditorViewKey('column-1', { ...memoIdentity })).toBe(
+      documentEditorViewKey('column-1', memoIdentity),
     );
   });
 });

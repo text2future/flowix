@@ -6,7 +6,9 @@ import { refreshIndexedMemo } from '@features/memo/services/memo-list-refresh-se
 
 import { useNotebookBackgroundStore } from '@features/memo/store/notebook-background-store';
 import { flushSync } from 'react-dom';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useColumnNavigation, columnTarget } from '@features/workspace/public/column-navigation-api';
+import { useActiveFilePath } from '@features/workspace/public/active-file-path-api';
+import { middleColumnSelectionKey } from './memo-list-selection';
 import {
   canonicalDirectoryPath,
   joinNotebookMemoPath,
@@ -26,8 +28,6 @@ import {
 } from 'lucide-react';
 import {
   getVisibleCreateFilter,
-  noteIndexFor,
-  noteLookupKey,
   useNoteStore,
 } from '@features/memo/store/note-store';
 import { useMemoLibraryMetadataStore } from '@features/memo/store/memo-library-metadata-store';
@@ -172,7 +172,6 @@ export function MemoList({
   // 用 Object.is 比对, 同一个 memos 引用相等就跳过, 不需要 useMemo。
   const notes = useNoteStore((s) => s.notes);
   const notebooks = useNoteStore((s) => s.notebooks);
-  const selectedNote = useNoteStore((s) => s.selectedNote);
   const memoListView = useMemoListViewPreference();
   const selectedNotebook = useNoteStore((s) => s.selectedNotebook);
   const showFolderView = memoListView === 'folders' && Boolean(selectedNotebook);
@@ -239,7 +238,7 @@ export function MemoList({
         parentFolder: async () => {
           // Follow the currently browsed Work folder; fall back to the
           // notebook's default note folder, then the root.
-          const target = useWorkColumnStore.getState().navigation.target;
+          const target = columnTarget(0);
           if (target.kind === 'folder-collection' && (!target.notebookId || target.notebookId === notebook.id)) {
             return notebookRelativeDirectoryPath(notebook.path, target.folderPath);
           }
@@ -340,15 +339,15 @@ export function MemoList({
       });
     },
   ), []);
-  const pendingDocumentPath = useWorkColumnStore((state) => {
-    const { phase, pendingTarget } = state.navigation;
+  const pendingDocumentPath = useColumnNavigation(0, (navigation) => {
+    const { phase, pendingTarget } = navigation.transaction;
     return phase === 'loading' && pendingTarget?.kind === 'external' ? pendingTarget.path : null;
   });
-  const workTargetParentPath = useWorkColumnStore((state) => {
+  const workTargetParentPath = useColumnNavigation(0, (navigation) => {
     if (!selectedNotebook) return null;
     // The committed Work target is the implicit destination for tree creation.
     // Fall back to the notebook preference when Work has no in-notebook target.
-    const target = state.navigation.target;
+    const target = navigation.current?.target ?? { kind: 'empty' };
     let parentPath: string | null = null;
 
     if (target.kind === 'folder-collection' && target.notebookId === selectedNotebook.id) {
@@ -375,16 +374,17 @@ export function MemoList({
         pendingDocumentPath,
       ))
     : undefined;
-  const selectedNoteItem = selectedNote
-    ? noteIndexFor(notes).get(noteLookupKey(selectedNote.notebookId, selectedNote.relativePath))
-    : undefined;
+  // 选中态只认中间列：两列交换内容后焦点可能停在右侧会话，跟随 selectedNote
+  // 或焦点都会高亮到用户没在看的那一份。
+  const middleColumnFilePath = useActiveFilePath();
+  const middleColumnListItemKey = middleColumnSelectionKey({
+    middleColumnFilePath,
+    notebook: selectedNotebook,
+    notes,
+  });
   const selectedListItemKey = pendingDocumentPath
     ? pendingListItem ? noteListItemKey(pendingListItem) : undefined
-    : selectedNote
-      ? selectedNoteItem
-        ? noteListItemKey(selectedNoteItem)
-        : `path:${selectedNote.notebookId}:${selectedNote.relativePath}`
-      : undefined;
+    : middleColumnListItemKey;
   const [notebookDropdownOpen, setNotebookDropdownOpen] = useState(false);
   const [isCreatingMemo, setIsCreatingMemo] = useState(false);
   const [localNavigationDrawerOpen, setLocalNavigationDrawerOpen] = useState(false);
@@ -719,7 +719,7 @@ export function MemoList({
     if (!notebook?.path) return;
     const path = joinNotebookMemoPath(notebook.path, memo.relativePath) ?? memo.relativePath;
     const open = openWorkspaceSurface({
-      host: 'browser-column',
+      index: 1,
       target: { kind: 'external', path, scopePath: notebook.path, transitionId: null },
     });
     void open

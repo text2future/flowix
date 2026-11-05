@@ -1,3 +1,4 @@
+import { seedWorkColumn, seedBrowserColumn } from '@features/workspace/test-support/workspace-fixtures';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -82,7 +83,7 @@ import {
 } from './workspace-navigation';
 
 function resetWorkspace() {
-  useWorkColumnStore.setState({
+  seedWorkColumn({
     navigation: {
       phase: 'idle',
       showWorkColumnLoading: false,
@@ -190,10 +191,10 @@ describe('workspace navigation transaction', () => {
       id: 'next-notebook', name: 'Next', path: '/next',
       createdAt: 0, updatedAt: 0, isDefault: false,
     };
-    useWorkColumnStore.setState((state) => ({
+    seedWorkColumn((state) => ({
       navigation: { ...state.navigation, target: { kind: 'plugin-workbench', plugin: {} as never } },
     }));
-    useBrowserColumnStore.setState({
+    seedBrowserColumn({
       visible: true,
       current: { id: 'web-tab', target: { kind: 'web', url: 'https://example.com' } } as never,
     });
@@ -218,7 +219,7 @@ describe('workspace navigation transaction', () => {
     mocks.memoState.selectedNotebook = previous;
     mocks.memoState.selectedNotebookId = previous.id;
     const target = { kind: 'web' as const, url: 'https://old.example' };
-    useWorkColumnStore.setState((state) => ({ navigation: { ...state.navigation, target } }));
+    seedWorkColumn((state) => ({ navigation: { ...state.navigation, target } }));
     useBrowserColumnStore.getState().openContent({
       id: 'saving-tab', title: 'Saving', icon: null, target,
     });

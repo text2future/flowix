@@ -45,7 +45,7 @@ async function message(frame: HTMLIFrameElement, url = frame.src, source: Messag
   })));
 }
 async function selectMode(mode: 'rich' | 'source', path = '/book/index.html') {
-  await act(async () => setDocumentEditorMode('main-third', { kind: 'md', path, displayId: path }, mode));
+  await act(async () => setDocumentEditorMode('column-1', { kind: 'md', path, displayId: path }, mode));
 }
 
 beforeEach(() => {

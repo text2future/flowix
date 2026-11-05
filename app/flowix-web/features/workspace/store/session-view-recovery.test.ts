@@ -1,46 +1,47 @@
+import { getSessionId } from './workspace-session-store';
+import { sessionFor } from '../model/workspace-session';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionViewChannel, attachSessionViewCapture } from '../public/session-view-state-api';
 import { restoreViewRecovery, restoreViewSnapshot } from '../model/session-view-state';
 import { restoreCanonicalSession } from './session-persistence';
 import { useWorkspaceSessionStore } from './workspace-session-store';
-import { useSessionWebRuntimeStore } from './session-web-runtime-store';
+import { createSessionWebRuntimeChannel } from './session-web-runtime';
 import { createWorkspaceWebRuntime } from '../model/web-navigation';
 
 const editor = { kind: 'editor' as const, anchor: 7, head: 2, scrollTop: 400, scrollLeft: 12 };
 const web = { kind: 'web' as const, url: 'https://example.com/' };
 beforeEach(() => { localStorage.clear(); useWorkspaceSessionStore.getState().reset(); });
 
-function open(id: 'primary-session' | 'secondary-session') {
-  useWorkspaceSessionStore.getState().commitTarget(id, web, { history: 'push' });
-  return useWorkspaceSessionStore.getState().sessions[id].navigation.current!.id;
+function open(id: 0 | 1) {
+  useWorkspaceSessionStore.getState().commitTarget(getSessionId(id), web, { history: 'push' });
+  return sessionFor(useWorkspaceSessionStore.getState(), id).navigation.current!.id;
 }
 
 describe('session view recovery protocol', () => {
-  it.each(['primary-session', 'secondary-session'] as const)('retains %s state with history and across placement swaps', (id) => {
+  it.each([0, 1] as const)('retains %s state with history and across unrelated session state updates', (id) => {
     const entry = open(id);
     const channel = createSessionViewChannel(id, entry, 'editor');
     channel.write(editor);
-    useWorkspaceSessionStore.getState().swap();
-    useWorkspaceSessionStore.getState().commitTarget(id, { kind: 'web', url: 'https://next.example/' }, { history: 'push' });
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(id), { kind: 'web', url: 'https://next.example/' }, { history: 'push' });
     channel.write({ ...editor, head: 3 }); // unmount flush after the next commit
     expect(channel.read()).toEqual({ ...editor, head: 3 });
-    const session = useWorkspaceSessionStore.getState().sessions[id];
+    const session = sessionFor(useWorkspaceSessionStore.getState(), id);
     const restored = restoreCanonicalSession(JSON.parse(JSON.stringify(session)), session);
     expect(restored.viewStates[entry].recovery?.slots.editor).toEqual({ ...editor, head: 3 });
     expect(restored.navigation.backStack[0].id).toBe(entry);
   });
 
   it('isolates sessions and renderer slots', () => {
-    const a = open('primary-session'); const b = open('secondary-session');
-    createSessionViewChannel('primary-session', a, 'editor').write(editor);
-    expect(createSessionViewChannel('secondary-session', b, 'editor').read()).toBeUndefined();
-    expect(createSessionViewChannel('primary-session', a, 'other-editor').read()).toBeUndefined();
+    const a = open(0); const b = open(1);
+    createSessionViewChannel(0, a, 'editor').write(editor);
+    expect(createSessionViewChannel(1, b, 'editor').read()).toBeUndefined();
+    expect(createSessionViewChannel(0, a, 'other-editor').read()).toBeUndefined();
   });
 
   it('rejects stale captures after a replacement adapter takes ownership', () => {
-    const id = open('primary-session');
-    const old = createSessionViewChannel('primary-session', id, 'editor');
-    const next = createSessionViewChannel('primary-session', id, 'editor');
+    const id = open(0);
+    const old = createSessionViewChannel(0, id, 'editor');
+    const next = createSessionViewChannel(0, id, 'editor');
     const disposeOld = old.claim(); const disposeNext = next.claim();
     next.write(editor); old.write({ ...editor, head: 99 }); disposeOld();
     expect(next.read()).toEqual(editor);
@@ -50,23 +51,23 @@ describe('session view recovery protocol', () => {
   });
 
   it('does not resurrect entries after reset', () => {
-    const id = open('primary-session');
-    const channel = createSessionViewChannel('primary-session', id, 'editor');
+    const id = open(0);
+    const channel = createSessionViewChannel(0, id, 'editor');
     useWorkspaceSessionStore.getState().reset(); channel.write(editor);
     expect(channel.read()).toBeUndefined();
   });
 
   it('preserves renderer recovery when the legacy web runtime writes', () => {
-    const id = open('primary-session');
-    const channel = createSessionViewChannel('primary-session', id, 'editor'); channel.write(editor);
-    useSessionWebRuntimeStore.getState().setRuntime(id, createWorkspaceWebRuntime(web.url));
+    const id = open(0);
+    const channel = createSessionViewChannel(0, id, 'editor'); channel.write(editor);
+    createSessionWebRuntimeChannel('column-1', id).write(createWorkspaceWebRuntime(web.url));
     expect(channel.read()).toEqual(editor);
   });
 
   it('throttles updates and flushes on pagehide and teardown', () => {
     vi.useFakeTimers();
     try {
-      const id = open('primary-session'); const channel = createSessionViewChannel('primary-session', id, 'editor');
+      const id = open(0); const channel = createSessionViewChannel(0, id, 'editor');
       let value = editor;
       const readView = vi.fn(() => value);
       const capture = attachSessionViewCapture(channel, readView);
@@ -83,7 +84,7 @@ describe('session view recovery protocol', () => {
   });
 
   it('does not overwrite a snapshot while an async renderer is unready', () => {
-    const id = open('primary-session'); const channel = createSessionViewChannel('primary-session', id, 'video');
+    const id = open(0); const channel = createSessionViewChannel(0, id, 'video');
     const value = { kind: 'media' as const, currentTime: 30, volume: 0.5, muted: true, playbackRate: 1.5 };
     channel.write(value);
     attachSessionViewCapture(channel, () => null).dispose();

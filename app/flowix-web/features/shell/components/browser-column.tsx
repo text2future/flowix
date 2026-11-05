@@ -1,8 +1,9 @@
+import { useColumnSessionId, useColumnIndex } from '@features/workspace/public/session-api';
 import { useSessionAddressBar } from '@features/workspace/public/session-header-api';
-import { useSessionHostEnvironment } from './session-host-environment';
+import { useColumnEnvironment } from './column-environment';
 import { ColumnResizeHandle } from './column-resize-handle';
-import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
-import { memo, useCallback, useMemo, type CSSProperties } from 'react';
+import { focusWorkspaceColumnFromEvent } from '@features/workspace/public/host-api';
+import { memo, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react';
 import {
   BROWSER_COLUMN_MIN_WIDTH,
   hideBrowserColumn,
@@ -10,13 +11,10 @@ import {
   useBrowserColumnFocusViewModel,
   useBrowserColumnViewModel,
 } from '@features/workspace/public/browser-column-api';
-import { openWorkspaceSurface } from '@features/workspace/public/session-opening-api';
+import { WorkColumnTitlebar } from './work-column-titlebar';
+import { isWindowsPlatform } from '@/lib/path';
 import { BrowserColumnHeader } from './browser-column-header';
-import { useI18n } from '@/lib/i18n';
-import { toast } from '@/lib/toast';
-import { createShellNote, createShellNoteFromTemplate, useShellSelectedNotebook } from '@features/memo/public/shell-api';
-import { createBrowserColumnAgentConversation, discardUnopenedBrowserColumnAgentConversation } from '@features/agent/public/shell-api';
-import type { AgentTypeKey } from '@/types/agent';
+import { useWorkspaceHeaderCreation } from '../hooks/use-workspace-header-creation';
 import { workspaceSurfaceAppearance } from '@features/workspace/public/surface-api';
 import { useCollectionBannerControl } from '@/lib/collection-banner-visibility';
 import {
@@ -37,6 +35,7 @@ import {
 
 export interface BrowserColumnProps {
   width: number;
+  selectionView?: ReactNode;
   layoutKey: string;
   onResize: (width: number) => void;
   toolbarCollapsed: boolean;
@@ -55,45 +54,16 @@ export const BrowserColumn = memo(function BrowserColumn({
   toolbarCollapsed,
   onToolbarCollapsedChange,
   animated = false,
+  selectionView,
 }: BrowserColumnProps) {
-  const { t } = useI18n();
-  const environment = useSessionHostEnvironment();
+  const sessionId = useColumnSessionId('column-2');
+  const index = useColumnIndex('column-2');
+  const environment = useColumnEnvironment();
   const { current, webRuntime } = useBrowserColumnViewModel();
-  const addressBar = useSessionAddressBar('secondary-session', current?.target.kind === 'web' ? current.id : null);
+  const addressBar = useSessionAddressBar('column-2', current?.target.kind === 'web' ? current.id : null);
   const webAddressBarVisible = addressBar.visible;
   const { isFocused } = useBrowserColumnFocusViewModel();
-  const selectedNotebook = useShellSelectedNotebook();
-  const handleCreateNote = useCallback(async (templateId?: string) => {
-    if (!selectedNotebook) return;
-    try {
-      const created = templateId
-        ? await createShellNoteFromTemplate(templateId, selectedNotebook.id)
-        : await createShellNote(selectedNotebook.id);
-      const result = await openWorkspaceSurface({
-        host: 'browser-column',
-        target: { kind: 'external', path: created.path, scopePath: selectedNotebook.path, transitionId: null },
-        options: { notebookId: selectedNotebook.id },
-      });
-      if (result.status === 'cancelled') toast.error(t('tabWindow.switchFailed'));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t(templateId ? 'memo.create.templateFailed' : 'tabWindow.createNote.failed'));
-    }
-  }, [selectedNotebook, t]);
-  const handleCreateAgentConversation = useCallback(async (typeKey: AgentTypeKey) => {
-    if (!selectedNotebook) return;
-    let instanceId: string | null = null;
-    try {
-      instanceId = createBrowserColumnAgentConversation(typeKey, selectedNotebook.id);
-      const result = await openWorkspaceSurface({ host: 'browser-column', target: { kind: 'agent-conversation', instanceId } });
-      if (result.status === 'cancelled') {
-        discardUnopenedBrowserColumnAgentConversation(instanceId);
-        toast.error(t('tabWindow.switchFailed'));
-      }
-    } catch (error) {
-      if (instanceId) discardUnopenedBrowserColumnAgentConversation(instanceId);
-      toast.error(error instanceof Error ? error.message : t('tabWindow.createConversation.failed'));
-    }
-  }, [selectedNotebook, t]);
+  const creation = useWorkspaceHeaderCreation('column-2');
   const handleToggleMemoEditorMode = useCallback((surfaceId: string) => {
     const entry = current?.id === surfaceId ? current : null;
     if (entry?.target.kind !== 'file-browser' || !entry.target.activeFilePath) return;
@@ -104,10 +74,10 @@ export const BrowserColumn = memo(function BrowserColumn({
     // Publish the latest CodeMirror / rich-text content before replacing the
     // editor subtree. The browser-column host keeps this isolated from a
     // possible copy of the same memo in the main work column.
-    captureLatestDocumentContent(identity, 'browser-column');
-    const currentMode = getDocumentEditorMode('browser-column', identity);
+    captureLatestDocumentContent(identity, 'column-2');
+    const currentMode = getDocumentEditorMode('column-2', identity);
     setDocumentEditorMode(
-      'browser-column',
+      'column-2',
       identity,
       currentMode === 'source' ? 'rich' : 'source',
     );
@@ -141,26 +111,29 @@ export const BrowserColumn = memo(function BrowserColumn({
     ?? [];
   return (
     <section
-      data-workspace-host={environment?.host ?? 'browser-column'}
-      data-workspace-session="secondary-session"
+      data-workspace-host="column-2"
+      data-column-index={index}
+        data-workspace-session={sessionId}
       data-workspace-focused={isFocused ? '' : undefined}
       aria-label="浏览器列辅助工作区"
-      onPointerDown={(event) => focusWorkspaceHostFromEvent(event, 'browser-column')}
-      onFocusCapture={(event) => focusWorkspaceHostFromEvent(event, 'browser-column')}
-      className={`relative flex h-full min-w-0 shrink-0 flex-col ${!environment || environment.host === 'browser-column' ? 'border-l border-[var(--divider)]' : ''} bg-[var(--document-bg)]${
+      onPointerDown={(event) => focusWorkspaceColumnFromEvent(event, 'column-2')}
+      onFocusCapture={(event) => focusWorkspaceColumnFromEvent(event, 'column-2')}
+      className={`relative flex h-full min-w-0 shrink-0 flex-col bg-[var(--document-bg)]${index === 1 ? ' border-l border-[var(--divider)]' : ''}${
         animated ? ' transition-[width] flowix-motion' : ''
       }`}
       style={environment ? {
-        minWidth: BROWSER_COLUMN_MIN_WIDTH, gridColumn: environment.host === 'main-third' ? 1 : 2, gridRow: 1,
-        display: environment.host === 'browser-column' && !environment.browserVisible ? 'none' : undefined,
+        minWidth: BROWSER_COLUMN_MIN_WIDTH, gridColumn: index + 1, gridRow: 1,
+        display: index === 0 || environment.browserVisible ? undefined : 'none',
       } : { width }}
     >
       {!environment && <ColumnResizeHandle label="调整浏览器列宽度" width={width} direction={-1} onResize={onResize} />}
-      <BrowserColumnHeader
+      {selectionView ? <WorkColumnTitlebar columnId="column-2" isWindows={isWindowsPlatform()}>{null}</WorkColumnTitlebar> : <BrowserColumnHeader
         current={current}
         webAddressBarVisible={webAddressBarVisible}
         onToggleWebAddressBar={addressBar.toggle}
         activeSurfaceChrome={activeSurfaceChrome}
+        runtimeTitle={activeSurfaceRuntime.title}
+        runtimeIcon={activeSurfaceRuntime.icon}
         surfaceContentKind={activeSurfaceRuntime.contentKind ?? activeSurfaceDefinition?.contentKind}
         headerBackgroundColor={activeSurfaceRuntime.headerBackgroundColor}
         surfaceCapabilities={activeSurfaceCapabilities}
@@ -168,11 +141,12 @@ export const BrowserColumn = memo(function BrowserColumn({
         onOpenInWorkColumn={(surfaceId) => { void openBrowserColumnContentInWorkColumn(surfaceId); }}
         onCloseColumn={hideBrowserColumn}
         isFocused={isFocused}
-        canCreate={Boolean(selectedNotebook)}
-        onCreateNote={() => { void handleCreateNote(); }}
-        onCreateAgentConversation={(typeKey) => { void handleCreateAgentConversation(typeKey); }}
-      />
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden" style={collectionContentStyle}>
+        canCreate={creation.canCreate}
+        onCreateNote={(templateId) => { void creation.createNote(templateId); }}
+        onCreateAgentConversation={(typeKey) => { void creation.createConversation(typeKey); }}
+      />}
+      {selectionView}
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden" hidden={Boolean(selectionView)} style={selectionView ? { display: 'none' } : collectionContentStyle}>
         {activeSurface ? (
           <BrowserColumnSurfaceHost
             key={activeSurface.instanceKey}

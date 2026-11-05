@@ -5,7 +5,7 @@ import { useTagStore } from '@features/memo/store/tag-store';
 import { useTodoCountStore } from '@features/memo/store/todo-count-store';
 export { mountNotebookBackgroundUpdates } from '@features/memo/services/notebook-background-service';
 export { mountMemoListRefreshService } from '@features/memo/services/memo-list-refresh-service';
-export { resumePendingNoteLinkUpdates } from '@features/memo/services/note-link-rewriter';
+export { resumePendingNoteLinkUpdates, acceptWorkspaceDocumentLinkSave } from '@features/memo/services/note-link-rewriter';
 export {
   mountOpenTargetListener,
   unmountOpenTargetListener,

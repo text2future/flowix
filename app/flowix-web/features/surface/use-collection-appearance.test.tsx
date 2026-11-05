@@ -6,7 +6,7 @@ import type { FolderCollectionSummary } from '@features/collection/public/folder
 const api = vi.hoisted(() => ({
   ensureFolderCollection: vi.fn(),
   updateCollectionProperties: vi.fn(),
-  resolveCollectionScope: vi.fn(() => ({ relativePath: '客户周报', depth: 'direct_children' as const })),
+  resolveCollectionScope: vi.fn(() => ({ relativePath: '客户周报', depth: 'descendants' as const })),
 }));
 
 vi.mock('@features/collection/public/folder-api', () => ({
@@ -104,7 +104,7 @@ describe('useCollectionAppearance', () => {
     expect(host.querySelector('[data-testid="selected-image"]')?.textContent).toBe('');
     expect(host.querySelector('[data-testid="visible"]')?.textContent).toBe('false');
     expect(api.resolveCollectionScope).toHaveBeenCalledWith(
-      { scope: 'containing_folder', depth: 'direct_children' },
+      { scope: 'containing_folder' },
       '/book/客户周报/.index.yaml',
       '/book',
     );

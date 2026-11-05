@@ -9,10 +9,13 @@ import { useBrowserColumnStore } from '@features/workspace/store/browser-column-
 import { registerCollectionBannerControl } from '@/lib/collection-banner-visibility';
 vi.mock('@/lib/i18n', async (original) => ({ ...await original<typeof import('@/lib/i18n')>(), useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@features/document/public/shell-api', () => ({
+  SurfaceHeaderIcon: () => null,
+  ExternalTitlebarBadge: () => null,
+  resolveDocumentTitlebarTarget: (fileIdentity: unknown, session: object) => ({ fileIdentity, ...session, isOutsideCurrentNotebook: false }),
   documentIdentityFromFile: (identity: unknown) => identity,
   useDocumentEditorMode: () => 'rich',
   useDocumentCommands: () => ({}),
-  ExternalDocumentActions: ({ capabilities, collectionDisplayIndexPath }: { capabilities: { memoColors: boolean; versionHistory: boolean }; collectionDisplayIndexPath?: string }) => <div data-document-actions data-history={String(capabilities.versionHistory)} data-collection-index={collectionDisplayIndexPath}>
+  ExternalDocumentActions: ({ capabilities, collectionDisplay }: { capabilities: { memoColors: boolean; versionHistory: boolean }; collectionDisplay?: { indexPath: string } }) => <div data-document-actions data-history={String(capabilities.versionHistory)} data-collection-index={collectionDisplay?.indexPath}>
     {capabilities.memoColors && <button aria-label="document.color.button" />}
   </div>,
   AgentThreadCardFullscreenExitButton: () => null,
@@ -20,7 +23,8 @@ vi.mock('@features/document/public/shell-api', () => ({
   AgentThreadCardFullscreenMoreMenu: () => <button data-fullscreen-menu />,
   useFullscreenAgentThreadCardInfo: () => null,
 }));
-vi.mock('@features/agent/public/shell-api', () => ({ AgentIcon: () => null, useBrowserColumnAgentHeaderModel: () => ({ conversationInstances: {} }), useNewConversationAgentSelection: () => ({ options: [] }) }));
+vi.mock('@features/document/public/header-api', () => import('@features/document/public/shell-api'));
+vi.mock('@features/agent/public/header-api', () => ({ AgentIcon: () => null, AgentConversationHeaderContent: () => <span>agent header</span>, useNewConversationAgentSelection: () => ({ options: [] }) }));
 it.each([true, false])('shows the current title, preserves hide and applies the context-menu drag policy (Windows: %s)', async (windows) => {
   const userAgent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(windows ? 'Windows' : 'Macintosh');
   const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(windows ? 'Win32' : 'MacIntel');
@@ -33,7 +37,7 @@ it.each([true, false])('shows the current title, preserves hide and applies the 
   const root = createRoot(node);
   const hide = vi.fn();
   try {
-    await act(async () => root.render(<BrowserColumnHeader current={state.current} activeSurfaceChrome="document" headerBackgroundColor="rgb(17, 34, 51)" onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()} onCloseColumn={hide} isFocused={false} canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    await act(async () => root.render(<BrowserColumnHeader current={state.current} activeSurfaceChrome="document" runtimeTitle="Current page" headerBackgroundColor="rgb(17, 34, 51)" onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()} onCloseColumn={hide} isFocused={false} canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
     expect(node.querySelector('[role="tablist"]')).toBeNull();
     const header = node.querySelector('[data-browser-column-header]')!;
     expect((header as HTMLElement).style.backgroundColor).toBe('rgb(17, 34, 51)');
@@ -64,7 +68,7 @@ it.each(['folder', 'table', 'media_library', 'work_documents'] as const)(
     document.body.append(node);
     const root = createRoot(node);
     const render = (title: string) => root.render(<BrowserColumnHeader
-      current={{ id: 'collection', title, icon: '📚', target }} activeSurfaceChrome="document"
+      current={{ id: 'collection', title, icon: '📚', target }} activeSurfaceChrome="document" runtimeTitle={title} runtimeIcon="📚"
       onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()} onCloseColumn={vi.fn()} isFocused={false} canCreate={false}
       onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />);
     try {
@@ -134,17 +138,17 @@ it('hides the underlying note controls only in the fullscreen host, restores the
     await act(async () => render());
     expect(color()).not.toBeNull();
     expect(node.querySelector('[data-history="true"]')).not.toBeNull();
-    await act(async () => reportWorkspaceHeaderFullscreen('main-third', mainOwner, info));
+    await act(async () => reportWorkspaceHeaderFullscreen('column-1', mainOwner, info));
     expect(color()).not.toBeNull();
-    await act(async () => reportWorkspaceHeaderFullscreen('browser-column', browserOwner, info));
+    await act(async () => reportWorkspaceHeaderFullscreen('column-2', browserOwner, info));
     expect(color()).toBeNull();
     expect(node.querySelector('[data-document-actions]')).toBeNull();
     expect(node.querySelector('[data-fullscreen-menu]')).not.toBeNull();
     const header = node.querySelector<HTMLElement>('[data-browser-column-header]')!;
     expect(header.dataset.headerStyle).toBe('agent');
-    await act(async () => clearWorkspaceHeaderFullscreen('main-third', mainOwner));
+    await act(async () => clearWorkspaceHeaderFullscreen('column-1', mainOwner));
     expect(header.dataset.headerStyle).toBe('agent');
-    await act(async () => clearWorkspaceHeaderFullscreen('browser-column', browserOwner));
+    await act(async () => clearWorkspaceHeaderFullscreen('column-2', browserOwner));
     expect(color()).not.toBeNull();
     expect(header.dataset.headerStyle).toBe('document');
     await act(async () => render(true));
@@ -152,8 +156,8 @@ it('hides the underlying note controls only in the fullscreen host, restores the
     expect(node.querySelector('[data-history="false"]')).not.toBeNull();
   } finally {
     await act(async () => {
-      clearWorkspaceHeaderFullscreen('main-third', mainOwner);
-      clearWorkspaceHeaderFullscreen('browser-column', browserOwner);
+      clearWorkspaceHeaderFullscreen('column-1', mainOwner);
+      clearWorkspaceHeaderFullscreen('column-2', browserOwner);
       root.unmount();
     });
     node.remove();

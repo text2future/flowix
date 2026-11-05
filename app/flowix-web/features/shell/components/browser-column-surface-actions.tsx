@@ -1,39 +1,43 @@
 import { useMemo } from 'react';
 import {
-  documentIdentityFromFile, ExternalDocumentActions, MediaActions, readLatestDocumentContent,
+  documentIdentityFromFile, readLatestDocumentContent, resolveDocumentTitlebarTarget, captureLatestDocumentContent,
   useDocumentEditorMode, setDocumentEditorMode, useDocumentCommands,
   type DocumentTitlebarProps, type DocumentTitlebarTarget,
-} from '@features/document/public/shell-api';
+} from '@features/document/public/header-api';
 import type { WorkspaceHeaderModel } from '@features/workspace/public/header-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/surface-api';
 import { requireFileDisplayIdentity } from '@/lib/file-display-registry';
 import { notebookRelativeDirectoryPath } from '@/lib/path';
+import { useShellSelectedNotebook } from '@features/memo/public/note-creation-api';
 import { useMediaActions } from '../hooks/use-media-actions';
+import { WorkspaceHeaderContentActions } from './workspace-header-content-actions';
 
-/** Browser supplies host-bound commands to the shared document domain menu. */
-export function BrowserColumnDocumentActions({ path, scopePath, notebookId, header, collectionPath, surfaceId, onToggleMemoEditorMode, iconButtonClass }: {
+/** File-browser sessions bind commands to their own editor, regardless of physical placement. */
+export function WorkspaceDocumentHeaderActions({ path, scopePath, notebookId, header, collectionPath, surfaceId, onToggleMemoEditorMode, iconButtonClass, columnId }: {
+  columnId: WorkspaceColumnId;
   path: string;
   scopePath: string | null;
   notebookId: string | null;
-  header: WorkspaceHeaderModel;
+  header: Pick<WorkspaceHeaderModel, 'sourceKind' | 'documentControls' | 'showEditorFontSwitcher' | 'showEditorModeToggle'>;
   collectionPath: string | null;
-  surfaceId: string;
-  onToggleMemoEditorMode: (surfaceId: string) => void | Promise<void>;
+  surfaceId?: string;
+  onToggleMemoEditorMode?: (surfaceId: string) => void | Promise<void>;
   iconButtonClass: string;
 }) {
   const fileIdentity = useMemo(() => requireFileDisplayIdentity(path), [path]);
   const identity = useMemo(() => documentIdentityFromFile(fileIdentity), [fileIdentity]);
+  const selectedNotebook = useShellSelectedNotebook();
   const relativePath = scopePath ? notebookRelativeDirectoryPath(scopePath, path) : null;
-  const target = useMemo<DocumentTitlebarTarget>(() => ({
+  const target = useMemo<DocumentTitlebarTarget>(() => resolveDocumentTitlebarTarget(fileIdentity, {
     fileIdentity, scopePath, notebookId, relativePath,
     indexable: header.sourceKind === 'file-markdown' && Boolean(notebookId) && relativePath !== null,
-    isOutsideCurrentNotebook: relativePath === null,
-  }), [fileIdentity, header.sourceKind, notebookId, relativePath, scopePath]);
-  const editorMode = useDocumentEditorMode('browser-column', identity);
+  }, selectedNotebook?.path ?? null), [fileIdentity, header.sourceKind, notebookId, relativePath, scopePath, selectedNotebook?.path]);
+  const editorMode = useDocumentEditorMode(columnId, identity);
   const commands = useDocumentCommands({
     currentDocumentPath: path,
-    getCurrentDocumentContent: () => readLatestDocumentContent(identity, 'browser-column'),
+    getCurrentDocumentContent: () => readLatestDocumentContent(identity, columnId),
     getCurrentDocumentEditor: () => null,
-    pdfHost: 'browser-column',
+    pdfHost: columnId,
   });
   const actions: DocumentTitlebarProps['actions'] = {
     onCopyLink: () => { void commands.handleCopyLink(); },
@@ -46,24 +50,30 @@ export function BrowserColumnDocumentActions({ path, scopePath, notebookId, head
       detail: { filePath: path, notebookPath: scopePath },
     })); },
   };
-  return <ExternalDocumentActions target={target} iconButtonClass={iconButtonClass}
-    capabilities={header.documentControls} actions={actions}
-    collectionDisplayIndexPath={collectionPath ?? undefined}
-    showEditorFontSwitcher={header.showEditorFontSwitcher} showEditorModeToggle={header.showEditorModeToggle}
-    editorMode={editorMode} onSetEditorMode={(mode) => {
-      if (mode === editorMode) return;
-      if (header.sourceKind === 'file-html') setDocumentEditorMode('browser-column', identity, mode);
-      else void onToggleMemoEditorMode(surfaceId);
+  return <WorkspaceHeaderContentActions iconButtonClass={iconButtonClass}
+    collection={collectionPath ? { indexPath: collectionPath, notebookPath: scopePath, notebookId } : null}
+    document={{ target, capabilities: header.documentControls, actions,
+      showEditorFontSwitcher: header.showEditorFontSwitcher, showEditorModeToggle: header.showEditorModeToggle,
+      editorMode, onSetEditorMode: (mode) => {
+        if (mode === editorMode) return;
+        if (header.sourceKind === 'file-markdown' && onToggleMemoEditorMode && surfaceId) {
+          void onToggleMemoEditorMode(surfaceId);
+        } else {
+          captureLatestDocumentContent(identity, columnId);
+          setDocumentEditorMode(columnId, identity, mode);
+        }
+      },
     }} />;
 }
 
 /** Both columns use the same media command hook and menu component. */
-export function BrowserColumnMediaActions({ filePath, notebookPath, collectionPath, iconButtonClass }: {
-  filePath: string; notebookPath: string | null; collectionPath: string | null; iconButtonClass: string;
+export function BrowserColumnMediaActions({ filePath, notebookPath, notebookId, collectionPath, iconButtonClass }: {
+  filePath: string; notebookPath: string | null; notebookId: string | null; collectionPath: string | null; iconButtonClass: string;
 }) {
   const target = useMemo(() => ({ filePath, notebookPath }), [filePath, notebookPath]);
   const actions = useMediaActions(target);
-  return <MediaActions iconButtonClass={iconButtonClass} collectionDisplayIndexPath={collectionPath ?? undefined}
-    onCopyLink={actions.handleCopyMediaLink} onRevealInFileManager={actions.handleRevealMedia}
-    onRequestDelete={notebookPath ? actions.handleRequestDeleteMedia : undefined} />;
+  return <WorkspaceHeaderContentActions iconButtonClass={iconButtonClass}
+    collection={collectionPath ? { indexPath: collectionPath, notebookPath, notebookId } : null}
+    media={{ onCopyLink: actions.handleCopyMediaLink, onRevealInFileManager: actions.handleRevealMedia,
+      onRequestDelete: notebookPath ? actions.handleRequestDeleteMedia : undefined }} />;
 }

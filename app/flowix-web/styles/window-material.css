@@ -16,7 +16,7 @@ html[data-window-material][data-theme="mist"] :where(
 	.flowix-main-layout,
 	[data-window-material-overlay],
 	[data-note-navigation-surface],
-	[data-workspace-host="main-third"]
+	[data-workspace-host="column-1"]
 ) {
 	background: transparent !important;
 }
@@ -31,7 +31,7 @@ html[data-window-material][data-theme="mist"] .flowix-main-layout {
 }
 
 /* Keep the editor's floating toolbar surfaces opaque over the material frame. */
-html[data-window-material][data-theme="mist"] [data-workspace-host="main-third"] .markdown-editor .editor-toolbar .toolbar-content,
-html[data-window-material][data-theme="mist"] [data-workspace-host="main-third"] .markdown-editor .editor-toolbar .toolbar-expand-handle {
+html[data-window-material][data-theme="mist"] [data-workspace-host="column-1"] .markdown-editor .editor-toolbar .toolbar-content,
+html[data-window-material][data-theme="mist"] [data-workspace-host="column-1"] .markdown-editor .editor-toolbar .toolbar-expand-handle {
 	background: var(--card) !important;
 }

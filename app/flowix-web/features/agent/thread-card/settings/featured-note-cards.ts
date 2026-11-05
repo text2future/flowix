@@ -1,6 +1,6 @@
 import { system } from "@platform/tauri/client";
 import { getPropertyIconOption } from "@features/document/properties/property-icons";
-import { getNotebookIconMarkup } from "@features/memo/components/notebook-icon";
+import { getNotebookIconUrl } from "@features/memo/components/notebook-icon";
 import type { MemoItem } from "@/types/memo-item";
 import type { NoteEntry } from "@platform/tauri/client/notes";
 
@@ -13,7 +13,7 @@ export const FEATURED_NOTE_MOBILE_PAGE_SIZE = 3;
  * 笔记没有自定义图标时的默认图标。
  *
  * 取值是 assets/notebook-icons 里的 id, 由 appendFeaturedNoteIconContent 渲染成
- * 内联 SVG (而非像以前的 "✦" 那样当纯文本显示)。
+ * SVG 图片 (而非像以前的 "✦" 那样当纯文本显示)。
  */
 export const DEFAULT_FEATURED_NOTE_ICON = "bulb_2_ai_fill";
 
@@ -249,7 +249,7 @@ function noteTitle(filename: string): string {
  *
  * 图标值按以下顺序解析:
  *   1. 属性图标 id (如 `dog-face`) → 渲染成 `<img>` 引用 assets/property-icons;
- *   2. 笔记本图标 id (如 `board_fill`) → 内联 SVG (assets/notebook-icons);
+ *   2. 笔记本图标 id (如 `board_fill`) → SVG 图片 (assets/notebook-icons);
  *   3. 其他 (emoji / 一个字) → 直接作为文本。
  *
  * 之前直接把值塞进 textContent, 于是 `flowix_icon: board_fill` 这类 id 会以
@@ -269,9 +269,13 @@ export function appendFeaturedNoteIconContent(target: HTMLElement, icon: string)
     return;
   }
 
-  const iconMarkup = getNotebookIconMarkup(value);
-  if (iconMarkup) {
-    target.innerHTML = iconMarkup;
+  const notebookIconUrl = getNotebookIconUrl(value);
+  if (notebookIconUrl) {
+    const image = document.createElement("img");
+    image.src = notebookIconUrl;
+    image.alt = "";
+    image.draggable = false;
+    target.append(image);
     return;
   }
 

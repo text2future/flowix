@@ -420,20 +420,12 @@ html.flowix-drag-drop-active * {
 	animation: folder-file-tree-subtree-in 180ms ease-out both;
 }
 
+/* 笔记树的 root 与 folder 子列表统一使用 1px 行间距。 */
 .folder-file-tree__items > .folder-file-tree__item:not(:first-child),
 .folder-file-tree__items > .folder-file-tree__group:not(:first-child),
 .folder-file-tree__subtree-items > .folder-file-tree__item:not(:first-child),
 .folder-file-tree__subtree-items > .folder-file-tree__group:not(:first-child) {
 	margin-top: 1px;
-}
-
-/* 笔记树的 root 与 folder 子列表统一使用 2px 行间距。 */
-.notebook-file-tree__items > .folder-file-tree__group:not(:first-child),
-.notebook-file-tree__items > div:not(:first-child),
-.notebook-file-tree__subtree-items > .folder-file-tree__item:not(:first-child),
-.notebook-file-tree__subtree-items > .folder-file-tree__group:not(:first-child),
-.notebook-file-tree__subtree-items > div:not(:first-child) {
-	margin-top: 2px;
 }
 
 .folder-file-tree__subtree[data-expanded='false'] .folder-file-tree__subtree-items {
@@ -905,8 +897,9 @@ html.flowix-drag-drop-active * {
 
 /* Global keyboard focus ring for native buttons and shared Button instances.
  * Keep this unlayered and after Tailwind utilities so buttons that do not use
- * shared/ui/Button still get the same system ring token when reached by Tab. */
-:where(button, [role="button"]):focus-visible:not(:disabled):not([aria-disabled="true"]) {
+ * shared/ui/Button still get the same system ring token when reached by Tab.
+ * Conversation list items use their shared selection background instead. */
+:where(button, [role="button"]):focus-visible:not(:disabled):not([aria-disabled="true"]):not([data-notebook-conversation-item]) {
 	outline: none;
 	box-shadow: 0 0 0 1px var(--ring);
 }

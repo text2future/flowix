@@ -161,7 +161,7 @@ result = dataset → 可选 view.filter → query 文本匹配 → 排序 → �
 
 `dataset.filter=null` 表示不自动收集；空条件且 filter 非 null 可以收集整个 source 范围。兼容新 `{path,match,conditions}` 与旧 all/any 布尔组，不得把旧复杂条件简单扁平化。
 
-source 的 containing_folder 根据集合当前位置计算；folder 使用 source.path；notebook 使用笔记本根。depth 必须执行 direct_children/descendants，目录比较按路径段进行，`A` 不匹配 `AB`。文件夹 dataset.filter.path 的重定位沿用 `dataset-filter-location.ts`，不能使用移动前的旧路径。
+source 的 containing_folder 根据集合当前位置计算；folder 使用 source.path；notebook 使用笔记本根。数据域固定递归读取位置下的匹配内容，目录比较按路径段进行，`A` 不匹配 `AB`；文件树单独固定为只展示第一层。旧 source.depth 仅为读取兼容字段，不能改变读取范围，写回时移除。文件夹 dataset.filter.path 的重定位沿用 `dataset-filter-location.ts`，不能使用移动前的旧路径。
 
 媒体和工作文档分别复用对应域的成员、类型过滤和资源属性规则。hybrid 每次只查询所选域，校验 view.domain。Rust 求值与前端用同一批 fixture 比对；若现有前端分支对某个边界不一致，先明确统一语义，不能把前端实现缺陷当隐含接口。
 
@@ -234,7 +234,7 @@ tool description、initialize instructions、工具 schema、launcher 缺 CLI �
 - 只通过公开 CLI 可完成 notebooks → 分页列出全部集合 → describe → 分页获取实际成员 → show 返回笔记正文；MCP 同样成立，返回业务数据一致。
 - 不运行桌面端、没有 notebook.db、索引过期、集合外部移动后均可读取；只读集合操作不新增数据库、不改集合文件、不保存默认视图。
 - fixture 覆盖 v1/v2/v3、folder/standalone、notes/media/work_documents/hybrid、历史文件名和根目录 `.index.yaml`。
-- 覆盖自动成员、显式成员、exclude、重复引用、草稿、删除文件、null filter、空条件、旧嵌套布尔组、路径段和 direct_children。
+- 覆盖自动成员、显式成员、exclude、重复引用、草稿、删除文件、null filter、空条件、旧嵌套布尔组、路径段、递归数据域和第一层文件树。
 - schema 字段类型、零值/false、日期、空值、视图筛选排序与 UI 对照；无 view 时不意外应用默认视图。
 - 稳定输入下逐页拼接等于单次完整求值；翻页中修改 frontmatter、新增/删除文件或改视图，携带 snapshot 返回 DATA_CHANGED。
 - 损坏集合、未知版本、身份冲突、部分扫描失败明确可见；权限、路径越界、符号链接不造成漏报或越界读取。

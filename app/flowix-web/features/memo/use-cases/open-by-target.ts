@@ -1,12 +1,14 @@
 /** Open Markdown by notebook ID and relative path or by a physical file path. */
 
+import { openWorkspaceSurface as openInColumn } from '@features/workspace/public/session-opening-api';
+import type { OpenWorkspaceSurfaceRequest } from '@features/workspace/public/open-surface-api';
 import { notes as notesClient } from '@platform/tauri/client';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { setCurrentWorkspaceNotebook } from '@features/memo/public/workspace-api';
 import { canonicalDirectoryPath, canonicalPath, joinNotebookMemoPath } from '@/lib/path';
 import {
   clearWorkspaceDocument,
-  openWorkspaceSurface,
+  openWorkspaceSurface as openAtIndex,
 } from '@features/workspace/public/note-navigation-api';
 import type { WorkspaceContentLocation } from '@features/workspace/public/note-navigation-api';
 import type { WorkspaceNavigationSource, WorkspaceSurfaceOpenResult } from '@features/workspace/public/open-surface-api';
@@ -21,7 +23,8 @@ import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api'
  */
 export interface OpenNoteDestinationOptions {
   source?: WorkspaceNavigationSource;
-  destination?: 'main-third' | 'browser-column';
+  destination?: 0 | 1;
+  columnId?: import('@features/workspace/public/surface-api').WorkspaceColumnId;
 }
 
 /** Cancelled opens have no view location to publish anchors against. */
@@ -161,17 +164,17 @@ async function openNoteDestination(
   scopePath: string | null,
   options?: OpenNoteDestinationOptions,
 ): Promise<WorkspaceContentLocation | null> {
-  if (options?.destination === 'browser-column') {
-    const opened = await openWorkspaceSurface({
-      host: 'browser-column',
+  if (options?.destination === 1) {
+    const opened = await openNoteTarget(options, {
+      index: 1,
       ...(options?.source ? { source: options.source } : {}),
       target: { kind: 'external', path, scopePath, transitionId: null },
       options: { notebookId: useNoteStore.getState().notebooks.find((notebook) => canonicalPath(notebook.path) === canonicalPath(scopePath ?? ''))?.id },
     });
     return locationFromOpenResult(opened);
   }
-  const opened = await openWorkspaceSurface({
-    host: 'main-third',
+  const opened = await openNoteTarget(options, {
+    index: 0,
     ...(options?.source ? { source: options.source } : {}),
     target: { kind: 'external', path, scopePath, transitionId: null },
   });
@@ -202,10 +205,10 @@ export async function openNoteByNotebookPath(
       path: `${notebook.name}/${normalized}`,
     }));
   }
-  if (options?.destination === 'browser-column') {
+  if (options?.destination === 1) {
     const opened = locationFromOpenResult(
-      await openWorkspaceSurface({
-        host: 'browser-column',
+      await openNoteTarget(options, {
+        index: 1,
         ...(options?.source ? { source: options.source } : {}),
         target: { kind: 'external', path, scopePath: notebook.path, transitionId: null },
         options: { notebookId },
@@ -214,8 +217,8 @@ export async function openNoteByNotebookPath(
     if (anchor) publishHeadingAnchorRequest(path, opened, anchor);
     return opened;
   }
-  const opened = await openWorkspaceSurface({
-    host: 'main-third',
+  const opened = await openNoteTarget(options, {
+    index: 0,
     ...(options?.source ? { source: options.source } : {}),
     target: { kind: 'external', path, scopePath: notebook.path, transitionId: null },
   });
@@ -247,4 +250,10 @@ export async function openNotebookById(notebookId: string): Promise<boolean> {
   useNoteStore.getState().setSelectedNotebook(notebook);
   await useNoteStore.getState().loadNotes({ notebookId: notebook.id });
   return true;
+}
+
+function openNoteTarget(options: OpenNoteDestinationOptions | undefined, request: OpenWorkspaceSurfaceRequest) {
+  if (!options?.columnId) return openAtIndex(request);
+  const { index: _index, ...rest } = request;
+  return openInColumn({ ...rest, columnId: options.columnId });
 }

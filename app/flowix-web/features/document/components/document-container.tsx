@@ -21,7 +21,7 @@ import { fileNameFromPath } from '@/lib/path';
 import { getWorkspaceMemoState } from '@features/memo/public/workspace-api';
 import { resolveNotebookIdForPath } from '@features/document/use-cases/resolve-notebook-id-for-path';
 import { toast } from '@/lib/toast';
-import { product } from '@platform/tauri/client/desktop';
+import { files, product } from '@platform/tauri/client/desktop';
 import { externalDocuments } from '@platform/tauri/client/memos';
 import { notes } from '@platform/tauri/client/notes';
 import { markdownFilenameForTitle, renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
@@ -51,7 +51,7 @@ import { useI18n } from '@/lib/i18n';
 import { CenteredLoadingSpinner } from '@shared/ui/centered-loading-spinner';
 import { WorkspaceEmptyState } from '@shared/ui/workspace-empty-state';
 import { useWorkspaceFocusStore } from '@features/workspace/store/workspace-focus-store';
-import { focusWorkspaceHostFromEvent } from '@features/workspace/public/host-api';
+import { focusWorkspaceColumnFromEvent } from '@features/workspace/public/host-api';
 import { getBuffer, subscribeDocumentBufferChanges } from '@features/document/store/buffer-registry';
 import { documentIdentityKey } from '@features/document/store/document-identity';
 import {
@@ -102,15 +102,15 @@ export function DocumentContainer({
   const filePath = fileIdentity.path;
   const displayId = fileIdentity.displayId;
   const { t } = useI18n();
-  const hostId = workspaceHost ?? (documentSessionMode === 'isolated' ? 'browser-column' : 'main-third');
+  const hostId = workspaceHost ?? (documentSessionMode === 'isolated' ? 'column-2' : 'column-1');
   const locationViewId = navigationViewId ?? hostId;
-  const focusedHostId = useWorkspaceFocusStore((store) => store.focusedHostId);
-  const readOnly = forcedReadOnly || focusedHostId !== hostId;
+  const focusedColumnId = useWorkspaceFocusStore((store) => store.focusedColumnId);
+  const readOnly = forcedReadOnly || focusedColumnId !== hostId;
   // Property actions may activate this host on demand. Keep them available
   // while another host owns edit focus, but honor explicit/path-based read-only.
   const propertyActionsEnabled = !forcedReadOnly && (!isExternalDocument || Boolean(externalScopePath));
   const activatePropertyEditor = useCallback(() => {
-    if (propertyActionsEnabled) useWorkspaceFocusStore.getState().focusHost(hostId);
+    if (propertyActionsEnabled) useWorkspaceFocusStore.getState().focusColumn(hostId);
   }, [hostId, propertyActionsEnabled]);
   const containerRef = useRef<HTMLDivElement>(null);
   const resolvedExternalDisplayId = isExternalDocument ? displayId : null;
@@ -154,6 +154,8 @@ export function DocumentContainer({
   const getAttachmentNotebookId = useCallback(() => {
     return resolveNotebookIdForPath(documentIdentity.path, getWorkspaceMemoState().notebooks);
   }, [documentIdentity]);
+  const imageNotebookId = getAttachmentNotebookId();
+  const imageScopePath = getWorkspaceMemoState().notebooks.find(notebook => notebook.id === imageNotebookId)?.path ?? externalScopePath;
   const getAttachmentOwnerPath = useCallback(() => {
     // COSEC: Uploads must belong to a note inside a registered notebook.
     return getAttachmentNotebookId() ? getCurrentFilePath() : undefined;
@@ -410,7 +412,7 @@ export function DocumentContainer({
     externalScopePath,
     flushPendingContent: flushPendingEditorChanges,
     hostId,
-    isActive: () => !forcedReadOnly && useWorkspaceFocusStore.getState().focusedHostId === hostId,
+    isActive: () => !forcedReadOnly && useWorkspaceFocusStore.getState().focusedColumnId === hostId,
   });
 
   const commitExternalTitle = useCallback(async (
@@ -481,7 +483,7 @@ export function DocumentContainer({
       if (!editorHandleRef.current) refreshMountSource((version) => version + 1);
     });
     const unsubscribeFocus = useWorkspaceFocusStore.subscribe((next, previous) => {
-      if (previous.focusedHostId === hostId && next.focusedHostId !== hostId) {
+      if (previous.focusedColumnId === hostId && next.focusedColumnId !== hostId) {
         // Finish composition and publish the outgoing editor before React
         // enables the incoming surface. Disk persistence remains debounced.
         const active = document.activeElement;
@@ -511,10 +513,10 @@ export function DocumentContainer({
           ? titleEditorRef.current?.focusEnd
           : editorHandleRef.current?.focusStart;
         if (!focus) return false;
-        useWorkspaceFocusStore.getState().focusHost(hostId);
+        useWorkspaceFocusStore.getState().focusColumn(hostId);
         requestAnimationFrame(() => {
           if (active && containerRef.current?.isConnected
-            && useWorkspaceFocusStore.getState().focusedHostId === hostId) {
+            && useWorkspaceFocusStore.getState().focusedColumnId === hostId) {
             if (target === 'title') titleEditorRef.current?.focusEnd();
             else editorHandleRef.current?.focusStart?.();
           }
@@ -582,7 +584,7 @@ export function DocumentContainer({
   useDocumentMetainfo({
     identity: documentIdentity,
     loaded: state.isLoaded && Boolean(filePath),
-    active: focusedHostId === hostId,
+    active: focusedColumnId === hostId,
     metadata,
     onMetainfoData,
   });
@@ -625,8 +627,8 @@ export function DocumentContainer({
     <div
       ref={containerRef}
       data-document-session-mode={documentSessionMode}
-      onFocusCapture={(event) => focusWorkspaceHostFromEvent(event, hostId)}
-      onPointerDownCapture={(event) => focusWorkspaceHostFromEvent(event, hostId)}
+      onFocusCapture={(event) => focusWorkspaceColumnFromEvent(event, hostId)}
+      onPointerDownCapture={(event) => focusWorkspaceColumnFromEvent(event, hostId)}
       className="document-container h-full w-full min-w-0 flex flex-col bg-transparent relative overflow-hidden"
     >
       <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -696,6 +698,11 @@ export function DocumentContainer({
                 parsed?.key === markdownParserKey ? null : parsed
               ));
               setEditorReadyTick((tick) => tick + 1);
+            }}
+            imageContext={{
+              documentPath: filePath,
+              scopePath: imageScopePath,
+              readImage: (path, scopePath) => files.readImage(path, scopePath),
             }}
             linkContext={{
               documentPath: filePath,

@@ -1,3 +1,4 @@
+import { resolveEditorImageSource, type EditorImageContext, type EditorImageSource } from '@features/editor/editor-image-source';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView as ProseMirrorNodeView, EditorView, Decoration } from '@tiptap/pm/view';
 import {
@@ -10,7 +11,7 @@ import { invoke } from '@platform/tauri/core';
 import { assetMarkdownUrl, assetUrl, decodeStorageKey } from '@features/editor/extensions/attachment-link/utils';
 import { renderFlowixMediaStyleComment } from '@features/editor/extensions/attachment-link/markdown/media-style';
 import {
-    DEFAULT_IMAGE_WIDTH_PERCENT, MAX_IMAGE_WIDTH_PERCENT, imageMarkdownSpec,
+    DEFAULT_IMAGE_WIDTH_PERCENT, MAX_IMAGE_WIDTH_PERCENT, imageMarkdownSpec, escapeImageAlt,
     normalizeImageAlignment, normalizeWidthPercent,
 } from '@features/editor/extensions/attachment-link/markdown/image-markdown';
 import { translate, type I18nKey } from '@/lib/i18n';
@@ -62,6 +63,8 @@ class ImageView implements ProseMirrorNodeView {
     decorations: readonly Decoration[];
     selected = false;
     private appliedSrc: string | null = null;
+    private loadGeneration = 0;
+    private destroyed = false;
     private pendingLoadHandle: number | null = null;
     private observer: IntersectionObserver | null = null;
     private resizeMoveHandler: ((event: PointerEvent) => void) | null = null;
@@ -73,7 +76,9 @@ class ImageView implements ProseMirrorNodeView {
     private lastResizeWidthPercent: number | null = null;
     private isResizing = false;
 
-    constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number, decorations: readonly Decoration[]) {
+    constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number, decorations: readonly Decoration[],
+        private readonly getImageContext?: () => EditorImageContext | undefined,
+        private readonly onDestroy?: () => void) {
         this.node = node;
         this.view = view;
         this.getPos = getPos;
@@ -119,11 +124,19 @@ class ImageView implements ProseMirrorNodeView {
         return handle;
     }
 
-    private getSource(attrs: ImageAttributes): string {
+    private getSource(attrs: ImageAttributes): EditorImageSource {
         const storageKey = stringAttribute(attrs.storageKey);
-        return attrs.storageMode === 'attachment' && storageKey
-            ? assetUrl(storageKey)
-            : stringAttribute(attrs.src);
+        if (attrs.storageMode === 'attachment' && storageKey) {
+            const url = assetUrl(storageKey);
+            return { kind: 'url', key: url, url };
+        }
+        const src = stringAttribute(attrs.src);
+        return src ? resolveEditorImageSource(src, this.getImageContext?.()) : { kind: 'url', key: '', url: '' };
+    }
+
+    refreshSourceContext(): void {
+        const img = this.dom.querySelector('img');
+        if (img && !this.destroyed) this.applySrc(img, this.node.attrs);
     }
 
     private getOpenablePath(attrs: ImageAttributes): string | null {
@@ -154,28 +167,35 @@ class ImageView implements ProseMirrorNodeView {
         });
     }
 
-    private scheduleImageLoad(img: HTMLImageElement, src: string): void {
-        if (this.pendingLoadHandle !== null) {
-            cancelIdle(this.pendingLoadHandle);
-            this.pendingLoadHandle = null;
-        }
-
+    private scheduleImageLoad(img: HTMLImageElement, source: EditorImageSource): void {
+        const generation = this.loadGeneration;
+        if (this.pendingLoadHandle !== null) cancelIdle(this.pendingLoadHandle);
         this.pendingLoadHandle = whenIdle(() => {
             this.pendingLoadHandle = null;
-            if (!img.isConnected) return;
-            img.addEventListener('load', () => {
-                img.classList.add('is-loaded');
-                this.dom.classList.add('is-loaded');
-                this.dom.classList.remove('is-error');
-                this.setFallbackVisible(false);
-            }, { once: true });
-            img.addEventListener('error', () => {
-                img.classList.remove('is-loaded');
-                this.dom.classList.remove('is-loaded');
-                this.dom.classList.add('is-error');
-                this.setFallbackVisible(true);
-            }, { once: true });
-            img.src = src;
+            if (!img.isConnected || this.destroyed || generation !== this.loadGeneration) return;
+            const read = source.kind === 'local'
+                ? Promise.resolve().then(() => source.readImage(source.path, source.scopePath))
+                : Promise.resolve(source.kind === 'url' ? source.url : null);
+            void read.catch(() => null).then((src) => {
+                if (this.destroyed || generation !== this.loadGeneration || !img.isConnected) return;
+                const failed = () => {
+                    if (this.destroyed || generation !== this.loadGeneration) return;
+                    img.classList.remove('is-loaded');
+                    this.dom.classList.remove('is-loaded');
+                    this.dom.classList.add('is-error');
+                    this.setFallbackVisible(true);
+                };
+                if (!src) { failed(); return; }
+                img.onload = () => {
+                    if (this.destroyed || generation !== this.loadGeneration) return;
+                    img.classList.add('is-loaded');
+                    this.dom.classList.add('is-loaded');
+                    this.dom.classList.remove('is-error');
+                    this.setFallbackVisible(false);
+                };
+                img.onerror = failed;
+                img.src = src;
+            });
         });
     }
 
@@ -186,8 +206,12 @@ class ImageView implements ProseMirrorNodeView {
 
     private applySrc(img: HTMLImageElement, attrs: ImageAttributes): void {
         const nextSrc = this.getSource(attrs);
-        if (nextSrc === this.appliedSrc) return;
-        this.appliedSrc = nextSrc;
+        if (nextSrc.key === this.appliedSrc) return;
+        this.appliedSrc = nextSrc.key;
+        this.loadGeneration += 1;
+        img.onload = null;
+        img.onerror = null;
+        img.removeAttribute('src');
 
         if (this.observer) {
             this.observer.disconnect();
@@ -198,7 +222,7 @@ class ImageView implements ProseMirrorNodeView {
             this.pendingLoadHandle = null;
         }
 
-        if (!nextSrc) {
+        if (nextSrc.kind === 'url' && !nextSrc.url) {
             img.removeAttribute('src');
             img.classList.remove('is-loaded');
             this.dom.classList.remove('is-loaded');
@@ -207,7 +231,7 @@ class ImageView implements ProseMirrorNodeView {
             return;
         }
 
-        img.dataset.src = nextSrc;
+        img.dataset.src = nextSrc.kind === 'local' ? nextSrc.path : nextSrc.kind === 'url' ? nextSrc.url : '';
         img.classList.remove('is-loaded');
         this.dom.classList.remove('is-loaded');
         this.dom.classList.remove('is-error');
@@ -217,13 +241,16 @@ class ImageView implements ProseMirrorNodeView {
             return;
         }
 
-        this.observer = new IntersectionObserver((entries) => {
+        const generation = this.loadGeneration;
+        const observer = new IntersectionObserver((entries) => {
+            if (this.destroyed || generation !== this.loadGeneration || this.observer !== observer) return;
             if (!entries.some((entry) => entry.isIntersecting)) return;
-            this.observer?.disconnect();
+            observer.disconnect();
             this.observer = null;
             this.scheduleImageLoad(img, nextSrc);
         }, { rootMargin: '600px 0px' });
-        this.observer.observe(img);
+        this.observer = observer;
+        observer.observe(img);
     }
 
     private applySizing(attrs: ImageAttributes): void {
@@ -396,6 +423,11 @@ class ImageView implements ProseMirrorNodeView {
     }
 
     destroy(): void {
+        this.destroyed = true;
+        this.loadGeneration += 1;
+        this.onDestroy?.();
+        const img = this.dom.querySelector('img');
+        if (img) { img.onload = null; img.onerror = null; }
         this.finishResize();
         if (this.observer) {
             this.observer.disconnect();
@@ -410,8 +442,28 @@ class ImageView implements ProseMirrorNodeView {
 
 // 鈹€鈹€鈹€ ImageAttachment Node 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-export const ImageAttachment = Node.create({
+interface ImageAttachmentOptions {
+    getImageContext?: () => EditorImageContext | undefined;
+}
+
+interface ImageAttachmentStorage {
+    views: Set<ImageView>;
+    refreshSources: () => void;
+}
+
+declare module '@tiptap/core' {
+    interface Storage {
+        image: ImageAttachmentStorage;
+    }
+}
+
+export const ImageAttachment = Node.create<ImageAttachmentOptions, ImageAttachmentStorage>({
     name: 'image',
+    addOptions() { return {}; },
+    addStorage() {
+        const views = new Set<ImageView>();
+        return { views, refreshSources: () => views.forEach(view => view.refreshSourceContext()) };
+    },
     group: 'block',
     inline: false,
     atom: true,
@@ -534,12 +586,14 @@ export const ImageAttachment = Node.create({
     },
 
     addNodeView() {
-        return (props) => new ImageView(
-            props.node,
-            props.view,
-            () => props.getPos?.() ?? 0,
-            props.decorations
-        );
+        return (props) => {
+            const nodeView = new ImageView(
+                props.node, props.view, () => props.getPos?.() ?? 0, props.decorations,
+                this.options.getImageContext, () => this.storage.views.delete(nodeView),
+            );
+            this.storage.views.add(nodeView);
+            return nodeView;
+        };
     },
 
     ...imageMarkdownSpec,
@@ -549,7 +603,7 @@ export const ImageAttachment = Node.create({
         const imageSrc = storageMode === 'attachment' && storageKey
             ? assetMarkdownUrl(storageKey)
             : src || '';
-        const altText = alt || title || fileName || '';
+        const altText = escapeImageAlt(String(alt || title || fileName || ''));
         const normalizedWidthPercent = normalizeWidthPercent(widthPercent);
         const normalizedAlign = normalizeImageAlignment(align);
         const style: Record<string, unknown> = {};

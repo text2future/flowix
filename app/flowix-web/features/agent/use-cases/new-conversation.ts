@@ -42,16 +42,16 @@ function createAgentConversationInstance(typeKey: AgentTypeKey, notebookId: stri
 }
 
 /** 新会话的开屏位置。调用方显式指定，store 与焦点状态不参与推断。 */
-export type AgentConversationDestination = 'main-third' | 'browser-column';
+export type AgentConversationDestination = 0 | 1;
 
 function openAgentConversation(
   instanceId: string,
-  destination: AgentConversationDestination = 'main-third',
+  destination: AgentConversationDestination = 0,
 ): void {
-  if (destination === 'browser-column') {
+  if (destination === 1) {
     // 与对话列表点行同一条路径：browser 列自己管理 surface 与可见性。
     void openWorkspaceSurface({
-      host: 'browser-column',
+      index: 1,
       target: { kind: 'agent-conversation', instanceId },
     }).catch((error: unknown) => {
       logger.error('Failed to open Agent conversation in browser column', { error });
@@ -59,7 +59,7 @@ function openAgentConversation(
     return;
   }
   void openWorkspaceSurface({
-    host: 'main-third',
+    index: 0,
     target: { kind: 'agent-conversation', instanceId, blankIfMissing: true },
   });
 }
@@ -112,7 +112,7 @@ export function createAndOpenAgentConversationWithPrompt(
       autoSend: options.autoSend === true,
     });
   }
-  openAgentConversation(instance.instanceId, options.destination ?? 'main-third');
+  openAgentConversation(instance.instanceId, options.destination ?? 0);
 }
 
 /** Consume the one-shot initial prompt registered for a new conversation. */

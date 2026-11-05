@@ -17,16 +17,24 @@ vi.mock('@features/memo/store/note-store', () => ({
 
 import { renameMarkdownTitle } from '@features/document/use-cases/local-document-operations';
 import { applyLoadedDocumentContent, getDocumentBuffer, recordDocumentEdit } from '@features/document/store/document-session-service';
-import { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath } from '@features/document/public/workspace-api';
+import { acceptBackgroundDocumentContent, hasLiveUnsavedDocumentAtPath, subscribeWorkspaceDocumentSaves } from '@features/document/public/workspace-api';
 import { NoteReference } from '@features/editor/extensions/note-link/view-note';
 import { toNoteReferenceAttrs } from '@features/editor/extensions/note-mention/note-mention-data';
 import { canonicalPath } from '@/lib/path';
-import { rewriteNoteLinkMoves } from './note-link-rewriter';
-import { ensureFileDisplayIdentity, rebaseFileDisplayPath } from '@/lib/file-display-registry';
+import { rewriteNoteLinkMoves, updateNoteLinksAfterMove, acceptWorkspaceDocumentLinkSave } from './note-link-rewriter';
+import { ensureFileDisplayIdentity, rebaseFileDisplayPath, pinFileDisplayId } from '@/lib/file-display-registry';
+
+import { applyNotebookPathMove } from '@features/workspace/use-cases/notebook-path-move';
+import { localDocumentOperations } from '@features/document/use-cases/local-document-operations';
+
+import { notifyDocumentBufferChanged } from '@features/document/store/buffer-registry';
+import { findDocumentSession } from '@features/document/store/document-runtime-session';
 
 let root = '';
 const editors: Editor[] = [];
 afterEach(async () => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
   editors.splice(0).forEach(editor => editor.destroy());
   localStorage.removeItem('flowix:pending-note-link-moves');
   if (root) await rm(root, { recursive: true, force: true });
@@ -118,4 +126,75 @@ describe('rename B updates the Markdown reference in A', () => {
     expect(acceptBackgroundDocumentContent(identity.path, 'rewritten disk')).toBe(false);
     expect(getDocumentBuffer(identity).content).toBe('unsaved user text');
   });
+  it('rebases the live source before post-move edits and never rewrites the new references', async () => {
+    vi.useFakeTimers();
+    root = await mkdtemp(join(tmpdir(), 'flowix-live-source-'));
+    notebooks.splice(0, notebooks.length, { id: 'live-book', name: 'Live Book', path: canonicalPath(root) });
+    await mkdir(join(root, 'A'));
+    await mkdir(join(root, 'B'));
+    const oldPath = canonicalPath(join(root, 'A/n.md'));
+    const newPath = canonicalPath(join(root, 'B/n.md'));
+    await writeFile(oldPath, '[old](./old.png)', 'utf8');
+    const fileIdentity = ensureFileDisplayIdentity(oldPath);
+    const release = pinFileDisplayId(fileIdentity.displayId);
+    const stopSaves = subscribeWorkspaceDocumentSaves(acceptWorkspaceDocumentLinkSave);
+    let released = false;
+    try {
+    const identity = { ...fileIdentity, kind: 'md' as const };
+    applyLoadedDocumentContent(identity, oldPath, '[old](./old.png)');
+    await rename(oldPath, newPath);
+    await applyNotebookPathMove({ notebookId: 'live-book', notebookPath: root, previousRelativePath: 'A/n.md', relativePath: 'B/n.md', directory: false });
+    expect(getDocumentBuffer(identity).content).toBe('[old](../A/old.png)');
+    const edited = getDocumentBuffer(identity).content + ' [new](./new.png)';
+    recordDocumentEdit(identity, edited);
+    await writeFile(newPath, edited, 'utf8');
+    // Acknowledge the same canonical body as the normal save callback.
+    applyLoadedDocumentContent(identity, newPath, edited, { setAsCurrent: false });
+    notifyDocumentBufferChanged(identity, 'save_settled');
+    stopSaves();
+    release();
+    released = true;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(findDocumentSession(identity.displayId)?.buffer).toBeUndefined();
+    installFileTransport();
+    const jobs = JSON.parse(localStorage.getItem('flowix:pending-note-link-moves')!);
+    expect(await rewriteNoteLinkMoves(jobs)).toBe(true);
+    expect(await readFile(newPath, 'utf8')).toBe('[old](../A/old.png) [new](./new.png)');
+    } finally { stopSaves(); if (!released) release(); }
+  });
+
+  it('settles a closed moved source before publishing its first editable read', async () => {
+    vi.useFakeTimers();
+    root = await mkdtemp(join(tmpdir(), 'flowix-closed-source-'));
+    notebooks.splice(0, notebooks.length, { id: 'closed-book', name: 'Closed Book', path: canonicalPath(root) });
+    await mkdir(join(root, 'A'));
+    await mkdir(join(root, 'B'));
+    const oldPath = canonicalPath(join(root, 'A/n.md'));
+    const newPath = canonicalPath(join(root, 'B/n.md'));
+    await writeFile(newPath, '[old](./old.png)', 'utf8');
+    installFileTransport();
+    updateNoteLinksAfterMove(oldPath, newPath);
+    expect(await localDocumentOperations.read({ path: newPath, scopePath: root })).toBe('[old](../A/old.png)');
+    expect(await readFile(newPath, 'utf8')).toBe('[old](../A/old.png)');
+    expect(JSON.parse(localStorage.getItem('flowix:pending-note-link-moves')!)).toEqual([]);
+  });
+
 });
+
+function installFileTransport() {
+  invoke.mockImplementation(async (command: string, args: Record<string, string>) => {
+    if (command === 'get_dir_children') return (await readdir(args.dirPath, { withFileTypes: true })).map(entry => ({
+      name: entry.name, type: entry.isDirectory() ? 'folder' : 'document', fullPath: canonicalPath(join(args.dirPath, entry.name)),
+    }));
+    if (command === 'read_external_document') return readFile(args.filePath, 'utf8');
+    if (command === 'write_document') {
+      if (await readFile(args.filePath, 'utf8') !== args.expectedContent) return null;
+      await writeFile(args.filePath, args.content, 'utf8');
+      return { path: args.filePath, content: args.content };
+    }
+    if (command === 'acknowledge_document_operation') return;
+    throw new Error(`Unexpected native operation: ${command}`);
+  });
+}

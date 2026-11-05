@@ -9,7 +9,8 @@ import type { SurfaceLifecycle, SurfacePresentationUpdate } from '@features/work
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
 import { useCollectionDocumentSession, type CollectionDocumentCodec } from '@features/collection/public/collection-session-api';
 import { reuseCollectionValue } from '@features/collection/content-equality';
-import { FolderCollectionSwitchConfirmDialog, resolveCollectionScope, setCollectionAssetFilter, assetConditionFromFilter, assetKindsForUniverse, normalizeAssetFilterCondition, MEDIA_ASSET_KINDS, type AssetFilterCondition, type AssetFilterSaveOptions } from '@features/collection/public/folder-api';
+import { FolderCollectionSwitchConfirmDialog, resolveCollectionLocationScope, pathInCollectionScope, setCollectionAssetFilter, assetConditionFromFilter, assetKindsForUniverse, normalizeAssetFilterCondition, MEDIA_ASSET_KINDS, type AssetFilterCondition, type AssetFilterSaveOptions } from '@features/collection/public/folder-api';
+import { isSameCollectionFile, subscribeCollectionContent } from '@features/collection/public/content-events-api';
 import { collectionDisplayName, collectionSourceDomain } from '@features/collection/model';
 import { collectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { subscribe } from '@platform/tauri/event-bus';
@@ -50,7 +51,7 @@ const MEDIA_LIBRARY_CODEC: CollectionDocumentCodec<MediaLibraryDocument> = {
   }),
 };
 
-export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'main-third', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false }: { onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void; reportPresentation?: (update: SurfacePresentationUpdate) => void; filePath: string; fileIdentity?: FileDisplayIdentity; notebookPath: string | null; notebookId?: string | null; expectedCollectionId?: string | null; workspaceHost?: 'main-third' | 'browser-column'; /** 集合外壳里的 tab 面板：只把操作区 portal 进 nav 右侧操作槽（见 DocumentListView）。 */ editable?: boolean; activeViewId?: string | null; actionsHost?: CollectionActionsHost; onOpenNoteFilter?: () => void; onDatasetFilterOpenChange?: (open: boolean) => void; pageScroll?: boolean }) {
+export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, filePath, fileIdentity, notebookPath: rawNotebookPath, notebookId = null, expectedCollectionId, workspaceHost = 'column-1', editable = true, activeViewId, actionsHost, onOpenNoteFilter, onDatasetFilterOpenChange, pageScroll = false }: { onSurfaceLifecycleReady?: (lifecycle: SurfaceLifecycle | null) => void; reportPresentation?: (update: SurfacePresentationUpdate) => void; filePath: string; fileIdentity?: FileDisplayIdentity; notebookPath: string | null; notebookId?: string | null; expectedCollectionId?: string | null; workspaceHost?: 'column-1' | 'column-2'; /** 集合外壳里的 tab 面板：只把操作区 portal 进 nav 右侧操作槽（见 DocumentListView）。 */ editable?: boolean; activeViewId?: string | null; actionsHost?: CollectionActionsHost; onOpenNoteFilter?: () => void; onDatasetFilterOpenChange?: (open: boolean) => void; pageScroll?: boolean }) {
   const { t } = useI18n();
   const notebookPath = rawNotebookPath ? canonicalDirectoryPath(rawNotebookPath) : null;
   const notebooks = useNoteStore((state) => state.notebooks);
@@ -123,10 +124,16 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       refreshContent(movedPath ?? eventPath);
     };
     const stopCollection = subscribe<CollectionChangedEvent>('collection-changed', refresh);
+    // 本进程内的写入（tab 条加视图、共享资料筛选、表格保存…）由集合网关广播内容，
+    // 不再等 watcher 的 collection-changed。
+    const stopContent = subscribeCollectionContent((change) => {
+      if (!isSameCollectionFile(change.indexPath, currentFilePath)) return;
+      refreshContent(change.indexPath);
+    });
     const stopCatalog = subscribe<{ notebookId: string; operationId?: string }>('file-management-changed', (event) => {
       if (!event.operationId) refresh(event);
     });
-    return () => { stopCollection(); stopCatalog(); };
+    return () => { stopCollection(); stopContent(); stopCatalog(); };
   }, [currentFilePath, displayId, document?.collection.id, notebook?.id, notebookId, notebookPath, refreshContent, sessionKey]);
 
   const updateFilterCondition = useCallback(async (fileCondition: AssetFilterCondition, options?: AssetFilterSaveOptions) => {
@@ -230,23 +237,11 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       } });
     }
   }, [document, error, libraryDisplayName, loading, reportPresentation, retryLoad]);
-  const datasetSource = document?.dataset.source;
-  const mediaScope = useMemo(() => {
-    if (!notebookPath) return undefined;
-    // 取值范围换算只有一份（`resolveCollectionScope`）：图片导览等也要按它取内容。
-    return resolveCollectionScope(datasetSource, currentFilePath, notebookPath);
-  }, [currentFilePath, datasetSource, notebookPath]);
-  const mediaLibraryRecords = useMemo(() => {
-    const records = document?.dataset.records.include ?? [];
-    if (!mediaScope) return records;
-    const base = mediaScope.relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-    return records.filter((record) => {
-      const path = record.relative_path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-      if (!base) return mediaScope.depth === 'descendants' || !path.includes('/');
-      if (!path.startsWith(`${base}/`)) return false;
-      return mediaScope.depth === 'descendants' || !path.slice(base.length + 1).includes('/');
-    });
-  }, [document?.dataset.records.include, mediaScope]);
+  const mediaScope = useMemo(() => document
+    ? resolveCollectionLocationScope(document, currentFilePath, notebookPath) : undefined,
+  [currentFilePath, document, notebookPath]);
+  const mediaLibraryRecords = useMemo(() => (document?.dataset.records.include ?? [])
+    .filter((record) => pathInCollectionScope(record.relative_path, mediaScope)), [document?.dataset.records.include, mediaScope]);
   const mediaLibraryExcludedPaths = useMemo(() => (document?.dataset.records.exclude ?? [])
     .map((record) => record.relative_path)
     .filter((path): path is string => typeof path === 'string'), [document?.dataset.records.exclude]);
@@ -298,7 +293,7 @@ export function MediaLibraryView({ onSurfaceLifecycleReady, reportPresentation, 
       libraryName={libraryDisplayName}
       libraryFilePath={currentFilePath}
       mediaLibraryFolderPath={document.collection.placement === 'folder'
-        ? mediaScope?.relativePath || notebook?.name || ''
+        ? mediaScope?.relativePath ?? ''
         : undefined}
       mediaLibraryFilter={browseCondition}
       mediaLibraryRecords={mediaLibraryRecords}

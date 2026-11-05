@@ -31,6 +31,29 @@ export interface NoteEntry {
   properties: Record<string, unknown>;
 }
 
+export interface NoteLink {
+  sourcePath: string;
+  syntax: 'markdown' | 'wiki';
+  linkKind: 'link' | 'embed';
+  targetKind: 'path' | 'wiki';
+  targetKey: string;
+  referenceCount: number;
+  resolvedPath: string | null;
+  resolution: 'resolved' | 'missing' | 'ambiguous' | 'index-pending';
+  fresh: boolean;
+}
+
+export interface NoteLinkPage {
+  links: NoteLink[];
+  /** Outlinks only: distinguishes indexed zero links from pending extraction. */
+  sourceFresh: boolean | null;
+  nextCursor: string | null;
+  /** Backlink pages may be empty while candidate pagination has more rows. */
+  hasMore: boolean;
+}
+
+export interface NoteLinkStatus { pending: number; failed: number; indexed: number }
+
 export interface CreatedNoteDocument {
   notebookId: string;
   relativePath: string;
@@ -120,6 +143,9 @@ export const notes = {
   moveToDirectory: (filePath: string, notebookId: string, parentRelativePath: string) =>
     invoke<{ path: string; notebookChange: NotebookPathMove }>('move_memo_to_directory', { filePath, notebookId, parentRelativePath }).then((result) => { publishNotebookPathMove(result.notebookChange); return result; }),
   list: (notebookId: string) => invoke<NoteEntry[]>('list_notes_by_path', { notebookId }),
+  links: (notebookId: string, relativePath: string, options: { backlinks?: boolean; cursor?: string; limit?: number } = {}) =>
+    invoke<NoteLinkPage>('list_note_links', { notebookId, relativePath, backlinks: options.backlinks ?? false, cursor: options.cursor ?? null, limit: options.limit ?? 50 }),
+  linkStatus: (notebookId: string) => invoke<NoteLinkStatus>('get_note_link_status', { notebookId }),
   getIndexed: (notebookId: string, relativePath: string) =>
     invoke<NoteEntry | null>('get_indexed_note_by_path', { notebookId, relativePath }),
   listSummaries: (notebookId: string) =>

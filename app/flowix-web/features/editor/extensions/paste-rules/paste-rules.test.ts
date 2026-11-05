@@ -448,7 +448,7 @@ describe('paste rule helpers', () => {
   it('keeps paste rules in deterministic priority order', () => {
     expect(createManagedPasteRules().map(rule => rule.id)).toEqual([
       'files',
-      'physical-memo-path',
+      'local-document-link',
       'video-link',
       'markdown-mime',
       'asset-markdown-link',

@@ -15,6 +15,7 @@ vi.mock('@/lib/file-display-registry', () => ({
   suspendFileDisplayReconciliation: () => () => {},
 }));
 vi.mock('@features/document/public/workspace-api', () => ({
+  rebaseWorkspaceDocumentLinkSources: vi.fn(),
   getWorkspaceDocumentState: () => ({ activeExternalSession: { fileIdentity: { path: mocks.documentPath } } }),
   getWorkspaceDocumentHistory: () => [],
   replaceWorkspaceDocumentHistoryPath: vi.fn(),
@@ -37,6 +38,8 @@ vi.mock('./workspace-navigation', () => ({ replaceExternalDocumentPath: mocks.re
 
 import { applyNotebookPathMove } from './notebook-path-move';
 
+import { updateNoteLinksAfterMove } from '@features/memo/public/workspace-api';
+
 describe('confirmed notebook path moves', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,21 +48,26 @@ describe('confirmed notebook path moves', () => {
     mocks.tabs = [];
   });
 
-  it('rebinds the open document and selected note for a file move', () => {
-    applyNotebookPathMove({ notebookId: 'book', notebookPath: '/notes', previousRelativePath: 'drafts/a.md', relativePath: 'done/a.md', directory: false });
+  it('rebinds the open document and selected note for a file move', async () => {
+    await applyNotebookPathMove({ notebookId: 'book', notebookPath: '/notes', previousRelativePath: 'drafts/a.md', relativePath: 'done/a.md', directory: false });
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith('id:/notes/drafts/a.md', '/notes/drafts/a.md', '/notes/done/a.md');
     expect(mocks.setSelectedNote).toHaveBeenCalledWith({ notebookId: 'book', relativePath: 'done/a.md' });
   });
 
-  it('rebases every open descendant of a moved folder without touching a similarly named folder', () => {
+  it('rebases every open descendant of a moved folder without touching a similarly named folder', async () => {
     mocks.tabs = [
       { target: { kind: 'file-browser', activeFilePath: '/notes/drafts/sub/b.md' } },
       { target: { kind: 'file-browser', activeFilePath: '/notes/drafts-old/c.md' } },
     ];
-    applyNotebookPathMove({ notebookId: 'book', notebookPath: '/notes', previousRelativePath: 'drafts', relativePath: 'archive', directory: true });
+    await applyNotebookPathMove({ notebookId: 'book', notebookPath: '/notes', previousRelativePath: 'drafts', relativePath: 'archive', directory: true });
     expect(mocks.replace).toHaveBeenCalledTimes(2);
     expect(mocks.replace).toHaveBeenCalledWith('id:/notes/drafts/a.md', '/notes/drafts/a.md', '/notes/archive/a.md');
     expect(mocks.replace).toHaveBeenCalledWith('id:/notes/drafts/sub/b.md', '/notes/drafts/sub/b.md', '/notes/archive/sub/b.md');
     expect(mocks.setSelectedNote).toHaveBeenCalledWith({ notebookId: 'book', relativePath: 'archive/a.md' });
   });
+  it.each(['image.png', 'report.pdf', 'page.html'])('queues reference maintenance for %s', async filename => {
+    await applyNotebookPathMove({ notebookId: 'book', notebookPath: '/notes', previousRelativePath: filename, relativePath: `archive/${filename}`, directory: false });
+    expect(updateNoteLinksAfterMove).toHaveBeenCalledWith(`/notes/${filename}`, `/notes/archive/${filename}`, false);
+  });
+
 });

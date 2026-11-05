@@ -2,6 +2,7 @@ import YAML from 'yaml';
 import { externalDocuments, notebooks } from '@platform/tauri/client';
 import { canonicalDirectoryPath, canonicalPath, notebookRelativeDirectoryPath } from '@/lib/path';
 import { createFolderCollectionContent } from './folder-collection';
+import { publishCollectionContent } from './content-events';
 import {
   createCollectionId,
   createUuidV7,
@@ -284,6 +285,8 @@ export async function repairCollectionFile(
   if (result.status === 'conflict') throw new Error('集合文件已变化，请重新点击“重置当前视图”');
   if (result.status === 'missing') throw new Error('集合文件已不存在');
   if (result.status === 'error') throw new Error(result.message);
+  // 重建后的内容同样要广播：其它已挂载的面板还挂着修复前的文档。
+  publishCollectionContent({ indexPath: path, notebookPath: root, content: result.content });
   return {
     collectionId: verified.collection.id,
     collectionType: verified.collection.type as CollectionType,

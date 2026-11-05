@@ -1,4 +1,5 @@
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
+import { resolveCollectionLocationScope, pathInCollectionScope } from '@features/collection/public/folder-api';
 import { resolveDatasetFilterForLocation } from '@features/collection/dataset-filter-location';
 import { reuseCollectionValue } from '@features/collection/content-equality';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -37,6 +38,7 @@ import {
 } from './media-library-reference-markdown';
 import { canEditMediaLibraryFilter, hasMediaDatasetFilter, mediaCollectionFilterForSave, mediaLibraryFileCondition, matchesMediaCollectionFilter, normalizeMediaLibraryFileCondition, parseMediaLibrary, serializeMediaLibrary, type MediaLibraryDocument, type MediaLibraryKind, type MediaLibraryRecord } from './model';
 import { collectionSourceDomain, collectionWriteContent } from '@features/collection/public/hybrid-api';
+import { publishCollectionContent } from '@features/collection/public/content-events-api';
 
 const EMBED_RESOURCE_LIMIT = PHOTO_WALL_CANDIDATE_LIMIT;
 
@@ -228,6 +230,8 @@ function MediaLibraryDatasetPopover({ document, notebook, filePath, editable, bu
           expectedContent: source, scopePath: notebook.path });
         if (result.status === 'saved') {
           onSaved(next);
+          // 编辑器里的筛选面板也改了媒体库文件：广播落盘内容，媒体面板与外壳 tab 立刻跟上。
+          publishCollectionContent({ indexPath: filePath, notebookPath: notebook.path, content: result.content });
           if (closeOnSave) setOpen(false);
           return true;
         }
@@ -410,23 +414,8 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
     let active = true;
     setLoadingResources(true);
     void (async () => {
-      const inCollectionSource = (relativePath: string) => {
-        const source = document?.dataset.source;
-        if (!source || source.scope === 'notebook') return true;
-        let base = source.path ?? '';
-        if (source.scope === 'containing_folder') {
-          if (!filePath) return false;
-          const folder = canonicalDirectoryPath(filePath.replace(/[\\/][^\\/]*$/, ''));
-          const relativeFolder = notebookRelativeDirectoryPath(notebook.path, folder);
-          if (relativeFolder === null) return false;
-          base = relativeFolder;
-        }
-        const path = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-        const prefix = base.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-        if (!prefix) return source.depth === 'descendants' || !path.includes('/');
-        if (!path.startsWith(`${prefix}/`)) return false;
-        return source.depth === 'descendants' || !path.slice(prefix.length + 1).includes('/');
-      };
+      const scope = document ? resolveCollectionLocationScope(document, filePath, notebook.path) : undefined;
+      const inCollectionSource = (path: string) => pathInCollectionScope(path, scope);
       const effectiveFilter = document ? resolveDatasetFilterForLocation(document.dataset.filter, document.collection.placement, filePath, notebook.path) : null;
       const scopedRecords = mediaLibraryRecords.filter((record) => inCollectionSource(record.relative_path));
       const [linked, matches, hasMoreMatches] = await Promise.all([
@@ -438,7 +427,7 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
           let cursor: string | null = null;
           let hasMoreResources = true;
           while (active && matching.length <= EMBED_RESOURCE_LIMIT && hasMoreResources) {
-            const page = await mediaResources.listPage(notebook.path, kinds, cursor, 120);
+            const page = await mediaResources.listPage(notebook.path, kinds, cursor, 120, scope?.relativePath ?? null, scope?.depth);
             matching.push(...page.resources.filter((resource) => inCollectionSource(resource.relativePath)
               && matchesMediaCollectionFilter(resource.relativePath, resource.kind, effectiveFilter)));
             hasMoreResources = page.hasMore;
@@ -462,7 +451,7 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
       if (active) setError(friendlyErrorMessage(reason, t, 'errors.friendly.mediaLoad'));
     }).finally(() => { if (active) setLoadingResources(false); });
     return () => { active = false; };
-  }, [document?.dataset.filter, document?.dataset.source.depth, document?.dataset.source.path, document?.dataset.source.scope, external, filePath, fileType, hasDatasetCondition, hasDocument, mediaLibraryRecords, nearViewport, notebook?.id, notebook?.path, resourceRevision]);
+  }, [document?.dataset.filter, document?.dataset.source.path, document?.dataset.source.scope, external, filePath, fileType, hasDatasetCondition, hasDocument, mediaLibraryRecords, nearViewport, notebook?.id, notebook?.path, resourceRevision]);
 
   const openLibrary = useCallback(async () => {
     if (!filePath || !notebook || !attrs.collectionId) return;
@@ -470,7 +459,7 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
       const resolved = await resolveMediaLibraryPath(notebook, attrs.collectionId!);
       if (resolved.relativePath !== attrs.relativePath) onRelativePathChange(resolved.relativePath);
       await openWorkspaceSurface({
-        host: 'main-third',
+        index: 0,
         target: { kind: 'collection-reference', notebookId: notebook.id, collectionId: attrs.collectionId, collectionKind: 'media_library' },
       });
     } catch (reason) {
@@ -519,6 +508,8 @@ function MediaLibraryReferenceSurface({ attrs, currentNotebookId, editable, onRe
             });
             if (write.status === 'saved') {
               savedDocument = next;
+              // 导入媒体同样改写了媒体库文件，写盘方负责广播。
+              publishCollectionContent({ indexPath: resolved.filePath, notebookPath: notebook.path, content: write.content });
               return true;
             }
             if (write.status !== 'conflict') {

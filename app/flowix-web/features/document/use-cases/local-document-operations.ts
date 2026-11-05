@@ -5,7 +5,7 @@ import { translate } from '@/lib/i18n';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { externalDocuments } from '@platform/tauri/client';
 import { files } from '@platform/tauri/client/desktop';
-import { updateNoteLinksAfterMove } from '@features/memo/services/note-link-rewriter';
+import { prepareMovedDocumentForRead, updateNoteLinksAfterMove } from '@features/memo/services/note-link-rewriter';
 import { beginExternalDocumentRename, isExternalDocumentRenameInProgress } from '@features/document/store/external-document-operation';
 import { beginNotebookPathRename } from '@platform/tauri/notebook-change-events';
 
@@ -13,7 +13,10 @@ import type { EditableDocumentOperations } from './editable-document-operations'
 
 /** Persistence boundary for Markdown and other editable local files. */
 export const localDocumentOperations: Omit<EditableDocumentOperations, 'rename'> = {
-  read: ({ path, scopePath }) => externalDocuments.read(path, scopePath),
+  read: async ({ path, scopePath }) => {
+    await prepareMovedDocumentForRead(path);
+    return externalDocuments.read(path, scopePath);
+  },
   write: async ({ path, content, expectedContent, scopePath }) => {
     const result = await externalDocuments.write({
       filePath: path,
@@ -42,7 +45,7 @@ const renameLocalPath: EditableDocumentOperations['rename'] = async ({ path, nam
     return { path: result.filePath };
   }
   const renamedPath = canonicalPath(await files.rename(path, name, scopePath));
-  if (/\.(?:md|markdown)$/i.test(path) && renamedPath !== canonicalPath(path)) {
+  if (renamedPath !== canonicalPath(path)) {
     updateNoteLinksAfterMove(path, renamedPath);
   }
   return { path: renamedPath };

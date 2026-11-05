@@ -1,4 +1,4 @@
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useColumnNavigation, useColumnTarget } from '@features/workspace/store/column-navigation';
 
 export {
   clearPluginWorkbenchTarget,
@@ -12,16 +12,17 @@ export {
   selectNotebook,
 } from '@features/workspace/use-cases/workspace-navigation';
 
+/** Notes own column 1; the id is the only thing that identifies it. */
 export function useWorkspaceNavigationPhase() {
-  return useWorkColumnStore((state) => state.navigation.phase);
+  return useColumnNavigation('column-1', (navigation) => navigation.transaction.phase);
 }
 
 export function useWorkspaceNavigationFailure() {
-  return useWorkColumnStore((state) => (
-    state.navigation.phase === 'failed' ? state.navigation.failure : null
+  return useColumnNavigation('column-1', (navigation) => (
+    navigation.transaction.phase === 'failed' ? navigation.transaction.failure : null
   ));
 }
 
 export function useWorkspaceTargetKind() {
-  return useWorkColumnStore((state) => state.navigation.target.kind);
+  return useColumnTarget('column-1').kind;
 }

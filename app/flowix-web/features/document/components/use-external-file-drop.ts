@@ -14,7 +14,7 @@ export interface ExternalFileDropDetail {
   paths: string[];
 }
 
-type WorkspaceHost = 'main-third' | 'browser-column';
+type WorkspaceHost = 0 | 1;
 
 interface ResolvedDropLocation {
   hit: Element | null;
@@ -70,8 +70,8 @@ export function useExternalFileDrop({
         ? document.elementFromPoint(clientPosition.x, clientPosition.y)
         : null;
       const notebookTarget = hit?.closest<HTMLElement>(EXTERNAL_FILE_DROP_TARGET_SELECTOR) ?? null;
-      const host = hit?.closest<HTMLElement>('[data-workspace-host]')?.dataset.workspaceHost;
-      const workspaceHost: WorkspaceHost | null = host === 'main-third' || host === 'browser-column' ? host : null;
+      const host = hit?.closest<HTMLElement>('[data-column-index]')?.dataset.columnIndex;
+      const workspaceHost: WorkspaceHost | null = host === '0' ? 0 : host === '1' ? 1 : null;
       return { hit, notebookTarget, workspaceHost };
     };
     const dispatchToTarget = (
@@ -122,7 +122,7 @@ export function useExternalFileDrop({
         clearRoutedTarget();
         const destination = location.workspaceHost;
         setDraggingDestination(destination);
-        setIsDraggingFile(Boolean(destination && draggedPathsRef.current.length));
+        setIsDraggingFile(Boolean(destination !== null && draggedPathsRef.current.length));
         return;
       }
 
@@ -136,7 +136,7 @@ export function useExternalFileDrop({
         clearRoutedTarget();
         const destination = location.workspaceHost;
         setDraggingDestination(destination);
-        setIsDraggingFile(Boolean(destination && draggedPathsRef.current.length));
+        setIsDraggingFile(Boolean(destination !== null && draggedPathsRef.current.length));
         return;
       }
 
@@ -166,7 +166,7 @@ export function useExternalFileDrop({
       draggedPathsRef.current = [];
       if (paths.length === 0) return;
       const destination = location.workspaceHost ?? undefined;
-      if (!destination) return;
+      if (destination === undefined) return;
       const requestId = ++dropRequestRef.current;
       const dropResult = onDropPathsRef.current(paths, destination);
       void Promise.resolve(dropResult).catch((error) => {

@@ -146,7 +146,7 @@ function TableReferenceSurface({ attrs, currentNotebookId, editable, onViewChang
     if (!notebook || !attrs.collectionId) return;
     try {
       await openWorkspaceSurface({
-        host: 'main-third',
+        index: 0,
         target: { kind: 'collection-reference', notebookId: notebook.id, collectionId: attrs.collectionId, viewId: attrs.viewId, collectionKind: 'table' },
       });
     } catch (error) {

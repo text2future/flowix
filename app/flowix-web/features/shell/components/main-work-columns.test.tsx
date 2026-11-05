@@ -8,7 +8,7 @@ vi.mock('@features/workspace/public/surface-api', () => ({
 }));
 vi.mock('@features/surface/public/shell-api', () => ({
   collectionIndexPath: () => '/book/folder/.index.yaml',
-  WorkColumnContentHost: () => <span data-testid="surface-host" />,
+  WorkColumnContentHost: () => <span data-testid="surface-host"><input defaultValue="primary draft" /></span>,
 }));
 vi.mock('@features/document/public/shell-api', () => ({
   DocumentTitlebarMac: () => null,
@@ -49,7 +49,7 @@ function props(): MainWorkColumnsProps {
     handleBrowserColumnResize: vi.fn(),
     toolbarCollapsed: false,
     setToolbarCollapsed: vi.fn(),
-    focusedHostId: 'main-third',
+    focusedColumnId: 'column-1',
     isMemoListHidden: false,
     isMemoListAnimating: false,
     noteNavigationPhase: 'closed',
@@ -81,17 +81,11 @@ function props(): MainWorkColumnsProps {
     handleExportPdf: vi.fn(),
     handleDeleteExternalFile: vi.fn(),
     mediaActions: undefined,
-    defaultCreateFolderState: null,
-    defaultCreateFolder: null,
-    handleToggleDefaultFolder: vi.fn(),
-    handleSwitchFolderCollectionType: vi.fn(),
     activeExternalSession: null,
     selectedNotebook: null,
     recentExportPath: null,
     onDismissExportNotice: vi.fn(),
-    isDocumentTransitioning: false,
     workSurfaceBlockingLoading: false,
-    workSurfaceFailed: false,
     notebookSwitching: false,
     language: 'zh-CN',
   } as unknown as MainWorkColumnsProps;
@@ -119,7 +113,7 @@ describe('MainWorkColumns collection header overlap', () => {
   });
 });
 
-it('relocates stable session trees without unmounting either content or Header state', async () => {
+it('keeps both column trees mounted when column 2 collapses', async () => {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -129,17 +123,47 @@ it('relocates stable session trees without unmounting either content or Header s
   const secondary = host.querySelector('[data-testid="secondary-surface"]');
   const field = secondary?.querySelector('input');
   if (field) field.value = 'edited without saving';
-  const primaryRoot = host.querySelector<HTMLElement>('[data-workspace-session="primary-session"]');
+  const primaryRoot = host.querySelector<HTMLElement>('[data-workspace-host="column-1"]');
+  // 两个实例保持挂载，index 控制当前位置。
   expect(primaryRoot?.style.gridColumn).toBe('1');
-  await act(async () => { useWorkspaceSessionStore.getState().swap(); });
-  expect(primaryRoot?.style.gridColumn).toBe('2');
-  expect(primaryRoot?.dataset.workspaceHost).toBe('browser-column');
+  expect(primaryRoot?.dataset.workspaceHost).toBe('column-1');
   expect(host.querySelector('[data-testid="surface-host"]')).toBe(primary);
   expect(host.querySelector('[data-testid="secondary-surface"]')).toBe(secondary);
   expect(secondary?.querySelector('input')?.value).toBe('edited without saving');
   await act(async () => root?.render(<MainWorkColumns {...input} browserColumnVisible={false} />));
-  expect(primaryRoot?.style.display).toBe('none');
+  // 收起右侧只改变可见性，不卸载实例。
+  expect(primaryRoot?.style.display).toBe('');
   expect(host.querySelector('[data-testid="surface-host"]')).toBe(primary);
-  await act(async () => root?.render(<MainWorkColumns {...input} />));
-  expect(host.querySelector('[data-testid="secondary-surface"]')).toBe(secondary);
+});
+
+it('moves the same column DOM and preserves both drafts when indices exchange', async () => {
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible />));
+  const column = host.querySelector<HTMLElement>('[data-workspace-host="column-1"]')!;
+  const primary = host.querySelector<HTMLInputElement>('[data-testid="surface-host"] input')!;
+  const secondary = host.querySelector<HTMLInputElement>('[data-testid="secondary-surface"] input')!;
+  primary.value = 'unsaved primary';
+  secondary.value = 'unsaved secondary';
+  primary.focus();
+
+  await act(async () => useWorkspaceSessionStore.getState().swapColumnContents());
+
+  expect(host.querySelector('[data-workspace-host="column-1"]')).toBe(column);
+  expect(column.style.gridColumn).toBe('2');
+  expect(column.dataset.columnIndex).toBe('1');
+  expect(host.querySelector('[data-testid="surface-host"] input')).toBe(primary);
+  expect(host.querySelector('[data-testid="secondary-surface"] input')).toBe(secondary);
+  expect(primary.value).toBe('unsaved primary');
+  expect(secondary.value).toBe('unsaved secondary');
+  expect(document.activeElement).toBe(primary);
+
+  await act(async () => root?.render(<MainWorkColumns {...props()} browserColumnVisible={false} />));
+  expect(column.style.display).toBe('none');
+  expect(host.querySelector('[data-testid="surface-host"] input')).toBe(primary);
+  await act(async () => useWorkspaceSessionStore.getState().swapColumnContents());
+  expect(column.style.gridColumn).toBe('1');
+  expect(column.style.display).toBe('');
+  expect(primary.value).toBe('unsaved primary');
 });

@@ -1,3 +1,4 @@
+import type { EditorImageContext } from '@features/editor/editor-image-source';
 import { Extension } from '@tiptap/core';
 import { ImageAttachment } from '@features/editor/extensions/attachment-link/nodes/view-image';
 import { VideoAttachment } from '@features/editor/extensions/attachment-link/nodes/view-video';
@@ -5,6 +6,10 @@ import { FileAttachment } from '@features/editor/extensions/attachment-link/node
 import { createAttachmentCommands } from '@features/editor/extensions/attachment-link/upload/commands';
 import { createFileUploadPlugin } from '@features/editor/extensions/attachment-link/upload/plugin';
 import type { AttachmentUploadOptions, OpenFileDialogParams } from '@features/editor/extensions/attachment-link/upload/file-source';
+
+interface AttachmentLinkOptions extends AttachmentUploadOptions {
+    getImageContext?: () => EditorImageContext | undefined;
+}
 
 declare module '@tiptap/core' {
     interface Storage {
@@ -41,7 +46,7 @@ function normalizeOptions(options: Partial<AttachmentUploadOptions> = {}) {
     };
 }
 
-export const AttachmentLink = Extension.create<AttachmentUploadOptions>({
+export const AttachmentLink = Extension.create<AttachmentLinkOptions>({
     name: 'attachmentLink',
 
     addOptions() {
@@ -70,7 +75,7 @@ export const AttachmentLink = Extension.create<AttachmentUploadOptions>({
     },
 
     addExtensions() {
-        return [ImageAttachment, VideoAttachment, FileAttachment];
+        return [ImageAttachment.configure({ getImageContext: this.options.getImageContext }), VideoAttachment, FileAttachment];
     },
 
     addCommands() {

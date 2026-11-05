@@ -200,18 +200,40 @@ impl CollectionDocument {
     }
     pub fn serialize(&self) -> Result<String, String> {
         self.validate()?;
-        serde_yaml::to_string(self).map_err(|e| e.to_string())
+        let mut normalized = self.clone();
+        normalized.remove_collection_source_depth();
+        serde_yaml::to_string(&normalized).map_err(|e| e.to_string())
+    }
+
+    /// Remove the retired source depth setting on the next write. File-tree
+    /// rendering has its own one-level behavior; collection datasets recurse.
+    fn remove_collection_source_depth(&mut self) {
+        fn remove_from_dataset(dataset: &mut Value) {
+            if let Some(source) = dataset.get_mut("source").and_then(Value::as_object_mut) {
+                source.remove("depth");
+            }
+        }
+
+        if self.collection.kind == CollectionType::Hybrid {
+            if let Some(domains) = self.payload.get_mut("domains").and_then(Value::as_object_mut) {
+                for dataset in domains.values_mut() {
+                    remove_from_dataset(dataset);
+                }
+            }
+        } else if let Some(dataset) = self.payload.get_mut("dataset") {
+            remove_from_dataset(dataset);
+        }
     }
     /// Convert a validated legacy file for an edit. Reading alone never rewrites it.
-    /// v2 and v3 documents are already canonical and pass through unchanged.
+    /// v2 and v3 documents are retained, with retired source depth fields removed on write.
     pub fn normalized_v2(&self) -> Result<Self, String> {
         self.validate()?;
         if self.schema_version >= 2 {
             return Ok(self.clone());
         }
         let source = match self.collection.placement {
-            CollectionPlacement::Folder => serde_json::json!({"scope":"containing_folder","depth":"descendants"}),
-            CollectionPlacement::Standalone => serde_json::json!({"scope":"notebook","depth":"descendants"}),
+            CollectionPlacement::Folder => serde_json::json!({"scope":"containing_folder"}),
+            CollectionPlacement::Standalone => serde_json::json!({"scope":"notebook"}),
         };
         let payload = match self.collection.kind {
             CollectionType::Table => {
@@ -607,9 +629,11 @@ fn validate_collection_v2(document: &CollectionDocument) -> Result<(), String> {
     let source = dataset.get("source").ok_or("MISSING_COLLECTION_SOURCE")?;
     only_keys(source, &["scope", "depth", "path"])?;
     let scope = source["scope"].as_str().ok_or("INVALID_COLLECTION_SCOPE")?;
-    let depth = source["depth"].as_str().ok_or("INVALID_COLLECTION_DEPTH")?;
-    if !matches!(depth, "direct_children" | "descendants") {
-        return Err("INVALID_COLLECTION_DEPTH".into());
+    if let Some(depth) = source.get("depth") {
+        let depth = depth.as_str().ok_or("INVALID_COLLECTION_DEPTH")?;
+        if !matches!(depth, "direct_children" | "descendants") {
+            return Err("INVALID_COLLECTION_DEPTH".into());
+        }
     }
     match (document.collection.placement, scope) {
         (CollectionPlacement::Folder, "containing_folder") if source.get("path").is_none() => {}
@@ -1285,7 +1309,11 @@ mod builtin_field_tests {
         assert_eq!(document.collection.kind, CollectionType::Hybrid);
         assert_eq!(document.collection.kind.as_str(), "hybrid");
         let restored = CollectionDocument::parse(&document.serialize().unwrap()).unwrap();
-        assert_eq!(restored.payload, document.payload);
+        let mut expected = document.payload.clone();
+        for dataset in expected["domains"].as_object_mut().unwrap().values_mut() {
+            dataset["source"].as_object_mut().unwrap().remove("depth");
+        }
+        assert_eq!(restored.payload, expected);
         // v2 single-type files stay rejected when re-typed as hybrid at v2.
         let mut swapped = CollectionDocument::parse(source).unwrap();
         swapped.schema_version = 2;
@@ -1369,7 +1397,9 @@ mod builtin_field_tests {
         document.validate().unwrap();
         assert_eq!(document.payload["views"]["items"][0]["config"]["date_field"], "__note_calendar_date__");
         let restored = CollectionDocument::parse(&document.serialize().unwrap()).unwrap();
-        assert_eq!(restored.payload, document.payload);
+        let mut expected = document.payload.clone();
+        expected["dataset"]["source"].as_object_mut().unwrap().remove("depth");
+        assert_eq!(restored.payload, expected);
     }
 
 

@@ -1,5 +1,7 @@
 'use client';
 
+import { columnAtIndex } from '@features/workspace/public/session-api';
+
 import { useCallback, useEffect, useRef } from 'react';
 
 import { canonicalDirectoryPath, canonicalPath, parentDirectoryPath } from '@/lib/path';
@@ -21,9 +23,9 @@ import { openNotebookNote } from '@features/memo/use-cases/open-notebook-note';
 import { openFolderCollectionFromFolder } from '@features/workspace/public/main-window-api';
 import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
 import { createFileBrowserTarget } from '@features/workspace/public/browser-column-api';
-import { useWorkColumnStore } from '@features/workspace/store/work-column-store';
+import { useColumnTarget } from '@features/workspace/public/column-navigation-api';
 import { clearWorkspaceTargetsForDeletedDirectory } from '@features/workspace/public/shell-api';
-import { workColumnTargetFilePath } from '@features/workspace/store/work-column-target';
+import { useActiveFilePath } from '@features/workspace/public/active-file-path-api';
 import {
   files,
   mediaResources,
@@ -75,8 +77,10 @@ export function NotebookFolderView({
     if (applied === null || applied === visibilityKey) return;
     void reloadTree();
   }, [isActive, visibilityKey, reloadTree]);
-  const target = useWorkColumnStore((state) => state.navigation.target);
-  const activeFilePath = workColumnTargetFilePath(target);
+  const target = useColumnTarget(0);
+  // 树高亮跟随中间列（槽位），而不是 Work 会话：交换两列后 Work 可能在右侧，
+  // 继续用 Work target 会高亮到用户没在看的那份文档。
+  const activeFilePath = useActiveFilePath();
   const activeFileRevealRatio = target.kind === 'external' && target.treeReveal === 'created-note'
     ? 0.4 : undefined;
   const refreshDirectoriesRef = useRef(tree.refreshDirectories);
@@ -129,13 +133,13 @@ export function NotebookFolderView({
         const resourceKind = resourceKindFromPath(filePath);
         if (resourceKind === 'image' || resourceKind === 'video') {
           await openWorkspaceSurface({
-            host: 'main-third',
+            index: 0,
             source: 'notebook-tree',
             target: { kind: 'media', filePath, notebookId: notebook.id, notebookPath: notebook.path, resourceKind },
           });
         } else {
           await openWorkspaceSurface({
-            host: 'main-third',
+            index: 0,
             source: 'notebook-tree',
             target: { kind: 'external', path: filePath, scopePath: notebook.path, transitionId: null },
           });
@@ -143,7 +147,7 @@ export function NotebookFolderView({
         return;
       }
       await openNotebookNote(filePath, notebook, {
-        destination: 'main-third',
+        destination: 0,
         source: 'notebook-tree',
       });
       console.info('[perf:file-tree-open] path opened', { elapsedMs: performance.now() - startedAt });
@@ -159,13 +163,13 @@ export function NotebookFolderView({
         const resourceKind = resourceKindFromPath(filePath);
         if (resourceKind === 'image' || resourceKind === 'video') {
           await openWorkspaceSurface({
-            host: 'browser-column',
+            index: 1,
             source: 'notebook-tree-new-tab',
             target: { kind: 'media', filePath, notebookId: notebook.id, notebookPath: notebook.path, resourceKind },
           });
         } else {
           await openWorkspaceSurface({
-            host: 'browser-column',
+            index: 1,
             source: 'notebook-tree-new-tab',
             target: createFileBrowserTarget(filePath, notebook.path, notebook.path),
           });
@@ -173,7 +177,7 @@ export function NotebookFolderView({
         return;
       }
       await openWorkspaceSurface({
-        host: 'browser-column',
+        index: 1,
         source: 'notebook-tree-new-tab',
         target: { kind: 'external', path: filePath, scopePath: notebook.path, transitionId: null },
       });
@@ -228,6 +232,7 @@ export function NotebookFolderView({
         } else {
           const movedPath = await files.move(sourcePath, target, notebook.path);
           movedPaths.push(movedPath);
+          updateNoteLinksAfterMove(sourcePath, movedPath);
         }
       } catch (error) {
         logger.warn('moving notebook tree item failed', { error, sourcePath, targetDirectoryPath });
@@ -297,7 +302,7 @@ export function NotebookFolderView({
       onCreateFolder={onCreateFolder}
       onNoteSelect={(filePath) => { void openFile(filePath); }}
       onFolderSelect={(folderPath) => {
-        const opening = openFolderCollectionFromFolder(notebook.id, folderPath, 'main-third');
+        const opening = openFolderCollectionFromFolder(notebook.id, folderPath, columnAtIndex(0));
         void opening.catch((error) => {
           logger.warn('opening folder collection failed', { folderPath, error });
           toast.error(error instanceof Error ? error.message : '无法打开文件夹集合');

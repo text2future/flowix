@@ -1,3 +1,4 @@
+import type { EditorImageContext } from './editor-image-source';
 import { useSessionViewChannel } from '@features/workspace/public/session-view-state-api';
 import { createLogger } from '@/lib/logger';
 import { Editor } from '@tiptap/core';
@@ -23,7 +24,7 @@ import { useI18n } from '@/lib/i18n';
 import { markDocumentOpenTrace } from '@/lib/document-open-perf';
 import { perfMark } from '@/lib/perf-probe';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import type { WorkspaceHostId } from '@features/workspace/public/host-api';
+import type { WorkspaceColumnId } from '@features/workspace/public/host-api';
 import { CodeBlockShiki } from '@features/editor/extensions/codeblock-shiki/codeblock-shiki';
 import { createMarkdownEditorExtensions, serializeEditorMarkdown } from './markdown-editor-extensions';
 import {
@@ -40,7 +41,7 @@ interface MarkdownEditorProps {
   /** Absolute or notebook-relative path of the note owning editor uploads. */
   ownerPath?: string;
   /** Workspace surface hosting this editor, passed to surface-aware NodeViews. */
-  workspaceHost?: WorkspaceHostId;
+  workspaceHost?: WorkspaceColumnId;
   /** Read the current path when an upload starts, including after a rename. */
   getAttachmentOwnerPath?: () => string | undefined;
   getAttachmentNotebookId?: () => string | undefined;
@@ -79,6 +80,7 @@ interface MarkdownEditorProps {
    * document layer). Omitted contexts fall back to the historic web opener.
    */
   linkContext?: EditorLinkContext;
+  imageContext?: EditorImageContext;
   /** Content in the document scroller that stays outside ProseMirror. */
   header?: ReactNode;
 }
@@ -160,7 +162,7 @@ function resetEditorHistory(editor: Editor): void {
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({
   ownerPath,
-  workspaceHost = 'main-third',
+  workspaceHost = 'column-1',
   getAttachmentOwnerPath,
   getAttachmentNotebookId,
   propertyTargetId,
@@ -185,6 +187,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   onFocusTitle,
   onAppendToTitle,
   linkContext,
+  imageContext,
   header,
 }, ref) {
   const { t } = useI18n();
@@ -227,6 +230,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   // 链接导航上下文走 ref：mount effect 不因文档路径变化重建编辑器，
   // 点击时始终读取最新值。
   const linkContextRef = useRef<EditorLinkContext | undefined>(linkContext);
+  const imageContextRef = useRef(imageContext);
   onEditorScrollRef.current = onEditorScroll;
   onChangeRef.current = onChange;
   onSearchPanelOpenChangeRef.current = onSearchPanelOpenChange;
@@ -236,6 +240,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   editableRef.current = editable;
   attachmentOwnerRef.current = { ownerPath, getAttachmentOwnerPath, getAttachmentNotebookId };
   linkContextRef.current = linkContext;
+  imageContextRef.current = imageContext;
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (editor && !editor.isDestroyed) {
+      editor.storage.image.refreshSources();
+    }
+  }, [imageContext?.documentPath, imageContext?.scopePath]);
 
   const getCurrentAttachmentOwnerPath = useCallback(() => {
     const current = attachmentOwnerRef.current;
@@ -632,6 +644,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       extensions: createMarkdownEditorExtensions({
         ownerPath,
         getOwnerPath: getCurrentAttachmentOwnerPath,
+        getImageContext: () => imageContextRef.current,
         getAttachmentNotebookId: getCurrentAttachmentNotebookId,
         propertyTargetId,
         onPropertyAreaHoverChange,

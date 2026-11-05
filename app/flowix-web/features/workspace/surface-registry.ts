@@ -1,17 +1,17 @@
 import { externalFileViewKind } from '@features/editor/public/code-file';
 
 import type {
-  WorkspaceSurfaceHost, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
+  WorkspaceColumnId, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
   SurfaceAppearance,
 } from './model/surface-contract';
 export type {
-  WorkspaceSurfaceHost, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
+  WorkspaceColumnId, WorkspaceSurfaceCapability, WorkspaceFileSurfaceKind, WorkspaceSurfaceKind,
 } from './model/surface-contract';
 
 type SurfaceRegistration = {
   /** Stable implementation ID; the UI layer supplies its lazy component. */
   rendererId: string;
-  hosts: readonly WorkspaceSurfaceHost[];
+  hosts: readonly WorkspaceColumnId[];
   capabilities: readonly WorkspaceSurfaceCapability[];
   appearance: SurfaceAppearance;
 };
@@ -38,32 +38,32 @@ const FILE_MEDIA_APPEARANCE = Object.freeze({
  * is also used by navigation to reject unsupported hosts before mounting UI.
  */
 export const workspaceSurfaceRegistry = Object.freeze({
-  'file-markdown': { rendererId: 'file-markdown', hosts: ['main-third', 'browser-column'], capabilities: ['edit', 'search', 'copy-content', 'export-content', 'save-template'], appearance: DOCUMENT_APPEARANCE },
-  'file-code': { rendererId: 'file-code', hosts: ['main-third', 'browser-column'], capabilities: ['edit', 'search', 'copy-content'], appearance: DOCUMENT_APPEARANCE },
-  'file-csv': { rendererId: 'file-csv', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-image': { rendererId: 'file-image', hosts: ['main-third', 'browser-column'], capabilities: ['fullscreen', 'zoom'], appearance: FILE_MEDIA_APPEARANCE },
-  'file-video': { rendererId: 'file-video', hosts: ['main-third', 'browser-column'], capabilities: ['fullscreen'], appearance: FILE_MEDIA_APPEARANCE },
-  'file-table': { rendererId: 'file-table', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-media-library': { rendererId: 'file-media-library', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-work-documents': { rendererId: 'file-work-documents', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-html': { rendererId: 'file-html', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-docx': { rendererId: 'file-docx', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-unavailable': { rendererId: 'file-unavailable', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  'file-browser': { rendererId: 'file-browser', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  collection: { rendererId: 'collection', hosts: ['main-third', 'browser-column'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
-  media: { rendererId: 'media', hosts: ['main-third', 'browser-column'], capabilities: ['fullscreen'], appearance: MEDIA_APPEARANCE },
-  mindmap: { rendererId: 'plugin-document', hosts: ['main-third'], capabilities: ['fullscreen', 'fit', 'zoom'], appearance: DOCUMENT_APPEARANCE },
-  'plugin-artifact': { rendererId: 'plugin-document', hosts: ['main-third'], capabilities: ['fullscreen'], appearance: DOCUMENT_APPEARANCE },
-  'agent-conversation': { rendererId: 'agent-conversation', hosts: ['main-third', 'browser-column'], capabilities: ['stream-conversation'], appearance: AGENT_APPEARANCE },
-  web: { rendererId: 'web', hosts: ['main-third', 'browser-column'], capabilities: ['web-navigation'], appearance: DOCUMENT_APPEARANCE },
-  'plugin-workbench': { rendererId: 'plugin-workbench', hosts: ['main-third', 'browser-column'], capabilities: ['run-agent', 'fullscreen'], appearance: DOCUMENT_APPEARANCE },
+  'file-markdown': { rendererId: 'file-markdown', hosts: ['column-1', 'column-2'], capabilities: ['edit', 'search', 'copy-content', 'export-content', 'save-template'], appearance: DOCUMENT_APPEARANCE },
+  'file-code': { rendererId: 'file-code', hosts: ['column-1', 'column-2'], capabilities: ['edit', 'search', 'copy-content'], appearance: DOCUMENT_APPEARANCE },
+  'file-csv': { rendererId: 'file-csv', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-image': { rendererId: 'file-image', hosts: ['column-1', 'column-2'], capabilities: ['fullscreen', 'zoom'], appearance: FILE_MEDIA_APPEARANCE },
+  'file-video': { rendererId: 'file-video', hosts: ['column-1', 'column-2'], capabilities: ['fullscreen'], appearance: FILE_MEDIA_APPEARANCE },
+  'file-table': { rendererId: 'file-table', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-media-library': { rendererId: 'file-media-library', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-work-documents': { rendererId: 'file-work-documents', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-html': { rendererId: 'file-html', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-docx': { rendererId: 'file-docx', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-unavailable': { rendererId: 'file-unavailable', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  'file-browser': { rendererId: 'file-browser', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  collection: { rendererId: 'collection', hosts: ['column-1', 'column-2'], capabilities: [], appearance: DOCUMENT_APPEARANCE },
+  media: { rendererId: 'media', hosts: ['column-1', 'column-2'], capabilities: ['fullscreen'], appearance: MEDIA_APPEARANCE },
+  mindmap: { rendererId: 'plugin-document', hosts: ['column-1'], capabilities: ['fullscreen', 'fit', 'zoom'], appearance: DOCUMENT_APPEARANCE },
+  'plugin-artifact': { rendererId: 'plugin-document', hosts: ['column-1'], capabilities: ['fullscreen'], appearance: DOCUMENT_APPEARANCE },
+  'agent-conversation': { rendererId: 'agent-conversation', hosts: ['column-1', 'column-2'], capabilities: ['stream-conversation'], appearance: AGENT_APPEARANCE },
+  web: { rendererId: 'web', hosts: ['column-1', 'column-2'], capabilities: ['web-navigation'], appearance: DOCUMENT_APPEARANCE },
+  'plugin-workbench': { rendererId: 'plugin-workbench', hosts: ['column-1', 'column-2'], capabilities: ['run-agent', 'fullscreen'], appearance: DOCUMENT_APPEARANCE },
 } as const satisfies Record<WorkspaceSurfaceKind, SurfaceRegistration>);
 
 export function workspaceSurfaceSupportsHost(
   kind: WorkspaceSurfaceKind,
-  host: WorkspaceSurfaceHost,
+  host: WorkspaceColumnId,
 ): boolean {
-  const hosts: readonly WorkspaceSurfaceHost[] = workspaceSurfaceRegistry[kind].hosts;
+  const hosts: readonly WorkspaceColumnId[] = workspaceSurfaceRegistry[kind].hosts;
   return hosts.includes(host);
 }
 
@@ -77,7 +77,7 @@ export function workspaceFileSurfaceKind(kind: WorkspaceFileSurfaceKind): `file-
 
 export function workspaceFileSurfaceSupportsHost(
   kind: WorkspaceFileSurfaceKind,
-  host: WorkspaceSurfaceHost,
+  host: WorkspaceColumnId,
 ): boolean {
   return workspaceSurfaceSupportsHost(workspaceFileSurfaceKind(kind), host);
 }

@@ -1,3 +1,4 @@
+import type { LocalLinkContext } from '@/lib/local-link-reference';
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { readClipboardSnapshot, type ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
@@ -6,7 +7,24 @@ import { hasImportableHtml, isInternalEditorHtml, sanitizeExternalHtml } from '@
 import type { PasteContext } from '@features/editor/extensions/paste-rules/types';
 import type { Editor } from '@tiptap/core';
 
+interface PasteDocumentContext {
+  ownerPath?: string;
+  linkContext?: LocalLinkContext;
+}
+
+declare module '@tiptap/core' {
+  interface Storage {
+    managedPasteRules: { documentContext: (ownerPath?: string) => PasteDocumentContext };
+  }
+}
+
+function createPasteContext(editor: Editor, snapshot: ClipboardSnapshot, event: ClipboardEvent, ownerPath?: string): PasteContext {
+  const documentContext = editor.storage.managedPasteRules?.documentContext(ownerPath) ?? { ownerPath };
+  return { ...snapshot, ...documentContext, editor, view: editor.view, event };
+}
+
 export const ManagedPasteRules = Extension.create<{
+  getLinkContext?: (ownerPath?: string) => LocalLinkContext | undefined;
   ownerPath?: string;
   getOwnerPath?: () => string | undefined;
 }>({
@@ -15,8 +33,18 @@ export const ManagedPasteRules = Extension.create<{
 
   addOptions() {
     return {
+      getLinkContext: undefined,
       ownerPath: undefined,
       getOwnerPath: undefined,
+    };
+  },
+
+  addStorage() {
+    return {
+      documentContext: (ownerPath?: string): PasteDocumentContext => {
+        const path = ownerPath ?? (this.options.getOwnerPath ? this.options.getOwnerPath() : this.options.ownerPath);
+        return { ownerPath: path, linkContext: this.options.getLinkContext?.(path) };
+      },
     };
   },
 
@@ -33,7 +61,7 @@ export const ManagedPasteRules = Extension.create<{
           transformPastedHTML: (html) => isInternalEditorHtml(html)
             ? html
             : sanitizeExternalHtml(html),
-          handlePaste: (view, event) => {
+          handlePaste: (_view, event) => {
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
             const snapshot = readClipboardSnapshot(clipboardData);
@@ -45,19 +73,7 @@ export const ManagedPasteRules = Extension.create<{
               return pasteClipboardSnapshot(this.editor, { ...snapshot, html: '' }, ownerPath);
             }
 
-            const ctx: PasteContext = {
-              editor: this.editor,
-              view,
-              ownerPath,
-              event,
-              types: snapshot.types,
-              markdown: snapshot.markdown,
-              text: snapshot.text,
-              html: snapshot.html,
-              uriList: snapshot.uriList,
-              files: snapshot.files,
-              sourceMime: snapshot.sourceMime,
-            };
+            const ctx = createPasteContext(this.editor, snapshot, event, ownerPath);
 
             const result = executeManagedPasteRules(ctx, rules);
             if (result === 'handled') {
@@ -99,19 +115,7 @@ export function pasteClipboardSnapshot(
   // next animation frame according to the independent undo-domain policy.
   editor.view.focus();
   const event = createSyntheticPasteEvent();
-  const ctx: PasteContext = {
-    editor,
-    view: editor.view,
-    ownerPath,
-    event,
-    types: snapshot.types,
-    markdown: snapshot.markdown,
-    text: snapshot.text,
-    html: snapshot.html,
-    uriList: snapshot.uriList,
-    files: snapshot.files,
-    sourceMime: snapshot.sourceMime,
-  };
+  const ctx = createPasteContext(editor, snapshot, event, ownerPath);
   const result = executeManagedPasteRules(ctx);
   if (result === 'handled') return true;
 

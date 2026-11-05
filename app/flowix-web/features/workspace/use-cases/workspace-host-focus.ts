@@ -1,11 +1,11 @@
 import { useWorkspaceFocusStore } from '../store/workspace-focus-store';
-import type { WorkspaceSurfaceHost } from '../model/surface-contract';
+import type { WorkspaceColumnId } from '../model/surface-contract';
 
 /** React portals share ancestors in React, but do not interact with the host DOM. */
-export function focusWorkspaceHostFromEvent(
+export function focusWorkspaceColumnFromEvent(
   event: { currentTarget: HTMLElement; target: EventTarget | null },
-  host: WorkspaceSurfaceHost,
+  host: WorkspaceColumnId,
 ): void {
   if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-  useWorkspaceFocusStore.getState().focusHost(host);
+  useWorkspaceFocusStore.getState().focusColumn(host);
 }

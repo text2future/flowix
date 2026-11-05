@@ -1,3 +1,5 @@
+import { getSessionId } from '../workspace/public/session-api';
+import { sessionFor } from '../workspace/model/workspace-session';
 import { SessionViewRecoveryContext, createSessionViewChannel } from '@features/workspace/public/session-view-state-api';
 import { useWorkspaceSessionStore } from '@features/workspace/store/workspace-session-store';
 import { act } from 'react';
@@ -90,13 +92,13 @@ describe('media resource presentation', () => {
 describe('media session recovery', () => {
   it('restores metadata only after video authorization and metadata are ready', async () => {
     useWorkspaceSessionStore.getState().reset();
-    useWorkspaceSessionStore.getState().commitTarget('secondary-session', { kind: 'external', path: '/book/video.mp4', scopePath: '/book', transitionId: null });
-    const entryId = useWorkspaceSessionStore.getState().sessions['secondary-session'].navigation.current!.id;
-    const channel = createSessionViewChannel('secondary-session', entryId, 'video:/book/video.mp4');
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(1), { kind: 'external', path: '/book/video.mp4', scopePath: '/book', transitionId: null });
+    const entryId = sessionFor(useWorkspaceSessionStore.getState(), 1).navigation.current!.id;
+    const channel = createSessionViewChannel(1, entryId, 'video:/book/video.mp4');
     const saved = { kind: 'media' as const, currentTime: 30, volume: 0.4, muted: true, playbackRate: 1.5 };
     channel.write(saved);
     mocks.mediaGet.mockResolvedValue({}); mocks.toAssetUrl.mockReturnValue('asset://video');
-    const renderVideo = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 'secondary-session', entryId }}>
+    const renderVideo = () => <SessionViewRecoveryContext.Provider value={{ sessionId: 1, entryId }}>
       <MediaResourceView filePath="/book/video.mp4" notebookPath="/book" resourceKind="video" />
     </SessionViewRecoveryContext.Provider>;
     await act(async () => root.render(renderVideo()));
@@ -114,12 +116,12 @@ describe('media session recovery', () => {
 
   it('preserves saved progress if the video is unmounted before metadata loads', async () => {
     useWorkspaceSessionStore.getState().reset();
-    useWorkspaceSessionStore.getState().commitTarget('primary-session', { kind: 'external', path: '/book/video.mp4', scopePath: '/book', transitionId: null });
-    const entryId = useWorkspaceSessionStore.getState().sessions['primary-session'].navigation.current!.id;
-    const channel = createSessionViewChannel('primary-session', entryId, 'video:/book/video.mp4');
+    useWorkspaceSessionStore.getState().commitTarget(getSessionId(0), { kind: 'external', path: '/book/video.mp4', scopePath: '/book', transitionId: null });
+    const entryId = sessionFor(useWorkspaceSessionStore.getState(), 0).navigation.current!.id;
+    const channel = createSessionViewChannel(0, entryId, 'video:/book/video.mp4');
     const saved = { kind: 'media' as const, currentTime: 80, volume: 0.8, muted: false, playbackRate: 1 };
     channel.write(saved); mocks.mediaGet.mockResolvedValue({});
-    await act(async () => root.render(<SessionViewRecoveryContext.Provider value={{ sessionId: 'primary-session', entryId }}>
+    await act(async () => root.render(<SessionViewRecoveryContext.Provider value={{ sessionId: 0, entryId }}>
       <MediaResourceView filePath="/book/video.mp4" notebookPath="/book" resourceKind="video" />
     </SessionViewRecoveryContext.Provider>));
     expect(host.querySelector('video')).not.toBeNull();

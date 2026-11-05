@@ -34,7 +34,7 @@ import {
 import { initializeMainWindowStartup } from './main-window-startup';
 import { createLogger } from '@/lib/logger';
 import { joinNotebookMemoPath } from '@/lib/path';
-import { resumePendingNoteLinkUpdates } from '@features/memo/public/app-api';
+import { acceptWorkspaceDocumentLinkSave } from '@features/memo/public/app-api';
 import { subscribeWorkspaceDocumentSaves } from '@features/document/public/workspace-api';
 import {
   syncAppAgentConversationRestore,
@@ -85,7 +85,7 @@ export function MainWindowEffects() {
   useEffect(() => mountMemoListRefreshService(), []);
 
   useEffect(() => {
-    return subscribeWorkspaceDocumentSaves(resumePendingNoteLinkUpdates);
+    return subscribeWorkspaceDocumentSaves(acceptWorkspaceDocumentLinkSave);
   }, []);
 
   useEffect(() => {

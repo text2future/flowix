@@ -5,6 +5,7 @@ import { collectionNotebookId } from '@features/collection/mutations';
 import { parseCollectionDocumentV2, type CollectionType } from '@features/collection/model';
 import { inspectCollectionRecoveryType } from '@features/collection/recovery';
 import { ensureCollectionDisplay, bindCollectionDisplayPath } from '@/lib/collection-display-registry';
+import { ensureFileDisplayIdentity } from '@/lib/file-display-registry';
 import { captureFileBrowserContext, resolveFileBrowserContext } from './file-browser-context';
 import type { FileBrowserTarget } from '../store/file-browser-target';
 import { canonicalDirectoryPath, canonicalPath } from '@/lib/path';
@@ -30,6 +31,15 @@ import { useWorkColumnStore } from '@features/workspace/store/work-column-store'
 
 export type BrowserColumnOpenResult = NonNullable<BrowserColumnNavigationResult>;
 export type BrowserTargetOpenResult = BrowserColumnOpenResult;
+
+/** Allocate file identity before publishing a target that a surface resolver will read. */
+function ensureBrowserTargetFileIdentity(target: BrowserColumnTarget): void {
+  if (target.kind === 'media') {
+    ensureFileDisplayIdentity(target.filePath);
+  } else if (target.kind === 'file-browser' && target.activeFilePath && !target.collectionDisplay) {
+    ensureFileDisplayIdentity(target.activeFilePath);
+  }
+}
 
 export function targetContentTitle(target: BrowserColumnTarget): string {
   const filenameFromPath = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -67,6 +77,7 @@ export function openBrowserColumnTarget(target: BrowserColumnTarget, options?: {
   return enqueueBrowserColumnNavigation(async () => {
     target = await prepareCollectionBrowserTarget(target);
     const alreadyOpen = !!findWorkspaceContentLocations(browserColumnTargetIdentity(target)).browserColumn;
+    ensureBrowserTargetFileIdentity(target);
     const id = options?.navigationEntryId ?? `browser:${crypto.randomUUID()}`;
     const surfaceId = useBrowserColumnStore.getState().openContent({
       id,
@@ -74,7 +85,7 @@ export function openBrowserColumnTarget(target: BrowserColumnTarget, options?: {
       icon: targetContentIcon(target),
       target,
     }, options);
-    return { host: 'browser-column', surfaceId, alreadyOpen };
+    return { host: 'column-2', surfaceId, alreadyOpen };
   });
 }
 
@@ -93,6 +104,7 @@ export function selectBrowserColumnFile(surfaceId: string, filePath: string | nu
     collectionDisplay: undefined, collectionType: undefined, collectionUnavailableReason: undefined };
   return enqueueBrowserColumnNavigation(async () => {
     const prepared = await prepareCollectionBrowserTarget(target);
+    ensureBrowserTargetFileIdentity(prepared);
     useBrowserColumnStore.getState().openContent({ ...entry, target: prepared, title: targetContentTitle(prepared) });
     return true;
   });
@@ -100,7 +112,7 @@ export function selectBrowserColumnFile(surfaceId: string, filePath: string | nu
 
 /** History movement crosses exactly the same save and target-resolution barrier as opens. */
 export function navigateBrowserColumnHistory(direction: 'back' | 'forward'): Promise<boolean | null> {
-  return navigateWorkspaceSession('secondary-session', direction);
+  return navigateWorkspaceSession('column-2', direction);
 }
 
 export function openBrowserColumnMarkdown(filePath: string): Promise<BrowserColumnOpenResult | null> {
@@ -214,6 +226,7 @@ export function openWorkColumnTargetInBrowserColumn(
     const preparedTarget = await prepareCollectionBrowserTarget(browserTarget);
     if (!isStillCurrentTarget()) return null;
 
+    ensureBrowserTargetFileIdentity(preparedTarget);
     const id = `browser:${crypto.randomUUID()}`;
     const existingContent = findWorkspaceContentLocations(
       browserColumnTargetIdentity(preparedTarget),
@@ -224,7 +237,7 @@ export function openWorkColumnTargetInBrowserColumn(
       icon: targetContentIcon(preparedTarget),
       target: preparedTarget,
     });
-    return { host: 'browser-column', surfaceId, alreadyOpen: !!existingContent };
+    return { host: 'column-2', surfaceId, alreadyOpen: !!existingContent };
   });
 }
 

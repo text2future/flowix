@@ -1,12 +1,14 @@
 'use client';
 
+import { resolveSessionDocumentContext } from '@features/workspace/public/session-runtime-api';
+
 import { MainListColumnSection } from './components/main-list-column-section';
 import { MainWorkColumns } from './components/main-work-columns';
 import { MainLayoutStartupFailureOverlay } from './components/main-layout-startup-failure-overlay';
 
 import { setMemoListViewPreference, useMemoListViewPreference } from '@features/preferences/public/runtime-api';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   navigateDocumentHistory,
   useDocumentCommands,
@@ -36,7 +38,6 @@ import { NotebookDeleteDialog } from '@features/shell/components/notebook-delete
 import { ExternalFileDropOverlay } from '@features/shell/components/drag-overlay/external-file-drop-overlay';
 import { useMainMiddleColumnController } from '@features/shell/hooks/use-main-middle-column-controller';
 import { useMainPanelController } from '@features/shell/hooks/use-main-panel-controller';
-import { useDefaultCreateFolder } from '@features/shell/hooks/use-default-create-folder';
 import { useExternalFileDeletion } from '@features/shell/hooks/use-external-file-deletion';
 import { useMediaActions } from '@features/shell/hooks/use-media-actions';
 import { useWorkColumnPresentation } from '@features/shell/hooks/use-work-column-presentation';
@@ -112,7 +113,6 @@ export function MainLayout({
     deleteNotebook: handleDeleteNotebook,
     editNotebook: handleEditNotebook,
     openPlugin: handleOpenPlugin,
-    switchFolderCollectionType: handleSwitchFolderCollectionType,
     selectNotebook: handleSelectNotebook,
   } = business;
   const {
@@ -136,6 +136,7 @@ export function MainLayout({
   // document 容器一起抖。切到 selector 后, 只在用到的字段变化时本组件
   // 才重渲, memo-list / document-container 各自独立订阅, 互不污染。
   const {
+    notebooks,
     selectedNotebook,
     startupPhase: memoStartupPhase,
     middleColumnView,
@@ -147,14 +148,10 @@ export function MainLayout({
     loadNotes,
     triggerRefresh,
   } = useShellMemoViewModel();
-  const { defaultCreateFolderState, defaultCreateFolder, handleToggleDefaultFolder } =
-    useDefaultCreateFolder(selectedNotebook);
   const memoListView = useMemoListViewPreference();
   const isAgentConversationView = middleColumnView === 'conversations';
   const {
-    currentDocumentPath,
-    activeExternalSession,
-    isDocumentTransitioning,
+    activeExternalSession: loadedExternalSession,
   } = useShellDocumentViewModel();
 
   const {
@@ -179,9 +176,14 @@ export function MainLayout({
     browserColumnVisible,
     browserColumnSplitRatio,
     setBrowserColumnSplitRatio,
-    focusedHostId,
+    focusedColumnId,
     notebookSwitching,
   } = useShellWorkspaceViewModel();
+  const activeExternalSession = useMemo(() => resolveSessionDocumentContext(navigationState.target, loadedExternalSession, notebooks),
+    [navigationState.target, loadedExternalSession, notebooks]);
+  const currentDocumentPath = activeExternalSession?.fileIdentity.path ?? null;
+  const documentTransitionId = navigationState.target.kind === 'external' ? navigationState.target.transitionId : null;
+
   const interactive = useWorkspaceStartupStore(isWorkspaceInteractive);
   const nativeStartup = useWorkspaceStartupStore(useShallow((state) => ({
     phase: state.nativePhase,
@@ -277,15 +279,15 @@ export function MainLayout({
   });
   const currentFileIdentity = activeExternalSession?.fileIdentity ?? null;
   const currentDocumentInstanceKey = currentFileIdentity?.displayId ?? null;
-  const mainMemoEditorIdentity = activeExternalSession
+  const mainMemoEditorIdentity = useMemo(() => activeExternalSession
     ? {
         kind: 'md' as const,
         path: activeExternalSession.fileIdentity.path,
         displayId: activeExternalSession.fileIdentity.displayId,
       }
-    : null;
+    : null, [activeExternalSession]);
   const mainEditorMode = useDocumentEditorMode(
-    'main-third',
+    'column-1',
     mainMemoEditorIdentity ?? {
       kind: 'md',
       path: currentDocumentPath ?? '',
@@ -368,8 +370,8 @@ export function MainLayout({
 
   const handleSetMainEditorMode = useCallback((mode: DocumentEditorMode) => {
     if (!mainMemoEditorIdentity || mainEditorMode === mode) return;
-    captureLatestDocumentContent(mainMemoEditorIdentity, 'main-third');
-    setDocumentEditorMode('main-third', mainMemoEditorIdentity, mode);
+    captureLatestDocumentContent(mainMemoEditorIdentity, 'column-1');
+    setDocumentEditorMode('column-1', mainMemoEditorIdentity, mode);
   }, [mainEditorMode, mainMemoEditorIdentity]);
   const handleViewSourceMode = useCallback(() => handleSetMainEditorMode('source'), [handleSetMainEditorMode]);
 
@@ -386,15 +388,17 @@ export function MainLayout({
             fileIdentity: activeExternalSession.fileIdentity,
             scopePath: activeExternalSession.scopePath,
             indexable: activeExternalSession.indexable,
-            transitionId: activeExternalSession.transitionId,
+            transitionId: documentTransitionId,
           },
           instanceKey: activeExternalSession.fileIdentity.displayId,
           documentProps: {
             notebookId: activeExternalSession.notebookId ?? null,
             notebookPath: activeExternalSession.notebookPath ?? null,
-            transitionId: activeExternalSession.transitionId,
+            transitionId: documentTransitionId,
             initialFocus: activeExternalSession.initialFocus,
             isExternalDocument: true,
+            documentSessionMode: 'isolated',
+            workspaceHost: 'column-1',
             externalScopePath: activeExternalSession.scopePath,
             searchPanelOpen: isSearchPanelOpen,
             onSearchPanelOpenChange: setIsSearchPanelOpen,
@@ -411,7 +415,6 @@ export function MainLayout({
     workColumnPresentation,
     workRuntimePresentation,
     workSurfaceBlockingLoading,
-    workSurfaceFailed,
     workCapabilities,
     workHeaderStyle,
     isAgentConversationDetail,
@@ -428,7 +431,6 @@ export function MainLayout({
     workRuntimePresentation,
     workCapabilities,
     workHeaderStyle,
-    navigationState,
     browserColumnVisible,
     mainEditorMode,
     handleSetMainEditorMode,
@@ -451,10 +453,6 @@ export function MainLayout({
       onRevealInFileManager: handleRevealMedia,
       onRequestDelete: handleRequestDeleteMedia,
     } : undefined,
-    defaultCreateFolderState,
-    defaultCreateFolder,
-    handleToggleDefaultFolder,
-    handleSwitchFolderCollectionType,
     activeExternalSession,
     selectedNotebook,
   });
@@ -511,7 +509,7 @@ export function MainLayout({
             handleBrowserColumnResize={handleBrowserColumnResize}
             toolbarCollapsed={toolbarCollapsed}
             setToolbarCollapsed={setToolbarCollapsed}
-            focusedHostId={focusedHostId}
+            focusedColumnId={focusedColumnId}
             isMemoListHidden={isMemoListHidden}
             isMemoListAnimating={isMemoListAnimating}
             noteNavigationPhase={noteNavigationPhase}
@@ -531,9 +529,7 @@ export function MainLayout({
             handleToggleMemoList={handleToggleMemoList}
             recentExportPath={recentExportPath}
             onDismissExportNotice={() => setRecentExportPath(null)}
-            isDocumentTransitioning={isDocumentTransitioning}
             workSurfaceBlockingLoading={workSurfaceBlockingLoading}
-            workSurfaceFailed={workSurfaceFailed}
             notebookSwitching={notebookSwitching}
             language={language}
           />
