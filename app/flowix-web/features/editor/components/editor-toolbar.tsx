@@ -3,20 +3,19 @@
 import { Editor } from '@tiptap/core';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextTIcon, ListBulletsIcon, ListNumbersIcon, CheckSquareIcon, TextBIcon, TextUnderlineIcon, TextItalicIcon, TextStrikethroughIcon, HighlighterIcon, CodeIcon, PaperclipIcon, LinkSimpleIcon, CaretDownIcon, CaretUpIcon, TableIcon } from '@phosphor-icons/react';
-import { Fragment, useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@shared/ui/dropdown-menu';
-import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { Tooltip } from '@shared/ui/tooltip';
 import { openLinkEditPopup } from '@features/editor/components/link-edit-popup';
 import { useI18n } from '@/lib/i18n';
 import { FlowixHighlightPalette } from '@features/editor/components/flowix-highlight-palette';
 import { applyListType } from '@features/editor/extensions/list-transforms';
-import { insertTableTemplate, TABLE_TEMPLATE_OPTIONS } from '@features/editor/extensions/table/table-templates';
+import { insertTableTemplate } from '@features/editor/extensions/table/table-templates';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -304,39 +303,18 @@ export function EditorToolbar({ editor, collapsed, onCollapsedChange }: EditorTo
 
         <div className="toolbar-divider" />
 
-        <DropdownMenu disabled={!state.editable || state.table}>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="toolbar-button"
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              style={iconButtonStyle}
-              aria-label={t('editor.table.insert')}
-              title={t('editor.table.insert')}
-            >
-              <TableIcon size={18} weight="bold" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="top"
-            sideOffset={5}
-            align="center"
-            className="w-auto min-w-[160px] max-h-[min(22rem,calc(100vh-32px))] overflow-y-auto space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]"
-          >
-            {TABLE_TEMPLATE_OPTIONS.map(({ styleId, labelKey, menuGroup }, index) => (
-              <Fragment key={styleId}>
-                {index > 0 && menuGroup !== TABLE_TEMPLATE_OPTIONS[index - 1].menuGroup && <div role="separator" className={POPUP_SEPARATOR_CLASS} />}
-                <DropdownMenuItem
-                  className="group h-7 items-center justify-start gap-3 rounded-lg px-2 py-0 text-left hover:bg-[var(--brand)] hover:text-[var(--primary-foreground)]"
-                  onClick={() => insertTableTemplate(editor, styleId, { language })}
-                >
-                  <TableIcon size={16} weight="bold" />
-                  <span>{t(labelKey)}</span>
-                </DropdownMenuItem>
-              </Fragment>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <button
+          className="toolbar-button"
+          type="button"
+          disabled={!state.editable || state.table}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => insertTableTemplate(editor, 'default', { language })}
+          style={iconButtonStyle}
+          aria-label={t('editor.table.insert')}
+          title={t('editor.table.insert')}
+        >
+          <TableIcon size={18} weight="bold" />
+        </button>
 
         <div className="relative inline-block">
           <DropdownMenu>

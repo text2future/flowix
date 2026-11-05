@@ -4,11 +4,11 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { I18nProvider, translate } from '@/lib/i18n';
+import { I18nProvider } from '@/lib/i18n';
 import { EditorToolbar } from '../../components/editor-toolbar';
 import { isSlashMenuOpen, SlashMenu } from '../slash-menu';
 import { createTablePlugin } from './table-plugin';
-import { insertTableTemplate, TABLE_TEMPLATE_OPTIONS } from './table-templates';
+import { insertTableTemplate } from './table-templates';
 import { SLASH_MENU_ITEMS } from '../../components/slash-menu-dropdown';
 
 vi.mock('@features/agent/public/runtime-status-api', () => ({
@@ -152,7 +152,7 @@ describe('table templates in the real editor menus', () => {
     expect(isSlashMenuOpen(editor.view)).toBe(false);
   });
 
-  it('inserts a financial template through the actual toolbar dropdown', async () => {
+  it('inserts the default table directly from the bottom toolbar without opening a style picker', async () => {
     const editor = createEditor();
     const element = document.createElement('div');
     document.body.appendChild(element);
@@ -163,14 +163,12 @@ describe('table templates in the real editor menus', () => {
     });
     const trigger = element.querySelector<HTMLButtonElement>('[aria-label="插入表格"]')!;
     await act(async () => { trigger.click(); });
-    for (const option of TABLE_TEMPLATE_OPTIONS) {
-      expect([...document.querySelectorAll('button')].some(button => button.textContent === translate('zh-CN', option.labelKey))).toBe(true);
-    }
-    const option = [...document.querySelectorAll('button')].find(button => button.textContent === '港股财报式')!;
-    await act(async () => { option.click(); });
+    expect(document.querySelector('.table-style-menu')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(editor.state.doc.child(1).type.name).toBe('table');
-    expect(editor.state.doc.child(1).attrs.styleId).toBe('hk-financial');
-    expect(editor.state.doc.child(1).lastChild?.attrs.role).toBe('total');
+    expect(editor.state.doc.child(1).attrs.styleId).toBe('default');
+    expect(editor.state.doc.child(1).childCount).toBe(3);
+    expect(editor.state.doc.child(1).firstChild?.childCount).toBe(3);
     expect(trigger.disabled).toBe(true);
     expect(editor.state.doc.child(0).textContent).toBe('before');
     expect(editor.state.doc.child(2).textContent).toBe('after');
