@@ -930,7 +930,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
     "status.agent.history.title": "Agent sessions",
     "status.agent.history.all": "All",
     "status.notebook": "Notebook",
-    "status.notebookAllSection": "All",
+    "status.notebookAllSection": "List",
     "status.notebookPinnedSection": "Pinned",
     "status.switchNotebook": "Switch notebook",
     "status.notebookList": "Notebook list",

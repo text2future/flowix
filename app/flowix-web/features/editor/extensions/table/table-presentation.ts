@@ -1,11 +1,12 @@
 import { Extension, type JSONContent } from '@tiptap/core';
+import { isFlowixTextColor, type FlowixTextColor } from '../flowix-text-colors';
 
 export const TABLE_STYLE_IDS = [
   'default', 'striped', 'business-blue', 'comparison', 'financial-brief',
   'hk-financial', 'three-line', 'minimal', 'literature', 'grouped',
 ] as const;
 export const TABLE_ROW_ROLES = ['body', 'group', 'subtotal', 'total'] as const;
-export const TABLE_COLUMN_ROLES = ['default', 'label', 'note', 'amount'] as const;
+export const TABLE_COLUMN_ROLES = ['default', 'label', 'note', 'right', 'amount'] as const;
 export const TABLE_BORDER_STYLES = ['auto', 'none', 'single', 'double'] as const;
 
 export type TableStyleId = typeof TABLE_STYLE_IDS[number];
@@ -28,6 +29,21 @@ export const TABLE_STYLE_REQUIRES_HEADER_ROW: Record<TableStyleId, boolean> = {
   literature: false,
 };
 
+/** Only semantic themes expose row roles in the common formatting menu.
+ * Stored roles remain valid when switching themes; this controls discovery. */
+export const TABLE_STYLE_ROW_ROLES: Record<TableStyleId, readonly TableRowRole[]> = {
+  default: [],
+  striped: [],
+  'business-blue': [],
+  comparison: [],
+  'financial-brief': TABLE_ROW_ROLES,
+  'hk-financial': TABLE_ROW_ROLES,
+  'three-line': [],
+  minimal: [],
+  literature: [],
+  grouped: ['body', 'group'],
+};
+
 export function normalizeTableStyleId(value: unknown): TableStyleId {
   return TABLE_STYLE_IDS.find(style => style === value) ?? 'default';
 }
@@ -44,8 +60,20 @@ export function normalizeTableBorderStyle(value: unknown): TableBorderStyle {
   return TABLE_BORDER_STYLES.find(style => style === value) ?? 'auto';
 }
 
+export function normalizeTableBackground(value: unknown): FlowixTextColor | null {
+  return isFlowixTextColor(value) ? value : null;
+}
+
 export function normalizeComparisonColumn(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** The default third column is absent in narrow tables; explicit indices clamp. */
+export function resolveComparisonColumn(value: unknown, width: number): number | null {
+  if (width <= 0) return null;
+  const configured = normalizeComparisonColumn(value);
+  const column = configured === null ? 2 : Math.min(configured, width - 1);
+  return column < width ? column : null;
 }
 
 function presentationAttribute<T extends string>(
@@ -60,6 +88,17 @@ function presentationAttribute<T extends string>(
     renderHTML: (attributes: Record<string, unknown>) => {
       const value = normalize(attributes[name]);
       return value === fallback ? {} : { [htmlName]: value };
+    },
+  };
+}
+
+function backgroundAttribute(name: string, htmlName: string) {
+  return {
+    default: null,
+    parseHTML: (element: HTMLElement) => normalizeTableBackground(element.getAttribute(htmlName)),
+    renderHTML: (attrs: Record<string, unknown>) => {
+      const color = normalizeTableBackground(attrs[name]);
+      return color ? { [htmlName]: color } : {};
     },
   };
 }
@@ -90,12 +129,14 @@ export const TablePresentation = Extension.create({
         types: ['tableRow'],
         attributes: {
           role: presentationAttribute('role', 'data-flowix-row-role', 'body', normalizeTableRowRole),
+          rowBackground: backgroundAttribute('rowBackground', 'data-flowix-row-background'),
         },
       },
       {
         types: ['tableCell', 'tableHeader'],
         attributes: {
           columnRole: presentationAttribute('columnRole', 'data-flowix-column-role', 'default', normalizeTableColumnRole),
+          columnBackground: backgroundAttribute('columnBackground', 'data-flowix-column-background'),
           borderTop: presentationAttribute('borderTop', 'data-flowix-border-top', 'auto', normalizeTableBorderStyle),
           borderBottom: presentationAttribute('borderBottom', 'data-flowix-border-bottom', 'auto', normalizeTableBorderStyle),
         },
@@ -111,6 +152,9 @@ export interface TablePresentationMetadata {
   styleId?: TableStyleId;
   comparisonColumn?: number;
   rows?: TableRowRole[];
+  rowBackgrounds?: Array<FlowixTextColor | null>;
+  /** Sparse entries address physical cells, so merged and reordered tables round-trip. */
+  columnBackgrounds?: Array<[number, number, FlowixTextColor]>;
   /**
    * One role per column. Columns are how users think about `label/amount/note`
    * roles, and a per-column array is a fraction of the size of a full cell
@@ -167,6 +211,20 @@ export function parseTablePresentationMetadata(value: unknown): TablePresentatio
   }
   if ('rows' in value && Array.isArray(value.rows)) {
     metadata.rows = value.rows.map(normalizeTableRowRole);
+  }
+  if ('rowBackgrounds' in value && Array.isArray(value.rowBackgrounds)) {
+    metadata.rowBackgrounds = value.rowBackgrounds.map(normalizeTableBackground);
+  }
+  if ('columnBackgrounds' in value && Array.isArray(value.columnBackgrounds)) {
+    const entries: NonNullable<TablePresentationMetadata['columnBackgrounds']> = [];
+    for (const entry of value.columnBackgrounds) {
+      if (!Array.isArray(entry)) continue;
+      const [row, column, color] = entry;
+      if (typeof row === 'number' && Number.isSafeInteger(row) && row >= 0
+        && typeof column === 'number' && Number.isSafeInteger(column) && column >= 0
+        && isFlowixTextColor(color)) entries.push([row, column, color]);
+    }
+    if (entries.length) metadata.columnBackgrounds = entries;
   }
   const columnRoles = parseColumnRoles((value as { columnRoles?: unknown }).columnRoles);
   if (columnRoles) metadata.columnRoles = columnRoles;
@@ -246,12 +304,20 @@ export function getTablePresentationMetadata(node: JSONContent): TablePresentati
     (row.content ?? []).some(cell => normalizeTableColumnRole(cell.attrs?.columnRole) !== 'default')
   ));
   const columnRoles = hasCellRoles ? readUniformColumnRoles(node) : null;
+  const rowBackgrounds = tableRows(node).map(row => normalizeTableBackground(row.attrs?.rowBackground));
+  const columnBackgrounds: NonNullable<TablePresentationMetadata['columnBackgrounds']> = [];
+  tableRows(node).forEach((row, rowIndex) => row.content?.forEach((cell, column) => {
+    const color = normalizeTableBackground(cell.attrs?.columnBackground);
+    if (color) columnBackgrounds.push([rowIndex, column, color]);
+  }));
   const borderList = readSparseBorders(node);
 
   return {
     ...(styleId === 'default' ? {} : { styleId }),
     ...(comparisonColumn === null ? {} : { comparisonColumn }),
     ...(rows.some(role => role !== 'body') ? { rows } : {}),
+    ...(rowBackgrounds.some(Boolean) ? { rowBackgrounds } : {}),
+    ...(columnBackgrounds.length ? { columnBackgrounds } : {}),
     ...(hasCellRoles
       ? columnRoles ? { columnRoles } : { cells: readDenseCellRoles(node) }
       : {}),
@@ -265,9 +331,13 @@ export function applyTablePresentationMetadata(
   metadata: TablePresentationMetadata | undefined,
 ): JSONContent {
   if (!metadata) return node;
-  const { styleId, comparisonColumn, rows, columnRoles, cells, borderList, borders } = metadata;
+  const { styleId, comparisonColumn, rows, rowBackgrounds, columnBackgrounds, columnRoles, cells, borderList, borders } = metadata;
   if (styleId === undefined && comparisonColumn === undefined && !rows && !columnRoles && !cells
-    && !borderList && !borders) return node;
+    && !borderList && !borders && !rowBackgrounds && !columnBackgrounds) return node;
+
+  const backgrounds = columnBackgrounds
+    ? new Map(columnBackgrounds.map(([row, column, color]) => [`${row}:${column}`, color]))
+    : null;
 
   const borderOverrides = borderList
     ? new Map(borderList.map(([row, column, top, bottom]) => [`${row}:${column}`, { top, bottom }]))
@@ -282,14 +352,15 @@ export function applyTablePresentationMetadata(
     },
     content: node.content?.map((row, rowIndex) => ({
       ...row,
-      ...(rows ? { attrs: { ...row.attrs, role: rows[rowIndex] ?? 'body' } } : {}),
-      ...(cells || columnRoles || borderOverrides || borders ? {
+      ...((rows || rowBackgrounds) ? { attrs: { ...row.attrs, ...(rows ? { role: rows[rowIndex] ?? 'body' } : {}), ...(rowBackgrounds ? { rowBackground: rowBackgrounds[rowIndex] ?? null } : {}) } } : {}),
+      ...(cells || columnRoles || borderOverrides || borders || backgrounds ? {
         content: row.content?.map((cell, cellIndex) => {
           const override = borderOverrides?.get(`${rowIndex}:${cellIndex}`);
           return {
             ...cell,
             attrs: {
               ...cell.attrs,
+              ...(backgrounds ? { columnBackground: backgrounds.get(`${rowIndex}:${cellIndex}`) ?? null } : {}),
               ...(columnRoles
                 ? { columnRole: columnRoles[cellIndex] ?? 'default' }
                 : cells ? { columnRole: cells[rowIndex]?.[cellIndex] ?? 'default' } : {}),

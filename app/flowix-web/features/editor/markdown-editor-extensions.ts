@@ -38,7 +38,7 @@ import { TabAgentRun } from '@features/editor/extensions/tab-agent-run';
 import { TabCharacter } from '@features/editor/extensions/tab-character';
 import { tableNeedsHtml } from '@features/editor/extensions/table/flowix-table';
 import { createTablePlugin } from '@features/editor/extensions/table/table-plugin';
-import type { TableEdgeInsertLabels } from '@features/editor/extensions/table/table-edge-insert-plugin';
+import type { TablePluginOptions } from '@features/editor/extensions/table/table-plugin';
 import { getCurrentAppLanguage } from '@features/preferences/public/runtime-api';
 import { translate } from '@/lib/i18n/provider';
 import { BlockGapCursor } from './extensions/block-gap-cursor';
@@ -295,7 +295,7 @@ export interface MarkdownEditorExtensionContext {
 }
 
 /** Full interactive editor registry; parser specs are shared through pure Markdown modules. */
-function tableEdgeInsertLabels(): TableEdgeInsertLabels {
+function tableControlLabels(): NonNullable<TablePluginOptions['labels']> {
   // The edge buttons are plain DOM created by the plugin, so they cannot read
   // i18n at render time. Labels are resolved when the editor is built — the
   // same tradeoff `insertTableTemplate` makes for template cell text.
@@ -303,6 +303,8 @@ function tableEdgeInsertLabels(): TableEdgeInsertLabels {
   return {
     insertColumnAfter: translate(language, 'editor.table.insertColumnAfter'),
     insertRowAfter: translate(language, 'editor.table.insertRowAfter'),
+    reorderColumn: translate(language, 'editor.table.reorderColumn'),
+    reorderRow: translate(language, 'editor.table.reorderRow'),
   };
 }
 
@@ -358,7 +360,7 @@ export function createMarkdownEditorExtensions({
     TableReference,
     MediaLibraryReference,
     FlowixHighlight.configure({ multicolor: true }),
-    createTablePlugin({ labels: tableEdgeInsertLabels() }),
+    createTablePlugin({ labels: tableControlLabels() }),
     TaskList,
     PreservedTaskItem.configure({ nested: true }),
     Markdown.configure({ markedOptions: { gfm: true, breaks: true } }),

@@ -36,7 +36,7 @@ export interface BrowserColumnHeaderProps {
 export function BrowserColumnHeader(props: BrowserColumnHeaderProps) {
   const { t } = useI18n();
   const { current } = props;
-  const navigation = useWorkspaceSessionNavigation(1);
+  const navigation = useWorkspaceSessionNavigation('column-2');
   const agentInstanceId = current?.target.kind === 'agent_conversation' ? current.target.instanceId : null;
   const collectionPath = browserCollectionIndexPath(current);
   const target = current?.target.kind === 'file-browser' ? current.target : null;

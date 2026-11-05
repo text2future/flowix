@@ -311,3 +311,13 @@ describe('cell border commands', () => {
     expect(setTableCellBorder(editor, 'top', 'single')).toBe(false);
   });
 });
+
+
+it('persists plain right alignment independently from amount styling', () => {
+  const editor = createEditor();
+  editor.commands.setTextSelection(cellPosition(editor, 1, 2) + 2);
+  expect(setTableColumnRole(editor, 'right')).toBe(true);
+  const markdown = editor.getMarkdown();
+  editor.commands.setContent(markdown, { contentType: 'markdown' });
+  editor.state.doc.firstChild!.forEach(row => expect(row.child(2).attrs.columnRole).toBe('right'));
+});

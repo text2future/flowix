@@ -1,11 +1,12 @@
 import type { Editor } from '@tiptap/core';
+import type { FlowixTextColor } from '../flowix-text-colors';
 import { TextSelection } from '@tiptap/pm/state';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage } from '@/lib/i18n/locales';
 import { createTableTemplate, TABLE_TEMPLATE_OPTIONS } from './table-templates';
 import { closeHistory } from '@tiptap/pm/history';
 import { isInTable, selectedRect } from '@tiptap/pm/tables';
 import { tableHeaderModesFromTable } from './table-header-modes';
-import { TABLE_STYLE_REQUIRES_HEADER_ROW, normalizeTableBorderStyle, normalizeTableColumnRole, normalizeTableRowRole, normalizeTableStyleId, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
+import { TABLE_STYLE_REQUIRES_HEADER_ROW, normalizeTableBackground, normalizeTableBorderStyle, normalizeTableColumnRole, normalizeTableRowRole, normalizeTableStyleId, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
 
 type BorderAttribute = 'borderTop' | 'borderBottom';
 
@@ -55,6 +56,9 @@ export function getTablePresentationSelection(editor: Editor) {
   const { rowHeader, columnHeader } = tableHeaderModesFromTable(table);
   const style = normalizeTableStyleId(table.attrs.styleId);
   const headerRowLocked = rowHeader && TABLE_STYLE_REQUIRES_HEADER_ROW[style];
+  const rowBackgrounds = new Set<FlowixTextColor | null>();
+  for (let row = top; row < bottom; row++) rowBackgrounds.add(normalizeTableBackground(table.child(row).attrs.rowBackground));
+  const columnBackgrounds = new Set<FlowixTextColor | null>();
   const rowRoles = new Set<TableRowRole>();
   for (let row = top; row < bottom; row += 1) rowRoles.add(normalizeTableRowRole(table.child(row).attrs.role));
 
@@ -66,6 +70,7 @@ export function getTablePresentationSelection(editor: Editor) {
   for (const position of rect.map.cellsInRect(rect)) {
     const cell = table.nodeAt(position);
     columnRoles.add(normalizeTableColumnRole(cell?.attrs.columnRole));
+    columnBackgrounds.add(normalizeTableBackground(cell?.attrs.columnBackground));
     borderTops.add(normalizeTableBorderStyle(cell?.attrs.borderTop));
     borderBottoms.add(normalizeTableBorderStyle(cell?.attrs.borderBottom));
   }
@@ -79,6 +84,8 @@ export function getTablePresentationSelection(editor: Editor) {
     style,
     row: rowRoles.size === 1 ? [...rowRoles][0] : 'mixed',
     column: columnRoles.size === 1 ? [...columnRoles][0] : 'mixed',
+    rowBackground: rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : 'mixed' as const,
+    columnBackground: columnBackgrounds.size === 1 ? [...columnBackgrounds][0] : 'mixed' as const,
     borderTop: borderTops.size === 1 ? [...borderTops][0] : 'mixed',
     borderBottom: borderBottoms.size === 1 ? [...borderBottoms][0] : 'mixed',
   };

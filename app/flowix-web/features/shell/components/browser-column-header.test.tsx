@@ -163,3 +163,35 @@ it('hides the underlying note controls only in the fullscreen host, restores the
     node.remove();
   }
 });
+
+
+it('keeps back and forward in the owning column after swapping positions', async () => {
+  const { useWorkspaceSessionStore } = await import('@features/workspace/store/workspace-session-store');
+  const store = useWorkspaceSessionStore.getState();
+  store.reset();
+  const web = (name: string) => ({ kind: 'web' as const, url: `https://${name}.example/` });
+  store.commitTarget('column-1', web('other'), { history: 'push' });
+  store.commitTarget('column-2', web('before'), { history: 'push' });
+  store.commitTarget('column-2', web('current'), { history: 'push' });
+  store.swapColumnContents();
+  const other = useWorkspaceSessionStore.getState().sessions['column-1'];
+  const node = document.createElement('div'); document.body.append(node);
+  const root = createRoot(node);
+  try {
+    await act(async () => root.render(<BrowserColumnHeader current={useBrowserColumnStore.getState().current}
+      activeSurfaceChrome="document" onToggleMemoEditorMode={vi.fn()} onOpenInWorkColumn={vi.fn()}
+      isFocused canCreate={false} onCreateNote={vi.fn()} onCreateAgentConversation={vi.fn()} />));
+    const back = node.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.back"]')!;
+    expect(back.disabled).toBe(false);
+    await act(async () => back.click());
+    expect(useWorkspaceSessionStore.getState().sessions['column-2'].navigation.current?.target).toEqual(web('before'));
+    expect(useWorkspaceSessionStore.getState().sessions['column-1']).toBe(other);
+    const forward = node.querySelector<HTMLButtonElement>('[aria-label="document.titlebar.forward"]')!;
+    expect(forward.disabled).toBe(false);
+    await act(async () => forward.click());
+    expect(useWorkspaceSessionStore.getState().sessions['column-2'].navigation.current?.target).toEqual(web('current'));
+    expect(useWorkspaceSessionStore.getState().sessions['column-1']).toBe(other);
+  } finally {
+    await act(async () => root.unmount()); node.remove(); store.reset();
+  }
+});

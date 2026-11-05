@@ -1,0 +1,111 @@
+/* Markdown table layout only. Load after overlay-scrollbar.css. Presentation
+ * borders/colors stay in editor-table-presentation.css; saved widths stay in
+ * table-fixed-widths.ts. The rail reserves 4px gap + 16px insert control + 2px
+ * clearance; the scrollbar starts 6px below the table (22 - 16 = 6). */
+/* Markdown tables share the product overlay scrollbar without reserving a gutter. */
+.markdown-editor .markdown-table-scrollbar:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The shared component owns overflow; tables configure axis chaining through
+ * its supported variables instead of competing with platform selectors. */
+.markdown-editor .markdown-table-scrollbar > .tableWrapper.overlay-scrollbar:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --overlay-scrollbar-overscroll-x: contain;
+  --overlay-scrollbar-overscroll-y: auto;
+}
+
+/* Horizontal-only frame: no vertical scrollbar corner to leave clear. */
+.markdown-editor .markdown-table-scrollbar[data-horizontal-scrollbar="true"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --overlay-scrollbar-horizontal-end: 0px;
+}
+
+/* Scrollable space for the edge insert controls, anchored to the actual table.
+ * The bottom space also hosts the scrollbar 6px below the final row. */
+.markdown-editor .markdown-table-rail:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  position: relative;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  padding: 14px 24px 22px 14px;
+}
+
+.markdown-editor .markdown-table-scrollbar[data-horizontal-scrollable="true"] > :is(.overlay-scrollbar-track--horizontal, .overlay-scrollbar-thumb--horizontal):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  top: calc(100% - 16px);
+  bottom: auto;
+}
+
+/* Reveal only during scrolling/dragging, rather than on incidental hover. */
+.markdown-editor .markdown-table-scrollbar:not([data-scrolling="true"]):not([data-horizontal-dragging="true"]) > .overlay-scrollbar-thumb--horizontal:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Edge insertion and scrolling share the bottom hit area. Active scrolling
+ * hides edge controls; while adding rows, keep the thumb out of the way. */
+.markdown-editor .markdown-table-scrollbar:has(.table-edge-insert-button--row:not([hidden])) > .overlay-scrollbar-thumb--horizontal:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Top-level tables can use the document pane's margins. The leading space is
+ * inside the scrollable rail: it aligns the first column with prose initially,
+ * then scrolls away so columns can enter the left margin. Nested tables retain
+ * their local viewport and indentation. */
+.markdown-editor .ProseMirror[data-table-breakout="true"] > .markdown-table-scrollbar:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  width: var(--markdown-table-pane-width);
+  max-width: none;
+  margin-left: calc(-1 * var(--markdown-table-leading-space));
+}
+
+.markdown-editor .ProseMirror[data-table-breakout="true"] > .markdown-table-scrollbar > .tableWrapper > .markdown-table-rail:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  padding-left: var(--markdown-table-leading-space);
+}
+
+/* Auto-width imported tables must be measured at document width before their
+ * widths are persisted, rather than expanding to the wider display viewport. */
+.markdown-editor .ProseMirror[data-table-breakout="true"] > .markdown-table-scrollbar > .tableWrapper > .markdown-table-rail > table:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  width: var(--markdown-table-content-width);
+}
+
+@media print {
+  .markdown-editor .markdown-table-rail:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    width: 100%;
+    padding: 0;
+  }
+  .markdown-editor .table-edge-insert-button:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+  .markdown-editor .table-edge-insert-hover-zone:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    display: none !important;
+  }
+  .markdown-editor .ProseMirror[data-table-breakout="true"] > .markdown-table-scrollbar:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    width: 100%;
+    margin-left: 0;
+  }
+  .markdown-editor .ProseMirror[data-table-breakout="true"] > .markdown-table-scrollbar > .tableWrapper > .markdown-table-rail:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    width: 100%;
+    padding: 0;
+  }
+}
+
+
+/* One overlay spans the full table; cell borders cannot split the hover line. */
+.markdown-editor .table-resize-indicator:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  position: absolute;
+  z-index: 10;
+  width: 2px;
+  background: var(--brand);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.markdown-editor .table-resize-indicator[hidden]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  display: none;
+}
+.markdown-editor .ProseMirror[data-table-reordering="true"] .table-resize-indicator:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  display: none;
+}
+@media print {
+  .markdown-editor .table-resize-indicator:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    display: none;
+  }
+}

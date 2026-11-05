@@ -1,0 +1,188 @@
+/* Row/column sorting chrome. Table geometry belongs to editor-table-layout.css.
+ * The preview is a body portal, so its unique classes deliberately have no
+ * .markdown-editor ancestor. Hover/selected handles stay inside the table rail.
+ * No selected-table or preview outline: selection is conveyed through fill.
+ */
+.markdown-editor .table-reorder-handle--column:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.table-reorder-preview--column {
+  --table-reorder-grip-width: 24px;
+  --table-reorder-grip-height: 14px;
+  --table-reorder-dots-width: 12px;
+  --table-reorder-dots-height: 8px;
+}
+.markdown-editor .table-reorder-handle--row:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.table-reorder-preview--row {
+  --table-reorder-grip-width: 13px;
+  --table-reorder-grip-height: 22px;
+  --table-reorder-dots-width: 8px;
+  --table-reorder-dots-height: 12px;
+}
+
+/* Quiet edge ticks expand to a grip only when the pointer reaches them. */
+.markdown-editor .table-reorder-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.markdown-editor .table-reorder-handle--column:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  width: 44px;
+  height: 26px;
+}
+.markdown-editor .table-reorder-handle--row:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  width: 26px;
+  height: 44px;
+}
+.markdown-editor .table-reorder-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  content: '';
+  display: block;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--muted-foreground) 88%, var(--background));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--background) 36%, transparent);
+}
+.markdown-editor .table-reorder-handle--column:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  width: 15px;
+  height: 2px;
+}
+.markdown-editor .table-reorder-handle--row:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  width: 2px;
+  height: 15px;
+}
+.markdown-editor .table-reorder-handle:is(:hover, :focus-visible, [data-selected]):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--table-reorder-grip-width);
+  height: var(--table-reorder-grip-height);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--background);
+}
+.markdown-editor .table-reorder-handle:is(:hover, :focus-visible, [data-selected]):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
+  position: relative;
+  z-index: 1;
+  width: var(--table-reorder-dots-width);
+  height: var(--table-reorder-dots-height);
+  border-radius: 0;
+  box-shadow: none;
+  background: radial-gradient(circle, currentColor 0.75px, transparent 1px) 0 0 / 4px 4px;
+}
+.markdown-editor .table-reorder-handle:active:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  cursor: grabbing;
+}
+.markdown-editor .table-reorder-marker:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  position: absolute;
+  z-index: 7;
+  background: var(--brand);
+  pointer-events: none;
+}
+.markdown-editor :is(.table-reorder-handle, .table-reorder-marker)[hidden]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  display: none;
+}
+@media print {
+  .markdown-editor :is(.table-reorder-handle, .table-reorder-marker):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    display: none;
+  }
+}
+
+/* This pointer-transparent portal is attached to body, outside the editor. */
+.table-reorder-preview:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  max-width: min(78vw, 640px);
+  max-height: 56vh;
+  overflow: visible;
+  background: var(--document-bg, var(--background));
+  color: var(--foreground);
+  pointer-events: none;
+}
+/* Clip the content independently so the grip can straddle its leading edge. */
+.table-reorder-preview-content {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.table-reorder-preview::before,
+.table-reorder-preview::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%);
+}
+.table-reorder-preview::before {
+  width: var(--table-reorder-grip-width);
+  height: var(--table-reorder-grip-height);
+  border-radius: 3px;
+  background: var(--brand);
+}
+.table-reorder-preview::after {
+  width: var(--table-reorder-dots-width);
+  height: var(--table-reorder-dots-height);
+  background: radial-gradient(circle, #fff 0.75px, transparent 1px) 0 0 / 4px 4px;
+}
+.table-reorder-preview--row::before,
+.table-reorder-preview--row::after {
+  left: 0;
+  top: 50%;
+}
+.table-reorder-preview--column > .table-reorder-preview-content:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  flex-direction: column;
+}
+.table-reorder-preview-cell:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  overflow: hidden;
+  position: relative;
+  border: 0;
+}
+.table-reorder-preview-cell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--editor-table-selection-bg);
+  pointer-events: none;
+}
+.table-reorder-preview--row .table-reorder-preview-cell:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.table-reorder-preview--column .table-reorder-preview-cell:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+.table-reorder-preview[hidden]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  display: none;
+}
+@media print {
+  .table-reorder-preview:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+    display: none;
+  }
+}
+
+.markdown-editor .table-reorder-handle[data-selected]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  color: #fff;
+}
+.markdown-editor .table-reorder-handle[data-selected]:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
+  border-color: var(--brand);
+  background: var(--brand);
+}
+
+/* Sorting owns the pointer; resize hover must not resemble a drop indicator. */
+.markdown-editor .ProseMirror[data-table-reordering="true"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.markdown-editor .ProseMirror[data-table-reordering="true"] *:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  cursor: grabbing !important;
+}
+.markdown-editor .ProseMirror[data-table-reordering="true"] .column-resize-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  display: none;
+}

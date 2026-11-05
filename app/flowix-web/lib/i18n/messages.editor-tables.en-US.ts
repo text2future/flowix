@@ -1,12 +1,20 @@
 import type editorTablesZhCN from './messages.editor-tables.zh-CN';
 
 const editorTablesEnUS: Record<keyof typeof editorTablesZhCN, string> = {
+  'editor.table.columnAlignLeft': 'Align left',
+  'editor.table.columnAlignCenter': 'Align center',
+  'editor.table.columnAlignRight': 'Align right',
+  'editor.table.reorderColumn': 'Drag to reorder column',
+  'editor.table.reorderRow': 'Drag to reorder row',
   'editor.table.insert': 'Insert table',
   'editor.table.backToMenu': 'Back to insert menu',
   'editor.table.theme': 'Theme',
   'editor.table.font': 'Font',
-  'editor.table.rowFont': 'Row font',
-  'editor.table.columnFont': 'Column font',
+  'editor.table.color': 'Color',
+  'editor.table.rowBackground': 'Row background',
+  'editor.table.columnBackground': 'Column background',
+  'editor.table.rowStyle': 'Row style',
+  'editor.table.columnStyle': 'Column style',
   'editor.table.headerRowRequired': 'This theme requires a header row and it cannot be turned off.',
   'editor.table.rowColumnOperations': 'Row and column operations',
   'editor.table.rowOperations': 'Row operations',

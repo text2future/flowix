@@ -10,6 +10,7 @@
    * offset in agent-thread-card/editor-host.css and the insertion-caret
    * compensation below both read it. */
   --editor-first-block-offset: 0.8rem;
+  --editor-table-selection-bg: rgb(59 130 246 / 0.1);
   --document-tag-font-scale: 0.875;
   --document-tag-font-size: calc(100% * var(--document-tag-font-scale));
   --document-tag-line-height: 1.2;
@@ -26,7 +27,16 @@
   --flowix-text-purple: oklch(60% 0.16 300);
   --flowix-text-pink: oklch(66% 0.2 350);
   --flowix-text-gray: var(--memo-color-gray);
-  --flowix-default-mark-bg: color-mix(in oklch, var(--flowix-text-red) 20%, transparent);
+  --flowix-highlight-background-red: color-mix(in oklch, var(--flowix-text-red) 20%, transparent);
+  --flowix-highlight-background-orange: color-mix(in oklch, var(--flowix-text-orange) 20%, transparent);
+  --flowix-highlight-background-yellow: color-mix(in oklch, var(--flowix-text-yellow) 20%, transparent);
+  --flowix-highlight-background-green: color-mix(in oklch, var(--flowix-text-green) 20%, transparent);
+  --flowix-highlight-background-cyan: color-mix(in oklch, var(--flowix-text-cyan) 20%, transparent);
+  --flowix-highlight-background-blue: color-mix(in oklch, var(--flowix-text-blue) 20%, transparent);
+  --flowix-highlight-background-purple: color-mix(in oklch, var(--flowix-text-purple) 20%, transparent);
+  --flowix-highlight-background-pink: color-mix(in oklch, var(--flowix-text-pink) 20%, transparent);
+  --flowix-highlight-background-gray: color-mix(in oklch, var(--flowix-text-gray) 20%, transparent);
+  --flowix-default-mark-bg: var(--flowix-highlight-background-red);
 }
 
 /* Editable text tags keep the Windows icon face. Property chips use the
@@ -747,7 +757,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="red"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-red) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-red);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-fg]:not([data-flowix-bg]):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -755,35 +765,35 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="orange"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-orange) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-orange);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="yellow"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-yellow) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-yellow);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="green"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-green) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-green);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="cyan"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-cyan) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-cyan);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="blue"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-blue) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-blue);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="purple"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-purple) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-purple);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="pink"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-pink) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-pink);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-bg="gray"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  --flowix-mark-bg: color-mix(in oklch, var(--flowix-text-gray) 20%, transparent);
+  --flowix-mark-bg: var(--flowix-highlight-background-gray);
 }
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) mark[data-flowix-fg="red"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -822,64 +832,6 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   --flowix-mark-fg: var(--flowix-text-gray);
 }
 
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border-collapse: separate;
-  border-spacing: 0;
-  table-layout: fixed;
-  width: 100%;
-  min-width: 60px;
-  margin-bottom: 0;
-  border-radius: 8px;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border: 1px solid var(--border);
-  border-top: none;
-  border-left: none;
-  padding: 0.5rem;
-  min-width: 5rem;
-  max-width: 600px;
-  width: auto;
-  vertical-align: top;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  background: var(--table-header-fill);
-  font-weight: 600;
-  text-align: left;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):first-child,
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):first-child {
-  border-left: 1px solid var(--border);
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  border-top: 1px solid var(--border);
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):first-child,
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):first-child {
-  border-top-left-radius: 8px;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):last-child,
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):last-child {
-  border-top-right-radius: 8px;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:last-child td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):first-child,
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:last-child th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):first-child {
-  border-bottom-left-radius: 8px;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:last-child td:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):last-child,
-.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:last-child th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)):last-child {
-  border-bottom-right-radius: 8px;
-}
-
 /* ProseMirror adds .ProseMirror-hideselection for invisible selections such as
  * NodeSelection. Keep this override important because the editor-wide ::selection
  * rule below is also important and otherwise paints the browser range again. */
@@ -903,54 +855,14 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   position: absolute;
   z-index: 2;
   inset: 0;
-  background-color: color-mix(in oklch, var(--brand), transparent 88%);
+  background-color: var(--editor-table-selection-bg);
   pointer-events: none;
 }
 
-/* prosemirror-tables 为列中每个 cell 插入一个 .column-resize-handle widget,
- * 默认在离列边 ~5px 时显示; 由于同一列所有 cell 共用右边线, 这些 widget
- * 像素对齐, 视觉上形成一条连续竖线。这里把默认态设为可见, 让用户靠近列边
- * 时整条边即高亮, 不必等直接 hover。
- *
- * 颜色 token 化:
- *  - 基色: var(--brand) — 跨主题与 caret / 链接 / 选中态 / 标签底色同源
- *    (light: 紫 273 / dark: 亮紫 / rock: 浅紫, 全部融入各自底色)
- *    取代原硬编码 #5262DC (hue 240 indigo) 在不同主题下脱节的问题.
- *  - hover: color-mix × white 25% 提亮派生, 与 .tiptap a:hover (white 20%)
- *    同公式一族, 各主题共享同一提亮曲线, 不会有"某主题的 hover 没设计". */
+/* Upstream cell widgets retain resize semantics. A single rail overlay paints
+ * the hover line across horizontal borders, including merged/variable rows. */
 .markdown-editor .tiptap:not(.agent-composer__input-content) .column-resize-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  position: absolute;
-  right: -3px;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize !important;
-  background: transparent;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) table tr > td:last-child .column-resize-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
-.markdown-editor .tiptap:not(.agent-composer__input-content) table tr > th:last-child .column-resize-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  right: 0;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) .column-resize-handle:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 2px;
-  background: var(--brand);
-  opacity: 0.8;
-  transform: translateX(-50%);
-  transition: background-color 0.12s ease, opacity 0.12s ease;
-}
-
-.markdown-editor .tiptap:not(.agent-composer__input-content) .column-resize-handle:hover:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
-  background: color-mix(in oklch, var(--brand), white 25%);
-  opacity: 1;
+  display: none;
 }
 
 /* prosemirror-tables 在鼠标进入列边检测区时给 editor 根节点加 `resize-cursor`。
@@ -966,7 +878,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 /* prosemirror-tables 在拖拽期间会给 cell 加 `column-resize-dragging` 装饰类;
- * 故意不样式化 — 列边高亮由 .column-resize-handle widget 自身形成连续线。 */
+ * 故意不样式化 — 列边高亮由独立的 .table-resize-indicator 绘制。 */
 
 .markdown-editor .tiptap:not(.agent-composer__input-content) .tableWrapper:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   overflow-x: auto;
@@ -974,7 +886,6 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   max-width: 100%;
   position: relative;
   display: block;
-  margin-bottom: 1.8rem;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1756,7 +1667,7 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
 }
 
 .editor-highlight-palette__swatch--background {
-  background: color-mix(in oklch, var(--flowix-swatch-color) 20%, transparent);
+  background: var(--flowix-swatch-background);
   color: var(--flowix-swatch-color);
 }
 

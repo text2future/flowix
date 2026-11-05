@@ -1,16 +1,16 @@
 /*
  * Table presentation themes.
  *
- * Three selector scopes, each with one job — do not add a fourth:
+ * The default grid is defined once below. Themes use three selector scopes:
  *
  * 1. Variable assignment (`--flowix-table-*`):
  *    `.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="…"]`.
  *    Only attaches values to the table root. Low specificity is deliberate: it
  *    keeps an explicit cell border (scope 3) able to win.
- * 2. Structural rules (borders, radii, fonts, alignment):
+ * 2. Structural rules (borders, fonts, alignment):
  *    `.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content)
  *    table:not(.multidimensional-table)`. High specificity is required to beat
- *    the theme's own table grid and the rounded grid defaults.
+ *    the default table grid and its first-cell rules.
  * 3. Explicit cell borders: `.markdown-editor .tiptap table:not(…)
  *    :is(td, th)[data-flowix-border-*]`. `!important` is deliberate — a border
  *    the user set by hand must beat every template and row rule.
@@ -25,30 +25,68 @@
  * `editor-table-presentation.test.ts` guards all three.
  */
 
-/* Extra ProseMirror scope overrides the grid's corner and first-cell rules. */
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] {
+/* Default grid: square table and fills, with each shared border drawn once.
+ * Themes below only supply their own borders, typography and fill variables. */
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: initial;
+  --flowix-column-background: initial;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: 100%;
+  min-width: 60px;
+  margin-bottom: 0;
+  border-radius: 0;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-left: none;
+  border-radius: 0;
+  padding: 0.5rem;
+  min-width: 5rem;
+  max-width: 600px;
+  width: auto;
+  vertical-align: top;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  background: var(--table-header-fill);
+  font-weight: 600;
+  text-align: left;
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr > :is(td, th):first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  border-left: 1px solid var(--border);
+}
+
+.markdown-editor .tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr:first-child > :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  border-top: 1px solid var(--border);
+}
+
+/* Themed structures override the base grid above without corner exceptions. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-rule: color-mix(in srgb, var(--foreground) 16%, transparent);
   --flowix-table-soft: color-mix(in srgb, var(--foreground) 4%, var(--background));
   --flowix-table-tint: light-dark(#edf3fb, #28374b);
   --flowix-table-accent: light-dark(#28558f, #a5c8f6);
   border-collapse: collapse;
-  border-radius: 0;
   border: 0;
   color: var(--foreground);
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] :is(td, th) {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border: var(--flowix-table-grid, 0);
   border-top: var(--flowix-table-row-top, var(--flowix-table-grid, 0));
   border-bottom: var(--flowix-table-row-bottom, var(--flowix-table-grid, 0));
-  border-radius: 0;
   background: var(--flowix-table-cell-fill, transparent);
   color: var(--flowix-table-cell-ink, inherit);
   padding: var(--flowix-table-cell-padding, 0.5rem 0.75rem);
   vertical-align: top;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr:first-child:not(:has(> td)) > th {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr:first-child:not(:has(> td)) > th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   background: var(--flowix-table-head-fill, transparent);
   color: var(--flowix-table-head-ink, inherit);
   border-top: var(--flowix-table-head-top, var(--flowix-table-grid, 0));
@@ -56,122 +94,103 @@
   font-weight: 600;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="three-line"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="three-line"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-top: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   font-family: "Times New Roman", "Songti SC", "Noto Serif CJK SC", serif;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="three-line"], [data-flowix-table-style="hk-financial"]) tr:first-child:not(:has(> td)) > th {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="three-line"], [data-flowix-table-style="hk-financial"]) tr:first-child:not(:has(> td)) > th:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-bottom: 1px solid currentColor;
   font-weight: 600;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   font-family: "Times New Roman", "Songti TC", "Songti SC", serif;
   line-height: 1.5;
-}
-
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] {
   border-top: 1px solid currentColor;
   border-bottom: 1px solid currentColor;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr[data-flowix-row-role="group"] > :is(td, th) {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr[data-flowix-row-role="group"] > :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   padding-top: 1rem;
   font-weight: 600;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr:is([data-flowix-row-role="subtotal"], [data-flowix-row-role="total"]) > :is(td, th) {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style] tr:is([data-flowix-row-role="subtotal"], [data-flowix-row-role="total"]) > :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   font-weight: 600;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] tr:is([data-flowix-row-role="subtotal"], [data-flowix-row-role="total"]) > [data-flowix-column-role="amount"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] tr:is([data-flowix-row-role="subtotal"], [data-flowix-row-role="total"]) > [data-flowix-column-role="amount"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-top: 1px solid currentColor;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] tr[data-flowix-row-role="total"] > [data-flowix-column-role="amount"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="hk-financial"] tr[data-flowix-row-role="total"] > [data-flowix-column-role="amount"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-bottom: 3px double currentColor;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="amount"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th):is([data-flowix-column-role="amount"], [data-flowix-column-role="right"]):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   text-align: right;
+}
+
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="amount"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   font-variant-numeric: tabular-nums lining-nums;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="note"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="note"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   text-align: center;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="label"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-role="label"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   text-align: left;
 }
 
 /* Presentation variables keep template rules below explicit cell borders. */
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-head-fill: #234d82;
   --flowix-table-head-ink: #fff;
   --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="business-blue"], [data-flowix-table-style="literature"]) tr:first-child > :is(td, th) {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"] tr[data-flowix-row-role="total"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="business-blue"] tr[data-flowix-row-role="total"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-fill: var(--flowix-table-tint);
   --flowix-table-cell-ink: var(--flowix-table-accent);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-head-fill: color-mix(in srgb, var(--foreground) 8%, var(--background));
   --flowix-table-head-bottom: 1px solid var(--border);
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-collapse: separate;
-  border-spacing: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
-/* Match the 8px outer frame with 7px inner corners without clipping resize handles. */
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:first-child > :first-child {
-  border-top-left-radius: 7px;
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr > :is(td, th):not(:last-child):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  border-right: 1px solid var(--border);
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:first-child > :last-child {
-  border-top-right-radius: 7px;
-}
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:last-child > :first-child {
-  border-bottom-left-radius: 7px;
-}
-
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:last-child > :last-child {
-  border-bottom-right-radius: 7px;
-}
-
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:nth-child(odd):not(:first-child) {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr:nth-child(odd):not(:first-child):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-fill: color-mix(in srgb, var(--foreground) 2%, var(--background));
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr[data-flowix-row-role="total"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="striped"] tr[data-flowix-row-role="total"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
   --flowix-table-head-top: 1px solid var(--flowix-table-rule);
   --flowix-table-head-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] tr:first-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] tr:first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-column] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-column]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-fill: var(--flowix-table-tint);
   --flowix-table-cell-ink: var(--flowix-table-accent);
   --flowix-table-head-fill: var(--flowix-table-tint);
@@ -179,59 +198,59 @@
   font-weight: 600;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-first] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-first]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-top: 3px solid var(--flowix-table-accent);
   --flowix-table-head-top: 3px solid var(--flowix-table-accent);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-last] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="comparison"] [data-flowix-comparison-last]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-bottom: 3px solid var(--flowix-table-accent);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-head-top: 1px solid currentColor;
   --flowix-table-head-bottom: 1px solid currentColor;
   --flowix-table-cell-padding: 0.4rem 0.75rem;
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-bottom: 1px solid currentColor;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr:not([data-flowix-row-role]) > td:first-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr:not([data-flowix-row-role]) > td:first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-padding: 0.4rem 0.75rem 0.4rem 1.5rem;
   --flowix-table-cell-ink: var(--foreground);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="subtotal"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="subtotal"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="total"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="financial-brief"] tr[data-flowix-row-role="total"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-top: 1px solid currentColor;
   --flowix-table-row-bottom: 3px double currentColor;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-head-top: 2px solid currentColor;
   --flowix-table-head-bottom: 1px solid currentColor;
   --flowix-table-cell-padding: 0.4rem 0.75rem;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-fill: var(--flowix-table-soft);
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] > :is(td, th) {
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr[data-flowix-row-role="group"] > :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   padding: 0.4rem 0.75rem;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr:last-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="grouped"] tr:last-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-bottom: 1px solid currentColor;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-custom-edge-color: var(--flowix-table-rule);
   --flowix-table-head-ink: var(--foreground);
   --flowix-table-head-top: 1px solid var(--flowix-table-rule);
@@ -239,23 +258,26 @@
   --flowix-table-cell-padding: 0.85rem 0.75rem;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] tr:first-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] tr:first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-top: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] tr {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="minimal"] tr:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-row-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="minimal"] {
-  /* WebKit paints shared collapsed edges twice. An opaque theme blend keeps
-   * outer and inner rules equal, near the existing inner rule's visual depth. */
-  --flowix-table-rule: color-mix(in srgb, var(--foreground) 30%, var(--background));
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table)[data-flowix-table-style="minimal"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-top: 1px solid var(--flowix-table-rule);
   border-bottom: 1px solid var(--flowix-table-rule);
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="literature"] {
+/* WebKit can composite shared collapsed edges twice. These fine-line templates
+ * use one opaque theme blend so outer and inner edges have the same depth. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):is([data-flowix-table-style="minimal"], [data-flowix-table-style="literature"], [data-flowix-table-style="comparison"]):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-table-rule: color-mix(in srgb, var(--foreground) 30%, var(--background));
+}
+
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="literature"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-grid: 1px solid var(--flowix-table-rule);
   --flowix-table-head-fill: var(--flowix-table-soft);
   --flowix-table-cell-padding: 0.3rem 0.6rem;
@@ -263,39 +285,101 @@
   line-height: 1.4;
 }
 
-.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="literature"] tr > th:first-child {
+.markdown-editor table:not(.multidimensional-table)[data-flowix-table-style="literature"] tr > th:first-child:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   --flowix-table-cell-fill: var(--flowix-table-soft);
   font-weight: 500;
 }
 
-/* Custom edges share one line in grid tables too. Unmodified grids keep their rounded corners. */
-.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):has([data-flowix-border-top], [data-flowix-border-bottom]) {
+
+/* Direct formatting: row fills win at intersections; removing the attribute
+ * restores theme fill. Shared highlight tokens keep palettes and cells aligned.
+ * Explicit fill images must survive theme header background shorthands. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="red"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-red);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="red"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-red);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="orange"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-orange);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="orange"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-orange);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="yellow"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-yellow);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="yellow"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-yellow);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="green"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-green);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="green"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-green);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="cyan"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-cyan);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="cyan"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-cyan);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="blue"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-blue);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="blue"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-blue);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="purple"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-purple);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="purple"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-purple);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="pink"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-pink);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="pink"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-pink);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background="gray"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-row-background: var(--flowix-highlight-background-gray);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background="gray"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  --flowix-column-background: var(--flowix-highlight-background-gray);
+}
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) tr[data-flowix-row-background] > :is(td, th):where(:not(.agent-conversation-surface, .agent-conversation-surface *)),
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table) :is(td, th)[data-flowix-column-background]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  background-image: linear-gradient(var(--flowix-row-background, var(--flowix-column-background)), var(--flowix-row-background, var(--flowix-column-background))) !important;
+}
+
+/* Custom edges share one line in grid tables too. */
+.markdown-editor .ProseMirror.tiptap:not(.agent-composer__input-content) table:not(.multidimensional-table):has([data-flowix-border-top], [data-flowix-border-bottom]):where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-collapse: collapse;
-  border-radius: 0;
 }
 
 /* Explicit cell borders take priority over all template/row rules. Hidden also suppresses a neighbor's automatic rule. */
-.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="single"] {
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="single"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-top: 1px solid var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
-.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="double"] {
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="double"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-top: 3px double var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
-.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="none"] {
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-top="none"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-top: hidden !important;
 }
 
-.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="single"] {
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="single"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-bottom: 1px solid var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
-.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="double"] {
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="double"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-bottom: 3px double var(--flowix-table-custom-edge-color, currentColor) !important;
 }
 
-.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="none"] {
+.markdown-editor .tiptap table:not(.multidimensional-table) :is(td, th)[data-flowix-border-bottom="none"]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   border-bottom: hidden !important;
 }
 

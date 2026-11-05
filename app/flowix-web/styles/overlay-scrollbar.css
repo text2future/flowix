@@ -98,7 +98,8 @@ html[data-platform="mac"] .agent-composer-slash-menu:not([data-scrolling="true"]
 html[data-platform="non-mac"] .overlay-scrollbar,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollbar {
 	overflow: auto;
-	overscroll-behavior: contain;
+	overscroll-behavior-x: var(--overlay-scrollbar-overscroll-x, contain);
+	overscroll-behavior-y: var(--overlay-scrollbar-overscroll-y, contain);
 	scrollbar-width: none;
 }
 
@@ -203,7 +204,7 @@ html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac .overlay-scrollba
 
 html[data-platform="non-mac"] .overlay-scrollbar-frame[data-horizontal-scrollbar="true"] > .overlay-scrollbar-track--horizontal,
 html[data-platform="mac"] .overlay-scrollbar-frame--custom-mac[data-horizontal-scrollbar="true"] > .overlay-scrollbar-track--horizontal {
-	right: 1rem;
+	right: var(--overlay-scrollbar-horizontal-end, 1rem);
 }
 
 html[data-platform="non-mac"] .overlay-scrollbar-thumb--horizontal,

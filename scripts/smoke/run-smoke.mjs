@@ -18,6 +18,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { build } from 'esbuild';
+import { runRenderedPage } from './chrome-page.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const web = join(root, 'app/flowix-web');
@@ -26,6 +27,8 @@ const CASES = [
   { name: 'boot', entry: 'scripts/smoke/fixtures/boot.js', budgetMs: 20_000 },
   { name: 'save-pipeline', entry: 'scripts/smoke/fixtures/save-pipeline.js', budgetMs: 20_000 },
   { name: 'agent-markdown', entry: 'scripts/smoke/fixtures/agent-markdown.js', budgetMs: 20_000 },
+  { name: 'editor-tables', entry: 'scripts/smoke/fixtures/editor-tables.js', budgetMs: 20_000, renderFrames: true,
+    styles: ['editor.css', 'editor-table-presentation.css', 'overlay-scrollbar.css', 'editor-table-layout.css', 'editor-table-reorder.css'] },
 ];
 
 const chrome = process.env.CHROME_BIN ?? [
@@ -97,18 +100,22 @@ for (const testCase of selected) {
       logLevel: 'error',
     });
 
+    const styles = (await Promise.all((testCase.styles ?? []).map(name => readFile(join(web, 'styles', name), 'utf8')))).join('\n');
     const html = join(folder, 'index.html');
     await writeFile(
       html,
       `<!doctype html><meta charset="utf-8"><title>flowix smoke ${testCase.name}</title>
 <style>html,body{margin:0;height:100%}#root,.app-shell{min-height:1px}</style>
+<style>${styles}</style>
 <script>globalThis.__flowixViteGlob = () => ({});</script>
 <div id="root"></div>
 <pre id="smoke-result">pending</pre>
 <script type="module" src="./case.js"></script>`,
     );
 
-    const { stdout } = await promisify(execFile)(
+    const stdout = testCase.renderFrames
+      ? await runRenderedPage(chrome, pathToFileURL(html).href, folder, testCase.budgetMs)
+      : (await promisify(execFile)(
       chrome,
       [
         '--headless',
@@ -122,7 +129,7 @@ for (const testCase of selected) {
         pathToFileURL(html).href,
       ],
       { timeout: testCase.budgetMs + 15_000, maxBuffer: 16 * 1024 * 1024 },
-    );
+    )).stdout;
 
     const raw = stdout.match(/<pre id="smoke-result">([\s\S]*?)<\/pre>/)?.[1] ?? '';
     const text = raw
@@ -157,7 +164,7 @@ for (const testCase of selected) {
       }
     }
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

@@ -1,5 +1,6 @@
 import type { Editor } from '@tiptap/core';
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { TableMap } from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
 
 type EdgeKind = 'column' | 'row';
@@ -9,7 +10,7 @@ interface EdgeTarget {
   atLastColumn: boolean;
   atLastRow: boolean;
   table: HTMLTableElement;
-  wrapper: HTMLElement;
+  rail: HTMLElement;
 }
 
 const tableEdgeInsertPluginKey = new PluginKey('tableEdgeInsert');
@@ -43,25 +44,23 @@ function getEdgeTarget(view: EditorView, eventTarget: EventTarget | null): EdgeT
   // 点击 addRowAfter/addColumnAfter 也会作用到编辑器里的其他表格。
   if (cell.closest('.agent-thread-card, .table-reference-node')) return null;
 
-  const row = cell.parentElement;
-  if (!(row instanceof HTMLTableRowElement)) return null;
-
-  // Index the live collections in place: Array.from allocated one entry per row
-  // on every mousemove over a long table.
-  const atLastColumn = row.cells[row.cells.length - 1] === cell;
-  const atLastRow = table.rows[table.rows.length - 1] === row;
-
-  if (!atLastColumn && !atLastRow) return null;
-
-  const wrapper = table.closest('.tableWrapper');
-
-  return {
-    cellPos: view.posAtDOM(cell, 0),
-    atLastColumn,
-    atLastRow,
-    table,
-    wrapper: wrapper instanceof HTMLElement ? wrapper : table,
-  };
+  if (cell.closest('.ProseMirror') !== view.dom) return null;
+  const rail = table.closest<HTMLElement>('.markdown-table-rail');
+  if (!rail || table.parentElement !== rail) return null;
+  const $pos = view.state.doc.resolve(view.posAtDOM(cell, 0));
+  let cellDepth = 0;
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const role = $pos.node(depth).type.spec.tableRole;
+    if (role === 'cell' || role === 'header_cell') cellDepth = depth;
+    if (role !== 'table' || !cellDepth) continue;
+    const map = TableMap.get($pos.node(depth));
+    const cellPos = $pos.before(cellDepth);
+    const rect = map.findCell(cellPos - $pos.start(depth));
+    const atLastColumn = rect.right === map.width;
+    const atLastRow = rect.bottom === map.height;
+    return atLastColumn || atLastRow ? { cellPos, atLastColumn, atLastRow, table, rail } : null;
+  }
+  return null;
 }
 
 function setBox(
@@ -91,7 +90,7 @@ class TableEdgeInsertView {
   private currentColumnCellPos: number | null = null;
   private currentRowCellPos: number | null = null;
   private hoverArea: HTMLElement;
-  private overlayRoot: HTMLElement;
+  private overlayRoot: HTMLElement | null = null;
   private hideTimer: number | null = null;
   private frameId: number | null = null;
   private pendingTarget: EventTarget | null = null;
@@ -106,27 +105,20 @@ class TableEdgeInsertView {
     labels: TableEdgeInsertLabels = DEFAULT_LABELS,
   ) {
     this.hoverArea = this.findHoverArea();
-    this.overlayRoot = this.findOverlayRoot();
     this.columnButton = this.createButton('column', labels.insertColumnAfter);
     this.rowButton = this.createButton('row', labels.insertRowAfter);
     this.columnHoverZone = this.createHoverZone('column');
     this.rowHoverZone = this.createHoverZone('row');
 
-    this.overlayRoot.append(
-      this.columnHoverZone,
-      this.rowHoverZone,
-      this.columnButton,
-      this.rowButton,
-    );
     this.hoverArea.addEventListener('mousemove', this.handleMouseMove);
     this.hoverArea.addEventListener('mouseleave', this.handleMouseLeave);
-    this.hoverArea.addEventListener('scroll', this.hide, { passive: true });
+    this.hoverArea.addEventListener('scroll', this.handleScroll, { passive: true, capture: true });
   }
 
   update(view: EditorView): void {
     if (this.isDestroyed) return;
     this.view = view;
-    if (!this.editor.isEditable) this.hide();
+    this.hide();
   }
 
   destroy(): void {
@@ -139,7 +131,7 @@ class TableEdgeInsertView {
     this.pendingTarget = null;
     this.hoverArea.removeEventListener('mousemove', this.handleMouseMove);
     this.hoverArea.removeEventListener('mouseleave', this.handleMouseLeave);
-    this.hoverArea.removeEventListener('scroll', this.hide);
+    this.hoverArea.removeEventListener('scroll', this.handleScroll, true);
     this.columnButton.remove();
     this.rowButton.remove();
     this.columnHoverZone.remove();
@@ -147,13 +139,10 @@ class TableEdgeInsertView {
   }
 
   private findHoverArea(): HTMLElement {
+    const pane = this.view.dom.closest<HTMLElement>('.editor-content');
+    if (pane) return pane;
     const parent = this.view.dom.parentElement;
     return parent instanceof HTMLElement ? parent : this.view.dom;
-  }
-
-  private findOverlayRoot(): HTMLElement {
-    const editorRoot = this.view.dom.closest('.markdown-editor');
-    return editorRoot instanceof HTMLElement ? editorRoot : this.findHoverArea();
   }
 
   private createButton(kind: EdgeKind, title: string): HTMLButtonElement {
@@ -225,7 +214,7 @@ class TableEdgeInsertView {
   };
 
   private updateEdgeControls(eventTarget: EventTarget | null): void {
-    if (!this.editor.isEditable) {
+    if (!this.editor.isEditable || this.view.dom.hasAttribute('data-table-reordering')) {
       this.hide();
       return;
     }
@@ -238,30 +227,26 @@ class TableEdgeInsertView {
       return;
     }
 
-    // Staying inside one cell keeps the already positioned controls; only a new
-    // cell or a different edge re-measures.
-    if (target.atLastColumn) {
-      if (target.cellPos !== this.currentColumnCellPos) this.showColumnButton(target);
-      else this.cancelScheduledHide();
-    } else {
-      this.hideColumnButton();
+    // Keep controls in the table's scrollable rail. Their coordinates then move
+    // and clip with the table, rather than sticking to the pane's outer edge.
+    const root = target.rail;
+    if (root !== this.overlayRoot) {
+      this.hide();
+      this.overlayRoot = root;
+      root.append(this.columnHoverZone, this.rowHoverZone, this.columnButton, this.rowButton);
     }
-
-    if (target.atLastRow) {
-      if (target.cellPos !== this.currentRowCellPos) this.showRowButton(target);
-      else this.cancelScheduledHide();
-    } else {
-      this.hideRowButton();
-    }
+    if (target.atLastColumn) this.showColumnButton(target);
+    else this.hideColumnButton();
+    if (target.atLastRow) this.showRowButton(target);
+    else this.hideRowButton();
   }
 
   private showColumnButton(target: EdgeTarget): void {
     this.cancelScheduledHide();
-    const rootRect = this.overlayRoot.getBoundingClientRect();
-    const tableRect = target.table.getBoundingClientRect();
-    const wrapperRect = target.wrapper.getBoundingClientRect();
-    const top = tableRect.top - rootRect.top;
-    const right = wrapperRect.right - rootRect.left;
+    // offset geometry is in rail-local CSS pixels. Viewport rect differences
+    // would double-apply transforms/zoom when assigned to absolute CSS offsets.
+    const top = target.table.offsetTop;
+    const right = target.table.offsetLeft + target.table.offsetWidth;
 
     this.currentColumnCellPos = target.cellPos;
     this.columnHoverZone.hidden = false;
@@ -269,7 +254,7 @@ class TableEdgeInsertView {
       top,
       left: right,
       width: EDGE_GAP,
-      height: tableRect.height,
+      height: target.table.offsetHeight,
     });
 
     this.columnButton.hidden = false;
@@ -277,23 +262,21 @@ class TableEdgeInsertView {
       top,
       left: right + EDGE_GAP,
       width: EDGE_BUTTON_SIZE,
-      height: tableRect.height,
+      height: target.table.offsetHeight,
     });
   }
 
   private showRowButton(target: EdgeTarget): void {
     this.cancelScheduledHide();
-    const rootRect = this.overlayRoot.getBoundingClientRect();
-    const wrapperRect = target.wrapper.getBoundingClientRect();
-    const bottom = wrapperRect.bottom - rootRect.top;
-    const left = wrapperRect.left - rootRect.left;
+    const bottom = target.table.offsetTop + target.table.offsetHeight;
+    const left = target.table.offsetLeft;
 
     this.currentRowCellPos = target.cellPos;
     this.rowHoverZone.hidden = false;
     setBox(this.rowHoverZone, {
       top: bottom,
       left,
-      width: wrapperRect.width,
+      width: target.table.offsetWidth,
       height: EDGE_GAP,
     });
 
@@ -301,7 +284,7 @@ class TableEdgeInsertView {
     setBox(this.rowButton, {
       top: bottom + EDGE_GAP,
       left,
-      width: wrapperRect.width,
+      width: target.table.offsetWidth,
       height: EDGE_BUTTON_SIZE,
     });
   }
@@ -317,6 +300,14 @@ class TableEdgeInsertView {
     this.rowHoverZone.hidden = true;
     this.rowButton.hidden = true;
   }
+
+  private handleScroll = (): void => {
+    // A queued pre-scroll mousemove must not resurrect controls after hiding.
+    if (this.frameId !== null) window.cancelAnimationFrame(this.frameId);
+    this.frameId = null;
+    this.pendingTarget = null;
+    this.hide();
+  };
 
   private hide = (): void => {
     this.cancelScheduledHide();

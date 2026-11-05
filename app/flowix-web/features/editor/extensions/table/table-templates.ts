@@ -1,4 +1,6 @@
 import type { Editor, JSONContent, Range } from '@tiptap/core';
+import { applyColumnWidths } from './table-metadata';
+import { equalTableWidths, tableContentWidth } from './table-fixed-widths';
 import { TextSelection } from '@tiptap/pm/state';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage, type I18nKey } from '@/lib/i18n/locales';
 import { translate } from '@/lib/i18n/provider';
@@ -91,7 +93,12 @@ export function insertTableTemplate(
   return editor.chain().focus().command(({ tr, dispatch }) => {
     if (replaceRange && (replaceRange.from < 0 || replaceRange.to < replaceRange.from || replaceRange.to > tr.doc.content.size)) return false;
     if (dispatch) {
-      const table = editor.schema.nodeFromJSON(createTableTemplate(styleId, language));
+      const template = createTableTemplate(styleId, language);
+      const available = tableContentWidth(editor.view, replaceRange?.from ?? tr.selection.from);
+      const columns = template.content?.[0]?.content?.length ?? 3;
+      const table = editor.schema.nodeFromJSON(available > 0
+        ? applyColumnWidths(template, equalTableWidths(available, columns))
+        : template);
       const offset = (replaceRange?.from ?? tr.selection.from) + 1;
       if (replaceRange) tr.replaceWith(replaceRange.from, replaceRange.to, table);
       else tr.replaceSelectionWith(table);

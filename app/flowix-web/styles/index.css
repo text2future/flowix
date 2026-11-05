@@ -31,6 +31,8 @@
 /* 自定义滚动条 ── 全局 webkit 滚动条 + .overlay-scrollbar-* 组件样式。
  * macOS 主文档全局外观和组件自绘样式见 overlay-scrollbar.css。 */
 @import './overlay-scrollbar.css';
+@import './editor-table-layout.css';
+@import './editor-table-reorder.css';
 @import './created-document-notices.css';
 @import './work-column-selection.css';
 @import './cloud-status-icon.css';

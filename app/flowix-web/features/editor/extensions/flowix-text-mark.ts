@@ -3,19 +3,8 @@ import type { Editor } from '@tiptap/core';
 import type { MarkdownLexerConfiguration, MarkdownToken } from '@tiptap/core';
 import Highlight from '@tiptap/extension-highlight';
 
-export const FLOWIX_TEXT_COLORS = [
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'cyan',
-  'blue',
-  'purple',
-  'pink',
-  'gray',
-] as const;
-
-export type FlowixTextColor = (typeof FLOWIX_TEXT_COLORS)[number];
+import { isFlowixTextColor, type FlowixTextColor } from './flowix-text-colors';
+export { FLOWIX_TEXT_COLORS, isFlowixTextColor, type FlowixTextColor } from './flowix-text-colors';
 
 export interface FlowixTextMarkAttributes {
   color?: string | null;
@@ -34,11 +23,6 @@ const FLOWIX_TEXT_COLOR_MIGRATION_ALIASES: Record<string, FlowixTextColor> = {
 };
 
 const FLOWIX_TEXT_MARK_RE = /^==([^=\n]+)==[ \t]*<!--\s*flowix:text\s+(\{[^}\r\n]*\})\s*-->/;
-
-export function isFlowixTextColor(value: unknown): value is FlowixTextColor {
-  return typeof value === 'string'
-    && (FLOWIX_TEXT_COLORS as readonly string[]).includes(value);
-}
 
 function normalizeFlowixTextColor(value: unknown): FlowixTextColor | undefined {
   if (isFlowixTextColor(value)) return value;

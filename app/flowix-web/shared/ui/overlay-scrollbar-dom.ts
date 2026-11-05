@@ -9,12 +9,21 @@ interface OverlayScrollbarDomOptions {
   frameClassName?: string;
   scrollerClassName?: string;
   observeContent?: boolean;
+  /** Render a horizontal-only overlay, using the shared product scrollbar styles. */
+  horizontal?: boolean;
 }
 
 export function createOverlayScrollbarDom(
   ownerDocument: Document,
   options: OverlayScrollbarDomOptions = {},
 ): OverlayScrollbarDomController {
+  const horizontal = options.horizontal === true;
+  const axis = horizontal ? 'horizontal' : 'vertical';
+  const scrollSize = horizontal ? 'scrollWidth' : 'scrollHeight';
+  const clientSize = horizontal ? 'clientWidth' : 'clientHeight';
+  const scrollPosition = horizontal ? 'scrollLeft' : 'scrollTop';
+  const thumbSizeProperty = horizontal ? '--overlay-scrollbar-thumb-width' : '--overlay-scrollbar-thumb-height';
+  const thumbPositionProperty = horizontal ? '--overlay-scrollbar-thumb-left' : '--overlay-scrollbar-thumb-top';
   const frame = ownerDocument.createElement('div');
   frame.className = ['overlay-scrollbar-frame', options.frameClassName]
     .filter(Boolean)
@@ -26,15 +35,15 @@ export function createOverlayScrollbarDom(
     .join(' ');
 
   const track = ownerDocument.createElement('div');
-  track.className = 'overlay-scrollbar-track overlay-scrollbar-track--vertical';
+  track.className = `overlay-scrollbar-track overlay-scrollbar-track--${axis}`;
   track.setAttribute('aria-hidden', 'true');
 
   const thumb = ownerDocument.createElement('div');
-  thumb.className = 'overlay-scrollbar-thumb overlay-scrollbar-thumb--vertical';
+  thumb.className = `overlay-scrollbar-thumb overlay-scrollbar-thumb--${axis}`;
   thumb.setAttribute('aria-hidden', 'true');
 
   frame.append(scroller, track, thumb);
-  frame.dataset.horizontalScrollbar = 'false';
+  frame.dataset.horizontalScrollbar = String(horizontal);
   frame.dataset.horizontalScrollable = 'false';
 
   const ownerWindow = ownerDocument.defaultView;
@@ -43,9 +52,9 @@ export function createOverlayScrollbarDom(
   let userScrollIntentUntil = 0;
   let drag: {
     pointerId: number;
-    startY: number;
-    startScrollTop: number;
-    maxScrollTop: number;
+    startPointer: number;
+    startScroll: number;
+    maxScroll: number;
     thumbTravel: number;
   } | null = null;
 
@@ -65,24 +74,24 @@ export function createOverlayScrollbarDom(
   };
 
   const update = (syncOptions: { reveal?: boolean; schedule?: boolean } = {}) => {
-    const maxScrollTop = scroller.scrollHeight - scroller.clientHeight;
-    const isScrollable = maxScrollTop > 1;
-    frame.dataset.scrollable = String(isScrollable);
+    const maxScroll = scroller[scrollSize] - scroller[clientSize];
+    const isScrollable = maxScroll > 1;
+    frame.dataset[horizontal ? 'horizontalScrollable' : 'scrollable'] = String(isScrollable);
 
     if (!isScrollable) {
-      frame.style.removeProperty('--overlay-scrollbar-thumb-height');
-      frame.style.removeProperty('--overlay-scrollbar-thumb-top');
+      frame.style.removeProperty(thumbSizeProperty);
+      frame.style.removeProperty(thumbPositionProperty);
       return;
     }
 
-    const thumbHeight = Math.max(
+    const thumbSize = Math.max(
       24,
-      Math.round((scroller.clientHeight / scroller.scrollHeight) * scroller.clientHeight),
+      Math.round((scroller[clientSize] / scroller[scrollSize]) * scroller[clientSize]),
     );
-    const thumbTravel = Math.max(0, scroller.clientHeight - thumbHeight);
-    const thumbTop = Math.round((scroller.scrollTop / maxScrollTop) * thumbTravel);
-    frame.style.setProperty('--overlay-scrollbar-thumb-height', `${thumbHeight}px`);
-    frame.style.setProperty('--overlay-scrollbar-thumb-top', `${thumbTop}px`);
+    const thumbTravel = Math.max(0, scroller[clientSize] - thumbSize);
+    const thumbOffset = Math.round((scroller[scrollPosition] / maxScroll) * thumbTravel);
+    frame.style.setProperty(thumbSizeProperty, `${thumbSize}px`);
+    frame.style.setProperty(thumbPositionProperty, `${thumbOffset}px`);
 
     if (syncOptions.reveal !== false) frame.dataset.scrolling = 'true';
     if (syncOptions.schedule !== false) scheduleHide();
@@ -92,7 +101,7 @@ export function createOverlayScrollbarDom(
     userScrollIntentUntil = Date.now() + 200;
   };
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
       markUserScrollIntent();
     }
   };
@@ -100,7 +109,7 @@ export function createOverlayScrollbarDom(
   const finishDrag = (event: PointerEvent) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     drag = null;
-    delete frame.dataset.dragging;
+    delete frame.dataset[horizontal ? 'horizontalDragging' : 'dragging'];
     try {
       thumb.releasePointerCapture(event.pointerId);
     } catch {
@@ -110,25 +119,25 @@ export function createOverlayScrollbarDom(
   };
 
   const handlePointerDown = (event: PointerEvent) => {
-    if (frame.dataset.scrollable !== 'true') return;
-    const maxScrollTop = scroller.scrollHeight - scroller.clientHeight;
-    const thumbHeight = Math.max(
+    if (event.button !== 0 || frame.dataset[horizontal ? 'horizontalScrollable' : 'scrollable'] !== 'true') return;
+    const maxScroll = scroller[scrollSize] - scroller[clientSize];
+    const thumbSize = Math.max(
       24,
-      Math.round((scroller.clientHeight / scroller.scrollHeight) * scroller.clientHeight),
+      Math.round((scroller[clientSize] / scroller[scrollSize]) * scroller[clientSize]),
     );
-    const thumbTravel = Math.max(1, scroller.clientHeight - thumbHeight);
+    const thumbTravel = Math.max(1, scroller[clientSize] - thumbSize);
 
     event.preventDefault();
     event.stopPropagation();
     thumb.setPointerCapture(event.pointerId);
     clearHideTimer();
-    frame.dataset.dragging = 'true';
+    frame.dataset[horizontal ? 'horizontalDragging' : 'dragging'] = 'true';
     frame.dataset.scrolling = 'true';
     drag = {
       pointerId: event.pointerId,
-      startY: event.clientY,
-      startScrollTop: scroller.scrollTop,
-      maxScrollTop,
+      startPointer: (horizontal ? event.clientX : event.clientY),
+      startScroll: scroller[scrollPosition],
+      maxScroll,
       thumbTravel,
     };
   };
@@ -136,16 +145,17 @@ export function createOverlayScrollbarDom(
   const handlePointerMove = (event: PointerEvent) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const scrollDelta = ((event.clientY - drag.startY) / drag.thumbTravel) * drag.maxScrollTop;
-    scroller.scrollTop = Math.max(
+    const scrollDelta = (((horizontal ? event.clientX : event.clientY) - drag.startPointer) / drag.thumbTravel) * drag.maxScroll;
+    scroller[scrollPosition] = Math.max(
       0,
-      Math.min(drag.startScrollTop + scrollDelta, drag.maxScrollTop),
+      Math.min(drag.startScroll + scrollDelta, drag.maxScroll),
     );
     update({ schedule: false });
   };
 
   const handleWheel = (event: WheelEvent) => {
-    if (event.deltaY === 0) return;
+    const delta = horizontal ? event.deltaX || (event.shiftKey ? event.deltaY : 0) : event.deltaY;
+    if (delta === 0) return;
     const target = event.target;
     const NodeConstructor = ownerWindow?.Node;
     if (
@@ -157,7 +167,7 @@ export function createOverlayScrollbarDom(
     }
     event.preventDefault();
     markUserScrollIntent();
-    scroller.scrollTop += event.deltaY;
+    scroller[scrollPosition] += delta;
     update();
   };
 
@@ -168,10 +178,10 @@ export function createOverlayScrollbarDom(
   const handleResize = () => update({ reveal: false, schedule: false });
   const handleTrackPointerMove = (event: PointerEvent) => {
     if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
-      frame.dataset.trackHover = 'true';
+      frame.dataset[horizontal ? 'horizontalTrackHover' : 'trackHover'] = 'true';
     }
   };
-  const clearTrackHover = () => { delete frame.dataset.trackHover; };
+  const clearTrackHover = () => { delete frame.dataset[horizontal ? 'horizontalTrackHover' : 'trackHover']; };
   const handleTrackPointerLeave = (event: PointerEvent) => {
     if (event.relatedTarget !== track && event.relatedTarget !== thumb) clearTrackHover();
   };
@@ -208,6 +218,7 @@ export function createOverlayScrollbarDom(
   thumb.addEventListener('pointermove', handlePointerMove);
   thumb.addEventListener('pointerup', finishDrag);
   thumb.addEventListener('pointercancel', finishDrag);
+  thumb.addEventListener('lostpointercapture', finishDrag);
   track.addEventListener('pointermove', handleTrackPointerMove);
   thumb.addEventListener('pointermove', handleTrackPointerMove);
   track.addEventListener('pointerleave', handleTrackPointerLeave);
@@ -234,6 +245,7 @@ export function createOverlayScrollbarDom(
       thumb.removeEventListener('pointermove', handlePointerMove);
       thumb.removeEventListener('pointerup', finishDrag);
       thumb.removeEventListener('pointercancel', finishDrag);
+      thumb.removeEventListener('lostpointercapture', finishDrag);
       track.removeEventListener('pointermove', handleTrackPointerMove);
       thumb.removeEventListener('pointermove', handleTrackPointerMove);
       track.removeEventListener('pointerleave', handleTrackPointerLeave);

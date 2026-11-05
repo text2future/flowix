@@ -7,9 +7,12 @@ import type { I18nKey } from '@/lib/i18n/locales';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@shared/ui/dropdown-menu';
 import { POPUP_SEPARATOR_CLASS } from '@shared/ui/popup-separator';
 import { OverlayScrollbar } from '@shared/ui/overlay-scrollbar';
-import type { TableBorderStyle, TableColumnRole, TableRowRole, TableStyleId } from './table-presentation';
+import { TABLE_STYLE_ROW_ROLES, type TableBorderStyle, type TableColumnRole, type TableRowRole, type TableStyleId } from './table-presentation';
 import { getBorderExtendsHint, getTablePresentationSelection, setTableCellBorder, setTableColumnRole, setTableRowRole, setTableStyle } from './table-style-commands';
 import { TABLE_TEMPLATE_OPTIONS } from './table-templates';
+import { flowixHighlightBackground, isFlowixTextColor } from '../flowix-text-colors';
+import { FlowixBackgroundPalette } from '../../components/flowix-background-palette';
+import { setTableBackground } from './table-background-commands';
 import { TableBorderIcon, TableBordersIcon, TableStyleIcon } from './table-style-icon';
 
 interface TableMenuOption<T extends string> {
@@ -187,12 +190,15 @@ function TableHeaderToggle({ label, checked, disabled, disabledReason, onToggle 
 
 export function TableStyleControls({ editor }: { editor: Editor }) {
   const { t, language } = useI18n();
-  const [openMenu, setOpenMenu] = useState<'theme' | 'border' | 'font' | 'operations' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'theme' | 'border' | 'font' | 'color' | 'operations' | null>(null);
   const selected = useEditorState({
     editor,
     selector: ({ editor: current }) => getTablePresentationSelection(current),
   });
   if (!selected) return null;
+
+  const backgroundColor = isFlowixTextColor(selected.rowBackground) ? selected.rowBackground
+    : isFlowixTextColor(selected.columnBackground) ? selected.columnBackground : null;
 
   const styles: TableMenuOption<TableStyleId>[] = TABLE_TEMPLATE_OPTIONS.map(({ styleId, labelKey, menuGroup }, index) => ({
     value: styleId, label: t(labelKey),
@@ -203,11 +209,11 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
     ['group', 'editor.table.rowGroup'],
     ['subtotal', 'editor.table.rowSubtotal'],
     ['total', 'editor.table.rowTotal'],
-  ]);
+  ]).filter(option => TABLE_STYLE_ROW_ROLES[selected.style].includes(option.value));
   const columns = optionEntries<TableColumnRole>(t, [
-    ['default', 'editor.table.columnDefault'],
-    ['label', 'editor.table.columnLabel'],
-    ['note', 'editor.table.columnNote'],
+    ['label', 'editor.table.columnAlignLeft'],
+    ['note', 'editor.table.columnAlignCenter'],
+    ['right', 'editor.table.columnAlignRight'],
     ['amount', 'editor.table.columnAmount'],
   ]);
   const borders = optionEntries<TableBorderStyle>(t, [
@@ -220,7 +226,7 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
   const borderStatus = selected.borderTop === selected.borderBottom
     ? borderLabel(selected.borderTop)
     : t('editor.table.mixed');
-  const fontStatus = selected.row === 'mixed' || selected.column === 'mixed' ? t('editor.table.mixed') : undefined;
+  const fontStatus = (rows.length > 0 && selected.row === 'mixed') || selected.column === 'mixed' ? t('editor.table.mixed') : undefined;
   const currentStyleLabel = styles.find(option => option.value === selected.style)?.label ?? t('editor.table.mixed');
   const operationGroups: Array<{
     label: string;
@@ -286,10 +292,23 @@ export function TableStyleControls({ editor }: { editor: Editor }) {
             onToggle={() => editor.chain().focus().toggleHeaderRow().run()} />
         </div>
         <div className={POPUP_SEPARATOR_CLASS} aria-hidden="true" />
-        <TableMenuSection label={t('editor.table.rowFont')} value={selected.row}
-          options={rows} onSelect={value => setTableRowRole(editor, value)} />
-        <TableMenuSection label={t('editor.table.columnFont')} value={selected.column}
-          options={columns} separatorBefore onSelect={value => setTableColumnRole(editor, value)} />
+        {rows.length > 0 && <TableMenuSection label={t('editor.table.rowStyle')} value={selected.row}
+          options={rows} onSelect={value => setTableRowRole(editor, value)} />}
+        <TableMenuGroup label={t('editor.table.columnStyle')} separatorBefore={rows.length > 0}>
+          <TableOptionList options={columns} value={selected.column === 'default' ? 'label' : selected.column}
+            onSelect={value => setTableColumnRole(editor, value)} />
+        </TableMenuGroup>
+      </TableMenuShell>
+      <TableMenuShell label={t('editor.table.color')} triggerText={null}
+        icon={<span aria-hidden="true" className="h-4 w-4 shrink-0 rounded-[4px] border border-[var(--border)]"
+          style={{ backgroundColor: backgroundColor ? flowixHighlightBackground(backgroundColor) : 'white' }} />}
+        open={openMenu === 'color'} onOpenChange={open => setOpenMenu(open ? 'color' : null)}>
+        <TableMenuGroup label={t('editor.table.rowBackground')}>
+          <FlowixBackgroundPalette showLabel={false} value={selected.rowBackground} onChange={color => setTableBackground(editor, 'row', color)} />
+        </TableMenuGroup>
+        <TableMenuGroup label={t('editor.table.columnBackground')} separatorBefore>
+          <FlowixBackgroundPalette showLabel={false} value={selected.columnBackground} onChange={color => setTableBackground(editor, 'column', color)} />
+        </TableMenuGroup>
       </TableMenuShell>
       <TableMenuShell label={t('editor.table.rowColumnOperations')} triggerText={null}
         icon={<RowsIcon size={18} weight="regular" />}

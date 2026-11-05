@@ -104,3 +104,18 @@ describe('work-column content state', () => {
     });
   });
 });
+
+
+it('reads the Work runtime independently of its layout position', async () => {
+  const { useWorkspaceSessionStore } = await import('./workspace-session-store');
+  const { getWorkColumnContentState } = await import('./work-column-content-state');
+  const store = useWorkspaceSessionStore.getState();
+  store.reset();
+  const work = { kind: 'web' as const, url: 'https://work.example/' };
+  store.commitTarget('column-1', work);
+  store.commitTarget('column-2', { kind: 'web', url: 'https://other.example/' });
+  store.swapColumnContents();
+  try {
+    expect(getWorkColumnContentState()).toMatchObject({ status: 'ready', target: work });
+  } finally { store.reset(); }
+});

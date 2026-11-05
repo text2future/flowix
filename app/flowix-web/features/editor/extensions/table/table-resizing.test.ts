@@ -78,6 +78,25 @@ describe('table column resizing', () => {
     expect(columnResizingPluginKey.getState(editor.state)?.dragging).toBeFalsy();
   });
 
+  it.each(['row', 'column'])('suspends resize hover during %s sorting and restores it after release', axis => {
+    const { editor, cell, cellPos } = createEditor();
+    hover(cell);
+    expect(columnResizingPluginKey.getState(editor.state)?.activeHandle).toBe(cellPos);
+    const button = editor.view.dom.querySelector<HTMLButtonElement>(`.table-reorder-handle--${axis}`)!;
+    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    expect(columnResizingPluginKey.getState(editor.state)?.activeHandle).toBe(-1);
+    expect(editor.view.dom.dataset.tableReordering).toBe('true');
+    const before = editor.getJSON();
+    hover(cell);
+    expect(columnResizingPluginKey.getState(editor.state)?.activeHandle).toBe(-1);
+    expect(editor.view.dom.querySelector('.column-resize-handle')).toBeNull();
+    expect(editor.getJSON()).toEqual(before);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(editor.view.dom.dataset.tableReordering).toBeUndefined();
+    hover(cell);
+    expect(columnResizingPluginKey.getState(editor.state)?.activeHandle).toBe(cellPos);
+  });
+
   it('does not activate a resize handle while read-only', () => {
     const { editor, cell } = createEditor(false);
     const original = editor.getJSON();

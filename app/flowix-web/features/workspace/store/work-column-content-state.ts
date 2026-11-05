@@ -81,5 +81,5 @@ export function resolveWorkColumnContentState(
 
 /** Imperative read entry for use-cases outside React rendering. */
 export function getWorkColumnContentState(): WorkColumnContentState {
-  return resolveWorkColumnContentState(columnNavigation(0), getWorkspaceDocumentState());
+  return resolveWorkColumnContentState(columnNavigation('column-1'), getWorkspaceDocumentState());
 }

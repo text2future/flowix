@@ -27,6 +27,7 @@ import {
 import { serializeTableHtml } from './table-html';
 import {
   applyTablePresentationMetadata,
+  normalizeTableBackground,
   getTablePresentationMetadata,
   normalizeTableColumnRole,
   type TableColumnRole,
@@ -202,6 +203,13 @@ function inheritColumnRoles(addRow: Command, before: boolean): Command {
         }
         return role ?? 'default';
       });
+      const backgrounds = Array.from({ length: rect.map.width }, (_, column) => {
+        const first = normalizeTableBackground(rect.table.nodeAt(rect.map.map[column])?.attrs.columnBackground);
+        for (let row = 1; row < rect.map.height; row++) {
+          if (normalizeTableBackground(rect.table.nodeAt(rect.map.map[row * rect.map.width + column])?.attrs.columnBackground) !== first) return null;
+        }
+        return first;
+      });
       const table = tr.doc.nodeAt(rect.tableStart - 1);
       if (table) {
         const map = TableMap.get(table);
@@ -215,8 +223,11 @@ function inheritColumnRoles(addRow: Command, before: boolean): Command {
           const position = rowOffset + 1 + offset;
           const { left, right } = map.findCell(position);
           const role = roles[left];
-          if (!role || role === 'default' || roles.slice(left, right).some(value => value !== role)) return;
-          tr.setNodeMarkup(rect.tableStart + position, undefined, { ...cell.attrs, columnRole: role });
+          const background = backgrounds[left];
+          const rolePatch = role && role !== 'default' && roles.slice(left, right).every(value => value === role) ? { columnRole: role } : {};
+          const backgroundPatch = background && backgrounds.slice(left, right).every(value => value === background) ? { columnBackground: background } : {};
+          if (!Object.keys(rolePatch).length && !Object.keys(backgroundPatch).length) return;
+          tr.setNodeMarkup(rect.tableStart + position, undefined, { ...cell.attrs, ...rolePatch, ...backgroundPatch });
         });
       }
       dispatch(tr);

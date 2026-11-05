@@ -2,7 +2,7 @@
  * PDF print adaptation for the mounted editor DOM.
  *
  * The document block appearance is intentionally mirrored from editor.css,
- * editor-code-block.css and editor-attachment-link.css. This file only adds
+ * editor-table-presentation.css, editor-code-block.css and editor-attachment-link.css. This file only adds
  * print concerns: page geometry, expanding scroll containers, hiding editor
  * chrome, resource-safe media rules and pagination.
  */
@@ -406,7 +406,7 @@
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
-    border-radius: 8px;
+    border-radius: 0;
     break-inside: auto;
     page-break-inside: auto;
   }
@@ -414,6 +414,7 @@
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table td,
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table th {
     position: relative;
+    border-radius: 0;
     /* The editor's 5rem cell minimum can make a wide table exceed the
      * printable box. Let fixed layout distribute columns inside A4 instead. */
     min-width: 0 !important;
@@ -441,26 +442,6 @@
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:first-child td,
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:first-child th {
     border-top: 1px solid var(--border);
-  }
-
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:first-child td:first-child,
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:first-child th:first-child {
-    border-top-left-radius: 8px;
-  }
-
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:first-child td:last-child,
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:first-child th:last-child {
-    border-top-right-radius: 8px;
-  }
-
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:last-child td:first-child,
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:last-child th:first-child {
-    border-bottom-left-radius: 8px;
-  }
-
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:last-child td:last-child,
-  html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr:last-child th:last-child {
-    border-bottom-right-radius: 8px;
   }
 
   html.flowix-pdf-printing .flowix-pdf-print-scope .markdown-editor .ProseMirror table tr {

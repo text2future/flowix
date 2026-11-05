@@ -157,7 +157,7 @@ describe('table style toolbar menus', () => {
     },
   );
 
-  it.each(['主题: 默认网格', '边框: 默认', '字体', '行列操作'])('uses an overlay scrollbar revealed only while scrolling in %s', async label => {
+  it.each(['主题: 默认网格', '边框: 默认', '字体', '颜色', '行列操作'])('uses an overlay scrollbar revealed only while scrolling in %s', async label => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'] });
     await renderControls();
     await act(async () => trigger(label).click());
@@ -240,21 +240,45 @@ describe('table style toolbar menus', () => {
     expect(document.querySelector('.table-style-menu')).toBeNull();
   });
 
+  it.each(TABLE_TEMPLATE_OPTIONS)('shows only semantic row options for $styleId', async ({ styleId }) => {
+    await renderControls();
+    await act(async () => { setTableStyle(editor, styleId); });
+    const roles = editor.state.doc.firstChild!.toJSON().content!.map((row: JSONContent) => row.attrs?.role);
+    await act(async () => trigger('字体').click());
+    const sections = [...document.querySelectorAll('.table-style-menu-section')];
+    const rowSection = sections.find(section => section.querySelector('.table-style-menu-heading')?.textContent === '行样式');
+    if (styleId === 'financial-brief' || styleId === 'hk-financial') {
+      expect(rowSection).toBeDefined();
+      expect([...rowSection!.querySelectorAll('button')].map(button => button.textContent).filter(Boolean))
+        .toEqual(['正文', '分组标题', '小计', '总计']);
+    } else if (styleId === 'grouped') {
+      expect(rowSection).toBeDefined();
+      expect([...rowSection!.querySelectorAll('button')].map(button => button.textContent).filter(Boolean))
+        .toEqual(['正文', '分组标题']);
+    } else {
+      expect(rowSection).toBeUndefined();
+    }
+    expect(sections.some(section => section.querySelector('.table-style-menu-heading')?.textContent === '列样式')).toBe(true);
+    expect(document.querySelector('.table-style-menu .editor-highlight-palette__swatch')).toBeNull();
+    expect(editor.state.doc.firstChild!.toJSON().content!.map((row: JSONContent) => row.attrs?.role)).toEqual(roles);
+  });
+
   it('allows mixed row and column selections to be unified through their menus', async () => {
     await renderControls();
+    await act(async () => { setTableStyle(editor, 'financial-brief'); });
     const text = editor.state.doc.textContent;
     await act(async () => editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(
       editor.state.doc, cellPosition(1, 0), cellPosition(2, 1),
     ))));
     await act(async () => trigger('字体: 混合格式').click());
-    expect(document.querySelector('.table-style-menu-heading')?.textContent).toBe('行字体');
+    expect(document.querySelector('.table-style-menu-heading')?.textContent).toBe('行样式');
     expect(option('总计').disabled).toBe(false);
-    await act(async () => option('总计', '行字体').click());
+    await act(async () => option('总计', '行样式').click());
     expect(editor.state.doc.firstChild?.child(0).attrs.role).toBe('body');
     for (const row of [1, 2]) expect(editor.state.doc.firstChild?.child(row).attrs.role).toBe('total');
 
     await act(async () => trigger('字体: 混合格式').click());
-    await act(async () => option('附注', '列字体').click());
+    await act(async () => option('居中对齐', '列样式').click());
     editor.state.doc.firstChild!.forEach(row => row.forEach(cell => {
       expect(cell.attrs.columnRole).toBe('note');
     }));
@@ -310,4 +334,31 @@ describe('table style toolbar menus', () => {
     await act(async () => option('双线', '下边框').click());
     for (const column of [0, 1]) expect(editor.state.doc.firstChild?.child(1).child(column).attrs.borderBottom).toBe('double');
   });
+});
+
+
+it('sets and clears independent row/column backgrounds through the shared highlight palette', async () => {
+  await renderControls();
+  const swatch = () => trigger('颜色').querySelector<HTMLElement>('span[aria-hidden]')!;
+  expect(swatch().style.backgroundColor).toBe('white');
+  await act(async () => trigger('颜色').click());
+  expect(document.querySelector('.table-style-menu .editor-highlight-palette__heading')).toBeNull();
+  const rowSection = [...document.querySelectorAll<HTMLElement>('.table-style-menu-section')]
+    .find(section => section.querySelector('.table-style-menu-heading')?.textContent === '行背景')!;
+  await act(async () => rowSection.querySelector<HTMLButtonElement>('button[aria-label="黄色"]')!.click());
+  expect(editor.state.doc.firstChild!.child(1).attrs.rowBackground).toBe('yellow');
+  expect(swatch().style.backgroundColor).toBe('var(--flowix-highlight-background-yellow)');
+  expect(editor.state.doc.firstChild!.child(0).attrs.rowBackground).toBeNull();
+  const columnSection = [...document.querySelectorAll<HTMLElement>('.table-style-menu-section')]
+    .find(section => section.querySelector('.table-style-menu-heading')?.textContent === '列背景')!;
+  await act(async () => columnSection.querySelector<HTMLButtonElement>('button[aria-label="蓝色"]')!.click());
+  editor.state.doc.firstChild!.forEach(row => expect(row.child(1).attrs.columnBackground).toBe('blue'));
+  expect(swatch().style.backgroundColor).toBe('var(--flowix-highlight-background-yellow)');
+  expect(rowSection.querySelector('button[aria-label="黄色"]')?.getAttribute('aria-pressed')).toBe('true');
+  await act(async () => rowSection.querySelector<HTMLButtonElement>('button[aria-label="默认背景"]')!.click());
+  expect(editor.state.doc.firstChild!.child(1).attrs.rowBackground).toBeNull();
+  editor.state.doc.firstChild!.forEach(row => expect(row.child(1).attrs.columnBackground).toBe('blue'));
+  expect(swatch().style.backgroundColor).toBe('var(--flowix-highlight-background-blue)');
+  await act(async () => columnSection.querySelector<HTMLButtonElement>('button[aria-label="默认背景"]')!.click());
+  expect(swatch().style.backgroundColor).toBe('white');
 });

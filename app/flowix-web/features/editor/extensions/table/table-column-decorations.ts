@@ -2,10 +2,9 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { TableMap } from '@tiptap/pm/tables';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import { normalizeComparisonColumn } from './table-presentation';
+import { resolveComparisonColumn } from './table-presentation';
 
 const tableColumnDecorationsKey = new PluginKey<DecorationSet>('tableColumnDecorations');
-const COMPARISON_COLUMN = 2;
 
 interface RelativeDecoration {
   from: number;
@@ -27,9 +26,8 @@ function buildTableDecorations(table: ProseMirrorNode): RelativeDecoration[] {
   if (table.attrs.styleId !== 'comparison') return [];
 
   const map = TableMap.get(table);
-  const configuredColumn = normalizeComparisonColumn(table.attrs.comparisonColumn);
-  const column = configuredColumn === null ? COMPARISON_COLUMN : Math.min(configuredColumn, map.width - 1);
-  if (map.width <= column) return [];
+  const column = resolveComparisonColumn(table.attrs.comparisonColumn, map.width);
+  if (column === null) return [];
 
   const positions = new Set<number>();
   for (let row = 0; row < map.height; row += 1) {

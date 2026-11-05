@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:rust": "cargo test --manifest-path app/Cargo.toml --workspace --lib",
     "smoke": "node scripts/smoke/run-smoke.mjs",
+    "test:editor-tables:browser": "node scripts/smoke/run-smoke.mjs editor-tables",
     "lint": "eslint .",
     "verify": "tsc --noEmit && eslint . && node scripts/check-architecture.mjs && node scripts/check-frontend-debt.mjs && vitest run",
     "check:layers": "node scripts/check-layer-boundaries.mjs",

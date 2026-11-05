@@ -910,7 +910,7 @@ const zhCN = {
     "status.agent.history.title": "Agent 会话记录",
     "status.agent.history.all": "全部",
     "status.notebook": "笔记本",
-    "status.notebookAllSection": "全部",
+    "status.notebookAllSection": "列表",
     "status.notebookPinnedSection": "置顶",
     "status.switchNotebook": "切换笔记本",
     "status.notebookList": "笔记本列表",
