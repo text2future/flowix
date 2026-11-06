@@ -475,6 +475,7 @@ export function NotebookDialogs({
             <NotebookAgentLibraryHint />
             <NotebookCreateFooter
               variant="dialog"
+              submitTone="brand"
               formId="flowix-edit-notebook-form"
               disabled={
                 editStorageStatus !== 'ready' ||
