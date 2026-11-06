@@ -538,6 +538,13 @@ function AgentConversationDetailContent({
         composerControllerRef.current?.openSlashMenu();
       },
       toast: (kind, message) => toast[kind](message),
+      // A Cloud entry the account cannot run has to say so: without this the
+      // picker closed as if applied and the next send quietly used the local
+      // model, which reads as "the switch did not work".
+      onCloudAccessBlocked: (kind) => {
+        const key = threadIdRef.current ?? instanceRef.current?.instanceId;
+        if (key) useAgentCloudAccessStore.getState().setAccess(key, kind);
+      },
     });
     externalSettingsRef.current = externalSettings;
     const composerModelButton = externalSettings.createComposerModelButton();

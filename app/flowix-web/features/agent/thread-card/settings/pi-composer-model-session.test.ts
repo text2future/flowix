@@ -239,8 +239,30 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     expect(catalog.items).toContainEqual(expect.objectContaining({
       id: "public-model", source: "flowix-cloud", providerId: "__flowix-cloud-preview",
     }));
+    // The picker reads the store, so the fetched list has to land there too,
+    // not only in the returned value.
+    expect(useAgentDataStore.getState().agents.pi.catalog.models.items).toContainEqual(
+      expect.objectContaining({ id: "public-model", providerId: "__flowix-cloud-preview" }),
+    );
     expect(refreshPiModelProvider).not.toHaveBeenCalled();
     expect(refreshPiModelProviderAtStartup).not.toHaveBeenCalled();
+  });
+
+  it("drops the guest catalog when the account signs in while it loads", async () => {
+    getCloudState.mockResolvedValueOnce({ revision: 50, authenticated: false } as CloudState);
+    // Simulate the sign-in arriving inside the rebuild the guest sync awaits.
+    loadAgentModelCatalog.mockImplementationOnce(async (agentType: AgentTypeKey) => {
+      useAgentDataStore.getState().setPiCloudAccount("user-1", 60);
+      return useAgentDataStore.getState().agents[agentType].catalog.models;
+    });
+    const { loadPiCloudModelCatalog } = await import("@features/agent/services/pi-cloud-model-service");
+
+    const catalog = await loadPiCloudModelCatalog({ force: true });
+
+    // A guest overlay here would replace the member models the session can use.
+    expect(catalog.items.some((item) => item.providerId === "__flowix-cloud-preview")).toBe(false);
+    expect(useAgentDataStore.getState().agents.pi.catalog.models.items
+      .some((item) => item.providerId === "__flowix-cloud-preview")).toBe(false);
   });
 
   it("keeps custom models available when the public Cloud directory fails", async () => {

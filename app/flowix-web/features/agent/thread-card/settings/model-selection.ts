@@ -38,7 +38,17 @@ export function selectAgentModel(
         && model.id === option.id
         && (model.providerId ?? '') === (option.providerId ?? ''),
     );
-    if (!available) return;
+    // A missing entry means the next run cannot resolve it either: a signed-out
+    // account has no Cloud provider installed. Returning silently here made the
+    // click look applied while the send quietly fell back to the local model, so
+    // ask for a sign-in instead.
+    if (!available) {
+      if (!useAgentDataStore.getState().piCloudAccountId) {
+        hooks.onCloudAccessBlocked?.('signed_out');
+      }
+      hooks.closePopover();
+      return;
+    }
   }
   hooks.apply(option);
   hooks.closePopover();
