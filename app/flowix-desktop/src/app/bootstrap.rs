@@ -255,7 +255,8 @@ pub fn run() {
                     "preparingData",
                 );
             }
-            device_registry.clone().spawn_startup_registration();
+            // 启动登记 + 运行中的跨日活上报共用同一条串行队列（唯一写者）。
+            crate::daily_activity::spawn(device_registry.clone());
             app.manage(device_registry.clone());
 
             // 鈹€鈹€ 1) 鍚姩鎺㈡祴 external CLI 璺緞 鈹€鈹€

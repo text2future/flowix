@@ -1222,7 +1222,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-cli"
-version = "1.5.17"
+version = "1.5.18"
 dependencies = [
  "chrono",
  "clap",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-core"
-version = "1.5.17"
+version = "1.5.18"
 dependencies = [
  "chrono",
  "diffy",
@@ -1271,7 +1271,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-desktop"
-version = "1.5.17"
+version = "1.5.18"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-installer-helper"
-version = "1.5.17"
+version = "1.5.18"
 dependencies = [
  "dunce",
  "windows",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-plugin-runtime"
-version = "1.5.17"
+version = "1.5.18"
 dependencies = [
  "chrono",
  "flowix-core",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "flowix-sync"
-version = "1.5.17"
+version = "1.5.18"
 dependencies = [
  "chrono",
  "flowix-core",
