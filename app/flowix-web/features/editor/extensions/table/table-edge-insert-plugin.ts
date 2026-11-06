@@ -1,5 +1,5 @@
 import type { Editor } from '@tiptap/core';
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
 import { TableMap } from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
 
@@ -14,8 +14,11 @@ interface EdgeTarget {
 }
 
 const tableEdgeInsertPluginKey = new PluginKey('tableEdgeInsert');
-const EDGE_BUTTON_SIZE = 16;
+/** h-6: one fixed rounded square per axis, just past the table's far edge. */
+const EDGE_BUTTON_SIZE = 24;
 const EDGE_GAP = 4;
+/** The transparent bridge spans the gap plus the square itself. */
+const EDGE_ZONE_SIZE = EDGE_GAP + EDGE_BUTTON_SIZE;
 
 export interface TableEdgeInsertLabels {
   insertColumnAfter: string;
@@ -33,6 +36,7 @@ function closestTableCell(target: EventTarget | null): HTMLTableCellElement | nu
   const cell = target.closest('td, th');
   return cell instanceof HTMLTableCellElement ? cell : null;
 }
+
 
 function getEdgeTarget(view: EditorView, eventTarget: EventTarget | null): EdgeTarget | null {
   const cell = closestTableCell(eventTarget);
@@ -94,6 +98,7 @@ class TableEdgeInsertView {
   private hideTimer: number | null = null;
   private frameId: number | null = null;
   private pendingTarget: EventTarget | null = null;
+  private lastPointerTarget: EventTarget | null = null;
   // view 可能因为所在 Editor.destroy() 而失效；任何走 view.dom / view.posAtDOM
   // 的路径都要先看这个旗子。事件 listener 在 destroy 里已经 remove, 但
   // 浏览器仍可能 flush 一帧在途事件, 不守卫就会读到 detached dom 抛 warning。
@@ -115,10 +120,20 @@ class TableEdgeInsertView {
     this.hoverArea.addEventListener('scroll', this.handleScroll, { passive: true, capture: true });
   }
 
-  update(view: EditorView): void {
+  update(view: EditorView, prevState: EditorState): void {
     if (this.isDestroyed) return;
     this.view = view;
-    this.hide();
+    // columnResizing dispatches doc-free setHandle transactions on every
+    // mousemove near a column edge; other extensions can append a doc-changing
+    // transaction (e.g. a trailing paragraph) during the same gesture. Hiding
+    // on every update kills the column button while the pointer crosses the
+    // last column's 8px resize band, before it can reach the button. Re-resolve
+    // positions from the last pointer target instead; updateEdgeControls still
+    // hides when that target is no longer a valid table cell.
+    if (view.state.doc === prevState.doc) return;
+    if (this.columnButton.hidden && this.rowButton.hidden) return;
+    if (this.hideTimer !== null) { this.hide(); return; }
+    this.updateEdgeControls(this.lastPointerTarget);
   }
 
   destroy(): void {
@@ -129,6 +144,7 @@ class TableEdgeInsertView {
     if (this.frameId !== null) window.cancelAnimationFrame(this.frameId);
     this.frameId = null;
     this.pendingTarget = null;
+    this.lastPointerTarget = null;
     this.hoverArea.removeEventListener('mousemove', this.handleMouseMove);
     this.hoverArea.removeEventListener('mouseleave', this.handleMouseLeave);
     this.hoverArea.removeEventListener('scroll', this.handleScroll, true);
@@ -196,11 +212,24 @@ class TableEdgeInsertView {
     );
   }
 
+  /** The bottom gutter doubles as this table's horizontal scrollbar hit area.
+   * Its track/thumb win hit-testing (see editor-table-layout.css), so hovering
+   * that band must not clear the row control while the pointer travels to the
+   * square. Scope it to the current rail: other editors/scroll frames in the
+   * same pane have their own horizontal scrollbars. */
+  private isOwnScrollbarTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element) || !this.overlayRoot) return false;
+    if (!target.closest('.overlay-scrollbar-track--horizontal, .overlay-scrollbar-thumb--horizontal')) return false;
+    const frame = target.closest('.markdown-table-scrollbar');
+    return Boolean(frame && frame.contains(this.overlayRoot));
+  }
+
   private handleMouseMove = (event: MouseEvent): void => {
     if (this.isDestroyed) return;
     // Coalesce to one pass per frame: hit-testing reads layout and the button
     // placement writes it, so raw mousemove frequency forces layout thrash.
     this.pendingTarget = event.target;
+    this.lastPointerTarget = event.target;
     if (this.frameId !== null) return;
     this.frameId = window.requestAnimationFrame(this.flushMouseMove);
   };
@@ -220,6 +249,14 @@ class TableEdgeInsertView {
     }
 
     if (this.isEdgeControlTarget(eventTarget)) return;
+    // Scrollbar hover has priority over the row bridge: keep the control alive
+    // while the pointer is on the band, but leave every pointer event to the
+    // track/thumb. Dragging still wins outright — the scroller's scroll event
+    // calls handleScroll(), which clears the edge controls.
+    if (this.isOwnScrollbarTarget(eventTarget)) {
+      this.cancelScheduledHide();
+      return;
+    }
 
     const target = getEdgeTarget(this.view, eventTarget);
     if (!target) {
@@ -245,16 +282,20 @@ class TableEdgeInsertView {
     this.cancelScheduledHide();
     // offset geometry is in rail-local CSS pixels. Viewport rect differences
     // would double-apply transforms/zoom when assigned to absolute CSS offsets.
-    const top = target.table.offsetTop;
-    const right = target.table.offsetLeft + target.table.offsetWidth;
+    // The square sits past the table's right edge, aligned with its top edge.
+    // The zone covers the whole right gutter so a pointer leaving any cell of
+    // the last column can travel up to the square without hiding the control.
+    const { table } = target;
+    const top = table.offsetTop;
+    const right = table.offsetLeft + table.offsetWidth;
 
     this.currentColumnCellPos = target.cellPos;
     this.columnHoverZone.hidden = false;
     setBox(this.columnHoverZone, {
       top,
       left: right,
-      width: EDGE_GAP,
-      height: target.table.offsetHeight,
+      width: EDGE_ZONE_SIZE,
+      height: table.offsetHeight,
     });
 
     this.columnButton.hidden = false;
@@ -262,29 +303,34 @@ class TableEdgeInsertView {
       top,
       left: right + EDGE_GAP,
       width: EDGE_BUTTON_SIZE,
-      height: target.table.offsetHeight,
+      height: EDGE_BUTTON_SIZE,
     });
   }
 
   private showRowButton(target: EdgeTarget): void {
     this.cancelScheduledHide();
-    const bottom = target.table.offsetTop + target.table.offsetHeight;
-    const left = target.table.offsetLeft;
+    // Mirror of the column control: the square sits below the final row,
+    // aligned with the table's left edge, and the bridge covers the whole
+    // bottom gutter. The scrollbar track/thumb sit above that bridge in the
+    // stacking order, so hover and dragging still belong to the scrollbar.
+    const { table } = target;
+    const left = table.offsetLeft;
+    const bottom = table.offsetTop + table.offsetHeight;
 
     this.currentRowCellPos = target.cellPos;
     this.rowHoverZone.hidden = false;
     setBox(this.rowHoverZone, {
       top: bottom,
       left,
-      width: target.table.offsetWidth,
-      height: EDGE_GAP,
+      width: table.offsetWidth,
+      height: EDGE_ZONE_SIZE,
     });
 
     this.rowButton.hidden = false;
     setBox(this.rowButton, {
       top: bottom + EDGE_GAP,
       left,
-      width: target.table.offsetWidth,
+      width: EDGE_BUTTON_SIZE,
       height: EDGE_BUTTON_SIZE,
     });
   }

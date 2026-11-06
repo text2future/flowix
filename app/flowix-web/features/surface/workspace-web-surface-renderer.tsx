@@ -18,8 +18,10 @@ import { openUrl } from '@platform/tauri/opener';
 import { connectWebFrameScrollbar } from '@shared/ui/web-frame-scrollbar';
 import type { WorkspaceSurfaceRendererData, WorkspaceSurfaceRenderContext, WorkspaceWebNavigationPort } from './workspace-surface-renderer-contract';
 
-import { skillMarketLanguageForUrl, skillMarketOriginForUrl, skillMarketUrlForLanguage } from './skill-market-origin';
+import { isLocalSkillMarketUiUrl, skillMarketLanguageForUrl, skillMarketOriginForUrl, skillMarketUrlForLanguage } from './skill-market-origin';
 import { useMarketBridge } from './use-market-bridge';
+import { MarketUiRenderer } from './market-ui-renderer';
+import { marketUiRootUrl, marketUiViewForUrl } from '@shared/lib/market-ui-url';
 
 const marketLogger = createLogger('skill-market');
 
@@ -62,6 +64,7 @@ function browserTitleForUrl(url: string): string {
 
 function browserFaviconForUrl(url: string): string | null {
   try {
+    if (isLocalSkillMarketUiUrl(url)) return new URL('assets/favicon.ico', marketUiRootUrl(url)).href;
     const parsed = new URL(url);
     return `${parsed.origin}/favicon.ico`;
   } catch {
@@ -69,7 +72,16 @@ function browserFaviconForUrl(url: string): string | null {
   }
 }
 
-export function WebRenderer({ surface, context }: {
+export function WebRenderer(props: {
+  surface: Extract<WorkspaceSurfaceRendererData, { kind: 'web' }>;
+  context: WorkspaceSurfaceRenderContext;
+}) {
+  const currentUrl = props.surface.runtime?.currentUrl ?? props.context.webNavigation?.getRuntime()?.currentUrl ?? props.surface.url;
+  const view = marketUiViewForUrl(currentUrl);
+  return view ? <MarketUiRenderer view={view} context={props.context} /> : <WebPageRenderer {...props} />;
+}
+
+function WebPageRenderer({ surface, context }: {
   surface: Extract<WorkspaceSurfaceRendererData, { kind: 'web' }>;
   context: WorkspaceSurfaceRenderContext;
 }) {
@@ -84,6 +96,7 @@ export function WebRenderer({ surface, context }: {
   const reloadToken = runtime?.reloadToken ?? 0;
   const skillMarketOrigin = skillMarketOriginForUrl(currentUrl, import.meta.env.DEV);
   const isSkillMarket = skillMarketOrigin !== null;
+  const isLocalMarketUi = isLocalSkillMarketUiUrl(currentUrl);
   const isEnglishMarket = isSkillMarket && language === 'en-US';
   const [address, setAddress] = useState(currentUrl);
   const [pageTitle, setPageTitle] = useState(() => browserTitleForUrl(currentUrl));
@@ -252,7 +265,7 @@ export function WebRenderer({ surface, context }: {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[var(--background)]">
-      {context.webAddressBarVisible !== false && <form
+      {context.webAddressBarVisible !== false && !isLocalMarketUi && <form
         onSubmit={handleNavigate}
         className="flex shrink-0 items-center gap-1 border-b border-[var(--divider)] bg-[var(--bg-titlebar)] px-2 py-1.5"
       >
@@ -312,7 +325,7 @@ export function WebRenderer({ surface, context }: {
         )}
         {runtime?.error && <span className="shrink-0 text-[10px] text-[var(--destructive)]">{runtime.error}</span>}
       </form>}
-      {context.webAddressBarVisible !== false && addressError && <div className="shrink-0 px-3 py-1 text-[10px] text-[var(--destructive)]">{addressError}</div>}
+      {context.webAddressBarVisible !== false && !isLocalMarketUi && addressError && <div className="shrink-0 px-3 py-1 text-[10px] text-[var(--destructive)]">{addressError}</div>}
       <div className="relative min-h-0 min-w-0 flex-1 bg-[var(--background)]">
         <iframe
           key={`${context.viewId}:${currentUrl}:${reloadToken}`}

@@ -100,6 +100,9 @@ export function DocumentContainer({
   onFlushReady,
 }: DocumentContainerProps) {
   const filePath = fileIdentity.path;
+  const searchPanelControlProps = onSearchPanelOpenChange
+    ? { searchPanelOpen: searchPanelOpen ?? false, onSearchPanelOpenChange }
+    : {};
   const displayId = fileIdentity.displayId;
   const { t } = useI18n();
   const hostId = workspaceHost ?? (documentSessionMode === 'isolated' ? 'column-2' : 'column-1');
@@ -652,8 +655,7 @@ export function DocumentContainer({
                 ? documentInstanceKey : current === documentInstanceKey ? null : current);
             }}
             scrollHeader={documentHeader ?? undefined}
-            searchPanelOpen={searchPanelOpen}
-            onSearchPanelOpenChange={onSearchPanelOpenChange}
+            {...searchPanelControlProps}
           />
         )}
         {canMountRichEditor && richEditorMountReadyFor === documentInstanceKey && (
@@ -688,8 +690,7 @@ export function DocumentContainer({
               return titleEditorRef.current?.appendBodyLine(title) ?? false;
             }}
             autoFocus={initialFocus === 'body'}
-            searchPanelOpen={searchPanelOpen}
-            onSearchPanelOpenChange={onSearchPanelOpenChange}
+            {...searchPanelControlProps}
             onBeforeCreate={(editor: Editor) => {
               onEditorReady?.(editor);
               setRichEditorMount({ key: documentInstanceKey, ready: true });

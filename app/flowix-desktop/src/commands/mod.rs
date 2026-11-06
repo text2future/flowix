@@ -32,6 +32,7 @@ pub mod plugin;
 pub mod product;
 pub mod recovery;
 pub mod settings;
+pub mod skill_market_ui;
 pub mod tag;
 pub mod thread;
 pub mod web;

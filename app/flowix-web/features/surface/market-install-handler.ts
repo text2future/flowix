@@ -3,7 +3,7 @@ import { isSkillInstallationUnavailable } from './skill-market-install-error';
 
 export interface MarketNotebook { id: string; name: string; path: string; missing?: boolean }
 export interface MarketInstallPorts {
-  origin: string;
+  contentOrigin: string;
   isActive: () => boolean;
   getSelectedNotebook: () => MarketNotebook | null;
   respond: (message: Record<string, unknown>) => void;
@@ -51,7 +51,7 @@ export async function handleMarketInstall(data: unknown, ports: MarketInstallPor
   const displayName = typeof item?.displayName === 'string' ? item.displayName.trim() : '';
   const archive = isRecord(item?.archive) ? item.archive : null;
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || id.length > 64 || !displayName || displayName.length > 200
-    || archive?.url !== `${ports.origin}/${kind === 'skill' ? 'skills' : 'templates'}/archives/${id}.zip`
+    || archive?.url !== `${ports.contentOrigin}/${kind === 'skill' ? 'skills' : 'templates'}/archives/${id}.zip`
     || (kind === 'skill' && !validSource(archive.source))) {
     respond({ success: false, code: 'invalid_package' }); return;
   }

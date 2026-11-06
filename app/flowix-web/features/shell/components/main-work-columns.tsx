@@ -60,7 +60,6 @@ export interface MainWorkColumnsProps {
   focusedColumnId: ReturnType<typeof useShellWorkspaceViewModel>['focusedColumnId'];
   isMemoListHidden: boolean;
   isMemoListAnimating: boolean;
-  noteNavigationPhase: ReturnType<typeof useMainPanelController>['noteNavigationPhase'];
   handleMemoListPreviewTriggerEnter: () => void;
   handleMemoListPreviewTriggerLeave: () => void;
   handleMemoListPreviewEnter: () => void;
@@ -99,7 +98,6 @@ export function MainWorkColumns({
   focusedColumnId,
   isMemoListHidden,
   isMemoListAnimating,
-  noteNavigationPhase,
   handleMemoListPreviewTriggerEnter,
   handleMemoListPreviewTriggerLeave,
   handleMemoListPreviewEnter,
@@ -126,7 +124,7 @@ export function MainWorkColumns({
   const { t } = useI18n();
   const environment = (index: ColumnEnvironment['index']): ColumnEnvironment => ({
     index, browserVisible: browserColumnVisible, sidebarHidden: isMemoListHidden,
-    navigationVisible: noteNavigationPhase !== 'closed', onToggleSidebar: handleToggleMemoList,
+    onToggleSidebar: handleToggleMemoList,
   });
   const selectionLabel = t('memo.fileTree.selectedDocumentCount', { count: accessSpaceSelectionCount });
   /**
@@ -195,7 +193,7 @@ export function MainWorkColumns({
         <WorkColumnTitlebar
           isWindows={isWindowsPlatform()}
           reserveWindowsControls={!browserColumnVisible}
-          showTrafficLightSpacer={isMemoListHidden && noteNavigationPhase === 'closed'}
+          showTrafficLightSpacer={isMemoListHidden}
         >
           {null}
         </WorkColumnTitlebar>
@@ -207,7 +205,7 @@ export function MainWorkColumns({
             <WorkColumnTitlebar
               isWindows={isWindowsPlatform()}
               reserveWindowsControls={!browserColumnVisible}
-              showTrafficLightSpacer={isMemoListHidden && noteNavigationPhase === 'closed'}
+              showTrafficLightSpacer={isMemoListHidden}
               className="agent-conversation-titlebar"
               header={resolveWorkspaceHeaderModel({ chrome: 'agent' })}
             >
@@ -219,7 +217,6 @@ export function MainWorkColumns({
             instanceId={workColumnPresentation.header.instanceId}
             reserveWindowsControls={!browserColumnVisible}
             isMiddleColumnCollapsed={isMemoListHidden}
-            isSidebarVisible={noteNavigationPhase !== 'closed'}
             onExpandSidebar={handleToggleMemoList}
             canNavigateBack={canNavigateBack}
             canNavigateForward={canNavigateForward}

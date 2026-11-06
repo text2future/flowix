@@ -33,7 +33,6 @@ export interface UseDocumentTitlebarPropsInput {
   mainEditorMode: DocumentEditorMode;
   handleSetMainEditorMode: (mode: DocumentEditorMode) => void;
   isMemoListHidden: boolean;
-  noteNavigationVisible: boolean;
   handleToggleMemoList: () => void;
   canNavigateBack: boolean;
   canNavigateForward: boolean;
@@ -65,7 +64,6 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     mainEditorMode,
     handleSetMainEditorMode,
     isMemoListHidden,
-    noteNavigationVisible,
     handleToggleMemoList,
     canNavigateBack,
     canNavigateForward,
@@ -126,7 +124,6 @@ export function useDocumentTitlebarProps(input: UseDocumentTitlebarPropsInput): 
     },
     sidebar: {
       hidden: isMemoListHidden,
-      noteNavigationVisible,
       onToggle: handleToggleMemoList,
     },
     navigation: {

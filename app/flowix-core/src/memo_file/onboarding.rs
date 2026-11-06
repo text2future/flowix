@@ -226,8 +226,8 @@ mod tests {
         assert!(chinese.contains("flowix_icon: carrot"));
         assert!(chinese.contains("status: 完成"));
         assert!(chinese.contains("AI Agents 的文档空间"));
-        assert!(chinese.contains("## 快速上手"));
-        assert!(chinese.contains("https://flowix-memo.com/docs/"));
+        assert!(chinese.contains("## 2. 快速上手"));
+        assert!(chinese.contains("https://flowix.cc/docs/"));
 
         // The introduction page is seeded as a plain file, not as a note: the
         // Markdown-only index must not project it.

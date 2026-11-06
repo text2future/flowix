@@ -14,7 +14,6 @@ import { getCloudSyncAccess } from '@/lib/cloud-account';
 import { useDocumentMetricsStore } from '@features/document/store/document-metrics-store';
 import { useNoteStore } from '@features/memo/store/note-store';
 import { CloudStatusIcon } from '@shared/icons/cloud-status-icon';
-import { TagSvgIcon } from '@shared/ui/tag-icon';
 import {
   cloud,
   listenToCloudStateChanges,
@@ -37,7 +36,6 @@ interface StatusBarProps {
   onDeleteNotebook: (notebook: Notebook) => void;
   onCreateNotebook: () => void;
   onOpenTodos: () => void;
-  onOpenTagPanel: () => void;
   productIntroOpen: boolean;
   onProductIntroOpenChange: (open: boolean) => void;
   onOpenMcpPreferences: () => void;
@@ -66,7 +64,6 @@ export function StatusBar({
   onDeleteNotebook,
   onCreateNotebook,
   onOpenTodos,
-  onOpenTagPanel,
   productIntroOpen,
   onProductIntroOpenChange,
   onOpenMcpPreferences,
@@ -192,16 +189,6 @@ export function StatusBar({
       </div>
       {/* Right column: full-width content area. */}
       <div ref={statusBarRightEdgeRef} className="flex-1 min-w-0 flex items-center gap-0.5 pl-0.5 pr-2">
-        <Tooltip content={t('shell.statusBar.noteNavTooltip')} shortcut="panel.noteNavigation.toggle">
-          <button
-            type="button"
-            onClick={onOpenTagPanel}
-            className="h-full flex items-center gap-0.5 px-1.5 py-0 hover:bg-[var(--muted)]"
-            aria-label={t('shell.statusBar.noteNav')}
-          >
-            <TagSvgIcon className="w-4 h-4" />
-          </button>
-        </Tooltip>
         <button
           type="button"
           className="h-full inline-flex items-center gap-0.5 px-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)]"

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { agent, externalDocuments, files } from '@platform/tauri/client';
+import type { AppLanguage } from '@/lib/i18n';
 import type { LocalHtmlLink } from '@/lib/local-html-link';
+import { openSkillMarketUi } from './public/open-skill-market-ui';
 import { marketInstallFailure } from './market-install-handler';
 import { HTML_DATA_KINDS, resolveHtmlDataRequest, type HtmlDataKind, type HtmlProductTheme } from './html-data-bridge';
 
@@ -16,6 +18,7 @@ export function useLocalHtmlPreview(
   scopePath: string | null,
   onLink?: (link: LocalHtmlLink) => void,
   notebookId?: string | null,
+  language: AppLanguage = 'zh-CN',
 ) {
   const linkCallback = useRef(onLink);
   linkCallback.current = onLink;
@@ -160,15 +163,14 @@ export function useLocalHtmlPreview(
         };
         if (!requestId) return;
         const isQuickStartGuide = filePath.replace(/\\/g, '/').split('/').pop() === '快速开始指南.html';
-        if (!scopePath || !isQuickStartGuide || event.data.view !== 'templates' || !linkCallback.current) {
+        if (!scopePath || !isQuickStartGuide || event.data.view !== 'templates') {
           respond(false, '无法打开技能市场知识库视图。');
           return;
         }
-        const marketUrl = import.meta.env.DEV
-          ? 'http://localhost:8088/i/index.html?view=templates'
-          : 'https://skills.flowix.cc/i/?view=templates';
-        linkCallback.current({ href: marketUrl, baseHref: null });
-        respond(true);
+        void openSkillMarketUi('templates', 1, 'html-link').then((opened) => {
+          if (opened) respond(true);
+          else respond(false, '无法打开技能市场知识库视图，请重试。');
+        });
       } else if (event.data.type === 'flowix:local-html-data-request') {
         handleDataRequest(event.data);
       } else if (event.data.type === 'flowix:local-html-template-install') {
@@ -216,7 +218,7 @@ export function useLocalHtmlPreview(
       window.removeEventListener('message', onMessage);
       themeObserver.disconnect();
     };
-  }, [fail, filePath, handleDataRequest, notifyProductThemeChanged, probe, ready, scopePath, src]);
+  }, [fail, filePath, handleDataRequest, language, notifyProductThemeChanged, probe, ready, scopePath, src]);
 
   return { iframeRef, src, content, phase, backgroundColor, onLoad: probe };
 }

@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, ChevronRight, Store } from 'lucide-react';
-import { openWorkspaceSurface } from '@features/workspace/public/open-surface-api';
+import { openSkillMarketUi } from '@features/surface/public/open-skill-market-ui';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { TREE_EDGE_GUTTER } from './notebook-tree-layout';
@@ -21,7 +21,6 @@ export function NotebookMoreSection({
   const { t } = useI18n();
   const sectionRef = useRef<HTMLElement | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-
   useLayoutEffect(() => {
     const section = sectionRef.current;
     if (!section) return;
@@ -65,10 +64,7 @@ export function NotebookMoreSection({
         <>
           <button
             type="button"
-            onClick={() => void openWorkspaceSurface({
-              index: 0,
-              target: { kind: 'web', url: 'https://skills.flowix.cc/i/index' },
-            })}
+            onClick={() => void openSkillMarketUi('skills')}
             className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]"
             style={{ marginLeft: TREE_EDGE_GUTTER, width: `calc(100% - ${TREE_EDGE_GUTTER * 2}px)` }}
           >
@@ -77,10 +73,7 @@ export function NotebookMoreSection({
           </button>
           <button
             type="button"
-            onClick={() => void openWorkspaceSurface({
-              index: 0,
-              target: { kind: 'web', url: 'https://skills.flowix.cc/i/?view=templates' },
-            })}
+            onClick={() => void openSkillMarketUi('templates')}
             className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--brand)]"
             style={{ marginLeft: TREE_EDGE_GUTTER, width: `calc(100% - ${TREE_EDGE_GUTTER * 2}px)` }}
           >

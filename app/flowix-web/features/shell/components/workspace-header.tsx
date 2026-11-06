@@ -19,7 +19,7 @@ export interface WorkspaceHeaderProps {
   columnId: WorkspaceColumnId;
   isWindows: boolean;
   presentation: WorkspaceHeaderInput;
-  sidebar: { hidden: boolean; noteNavigationVisible: boolean; onToggle: () => void };
+  sidebar: { hidden: boolean; onToggle: () => void };
   navigation: {
     visible?: boolean;
     canNavigateBack: boolean; canNavigateForward: boolean;
@@ -49,7 +49,7 @@ export function WorkspaceHeader({ columnId, isWindows, presentation, sidebar, na
     onCreateAgentConversation={onCreateAgentConversation} columnId={columnId}>
     <WorkspaceHeaderShell as="header" isWindows={isWindows} header={header}
       reserveWindowsControls={reserveWindowsControls}
-      showTrafficLightSpacer={sidebar.hidden && !sidebar.noteNavigationVisible}
+      showTrafficLightSpacer={sidebar.hidden}
       data-browser-column-header={columnId === 'column-2' ? '' : undefined}
       data-thread-card-fullscreen={fullscreen ? '' : undefined}
       className={`gap-1 ${isWindows ? '' : 'pr-2'} ${className}`}>

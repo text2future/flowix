@@ -63,6 +63,7 @@ vi.mock("@platform/tauri/client", () => ({
   agent: {},
   cloud: {
     getState: getCloudState,
+    piModelCatalog: vi.fn(async () => ({ data: { models: [{ id: "public-model", title: "Public model" }] } })),
     getAiCreditBalance,
     refreshMembership,
     refreshPiModelProvider,
@@ -230,6 +231,30 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     return { store, popover, toast };
   }
 
+  it("loads the public catalog without creating credentials when logged out", async () => {
+    useAgentDataStore.getState().setPiCloudAccount(null, 50);
+    getCloudState.mockResolvedValueOnce({ revision: 50, authenticated: false } as CloudState);
+    const { loadPiCloudModelCatalog } = await import("@features/agent/services/pi-cloud-model-service");
+    const catalog = await loadPiCloudModelCatalog({ force: true });
+    expect(catalog.items).toContainEqual(expect.objectContaining({
+      id: "public-model", source: "flowix-cloud", providerId: "__flowix-cloud-preview",
+    }));
+    expect(refreshPiModelProvider).not.toHaveBeenCalled();
+    expect(refreshPiModelProviderAtStartup).not.toHaveBeenCalled();
+  });
+
+  it("keeps custom models available when the public Cloud directory fails", async () => {
+    const { cloud } = await import("@platform/tauri/client");
+    vi.mocked(cloud.piModelCatalog).mockRejectedValueOnce(new Error("offline"));
+    getCloudState.mockResolvedValueOnce({ revision: 50, authenticated: false } as CloudState);
+    const local = { id: "local-model", label: "Local model", source: "custom" as const, providerId: "custom-provider" };
+    useAgentDataStore.getState().setModelCatalog("pi", { items: [local] });
+    const { loadPiCloudModelCatalog } = await import("@features/agent/services/pi-cloud-model-service");
+    expect((await loadPiCloudModelCatalog({ force: true })).items).toEqual([local]);
+    expect(refreshPiModelProvider).not.toHaveBeenCalled();
+    expect(refreshPiModelProviderAtStartup).not.toHaveBeenCalled();
+  });
+
   it("reconciles a signed-in Cloud session from the composer dropdown and shows member models immediately", async () => {
     const { store, popover } = await openPicker();
     expect(getCloudState).toHaveBeenCalledOnce();
@@ -237,7 +262,7 @@ describe("Pi composer model dropdown Cloud session updates", () => {
     expect(refreshAgentModelCatalog).toHaveBeenCalledWith("pi");
     expect(getAiCreditBalance).not.toHaveBeenCalled();
     expect(popover.querySelector(".agent-pi-model-picker__category-label")?.textContent)
-      .toBe("会员模型");
+      .toBe("agent.pi.modelSection.custom");
     const memberModelButton = popover.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
     expect(memberModelButton?.textContent).toContain("Member model");
     expect(controller?.isOpen).toBe(true);

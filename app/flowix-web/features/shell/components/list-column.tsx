@@ -5,7 +5,6 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNo
 import type { Notebook } from '@features/memo/store/note-store';
 import { MemoListTitlebarMac } from '@features/memo/components/memo-list-titlebar-mac';
 import { MemoListTitlebarWin } from '@features/memo/components/memo-list-titlebar-win';
-import type { NoteNavigationDrawerPhase } from '@features/memo/public/shell-api';
 import { cn } from '@/lib/utils';
 
 type ListColumnPreviewPhase = 'open' | 'closing';
@@ -17,7 +16,6 @@ interface ListColumnProps {
   memoColWidth: number;
   isDraggingListDivider: boolean;
   selectedNotebook: Notebook | null;
-  noteNavigationPhase: NoteNavigationDrawerPhase;
   onCollapseMemoList: () => void;
   onExpandSidebar: () => void;
   onOpenPreferences: (tab?: string) => void;
@@ -66,7 +64,6 @@ export function ListColumn({
   memoColWidth,
   isDraggingListDivider,
   selectedNotebook,
-  noteNavigationPhase,
   onCollapseMemoList,
   onExpandSidebar,
   onOpenPreferences,
@@ -77,9 +74,7 @@ export function ListColumn({
 }: ListColumnProps) {
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // Run the preview animation from the presence lifecycle only. In
-  // particular, changing the navigation drawer must only update `left`; it
-  // must not replay the preview's enter animation.
+  // Run the preview animation from the presence lifecycle only.
   useEffect(() => {
     const preview = previewRef.current;
     if (!previewVisible || !preview) return;
@@ -164,15 +159,12 @@ export function ListColumn({
           previewVisible
             ? cn(
                 'absolute left-0 top-0 m-1 h-[calc(100%-0.5rem)] w-[280px] overflow-hidden rounded-xl transition-[left] flowix-motion',
-                noteNavigationPhase === 'open' ? 'z-[110]' : 'z-[90]',
+                'z-[90]',
                 'border border-[var(--border-popup)] bg-[var(--list-bg)]',
                 'shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]',
               )
             : 'relative h-full w-full overflow-hidden bg-[var(--list-bg)]',
         )}
-        style={previewVisible && noteNavigationPhase === 'open'
-          ? { left: 'calc(var(--flowix-note-navigation-drawer-width) + 0.25rem)' }
-          : undefined}
       >
         <ListColumnTitlebar
           previewVisible={previewVisible}

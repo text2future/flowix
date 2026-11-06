@@ -1,3 +1,4 @@
+import { skillMarketContentOriginForUrl } from './skill-market-origin';
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { agent, product } from '@platform/tauri/client';
 import { getSelectedNotebookSnapshot, subscribeSelectedNotebook } from '@features/memo/public/selected-notebook-api';
@@ -6,7 +7,7 @@ import { toast } from '@/lib/toast';
 import { handleMarketInstall, isRecord } from './market-install-handler';
 
 const TEMPLATES_CHANGED = 'flowix:notebook-templates-changed';
-export function useMarketBridge({ iframeRef, origin: skillMarketOrigin, currentUrl, reloadToken, language, onReady }: {
+export function useMarketBridge({ iframeRef, origin: frameOrigin, currentUrl, reloadToken, language, onReady }: {
   iframeRef: RefObject<HTMLIFrameElement | null>;
   origin: string | null;
   currentUrl: string;
@@ -20,7 +21,9 @@ export function useMarketBridge({ iframeRef, origin: skillMarketOrigin, currentU
   useLayoutEffect(() => { latest.current = { language, onReady }; }, [language, onReady]);
   useEffect(() => {
     const frame = iframeRef.current;
-    if (!skillMarketOrigin || !frame) return;
+    const contentOrigin = skillMarketContentOriginForUrl(currentUrl, import.meta.env.DEV);
+    if (!frameOrigin || !frame || !contentOrigin) return;
+    const messageTargetOrigin = frameOrigin === 'null' ? '*' : frameOrigin;
     let ready = false;
     const sendTheme = () => {
       if (!ready) return;
@@ -33,19 +36,19 @@ export function useMarketBridge({ iframeRef, origin: skillMarketOrigin, currentU
         const value = style.getPropertyValue(`--${token}`).trim();
         if (value) colors[token] = value;
       }
-      target.postMessage({ type: 'flowix:skill-market:language', language: latest.current.language }, skillMarketOrigin);
+      target.postMessage({ type: 'flowix:skill-market:language', language: latest.current.language }, messageTargetOrigin);
       target.postMessage({
         type: 'flowix:skill-market:theme',
         colorScheme: style.colorScheme.includes('dark') ? 'dark' : 'light',
         colors,
-      }, skillMarketOrigin);
+      }, messageTargetOrigin);
     };
     let active = true;
     let generation = 0;
     let lastContext: Record<string, unknown> | null = null;
     const postContext = (context: Record<string, unknown>) => {
       lastContext = context;
-      frame.contentWindow?.postMessage(context, skillMarketOrigin);
+      frame.contentWindow?.postMessage(context, messageTargetOrigin);
     };
     let contextNotebookKey: string | null = null;
     const appVersionPromise = Promise.resolve()
@@ -88,7 +91,7 @@ export function useMarketBridge({ iframeRef, origin: skillMarketOrigin, currentU
       });
     };
     const handleMessage = (event: MessageEvent<unknown>) => {
-      if (event.origin !== skillMarketOrigin || event.source !== frame.contentWindow || !isRecord(event.data)) return;
+      if (event.origin !== frameOrigin || event.source !== frame.contentWindow || !isRecord(event.data)) return;
       if (event.data.type === 'flowix:skill-market:ready') {
         if (ready) {
           sendTheme();
@@ -110,10 +113,10 @@ export function useMarketBridge({ iframeRef, origin: skillMarketOrigin, currentU
         return;
       }
       void handleMarketInstall(event.data, {
-        origin: skillMarketOrigin,
+        contentOrigin,
         isActive: () => active,
         getSelectedNotebook: getSelectedNotebookSnapshot,
-        respond: message => frame.contentWindow?.postMessage(message, skillMarketOrigin),
+        respond: message => frame.contentWindow?.postMessage(message, messageTargetOrigin),
         installSkill: agent.installCodexProjectSkillZip,
         installTemplate: agent.installNotebookTemplateZip,
         onInstalled: (kind, notebook) => {
@@ -149,7 +152,7 @@ export function useMarketBridge({ iframeRef, origin: skillMarketOrigin, currentU
       window.removeEventListener(TEMPLATES_CHANGED, refresh);
       unsubscribe();
     };
-  }, [iframeRef, currentUrl, skillMarketOrigin, reloadToken]);
+  }, [iframeRef, currentUrl, frameOrigin, reloadToken]);
 
   useEffect(() => { refreshRef.current?.(); }, [language]);
 }

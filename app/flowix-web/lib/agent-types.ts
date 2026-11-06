@@ -90,8 +90,9 @@ export const AGENT_TYPES: AgentType[] = [
     id: 'pi',
     runtimeKind: 'builtin',
     icon: iconPi,
-    name: 'Pi',
+    name: 'AI Chat',
     desc: 'Use Pi coding agent',
+    nameKey: 'agent.types.pi.name',
     capabilities: STREAMING_EXTERNAL_CLI_CAPABILITIES,
   },
   {

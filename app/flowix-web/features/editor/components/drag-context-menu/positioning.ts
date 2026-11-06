@@ -45,6 +45,12 @@ const HANDLE_CONTENT_GAP = 2
  *  first line of text when the user changes typography. They are passed
  *  in (not read from CSS variables) so the caller controls re-positioning
  *  via React effect deps. */
+/** Tables own their row/column controls in the rail gutter; a block-level drag
+ *  handle would sit in the same space and duplicate the table affordances. */
+export function shouldHideBlockHandle(info: CurrentBlockInfo): boolean {
+  return info.typeName === 'table'
+}
+
 export function computeHandlePosition(
   editor: Editor,
   fontSize: number,
@@ -65,6 +71,7 @@ export function computeHandlePosition(
   const editorContent = editorDom.closest('.editor-content') as HTMLElement | null
   const info = preferredInfo ?? focusedAgentThreadCard ?? getBlockInfoForInteraction(editor)
   if (!info || !editorContent) return null
+  if (shouldHideBlockHandle(info)) return { visible: false }
 
   // Anchor the handle on the visible block element. Table node DOM may be the
   // table itself or Tiptap's `.tableWrapper`; list item node DOM is the

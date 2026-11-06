@@ -8,7 +8,6 @@ export function AgentConversationTitlebar({
   reserveWindowsControls = true,
   instanceId,
   isMiddleColumnCollapsed,
-  isSidebarVisible,
   onExpandSidebar,
   canNavigateBack,
   canNavigateForward,
@@ -18,7 +17,6 @@ export function AgentConversationTitlebar({
   instanceId: string;
   reserveWindowsControls?: boolean;
   isMiddleColumnCollapsed: boolean;
-  isSidebarVisible: boolean;
   onExpandSidebar: () => void;
   canNavigateBack: boolean;
   canNavigateForward: boolean;
@@ -30,7 +28,7 @@ export function AgentConversationTitlebar({
   return <WorkspaceHeader columnId="column-1" isWindows={isWindows}
     presentation={{ chrome: 'agent', contentKind: 'agent-conversation' }}
     reserveWindowsControls={reserveWindowsControls}
-    sidebar={{ hidden: isMiddleColumnCollapsed, noteNavigationVisible: isSidebarVisible, onToggle: onExpandSidebar }}
+    sidebar={{ hidden: isMiddleColumnCollapsed, onToggle: onExpandSidebar }}
     navigation={{ canNavigateBack, canNavigateForward, onNavigateBack, onNavigateForward }}
     agent={(beforeMoreMenu) => <AgentConversationHeaderContent beforeMoreMenu={beforeMoreMenu} columnId="column-1" key={instanceId} instanceId={instanceId} />}
     className="agent-conversation-titlebar" />;

@@ -9,7 +9,6 @@ export interface SearchAndReplaceStorage {
   replaceTerm: string;
   results: Range[];
   resultIndex: number;
-  isActive: boolean;
 }
 
 export interface SearchAndReplaceOptions {
@@ -114,11 +113,9 @@ declare module '@tiptap/core' {
 
   interface Commands<ReturnType> {
     searchAndReplace: {
-      openSearch: () => ReturnType;
       closeSearch: () => ReturnType;
       setSearchTerm: (searchTerm: string) => ReturnType;
       setReplaceTerm: (replaceTerm: string) => ReturnType;
-      toggleSearch: () => ReturnType;
       nextSearchResult: () => ReturnType;
       previousSearchResult: () => ReturnType;
       replace: () => ReturnType;
@@ -140,7 +137,6 @@ export const SearchAndReplace = Extension.create<SearchAndReplaceOptions>({
       replaceTerm: '',
       results: [] as Range[],
       resultIndex: 0,
-      isActive: false,
     };
   },
 
@@ -232,18 +228,7 @@ export const SearchAndReplace = Extension.create<SearchAndReplaceOptions>({
         return true;
       },
 
-      toggleSearch: () => ({ editor }) => {
-        editor.storage.searchAndReplace.isActive = !editor.storage.searchAndReplace.isActive;
-        return true;
-      },
-
-      openSearch: () => ({ editor }) => {
-        editor.storage.searchAndReplace.isActive = true;
-        return true;
-      },
-
       closeSearch: () => ({ editor, tr }) => {
-        editor.storage.searchAndReplace.isActive = false;
         editor.storage.searchAndReplace.searchTerm = '';
         editor.storage.searchAndReplace.results = [];
         tr.setMeta(searchAndReplacePluginKey, { searchTerm: '' });
@@ -296,21 +281,4 @@ export const SearchAndReplace = Extension.create<SearchAndReplaceOptions>({
     };
   },
 
-  addKeyboardShortcuts() {
-    const { editor } = this;
-
-    return {
-      'Mod-f': () => {
-        editor.commands.openSearch();
-        return true;
-      },
-      Escape: () => {
-        if (editor.storage.searchAndReplace.isActive) {
-          editor.commands.closeSearch();
-          return true;
-        }
-        return false;
-      },
-    };
-  },
 });

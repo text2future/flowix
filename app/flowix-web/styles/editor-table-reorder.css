@@ -64,7 +64,7 @@
   width: var(--table-reorder-grip-width);
   height: var(--table-reorder-grip-height);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 5px;
   background: var(--background);
 }
 .markdown-editor .table-reorder-handle:is(:hover, :focus-visible, [data-selected]):where(:not(.agent-conversation-surface, .agent-conversation-surface *))::before {
@@ -82,7 +82,7 @@
 .markdown-editor .table-reorder-marker:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: absolute;
   z-index: 7;
-  background: var(--brand);
+  background: var(--info);
   pointer-events: none;
 }
 .markdown-editor :is(.table-reorder-handle, .table-reorder-marker)[hidden]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
@@ -125,8 +125,8 @@
 .table-reorder-preview::before {
   width: var(--table-reorder-grip-width);
   height: var(--table-reorder-grip-height);
-  border-radius: 3px;
-  background: var(--brand);
+  border-radius: 5px;
+  background: var(--info);
 }
 .table-reorder-preview::after {
   width: var(--table-reorder-dots-width);
@@ -170,12 +170,14 @@
   }
 }
 
+/* Selected row/column controls use the info state color, not the brand accent,
+ * so they read as a selection alongside the blue selected-cell fill. */
 .markdown-editor .table-reorder-handle[data-selected]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
-  color: #fff;
+  color: var(--info-foreground);
 }
 .markdown-editor .table-reorder-handle[data-selected]:where(:not(.agent-conversation-surface, .agent-conversation-surface *))::after {
-  border-color: var(--brand);
-  background: var(--brand);
+  border-color: var(--info);
+  background: var(--info);
 }
 
 /* Sorting owns the pointer; resize hover must not resemble a drop indicator. */

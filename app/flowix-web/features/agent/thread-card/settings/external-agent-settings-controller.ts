@@ -1701,8 +1701,7 @@ export class ExternalAgentSettingsController {
   private selectExternalAgentModel(option: AgentModelOption): void {
     if (this.getTypeKey() === "pi" && isFlowixCloudModelOption(option)) {
       const state = useAgentDataStore.getState();
-      const isAvailableInCurrentSession = state.piCloudAccountId !== null
-        && state.agents.pi.catalog.models.items.some((model) =>
+      const isAvailableInCurrentSession = state.agents.pi.catalog.models.items.some((model) =>
           isFlowixCloudModelOption(model)
           && model.id === option.id
           && (model.providerId ?? "") === (option.providerId ?? ""),

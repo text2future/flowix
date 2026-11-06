@@ -9,7 +9,6 @@ export interface MainStatusBarHostProps {
   onDeleteNotebook(notebook: Notebook): void;
   onCreateNotebook(): void;
   onOpenTodos(): void;
-  onOpenTagPanel(): void;
   productIntroOpen: boolean;
   onProductIntroOpenChange(open: boolean): void;
   updater: AppUpdaterState;

@@ -796,7 +796,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
         },
         source: { kind: "dedicated", notebookId: source?.source.notebookId ?? null },
       });
-      await openWorkspaceSurface({ index: 0, target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
+      await openWorkspaceSurface({ index: 1, target: { kind: 'agent-conversation', instanceId: fork.instanceId } });
     } catch (error) {
       logger.error(`Failed to fork ${this.typeKey} conversation`, { error });
       toast.error(error instanceof Error ? error.message : String(error));

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { textBlockContentY, nodeContentX, nodeContentY } from './positioning'
+import { shouldHideBlockHandle, textBlockContentY, nodeContentX, nodeContentY } from './positioning'
+import type { CurrentBlockInfo } from './block-info'
+
+describe('block handle visibility', () => {
+  it('hides the handle for table blocks only', () => {
+    const info = (typeName: string) => ({ typeName }) as unknown as CurrentBlockInfo
+    expect(shouldHideBlockHandle(info('table'))).toBe(true)
+    expect(shouldHideBlockHandle(info('paragraph'))).toBe(false)
+    expect(shouldHideBlockHandle(info('heading'))).toBe(false)
+  })
+})
 
 describe('drag handle scroll-content coordinates', () => {
   it('keeps a non-ProseMirror header in the block Y coordinate', () => {

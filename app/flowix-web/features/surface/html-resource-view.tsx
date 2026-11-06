@@ -75,14 +75,14 @@ function HtmlPreview({ filePath, scopePath, documentProps, reportPresentation, r
   showSource: () => void;
   onDocumentResolved: (available: boolean) => void;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const onLink = useCallback((link: LocalHtmlLink) => {
     void openHtmlLink(link, filePath, scopePath, documentProps.notebookId ?? null).catch((error: unknown) => {
       toast.error(error instanceof Error ? error.message : String(error));
     });
   }, [documentProps.notebookId, filePath, scopePath]);
   const { iframeRef, src, content, phase, backgroundColor, onLoad } = useLocalHtmlPreview(
-    filePath, scopePath, onLink, documentProps.notebookId ?? null,
+    filePath, scopePath, onLink, documentProps.notebookId ?? null, language,
   );
   const focused = useWorkspaceFocusStore((state) => state.focusedColumnId === (documentProps.workspaceHost ?? 'column-1'));
   const documentKey = documentIdentityKey(documentIdentityFromFile(documentProps.fileIdentity));

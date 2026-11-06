@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { windows, type PluginDescriptor } from '@platform/tauri/client';
+import { windows } from '@platform/tauri/client';
 import { setMemoListViewPreference } from '@features/preferences/public/runtime-api';
 import { focusWorkspaceColumnFromEvent } from '@features/workspace/public/host-api';
-import { NoteNavigationDrawer, MemoList } from '@features/memo/public/shell-api';
+import { MemoList } from '@features/memo/public/shell-api';
 import type { Notebook } from '@features/memo/public/shell-api';
 import { ColumnResizeHandle } from './column-resize-handle';
 import { ListColumn } from './list-column';
@@ -13,20 +13,12 @@ import type { useMainPanelController } from '@features/shell/hooks/use-main-pane
 import type { useMemoListViewPreference } from '@features/preferences/public/runtime-api';
 import type { useShellMemoViewModel } from '@features/memo/public/shell-api';
 
-type NoteNavigationPhase = ReturnType<typeof useMainPanelController>['noteNavigationPhase'];
 type MiddleColumnView = ReturnType<typeof useShellMemoViewModel>['middleColumnView'];
 type MemoListView = ReturnType<typeof useMemoListViewPreference>;
 type Language = 'zh-CN' | 'en-US';
 
 export interface MainListColumnSectionProps {
-  noteNavigationPhase: NoteNavigationPhase;
   selectedNotebook: Notebook | null;
-  activePluginId: ReturnType<typeof useShellMemoViewModel>['activePluginId'];
-  handleOpenPlugin: (plugin: PluginDescriptor) => Promise<void>;
-  closeNoteNavigation: () => void;
-  completeNoteNavigationClose: () => void;
-  handleMemoListPreviewCompanionEnter: () => void;
-  handleMemoListPreviewCompanionLeave: () => void;
   isMemoListHidden: boolean;
   memoListPreviewVisible: boolean;
   memoListPreviewPhase: string;
@@ -36,7 +28,6 @@ export interface MainListColumnSectionProps {
   expandSidebar: () => void;
   resizeMemoList: ReturnType<typeof useMainPanelController>['resizeMemoList'];
   setIsDraggingListDivider: (value: boolean) => void;
-  handleToggleNoteNavigation: () => void;
   handleMemoListPreviewEnter: () => void;
   handleMemoListPreviewLeave: () => void;
   language: Language;
@@ -49,19 +40,11 @@ export interface MainListColumnSectionProps {
 }
 
 /**
- * Left section of the main layout: the note navigation drawer, the list
- * column (one mounted subtree shared by the docked sidebar and hover
+ * Left section of the main layout: the list column (one mounted subtree shared by the docked sidebar and hover
  * preview), and the list <-> detail divider.
  */
 export function MainListColumnSection({
-  noteNavigationPhase,
   selectedNotebook,
-  activePluginId,
-  handleOpenPlugin,
-  closeNoteNavigation,
-  completeNoteNavigationClose,
-  handleMemoListPreviewCompanionEnter,
-  handleMemoListPreviewCompanionLeave,
   isMemoListHidden,
   memoListPreviewVisible,
   memoListPreviewPhase,
@@ -71,7 +54,6 @@ export function MainListColumnSection({
   expandSidebar,
   resizeMemoList,
   setIsDraggingListDivider,
-  handleToggleNoteNavigation,
   handleMemoListPreviewEnter,
   handleMemoListPreviewLeave,
   language,
@@ -84,17 +66,6 @@ export function MainListColumnSection({
 }: MainListColumnSectionProps) {
   return (
     <>
-    <NoteNavigationDrawer
-      phase={noteNavigationPhase}
-      selectedNotebook={selectedNotebook}
-      onOpenPreferences={(tab) => void windows.openPreferences(tab)}
-      activePluginId={activePluginId}
-      onOpenPlugin={handleOpenPlugin}
-      onRequestClose={closeNoteNavigation}
-      onCloseComplete={completeNoteNavigationClose}
-      onCompanionSurfaceEnter={handleMemoListPreviewCompanionEnter}
-      onCompanionSurfaceLeave={handleMemoListPreviewCompanionLeave}
-    />
     {/* List column: one mounted subtree shared by the docked sidebar and hover preview. */}
     <ListColumn
       hidden={isMemoListHidden}
@@ -103,7 +74,6 @@ export function MainListColumnSection({
       memoColWidth={memoColWidth}
       isDraggingListDivider={isDraggingListDivider}
       selectedNotebook={selectedNotebook}
-      noteNavigationPhase={noteNavigationPhase}
       onCollapseMemoList={collapseMemoList}
       onExpandSidebar={expandSidebar}
       onOpenPreferences={(tab) => void windows.openPreferences(tab)}
@@ -133,14 +103,9 @@ export function MainListColumnSection({
           void setMemoListViewPreference(view === 'folders' ? 'folders' : 'detailed');
           setMiddleColumnView('notes');
         }}
-        navigationDrawerOpen={noteNavigationPhase !== 'closed'}
-        onToggleNavigationDrawer={handleToggleNoteNavigation}
         conversationList={shouldRenderAgentConversationList ? agentConversationListNode : undefined}
       >
         <MemoList
-          navigationDrawerEnabled
-          navigationDrawerOpen={noteNavigationPhase !== 'closed'}
-          onToggleNavigationDrawer={handleToggleNoteNavigation}
           isActive={!isAgentConversationView}
           dataLoadingEnabled={!isAgentConversationView}
         />

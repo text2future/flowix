@@ -2102,9 +2102,21 @@ impl PiRpcManager {
         )
         .await?;
         let runtime_model = message.model_for_runtime(AGENT_TYPE).map(str::to_owned);
-        let provider = message
+        let mut provider = message
             .provider_id_for_runtime(AGENT_TYPE)
             .map(str::to_owned);
+        if provider.as_deref() == Some("__flowix-cloud-preview") {
+            let app_state = app.state::<crate::app::state::AppState>();
+            if !app_state.cloud_sync.state().map_err(|error| error.to_string())?.authenticated {
+                return Err("请先登录 Flowix 账号后使用 Cloud 模型".to_string());
+            }
+            let api_base = app_state.cloud_environment.api_base().to_string();
+            drop(app_state);
+            self.connect_cloud_model_provider(app, &api_base).await?;
+            provider = Some(super::config::list()?.into_iter()
+                .find(|provider| provider.source.as_deref() == Some("flowix-cloud"))
+                .ok_or_else(|| "Cloud models are unavailable".to_string())?.id);
+        }
         let permission_mode = message.permission_mode_for_runtime(AGENT_TYPE);
         let pi_features = super::config::features()?;
         let runtime_model =

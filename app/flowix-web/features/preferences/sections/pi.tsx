@@ -502,6 +502,9 @@ export function PiSettingsSection() {
       <div className="space-y-5" style={{ marginTop: '36px' }}>
         <PiMcpSettings />
       </div>
+      <p className="pt-1 text-xs leading-5 text-[var(--muted-foreground)]">
+        {t('preferences.pi.about')}
+      </p>
     </div>
   );
 }

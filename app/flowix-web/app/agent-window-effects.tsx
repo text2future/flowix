@@ -2,6 +2,7 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAgentRuntimeStore } from '@features/agent/store/agent-runtime-store';
+import { SKILL_MARKET_UI_REQUEST_EVENT, type SkillMarketUiRequest } from '@shared/lib/skill-market-ui-request';
 import { createLogger } from '@/lib/logger';
 import { fireAndForget } from '@/lib/fire-and-forget';
 const logger = createLogger('agent-catalog');
@@ -31,6 +32,18 @@ const AgentEventSubscription = lazy(() =>
 
 export function AgentWindowEffects() {
   const [eventsMounted, setEventsMounted] = useState(false);
+
+  useEffect(() => {
+    const openSkillMarketUi = (event: Event) => {
+      const request = (event as CustomEvent<SkillMarketUiRequest>).detail;
+      if (!request || (request.view !== 'skills' && request.view !== 'templates')) return;
+      void import('@features/surface/public/open-skill-market-ui')
+        .then((module) => module.openSkillMarketUi(request.view, request.index))
+        .catch((error: unknown) => logger.warn('failed to open Skill Market UI', error));
+    };
+    window.addEventListener(SKILL_MARKET_UI_REQUEST_EVENT, openSkillMarketUi);
+    return () => window.removeEventListener(SKILL_MARKET_UI_REQUEST_EVENT, openSkillMarketUi);
+  }, []);
 
   // 实时订阅的依赖闭包是 agent-session-store 那条链（约 220 文件 / 3.3 万行），
   // 而首屏不消费它的任何投影：工作台首帧之前用户无法发起对话。因此把订阅推到

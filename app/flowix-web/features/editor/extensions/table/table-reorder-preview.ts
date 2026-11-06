@@ -48,7 +48,7 @@ export class TableReorderPreview {
   show(source: HTMLElement, table: HTMLTableElement, axis: Axis, index: number, event: { clientX: number; clientY: number }): void {
     if (this.dom.hidden) {
       const style = getComputedStyle(source);
-      for (const token of ['--brand', '--background', '--document-bg', '--foreground', '--border', '--editor-table-selection-bg']) {
+      for (const token of ['--brand', '--info', '--background', '--document-bg', '--foreground', '--border', '--editor-table-selection-bg']) {
         this.dom.style.setProperty(token, style.getPropertyValue(token));
       }
       this.dom.style.font = style.font;

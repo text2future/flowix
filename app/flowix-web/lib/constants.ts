@@ -15,6 +15,7 @@ export const STORAGE_KEYS = {
   CHAT: 'flowix-chat-storage',
   AGENT_SESSION: 'flowix-agent-session-storage',
   AGENT_DATA: 'flowix-agent-data-storage',
+  PI_CLOUD_PUBLIC_CATALOG: 'flowix-pi-cloud-public-catalog',
   AGENT_CONVERSATIONS: 'flowix-agent-conversations',
   AGENT_MESSAGE_FONT: 'flowix-agent-message-font',
   SETTINGS: 'flowix-settings',

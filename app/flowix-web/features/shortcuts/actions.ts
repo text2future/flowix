@@ -497,31 +497,6 @@ defineAction({
   },
 });
 
-/**
- * 切换笔记导航侧边栏 (最左栏) 的显示与隐藏。
- *
- * scope: 'window' — 应用级视图切换, 编辑器或输入框聚焦时也可触发。
- *
- * 实现: 调 useSettingsStore.toggleNoteNavigationVisible()。 状态在 lib/store/settings-store.ts,
- * zustand persist 到 localStorage (key: 'flowix-settings') — 关闭重开仍记住选择。
- * `main-layout.tsx` 观察这个字段并控制最左栏挂载/卸载。
- */
-defineAction({
-  id: 'panel.noteNavigation.toggle',
-  titleKey: 'preferences.shortcuts.action.panel.noteNavigation.toggle.title',
-  descriptionKey: 'preferences.shortcuts.action.panel.noteNavigation.toggle.description',
-  group: 'view',
-  scope: 'window',
-  defaultBinding: {
-    mac: 'Mod+Shift+L',
-    windows: 'Mod+Shift+L',
-    linux: 'Mod+Shift+L',
-  },
-  run: () => {
-    useSettingsStore.getState().toggleNoteNavigationVisible();
-  },
-});
-
 // ── 系统 (弹窗) ──────────────────────────────────────────
 
 /**

@@ -43,14 +43,21 @@ import GithubSlugger from 'github-slugger';
 import {
   closeSearchPanel,
   openSearchPanel,
+  search,
   searchPanelOpen,
 } from '@codemirror/search';
 
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
 
 import { isMarkdownFilePath } from '@features/editor/code-file';
 import { shikiHighlighting, shikiLanguageIdForPath } from '@features/editor/code-editor-shiki';
 import { pushHandler, useShortcutScope } from '@features/shortcuts';
+import {
+  CodeEditorSearchPanel,
+  type CodeEditorSearchPanelLabels,
+} from './code-editor-search-panel';
+import type { SearchPanelControlProps } from './use-search-panel-state';
 import type { ClipboardSnapshot } from '@features/editor/extensions/paste-rules/clipboard';
 
 export interface CodeEditorHandle {
@@ -62,15 +69,13 @@ export interface CodeEditorHandle {
   pasteToBody?: (snapshot: ClipboardSnapshot) => void;
 }
 
-interface CodeEditorProps {
+type CodeEditorProps = SearchPanelControlProps & {
   filePath: string;
   content: string;
   editable?: boolean;
   onChange: (content: string) => void;
   className?: string;
   autoFocus?: boolean;
-  searchPanelOpen?: boolean;
-  onSearchPanelOpenChange?: (open: boolean) => void;
   onEditorScroll?: (scrollTop: number) => void;
   onEditingFinished?: () => void;
   /** Whether the CodeMirror view exists and can accept editor operations. */
@@ -80,7 +85,7 @@ interface CodeEditorProps {
   sourceModeToggleLabel?: string;
   /** React content mounted inside CodeMirror's actual scroll surface. */
   scrollHeader?: ReactNode;
-}
+};
 
 function getSourceBodyStart(content: string): number {
   const frontmatter = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(content);
@@ -88,6 +93,24 @@ function getSourceBodyStart(content: string): number {
 }
 
 type SourceHeaderMountHandler = (dom: HTMLDivElement, mounted: boolean) => void;
+
+function getCodeEditorSearchPanelLabels(t: ReturnType<typeof useI18n>['t']): CodeEditorSearchPanelLabels {
+  return {
+    search: t('editor.search.searchPlaceholder'),
+    replace: t('editor.search.replace'),
+    replaceWith: t('editor.search.replacePlaceholder'),
+    replaceAll: t('editor.search.replaceAll'),
+    previous: t('editor.search.previous'),
+    next: t('editor.search.next'),
+    close: t('editor.search.close'),
+    toggleReplace: t('editor.search.toggleReplace'),
+    moreSettings: t('editor.search.moreSettings'),
+    matchCase: t('editor.search.matchCase'),
+    regularExpression: t('editor.search.regularExpression'),
+    wholeWord: t('editor.search.wholeWord'),
+    selectAllMatches: t('editor.search.selectAllMatches'),
+  };
+}
 
 /**
  * The source title is a CodeMirror block widget instead of a sibling of
@@ -324,8 +347,13 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   scrollHeader,
 }, ref) {
   const recovery = useSessionViewChannel(`code:${filePath}`);
+  const { t } = useI18n();
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const searchPanelRef = useRef<CodeEditorSearchPanel | null>(null);
+  const searchPanelLabels = useMemo(() => getCodeEditorSearchPanelLabels(t), [t]);
+  const searchPanelLabelsRef = useRef(searchPanelLabels);
+  searchPanelLabelsRef.current = searchPanelLabels;
   const [scrollHeaderMount, setScrollHeaderMount] = useState<HTMLDivElement | null>(null);
   const syncingContentRef = useRef(false);
   const onChangeRef = useRef(onChange);
@@ -349,6 +377,10 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   onEditorScrollRef.current = onEditorScroll;
   onEditingFinishedRef.current = onEditingFinished;
   onReadyChangeRef.current = onReadyChange;
+
+  useEffect(() => {
+    searchPanelRef.current?.refreshLabels();
+  }, [searchPanelLabels]);
 
   useShortcutScope('editor');
 
@@ -470,6 +502,20 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       doc: content,
       extensions: [
         basicSetup,
+        search({
+          top: true,
+          createPanel: (view) => {
+            const panel = new CodeEditorSearchPanel(
+              view,
+              () => searchPanelLabelsRef.current,
+              (destroyedPanel) => {
+                if (searchPanelRef.current === destroyedPanel) searchPanelRef.current = null;
+              },
+            );
+            searchPanelRef.current = panel;
+            return panel;
+          },
+        }),
         codeEditorTheme,
         // Install the block widget before CodeMirror's first viewport and
         // gutter layout. Adding it after mount can leave the empty document's

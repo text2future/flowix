@@ -25,7 +25,7 @@ export function WorkspaceHeaderShell({
   if (environment) {
     reserveWindowsControls = environment.index === 1 || !environment.browserVisible;
     showTrafficLightSpacer = environment.index === 0
-      && environment.sidebarHidden && !environment.navigationVisible;
+      && environment.sidebarHidden;
   }
   const skin = header?.chrome === 'agent' ? 'agent-surface-titlebar' : header?.chrome === 'media' ? 'media-surface-titlebar' : '';
   return <Tag {...domProps} data-tauri-drag-region data-header-style={header?.chrome}

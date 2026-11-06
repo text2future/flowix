@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@shared/ui/tooltip';
 import { useI18n, type I18nKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -13,10 +12,6 @@ export type MemoListViewTab = 'cards' | 'folders' | 'conversations';
 interface MemoListViewTabsProps {
   activeTab: MemoListViewTab;
   onChange: (tab: MemoListViewTab) => void;
-  /** The active cards tab doubles as the entry point for the note navigation drawer. */
-  navigationDrawerEnabled?: boolean;
-  navigationDrawerOpen?: boolean;
-  onToggleNavigationDrawer?: () => void;
 }
 
 type TabIconProps = {
@@ -77,9 +72,6 @@ function TabIcon({
 export function MemoListViewTabs({
   activeTab,
   onChange,
-  navigationDrawerEnabled = false,
-  navigationDrawerOpen = false,
-  onToggleNavigationDrawer,
 }: MemoListViewTabsProps) {
   const { t } = useI18n();
   const [indicatorTab, setIndicatorTab] = useState<MemoListViewTab>(activeTab);
@@ -113,27 +105,10 @@ export function MemoListViewTabs({
       {TABS.map(({ value, labelKey, icon: IconComponent, dimmed }) => {
         const active = activeTab === value;
         const label = t(labelKey);
-        const opensNavigation =
-          value === 'cards' &&
-          active &&
-          navigationDrawerEnabled &&
-          Boolean(onToggleNavigationDrawer);
-        const buttonLabel = opensNavigation
-          ? navigationDrawerOpen
-            ? t('memo.navigation.closeDrawer')
-            : t('memo.navigation.menuTitle')
-          : label;
-        const activate = () => {
-          if (opensNavigation) {
-            onToggleNavigationDrawer?.();
-            return;
-          }
-          handleChange(value);
-        };
         return (
           <Tooltip
             key={value}
-            content={value === 'cards' ? label : buttonLabel}
+            content={label}
             side="bottom"
             sideOffset={4}
           >
@@ -142,21 +117,20 @@ export function MemoListViewTabs({
               role="tab"
               data-memo-list-view-tab={value}
               aria-selected={active}
-              aria-label={buttonLabel}
-              aria-expanded={opensNavigation ? navigationDrawerOpen : undefined}
-              title={buttonLabel}
+              aria-label={label}
+              title={label}
               onPointerDown={(event) => {
                 // Leaving an edited BrowserColumn synchronously blurs and
                 // serializes its editor during the ancestor pointerdown. Run
                 // the tab intent before that focus transition can rerender the
                 // trigger and swallow the later click event.
                 if (event.isPrimary === false || event.button !== 0) return;
-                activate();
+                handleChange(value);
               }}
               onClick={(event) => {
                 // Pointer activation already ran on pointerdown. A detail of 0
                 // is the keyboard/assistive-technology click path.
-                if (event.detail === 0) activate();
+                if (event.detail === 0) handleChange(value);
               }}
               className={cn(
                 'group relative z-[1] flex h-6 w-6 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]',
@@ -165,31 +139,7 @@ export function MemoListViewTabs({
                   : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]',
               )}
             >
-              {opensNavigation ? (
-                <span className="relative block h-4 w-4" aria-hidden="true">
-                  {navigationDrawerOpen ? (
-                    <ChevronLeft
-                      className="absolute inset-0 h-4 w-4"
-                      strokeWidth={2.5}
-                    />
-                  ) : (
-                    <>
-                      <TabIcon
-                        icon={IconComponent}
-                        weight={active ? 'fill' : 'regular'}
-                        dimmed={active ? false : dimmed}
-                        className="absolute inset-0 opacity-90 transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
-                      />
-                      <ChevronRight
-                        className="absolute inset-0 h-4 w-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
-                        strokeWidth={2.5}
-                      />
-                    </>
-                  )}
-                </span>
-              ) : (
-                <TabIcon icon={IconComponent} weight={active ? 'fill' : 'regular'} dimmed={active ? false : dimmed} className={active ? 'opacity-90' : undefined} />
-              )}
+              <TabIcon icon={IconComponent} weight={active ? 'fill' : 'regular'} dimmed={active ? false : dimmed} className={active ? 'opacity-90' : undefined} />
             </button>
           </Tooltip>
         );

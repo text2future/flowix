@@ -36,6 +36,7 @@ import { createLogger } from '@/lib/logger';
 import { Input } from '@shared/ui/input';
 import { Button } from '@shared/ui/button';
 import { TreeSectionEmptyState } from '@shared/ui/tree-section-empty-state';
+import { TreeSectionIntroCard } from '@shared/ui/tree-section-intro-card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import {
   getRecentAgentConversationsLimit,
@@ -93,6 +94,10 @@ export function AgentTasksSection({
   const latestCompletedRunIds = useAgentSessionStore((state) => state.latestCompletedRunIds);
   const readThroughRunIds = useAgentSessionStore((state) => state.readThroughRunIds);
   const activeConversationInstanceId = useActiveAgentConversationInstanceId();
+  const [recentLoadedKey, setRecentLoadedKey] = useState<string | null>(null);
+  const [favoritesLoadedKey, setFavoritesLoadedKey] = useState<string | null>(null);
+  const recentLoadKey = `${notebookId}:${lifecycleVersion}:${recentConversationLimit}`;
+  const favoriteLoadKey = `${notebookId}:${lifecycleVersion}:${[...favoriteIds].sort().join('\u001f')}`;
 
   useEffect(() => subscribeToFavoriteConversationChanges(() => {
     setFavoriteIds(readFavoriteConversationIds());
@@ -101,20 +106,26 @@ export function AgentTasksSection({
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const recent = await loadRecentAgentConversations(
-        notebookId,
-        agentClient.listConversationInstancesPage,
-        () => active,
-        (hasMore) => { if (active) setHasMoreConversations(hasMore); },
-        recentConversationLimit,
-      );
-      if (active) setStoredConversations(recent);
+      try {
+        const recent = await loadRecentAgentConversations(
+          notebookId,
+          agentClient.listConversationInstancesPage,
+          () => active,
+          (hasMore) => { if (active) setHasMoreConversations(hasMore); },
+          recentConversationLimit,
+        );
+        if (active) setStoredConversations(recent);
+      } catch (error) {
+        if (active) logger.warn('Failed to refresh recent conversations', { error, notebookId });
+      } finally {
+        if (active) setRecentLoadedKey(recentLoadKey);
+      }
     };
     setStoredConversations([]);
     setHasMoreConversations(false);
     void load();
     return () => { active = false; };
-  }, [lifecycleVersion, notebookId, recentConversationLimit]);
+  }, [lifecycleVersion, notebookId, recentConversationLimit, recentLoadKey]);
 
   useEffect(() => {
     const openLimitDialog = (event: Event) => {
@@ -139,18 +150,23 @@ export function AgentTasksSection({
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const favorites = await loadFavoriteAgentConversations(
-        notebookId,
-        favoriteIds,
-        agentClient.getConversationInstancesByIds,
-      );
-      if (active) setStoredFavorites(favorites);
+      try {
+        const favorites = await loadFavoriteAgentConversations(
+          notebookId,
+          favoriteIds,
+          agentClient.getConversationInstancesByIds,
+        );
+        if (active) setStoredFavorites(favorites);
+      } catch (error) {
+        if (active) logger.warn('Failed to refresh favorite conversations', { error, notebookId });
+      } finally {
+        if (active) setFavoritesLoadedKey(favoriteLoadKey);
+      }
     };
-    void load().catch((error) => {
-      if (active) logger.warn('Failed to refresh favorite conversations', { error });
-    });
+    setStoredFavorites([]);
+    void load();
     return () => { active = false; };
-  }, [favoriteIds, lifecycleVersion, notebookId]);
+  }, [favoriteIds, favoriteLoadKey, lifecycleVersion, notebookId]);
 
   const tasks = useMemo(() => {
     const page = mergeConversationPage(EMPTY_CONVERSATION_PAGE_STATE, [
@@ -170,6 +186,7 @@ export function AgentTasksSection({
       hasMore: hasMoreConversations || combined.length > recentConversationLimit,
     };
   }, [favoriteIds, hasMoreConversations, liveInstances, notebookId, recentConversationLimit, storedConversations, storedFavorites, threadTombstones, startedLiveThreads]);
+  const hasLoadedTasks = recentLoadedKey === recentLoadKey && favoritesLoadedKey === favoriteLoadKey;
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -478,14 +495,22 @@ export function AgentTasksSection({
             </button>
           )}
         </div>
-      ) : (
-        <TreeSectionEmptyState
-          message={t('memo.fileTree.sectionEmpty')}
-          hideLabel={t('memo.fileTree.sectionEmptyHide')}
-          onHide={onHideSection}
+      ) : hasLoadedTasks ? (
+        <TreeSectionIntroCard
+          sectionId="agents"
+          title="memo.fileTree.sectionIntro.agentTitle"
+          description="memo.fileTree.sectionIntro.agentDescription"
           edgeGutter={edgeGutter}
+          fallback={(
+            <TreeSectionEmptyState
+              message={t('memo.fileTree.sectionEmpty')}
+              hideLabel={t('memo.fileTree.sectionEmptyHide')}
+              onHide={onHideSection}
+              edgeGutter={edgeGutter}
+            />
+          )}
         />
-      ))}
+      ) : null)}
       <Dialog open={conversationLimitDialogOpen} onOpenChange={setConversationLimitDialogOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>{t('memo.fileTree.configureConversationCount')}</DialogTitle></DialogHeader>

@@ -84,7 +84,6 @@ import type { TableViewType } from '@features/multidimensional-table/public/crea
 
 import { COLOR_LABEL_KEYS } from './memo-list/color-filter-submenu';
 import { MemoNavigationDropdown, MemoNavigationSubmenu } from './memo-navigation-dropdown';
-import { MemoListNavigationDrawer } from './memo-list-navigation-drawer';
 import { MemoCreateMenu } from './memo-create-menu';
 import { NotebookFolderView } from './notebook-folder-view';
 import { useMemoListPagination } from './memo-list/use-memo-list-pagination';
@@ -132,11 +131,6 @@ function EmptyState({ hasNotebooks }: { hasNotebooks: boolean }) {
 }
 
 interface MemoListProps {
-  /** The full left navigation owns these controls when it is visible. */
-  navigationDrawerEnabled?: boolean;
-  /** When provided, the notes tab is controlled by the main navigation drawer. */
-  navigationDrawerOpen?: boolean;
-  onToggleNavigationDrawer?: () => void;
   /** Keep the memo list mounted while the middle column shows conversations. */
   isActive?: boolean;
   dataLoadingEnabled?: boolean;
@@ -148,9 +142,6 @@ interface OpenCreateTableDialogRequest {
 }
 
 export function MemoList({
-  navigationDrawerEnabled = true,
-  navigationDrawerOpen: controlledNavigationDrawerOpen,
-  onToggleNavigationDrawer,
   isActive = true,
   dataLoadingEnabled = true,
 }: MemoListProps) {
@@ -387,7 +378,6 @@ export function MemoList({
     : middleColumnListItemKey;
   const [notebookDropdownOpen, setNotebookDropdownOpen] = useState(false);
   const [isCreatingMemo, setIsCreatingMemo] = useState(false);
-  const [localNavigationDrawerOpen, setLocalNavigationDrawerOpen] = useState(false);
   const [sortSubmenuOpen, setSortSubmenuOpen] = useState(false);
   const [createFolderRequest, setCreateFolderRequest] = useState<{
     id: number;
@@ -442,18 +432,6 @@ export function MemoList({
       });
     return () => { current = false; };
   }, [selectedNotebook?.id, selectedNotebook?.path]);
-
-  useEffect(() => {
-    if (!navigationDrawerEnabled && controlledNavigationDrawerOpen === undefined) {
-      setLocalNavigationDrawerOpen(false);
-    }
-  }, [controlledNavigationDrawerOpen, navigationDrawerEnabled]);
-
-  const navigationDrawerControlled =
-    controlledNavigationDrawerOpen !== undefined && Boolean(onToggleNavigationDrawer);
-  const navigationDrawerOpen = navigationDrawerControlled
-    ? controlledNavigationDrawerOpen
-    : localNavigationDrawerOpen;
 
   const handleRetryStartup = useCallback(() => {
     void initializeMainWindowStartup().catch((error) => {
@@ -1230,13 +1208,6 @@ export function MemoList({
       {documentCreateRequest && <NotebookDocumentCreateDialog request={documentCreateRequest} onClose={() => setDocumentCreateRequest(null)} />}
 
       <ListSurfaceViewport className="flex">
-        {navigationDrawerEnabled && !navigationDrawerControlled && (
-          <MemoListNavigationDrawer
-            open={navigationDrawerOpen}
-            selectedNotebook={selectedNotebook}
-            onClose={() => setLocalNavigationDrawerOpen(false)}
-          />
-        )}
     {startupPhase === 'error' && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-[var(--card)]/95">
             <div className="flex max-w-[260px] flex-col items-center gap-3 px-4 text-center">

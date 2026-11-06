@@ -100,3 +100,9 @@
   flex: 0 0 auto;
   padding: 0 4px 4px;
 }
+
+.agent-pi-model-picker__category--custom {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}

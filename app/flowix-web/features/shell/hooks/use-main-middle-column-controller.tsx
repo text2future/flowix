@@ -7,7 +7,6 @@ import {
 } from 'react';
 import {
   useMemoListHoverPreview,
-  type NoteNavigationDrawerPhase,
 } from '@features/memo/public/shell-api';
 import { createLogger } from '@/lib/logger';
 import { useI18n } from '@/lib/i18n';
@@ -44,8 +43,6 @@ export interface MainMiddleColumnController {
   handleMemoListPreviewTriggerLeave(): void;
   handleMemoListPreviewEnter(): void;
   handleMemoListPreviewLeave(): void;
-  handleMemoListPreviewCompanionEnter(): void;
-  handleMemoListPreviewCompanionLeave(): void;
   agentConversationListNode: ReactNode;
 }
 
@@ -53,12 +50,10 @@ export function useMainMiddleColumnController({
   isAgentConversationView,
   onConversationListBack,
   isMemoListHidden,
-  noteNavigationPhase,
 }: {
   isAgentConversationView: boolean;
   onConversationListBack: () => void;
   isMemoListHidden: boolean;
-  noteNavigationPhase: NoteNavigationDrawerPhase;
 }): MainMiddleColumnController {
   const [agentConversationListMounted, setAgentConversationListMounted] = useState(
     () => isAgentConversationView,
@@ -77,7 +72,7 @@ export function useMainMiddleColumnController({
     return () => window.clearTimeout(timer);
   }, []);
 
-  const preview = useMemoListHoverPreview(isMemoListHidden, noteNavigationPhase);
+  const preview = useMemoListHoverPreview(isMemoListHidden);
   const memoListPreviewVisible = isMemoListHidden && preview.phase !== 'closed';
   // The conversation list remains mounted to preserve its paged snapshot, but
   // its transient portal-backed menus must be closed whenever neither the
@@ -97,8 +92,6 @@ export function useMainMiddleColumnController({
     handleMemoListPreviewTriggerLeave: preview.handleTriggerLeave,
     handleMemoListPreviewEnter: preview.handlePreviewEnter,
     handleMemoListPreviewLeave: preview.handlePreviewLeave,
-    handleMemoListPreviewCompanionEnter: preview.handleCompanionSurfaceEnter,
-    handleMemoListPreviewCompanionLeave: preview.handleCompanionSurfaceLeave,
     agentConversationListNode: (
       <Suspense fallback={<AgentConversationListLoadingFallback />}>
         <AgentConversationList isActive={agentConversationListActive} onBack={onConversationListBack} />

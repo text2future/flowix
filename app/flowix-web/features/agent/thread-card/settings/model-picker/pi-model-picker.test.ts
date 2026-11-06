@@ -50,10 +50,10 @@ describe("Pi model picker provider icons", () => {
     const categories = picker.querySelectorAll(".agent-pi-model-picker__category");
     expect(Array.from(categories).map((category) =>
       category.querySelector(".agent-pi-model-picker__category-label")?.textContent,
-    )).toEqual(["会员模型", "我的模型"]);
-    expect(categories[0]?.querySelector(".agent-pi-model-picker__item")?.textContent)
+    )).toEqual(["我的模型"]);
+    expect(picker.querySelector(".agent-pi-model-picker__item")?.textContent)
       .toContain("Member model");
-    expect(categories[1]?.querySelector(".agent-pi-model-picker__item")?.textContent)
+    expect(categories[0]?.querySelector(".agent-pi-model-picker__item")?.textContent)
       .toContain("Custom model");
   });
 
@@ -124,7 +124,7 @@ describe("Pi model picker provider icons", () => {
     });
 
     const categories = picker.querySelectorAll(".agent-pi-model-picker__category");
-    const memberItem = categories[0]?.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
+    const memberItem = picker.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
     expect(memberItem?.title).toBe("稳定高速模型");
     const memberIcon = memberItem?.querySelector(".agent-pi-model-picker__provider-icon");
     expect(memberIcon).not.toBeNull();
@@ -136,7 +136,7 @@ describe("Pi model picker provider icons", () => {
     expect(multiplier?.textContent).toBe("1.25x");
     expect(multiplier?.nextElementSibling).toBe(checkmark);
 
-    const personalItem = categories[1]?.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
+    const personalItem = categories[0]?.querySelector<HTMLButtonElement>(".agent-pi-model-picker__item");
     const personalIcon = personalItem?.querySelector(".agent-pi-model-picker__provider-icon");
     expect(personalIcon).not.toBeNull();
     expect(personalItem?.firstElementChild).toBe(personalIcon);

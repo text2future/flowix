@@ -649,9 +649,7 @@ export const useAgentDataStore = create<AgentDataStoreState>()(
       },
 
       setModelCatalog: (agentType, catalog) => set((state) => {
-        const models = agentType === "pi" && !state.piCloudAccountId
-          ? withoutFlowixCloudModels(catalog)
-          : catalog;
+        const models = catalog;
         return {
           agents: {
             ...state.agents,
@@ -909,7 +907,7 @@ export const useAgentDataStore = create<AgentDataStoreState>()(
         const agents = merged.agents as Record<AgentTypeKey, AgentDataRecord>;
         // Storage contains the local projection only. Rehydration must never
         // replace the current session's Cloud overlay, even on equal timestamps.
-        if (current.piCloudAccountId) {
+        if (current.agents.pi.catalog.models.items.some(isFlowixCloudCatalogModel)) {
           const live = current.agents.pi.catalog.models;
           const local = withoutFlowixCloudModels(agents.pi.catalog.models);
           const cloudItems = live.items.filter(isFlowixCloudCatalogModel);

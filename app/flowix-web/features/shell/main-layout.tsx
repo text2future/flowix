@@ -112,7 +112,6 @@ export function MainLayout({
     createNotebook: handleCreateNotebook,
     deleteNotebook: handleDeleteNotebook,
     editNotebook: handleEditNotebook,
-    openPlugin: handleOpenPlugin,
     selectNotebook: handleSelectNotebook,
   } = business;
   const {
@@ -141,7 +140,6 @@ export function MainLayout({
     startupPhase: memoStartupPhase,
     middleColumnView,
     activeFilter,
-    activePluginId,
     activeSort,
     setActiveFilter,
     setMiddleColumnView,
@@ -156,18 +154,14 @@ export function MainLayout({
 
   const {
     memoListVisible,
-    noteNavigationVisible,
     toolbarCollapsed,
     setMemoListVisible,
-    setNoteNavigationVisible,
     setToolbarCollapsed,
   } = useSettingsStore(
     useShallow((s) => ({
       memoListVisible: s.memoListVisible,
-      noteNavigationVisible: s.noteNavigationVisible,
       toolbarCollapsed: s.toolbarCollapsed,
       setMemoListVisible: s.setMemoListVisible,
-      setNoteNavigationVisible: s.setNoteNavigationVisible,
       setToolbarCollapsed: s.setToolbarCollapsed,
     })),
   );
@@ -233,29 +227,17 @@ export function MainLayout({
     resizeMemoList,
     setIsDraggingListDivider,
     handleToggleMemoList,
-    handleToggleNoteNavigation,
-    openNoteNavigation,
-    closeNoteNavigation,
-    completeNoteNavigationClose,
     isDraggingListDivider,
     isMemoListAnimating,
     isMemoListHidden,
     memoColWidth,
-    noteNavigationPhase,
   } = useMainPanelController({
     browserColumnSplitRatio,
     documentPanelMinWidth: DOCUMENT_PANEL_MIN_WIDTH,
     memoListVisible,
-    noteNavigationVisible,
     setBrowserColumnSplitRatio,
     setMemoListVisible,
-    setNoteNavigationVisible,
   });
-  const handleOpenTagPanel = useCallback(() => {
-    void setMemoListViewPreference('detailed');
-    setMiddleColumnView('notes');
-    openNoteNavigation();
-  }, [openNoteNavigation, setMiddleColumnView]);
   const {
     shouldRenderAgentConversationList,
     showMemoListSurface,
@@ -265,8 +247,6 @@ export function MainLayout({
     handleMemoListPreviewTriggerLeave,
     handleMemoListPreviewEnter,
     handleMemoListPreviewLeave,
-    handleMemoListPreviewCompanionEnter,
-    handleMemoListPreviewCompanionLeave,
     agentConversationListNode,
   } = useMainMiddleColumnController({
     onConversationListBack: () => {
@@ -275,7 +255,6 @@ export function MainLayout({
     },
     isAgentConversationView,
     isMemoListHidden,
-    noteNavigationPhase,
   });
   const currentFileIdentity = activeExternalSession?.fileIdentity ?? null;
   const currentDocumentInstanceKey = currentFileIdentity?.displayId ?? null;
@@ -435,7 +414,6 @@ export function MainLayout({
     mainEditorMode,
     handleSetMainEditorMode,
     isMemoListHidden,
-    noteNavigationVisible,
     handleToggleMemoList,
     canNavigateBack,
     canNavigateForward,
@@ -473,14 +451,7 @@ export function MainLayout({
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className={`relative flex flex-1 h-full overflow-hidden ${isWindowsPlatform() ? 'rounded-b-[12px]' : 'rounded-b-[18px]'} border-b border-[var(--divider)]`}>
           <MainListColumnSection
-            noteNavigationPhase={noteNavigationPhase}
             selectedNotebook={selectedNotebook}
-            activePluginId={activePluginId}
-            handleOpenPlugin={handleOpenPlugin}
-            closeNoteNavigation={closeNoteNavigation}
-            completeNoteNavigationClose={completeNoteNavigationClose}
-            handleMemoListPreviewCompanionEnter={handleMemoListPreviewCompanionEnter}
-            handleMemoListPreviewCompanionLeave={handleMemoListPreviewCompanionLeave}
             isMemoListHidden={isMemoListHidden}
             memoListPreviewVisible={memoListPreviewVisible}
             memoListPreviewPhase={memoListPreviewPhase}
@@ -490,7 +461,6 @@ export function MainLayout({
             expandSidebar={handleToggleMemoList}
             resizeMemoList={resizeMemoList}
             setIsDraggingListDivider={setIsDraggingListDivider}
-            handleToggleNoteNavigation={handleToggleNoteNavigation}
             handleMemoListPreviewEnter={handleMemoListPreviewEnter}
             handleMemoListPreviewLeave={handleMemoListPreviewLeave}
             language={language}
@@ -512,7 +482,6 @@ export function MainLayout({
             focusedColumnId={focusedColumnId}
             isMemoListHidden={isMemoListHidden}
             isMemoListAnimating={isMemoListAnimating}
-            noteNavigationPhase={noteNavigationPhase}
             handleMemoListPreviewTriggerEnter={handleMemoListPreviewTriggerEnter}
             handleMemoListPreviewTriggerLeave={handleMemoListPreviewTriggerLeave}
             handleMemoListPreviewEnter={handleMemoListPreviewEnter}
@@ -542,7 +511,6 @@ export function MainLayout({
               onDeleteNotebook={handleDeleteNotebook}
               onCreateNotebook={handleCreateNotebook}
               onOpenTodos={handleOpenTodos}
-              onOpenTagPanel={handleOpenTagPanel}
               productIntroOpen={productIntroOpen}
               onProductIntroOpenChange={setProductIntroOpen}
               updater={updater}

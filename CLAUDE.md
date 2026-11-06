@@ -4,7 +4,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Flowix 是一款桌面笔记应用（**Tauri 2 + Rust 后端，React 19 + TS + Tiptap 前端**），内置 AI 代理（`rllm` v1.1，OpenAI / Anthropic / DeepSeek 全部走 `openai_compatible` provider）。
 
-
 ## 命令
 
 ```bash
@@ -75,11 +74,13 @@ scripts/apple-signing/
 ### 一次性配置
 
 #### 1. Apple Developer Account
+
 - 账号邮箱（注册时绑定的，**不能改**）：Apple ID 主邮箱
 - Membership Details → **Legal Entity Name**（精确复制粘贴）
 - notary 凭据的源邮箱必须跟 Apple Developer Account 邮箱一致
 
 #### 2. 生成本地私钥 + CSR
+
 ```bash
 bash scripts/apple-signing/gen-csr.sh \
   "<Apple ID 邮箱>" \
@@ -87,12 +88,15 @@ bash scripts/apple-signing/gen-csr.sh \
   "<Legal Entity Name 精确>" \
   "CN"
 ```
+
 输出：
+
 - `~/.flowix-signing/devid.key`（private key，**永不丢失**）
 - `~/.flowix-signing/devid.csr`（后续可重用来 renewal）
 
 #### 3. Apple Developer Portal 创建 Developer ID Application 证书
-- 登 <https://developer.apple.com/account/resources/certificates/list>
+
+- 登 [https://developer.apple.com/account/resources/certificates/list](https://developer.apple.com/account/resources/certificates/list)
 - `+` → **Developer ID Application**（**不是** Apple Development / Apple Distribution / Developer ID Installer）→ 上传 `devid.csr`
 - 下载 `developerID_application.cer`（Safari 可能保存为 `development.cer`，**以 CN 字段的 `Developer ID Application:` 前缀为准**判断）
 - 把 .cer 放进 `~/.flowix-signing/`
@@ -128,6 +132,7 @@ security import "$HOME/.flowix-signing/devid.p12" \
 ```
 
 验证：
+
 ```bash
 security find-identity -v -p codesigning
 # 形如：
@@ -135,6 +140,7 @@ security find-identity -v -p codesigning
 ```
 
 #### 5. notarytool 凭据存到 Keychain（避免每次粘 App-Specific Password）
+
 ```bash
 HISTFILE=/dev/null xcrun notarytool store-credentials "flowix-notarize" \
   --apple-id "<Apple ID 邮箱>" \
@@ -144,7 +150,7 @@ HISTFILE=/dev/null xcrun notarytool store-credentials "flowix-notarize" \
 
 > ⚠️ `store-credentials` 的 profile 名是**位置参数**，不是 `--keychain-profile`（后者是 `submit` 的 flag）。
 
-`App-Specific Password` 在 <https://appleid.apple.com> → Sign-In and Security → App-Specific Passwords → **+**（标签填 `flowix-notarize`）生成，**16 位**仅生成时显示一次。
+`App-Specific Password` 在 [https://appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords → **+**（标签填 `flowix-notarize`）生成，**16 位**仅生成时显示一次。
 
 ### 每次发版（一条命令打完）
 
@@ -169,24 +175,27 @@ bash scripts/apple-signing/sign-and-notarize.sh
 
 CLI staging binary 在 Tauri 打包前准备；Tauri 随后负责封装并签名 nested CLI 和外层 `.app`，再生成 DMG。DMG 生成后禁止重新签或修改 `.app`，否则公证的将不是最终实际分发内容。
 
-
 ### 4 个 env var 各自去哪
 
-| env var | 给哪步用 |
-|---|---|
+<!-- flowix:table {"version":1,"columns":[{"width":192},{"width":191}]} -->
+| env var                  | 给哪步用                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
 | `APPLE_SIGNING_IDENTITY` | `scripts/prepare-tauri-production-config.mjs` 写进 `tauri.conf.macos.production.local.json` |
-| `APPLE_TEAM_ID` | 同上 |
-| `APPLE_ID` | notarytool 备用（仅 keychain-profile 模式不需要） |
-| `APPLE_KEYCHAIN_PROFILE` | notarytool 走 keychain auth（推荐）；可替换为 `APPLE_APP_SPECIFIC_PASSWORD` fallback |
+| `APPLE_TEAM_ID`          | 同上                                                                                        |
+| `APPLE_ID`               | notarytool 备用（仅 keychain-profile 模式不需要）                                                   |
+| `APPLE_KEYCHAIN_PROFILE` | notarytool 走 keychain auth（推荐）；可替换为 `APPLE_APP_SPECIFIC_PASSWORD` fallback                |
+
 
 ### 关键路径与发现
 
-| 知识点 | 详细 |
-|---|---|
-| **CARGO_TARGET_DIR** | `scripts/build-cli.mjs` 把它设到 `$REPO_ROOT/.build/cargo-target`，**不是** `app/flowix-desktop/target/release`。`sign-and-notarize.sh` 内部已经按这个路径找 |
-| **Tauri 自带 notarization 跳过** | Tauri 读 `APPLE_PASSWORD` env var 才走内部 notarize。我们不设，Tauri warn 但不拒；手动 `notarytool submit` 在 `sign-and-notarize.sh` 里完成 |
-| **updater 私钥** | macOS 本地由 `com.flowix.minisign.private-key` Keychain 条目提供；发布脚本不会把私钥写入仓库或磁盘 |
-| **已发布 DMG 的签名 cert 寿命** | 6 个月 Developer ID Application cert（Apple 写死，不能 1 年） |
+<!-- flowix:table {"version":1,"columns":[{"width":192},{"width":191}]} -->
+| 知识点                          | 详细                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **CARGO_TARGET_DIR**         | `scripts/build-cli.mjs` 把它设到 `$REPO_ROOT/.build/cargo-target`，**不是** `app/flowix-desktop/target/release`。`sign-and-notarize.sh` 内部已经按这个路径找 |
+| **Tauri 自带 notarization 跳过** | Tauri 读 `APPLE_PASSWORD` env var 才走内部 notarize。我们不设，Tauri warn 但不拒；手动 `notarytool submit` 在 `sign-and-notarize.sh` 里完成                     |
+| **updater 私钥**               | macOS 本地由 `com.flowix.minisign.private-key` Keychain 条目提供；发布脚本不会把私钥写入仓库或磁盘                                                                 |
+| **已发布 DMG 的签名 cert 寿命**      | 6 个月 Developer ID Application cert（Apple 写死，不能 1 年）                                                                                        |
+
 
 ### 半年后续 cert（renewal）
 
@@ -208,19 +217,25 @@ openssl req -new -key ~/.flowix-signing/devid.key \
 ### 故障排除
 
 #### `xcrun notarytool store-credentials`: Unknown option '--keychain-profile'
+
 profile 名是**位置参数**：
+
 ```bash
 xcrun notarytool store-credentials "flowix-notarize" --apple-id ... --team-id ... --password ...
 ```
+
 （submit/log/info 才是 `-p, --keychain-profile` flag。）
 
 #### Keychain Access 报「The specified item could not be found in the keychain」/「在钥匙串中找不到指定的项」
+
 不要双击 `.cer` 单独导入。改成 `.cer + .key → .p12 → security import` 整套。具体走本文档「一次性配置 #4」。`.p12` PKCS#12 把证书 + 私钥作为整体入 Keychain，绕开单 .cer 跟 private key 不在同一个 keychain 引起的查找失败。
 
 #### Tauri build 时跳过 notarization（看到 `Warn skipping app notarization` 日志）
+
 Tauri 读 `APPLE_PASSWORD`，我们不设。这是预期行为；真正的 notarize 在 `sign-and-notarize.sh` 里跑 `notarytool submit`。
 
 #### Notarytool submission 卡 In Progress（超 60 分钟超 Apple SLA）
+
 - 正常情况下 1-5 分钟 verdict
 - 同一 hash 多次提交可能在 Apple 后端 stuck
 - **不要尝试 cancel** —— Apple 没给 client-side cancel API
@@ -231,18 +246,23 @@ Tauri 读 `APPLE_PASSWORD`，我们不设。这是预期行为；真正的 notar
   4. **fallback**：发布**已签未 notarize** 的 DMG，让用户跑 `xattr -d com.apple.quarantine /Applications/Flowix.app` 手工旁路 Gatekeeper（公开分发不能这么做，内部/技术用户可以）
 
 #### `entitlements.plist` 那 3 条 JIT 相关 entitlement 在 notarization 被 Apple 审到
+
 答复模板（Apple 公认可接受）：
+
 > The application uses JIT-compiled and runtime-generated executable memory for the embedded WebKit-based editor surface (Tauri WebView) and a Rust-native LLM runtime. `allow-jit` and `allow-unsigned-executable-memory` are required for runtime code generation in these components. `disable-library-validation` is required to load third-party Rust dynamic libraries (`rllm` and dependencies) that are not signed by Apple. The main binary remains properly signed with a valid Apple Developer ID Application certificate.
 
 #### `xcrun altool` 在新 macOS 不存在
+
 从 macOS Sequoia 起 `altool` 被移除，**notarytool 是唯一可用 API 通道**。如果看到 `unable to find utility "altool"` 就是这条。
 
 #### `PATH` 找不到 `cargo`
+
 每次发版 bash 调用前手动 `PATH="$HOME/.cargo/bin:$PATH"`（notarytool 也不在 `$PATH` 默认内会找不到）。或在 `~/.zshrc` 里 `export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"` 永久加。
 
 ### 永远不会过期但**永久保密**
 
 下列任何一项**泄露 = 撤销旧 cert + 重建整套**：
+
 - `~/.flowix-signing/devid.key`（private key）
 - `~/.flowix-signing/devid.p12`（cert + key 合包）
 - `~/.flowix-signing/.p12pass`（chmod 600）
@@ -439,7 +459,8 @@ flowix-main/
 ```
 
 **说明：**
-- **`flowix-core`** 是纯 Rust 库，无 Tauri 依赖，被 `flowix-desktop` 与 `flowix-cli` 共享 —— CLI 通过 sidecar 形式打包进 desktop binaries 目录。
-- **`flowix-desktop`** 负责 Tauri 装配：commands（IPC）、watcher（文件监听管线）、providers（LLM 调用，统一走 `openai_compatible`）、prompt（系统提示词）、open_target（深链）。
-- **`flowix-web`** 单仓双窗口（main + preferences）：state 用 Zustand，编辑器用 Tiptap + Shiki，IPC 走 `lib/tauri/client.ts`。
+
+- `**flowix-core**` 是纯 Rust 库，无 Tauri 依赖，被 `flowix-desktop` 与 `flowix-cli` 共享 —— CLI 通过 sidecar 形式打包进 desktop binaries 目录。
+- `**flowix-desktop**` 负责 Tauri 装配：commands（IPC）、watcher（文件监听管线）、providers（LLM 调用，统一走 `openai_compatible`）、prompt（系统提示词）、open_target（深链）。
+- `**flowix-web**` 单仓双窗口（main + preferences）：state 用 Zustand，编辑器用 Tiptap + Shiki，IPC 走 `lib/tauri/client.ts`。
 - 顶层 `skills/`、`dist/`、`node_modules/`、`app/target/` 为产物 / 资源 / 衍生目录，已省略。

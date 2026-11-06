@@ -4,7 +4,6 @@ export interface ColumnEnvironment {
   index: 0 | 1;
   browserVisible: boolean;
   sidebarHidden: boolean;
-  navigationVisible: boolean;
   onToggleSidebar: () => void;
 }
 

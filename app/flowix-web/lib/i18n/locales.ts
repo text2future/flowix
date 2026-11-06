@@ -5,6 +5,7 @@ import preferencesNoteZhCN from './messages.preferences-note.zh-CN';
 import collectionZhCN from './messages.collection.zh-CN';
 import propertyIconsZhCN from './messages.property-icons.zh-CN';
 import editorTablesZhCN from './messages.editor-tables.zh-CN';
+import editorSearchZhCN from './messages.editor-search.zh-CN';
 
 export const APP_LANGUAGES = ["zh-CN", "en-US"] as const;
 
@@ -31,7 +32,7 @@ export function sanitizeAppLanguage(value: unknown): AppLanguage {
 // 主表 (messages.zh-CN / messages.en-US) 被千行闸门冻结, 新增文案放分片 (如
 // messages.file-tree.*) 后与主表合并。I18nKey 从合并结果派生; 主表与分片各自用
 // Record<...> 约束 key 集合一致, en-US 合并后再按 MessageMap 校验一次完整性。
-const zhCN = { ...zhCNMessages, ...fileTreeZhCN, ...piSettingsZhCN, ...preferencesNoteZhCN, ...collectionZhCN, ...propertyIconsZhCN, ...editorTablesZhCN };
+const zhCN = { ...zhCNMessages, ...fileTreeZhCN, ...piSettingsZhCN, ...preferencesNoteZhCN, ...collectionZhCN, ...propertyIconsZhCN, ...editorTablesZhCN, ...editorSearchZhCN };
 
 export type I18nKey = keyof typeof zhCN;
 export type MessageMap = Record<I18nKey, string>;
@@ -69,8 +70,9 @@ export function loadLanguage(lang: AppLanguage): Promise<MessageMap> {
         import('./messages.collection.en-US'),
         import('./messages.property-icons.en-US'),
         import('./messages.editor-tables.en-US'),
-      ]).then(([module, fileTree, piSettings, preferencesNote, collection, propertyIcons, editorTables]) => {
-        const msgs: MessageMap = { ...module.default, ...fileTree.default, ...piSettings.default, ...preferencesNote.default, ...collection.default, ...propertyIcons.default, ...editorTables.default };
+        import('./messages.editor-search.en-US'),
+      ]).then(([module, fileTree, piSettings, preferencesNote, collection, propertyIcons, editorTables, editorSearch]) => {
+        const msgs: MessageMap = { ...module.default, ...fileTree.default, ...piSettings.default, ...preferencesNote.default, ...collection.default, ...propertyIcons.default, ...editorTables.default, ...editorSearch.default };
         loadedMessages["en-US"] = msgs;
         return msgs;
       });

@@ -411,6 +411,19 @@ pub async fn cloud_ai_credit_balance(
 }
 
 #[tauri::command]
+pub async fn cloud_pi_model_catalog(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let url = format!("{}/v1/ai/model-catalog", state.cloud_environment.api_base().trim_end_matches('/'));
+    reqwest::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(15))
+        .send().await.map_err(|error| error.to_string())?
+        .error_for_status().map_err(|error| error.to_string())?
+        .json().await.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn cloud_pi_model_availability(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {

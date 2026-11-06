@@ -46,7 +46,7 @@ export type AgentConversationDestination = 0 | 1;
 
 function openAgentConversation(
   instanceId: string,
-  destination: AgentConversationDestination = 0,
+  destination: AgentConversationDestination = 1,
 ): void {
   if (destination === 1) {
     // 与对话列表点行同一条路径：browser 列自己管理 surface 与可见性。
@@ -112,7 +112,7 @@ export function createAndOpenAgentConversationWithPrompt(
       autoSend: options.autoSend === true,
     });
   }
-  openAgentConversation(instance.instanceId, options.destination ?? 0);
+  openAgentConversation(instance.instanceId, options.destination ?? 1);
 }
 
 /** Consume the one-shot initial prompt registered for a new conversation. */

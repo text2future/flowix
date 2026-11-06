@@ -61,7 +61,6 @@ export interface DocumentTitlebarProps {
   };
   sidebar: {
     hidden: boolean;
-    noteNavigationVisible: boolean;
     onToggle: () => void;
   };
   navigation: {

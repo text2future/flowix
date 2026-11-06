@@ -168,6 +168,9 @@ export const cloud = {
     invoke<CloudMembership>('cloud_refresh_membership'),
   getAiCreditBalance: () =>
     invoke<CloudAiCreditBalance>('cloud_ai_credit_balance'),
+  piModelCatalog: () => invoke<{ data: { models: Array<{
+    id: string; title?: string; subtitle?: string; creditMultiplier?: number; providerIconUrl?: string;
+  }> } }>('cloud_pi_model_catalog'),
   piModelAvailability: () => invoke<boolean>('cloud_pi_model_availability'),
   connectPiModelProvider: () => invoke<void>('cloud_connect_pi_model_provider'),
   refreshPiModelProvider: () => invoke<boolean>('cloud_refresh_pi_model_provider'),

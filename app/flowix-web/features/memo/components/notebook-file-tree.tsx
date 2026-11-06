@@ -196,6 +196,7 @@ export function NotebookFileTree({
   const agentWorkspaceNotebook = useAgentWorkspaceStore((state) =>
     notebookId ? state.workspace.byNotebookId[notebookId] : undefined,
   );
+  const agentWorkspaceReady = useAgentWorkspaceStore((state) => state.loadState.workspace.status === 'ready');
   const agentRepositories = useMemo(
     () => getWorkspaceAgentRepositories(notebookId),
     [agentWorkspaceNotebook, notebookId],
@@ -1083,6 +1084,7 @@ export function NotebookFileTree({
               <div className="flex min-h-full flex-col">
           {notebookId && !hiddenSections.includes('agents') && (
             <AgentTasksSection
+              key={notebookId}
               notebookId={notebookId}
               edgeGutter={TREE_EDGE_GUTTER}
               order={sectionOrder.indexOf('agents') + 1}
@@ -1287,6 +1289,7 @@ export function NotebookFileTree({
           {!hiddenSections.includes('repositories') && (
             <AgentRepositoriesSection
               repositories={agentRepositories}
+              introEnabled={agentWorkspaceReady}
               order={sectionOrder.indexOf('repositories') + 1}
               onHeightChange={handleRepositorySectionHeightChange}
               onHideSection={() => hideTreeSection('repositories')}
@@ -1410,6 +1413,7 @@ export function NotebookFileTree({
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             <AgentRepositoriesSection
               repositories={agentRepositories}
+              introEnabled={agentWorkspaceReady}
               order={1}
               onHeightChange={() => {}}
               onAddRepository={() => { void handleAddRepository(); }}

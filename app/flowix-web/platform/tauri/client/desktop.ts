@@ -432,6 +432,10 @@ export const product = {
   revealInFileManager: (filePath: string) => invoke<void>('reveal_in_file_manager', { filePath }),
 };
 
+export const skillMarketUi = {
+  ensure: (language: 'zh-CN' | 'en-US') => invoke<{ entryPath: string; cached: boolean }>('ensure_skill_market_ui', { language }),
+};
+
 export interface PluginManifest {
   schemaVersion: number;
   id: string;

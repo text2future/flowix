@@ -258,6 +258,8 @@
  *    高度 (≈55px), 给消息"与 composer 对齐的呼吸感"。左右 12px
  *    保持与原来一致, 不影响消息气泡的左右间距。 */
 .agent-thread-card__body {
+  /* Keep this hit-testable while history loads: its wheel listener forwards
+   * scrolling to the editor until the user activates the message viewport. */
   /* The message renderer owns the visible-row scroll anchor. */
   overflow-anchor: none;
   min-height: 0;
@@ -484,11 +486,6 @@ html[data-platform="mac"] .agent-conversation-detail .agent-thread-card__body {
   width: calc(100% - 2 * var(--agent-content-inline-inset));
   max-width: var(--agent-content-max-width);
   margin: 0 auto 0.6rem;
-}
-
-.agent-thread-card--thread-cache-loading
-  .agent-thread-card__body {
-  pointer-events: none;
 }
 
 /* Inline collapse keeps only the header. Own this at the card container

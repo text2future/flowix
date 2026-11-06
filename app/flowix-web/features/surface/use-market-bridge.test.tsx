@@ -101,3 +101,22 @@ it('connects before a slow native scan and does not restart scans for repeated r
   expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ installedSkillIds: ['late-skill'] }), origin);
   await unmount();
 });
+
+for (const localOrigin of ['http://asset.localhost', 'null']) it(`installs remote archives from a trusted local page (${localOrigin})`, async () => {
+  const frame = document.createElement('iframe'); document.body.append(frame);
+  const unmount = await mountBridge(frame);
+  await unmount.update({ origin: localOrigin, currentUrl: `${localOrigin === 'null' ? 'asset://localhost' : localOrigin}/Users/demo/skill-market-ui/prod/versions/1.0.0/index.html` });
+  const message = (data: unknown, sender = localOrigin) => window.dispatchEvent(new MessageEvent('message', { origin: sender, source: frame.contentWindow, data }));
+  await act(async () => { message({ type: 'flowix:skill-market:ready' }); });
+  for (const kind of ['skill', 'template']) {
+    const data = { type: `flowix:skill-market:${kind === 'skill' ? 'install' : 'install-template'}`, requestId: kind, notebookId: 'A', [kind]: { id: 'example', displayName: 'Example', archive: { url: `${origin}/${kind === 'skill' ? 'skills' : 'templates'}/archives/example.zip` } } };
+    await act(async () => { message(data, 'https://evil.example'); });
+    expect(mocks.installCodexProjectSkillZip).not.toHaveBeenCalled();
+    expect(mocks.installNotebookTemplateZip).not.toHaveBeenCalled();
+    await act(async () => { message(data); });
+    if (kind === 'skill') expect(mocks.installCodexProjectSkillZip).toHaveBeenCalledWith('/A', 'example', expect.objectContaining({ url: `${origin}/skills/archives/example.zip` }));
+    else expect(mocks.installNotebookTemplateZip).toHaveBeenCalledWith('/A', 'example', { url: `${origin}/templates/archives/example.zip` });
+    vi.clearAllMocks();
+  }
+  await unmount();
+});

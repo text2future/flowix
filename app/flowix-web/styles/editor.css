@@ -10,7 +10,9 @@
    * offset in agent-thread-card/editor-host.css and the insertion-caret
    * compensation below both read it. */
   --editor-first-block-offset: 0.8rem;
-  --editor-table-selection-bg: rgb(59 130 246 / 0.1);
+  /* Cell/row selection fill: info state color at 10% opacity, matching the
+   * solid info fill of selected row/column controls, instead of a hardcoded blue. */
+  --editor-table-selection-bg: color-mix(in srgb, var(--info) 10%, transparent);
   --document-tag-font-scale: 0.875;
   --document-tag-font-size: calc(100% * var(--document-tag-font-scale));
   --document-tag-line-height: 1.2;
@@ -895,9 +897,12 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   position: relative;
 }
 
+/* Fixed h-6 squares past the table's right/bottom edge, positioned rail-locally
+ * by table-edge-insert-plugin.ts; the two pseudo-elements below draw the +. */
 .markdown-editor .table-edge-insert-button:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
   position: absolute;
   z-index: 18;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   padding: 0;
   margin: 0;
@@ -918,6 +923,14 @@ html[data-platform="mac"] .markdown-editor .editor-content:where(:not(.agent-con
   z-index: 17;
   background: transparent;
   pointer-events: auto;
+}
+
+/* The row bridge spans the entire bottom gutter, which also hosts the
+ * horizontal scrollbar. Keep it below the track (z-index 1) and thumb (2) so
+ * scrollbar hover/dragging win hit-testing; the square button stays above both
+ * (z-index 18) and remains clickable. */
+.markdown-editor .table-edge-insert-hover-zone--row:where(:not(.agent-conversation-surface, .agent-conversation-surface *)) {
+  z-index: 0;
 }
 
 .markdown-editor .table-edge-insert-button[hidden]:where(:not(.agent-conversation-surface, .agent-conversation-surface *)),

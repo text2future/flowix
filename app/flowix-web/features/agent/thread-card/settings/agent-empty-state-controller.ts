@@ -2,7 +2,7 @@ import type { AppLanguage, I18nKey, I18nParams } from "@/lib/i18n";
 import type { AgentTypeKey } from "@/types/agent";
 import skillLibraryIconSvg from "@/assets/skill-library.svg?raw";
 import { agent } from "@platform/tauri/client";
-import { openWorkspaceSurface } from "@features/workspace/public/open-surface-api";
+import { requestSkillMarketUi } from "@shared/lib/skill-market-ui-request";
 import { NOTEBOOK_SKILLS_CHANGED_EVENT } from "@features/agent/services/notebook-skills-events";
 import type { ComposerSlashSkill } from "../composer/composer-slash-command-controller";
 import { preferredComposerSkillName } from "../composer/composer-skill-token";
@@ -199,10 +199,7 @@ export class AgentEmptyStateController {
     skillMarketButton.textContent = this.t("agent.empty.skillMarket");
     skillMarketButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      void openWorkspaceSurface({
-        index: 1,
-        target: { kind: "web", url: "https://skills.flowix.cc/i/index" },
-      });
+      requestSkillMarketUi("skills", 1);
     });
     actionButtons.push(skillMarketButton);
     for (const button of actionButtons) {
@@ -309,10 +306,7 @@ export class AgentEmptyStateController {
       skillMarketButton.textContent = this.t("agent.empty.skillMarket");
       skillMarketButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        void openWorkspaceSurface({
-          index: 1,
-          target: { kind: "web", url: "https://skills.flowix.cc/i/index" },
-        });
+        requestSkillMarketUi("skills", 1);
       });
       skillMarketButton.addEventListener("mousedown", (event) => event.stopPropagation());
       list.append(empty, skillMarketButton);

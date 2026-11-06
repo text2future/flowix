@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveBrowserColumnLayout } from '@features/shell/hooks/browser-column-layout';
 import { useResizablePanels } from '@features/shell/hooks/use-resizable-panels';
 
-export type NoteNavigationDrawerPhase = 'closed' | 'open' | 'closing';
-
 // Slightly longer than --flowix-motion-duration (180ms, see styles/index.css)
 // so the flag outlives the transition even if a frame is dropped. Kept local:
 // this is a layout-sync signal, not a shared motion token.
@@ -13,35 +11,18 @@ interface MainPanelControllerOptions {
   browserColumnSplitRatio: number;
   documentPanelMinWidth: number;
   memoListVisible: boolean;
-  noteNavigationVisible: boolean;
   setBrowserColumnSplitRatio(ratio: number): void;
   setMemoListVisible(visible: boolean): void;
-  setNoteNavigationVisible(visible: boolean): void;
 }
 
 export function useMainPanelController({
   browserColumnSplitRatio,
   documentPanelMinWidth,
   memoListVisible,
-  noteNavigationVisible,
   setBrowserColumnSplitRatio,
   setMemoListVisible,
-  setNoteNavigationVisible,
 }: MainPanelControllerOptions) {
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const [noteNavigationPhase, setNoteNavigationPhase] = useState<NoteNavigationDrawerPhase>(
-    () => noteNavigationVisible ? 'open' : 'closed',
-  );
-
-  // The persisted boolean is the semantic setting. The phase is transient
-  // layout state used to synchronize the drawer with the list preview.
-  useEffect(() => {
-    if (noteNavigationVisible && noteNavigationPhase === 'closed') {
-      setNoteNavigationPhase('open');
-    } else if (!noteNavigationVisible && noteNavigationPhase === 'open') {
-      setNoteNavigationPhase('closed');
-    }
-  }, [noteNavigationPhase, noteNavigationVisible]);
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);
@@ -117,31 +98,12 @@ export function useMainPanelController({
     setBrowserColumnSplitRatio,
   ]);
 
-  const openNoteNavigation = useCallback(() => {
-    setNoteNavigationPhase('open');
-    setNoteNavigationVisible(true);
-  }, [setNoteNavigationVisible]);
-  const closeNoteNavigation = useCallback(() => {
-    if (!noteNavigationVisible || noteNavigationPhase === 'closing') return;
-    // Start the drawer and list transitions in the same render.
-    setNoteNavigationPhase('closing');
-    setNoteNavigationVisible(false);
-  }, [noteNavigationPhase, noteNavigationVisible, setNoteNavigationVisible]);
-  const completeNoteNavigationClose = useCallback(() => {
-    setNoteNavigationPhase('closed');
-  }, []);
-  const handleToggleNoteNavigation = useCallback(() => {
-    if (noteNavigationVisible) closeNoteNavigation();
-    else openNoteNavigation();
-  }, [closeNoteNavigation, noteNavigationVisible, openNoteNavigation]);
   const collapseMemoList = useCallback(() => {
     setMemoListVisible(false);
   }, [setMemoListVisible]);
   const handleToggleMemoList = useCallback(() => {
-    const nextVisible = !memoListVisible;
-    setMemoListVisible(nextVisible);
-    if (!nextVisible && noteNavigationVisible) closeNoteNavigation();
-  }, [closeNoteNavigation, memoListVisible, noteNavigationVisible, setMemoListVisible]);
+    setMemoListVisible(!memoListVisible);
+  }, [memoListVisible, setMemoListVisible]);
 
   return {
     browserColumnLayout,
@@ -151,15 +113,10 @@ export function useMainPanelController({
     resizeMemoList,
     setIsDraggingListDivider,
     handleToggleMemoList,
-    handleToggleNoteNavigation,
-    openNoteNavigation,
-    closeNoteNavigation,
-    completeNoteNavigationClose,
     isDraggingListDivider,
     isMemoListAnimating,
     isMemoListHidden,
     memoColWidth,
     memoListWidth,
-    noteNavigationPhase,
   };
 }

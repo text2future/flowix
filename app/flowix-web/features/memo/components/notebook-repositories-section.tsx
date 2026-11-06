@@ -18,6 +18,7 @@ import { useI18n } from '@/lib/i18n';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { ListSurfaceSpinner } from '@shared/ui/list-surface';
 import { TreeSectionEmptyState } from '@shared/ui/tree-section-empty-state';
+import { TreeSectionIntroCard } from '@shared/ui/tree-section-intro-card';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSubmenu, ContextMenuTrigger } from '@shared/ui/context-menu';
 import { NotebookCopyContextMenu } from './notebook-copy-context-menu';
 import {
@@ -370,6 +371,7 @@ export function AgentRepositoriesSection({
   onOpenFileInMainColumn,
   viewMode = 'tree',
   onOpenRepositoryList,
+  introEnabled = true,
   hideSectionHeader = false,
   onHideSection,
 }: {
@@ -387,6 +389,7 @@ export function AgentRepositoriesSection({
   onOpenFileInMainColumn: (path: string, scopePath: string) => void;
   viewMode?: 'tree' | 'links';
   onOpenRepositoryList?: () => void;
+  introEnabled?: boolean;
   hideSectionHeader?: boolean;
   /** Empty-state escape hatch: hide the whole section from the file tree. */
   onHideSection?: () => void;
@@ -468,11 +471,20 @@ export function AgentRepositoriesSection({
               <span className="min-w-0 flex-1 truncate opacity-[0.82]">{repository.name}</span>
             </button>
           )) : (
-            <TreeSectionEmptyState
-              message={t('memo.fileTree.sectionEmpty')}
-              hideLabel={t('memo.fileTree.sectionEmptyHide')}
-              onHide={onHideSection}
+            <TreeSectionIntroCard
+              sectionId="repositories"
+              title="memo.fileTree.sectionIntro.repositoriesTitle"
+              description="memo.fileTree.sectionIntro.repositoriesDescription"
               edgeGutter={TREE_EDGE_GUTTER}
+              enabled={introEnabled}
+              fallback={(
+                <TreeSectionEmptyState
+                  message={t('memo.fileTree.sectionEmpty')}
+                  hideLabel={t('memo.fileTree.sectionEmptyHide')}
+                  onHide={onHideSection}
+                  edgeGutter={TREE_EDGE_GUTTER}
+                />
+              )}
             />
           )}
           {repositories.length > 0 && onOpenRepositoryList && (
@@ -501,11 +513,20 @@ export function AgentRepositoriesSection({
               onExpandRepository={onExpandRepository}
             />
           )) : (
-            <TreeSectionEmptyState
-              message={t('memo.fileTree.sectionEmpty')}
-              hideLabel={t('memo.fileTree.sectionEmptyHide')}
-              onHide={onHideSection}
+            <TreeSectionIntroCard
+              sectionId="repositories"
+              title="memo.fileTree.sectionIntro.repositoriesTitle"
+              description="memo.fileTree.sectionIntro.repositoriesDescription"
               edgeGutter={TREE_EDGE_GUTTER}
+              enabled={introEnabled}
+              fallback={(
+                <TreeSectionEmptyState
+                  message={t('memo.fileTree.sectionEmpty')}
+                  hideLabel={t('memo.fileTree.sectionEmptyHide')}
+                  onHide={onHideSection}
+                  edgeGutter={TREE_EDGE_GUTTER}
+                />
+              )}
             />
           )}
         </>

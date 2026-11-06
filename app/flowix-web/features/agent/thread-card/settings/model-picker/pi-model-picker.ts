@@ -163,7 +163,7 @@ export function createPiModelPicker(props: PiModelPickerProps): HTMLElement {
   const panel = document.createElement("div");
   panel.className = "agent-pi-model-picker__panel";
   panel.append(
-    createModelCategory(props.memberLabel, memberModels, props, "none"),
+    createModelGroups(memberModels, props, "none"),
     createModelCategory(
       props.mineLabel,
       mineModels,
@@ -172,6 +172,8 @@ export function createPiModelPicker(props: PiModelPickerProps): HTMLElement {
       props.personalEmptyLabel,
     ),
   );
+  const customSection = panel.lastElementChild as HTMLElement;
+  customSection.classList.add("agent-pi-model-picker__category--custom");
   root.append(panel);
   return root;
 }

@@ -57,6 +57,30 @@ describe('CodeEditor', () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it('leaves Ctrl+F to CodeMirror when its editor owns focus', async () => {
+    await act(async () => root.render(
+      <ShortcutsProvider overrides={{}}>
+        <CodeEditor filePath="/project/code.ts" content="const value = 1" onChange={vi.fn()} />
+      </ShortcutsProvider>,
+    ));
+
+    const content = container.querySelector<HTMLElement>('.cm-content')!;
+    const view = EditorView.findFromDOM(content)!;
+    const event = new KeyboardEvent('keydown', {
+      key: 'f',
+      code: 'KeyF',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      view.focus();
+      content.dispatchEvent(event);
+    });
+
+    expect(container.querySelector('.cm-code-search-panel')).not.toBeNull();
+  });
+
 
   it('restores selection after destroying and recreating a session editor', async () => {
     useWorkspaceSessionStore.getState().reset();

@@ -36,8 +36,9 @@ import {
 import { attachEditorViewRecovery } from './editor-view-recovery';
 import { isSlashMenuOpen } from './extensions/slash-menu';
 import { normalizeTaskItemPlaceholders, resetEditorHistory } from './editor-document-reset';
+import { useSearchPanelState, type SearchPanelControlProps } from './use-search-panel-state';
 
-interface MarkdownEditorProps {
+type MarkdownEditorProps = SearchPanelControlProps & {
   /** Absolute or notebook-relative path of the note owning editor uploads. */
   ownerPath?: string;
   /** Workspace surface hosting this editor, passed to surface-aware NodeViews. */
@@ -61,9 +62,6 @@ interface MarkdownEditorProps {
   onEditorScroll?: (scrollTop: number) => void;
   autoFocus?: boolean;
   onBeforeCreate?: (editor: Editor) => void;
-  // 搜索面板由父组件控制（titlebar 按钮 / Ctrl+F 共享同一开关）
-  searchPanelOpen?: boolean;
-  onSearchPanelOpenChange?: (open: boolean) => void;
   // Toolbar collapsed — owned by main-layout. Tooltip of the toolbar's visibility
   // is driven purely by this state; the editor no longer tracks focus.
   toolbarCollapsed?: boolean;
@@ -156,6 +154,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const editorMountRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+  const [isSearchPanelOpen, handleSearchPanelOpenChange] = useSearchPanelState(
+    searchPanelOpen,
+    onSearchPanelOpenChange,
+  );
   const firstFrameTraceRef = useRef<number | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,7 +175,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const onChangeRef = useRef(onChange);
   const onDirtyRef = useRef(onDirty);
   onDirtyRef.current = onDirty;
-  const onSearchPanelOpenChangeRef = useRef(onSearchPanelOpenChange);
   const onEditingFinishedRef = useRef(onEditingFinished);
   const onFocusTitleRef = useRef(onFocusTitle);
   const onAppendToTitleRef = useRef(onAppendToTitle);
@@ -185,7 +186,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const imageContextRef = useRef(imageContext);
   onEditorScrollRef.current = onEditorScroll;
   onChangeRef.current = onChange;
-  onSearchPanelOpenChangeRef.current = onSearchPanelOpenChange;
   onEditingFinishedRef.current = onEditingFinished;
   onFocusTitleRef.current = onFocusTitle;
   onAppendToTitleRef.current = onAppendToTitle;
@@ -859,7 +859,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return selectEditableDocumentContent(editor);
       }, { isActive: editorIsFocused }),
       pushHandler('editor.find', () => {
-        onSearchPanelOpenChangeRef.current?.(true);
+        handleSearchPanelOpenChange(true);
       }, { isActive: editorIsFocused }),
       pushHandler('editor.undo', () => {
         return editorRef.current?.commands.undo() ?? false;
@@ -899,7 +899,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     return () => {
       for (const pop of pops) pop();
     };
-  }, []);
+  }, [handleSearchPanelOpenChange]);
 
   const editorContentChildren = (
     <>
@@ -920,8 +920,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     <div className={`markdown-editor ${className || ''}`}>
       <SearchReplacePanel
         editor={editorRef.current}
-        visible={searchPanelOpen}
-        onClose={() => onSearchPanelOpenChangeRef.current?.(false)}
+        visible={isSearchPanelOpen}
+        onClose={() => handleSearchPanelOpenChange(false)}
       />
       <OverlayScrollbar
         className="editor-content-frame"

@@ -94,7 +94,7 @@ function renderPiModels(list: HTMLElement, ctx: ModelSettingsListContext): void 
       selectedModelId: ctx.current,
       selectedProviderId: ctx.currentProviderId,
       memberLabel: ctx.t("preferences.pi.cloudTitle"),
-      mineLabel: ctx.t("preferences.pi.byokTitle"),
+      mineLabel: ctx.t("agent.pi.modelSection.custom"),
       emptyLabel: ctx.t(
         ctx.piModelsLoadFailed ? "agent.model.loadFailed" : "agent.model.noneFound",
       ),

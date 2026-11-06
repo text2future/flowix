@@ -8,8 +8,6 @@ import { ListColumnGuideCard } from '@features/shell/components/list-column-guid
 interface ListColumnContentProps {
   activeView: MemoListViewTab;
   onViewChange: (view: MemoListViewTab) => void;
-  navigationDrawerOpen: boolean;
-  onToggleNavigationDrawer: () => void;
   children: ReactNode;
   conversationList?: ReactNode;
 }
@@ -18,8 +16,6 @@ interface ListColumnContentProps {
 export function ListColumnContent({
   activeView,
   onViewChange,
-  navigationDrawerOpen,
-  onToggleNavigationDrawer,
   children,
   conversationList,
 }: ListColumnContentProps) {
@@ -63,9 +59,6 @@ export function ListColumnContent({
         <MemoListViewTabs
           activeTab={activeView === 'conversations' ? 'folders' : activeView}
           onChange={onViewChange}
-          navigationDrawerEnabled
-          navigationDrawerOpen={navigationDrawerOpen}
-          onToggleNavigationDrawer={onToggleNavigationDrawer}
         />
       </div>
       <div className="absolute inset-0 z-0 overflow-hidden">

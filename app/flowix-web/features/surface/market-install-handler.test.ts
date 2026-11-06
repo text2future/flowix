@@ -4,7 +4,7 @@ import { handleMarketInstall, type MarketInstallPorts } from './market-install-h
 const origin = 'https://skills.flowix.cc';
 function setup() {
   const ports: MarketInstallPorts = {
-    origin, isActive: () => true,
+    contentOrigin: origin, isActive: () => true,
     getSelectedNotebook: () => ({ id: 'A', name: 'Notebook', path: '/notes/A' }),
     respond: vi.fn(), installSkill: vi.fn().mockResolvedValue({}), installTemplate: vi.fn().mockResolvedValue({}), onInstalled: vi.fn(),
   };
