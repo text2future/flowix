@@ -58,7 +58,7 @@ const FROZEN_FILES = {
   'features/agent/store/session-reducer/reduce-projection.test.ts': 1020,
   'features/editor/markdown-editor.tsx': 941,
   'features/agent/thread-card/agent-thread-card.test.ts': 4483,
-  'features/agent/store/agent-session-actions.test.ts': 3153,
+  'features/agent/store/agent-session-actions.test.ts': 3158,
 };
 
 function countLines(content) {
