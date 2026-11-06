@@ -1,16 +1,26 @@
 import type { AgentHarnessPreset, AgentTypeKey, RuntimeConfig } from "@/types/agent";
 import { modelPreferenceKey, useAgentDataStore } from "./agent-data-store";
 
-/** Apply this Agent's remembered preferences, preserving conversation overrides. */
+/**
+ * Apply this Agent's remembered preferences, preserving conversation overrides.
+ *
+ * Pi is the exception: its model lives in the shared preference, like `mode`.
+ * A per-conversation snapshot would outrank a later pick whenever the picker
+ * could not reach the instance (a card whose node attribute has no id yet), so
+ * the selection looked applied and the next run still used the old model.
+ */
 export function resolveAgentPreferenceRuntimeConfig(
   agentType: AgentTypeKey,
   runtimeConfig: RuntimeConfig = {},
 ): RuntimeConfig {
   const agent = useAgentDataStore.getState().agents[agentType];
   const preference = agent.user;
-  const model = runtimeConfig.model ?? (preference.model
+  const preferenceModel = preference.model
     ? { key: preference.model.id, ...(preference.model.providerId ? { providerId: preference.model.providerId } : {}) }
-    : undefined);
+    : undefined;
+  const model = agentType === "pi"
+    ? preferenceModel ?? runtimeConfig.model
+    : runtimeConfig.model ?? preferenceModel;
   const modelReasoning = model
     ? preference.reasoningByModel?.[modelPreferenceKey({ id: model.key, providerId: model.providerId })]
     : undefined;
