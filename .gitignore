@@ -59,6 +59,10 @@ app/flowix-desktop/tauri*.production.local.json
 # Cloudflare / Wrangler local dev state (miniflare cache, R2 sqlite/blobs)
 .wrangler/
 
+# Runtime notebook data created when the app opens the repo as a workspace
+# (notebook.db, rebuild lock). Local state, never shared.
+.flowix/
+
 # Apple Developer ID signing (scripts live in scripts/apple-signing/,
 # but the actual keys/certs must never be committed)
 *.p12
