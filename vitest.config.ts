@@ -30,5 +30,9 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['app/flowix-web/**/*.test.{ts,tsx}'],
     setupFiles: ['app/flowix-web/vitest.setup.ts'],
+    // 不要打开 deps.optimizer: 它能把 @phosphor-icons/react 的 barrel 从 13.8s 压到
+    // 0.2s, 但同时改变所有依赖的加载路径, 让 prosemirror/tiptap 拿到两份模块实例 ——
+    // 全量实测 12 个文件 / 89 个用例因此失败 (editor/extensions 与 document-editing 为
+    // 主)。要用预打包, 得先解决编辑器那套的模块身份问题。
   },
 });

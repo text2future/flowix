@@ -1,6 +1,6 @@
 import { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { useDocumentStore } from '@features/document/store/document-store';
 import { WorkColumnSurfaceHost } from './registry';
@@ -25,6 +25,14 @@ vi.mock('./media-resource-view', () => ({ MediaResourceView: () => <div>media lo
 vi.mock('./html-resource-view', () => ({ HtmlResourceView: () => <div>html reader</div> }));
 
 const initialDocumentState = useDocumentStore.getState();
+
+// The registry resolves every renderer through a lazy import. Cold, that chunk costs
+// several seconds under jsdom (collection shell -> agent shell -> agent session store),
+// which used to surface as the module-loading time being charged to the 5s per-case
+// timeout. Pay it once here so the cases below only measure transition completion.
+beforeAll(async () => {
+  await import('./workspace-surface-renderers');
+}, 120_000);
 
 afterEach(() => {
   mockedDocument.ready = false;
@@ -84,11 +92,10 @@ describe('work column external-file transition completion', () => {
         await act(async () => root.render(<WorkColumnSurfaceHost surface={externalSurface(kind, 12)} />));
         expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
         if (kind === 'unavailable-file') {
-          await act(async () => { await vi.dynamicImportSettled(); });
           await vi.waitFor(async () => {
             await act(async () => {});
             expect(element.querySelector('[data-file-path]')?.getAttribute('data-file-path')).toBe('/notebook/report.pdf');
-          });
+          }, { timeout: 5000 });
           expect(element.querySelector('[data-open-folder]')?.getAttribute('data-open-folder')).toBe('true');
         }
       } finally {
@@ -137,6 +144,6 @@ it('finishes the legacy navigation marker when an independent column document re
     await vi.waitFor(async () => {
       await act(async () => {});
       expect(useDocumentStore.getState().isDocumentTransitioning).toBe(false);
-    });
+    }, { timeout: 5000 });
   } finally { await act(async () => root.unmount()); }
 });
