@@ -120,7 +120,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
         </header>
 
         <div className="payment-dialog__tabs" role="tablist" aria-label={t('billing.dialog.title')}>
-          {BILLING_TABS.map((value, index) => {
+          {BILLING_TABS.map((value) => {
             const label = value === 'credits'
               ? t('billing.dialog.tab.credits')
               : t('billing.dialog.tab.membership');
@@ -130,7 +130,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
                 type="button"
                 role="tab"
                 aria-selected={tab === value}
-                data-payment-initial-focus={tab === value && index === 0 ? '' : undefined}
+                data-payment-initial-focus={tab === value ? '' : undefined}
                 className={cn('payment-dialog__tab', tab === value && 'is-active')}
                 onClick={() => setTab(value)}
               >

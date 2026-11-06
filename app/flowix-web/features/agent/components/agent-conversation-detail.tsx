@@ -174,6 +174,9 @@ function AgentConversationDetailContent({
   }, [messageFontMode, t]);
   const threadId = instance.threadId;
   const renderThreadId = threadId;
+  // The notice also has to exist before the first message binds a thread id, so
+  // a signed-out send on a fresh conversation is not silently swallowed.
+  const cloudAccessKey = threadId ?? instanceId;
   const { messages, runs, initialHistoryStatus, initialHistoryError } = useAgentSessionStore(useShallow((state) => {
     const projection = renderThreadId ? state.threadProjections[renderThreadId] : undefined;
     return {
@@ -391,8 +394,8 @@ function AgentConversationDetailContent({
         !!dataState.piCloudAccountId,
       );
       const currentThreadId = threadIdRef.current;
-      if (blocked && currentThreadId) {
-        useAgentCloudAccessStore.getState().setAccess(currentThreadId, blocked);
+      if (blocked) {
+        useAgentCloudAccessStore.getState().setAccess(currentThreadId ?? currentInstance.instanceId, blocked);
         return;
       }
     }
@@ -915,7 +918,8 @@ function AgentConversationDetailContent({
           )}
         </div>
         <div className="agent-conversation-detail__composer-stack">
-          {instance.agentType === 'codex' && <CodexApprovalQueue threadId={threadId} />}          <AgentBackgroundTerminals
+          {instance.agentType === 'codex' && <CodexApprovalQueue threadId={threadId} />}
+          <AgentBackgroundTerminals
             threadId={threadId}
             agentType={instance.agentType === 'codex' ? 'codex' : 'dsh'}
             enabled={instance.agentType === 'codex' || instance.agentType === 'dsh'}
@@ -938,7 +942,7 @@ function AgentConversationDetailContent({
             } : undefined}
           />
           <CloudAccessNotice
-            accessKey={threadId}
+            accessKey={cloudAccessKey}
             agentType={instance.agentType}
           />
           <div ref={composerMountRef} />
