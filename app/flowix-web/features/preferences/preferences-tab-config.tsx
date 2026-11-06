@@ -59,6 +59,13 @@ export const PREFERENCE_TAB_GROUPS = [
         icon: <FadersHorizontalIcon className="w-4 h-4" />, contentWidth: 'normal',
         ...lazyPreferenceTab(() => import('@features/preferences/tab-pages/general').then((module) => ({ default: module.GeneralPreferencesTab }))),
       },
+      // 「账户」紧跟「通用」：偏好侧边栏与产品图标下拉窗都按本数组顺序渲染，
+      // 且不设 visibleInProductMenu: false，让下拉窗也展示该入口。
+      {
+        id: 'cloudSync', labelKey: 'preferences.tabs.cloudSync',
+        icon: <UserIcon className="w-4 h-4" />, contentWidth: 'normal',
+        ...lazyPreferenceTab(() => import('@features/preferences/sections/cloud-sync').then((module) => ({ default: module.CloudSyncSection }))),
+      },
       {
         id: 'format', labelKey: 'preferences.tabs.format',
         icon: <TextAUnderlineIcon className="w-4 h-4" />, contentWidth: 'normal',
@@ -68,12 +75,6 @@ export const PREFERENCE_TAB_GROUPS = [
         id: 'shortcuts', labelKey: 'preferences.tabs.shortcuts',
         icon: <KeyboardIcon className="w-4 h-4" />, contentWidth: 'normal',
         ...lazyPreferenceTab(() => import('@features/preferences/sections/shortcuts').then((module) => ({ default: module.ShortcutsSection }))),
-      },
-      {
-        id: 'cloudSync', labelKey: 'preferences.tabs.cloudSync',
-        icon: <UserIcon className="w-4 h-4" />, contentWidth: 'normal',
-        visibleInProductMenu: false,
-        ...lazyPreferenceTab(() => import('@features/preferences/sections/cloud-sync').then((module) => ({ default: module.CloudSyncSection }))),
       },
       {
         id: 'productIntro', labelKey: 'preferences.tabs.productIntro',
