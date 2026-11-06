@@ -144,6 +144,15 @@ function OptionTagsInput({
 export function DocumentPropertiesSection({ hideSectionHeader = false }: { hideSectionHeader?: boolean }) {
   const { t } = useI18n();
   const fields = usePropertyPresetStore((store) => store.registry.fields);
+  const presetsLoaded = usePropertyPresetStore((store) => store.loaded);
+  const loadPresets = usePropertyPresetStore((store) => store.load);
+
+  // 偏好设置窗不再在启动期预载属性预设 (省一次 IPC / 文件读取), 由本页按需补齐。
+  // 主窗口已经加载过时 loaded 为 true, 这里直接跳过, 与 memo-title-editor 等调用方同一约定。
+  useEffect(() => {
+    if (presetsLoaded) return;
+    void loadPresets().catch(() => undefined);
+  }, [loadPresets, presetsLoaded]);
   const systemFields = usePropertyPresetStore((store) => store.registry.systemFields ?? []);
   const properties = usePropertyPresetStore((store) => store.registry);
   const systemPresets = getBuiltinPresets(t, systemFields);

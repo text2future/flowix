@@ -100,6 +100,9 @@ pub(crate) fn open_preferences_window_inner(
         window
             .eval(preferences_navigation_script(&hash)?)
             .map_err(|error| error.to_string())?;
+        // 再次打开时窗口通常已可见; show 用于兜住"首次打开还没等到首帧信号"
+        // 就又被触发一次的窄窗口, 幂等且不会导致闪烁。
+        window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
         return Ok(());
     }
@@ -123,12 +126,16 @@ pub(crate) fn open_preferences_window_inner(
 
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::commands::window_shutdown::install_window(&window);
-    // 新窗口即刻�?齐主题背�?�� (与主窗口�?��一�?, 避免冷启动白�?�?
+    // 新窗口即刻对齐主题背景色 (与主窗口一致, 避免冷启动白闪)
     let mut theme = state.user_config.get_preference().theme;
     if theme == Theme::Mist {
         theme = Theme::Rock;
     }
     crate::window_chrome::apply_window_chrome_theme(&window, theme);
+    // 立刻显示: 点击后必须马上有反馈。webview 冷启动期间窗口内先呈现主题底色与
+    // index.html 自带的静态 loading, 界面由前端渲染完成后替换 (前端在设置界面
+    // 首帧之后才摘掉那个 loading, 所以不会出现"空窗")。
+    // 试过"等前端首帧再 show", dev 下等于点击后半分钟毫无反应, 比空窗更糟。
     window.show().map_err(|error| error.to_string())?;
     Ok(())
 }

@@ -62,14 +62,22 @@ interface PreferencesViewProps {
 export function PreferencesView({ initialTab }: PreferencesViewProps) {
 	const { t } = useI18n();
 	const experimental = useExperimentalMode();
-	const [activeTab, setActiveTab] = useState<ActiveSettingsTab>('general');
+	// 直接按 hash 请求的 tab 初始化。若先渲染 general、再在 effect 里纠正, 打开
+	// 「MCP」「Pi」这类入口时会白拉一次 general 的 chunk, 并多闪一次 Suspense spinner。
+	const [activeTab, setActiveTab] = useState<ActiveSettingsTab>(
+		() => normalizeInitialTab(initialTab?.split('?')[0] ?? '') ?? 'general',
+	);
 	const [tabRetryVersion, setTabRetryVersion] = useState(0);
 	const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
+	const [productInfoSettled, setProductInfoSettled] = useState(false);
 	const title = t('preferences.title');
 	const initialTabName = initialTab?.split('?')[0];
 
 	useEffect(() => {
-		product.getInfo().then(setProductInfo).catch(() => setProductInfo(null));
+		product.getInfo()
+			.then(setProductInfo)
+			.catch(() => setProductInfo(null))
+			.finally(() => setProductInfoSettled(true));
 	}, []);
 
 	const visibleTabGroups = useMemo(
@@ -96,10 +104,14 @@ export function PreferencesView({ initialTab }: PreferencesViewProps) {
 	}, [experimental, initialTab, initialTabName, visibleTabIds]);
 
 	useEffect(() => {
+		// productInfo 未落地前 isDevBuild 只能是保守的 false, 此时把开发版专属 tab
+		// 判为不可见, 会先从请求页闪回「通用」再切回来 —— 白拉一个 chunk。
+		// 等它落地 (成功或失败) 之后再纠正不可见的 tab。
+		if (!productInfoSettled) return;
 		if (!visibleTabIds.has(activeTab)) {
 			setActiveTab('general');
 		}
-	}, [activeTab, visibleTabIds]);
+	}, [activeTab, productInfoSettled, visibleTabIds]);
 
 	useEffect(() => {
 		document.title = title;

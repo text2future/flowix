@@ -44,6 +44,15 @@ function handleRenderError(error: Error): void {
   reportUncaughtError(createErrorReport("boundary", error, "react-boundary"), { notify: false });
 }
 
+/**
+ * 设置窗渲染崩溃时的兜底: 崩溃会连带卸载 PreferencesReadySignal, 静态 loading
+ * 会一直盖在错误 UI 上面。这里先把它摘掉, 再照常留痕。
+ */
+function handlePreferencesRenderError(error: Error): void {
+  removeAppLoading();
+  handleRenderError(error);
+}
+
 function removeAppLoading() {
   document.getElementById("app-loading")?.remove();
 }
@@ -61,7 +70,13 @@ const MainWindow = lazy(() =>
 );
 
 const PreferencesView = lazy(() =>
-  import("@features/preferences").then((module) => ({ default: module.PreferencesView }))
+  import("@features/preferences")
+    .then((module) => ({ default: module.PreferencesView }))
+    .catch((error) => {
+      // chunk 缺失时窗口已经显示了, 摘掉静态 loading 才能看到 ErrorBoundary 的错误 UI。
+      removeAppLoading();
+      throw error;
+    })
 );
 
 const MainWindowEffects = lazy(() =>
@@ -124,12 +139,14 @@ function AppToaster({ language }: { language: AppLanguage }) {
   );
 }
 
-function AppReadySignal() {
-  useEffect(() => {
-    removeAppLoading();
-  }, []);
+function PreferencesReadySignal() {
+	useEffect(() => {
+		// 窗口在点击瞬间就显示了 (Rust 侧立即 show), 静态 loading 由 index.html
+		// 自带、无需等 JS; 直到设置界面这一帧画完才摘掉, 窗口里始终有内容可看。
+		removeAppLoading();
+	}, []);
 
-  return null;
+	return null;
 }
 
 function MainWindowReadySignal() {
@@ -168,17 +185,43 @@ function useUnexpectedControlInputGuard() {
   }, []);
 }
 
+/**
+ * 把一次性启动任务推到首帧之后的空闲时段。
+ *
+ * 偏好设置窗挂载时就会启动 agent 工作区快照加载 + Pi 偏好初始化, 这两步会和
+ * 设置界面自己的首帧抢 CPU 和 IPC。设置界面先画出来, 快照随后补上即可。
+ */
+function useIdleMount(deferUntilIdle: boolean): boolean {
+	const [mounted, setMounted] = useState(!deferUntilIdle);
+
+	useEffect(() => {
+		if (!deferUntilIdle || mounted) return;
+		const mount = () => setMounted(true);
+		if (typeof window.requestIdleCallback === 'function') {
+			const handle = window.requestIdleCallback(mount, { timeout: 1500 });
+			return () => window.cancelIdleCallback(handle);
+		}
+		const handle = window.setTimeout(mount, 400);
+		return () => window.clearTimeout(handle);
+	}, [deferUntilIdle, mounted]);
+
+	return mounted;
+}
+
 function App() {
   useUnexpectedControlInputGuard();
   const [hash, setHash] = useState(() => window.location.hash);
+  const isPreferencesWindow = hash.startsWith("#preferences");
   const {
     language,
     format,
     shortcutOverrides,
     loadInitial,
     flushPending,
-  } = useAppPreferencesViewModel();
+  } = useAppPreferencesViewModel({ propertyPresets: !isPreferencesWindow });
   useApplyFontSettings(format);
+  // 设置窗把 agent 工作区初始化让到首帧之后; 主窗口保持原时序 (Stage 3 调度)。
+  const agentLifecycleMounted = useIdleMount(isPreferencesWindow);
 
 
   useEffect(() => {
@@ -229,24 +272,27 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // 偏好设置窗没有自己的原生菜单 (Windows 上是无边框窗, macOS 菜单属于主窗口),
+    // 在这里重建整份原生菜单只会白占设置窗的启动预算。
+    if (isPreferencesWindow) return;
     void windows.applyMenuLanguage(language).catch((error) => {
       logger.error("apply native menu language failed", { error });
     });
-  }, [language]);
+  }, [isPreferencesWindow, language]);
 
   useEffect(() => {
     // The static loading screen is only a first-paint fallback. It must not
     // depend on a lazy route resolving: if a packaged chunk is unavailable,
     // ErrorBoundary should be visible instead of an endless spinner.
+    //
+    // 偏好设置窗例外: 它在首帧渲染完成前是隐藏的, 静态 loading 由
+    // PreferencesReadySignal 移除 —— 提前摘掉只会让兜底显示时露出一块空白。
+    if (isPreferencesWindow) return;
     removeAppLoading();
-
-    const isAuxiliaryWindow = hash.startsWith("#preferences");
-    if (!isAuxiliaryWindow) {
-      void windows.showMain().catch((error) => {
-        logger.error("show main window failed during app bootstrap", { error });
-      });
-    }
-  }, [hash]);
+    void windows.showMain().catch((error) => {
+      logger.error("show main window failed during app bootstrap", { error });
+    });
+  }, [isPreferencesWindow]);
 
   useEffect(() => {
     loadInitial();
@@ -275,8 +321,6 @@ function App() {
     };
   }, []);
 
-  const isPreferencesWindow = hash.startsWith("#preferences");
-
   const returnToMain = async () => {
     const [navigation, browserColumn, mainWindow] = await Promise.all([
       import("@features/workspace/public/note-navigation-api"),
@@ -296,9 +340,9 @@ function App() {
   if (isPreferencesWindow) {
     const tab = hash.split("/")[1] || undefined;
     return (
-      <ErrorBoundary language={language} onError={handleRenderError}>
+      <ErrorBoundary language={language} onError={handlePreferencesRenderError}>
         <I18nProvider language={language}>
-          <AgentWorkspaceLifecycle />
+          {agentLifecycleMounted && <AgentWorkspaceLifecycle />}
           <AppToaster language={language} />
           <GlobalErrorToaster />
           <ThemeProvider>
@@ -307,7 +351,7 @@ function App() {
               <NativeEditMenuBridge />
               <Suspense fallback={null}>
                 <PreferencesView initialTab={tab} />
-                <AppReadySignal />
+                <PreferencesReadySignal />
               </Suspense>
               </ShortcutsProvider>
             </TooltipProvider>
