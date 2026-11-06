@@ -7,6 +7,11 @@ import type { CloudAccessKind } from '@features/agent/config/cloud-access';
  * Keyed by the durable thread id so two conversations in different columns do
  * not inherit each other's notice. Not persisted: a fresh launch re-reads the
  * real Cloud session and the first run reports the actual state again.
+ *
+ * The entry is written by two producers that share one meaning: the failed-turn
+ * derivation (a Cloud run that came back unauthorized or out of credits) and
+ * the send preflight (`cloud-access-preflight`), which stops a turn that cannot
+ * run at all. Both leave a real user row behind and let this card be the reply.
  */
 interface AgentCloudAccessStore {
   entries: Record<string, CloudAccessKind>;

@@ -35,6 +35,8 @@ const MAX_NEW_FILE_LINES = 1000;
 //     是从源头把行数降下来，不是放宽门槛；
 //   - notebook-file-tree.test.tsx 1499→1556、markdown-editor.select-all.test.tsx
 //     1061→1081：测试文件按上述先例对齐实测（新增的是断言，不是待拆逻辑）。
+// 2026-11-06：agent-session-actions.test.ts 3158→3212，同样只是新增一条发送
+// 前置检查的断言（blocked Cloud send 的用户消息与登录卡片），非待拆逻辑。
 // 若将来生产文件再超限，唯一合法出路仍是拆分，不得在这里改大数字。
 const FROZEN_FILES = {
   'features/multidimensional-table/table-document-view.tsx': 1929,
@@ -58,7 +60,7 @@ const FROZEN_FILES = {
   'features/agent/store/session-reducer/reduce-projection.test.ts': 1020,
   'features/editor/markdown-editor.tsx': 941,
   'features/agent/thread-card/agent-thread-card.test.ts': 4483,
-  'features/agent/store/agent-session-actions.test.ts': 3158,
+  'features/agent/store/agent-session-actions.test.ts': 3212,
 };
 
 function countLines(content) {

@@ -63,8 +63,9 @@ async function render(initialTab: 'membership' | 'credits' = 'membership', onClo
   return onClose;
 }
 
+// The dialog portals to `document.body`, so queries run against the document.
 function productNames(): string[] {
-  return Array.from(container.querySelectorAll('.payment-dialog__product-name'))
+  return Array.from(document.body.querySelectorAll('.payment-dialog__product-name'))
     .map((node) => node.textContent ?? '');
 }
 
@@ -85,21 +86,21 @@ describe('PaymentDialog', () => {
   it('opens on the membership shelf and hides credit packs', async () => {
     await render('membership');
     expect(productNames()).toEqual(['Annual membership']);
-    expect(container.querySelector('.payment-dialog__amount')?.textContent).toBe('$29');
-    expect(container.querySelector('.payment-dialog__tab.is-active')?.textContent)
+    expect(document.body.querySelector('.payment-dialog__amount')?.textContent).toBe('$29');
+    expect(document.body.querySelector('.payment-dialog__tab.is-active')?.textContent)
       .toBe('billing.dialog.tab.membership');
   });
 
   it('shows denominations on the credit shelf', async () => {
     await render('credits');
     expect(productNames()).toEqual(['billing.dialog.creditsAmount']);
-    expect(container.querySelector('.payment-dialog__tab.is-active')?.textContent)
+    expect(document.body.querySelector('.payment-dialog__tab.is-active')?.textContent)
       .toBe('billing.dialog.tab.credits');
   });
 
   it('starts a checkout from either shelf and closes', async () => {
     const onClose = await render('credits');
-    const buy = container.querySelector<HTMLButtonElement>('.payment-dialog__product button');
+    const buy = document.body.querySelector<HTMLButtonElement>('.payment-dialog__product button');
     await act(async () => {
       buy!.click();
       await Promise.resolve();
@@ -112,15 +113,15 @@ describe('PaymentDialog', () => {
   it('reports an empty shelf instead of an empty list', async () => {
     mocks.listProducts.mockResolvedValue([MEMBERSHIP]);
     await render('credits');
-    expect(container.querySelector('.payment-dialog__state')?.textContent)
+    expect(document.body.querySelector('.payment-dialog__state')?.textContent)
       .toBe('billing.dialog.empty.credits');
   });
 
   it('surfaces a catalog failure and retries', async () => {
     mocks.listProducts.mockRejectedValueOnce(new Error('offline'));
     await render('membership');
-    expect(container.querySelector('.payment-dialog__state--error')).not.toBeNull();
-    const retry = container.querySelector<HTMLButtonElement>('.payment-dialog__state--error button');
+    expect(document.body.querySelector('.payment-dialog__state--error')).not.toBeNull();
+    const retry = document.body.querySelector<HTMLButtonElement>('.payment-dialog__state--error button');
     await act(async () => {
       retry!.click();
       await Promise.resolve();

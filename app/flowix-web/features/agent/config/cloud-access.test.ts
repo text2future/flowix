@@ -53,6 +53,12 @@ describe('resolveCloudAccessKind', () => {
       authenticated: true,
       message: '余额不足，请充值',
     })).toBe('no_credits');
+    // Flowix Cloud's own refusal wording (HTTP 402, plain English sentence).
+    expect(resolveCloudAccessKind({
+      providerId: cloudProvider,
+      authenticated: true,
+      message: 'Your Flowix credit balance must be greater than zero',
+    })).toBe('no_credits');
   });
 
   it('maps expired credentials to signed_out', () => {

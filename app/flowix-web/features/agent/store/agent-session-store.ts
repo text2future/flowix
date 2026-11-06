@@ -15,7 +15,6 @@ import type {
 } from "@/types/agent";
 import { agentClient } from "@features/agent/store/agent-client";
 import { DEFAULT_AGENT_TYPE_KEY } from "@/lib/agent-types";
-import type { AgentConversationInstance } from "@features/agent/store/agent-conversation-types";
 import { type ThreadProjection } from "@features/agent/store/session-reducer";
 import { STORAGE_KEYS } from "@/lib/constants";
 import {
@@ -28,7 +27,7 @@ import {
   mapAgentChunkToEvent,
 } from "@features/agent/events/agent-event-mapper";
 import { completedRunUserMessageId } from "@features/agent/events/message-identity";
-import { isKnownProductThreadId, resolveProductThreadId, resolveStoreThreadId } from "@features/agent/store/external-session";
+import { isKnownProductThreadId, resolveProductThreadId } from "@features/agent/store/external-session";
 import { resolveIncomingChunkThreadId } from "@features/agent/store/agent-chunk-routing";
 import {
   recordAgentChunkMapped,
@@ -46,9 +45,17 @@ import {
   prepareUserMessage,
 } from "@features/agent/store/user-message";
 import { dispatchChatStream } from "@features/agent/store/chat-stream";
+import {
+  cloudAccessReplyForError,
+  createCloudAccessRunEnd,
+  resolveCloudAccessForSend,
+} from "@features/agent/store/cloud-access-preflight";
+import {
+  ensureConversationInstanceForSession,
+  resolveCommandThreadId,
+} from "@features/agent/store/session-conversation-helpers";
 import { translate } from "@/lib/i18n";
 import { createLogger } from "@/lib/logger";
-import { buildInitialInstanceRuntimeConfig } from "@features/agent/store/initial-runtime-config";
 import { createAgentSessionStateStorage } from "@features/agent/store/window-session-storage";
 import { withRunPhase } from "@features/agent/store/thread-run-phase";
 import { installAgentSessionRuntimeBridges } from "@features/agent/store/agent-session-runtime-bridges";
@@ -126,41 +133,6 @@ export interface AgentSessionStore
 }
 
 export type { PendingSteeringMessage } from "@features/agent/store/follow-up-queue-slice";
-
-type SessionGet = () => AgentSessionStore;
-
-function resolveCommandThreadId(state: AgentSessionStore, threadId: string, runtime: AgentTypeKey): string | null {
-  return resolveStoreThreadId(threadId, state.sessionMeta.externalSessionResolutions, runtime,
-    state.sessionMeta.threadTypes, (id) => isKnownProductThreadId(id, state));
-}
-
-function ensureConversationInstanceForSession(
-  get: SessionGet,
-  threadId: string,
-  type: AgentTypeKey,
-  title: string,
-  options?: { defaultTitle?: string },
-): AgentConversationInstance {
-  const session = get();
-  const existing = session.findByThreadId(threadId);
-  if (existing) {
-    const shouldUpdateTitle =
-      title &&
-      (!options?.defaultTitle || title !== options.defaultTitle);
-    return session.upsertInstance(existing.instanceId, {
-      agentType: type,
-      ...(shouldUpdateTitle ? { title } : {}),
-      threadId,
-    });
-  }
-  return session.createInstance({
-    agentType: type,
-    title,
-    threadId,
-    source: { kind: "thread-card" },
-    runtimeConfig: buildInitialInstanceRuntimeConfig(type),
-  });
-}
 
 
 export const useAgentSessionStore = create<AgentSessionStore>()(
@@ -351,6 +323,14 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
           if (options?.instanceId) {
             state.updateThread(options.instanceId, { threadId, agentType: type.id });
           }
+          // A blocked Cloud send is still a turn: the prompt above is already a
+          // row, so close the run and let the access card stand in for a reply.
+          // The credit read happens here, after the row exists, so the wait for
+          // it is invisible and a zero balance never reaches the model.
+          if (await resolveCloudAccessForSend(threadId, type.id)) {
+            state.dispatch(createCloudAccessRunEnd(threadId, type.id, runId));
+            return;
+          }
           try {
             await dispatchChatStream({
               threadId,
@@ -481,6 +461,17 @@ export const useAgentSessionStore = create<AgentSessionStore>()(
             const clientId = event.clientUserMessageId ??
               (productChunk.kind === "user_message" ? productChunk.message_id : undefined);
             if (clientId) get().removeSteeringMessageByClientId(threadId, clientId);
+          }
+          // Cloud answers an empty balance or an expired session with a run
+          // failure; the card is the reply the user can act on, so the raw
+          // upstream sentence never becomes a transcript row.
+          if (event.kind === "error") {
+            const reply = cloudAccessReplyForError(threadId, event);
+            if (reply) {
+              clearPendingSteeringForLifecycleEvent(reply);
+              streamDispatcher.dispatch(reply);
+              return;
+            }
           }
           clearPendingSteeringForLifecycleEvent(event);
           streamDispatcher.dispatch(event);

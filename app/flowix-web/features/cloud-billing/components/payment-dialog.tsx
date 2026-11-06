@@ -1,14 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import { cloud, type CloudProduct } from '@platform/tauri/client';
 import { openUrl } from '@platform/tauri/opener';
 import { cloudSyncErrorMessage } from '@platform/tauri/errors';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { Button } from '@shared/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@shared/ui/dialog';
+import {
+  DIALOG_SURFACE_CLASS,
+  dialogActionClasses,
+} from '@shared/ui/dialog-styles';
 import {
   BILLING_TABS,
   creditsOf,
@@ -21,6 +29,21 @@ export interface PaymentDialogProps {
   initialTab: BillingTab;
   onClose: () => void;
 }
+
+/**
+ * Shell classes follow the standard dialog spec (the create-notebook dialog is
+ * the reference): same surface, overlay, heading scale and close-button
+ * placement. Sizing lives in `.payment-dialog` (payment-dialog.css) so it does
+ * not depend on JIT-generated utilities.
+ */
+const PAYMENT_DIALOG_CONTENT_CLASS = cn(
+  'payment-dialog',
+  DIALOG_SURFACE_CLASS,
+  'p-0',
+);
+
+const PURCHASE_ACTION_CLASS = dialogActionClasses('brand');
+const SECONDARY_ACTION_CLASS = dialogActionClasses('secondary');
 
 function cycleLabelKey(product: CloudProduct): 'billing.dialog.perYear' | 'billing.dialog.perOnce' | null {
   if (product.billingType === 'one_time') return 'billing.dialog.perOnce';
@@ -41,7 +64,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const buyingRef = useRef(false);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -67,7 +90,7 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   }, [onClose]);
 
   useEffect(() => {
-    dialogRef.current?.querySelector<HTMLElement>('[data-payment-initial-focus]')?.focus();
+    bodyRef.current?.querySelector<HTMLElement>('[data-payment-initial-focus]')?.focus();
   }, []);
 
   const groups = useMemo(
@@ -93,117 +116,112 @@ export function PaymentDialog({ initialTab, onClose }: PaymentDialogProps) {
   };
 
   return (
-    <div
-      className="payment-dialog__overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !buyingRef.current) onClose();
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
     >
-      <div
-        ref={dialogRef}
-        className="payment-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('billing.dialog.title')}
+      <DialogContent
+        aria-labelledby="flowix-payment-dialog-title"
+        className={PAYMENT_DIALOG_CONTENT_CLASS}
+        closeDisabled={buyingId !== null}
       >
-        <header className="payment-dialog__header">
-          <div className="payment-dialog__title">{t('billing.dialog.title')}</div>
-          <button
-            type="button"
-            className="payment-dialog__close"
-            aria-label={t('billing.dialog.close')}
-            title={t('billing.dialog.close')}
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </header>
+        <main ref={bodyRef} className="relative z-[1] w-full px-5 py-6">
+          <DialogTitle id="flowix-payment-dialog-title" className="mb-3">
+            {t('billing.dialog.title')}
+          </DialogTitle>
 
-        <div className="payment-dialog__tabs" role="tablist" aria-label={t('billing.dialog.title')}>
-          {BILLING_TABS.map((value) => {
-            const label = value === 'credits'
-              ? t('billing.dialog.tab.credits')
-              : t('billing.dialog.tab.membership');
-            return (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={tab === value}
-                data-payment-initial-focus={tab === value ? '' : undefined}
-                className={cn('payment-dialog__tab', tab === value && 'is-active')}
-                onClick={() => setTab(value)}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+          <div className="payment-dialog__tabs" role="tablist" aria-label={t('billing.dialog.title')}>
+            {BILLING_TABS.map((value) => {
+              const label = value === 'credits'
+                ? t('billing.dialog.tab.credits')
+                : t('billing.dialog.tab.membership');
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === value}
+                  data-payment-initial-focus={tab === value ? '' : undefined}
+                  className={cn('payment-dialog__tab', tab === value && 'is-active')}
+                  onClick={() => setTab(value)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
 
-        <div className="payment-dialog__body" role="tabpanel">
-          {products === null && !error && (
-            <div className="payment-dialog__state">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              <span>{t('billing.dialog.loading')}</span>
-            </div>
-          )}
+          <div className="payment-dialog__body" role="tabpanel">
+            {products === null && !error && (
+              <div className="payment-dialog__state">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                <span>{t('billing.dialog.loading')}</span>
+              </div>
+            )}
 
-          {error && (
-            <div className="payment-dialog__state payment-dialog__state--error">
-              <span>{error}</span>
-              <Button type="button" variant="ghost" className="h-8" onClick={() => void load()}>
-                {t('billing.dialog.retry')}
-              </Button>
-            </div>
-          )}
+            {error && (
+              <div className="payment-dialog__state payment-dialog__state--error">
+                <span>{error}</span>
+                <button
+                  type="button"
+                  className={cn(SECONDARY_ACTION_CLASS, 'h-8 min-h-0 px-3 text-xs')}
+                  onClick={() => void load()}
+                >
+                  {t('billing.dialog.retry')}
+                </button>
+              </div>
+            )}
 
-          {products !== null && activeProducts.length === 0 && (
-            <div className="payment-dialog__state">
-              {t(tab === 'credits' ? 'billing.dialog.empty.credits' : 'billing.dialog.empty.membership')}
-            </div>
-          )}
+            {products !== null && activeProducts.length === 0 && (
+              <div className="payment-dialog__state">
+                {t(tab === 'credits' ? 'billing.dialog.empty.credits' : 'billing.dialog.empty.membership')}
+              </div>
+            )}
 
-          {activeProducts.length > 0 && (
-            <ul className="payment-dialog__list">
-              {activeProducts.map((product) => {
-                const credits = creditsOf(product);
-                const cycle = cycleLabelKey(product);
-                return (
-                  <li key={product.id} className="payment-dialog__product">
-                    <div className="payment-dialog__product-main">
-                      <div className="payment-dialog__product-name">
-                        {credits === null
-                          ? product.name
-                          : t('billing.dialog.creditsAmount', { value: credits.toLocaleString() })}
+            {activeProducts.length > 0 && (
+              <ul className="payment-dialog__list">
+                {activeProducts.map((product) => {
+                  const credits = creditsOf(product);
+                  const cycle = cycleLabelKey(product);
+                  return (
+                    <li key={product.id} className="payment-dialog__product">
+                      <div className="payment-dialog__product-main">
+                        <div className="payment-dialog__product-name">
+                          {credits === null
+                            ? product.name
+                            : t('billing.dialog.creditsAmount', { value: credits.toLocaleString() })}
+                        </div>
+                        {product.description && (
+                          <div className="payment-dialog__product-description">{product.description}</div>
+                        )}
+                        <div className="payment-dialog__product-price">
+                          <span className="payment-dialog__amount">{formatBillingPrice(product.price)}</span>
+                          {cycle && <span className="payment-dialog__cycle">{t(cycle)}</span>}
+                        </div>
                       </div>
-                      {product.description && (
-                        <div className="payment-dialog__product-description">{product.description}</div>
-                      )}
-                      <div className="payment-dialog__product-price">
-                        <span className="payment-dialog__amount">{formatBillingPrice(product.price)}</span>
-                        {cycle && <span className="payment-dialog__cycle">{t(cycle)}</span>}
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      className="h-9 shrink-0 rounded-lg"
-                      disabled={buyingId !== null}
-                      onClick={() => void buy(product)}
-                    >
-                      {buyingId === product.id && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                      {t('billing.dialog.purchase')}
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                      <button
+                        type="button"
+                        className={cn(PURCHASE_ACTION_CLASS, 'shrink-0')}
+                        disabled={buyingId !== null}
+                        onClick={() => void buy(product)}
+                      >
+                        {buyingId === product.id && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                        {t('billing.dialog.purchase')}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
 
-        <footer className="payment-dialog__footer">
-          {t(tab === 'credits' ? 'billing.dialog.creditsNote' : 'billing.dialog.membershipNote')}
-        </footer>
-      </div>
-    </div>
+          <footer className="payment-dialog__footer">
+            {t(tab === 'credits' ? 'billing.dialog.creditsNote' : 'billing.dialog.membershipNote')}
+          </footer>
+        </main>
+      </DialogContent>
+    </Dialog>
   );
 }

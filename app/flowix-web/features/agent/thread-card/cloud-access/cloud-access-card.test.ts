@@ -4,13 +4,12 @@ import type { I18nKey } from '@/lib/i18n';
 import { createCloudAccessCard } from './cloud-access-card';
 
 const LABELS: Record<string, string> = {
-  'agent.cloudAccess.signedOut.title': '登录后继续使用该模型',
-  'agent.cloudAccess.signedOut.description': '该模型由 Flowix Cloud 提供。',
+  'agent.cloudAccess.signedOut.title': '请登录后使用云模型',
+  'agent.cloudAccess.signedOut.description': '模型服务由 Flowix 官方提供，支持主流模型，请在输入框/模型切换使用。',
   'agent.cloudAccess.signedOut.action': '登录',
   'agent.cloudAccess.noCredits.title': '点数不足',
   'agent.cloudAccess.noCredits.description': '点数余额不足。',
   'agent.cloudAccess.noCredits.action': '购买点数',
-  'agent.cloudAccess.dismiss': '关闭提示',
 };
 
 const t = ((key: I18nKey) => LABELS[key] ?? key) as (key: I18nKey) => string;
@@ -18,10 +17,9 @@ const t = ((key: I18nKey) => LABELS[key] ?? key) as (key: I18nKey) => string;
 function mount() {
   const onSignIn = vi.fn();
   const onBuyCredits = vi.fn();
-  const onDismiss = vi.fn();
-  const card = createCloudAccessCard({ t, onSignIn, onBuyCredits, onDismiss });
+  const card = createCloudAccessCard({ t, onSignIn, onBuyCredits });
   document.body.append(card.el);
-  return { card, onSignIn, onBuyCredits, onDismiss };
+  return { card, onSignIn, onBuyCredits };
 }
 
 afterEach(() => {
@@ -41,7 +39,9 @@ describe('createCloudAccessCard', () => {
     expect(card.el.hidden).toBe(false);
     expect(card.el.dataset.kind).toBe('signed_out');
     expect(card.el.querySelector('.agent-cloud-access__title')?.textContent)
-      .toBe('登录后继续使用该模型');
+      .toBe('请登录后使用云模型');
+    expect(card.el.querySelector('.agent-cloud-access__description')?.textContent)
+      .toBe('模型服务由 Flowix 官方提供，支持主流模型，请在输入框/模型切换使用。');
     card.el.querySelector<HTMLButtonElement>('.agent-cloud-access__action')!.click();
     expect(onSignIn).toHaveBeenCalledOnce();
     expect(onBuyCredits).not.toHaveBeenCalled();
@@ -57,11 +57,10 @@ describe('createCloudAccessCard', () => {
     expect(onSignIn).not.toHaveBeenCalled();
   });
 
-  it('dismisses through the close control', () => {
-    const { card, onDismiss } = mount();
+  it('offers no close control: the card leaves on its own', () => {
+    const { card } = mount();
     card.render('no_credits');
-    card.el.querySelector<HTMLButtonElement>('.agent-cloud-access__dismiss')!.click();
-    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(card.el.querySelector('.agent-cloud-access__dismiss')).toBeNull();
   });
 
   it('hides again when the state clears', () => {
@@ -74,7 +73,7 @@ describe('createCloudAccessCard', () => {
 
   it('does not let a click bubble into the composer', () => {
     const onSignIn = vi.fn();
-    const card = createCloudAccessCard({ t, onSignIn, onBuyCredits: vi.fn(), onDismiss: vi.fn() });
+    const card = createCloudAccessCard({ t, onSignIn, onBuyCredits: vi.fn() });
     const bubble = vi.fn();
     document.body.addEventListener('pointerdown', bubble);
     card.render('signed_out');

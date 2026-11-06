@@ -5,13 +5,12 @@ import type zhCN from './messages.agent-cloud.zh-CN';
  * its key set aligned with the zh-CN shard at compile time.
  */
 const enUS: Record<keyof typeof zhCN, string> = {
-  "agent.cloudAccess.signedOut.title": "Sign in to keep using this model",
-  "agent.cloudAccess.signedOut.description": "This model is provided by Flowix Cloud. Sign in to your account to continue.",
+  "agent.cloudAccess.signedOut.title": "Sign in to use cloud models",
+  "agent.cloudAccess.signedOut.description": "Cloud models are provided by Flowix and cover mainstream models. Pick one in the composer or the model switcher.",
   "agent.cloudAccess.signedOut.action": "Sign in",
   "agent.cloudAccess.noCredits.title": "Not enough credits",
   "agent.cloudAccess.noCredits.description": "Your credit balance is too low for this model. Add credits to continue.",
   "agent.cloudAccess.noCredits.action": "Buy credits",
-  "agent.cloudAccess.dismiss": "Dismiss",
   "agent.error.guidance.quota_exhausted": "This account's quota or credits are exhausted. Top up and resend the request.",
   "billing.dialog.title": "Purchase",
   "billing.dialog.tab.membership": "Membership",

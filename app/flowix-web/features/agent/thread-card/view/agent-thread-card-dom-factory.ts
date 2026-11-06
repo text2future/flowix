@@ -262,13 +262,14 @@ export function createAgentThreadCardDom(
   const queuedMessages = document.createElement("div");
   queuedMessages.className = "agent-background-terminals agent-thread-card__queued-messages";
   queuedMessages.hidden = true;
-  // Sits between the queue strip and the composer so a blocking Cloud state is
-  // read right where the next message would be sent.
+  // Sits at the end of the message stream: a blocking Cloud state has to read as
+  // the next row of the conversation, not as a dialog stacked on the composer.
   const cloudAccess = document.createElement("div");
   cloudAccess.className = "agent-thread-card__cloud-access";
   cloudAccess.hidden = true;
+  body.append(cloudAccess);
   dom.append(container);
-  container.append(header, bodyScrollbar?.frame ?? body, queuedMessages, cloudAccess, composer);
+  container.append(header, bodyScrollbar?.frame ?? body, queuedMessages, composer);
 
   return {
     dom,

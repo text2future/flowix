@@ -1823,7 +1823,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private async submit(): Promise<void> {
-    if (this.cloudAccess.blockSubmission()) return;
+    // The send always enters the message pipeline; a Cloud model that cannot run
+    // ends its turn there and answers with the access card.
     const documentContext = extractDocumentContext(this.view);
     const isFirstMessage = this.currentMessages().length === 0;
     await this.submission.submit({

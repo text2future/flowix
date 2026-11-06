@@ -21,7 +21,7 @@ export function isCloudModelProvider(providerId?: string | null): boolean {
 }
 
 const MISSING_CREDITS_PATTERN =
-  /insufficient[_ ]?credits?|insufficient[_ ]?balance|balance insufficient|not enough credit|quota[_ ]?exceeded|exceeded your current quota|用量上限|点数不足|余额不足|积分不足|额度不足|配额耗尽/;
+  /insufficient[_ ]?credits?|insufficient[_ ]?balance|balance insufficient|not enough credit|quota[_ ]?exceeded|exceeded your current quota|credit[_ ]?balance|out of credits|no credits remaining|用量上限|点数不足|余额不足|积分不足|额度不足|配额耗尽/;
 
 const MISSING_AUTH_PATTERN =
   /\bunauthori[sz]ed\b|invalid[_ ]api[_ ]key|authentication|not signed in|signed out|请先登录|未登录/;

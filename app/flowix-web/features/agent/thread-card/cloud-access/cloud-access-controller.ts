@@ -4,15 +4,20 @@ import { windows } from '@platform/tauri/client';
 import { openPaymentDialog } from '@features/cloud-billing/public/payment-dialog';
 import {
   deriveCloudAccess,
-  signedOutAccessFor,
   type CloudAccessKind,
   type CloudAccessMessageLike,
 } from '@features/agent/config/cloud-access';
 import { useAgentCloudAccessStore } from '@features/agent/store/agent-cloud-access-store';
 import { createCloudAccessCard, type CloudAccessCard } from './cloud-access-card';
+import {
+  attachToMessageStream,
+  hideEmptyState,
+  observeMessageStream,
+  revealInMessageStream,
+} from './message-stream-slot';
 
 export interface CloudAccessControllerOptions {
-  /** Container created by the Thread Card DOM factory. */
+  /** Container created by the Thread Card DOM factory, inside the message stream. */
   mount: HTMLElement;
   t: (key: I18nKey) => string;
   getTypeKey: () => AgentTypeKey;
@@ -28,20 +33,31 @@ export interface CloudAccessControllerOptions {
  * Kept out of the Thread Card view because that file is frozen: rendering the
  * card, deriving the state from failed turns and clearing it on sign-in are one
  * concern, not part of the view's layout work.
+ *
+ * The card is the reply to a send that could not run, so it always renders as
+ * the last row of the transcript. The prompt itself is a normal message pushed
+ * by `sendMessageToThread`, never something this controller draws.
  */
 export class CloudAccessController {
   private readonly mount: HTMLElement;
+  private readonly stream: Node | null;
+  private readonly detachStreamObserver: () => void;
   private readonly card: CloudAccessCard;
   private readonly getTypeKey: () => AgentTypeKey;
   private readonly getAccessKey: () => string;
   private readonly getProviderId: () => string | undefined;
   private readonly isAuthenticated: () => boolean;
   private lastFailureMessageId: string | null = null;
+  /** Whether the card is on screen right now; the stream hide follows it. */
+  private visible = false;
   // Identity before the first run binds a thread id.
   private readonly fallbackKey = `card-${Math.random().toString(36).slice(2, 10)}`;
 
   constructor(options: CloudAccessControllerOptions) {
     this.mount = options.mount;
+    // The message renderer clears or restructures the stream, so the notice keeps
+    // watching its owner instead of assuming one-shot placement.
+    this.stream = options.mount.parentNode;
     this.getTypeKey = options.getTypeKey;
     this.getAccessKey = options.getAccessKey;
     this.getProviderId = options.getProviderId;
@@ -55,9 +71,14 @@ export class CloudAccessController {
       onBuyCredits: () => {
         void openPaymentDialog('credits');
       },
-      onDismiss: () => this.clear(),
     });
     this.mount.append(this.card.el);
+    // A visible notice is message state: the welcome block of an empty
+    // conversation gives way, and the renderer may rebuild it on any
+    // structural render, so the hide travels with every re-attach.
+    this.detachStreamObserver = observeMessageStream(this.mount, this.stream, (stream) => {
+      hideEmptyState(stream, this.visible);
+    });
   }
 
   /** Recompute from the newest failed turn; an unchanged row keeps a dismissal. */
@@ -87,27 +108,29 @@ export class CloudAccessController {
     this.render();
   }
 
-  /** Block a submission that cannot run: a signed-out account has no credential. */
-  blockSubmission(): CloudAccessKind | null {
-    if (this.getTypeKey() !== 'pi') return null;
-    const kind = signedOutAccessFor(this.getProviderId(), this.isAuthenticated());
-    if (kind) this.show(kind);
-    return kind;
-  }
-
-  /** Show a state directly, e.g. when the picker rejects a preview model. */
+  /**
+   * Show a state directly, e.g. when the picker rejects a preview model. A send
+   * the preflight stops writes the store itself, from the message pipeline.
+   */
   show(kind: CloudAccessKind): void {
     useAgentCloudAccessStore.getState().setAccess(this.accessKey(), kind);
     this.render();
   }
 
   render(): void {
-    const stored = useAgentCloudAccessStore.getState().entries[this.accessKey()];
+    const state = useAgentCloudAccessStore.getState();
+    const stored = state.entries[this.accessKey()];
     // Signing in resolves the signed-out notice without waiting for a new run.
-    const kind = stored === 'signed_out' && this.isAuthenticated() ? null : stored ?? null;
+    const signedIn = stored === 'signed_out' && this.isAuthenticated();
+    const kind = signedIn ? null : stored ?? null;
     const visible = this.getTypeKey() === 'pi' && kind !== null;
+    const wasHidden = this.mount.hidden;
+    this.visible = visible;
     this.card.render(kind);
     this.mount.hidden = !visible;
+    hideEmptyState(this.stream, visible);
+    attachToMessageStream(this.mount, this.stream);
+    if (visible && wasHidden) revealInMessageStream(this.mount, this.stream);
   }
 
   private accessKey(): string {
@@ -115,6 +138,7 @@ export class CloudAccessController {
   }
 
   dispose(): void {
+    this.detachStreamObserver();
     this.clearStore();
     this.card.el.remove();
   }

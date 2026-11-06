@@ -77,7 +77,7 @@ import {
 import { ensureDownloadedFontRegistered } from '@features/preferences/public/font-api';
 import { getTypographyFontId } from '@/lib/typography-font-mode';
 import { CloudAccessNotice } from '@features/agent/thread-card/cloud-access';
-import { deriveCloudAccess, signedOutAccessFor } from '@features/agent/config/cloud-access';
+import { deriveCloudAccess } from '@features/agent/config/cloud-access';
 import { useAgentCloudAccessStore } from '@features/agent/store/agent-cloud-access-store';
 import { useAgentDataStore } from '@features/agent/store/agent-data-store';
 
@@ -241,6 +241,18 @@ function AgentConversationDetailContent({
   const tRef = useRef(t);
   const submitRef = useRef<() => void>(() => undefined);
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
+  // Cloud access notice mounts into the transcript itself, so the scroller is
+  // resolved after commit rather than during render.
+  const [messageStream, setMessageStream] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (bodyRef.current) {
+      setMessageStream(bodyRef.current);
+      return undefined;
+    }
+    // The scroll wrapper can attach its scroller one frame later.
+    const frame = requestAnimationFrame(() => setMessageStream(bodyRef.current));
+    return () => cancelAnimationFrame(frame);
+  }, [instanceId]);
 
   // Cloud access notice: the newest failed Cloud-model turn decides between
   // "sign in" and "add credits". A dismissed notice stays dismissed until a
@@ -385,20 +397,6 @@ function AgentConversationDetailContent({
     const images = composerAttachmentsControllerRef.current;
     const currentInstance = instanceRef.current;
     if (!composer || !images || !currentInstance) return;
-    // A signed-out account has no Cloud credential; sending would fail on an
-    // unknown provider instead of telling the user to sign in.
-    if (currentInstance.agentType === 'pi') {
-      const dataState = useAgentDataStore.getState();
-      const blocked = signedOutAccessFor(
-        dataState.agents.pi.user.model?.providerId,
-        !!dataState.piCloudAccountId,
-      );
-      const currentThreadId = threadIdRef.current;
-      if (blocked) {
-        useAgentCloudAccessStore.getState().setAccess(currentThreadId ?? currentInstance.instanceId, blocked);
-        return;
-      }
-    }
     const isDisposed = () => destroyedRef.current || composerControllerRef.current !== composer;
     await submissionRef.current.submit({
       composer, images, getRuntime: composerRuntimeState, isDisposed,
@@ -538,6 +536,12 @@ function AgentConversationDetailContent({
         composerControllerRef.current?.openSlashMenu();
       },
       toast: (kind, message) => toast[kind](message),
+      // A signed-out Cloud model in the picker cannot be bound; the card is the
+      // only feedback, and it lands in the transcript like a failed turn's.
+      onCloudAccessBlocked: (kind) => {
+        const key = threadIdRef.current ?? instanceRef.current?.instanceId;
+        if (key) useAgentCloudAccessStore.getState().setAccess(key, kind);
+      },
     });
     externalSettingsRef.current = externalSettings;
     const composerModelButton = externalSettings.createComposerModelButton();
@@ -917,6 +921,11 @@ function AgentConversationDetailContent({
             </div>
           )}
         </div>
+        <CloudAccessNotice
+          accessKey={cloudAccessKey}
+          agentType={instance.agentType}
+          mount={messageStream}
+        />
         <div className="agent-conversation-detail__composer-stack">
           {instance.agentType === 'codex' && <CodexApprovalQueue threadId={threadId} />}
           <AgentBackgroundTerminals
@@ -940,10 +949,6 @@ function AgentConversationDetailContent({
               void useAgentSessionStore.getState().deleteQueuedFollowUp(threadId, messageId)
                 .catch((error) => toast.error(error instanceof Error ? error.message : String(error)));
             } : undefined}
-          />
-          <CloudAccessNotice
-            accessKey={cloudAccessKey}
-            agentType={instance.agentType}
           />
           <div ref={composerMountRef} />
         </div>

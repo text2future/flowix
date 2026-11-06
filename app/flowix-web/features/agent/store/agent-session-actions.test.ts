@@ -551,6 +551,60 @@ describe("chat-store Agent Thread Card streaming flow", () => {
     ).toBe(renderMessages);
   });
 
+  it("keeps a signed-out Cloud prompt in the transcript and answers with the sign-in card", async () => {
+    const { agent } = await import("@platform/tauri/client");
+    const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
+    const { useAgentDataStore } = await import("@features/agent/store/agent-data-store");
+    const { useAgentCloudAccessStore } = await import(
+      "@features/agent/store/agent-cloud-access-store"
+    );
+    const threadId = "thread-pi-signed-out-cloud";
+    const dataState = useAgentDataStore.getState();
+    const previousAccount = dataState.piCloudAccountId;
+    const previousModel = dataState.agents.pi.user.model;
+    useAgentDataStore.setState({
+      piCloudAccountId: null,
+      agents: {
+        ...dataState.agents,
+        pi: {
+          ...dataState.agents.pi,
+          user: {
+            ...dataState.agents.pi.user,
+            model: { id: "flowix-cloud-member/auto", providerId: "flowix-cloud-member" },
+          },
+        },
+      },
+    });
+    try {
+      await useAgentSessionStore.getState().sendMessageToThread(
+        threadId, "帮我总结这篇笔记", "pi",
+      );
+
+      // The prompt travels the normal message pipeline: it is a transcript row
+      // even though no model ever answered it.
+      const projection = useAgentSessionStore.getState().threadProjections[threadId];
+      expect(projection.messages).toHaveLength(1);
+      expect(projection.messages[0]).toMatchObject({ role: "user" });
+      expect(projection.messages[0].content).toContain("帮我总结这篇笔记");
+      // The turn is closed, so the composer is usable again, and the access card
+      // is the reply the surface renders below the message.
+      expect(projection.runs.isLoading).toBe(false);
+      expect(vi.mocked(agent.chatStream)).not.toHaveBeenCalled();
+      expect(useAgentCloudAccessStore.getState().entries[threadId]).toBe("signed_out");
+    } finally {
+      useAgentDataStore.setState({
+        piCloudAccountId: previousAccount,
+        agents: {
+          ...useAgentDataStore.getState().agents,
+          pi: { ...useAgentDataStore.getState().agents.pi, user: {
+            ...useAgentDataStore.getState().agents.pi.user, model: previousModel,
+          } },
+        },
+      });
+      useAgentCloudAccessStore.getState().clearAccess(threadId);
+    }
+  });
+
   it("does not start a new run while thread lifecycle cleanup is pending", async () => {
     const { agent } = await import("@platform/tauri/client");
     const { useChatStore } = await import("@features/agent/store/agent-session-test-facade");

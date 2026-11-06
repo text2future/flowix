@@ -353,6 +353,10 @@ pub fn provider_error_from_text(text: &str) -> Option<String> {
             "usage limit",
             "too many requests",
             "quota",
+            // Flowix Cloud refuses a zero AI credit balance with a plain
+            // English sentence; it is a spendable-balance error, not a
+            // transport failure.
+            "credit balance",
             "unauthorized",
             "authentication",
             "invalid api key",
@@ -414,6 +418,12 @@ pub fn classify_agent_error(message: &str, source: &str) -> AgentErrorDetails {
         || lower.contains("insufficient balance")
         || lower.contains("insufficient_balance")
         || lower.contains("insufficient credit")
+        // Flowix Cloud answers a zero AI balance with "Your Flowix credit
+        // balance must be greater than zero" and HTTP 402. Retrying cannot fix
+        // it, so it must be a quota failure, never a transient one.
+        || lower.contains("credit balance")
+        || lower.contains("out of credits")
+        || lower.contains("no credits")
         || lower.contains("balance insufficient")
         || lower.contains("5 hour")
         || lower.contains("5-hour")
@@ -602,6 +612,18 @@ mod error_tests {
             classify_agent_error("HTTP 429 Too Many Requests; retry-after: 3", "protocol");
         assert_eq!(transient.category, "rate_limited");
         assert!(transient.retryable);
+    }
+
+    #[test]
+    fn treats_a_zero_cloud_balance_as_hard_quota_exhaustion() {
+        // Flowix Cloud refuses the request itself; Pi must not spend its agent
+        // retries on a balance only a top-up can change.
+        let details = classify_agent_error(
+            "Your Flowix credit balance must be greater than zero",
+            "pi",
+        );
+        assert_eq!(details.category, "quota_exhausted");
+        assert!(!details.retryable);
     }
 
     #[test]

@@ -1,14 +1,52 @@
-/* In-conversation Cloud access card (signed out / no credits). */
+/* In-conversation Cloud access card (signed out / no credits).
+ *
+ * Visual language borrowed from the list-column guide card a new user sees in
+ * the sidebar: translucent popup-bordered panel, 15px semibold title, body copy
+ * and one primary action on the left. Placement stays owned by the message
+ * stream (see message-stream-slot). */
 
+/* The notice is a row of the message stream, so it sits on the same centred
+ * track as the message list and keeps the list's row rhythm. */
+.agent-thread-card__cloud-access,
+.agent-thread-card__body > .agent-cloud-access {
+  width: 100%;
+  max-width: var(--agent-content-max-width, 780px);
+  margin-block: 6px 0;
+  margin-inline: auto;
+}
+
+.agent-conversation-detail .agent-thread-card__cloud-access,
+.agent-conversation-detail .agent-thread-card__body > .agent-cloud-access {
+  width: calc(100% - 2 * var(--agent-content-inline-inset, 1.5rem));
+}
+
+.agent-thread-card__cloud-access[hidden] {
+  display: none;
+}
+
+/* The welcome block declares a display of its own in the surface form, so the
+ * hidden attribute has to win in every context while a notice stands in for
+ * the conversation. */
+.agent-conversation-surface .agent-thread-card__empty--expanded[hidden],
+.agent-thread-card__body > .agent-thread-card__empty--expanded[hidden],
+.agent-thread-card__body > .agent-thread-card__empty--inline-card[hidden] {
+  display: none;
+}
+
+/* The panel itself: rounded-2xl, popup border, card fill at 96% over a blur and
+ * 14px padding — the guide card's proportions. It reads as the assistant's
+ * answer to the turn, so it starts on the transcript's left edge. */
 .agent-cloud-access {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 360px;
+  margin-inline: 0;
+  padding: 14px;
+  border: 1px solid var(--border-popup);
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--card) 96%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   color: var(--foreground);
 }
 
@@ -16,79 +54,51 @@
   display: none;
 }
 
-.agent-cloud-access__icon-mount {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
-  color: var(--brand);
-}
-
-.agent-cloud-access__icon {
-  width: 15px;
-  height: 15px;
-}
-
-.agent-cloud-access__body {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
 .agent-cloud-access__title {
-  font-size: 13px;
+  margin-bottom: 8px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 20px;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
 }
 
 .agent-cloud-access__description {
-  margin-top: 2px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+/* One primary action, sized like the guide card's "下一步 / 完成", lined up
+ * with the copy it belongs to. */
+.agent-cloud-access__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 8px;
 }
 
 .agent-cloud-access__action {
-  flex: none;
-  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
   padding: 0 12px;
-  border: 1px solid transparent;
+  border: none;
   border-radius: 8px;
-  background: var(--brand);
+  background: var(--primary);
   color: var(--primary-foreground);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: filter 120ms ease;
+  transition: opacity 120ms ease;
 }
 
 .agent-cloud-access__action:hover {
-  filter: brightness(0.94);
+  opacity: 0.9;
 }
 
 .agent-cloud-access__action:focus-visible {
   outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-
-.agent-cloud-access__dismiss {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.agent-cloud-access__dismiss:hover {
-  background: color-mix(in srgb, var(--foreground) 8%, transparent);
-  color: var(--foreground);
+  outline-offset: 2px;
 }
