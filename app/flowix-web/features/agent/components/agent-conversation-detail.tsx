@@ -76,6 +76,10 @@ import {
 } from '@features/agent/store/agent-message-font-store';
 import { ensureDownloadedFontRegistered } from '@features/preferences/public/font-api';
 import { getTypographyFontId } from '@/lib/typography-font-mode';
+import { CloudAccessNotice } from '@features/agent/thread-card/cloud-access';
+import { deriveCloudAccess, signedOutAccessFor } from '@features/agent/config/cloud-access';
+import { useAgentCloudAccessStore } from '@features/agent/store/agent-cloud-access-store';
+import { useAgentDataStore } from '@features/agent/store/agent-data-store';
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 96;
 const TOP_HISTORY_LOAD_THRESHOLD_PX = 48;
@@ -235,6 +239,38 @@ function AgentConversationDetailContent({
   const submitRef = useRef<() => void>(() => undefined);
   const [showScrollTopHint, setShowScrollTopHint] = useState(false);
 
+  // Cloud access notice: the newest failed Cloud-model turn decides between
+  // "sign in" and "add credits". A dismissed notice stays dismissed until a
+  // different turn fails, so the guard is the failing message id, not the
+  // rendered list identity.
+  const lastAccessRef = useRef<{ threadId: string | null; messageId: string | null }>({
+    threadId: null,
+    messageId: null,
+  });
+  useEffect(() => {
+    if (!threadId || instance?.agentType !== 'pi') return;
+    const dataState = useAgentDataStore.getState();
+    const derived = deriveCloudAccess(messages, {
+      providerId: dataState.agents.pi.user.model?.providerId,
+      authenticated: !!dataState.piCloudAccountId,
+    });
+    const previous = lastAccessRef.current;
+    if (previous.threadId !== threadId) {
+      previous.threadId = threadId;
+      previous.messageId = null;
+    }
+    if (!derived) {
+      if (previous.messageId !== null) {
+        previous.messageId = null;
+        useAgentCloudAccessStore.getState().clearAccess(threadId);
+      }
+      return;
+    }
+    if (derived.messageId === previous.messageId) return;
+    previous.messageId = derived.messageId;
+    useAgentCloudAccessStore.getState().setAccess(threadId, derived.kind);
+  }, [messages, threadId, instance?.agentType]);
+
   const forkFromMessage = useCallback(async (message: ThreadState['messages'][number]) => {
     const currentInstance = instanceRef.current;
     const sourceThreadId = threadIdRef.current;
@@ -346,6 +382,20 @@ function AgentConversationDetailContent({
     const images = composerAttachmentsControllerRef.current;
     const currentInstance = instanceRef.current;
     if (!composer || !images || !currentInstance) return;
+    // A signed-out account has no Cloud credential; sending would fail on an
+    // unknown provider instead of telling the user to sign in.
+    if (currentInstance.agentType === 'pi') {
+      const dataState = useAgentDataStore.getState();
+      const blocked = signedOutAccessFor(
+        dataState.agents.pi.user.model?.providerId,
+        !!dataState.piCloudAccountId,
+      );
+      const currentThreadId = threadIdRef.current;
+      if (blocked && currentThreadId) {
+        useAgentCloudAccessStore.getState().setAccess(currentThreadId, blocked);
+        return;
+      }
+    }
     const isDisposed = () => destroyedRef.current || composerControllerRef.current !== composer;
     await submissionRef.current.submit({
       composer, images, getRuntime: composerRuntimeState, isDisposed,
@@ -865,8 +915,7 @@ function AgentConversationDetailContent({
           )}
         </div>
         <div className="agent-conversation-detail__composer-stack">
-          {instance.agentType === 'codex' && <CodexApprovalQueue threadId={threadId} />}
-          <AgentBackgroundTerminals
+          {instance.agentType === 'codex' && <CodexApprovalQueue threadId={threadId} />}          <AgentBackgroundTerminals
             threadId={threadId}
             agentType={instance.agentType === 'codex' ? 'codex' : 'dsh'}
             enabled={instance.agentType === 'codex' || instance.agentType === 'dsh'}
@@ -887,6 +936,10 @@ function AgentConversationDetailContent({
               void useAgentSessionStore.getState().deleteQueuedFollowUp(threadId, messageId)
                 .catch((error) => toast.error(error instanceof Error ? error.message : String(error)));
             } : undefined}
+          />
+          <CloudAccessNotice
+            accessKey={threadId}
+            agentType={instance.agentType}
           />
           <div ref={composerMountRef} />
         </div>

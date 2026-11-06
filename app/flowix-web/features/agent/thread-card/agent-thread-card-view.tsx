@@ -11,7 +11,6 @@ import {
 } from "@features/agent/store/thread-runtime-state";
 import type { AgentConversationInstance } from "@features/agent/store/agent-conversation-types";
 import { useAgentSessionStore } from "@features/agent/store/agent-session-store";
-import { canActOnQueuedMessage } from "@features/agent/store/follow-up-queue-slice";
 import { acquireThreadInterest } from "@features/agent/store/thread-interest";
 import type { ThreadProjection } from "@features/agent/store/session-reducer";
 import { selectRenderableThreadMessages } from "@features/agent/store/thread-render-messages";
@@ -42,10 +41,7 @@ import {
   listCodexSkills,
 } from "@features/agent/services/codex-slash-command-service";
 import { listPiSkills } from "@features/agent/services/pi-slash-command-service";
-import {
-  createArrowBendDownRightIcon,
-  createFullscreenIcon,
-} from "@features/agent/thread-card/agent-thread-card-icons";
+import { createFullscreenIcon } from "@features/agent/thread-card/agent-thread-card-icons";
 import { createAgentThreadCardDom } from "@features/agent/thread-card/view/agent-thread-card-dom-factory";
 import { AgentThreadCardChromeController } from "@features/agent/thread-card/chrome";
 import { ExternalAgentSettingsController } from "@features/agent/thread-card/settings/external-agent-settings-controller";
@@ -78,6 +74,9 @@ import {
 } from "@features/agent/store/agent-message-font-store";
 
 import { acceptComposerSubmission } from "@features/agent/services/composer-submission-service";
+import { CloudAccessController } from "@features/agent/thread-card/cloud-access/cloud-access-controller";
+import { useAgentDataStore } from "@features/agent/store/agent-data-store";
+import { createQueuedMessageRows } from "@features/agent/thread-card/queue/queued-message-rows";
 
 const logger = createLogger("agent-thread-card");
 import {
@@ -177,6 +176,8 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   private loadingIndicator: HTMLDivElement;
   private queuedMessages: HTMLDivElement;
   private hydratedCodexQueueThreadId: string | null = null;
+  /** Cloud access notice (signed out / no credits) shown above the composer. */
+  private cloudAccess!: CloudAccessController;
   private collapseButton: HTMLButtonElement;
   private deleteButton: HTMLButtonElement;
   private openInBrowserColumnButton: HTMLButtonElement;
@@ -469,6 +470,14 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.loadingIndicator = domParts.loadingIndicator;
     this.queuedMessages = domParts.queuedMessages;
     this.composer = domParts.composer;
+    this.cloudAccess = new CloudAccessController({
+      mount: domParts.cloudAccess,
+      t: (key) => this.t(key),
+      getTypeKey: () => this.typeKey,
+      getAccessKey: () => this.threadId ?? this.instanceId ?? '',
+      getProviderId: () => useAgentDataStore.getState().agents.pi.user.model?.providerId,
+      isAuthenticated: () => !!useAgentDataStore.getState().piCloudAccountId,
+    });
     this.composerRoleIcon = domParts.composerRoleIcon;
     this.input = domParts.input;
     this.sendButtonMount = domParts.sendButtonMount;
@@ -497,6 +506,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
       onSelectEmptySkill: (skill) => this.composerController?.selectSkill(skill),
       onOpenEmptySkills: () => this.composerController?.openSlashMenu(),
       toast: (kind, message) => toast[kind](message),
+      onCloudAccessBlocked: (kind) => this.cloudAccess.show(kind),
     });
     const composerModelButton = this.externalAgentSettings.createComposerModelButton();
     if (composerModelButton) {
@@ -1703,78 +1713,20 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     this.queuedMessages.hidden = queued.length === 0;
     this.queuedMessages.setAttribute("aria-label", this.t("agent.backgroundTerminals.queued"));
     this.queuedMessages.replaceChildren(
-      ...queued.map((message) => {
-        const row = document.createElement("div");
-        row.className = "agent-background-terminals__queue-row";
-        const mark = document.createElement("span");
-        mark.className = "agent-background-terminals__queue-mark";
-        mark.append(createArrowBendDownRightIcon());
-        const text = document.createElement("span");
-        text.className = "agent-background-terminals__queue-text";
-        text.textContent = message.content;
-        row.append(mark, text);
-        if (this.typeKey === "pi" || this.typeKey === "codex") {
-          const actions = document.createElement("span");
-          actions.className = "agent-background-terminals__queue-actions";
-          const actionsDisabled = !canActOnQueuedMessage(message, this.typeKey);
-          if (message.deliveryStatus === "submitting") {
-            const adding = document.createElement("span");
-            adding.className = "agent-background-terminals__queue-soon";
-            adding.setAttribute("role", "status");
-            adding.textContent = this.t("agent.queue.adding");
-            actions.append(adding);
-          }
-          if (message.deliveryStatus === "starting") {
-            const soon = document.createElement("span");
-            soon.className = "agent-background-terminals__queue-soon";
-            soon.setAttribute("role", "status");
-            soon.textContent = this.t("agent.queue.sendingSoon");
-            actions.append(soon);
-          }
-          if (message.canDelete !== false) {
-            const remove = document.createElement("button");
-            remove.type = "button";
-            remove.className = "agent-background-terminals__queue-delete";
-            remove.disabled = actionsDisabled;
-            remove.setAttribute("aria-label", this.t("agent.queue.deleteQueued"));
-            remove.title = this.t("agent.queue.deleteQueued");
-            remove.textContent = this.t("agent.queue.deleteQueued");
-            remove.addEventListener("click", () => {
-              const threadId = this.renderThreadId;
-              if (!threadId) return;
-              void useAgentSessionStore.getState().deleteQueuedFollowUp(threadId, message.id)
-                .catch((error) => toast.error(error instanceof Error ? error.message : String(error)));
-            });
-            actions.append(remove);
-          }
-          if (message.deliveryStatus !== "starting" && message.deliveryMode === "follow_up") {
-            const steer = document.createElement("button");
-            steer.type = "button";
-            steer.className = "agent-background-terminals__queue-steer";
-            steer.disabled = actionsDisabled;
-            steer.textContent = this.t("agent.queue.steerNow");
-            steer.addEventListener("click", () => {
-              const threadId = this.renderThreadId;
-              if (!threadId) return;
-              void useAgentSessionStore.getState().promoteFollowUpToSteer(threadId, message.id)
-                .catch((error) => toast.error(error instanceof Error ? error.message : String(error)));
-            });
-            actions.append(steer);
-          } else if (message.deliveryMode === "steer") {
-            const soon = document.createElement("span");
-            soon.className = "agent-background-terminals__queue-soon";
-            soon.setAttribute("role", "status");
-            soon.textContent = message.deliveryStatus === "cleanup_failed"
-              ? this.t("agent.queue.cleanupFailed")
-              : this.t("agent.queue.sendingSoon");
-            actions.append(soon);
-          }
-          row.append(actions);
-        }
-        return row;
+      ...createQueuedMessageRows({
+        typeKey: this.typeKey,
+        threadId: this.renderThreadId,
+        messages: queued,
+        t: (key) => this.t(key),
       }),
     );
     this.renderMetaState(state, runtimeView.isBusy);
+
+    if (shouldRenderMessages) {
+      this.cloudAccess.sync(messages);
+    } else {
+      this.cloudAccess.render();
+    }
 
     this.messages.render({
       messages,
@@ -1871,6 +1823,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
   }
 
   private async submit(): Promise<void> {
+    if (this.cloudAccess.blockSubmission()) return;
     const documentContext = extractDocumentContext(this.view);
     const isFirstMessage = this.currentMessages().length === 0;
     await this.submission.submit({
@@ -1995,6 +1948,7 @@ export class AgentThreadCardView implements ProseMirrorNodeView {
     // 写进 ProseMirror attrs, 否则下一个 mount 会用旧值回填, 看起来
     // "刚打的字凭空消失"。
     this.flushPendingDraft();
+    this.cloudAccess.dispose();
     this.cancelPersistedFullscreenRestore();
     if (this.badgePositionFrame !== null) {
       window.cancelAnimationFrame(this.badgePositionFrame);

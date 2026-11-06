@@ -6,6 +6,7 @@
 @import './agent-thread-card/markdown.css';
 @import './agent-thread-card/pi-model-picker.css';
 @import './agent-thread-card/background-terminals.css';
+@import './agent-thread-card/cloud-access.css';
 @import './agent-thread-card/note-picker.css';
 @import './agent-conversation/titlebar.css';
 @import './agent-conversation/composer.css';

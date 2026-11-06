@@ -26,6 +26,7 @@ export interface AgentMessageViewModel {
 const ERROR_GUIDANCE_KEYS: Readonly<Record<string, I18nKey>> = {
   authentication: "agent.error.guidance.authentication",
   rate_limited: "agent.error.guidance.rate_limited",
+  quota_exhausted: "agent.error.guidance.quota_exhausted",
   network: "agent.error.guidance.network",
   session_not_found: "agent.error.guidance.session_not_found",
   model_not_found: "agent.error.guidance.model_not_found",

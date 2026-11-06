@@ -1,0 +1,94 @@
+/* In-conversation Cloud access card (signed out / no credits). */
+
+.agent-cloud-access {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.agent-cloud-access[hidden] {
+  display: none;
+}
+
+.agent-cloud-access__icon-mount {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+}
+
+.agent-cloud-access__icon {
+  width: 15px;
+  height: 15px;
+}
+
+.agent-cloud-access__body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.agent-cloud-access__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.agent-cloud-access__description {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-cloud-access__action {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--brand);
+  color: var(--primary-foreground);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.agent-cloud-access__action:hover {
+  filter: brightness(0.94);
+}
+
+.agent-cloud-access__action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.agent-cloud-access__dismiss {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-cloud-access__dismiss:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}

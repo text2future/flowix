@@ -46,6 +46,8 @@ export interface AgentThreadCardDomParts {
   disposeBodyScrollbar: () => void;
   loadingIndicator: HTMLDivElement;
   queuedMessages: HTMLDivElement;
+  /** Mount point for the Cloud access card (signed out / no credits). */
+  cloudAccess: HTMLDivElement;
   composer: HTMLElement;
   inputRow: HTMLDivElement;
   composerActions: HTMLDivElement;
@@ -260,8 +262,13 @@ export function createAgentThreadCardDom(
   const queuedMessages = document.createElement("div");
   queuedMessages.className = "agent-background-terminals agent-thread-card__queued-messages";
   queuedMessages.hidden = true;
+  // Sits between the queue strip and the composer so a blocking Cloud state is
+  // read right where the next message would be sent.
+  const cloudAccess = document.createElement("div");
+  cloudAccess.className = "agent-thread-card__cloud-access";
+  cloudAccess.hidden = true;
   dom.append(container);
-  container.append(header, bodyScrollbar?.frame ?? body, queuedMessages, composer);
+  container.append(header, bodyScrollbar?.frame ?? body, queuedMessages, cloudAccess, composer);
 
   return {
     dom,
@@ -283,6 +290,7 @@ export function createAgentThreadCardDom(
     disposeBodyScrollbar,
     loadingIndicator,
     queuedMessages,
+    cloudAccess,
     composer,
     inputRow,
     composerActions,

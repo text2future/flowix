@@ -36,6 +36,7 @@
 @import './created-document-notices.css';
 @import './work-column-selection.css';
 @import './cloud-status-icon.css';
+@import './payment-dialog.css';
 @import './plugin-markmap.css';
 @import './agent-icon.css';
 /* Media resource surfaces (video/image/pdf chrome) live outside the Agent tree

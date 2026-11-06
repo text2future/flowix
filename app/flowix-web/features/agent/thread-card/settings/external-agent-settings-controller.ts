@@ -33,6 +33,8 @@ import {
   loadAgentModelCatalog,
 } from "@features/agent/services/agent-catalog-service";
 import { loadPiCloudModelCatalog } from "@features/agent/services/pi-cloud-model-service";
+import type { CloudAccessKind } from "@features/agent/config/cloud-access";
+import { selectAgentModel } from "./model-selection";
 import { useAgentRuntimeStore } from "@features/agent/store/agent-runtime-store";
 import { useAgentSessionStore } from "@features/agent/store/agent-session-store";
 import { useNoteStore } from "@features/memo/store/note-store";
@@ -200,6 +202,8 @@ export interface ExternalAgentSettingsControllerOptions {
    * controller 保持对 UI 反馈层的解耦 (测试里也可以只断言调用)。
    */
   toast?: (kind: "success" | "error" | "info", message: string) => void;
+  /** A Cloud model cannot run yet: the host shows its sign-in notice. */
+  onCloudAccessBlocked?: (kind: CloudAccessKind) => void;
 }
 
 export class ExternalAgentSettingsController {
@@ -219,6 +223,7 @@ export class ExternalAgentSettingsController {
     kind: "success" | "error" | "info",
     message: string,
   ) => void;
+  private readonly onCloudAccessBlocked?: (kind: CloudAccessKind) => void;
 
   private modelButton: HTMLButtonElement | null = null;
   private piModelNotice: HTMLButtonElement | null = null;
@@ -287,6 +292,7 @@ export class ExternalAgentSettingsController {
       clearRuntimeSettings: (root) => this.clearEmptyRuntimeSettings(root),
     });
     this.toast = options.toast;
+    this.onCloudAccessBlocked = options.onCloudAccessBlocked;
     this.unlistenCodexSettings = subscribe<Record<string, unknown>>(
       "codex-thread-settings-updated",
       (payload) => { void this.applyCodexSettingsNotification(payload); },
@@ -1699,18 +1705,12 @@ export class ExternalAgentSettingsController {
   }
 
   private selectExternalAgentModel(option: AgentModelOption): void {
-    if (this.getTypeKey() === "pi" && isFlowixCloudModelOption(option)) {
-      const state = useAgentDataStore.getState();
-      const isAvailableInCurrentSession = state.agents.pi.catalog.models.items.some((model) =>
-          isFlowixCloudModelOption(model)
-          && model.id === option.id
-          && (model.providerId ?? "") === (option.providerId ?? ""),
-        );
-      if (!isAvailableInCurrentSession) return;
-      // Credit access is checked atomically by Cloud when a request starts.
-    }
-    this.setExternalAgentModel(option);
-    this.setSettingsPopoverOpen(false);
+    selectAgentModel({
+      typeKey: this.getTypeKey(),
+      apply: (value) => this.setExternalAgentModel(value),
+      closePopover: () => this.setSettingsPopoverOpen(false),
+      onCloudAccessBlocked: this.onCloudAccessBlocked,
+    }, option);
   }
 
   // Returns the legacy inherit option label when a real default model is

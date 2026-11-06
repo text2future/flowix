@@ -42,7 +42,7 @@ const FROZEN_FILES = {
   'lib/i18n/messages.en-US.ts': { lines: 2374, exempt: true },
   'lib/i18n/messages.zh-CN.ts': { lines: 2346, exempt: true },
   'features/preferences/sections/agent.tsx': 2085,
-  'features/agent/thread-card/agent-thread-card-view.tsx': 2061,
+  'features/agent/thread-card/agent-thread-card-view.tsx': 2016,
   'features/memo/components/notebook-file-tree.tsx': 1427,
   'features/memo/components/notebook-file-tree.test.tsx': 1556,
   'features/memo/components/memo-list.tsx': 1359,
