@@ -47,6 +47,18 @@ it('ignores an incomplete collection identity while retaining the recoverable fi
   expect('collectionDisplay' in restored.current!.target).toBe(false);
 });
 
+it('retains the hybrid collection type when restoring a collection file', () => {
+  const restored = restoreBrowserColumnSession({ current: {
+    id: 'hybrid', title: 'Hybrid', icon: null,
+    target: { kind: 'file-browser', activeFilePath: '/book/hybrid.index.yaml', notebookId: 'book',
+      scopePath: '/book', collectionType: 'hybrid', collectionDisplay: {
+        notebookId: 'book', collectionId: 'hybrid', displayId: 'hybrid-display', viewId: null,
+      } },
+  } }, current);
+  expect(restored.current!.target).toMatchObject({ collectionType: 'hybrid',
+    collectionDisplay: { collectionId: 'hybrid' } });
+});
+
 it('restores independent visit stacks without deduplicating revisits or retaining malformed entries', () => {
   const restored = restoreBrowserColumnSession({ activeTabId: 'current', tabs: [tab('current', 'https://current.example/')],
     backStack: [tab('a', 'https://a.example/'), null, tab('b', 'https://a.example/')],

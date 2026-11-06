@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useEffect, useState } from 'react';
 import {
   Dialog,
@@ -146,7 +147,7 @@ export function ShortcutRecorder({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('preferences.shortcuts.recorder.title')}</DialogTitle>
           <DialogDescription>
@@ -196,7 +197,7 @@ export function ShortcutRecorder({
           </p>
         </div>
 
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('dialog.cancel')}
           </Button>
@@ -222,7 +223,7 @@ export function ShortcutRecorder({
           >
             {t('preferences.agent.save')}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

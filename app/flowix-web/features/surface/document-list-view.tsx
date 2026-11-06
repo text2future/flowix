@@ -1,3 +1,6 @@
+
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Input } from '@shared/ui/input';
 import type { CollectionActionsHost } from '@shared/ui/collection-actions';
 import { useCollectionScrollRoot } from '@shared/ui/collection-scroll-context';
 import { useTitleEditCaret } from '@shared/hooks/use-title-edit-caret';
@@ -23,7 +26,7 @@ import { WorkDocumentsLoadingSkeleton } from '@shared/ui/work-documents-loading-
 import {
   DocumentCard, WorkDocumentListRow, VirtualizedMediaColumn,
   MEDIA_COLUMN_GAP, MEDIA_CARD_MIN_WIDTH,
-  WORK_DOCUMENT_CARD_MIN_WIDTH, WORK_DOCUMENT_CARD_HEIGHT,
+  WORK_DOCUMENT_CARD_MIN_WIDTH, WORK_DOCUMENT_CARD_HEIGHT, WORK_DOCUMENT_GRID_GAP,
   matchesMediaRuleFilter, matchesAssetRuleFilter, mediaItemRelativePath,
 } from './document-list-cards';
 import { DocumentListHeader, type DocumentListMode } from './document-list-header';
@@ -313,9 +316,9 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
   const firstRow = Math.min(Math.max(0, rowCount - 1), Math.max(0, Math.floor(viewport.top / ROW_HEIGHT) - 2));
   const lastRow = Math.min(rowCount, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + 2);
   const visibleCards = visibleItems.slice(firstRow * columnCount, lastRow * columnCount);
-  // 工作文档卡片（竖排：上图标下标题，宽 200px）按固定卡片高 + 14px 行距做窗口虚拟化。
-  const workColumnCount = Math.max(1, Math.floor((viewport.width + MEDIA_COLUMN_GAP) / (WORK_DOCUMENT_CARD_MIN_WIDTH + MEDIA_COLUMN_GAP)));
-  const workRowStride = WORK_DOCUMENT_CARD_HEIGHT + MEDIA_COLUMN_GAP;
+  // 虚拟化测量与 CSS 网格共用同一间距，保证每行占位高度和真实布局一致。
+  const workColumnCount = Math.max(1, Math.floor((viewport.width + WORK_DOCUMENT_GRID_GAP) / (WORK_DOCUMENT_CARD_MIN_WIDTH + WORK_DOCUMENT_GRID_GAP)));
+  const workRowStride = WORK_DOCUMENT_CARD_HEIGHT + WORK_DOCUMENT_GRID_GAP;
   const workRowCount = Math.ceil(visibleItems.length / workColumnCount);
   const workFirstRow = Math.min(Math.max(0, workRowCount - 1), Math.max(0, Math.floor(viewport.top / workRowStride) - 2));
   const workLastRow = Math.min(workRowCount, Math.ceil((viewport.top + viewport.height) / workRowStride) + 2);
@@ -525,7 +528,7 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
             />
           ))}</div>
           : workDocuments
-            ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch gap-3.5" style={{ paddingTop: workFirstRow * workRowStride, paddingBottom: Math.max(0, workRowCount - workLastRow) * workRowStride }}>{visibleWorkRows.map((item) => <WorkDocumentListRow key={item.fullPath} item={item} notebookPath={listContext.notebookPath} openItem={openItem} />)}</div>
+            ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch" style={{ gap: WORK_DOCUMENT_GRID_GAP, paddingTop: workFirstRow * workRowStride, paddingBottom: Math.max(0, workRowCount - workLastRow) * workRowStride }}>{visibleWorkRows.map((item) => <WorkDocumentListRow key={item.fullPath} item={item} notebookPath={listContext.notebookPath} openItem={openItem} />)}</div>
             : <div style={{ paddingTop: firstRow * ROW_HEIGHT, paddingBottom: Math.max(0, rowCount - lastRow) * ROW_HEIGHT }}><div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] items-stretch gap-3.5 pt-3">{visibleCards.map((item) => <DocumentCard key={item.fullPath} item={item} notebookPath={listContext.notebookPath} openItem={openItem} />)}</div></div>}
     {moreError && <button type="button" className="mt-4 rounded-lg px-2 py-1 text-sm text-[var(--brand)] hover:bg-[var(--muted)]" onClick={loadMore}>加载失败，点击重试</button>}
     {hasMore && !moreError && <div ref={endRef} className="h-1" aria-hidden="true" />}
@@ -541,17 +544,17 @@ export function DocumentListView({ listContext, mediaLibrary = false, workDocume
         >{body}</OverlayScrollbar>}
     </CollectionAreaMenu>
     {mediaLibrary && <Dialog open={!!mediaToDelete} onOpenChange={(open) => { if (!open && !deletingMedia) setMediaToDelete(null); }}>
-      <DialogContent className="max-w-sm" showCloseButton={false}>
+      <DialogContent className="max-w-sm" closeDisabled={deletingMedia}>
         <DialogHeader>
           <DialogTitle>{t('mediaLibrary.deleteImageTitle')}</DialogTitle>
           <DialogDescription>{t('mediaLibrary.deleteImageDescription', { name: mediaToDelete?.name ?? '' })}</DialogDescription>
         </DialogHeader>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" className="rounded-lg" disabled={deletingMedia} onClick={() => setMediaToDelete(null)}>{t('dialog.cancel')}</Button>
-          <Button type="button" variant="outline" size="sm" disabled={deletingMedia} onClick={() => void confirmDeleteMedia()} className="rounded-lg border-[var(--destructive)] bg-[var(--destructive)] text-white hover:opacity-90">{t('dialog.delete')}</Button>
-        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" disabled={deletingMedia} onClick={() => setMediaToDelete(null)}>{t('dialog.cancel')}</Button>
+          <Button type="button" variant="destructive" disabled={deletingMedia} onClick={() => void confirmDeleteMedia()} >{t('dialog.delete')}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>}
-    {!mediaLibrary && <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-w-sm"><DialogTitle>新建笔记</DialogTitle><form className="mt-4 space-y-4" onSubmit={(event) => { event.preventDefault(); void createNote(); }}><input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="笔记标题" className="h-9 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)]" /><div className="flex justify-end gap-2"><Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => setCreateOpen(false)}>取消</Button><Button type="submit" size="sm" className="rounded-lg" disabled={!newTitle.trim() || creating}>创建</Button></div></form></DialogContent></Dialog>}
+    {!mediaLibrary && <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-w-sm"><DialogTitle>新建笔记</DialogTitle><form className="mt-4" onSubmit={(event) => { event.preventDefault(); void createNote(); }}><Input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="笔记标题" /><DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>取消</Button><Button type="submit" disabled={!newTitle.trim() || creating}>创建</Button></DialogFooter></form></DialogContent></Dialog>}
   </section>;
 }

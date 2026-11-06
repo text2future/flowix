@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { memo, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ListTodo, Loader2 } from 'lucide-react';
 import { PushPin } from '@phosphor-icons/react';
@@ -235,18 +236,18 @@ function MemoCardShell({
         </ContextMenuContent>
       </ContextMenu>
       <Dialog open={renameOpen} onOpenChange={(open) => !renameSaving && setRenameOpen(open)}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('memo.fileTree.rename')}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={(event) => void submitRename(event)} className="space-y-4" aria-busy={renameSaving}>
+          <form onSubmit={(event) => void submitRename(event)} aria-busy={renameSaving}>
             <Input
               autoFocus
               value={renameDraft}
               onChange={(event) => setRenameDraft(event.target.value)}
               disabled={renameSaving}
             />
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setRenameOpen(false)} disabled={renameSaving}>
                 {t('common.cancel')}
               </Button>
@@ -254,7 +255,7 @@ function MemoCardShell({
                 {renameSaving && <Loader2 className="flowix-spin" aria-hidden="true" />}
                 {renameSaving ? t('memo.fileTree.renaming') : t('document.version.confirm')}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

@@ -1,3 +1,6 @@
+
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Input } from '@shared/ui/input';
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -620,7 +623,7 @@ export function TableKanbanView({ groupField, titleField, records, groups, rende
         <TableRecordTitle record={draggedRecord} titleField={titleField} renderValue={renderValue} noteIconForRecord={noteIconForRecord} titleClassName="min-w-0 break-words" className="text-sm font-medium leading-5 text-[var(--foreground)]" />
       </article>, document.body)}
     <Dialog open={Boolean(editingRecord)} onOpenChange={(open) => { if (!open && !savingEdit) setEditingRecord(null); }}>
-      <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DialogContent>
         <DialogHeader><DialogTitle>编辑任务</DialogTitle></DialogHeader>
         <form onSubmit={async (event) => {
           event.preventDefault();
@@ -634,14 +637,14 @@ export function TableKanbanView({ groupField, titleField, records, groups, rende
             setSavingEdit(false);
           }
         }}>
-          <input autoFocus value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)} disabled={savingEdit} aria-label="任务名称" className="h-9 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)] disabled:opacity-50" />
-          <div className="mt-4 flex justify-end gap-2">
+          <Input autoFocus value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)} disabled={savingEdit} aria-label="任务名称" />
+          <DialogFooter>
             <Button type="button" variant="outline" disabled={savingEdit} onClick={() => setEditingRecord(null)}>取消</Button>
             <Button type="submit" disabled={!editingTitle.trim() || savingEdit}>
               {savingEdit && <LoaderCircle className="mr-1.5 h-4 w-4 flowix-spin" aria-hidden="true" />}
               {savingEdit ? '保存中…' : '保存'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

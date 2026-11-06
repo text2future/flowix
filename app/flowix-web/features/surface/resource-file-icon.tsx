@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react';
 import folderIcon from '@/assets/folder-outline.svg?raw';
 
 import setiIconTheme from '@/assets/seti/vs-seti-icon-theme.json';
+import { getFileIconKind, NoteContentIcon } from '@features/content/public/content-api';
 
 type SetiThemeVariant = 'light' | 'dark';
 
@@ -162,6 +163,13 @@ function setiIconStyle(color: string, size = 16) {
 
 export function ResourceFileIcon({ path, className, size = 16 }: { path: string; className?: string; size?: number }) {
   const variant = useSetiThemeVariant();
+
+  // 笔记（.md）不跟 Seti 字形走：工作区文件浏览器里的 md 必须和笔记本文件树同一个图标，
+  // 否则同一个文件在两个入口长得不一样。分类仍交给共享分类器，不在这里判扩展名。
+  if (getFileIconKind(path) === 'note') {
+    return <NoteContentIcon aria-hidden="true" className={className} width={size} height={size} />;
+  }
+
   const icon = getResourceSetiIcon(path, variant);
 
   return (

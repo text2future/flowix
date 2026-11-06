@@ -192,8 +192,50 @@ FunctionEnd
   !insertmacro UPDATEFILEASSOC
 !macroend
 
+; Windows takes a file's icon from Software\Classes\<class>\DefaultIcon, and the
+; Tauri NSIS template writes every association as
+; "$INSTDIR\${MAINBINARYNAME}.exe,0" (tauri-bundler nsis/installer.nsi, "Create
+; file associations"), so .md would inherit the application icon. The template
+; has no per-extension icon field, so the value is rewritten here from
+; NSIS_HOOK_POSTINSTALL — that runs right after the class was created in the
+; same install, which is why matching on the class name is safe. SHCTX keeps
+; the write in the same hive APP_ASSOCIATE used (per-user or per-machine).
+;
+; Keep FLOWIX_MARKDOWN_CLASS in sync with bundle.fileAssociations[].name in
+; tauri.conf.json. Renaming it there silently drops the custom icon (Explorer
+; then shows the exe icon again) and logs "document-icon-skipped".
+!define FLOWIX_MARKDOWN_CLASS "Markdown Document"
+!define FLOWIX_DOCUMENT_ICON "$INSTDIR\md.ico"
+
+!macro FLOWIX_SET_DOCUMENT_ICON extension
+  ReadRegStr $R0 SHCTX "Software\Classes\.${extension}" ""
+  ${If} $R0 == "${FLOWIX_MARKDOWN_CLASS}"
+    WriteRegStr SHCTX "Software\Classes\$R0\DefaultIcon" "" `"${FLOWIX_DOCUMENT_ICON}",0`
+    StrCpy $R2 1
+  ${EndIf}
+!macroend
+
+!macro FLOWIX_APPLY_DOCUMENT_ICON
+  ${IfNot} ${FileExists} "${FLOWIX_DOCUMENT_ICON}"
+    !insertmacro FLOWIX_LOG "document-icon-skipped reason=missing-ico"
+  ${Else}
+    StrCpy $R2 0
+    !insertmacro FLOWIX_SET_DOCUMENT_ICON "md"
+    !insertmacro FLOWIX_SET_DOCUMENT_ICON "markdown"
+    ${If} $R2 == 1
+      ; Explorer caches per-extension icons; without the shell notification the
+      ; new artwork only shows up after a reboot.
+      !insertmacro UPDATEFILEASSOC
+      !insertmacro FLOWIX_LOG "document-icon-applied"
+    ${Else}
+      !insertmacro FLOWIX_LOG "document-icon-skipped reason=unexpected-class"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro FLOWIX_CLEANUP_LEGACY_DOCUMENT_ASSOCIATIONS
+  !insertmacro FLOWIX_APPLY_DOCUMENT_ICON
   ; Visible/manual installs clear stale updater status without emitting a toast.
   IfSilent flowix_status_clear_done 0
   Delete "${FLOWIX_STATE_DIR}\app-update-result.txt"

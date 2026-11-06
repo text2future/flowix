@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   installCodexProjectSkillZip: vi.fn().mockResolvedValue({}), installNotebookTemplateZip: vi.fn(),
   notify: vi.fn(), show: vi.fn(),
 }));
-vi.mock('@platform/tauri/client', () => ({ agent: mocks }));
+vi.mock('@platform/tauri/client', () => ({ agent: mocks, product: { getInfo: async () => ({ version: '1.5.17' }) } }));
 vi.mock('@features/memo/public/selected-notebook-api', () => ({
   getSelectedNotebookSnapshot: () => ({ id: 'A', name: 'A', path: '/A' }),
   subscribeSelectedNotebook: () => () => {},
@@ -22,7 +22,12 @@ async function mountBridge(frame: HTMLIFrameElement) {
   const options = { iframeRef: { current: frame }, origin, currentUrl: `${origin}/i/index`, reloadToken: 0, language: 'zh-CN', onReady: vi.fn() };
   function Bridge() { useMarketBridge(options); return null; }
   await act(async () => { root.render(createElement(Bridge)); });
-  return async () => { await act(async () => root.unmount()); };
+  return Object.assign(async () => { await act(async () => root.unmount()); }, {
+    update: async (patch: Partial<typeof options>) => {
+      Object.assign(options, patch);
+      await act(async () => { root.render(createElement(Bridge)); });
+    },
+  });
 }
 afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 describe('market bridge', () => {
@@ -30,6 +35,16 @@ describe('market bridge', () => {
     const frame = document.createElement('iframe'); document.body.append(frame);
     const post = vi.spyOn(frame.contentWindow!, 'postMessage');
     const unmount = await mountBridge(frame);
+    expect(post.mock.calls.every(([data]) => data.type === 'flowix:skill-market:probe')).toBe(true);
+    await act(async () => {
+      frame.dispatchEvent(new Event('load'));
+      window.dispatchEvent(new MessageEvent('message', { origin: 'https://evil.example', source: frame.contentWindow, data: { type: 'flowix:skill-market:ready' } }));
+      window.dispatchEvent(new MessageEvent('message', { origin, source: window, data: { type: 'flowix:skill-market:ready' } }));
+    });
+    expect(post.mock.calls.every(([data]) => data.type === 'flowix:skill-market:probe')).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', { origin, source: frame.contentWindow, data: { type: 'flowix:skill-market:ready' } }));
+    });
     expect(post).toHaveBeenCalledWith(expect.objectContaining({ capabilities: { toast: true }, installedTemplateIds: ['work-plan'], installedSkillIds: ['writing'] }), origin);
     await unmount();
   });
@@ -42,8 +57,47 @@ describe('market bridge', () => {
       window.dispatchEvent(new MessageEvent('message', { origin, source: window, data }));
     });
     expect(mocks.installCodexProjectSkillZip).not.toHaveBeenCalled();
+    await act(async () => { window.dispatchEvent(new MessageEvent('message', { origin, source: frame.contentWindow, data: { type: 'flowix:skill-market:ready' } })); });
     await act(async () => { window.dispatchEvent(new MessageEvent('message', { origin, source: frame.contentWindow, data })); });
     expect(mocks.installCodexProjectSkillZip).toHaveBeenCalledOnce();
     await unmount();
   });
+});
+
+it('preserves readiness across presentation updates and resets it on reload', async () => {
+  const frame = document.createElement('iframe'); document.body.append(frame);
+  const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+  const unmount = await mountBridge(frame);
+  const ready = () => window.dispatchEvent(new MessageEvent('message', { origin, source: frame.contentWindow, data: { type: 'flowix:skill-market:ready' } }));
+  await act(async () => { ready(); });
+  post.mockClear();
+  await unmount.update({ language: 'en-US', onReady: vi.fn() });
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'flowix:skill-market:context', language: 'en-US' }), origin);
+  post.mockClear();
+  await act(async () => { window.dispatchEvent(new Event('skills-changed')); });
+  expect(post).toHaveBeenCalled();
+  post.mockClear();
+  await unmount.update({ reloadToken: 1 });
+  await act(async () => { window.dispatchEvent(new Event('skills-changed')); });
+  expect(post.mock.calls.every(([data]) => data.type === 'flowix:skill-market:probe')).toBe(true);
+  await act(async () => { ready(); });
+  expect(post).toHaveBeenCalled();
+  await unmount();
+});
+
+
+it('connects before a slow native scan and does not restart scans for repeated ready messages', async () => {
+  let resolveSkills!: (skills: { id: string }[]) => void;
+  mocks.readNotebookAgentSkills.mockImplementationOnce(() => new Promise(resolve => { resolveSkills = resolve; }));
+  const frame = document.createElement('iframe'); document.body.append(frame);
+  const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+  const unmount = await mountBridge(frame);
+  await act(async () => {
+    for (let i = 0; i < 3; i++) window.dispatchEvent(new MessageEvent('message', { origin, source: frame.contentWindow, data: { type: 'flowix:skill-market:ready' } }));
+  });
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'flowix:skill-market:context', notebookId: 'A', notebookAvailable: true }), origin);
+  expect(mocks.readNotebookAgentSkills).toHaveBeenCalledTimes(1);
+  await act(async () => { resolveSkills([{ id: 'late-skill' }]); });
+  expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ installedSkillIds: ['late-skill'] }), origin);
+  await unmount();
 });

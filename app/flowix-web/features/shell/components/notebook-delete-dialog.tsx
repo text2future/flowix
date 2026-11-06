@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from '@shared/ui/button';
+
 import {
   Dialog,
   DialogContent,
@@ -10,6 +12,14 @@ import {
 import { useI18n } from '@/lib/i18n';
 import { useState } from 'react';
 import { FlowixCheckbox } from '@shared/ui/flowix-checkbox';
+import { cn } from '@/lib/utils';
+import {
+  NOTEBOOK_FORM_DIALOG_BODY_CLASS,
+  NOTEBOOK_FORM_DIALOG_CONTENT_CLASS,
+  NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS,
+  NOTEBOOK_DELETE_DIALOG_WIDTH_CLASS,
+  NOTEBOOK_FORM_DIALOG_HEADING_CLASS,
+} from '@features/memo/public/notebook-dialog-api';
 
 interface NotebookDeleteDialogProps {
   /** When non-null, the dialog is open and confirming will delete this notebook. */
@@ -33,35 +43,45 @@ export function NotebookDeleteDialog({ target, onCancel, onConfirm }: NotebookDe
         if (!open) onCancel();
       }}
     >
-      <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-        <DialogHeader>
-          <DialogTitle>{t('notebook.delete.title')}</DialogTitle>
-          <DialogDescription>{t('notebook.delete.description')}</DialogDescription>
-        </DialogHeader>
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-[var(--foreground)]">
-            <FlowixCheckbox
-              checked={deleteLocalFiles}
-              aria-label={t('notebook.delete.deleteLocalFiles')}
-              onCheckedChange={setDeleteLocalFiles}
-            />
-            <span className="cursor-pointer" onClick={() => setDeleteLocalFiles((checked) => !checked)}>{t('notebook.delete.deleteLocalFiles')}</span>
-          </div>
-          <div className="flex shrink-0 justify-end gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="h-8 px-3 text-sm rounded-lg hover:bg-[var(--muted)]"
-            >
-              {t('dialog.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={() => onConfirm(deleteLocalFiles)}
-              className="h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90"
-            >
-              {t('dialog.delete')}
-            </button>
+      <DialogContent
+        overlayClassName={NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS}
+        aria-labelledby="flowix-delete-notebook-title"
+        className={cn(NOTEBOOK_FORM_DIALOG_CONTENT_CLASS, NOTEBOOK_DELETE_DIALOG_WIDTH_CLASS)}
+      >
+        <div className={NOTEBOOK_FORM_DIALOG_BODY_CLASS}>
+          <DialogHeader className="mb-2">
+            <DialogTitle id="flowix-delete-notebook-title" className={cn(NOTEBOOK_FORM_DIALOG_HEADING_CLASS, 'mb-2')}>
+              {t('notebook.delete.title')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('notebook.delete.description', { name: target?.name ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex w-full flex-wrap items-center gap-3 pt-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-[var(--foreground)]">
+              <FlowixCheckbox
+                checked={deleteLocalFiles}
+                aria-label={t('notebook.delete.deleteLocalFiles')}
+                onCheckedChange={setDeleteLocalFiles}
+              />
+              <span className="cursor-pointer" onClick={() => setDeleteLocalFiles((checked) => !checked)}>{t('notebook.delete.deleteLocalFiles')}</span>
+            </div>
+            <div className="ml-auto flex shrink-0 justify-end gap-3">
+              <Button
+                type="button"
+                onClick={onCancel}
+                variant="outline" className="gap-2"
+              >
+                {t('dialog.cancel')}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => onConfirm(deleteLocalFiles)}
+                variant="destructive" className="gap-1"
+              >
+                {t('dialog.delete')}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

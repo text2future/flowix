@@ -9,6 +9,9 @@
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico"
       }
+    },
+    "resources": {
+      "icons/md.ico": "md.ico"
     }
   },
   "app": {

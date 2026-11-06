@@ -3,6 +3,7 @@
 import { openWorkspaceSurface as openSurfaceAtHost } from '@features/workspace/public/open-surface-api';
 
 import { memo, useCallback, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import type { CollectionIndexItem } from '@platform/tauri/client';
 import { type CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 import { requireFileDisplayIdentity, type FileDisplayIdentity } from '@/lib/file-display-registry';
 import { resolveFileBrowserContext, setCollectionActiveView, updatePrimaryFileBrowserContext } from '@features/workspace/public/session-runtime-api';
@@ -49,7 +50,7 @@ export interface BrowserFolderCollectionSurface extends SurfaceBase {
 
 export type BrowserFileBrowserSurface = SurfaceBase
   & FileBrowserViewSurface
-  & { collectionType?: 'table' | 'media_library' | 'work_documents'; collectionUnavailableReason?: string; collectionDisplay?: CollectionDisplayDescriptor; documentProps: ExternalDocumentProps }
+  & { collectionType?: CollectionIndexItem['collectionType']; collectionUnavailableReason?: string; collectionDisplay?: CollectionDisplayDescriptor; documentProps: ExternalDocumentProps }
   & (
     | { activeFilePath: string; fileIdentity: FileDisplayIdentity }
     | { activeFilePath: null; fileIdentity?: never }

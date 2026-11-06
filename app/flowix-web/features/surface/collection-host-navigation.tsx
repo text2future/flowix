@@ -1,3 +1,5 @@
+
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { noteTabKey, noteViewIdFromTabKey } from '@/lib/collection-tab-key';
@@ -84,10 +86,10 @@ export function CollectionHostNavigation({ tabs, actions, editable, bannerVisibl
           <DialogTitle>{t('multidimensionalTable.view.delete')}</DialogTitle>
           <DialogDescription>{t('multidimensionalTable.view.deleteConfirm', { name: host.hostTabPendingDelete?.label ?? '' })}</DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="ghost" onClick={host.cancelDeleteHostTab}>{t('dialog.cancel')}</Button>
           <Button variant="destructive" onClick={host.confirmDeleteHostTab}>{t('dialog.delete')}</Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   </>;

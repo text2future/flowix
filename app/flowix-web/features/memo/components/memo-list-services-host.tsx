@@ -1,5 +1,9 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Button } from '@shared/ui/button';
+import { dialogActionClasses } from '@shared/ui/dialog-styles';
+
 import { friendlyErrorMessage } from '@/lib/friendly-error-message';
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
@@ -31,6 +35,7 @@ import {
   applyAgentWorkspaceSnapshot,
   loadAgentWorkspace,
   getWorkspaceAgentRepositories,
+  getCachedWorkspaceAgentRepositories,
 } from '@features/agent/public/workspace-api';
 import { noteRepository } from '@features/memo/services/note-repository';
 import { getVisibleCreateFilter, useNoteStore, useTagStore, type NoteListItem, type Notebook } from '@features/memo/store';
@@ -82,6 +87,11 @@ function sameDirectorySet(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false;
   const rightPaths = new Set(right.map(canonicalDirectoryPath));
   return left.every((path) => rightPaths.has(canonicalDirectoryPath(path)));
+}
+
+function notebookStoragePaths(notebook: Notebook, repositories: { path: string }[]): string[] {
+  return [notebook.path, ...repositories.map(({ path }) => path)
+    .filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(notebook.path))];
 }
 
 function DeleteDialogShortcuts({
@@ -189,24 +199,25 @@ function ExternalDocumentOpenDialog() {
   const fileCount = request?.items.length ?? 0;
   return (
     <Dialog open={!!request} onOpenChange={(openState) => !openState && close()}>
-      <DialogContent showCloseButton={!opening} className="max-w-[285px]">
+      <DialogContent closeDisabled={opening} className="max-w-[320px]">
         <DialogHeader>
-          <DialogTitle>{t('memo.externalOpen.importCountTitle', { count: fileCount })}</DialogTitle>
+          <DialogTitle>{t('memo.externalOpen.contentTitle')}</DialogTitle>
+          <DialogDescription>{t('memo.externalOpen.importDescription', { count: fileCount })}</DialogDescription>
         </DialogHeader>
-        <div className="mt-5 flex flex-col gap-2">
-          <button type="button" onClick={() => void execute(false)} disabled={opening} className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm hover:bg-[var(--muted)] disabled:opacity-50">
+        <DialogFooter className="flex-col">
+          <Button type="button" onClick={() => void execute(false)} disabled={opening} variant="outline" className="w-full">
             {t(operation === 'direct' ? 'memo.externalOpen.opening' : 'memo.externalOpen.openDirectly')}
-          </button>
+          </Button>
           {request && (
             <Select value={notebookId} onValueChange={setNotebookId} disabled={opening}>
-              <div className="grid w-full grid-cols-[32px_minmax(0,1fr)_32px] rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)]">
-                <button type="button" onClick={() => void execute(true)} disabled={opening || !notebookId} className="col-span-2 grid h-8 min-w-0 grid-cols-[32px_minmax(0,1fr)] items-center rounded-l-lg text-sm disabled:opacity-50" title={targetNotebook?.name}>
+              <div className={cn(dialogActionClasses('info'), 'grid w-full grid-cols-[32px_minmax(0,1fr)_32px] px-0')}>
+                <button type="button" onClick={() => void execute(true)} disabled={opening || !notebookId} className="col-span-2 grid h-full min-w-0 grid-cols-[32px_minmax(0,1fr)] items-center rounded-l-[8px] text-sm font-semibold disabled:opacity-50" title={targetNotebook?.name}>
                   <span className="col-start-2 truncate text-center">
                     {operation === 'import' ? t('memo.externalOpen.importing') : t('memo.externalOpen.importToNotebook', { name: targetNotebook?.name ?? '' })}
                   </span>
                 </button>
                 <SelectTrigger asChild aria-label={t('memo.externalOpen.importToRoot')}>
-                  <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-r-lg hover:bg-black/10 disabled:opacity-50">
+                  <button type="button" className="flex h-full w-8 shrink-0 items-center justify-center rounded-r-[8px] hover:bg-black/10 disabled:opacity-50">
                     <ChevronDown className="h-4 w-4" />
                   </button>
                 </SelectTrigger>
@@ -225,7 +236,7 @@ function ExternalDocumentOpenDialog() {
               </SelectContent>
             </Select>
           )}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -318,6 +329,9 @@ export function MemoListServicesHost({
   }, []);
 
   const openCreate = useCallback(() => {
+    editingNotebookIdRef.current = null;
+    ++editLoadGenerationRef.current;
+    setEditOpen(false);
     setNewName('');
     setNewPaths([]);
     setNewIcon(DEFAULT_NOTEBOOK_ICON_ID);
@@ -366,28 +380,29 @@ export function MemoListServicesHost({
     setCloudSyncAvailable(getCloudSyncAccess(state).canRead);
   }), []);
 
-  const loadEditStorage = useCallback(async (notebook: Notebook) => {
+  const loadEditStorage = useCallback(async (notebook: Notebook): Promise<number | null> => {
     const generation = ++editLoadGenerationRef.current;
+    const isCurrent = () => editingNotebookIdRef.current === notebook.id
+      && generation === editLoadGenerationRef.current;
     setEditStorageStatus('loading');
     try {
-      let loaded = false;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        if (await loadAgentWorkspace()) { loaded = true; break; }
-        if (editingNotebookIdRef.current !== notebook.id || generation !== editLoadGenerationRef.current) return;
-      }
-      if (!loaded) throw new Error('Workspace load superseded');
-      if (editingNotebookIdRef.current !== notebook.id || generation !== editLoadGenerationRef.current) return;
-      const repositories = getWorkspaceAgentRepositories(notebook.id);
-      const paths = [notebook.path, ...repositories.map((repository) => repository.path)
-        .filter((path) => canonicalDirectoryPath(path) !== canonicalDirectoryPath(notebook.path))];
+      if (!await loadAgentWorkspace()) throw new Error('Workspace load failed');
+      if (!isCurrent()) return null;
+      const paths = notebookStoragePaths(notebook, getWorkspaceAgentRepositories(notebook.id));
       setEditOriginalPaths(paths);
       setEditPaths(paths);
       setEditStorageStatus('ready');
     } catch {
-      if (editingNotebookIdRef.current === notebook.id && generation === editLoadGenerationRef.current) {
+      if (isCurrent()) {
         setEditStorageStatus('error');
       }
     }
+    return isCurrent() ? generation : null;
+  }, []);
+
+  useEffect(() => () => {
+    editingNotebookIdRef.current = null;
+    ++editLoadGenerationRef.current;
   }, []);
 
   useEffect(() => {
@@ -395,15 +410,34 @@ export function MemoListServicesHost({
     const handleOpenEdit = (event: Event) => {
       const notebook = (event as CustomEvent<Notebook>).detail;
       if (!notebook) return;
+      setCreateOpen(false);
       setEditSaving(false);
+      setEditCloudSync(false);
+      setOriginalEditCloudSync(false);
       editingNotebookIdRef.current = notebook.id;
       setEditingNotebook(notebook);
       setEditName(notebook.name);
       setEditIcon(normalizeNotebookIconId(notebook.icon));
-      setEditPaths([notebook.path]);
-      setEditOriginalPaths([notebook.path]);
-      setEditOpen(true);
-      void loadEditStorage(notebook);
+      const cachedRepositories = getCachedWorkspaceAgentRepositories(notebook.id);
+      const hasCachedPaths = cachedRepositories !== null;
+      const cachedPaths = hasCachedPaths
+        ? notebookStoragePaths(notebook, cachedRepositories)
+        : [notebook.path];
+      setEditPaths(cachedPaths);
+      setEditOriginalPaths(cachedPaths);
+      if (hasCachedPaths) {
+        ++editLoadGenerationRef.current;
+        setEditStorageStatus('ready');
+        setEditOpen(true);
+        // Refresh the shared cache for the next opening. Keep this edit session's
+        // snapshot stable so revalidation cannot resize or overwrite the form.
+        void loadAgentWorkspace();
+      } else {
+        setEditOpen(false);
+        void loadEditStorage(notebook).then((generation) => {
+          if (generation != null && generation === editLoadGenerationRef.current) setEditOpen(true);
+        });
+      }
     };
     const handleDeleteMemo = (event: Event) => {
       const memo = (event as CustomEvent<NoteListItem>).detail;
@@ -735,15 +769,15 @@ export function MemoListServicesHost({
               {t('memo.delete.description', { name: deleteMemo?.title ?? '' } satisfies I18nParams)}
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setDeleteMemo(null)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">
+          <DialogFooter>
+            <Button type="button" onClick={() => setDeleteMemo(null)} variant="outline">
               {t('memo.delete.cancel')}
-            </button>
-            <button type="button" onClick={handleDeleteConfirm} className="relative h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] pl-3 pr-7 text-sm text-white hover:opacity-90">
+            </Button>
+            <Button type="button" onClick={handleDeleteConfirm} variant="destructive" className="relative pl-3 pr-7">
               {t('memo.delete.confirm')}
               <Kbd className="border-0 !text-white">↵</Kbd>
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={!!deleteMedia} onOpenChange={(open) => !open && setDeleteMedia(null)}>
@@ -754,14 +788,14 @@ export function MemoListServicesHost({
               {t('media.fileTree.deleteDescription', { name: deleteMedia ? filenameFromPath(deleteMedia.filePath) : '' })}
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setDeleteMedia(null)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">
+          <DialogFooter>
+            <Button type="button" onClick={() => setDeleteMedia(null)} variant="outline">
               {t('dialog.cancel')}
-            </button>
-            <button type="button" onClick={handleMediaDeleteConfirm} className="h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90">
+            </Button>
+            <Button type="button" onClick={handleMediaDeleteConfirm} variant="destructive">
               {t('dialog.delete')}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -102,7 +102,7 @@
 	--destructive: oklch(0.5953 0.18775 34.867);
 	--warning: oklch(0.80 0.15 80);
 	/* 信息提示: 与浅色主题同色 ── 下调亮度以保证白字达到普通文字 AA 对比度。 */
-	--info: oklch(0.52 0.165 235);
+	--info: #0085e6;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: dark;

@@ -105,3 +105,37 @@ it('keeps standalone web navigation outside workspace session state', async () =
   expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://local.example/');
   expect(useWorkspaceSessionStore.getState()).toBe(before);
 });
+
+
+it('opens the market without a bridge and offers nonblocking recovery when navigation stalls', async () => {
+  const marketUrl = 'https://skills.flowix.cc/i/index';
+  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url: marketUrl }} context={{ host: 'column-1', viewId: 'market', focused: true, readOnly: false }} />));
+  let frame = host.querySelector('iframe')!;
+  await act(async () => { frame.dispatchEvent(new Event('load')); vi.advanceTimersByTime(20_000); });
+  expect(host.textContent).not.toContain('技能市场未响应');
+  expect(host.textContent).not.toContain('网页加载较慢');
+  await act(async () => {
+    window.dispatchEvent(new MessageEvent('message', { origin: 'https://skills.flowix.cc', source: frame.contentWindow, data: { type: 'flowix:skill-market:ready' } }));
+  });
+  expect(host.textContent).not.toContain('技能市场未响应');
+  await act(async () => { vi.advanceTimersByTime(20_000); });
+  expect(host.textContent).not.toContain('技能市场未响应');
+  await click('重新加载');
+  expect(host.querySelector('iframe')).not.toBe(frame);
+  frame = host.querySelector('iframe')!;
+  await act(async () => { vi.advanceTimersByTime(15_000); });
+  expect(host.textContent).toContain('网页加载较慢');
+  const retry = Array.from(host.querySelectorAll('button')).find(button => button.textContent === '重试')!;
+  await act(async () => { retry.click(); });
+  expect(host.querySelector('iframe')).not.toBe(frame);
+  expect(host.textContent).not.toContain('技能市场未响应');
+});
+
+
+it('clears a market navigation warning on load without requiring host context', async () => {
+  await act(async () => root.render(<WebRenderer surface={{ kind: 'web', url: 'https://skills.flowix.cc/i/' }} context={{ host: 'column-1', viewId: 'slow-market', focused: true, readOnly: false }} />));
+  await act(async () => { vi.advanceTimersByTime(15_000); });
+  expect(host.textContent).toContain('网页加载较慢');
+  await act(async () => { host.querySelector('iframe')!.dispatchEvent(new Event('load')); });
+  expect(host.textContent).not.toContain('网页加载较慢');
+});

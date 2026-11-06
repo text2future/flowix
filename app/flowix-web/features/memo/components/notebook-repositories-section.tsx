@@ -1,3 +1,6 @@
+
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Button } from '@shared/ui/button';
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowRight, ChevronRight, GitBranch, Plus } from 'lucide-react';
 import { CopyIcon, FolderOpenIcon, MinusCircleIcon, PencilSimpleIcon, SquareSplitHorizontalIcon, TrashSimpleIcon } from '@phosphor-icons/react';
@@ -339,15 +342,15 @@ function AgentRepositoryItem({
       )}
       </div>
       <Dialog open={deleting !== null} onOpenChange={(open) => { if (!open) setDeleting(null); }}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{deleting?.type === 'folder' ? t('memo.fileTree.deleteFolderTitle') : t('document.external.deleteFileTitle')}</DialogTitle>
             <DialogDescription>{deleting?.type === 'folder' ? t('memo.fileTree.deleteFolderDescription') : t('document.external.deleteFileDescription', { name: deleting?.name ?? '' })}</DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setDeleting(null)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">{t('dialog.cancel')}</button>
-            <button type="button" onClick={() => void confirmDelete()} className="h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90">{t('memo.fileTree.delete')}</button>
-          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setDeleting(null)} variant="outline">{t('dialog.cancel')}</Button>
+            <Button type="button" onClick={() => void confirmDelete()} variant="destructive">{t('memo.fileTree.delete')}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

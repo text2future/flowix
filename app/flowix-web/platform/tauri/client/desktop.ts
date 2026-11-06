@@ -114,7 +114,7 @@ export interface CollectionIndexItem {
   indexSequence: number;
   relativePath: string;
   collectionId: string | null;
-  collectionType: 'table' | 'media_library' | 'work_documents';
+  collectionType: 'table' | 'media_library' | 'work_documents' | 'hybrid';
   name: string;
   schemaVersion: number | null;
   payloadSchemaVersion: number | null;

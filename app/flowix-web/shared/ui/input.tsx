@@ -1,17 +1,24 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { DialogAppearanceContext } from "./dialog-appearance-context";
+import { INPUT_CLASS, DIALOG_INPUT_CLASS } from "./input-styles";
+
+const NON_TEXT_INPUT_TYPES = new Set(["checkbox", "radio", "file", "hidden", "range", "color", "button", "submit", "reset"]);
 
 export interface InputProps
 	extends React.InputHTMLAttributes<HTMLInputElement> {}
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
 	({ className, type, ...props }, ref) => {
+		const inDialog = React.useContext(DialogAppearanceContext);
+		const textField = !NON_TEXT_INPUT_TYPES.has(type ?? "text");
 		return (
 			<input
 				type={type}
 				className={cn(
-					"flex h-8 w-full rounded-lg border border-input bg-background px-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50",
-					className
+					INPUT_CLASS,
+					className,
+					inDialog && textField && DIALOG_INPUT_CLASS
 				)}
 				ref={ref}
 				{...props}

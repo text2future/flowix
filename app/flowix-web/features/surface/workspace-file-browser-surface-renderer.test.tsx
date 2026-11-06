@@ -5,10 +5,15 @@ import { FileBrowserRenderer } from './workspace-file-browser-surface-renderer';
 import type { WorkspaceSurfaceRenderContext, WorkspaceSurfaceRendererData } from './workspace-surface-renderer-contract';
 import type { SurfacePresentationUpdate } from '@features/workspace/model/surface-contract';
 import { resetCurrentCollectionView } from '@features/workspace/public/collection-navigation-api';
+import { bindCollectionDisplayPath, ensureCollectionDisplay } from '@/lib/collection-display-registry';
 
-const observations = vi.hoisted(() => ({ reads: vi.fn(), mounts: vi.fn(), unmounts: vi.fn() }));
+const observations = vi.hoisted(() => ({ renders: vi.fn(), reads: vi.fn(), mounts: vi.fn(), unmounts: vi.fn() }));
 vi.mock('./workspace-surface-renderer-registry', () => ({
-  getWorkspaceSurfaceRendererDefinition: () => ({ render: (surface: { fileIdentity: { path: string } }, context: WorkspaceSurfaceRenderContext) => <Content path={surface.fileIdentity.path} report={context.reportPresentation} /> }),
+  getWorkspaceSurfaceRendererDefinition: () => ({ render: (surface: WorkspaceSurfaceRendererData, context: WorkspaceSurfaceRenderContext) => {
+    observations.renders(surface);
+    const path = surface.kind === 'file-table' ? surface.props.filePath : 'fileIdentity' in surface ? surface.fileIdentity.path : '';
+    return <Content path={path} report={context.reportPresentation} />;
+  } }),
 }));
 vi.mock('@features/workspace/public/collection-navigation-api', () => ({ resetCurrentCollectionView: vi.fn() }));
 function Content({ path, report }: { path: string; report: WorkspaceSurfaceRenderContext['reportPresentation'] }) {
@@ -25,6 +30,22 @@ const surface: Extract<WorkspaceSurfaceRendererData, { kind: 'file-browser' }> =
 } };
 let root: ReturnType<typeof createRoot>;
 afterEach(async () => { if (root) await act(async () => root.unmount()); vi.clearAllMocks(); });
+it.each(['column-1', 'column-2'] as const)('opens a hybrid collection in the collection shell instead of the code editor in %s', async (host) => {
+  const path = '/notes/hybrid.index.yaml';
+  const display = ensureCollectionDisplay({ notebookId: 'notes', collectionId: `hybrid-${host}`, viewId: null });
+  bindCollectionDisplayPath(display.displayId, path);
+  root = createRoot(document.createElement('div'));
+  const updates: SurfacePresentationUpdate[] = [];
+  await act(async () => root.render(<FileBrowserRenderer
+    surface={{ ...surface, props: { ...surface.props, activeFilePath: path, collectionType: 'hybrid',
+      collectionDisplay: display, fileIdentity: { path, displayId: display.displayId } } }}
+    context={{ host, viewId: `hybrid-${host}`, focused: true, readOnly: false,
+      reportPresentation: (update) => { updates.push(update); } }}
+  />));
+  expect(observations.renders).toHaveBeenCalledWith(expect.objectContaining({ kind: 'file-table',
+    props: expect.objectContaining({ filePath: path, expectedCollectionId: display.collectionId }) }));
+  expect(updates[updates.length - 1]?.state).toEqual({ status: 'ready' });
+});
 it.each(['column-1', 'column-2'] as const)('resets an unavailable collection in its %s host', async (host) => {
   root = createRoot(document.createElement('div'));
   const updates: SurfacePresentationUpdate[] = [];

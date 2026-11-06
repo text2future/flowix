@@ -101,7 +101,7 @@ function FirstRunHarness() {
     {ordinaryCreateOpen && <div data-ordinary-create>普通新建笔记本</div>}
     {selectedNotebook && <div data-workspace>{selectedNotebook.name}</div>}
     {introOpen && <div data-product-intro>产品介绍</div>}
-    {system.onboardingOpen && <OnboardingScreen onFinish={async (book, options) => {
+    {system.onboardingOpen && <OnboardingScreen onClose={() => { void system.completeOnboarding(); }} onFinish={async (book, options) => {
       await finishOnboardingNotebook(book, options, {
         completeOnboarding: system.completeOnboarding,
         failureTitle: '笔记本初始化失败', retryLabel: '重试',
@@ -164,6 +164,15 @@ afterEach(async () => {
 });
 
 describe('first-run notebook setup', () => {
+  it('dismisses setup with the close button without creating a notebook', async () => {
+    await mount();
+    const close = document.body.querySelector<HTMLButtonElement>('button[aria-label="关闭"]');
+    expect(close).not.toBeNull();
+    await act(async () => { close!.click(); });
+    expect(document.body.querySelector('#flowix-onboarding-notebook-form')).toBeNull();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it('makes the workspace inert while onboarding is open and restores it on unmount', async () => {
     await mount();
     expect(host.inert).toBe(true);
@@ -231,7 +240,7 @@ describe('first-run notebook setup', () => {
     expect(mocks.listeners.size).toBe(0);
   });
 
-  it('does not show onboarding again once the notebook list is no longer empty', async () => {
+  it('does not repeat onboarding on relaunch when the created notebook exists', async () => {
     // 曾经的断言是"开发环境下次启动会再显示 onboarding"，但这条路径已经不存在：
     // useMainWindowSystemController 只有一条规则 —— notebook 列表为空才显示
     // onboarding，没有任何 DEV 分支，也没有持久化的"已完成"标记。
@@ -246,6 +255,7 @@ describe('first-run notebook setup', () => {
     root = createRoot(host);
     await mount();
     expect(document.body.querySelector('#flowix-onboarding-notebook-form')).toBeNull();
+    expect(host.querySelector('[data-workspace]')).not.toBeNull();
     expect(host.querySelector('[data-ordinary-create]')).toBeNull();
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });

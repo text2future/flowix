@@ -1,4 +1,13 @@
 //! Shared transport and IPC errors for market packages; package validation stays domain-owned.
+pub(crate) fn is_market_archive_origin(url: &url::Url) -> bool {
+    (url.scheme() == "https"
+        && matches!(url.host_str(), Some("skills.flowix.cc" | "flowix.cc"))
+        && url.port_or_known_default() == Some(443))
+        || (cfg!(debug_assertions)
+            && url.scheme() == "http"
+            && matches!(url.host_str(), Some("localhost" | "127.0.0.1")))
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarketInstallError {

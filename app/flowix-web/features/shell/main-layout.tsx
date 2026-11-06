@@ -577,6 +577,7 @@ export function MainLayout({
 
       {onboardingOpen && (
         <OnboardingScreen
+          onClose={() => { void completeOnboarding(); }}
           onFinish={async (notebook, { startImport }) => {
             await finishOnboardingNotebook(notebook, { startImport }, {
               completeOnboarding,

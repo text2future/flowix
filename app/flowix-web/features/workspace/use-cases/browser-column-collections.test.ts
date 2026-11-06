@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collections, externalDocuments, notebooks, type CollectionIndexItem } from '@platform/tauri/client';
 import { createTableDocument, serializeTableDocument } from '@features/multidimensional-table/model';
 import { createMediaLibrary, serializeMediaLibrary } from '@features/media-library/model';
+import { serializeHybridCollectionDocument } from '@features/collection/model';
 import { ensureCollectionDisplay } from '@/lib/collection-display-registry';
 import { useWorkColumnStore } from '../store/work-column-store';
 import { useBrowserColumnStore } from '../store/browser-column-store';
@@ -14,14 +15,20 @@ function activate(target: WorkColumnTarget) {
   store.commitNavigation(store.beginNavigation(target, null), target);
 }
 
-function fixture(type: 'table' | 'media_library', filename: string) {
-  const document = type === 'table' ? createTableDocument() : createMediaLibrary('照片');
-  const content = type === 'table'
+function fixture(type: 'table' | 'media_library' | 'hybrid', filename: string) {
+  const document = type === 'media_library' ? createMediaLibrary('照片') : createTableDocument();
+  const table = document as ReturnType<typeof createTableDocument>;
+  const content = type === 'hybrid' ? serializeHybridCollectionDocument({
+    collection: { ...table.collection, type: 'hybrid' },
+    payload: { schema_version: 3, file_tree: false, domains: { notes: table.dataset },
+      views: { default_by_domain: { notes: table.views.default_id },
+        items: table.views.items.map((view) => ({ ...view, domain: 'notes' })) } },
+  }) : type === 'table'
     ? serializeTableDocument(document as ReturnType<typeof createTableDocument>)
     : serializeMediaLibrary(document as ReturnType<typeof createMediaLibrary>);
   const item: CollectionIndexItem = {
     collectionId: document.collection.id, collectionType: type, relativePath: filename,
-    indexSequence: 1, name: filename.replace(/\.(?:index\.ya?ml|(?:table|lib)\.ya?ml)$/i, ''), schemaVersion: 2, payloadSchemaVersion: 2,
+    indexSequence: 1, name: filename.replace(/\.(?:index\.ya?ml|(?:table|lib)\.ya?ml)$/i, ''), schemaVersion: type === 'hybrid' ? 3 : 2, payloadSchemaVersion: type === 'hybrid' ? 3 : 2,
     revision: 0, properties: {}, createdAt: null, updatedAt: null, modifiedMs: 0,
     sizeBytes: content.length, contentHash: null, parseState: 'valid', errorCode: null,
     inViews: true, identityConflict: false,
@@ -42,7 +49,7 @@ describe('browser column collection navigation', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it.each(['table', 'media_library'] as const)('resolves .index.yaml as %s and clears collection state when selecting Markdown', async (type) => {
+  it.each(['table', 'media_library', 'hybrid'] as const)('resolves .index.yaml as %s and clears collection state when selecting Markdown', async (type) => {
     const item = fixture(type, '项目.index.yaml');
     const opened = await openBrowserColumnText('/notes/项目.index.yaml', '/notes');
     expect(opened?.host).toBe('column-2');

@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { createPortal } from 'react-dom';
 import { CollectionNoteFilterSlot } from '@shared/ui/collection-note-filter-slot';
 
@@ -1911,17 +1912,17 @@ function TableDocumentViewSession({ onSurfaceLifecycleReady, reportPresentation,
     </Popover>
     {/* 内嵌表格的视图删除；工作区集合统一由外壳管理。 */}
     <Dialog open={viewPendingDelete !== null} onOpenChange={(open) => { if (!open) { cancelDeleteView(); } }}>
-      <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('multidimensionalTable.view.delete')}</DialogTitle>
           <DialogDescription>
             {t('multidimensionalTable.view.deleteConfirm', { name: viewPendingDelete?.name ?? '' })}
           </DialogDescription>
         </DialogHeader>
-        <div className="mt-4 flex justify-end gap-2">
+        <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => { cancelDeleteView(); }}>{t('dialog.cancel')}</Button>
           <Button type="button" variant="destructive" onClick={() => { confirmDeleteView(); }}>{t('dialog.delete')}</Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
     </div>

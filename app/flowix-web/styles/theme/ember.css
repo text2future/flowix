@@ -152,7 +152,7 @@
 	--warning: oklch(0.80 0.105 75);
 	/* 信息提示: 在 ember 暖白底上读作 "冷锚点", 跟珊瑚主色形成色温对位；
 	 * 亮度下调以保证白字达到普通文字 AA 对比度。 */
-	--info: oklch(0.52 0.165 235);
+	--info: #0085e6;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: light;

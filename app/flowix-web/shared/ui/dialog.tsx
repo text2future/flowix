@@ -1,9 +1,19 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import {
+	createContext,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+	type HTMLAttributes,
+	type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DIALOG_HEADING_CLASS, DIALOG_OVERLAY_CLASS, DIALOG_SURFACE_CLASS } from './dialog-styles';
+import { DialogCloseButton } from './dialog-close-button';
+import { DialogAppearanceContext } from './dialog-appearance-context';
 
 interface DialogContextType {
 	open: boolean;
@@ -34,13 +44,11 @@ export function Dialog({ children, open, onOpenChange }: DialogProps) {
 	);
 }
 
-interface DialogContentProps {
-	children: ReactNode;
-	className?: string;
+interface DialogContentProps extends HTMLAttributes<HTMLDivElement> {
 	overlayClassName?: string;
-	fullScreen?: boolean;
 	showOverlay?: boolean;
 	showCloseButton?: boolean;
+	closeDisabled?: boolean;
 	trapFocus?: boolean;
 }
 
@@ -50,9 +58,14 @@ export function DialogContent({
 	children,
 	className,
 	overlayClassName,
+	role,
+	'aria-modal': ariaModal,
 	showOverlay = true,
 	showCloseButton = true,
+	closeDisabled = false,
 	trapFocus = false,
+	tabIndex,
+	...contentProps
 }: DialogContentProps) {
 	const context = useDialogContext();
 	const open = context?.open ?? false;
@@ -164,6 +177,10 @@ export function DialogContent({
 		};
 	}, [mounted, trapFocus]);
 
+	const requestClose = () => {
+		if (!closeDisabled) onOpenChange(false);
+	};
+
 	if (!mounted) return null;
 
 	const overlayAnimationClass = visible
@@ -181,37 +198,38 @@ export function DialogContent({
 		<>
 			{showOverlay && (
 				<div
+					data-slot="dialog-overlay"
 					className={cn(
-						'fixed inset-0 bg-black/50 z-[var(--layer-dialog)]',
+						'fixed inset-0 z-[var(--layer-dialog)]',
+						DIALOG_OVERLAY_CLASS,
 						overlayAnimationClass,
 						overlayClassName,
 					)}
-					onClick={() => onOpenChange(false)}
+					onClick={requestClose}
 				/>
 			)}
 			{/* Centering wrapper — keeps the dialog centered without fighting
 			    the keyframe's `transform` (which would clobber Tailwind's
 			    `-translate-x-1/2 -translate-y-1/2`). `pointer-events-none` lets
 			    clicks on the wrapper pass through to the overlay behind. */}
-				<div className="fixed inset-0 z-[var(--layer-dialog)] flex items-center justify-center pointer-events-none">
-					<div
-						ref={contentRef}
-						tabIndex={trapFocus ? -1 : undefined}
+			<div className="fixed inset-0 z-[var(--layer-dialog)] flex items-center justify-center pointer-events-none">
+				<div
+					ref={contentRef}
+					{...contentProps}
+					role={role ?? 'dialog'}
+					aria-modal={ariaModal ?? true}
+					tabIndex={trapFocus ? -1 : tabIndex}
 					className={cn(
-						'relative w-full max-w-[380px] rounded-2xl bg-[var(--background)] px-5 py-4 shadow-lg pointer-events-auto',
+						'relative w-full max-w-[380px] px-5 py-6 pointer-events-auto',
+						showOverlay ? DIALOG_SURFACE_CLASS : 'rounded-2xl bg-[var(--background)] shadow-lg',
 						contentAnimationClass,
-						className
+						className,
 					)}
 				>
 					{showCloseButton && (
-						<button
-							onClick={() => onOpenChange(false)}
-							className="absolute top-3 right-3 z-20 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0 text-[var(--muted-foreground)] shadow-sm transition-colors duration-150 hover:border-[color-mix(in_oklch,var(--border)_65%,var(--muted-foreground))] hover:text-[color-mix(in_oklch,var(--muted-foreground)_75%,var(--foreground))]"
-						>
-							<X className="w-4 h-4" />
-						</button>
+						<DialogCloseButton onClick={requestClose} disabled={closeDisabled} />
 					)}
-					{children}
+					<DialogAppearanceContext.Provider value={showOverlay}>{children}</DialogAppearanceContext.Provider>
 				</div>
 			</div>
 		</>,
@@ -221,15 +239,15 @@ export function DialogContent({
 
 export function DialogHeader({ className, children }: { className?: string; children: ReactNode }) {
 	return (
-		<div className={cn('mb-3', className)}>
+		<div className={cn('mb-2 w-full min-w-0', className)}>
 			{children}
 		</div>
 	);
 }
 
-export function DialogTitle({ className, children }: { className?: string; children: ReactNode }) {
+export function DialogTitle({ className, children, ...props }: HTMLAttributes<HTMLHeadingElement>) {
 	return (
-		<h2 className={cn('text-base font-semibold text-[var(--foreground)]', className)}>
+		<h2 {...props} className={cn(DIALOG_HEADING_CLASS, 'pr-10 text-[var(--foreground)]', className)}>
 			{children}
 		</h2>
 	);
@@ -237,7 +255,7 @@ export function DialogTitle({ className, children }: { className?: string; child
 
 export function DialogDescription({ className, children }: { className?: string; children: ReactNode }) {
 	return (
-		<p className={cn('text-sm text-[var(--muted-foreground)] mt-1', className)}>
+		<p className={cn('mt-1 w-full min-w-0 text-sm text-[var(--muted-foreground)]', className)}>
 			{children}
 		</p>
 	);

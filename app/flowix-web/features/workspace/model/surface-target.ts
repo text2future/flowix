@@ -1,4 +1,4 @@
-import type { PluginDescriptor } from '@platform/tauri/client';
+import type { CollectionIndexItem, PluginDescriptor } from '@platform/tauri/client';
 import type { CollectionDisplayDescriptor } from '@/lib/collection-display-registry';
 
 /** Public content targets have no dependency on a host store or React view. */
@@ -18,7 +18,7 @@ export interface FileBrowserTarget extends FileBrowserContext {
   kind: 'file-browser';
   activeFilePath: string | null;
   collectionDisplay?: CollectionDisplayDescriptor;
-  collectionType?: 'table' | 'media_library' | 'work_documents';
+  collectionType?: CollectionIndexItem['collectionType'];
   collectionUnavailableReason?: string;
 }
 
@@ -28,7 +28,7 @@ export interface CollectionSurfaceTarget {
   notebookId: string;
   collectionId: string;
   viewId: string | null;
-  collectionType: 'table' | 'media_library' | 'work_documents';
+  collectionType: CollectionIndexItem['collectionType'];
   filePath: string;
   notebookPath: string;
   name: string;
@@ -83,7 +83,7 @@ export interface CollectionReferenceSurfaceTarget {
   kind: 'collection-reference';
   notebookId: string;
   collectionId: string;
-  collectionKind?: 'table' | 'media_library' | 'work_documents';
+  collectionKind?: CollectionIndexItem['collectionType'];
   viewId?: string | null;
   displayId?: string;
   relativePathHint?: string;

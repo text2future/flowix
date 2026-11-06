@@ -52,8 +52,7 @@ export async function handleMarketInstall(data: unknown, ports: MarketInstallPor
   const archive = isRecord(item?.archive) ? item.archive : null;
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || id.length > 64 || !displayName || displayName.length > 200
     || archive?.url !== `${ports.origin}/${kind === 'skill' ? 'skills' : 'templates'}/archives/${id}.zip`
-    || (kind === 'skill' && !validSource(archive.source))
-    || (kind === 'template' && archive.targetDirectory !== undefined && typeof archive.targetDirectory !== 'string')) {
+    || (kind === 'skill' && !validSource(archive.source))) {
     respond({ success: false, code: 'invalid_package' }); return;
   }
   const notebook = ports.getSelectedNotebook();
@@ -66,7 +65,7 @@ export async function handleMarketInstall(data: unknown, ports: MarketInstallPor
     if (kind === 'skill') {
       await ports.installSkill(notebook.path, id, { url: archive.url, source: archive.source as ProjectSkillSource | undefined | null });
     } else {
-      await ports.installTemplate(notebook.path, id, { url: archive.url, targetDirectory: typeof archive.targetDirectory === 'string' ? archive.targetDirectory : displayName });
+      await ports.installTemplate(notebook.path, id, { url: archive.url });
     }
 
   } catch (error) {

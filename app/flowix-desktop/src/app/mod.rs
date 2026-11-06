@@ -1,6 +1,7 @@
 pub mod bootstrap;
 pub mod document_access;
 pub mod export_access;
+mod mime_icon;
 pub mod native_menu;
 pub mod open_targets;
 pub mod notebook_background;

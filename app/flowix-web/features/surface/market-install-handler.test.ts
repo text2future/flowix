@@ -18,7 +18,7 @@ describe('market installation dispatch', () => {
   it('installs arbitrary template IDs and preserves request correlation', async () => {
     const { ports, request } = setup();
     await handleMarketInstall(request('template'), ports);
-    expect(ports.installTemplate).toHaveBeenCalledWith('/notes/A', 'second-package', { url: `${origin}/templates/archives/second-package.zip`, targetDirectory: '工作计划' });
+    expect(ports.installTemplate).toHaveBeenCalledWith('/notes/A', 'second-package', { url: `${origin}/templates/archives/second-package.zip` });
     expect(ports.respond).toHaveBeenCalledWith(expect.objectContaining({ type: 'flowix:skill-market:install-template-result', requestId: 'request', notebookId: 'A', success: true }));
     expect(ports.onInstalled).toHaveBeenCalledOnce();
   });

@@ -1,4 +1,4 @@
-const PRODUCTION_ORIGIN = 'https://skills.flowix.cc';
+const PRODUCTION_ORIGINS = new Set(['https://skills.flowix.cc', 'https://flowix.cc']);
 
 const CHINESE_ENTRY = /^\/i(?:\/(?:index(?:\.html)?)?)?\/?$/;
 const ENGLISH_ENTRY = /^\/i\/en(?:\/(?:index(?:\.html)?)?)?\/?$/;
@@ -17,7 +17,7 @@ export function skillMarketUrlForLanguage(url: string, language: string, allowLo
   const parsed = new URL(url);
   if (!CHINESE_ENTRY.test(parsed.pathname) && !ENGLISH_ENTRY.test(parsed.pathname)) return null;
   if (skillMarketLanguageForUrl(url) !== language) {
-    const extension = parsed.origin === PRODUCTION_ORIGIN ? '' : '.html';
+    const extension = PRODUCTION_ORIGINS.has(parsed.origin) ? '' : '.html';
     parsed.pathname = (language === 'en-US' ? '/i/en/index' : '/i/index') + extension;
   }
   return parsed.href;
@@ -28,7 +28,7 @@ export function skillMarketOriginForUrl(url: string, allowLocal = false): string
   try {
     const parsed = new URL(url);
     if (parsed.pathname !== '/i' && !parsed.pathname.startsWith('/i/')) return null;
-    if (parsed.origin === PRODUCTION_ORIGIN) return parsed.origin;
+    if (PRODUCTION_ORIGINS.has(parsed.origin)) return parsed.origin;
     if (allowLocal && parsed.protocol === 'http:'
       && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) return parsed.origin;
   } catch {

@@ -1,5 +1,8 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Button } from '@shared/ui/button';
+
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   DropdownMenu,
@@ -279,64 +282,66 @@ export function NotebookIconMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
       <Dialog open={feedbackOpen} onOpenChange={(next) => { if (!feedbackBusy) setFeedbackOpen(next); }}>
-        <DialogContent className="max-w-lg rounded-xl border border-[var(--border-popup)] bg-[var(--background)]">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('memo.list.notebookMenu.feedback.title')}</DialogTitle>
             <DialogDescription>{t('memo.list.notebookMenu.feedback.description')}</DialogDescription>
           </DialogHeader>
-          <form className="mt-4 space-y-4" onSubmit={(event) => void submitFeedback(event)}>
-            <div className="space-y-1.5 text-sm">
-              <span className="block">{t('memo.list.notebookMenu.feedback.type')}<span className="ml-1 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs text-[var(--success)]">{t('memo.list.notebookMenu.feedback.required')}</span></span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild onClick={(event) => setFeedbackTypeTriggerWidth(event.currentTarget.getBoundingClientRect().width)}>
-                  <button type="button" aria-required="true" disabled={feedbackBusy} className="flex h-9 w-1/2 items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
-                    <span>{t(`memo.list.notebookMenu.feedback.${feedbackType === 'product_suggestion' ? 'suggestion' : 'issue'}`)}</span>
-                    <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)]" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" sideOffset={4} style={{ width: feedbackTypeTriggerWidth ?? undefined }} className="min-w-0 space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
-                  <DropdownMenuItem onClick={() => setFeedbackType('product_suggestion')} className="flex h-8 items-center justify-between rounded-lg px-2 hover:bg-[var(--hover-bg)]">
-                    <span>{t('memo.list.notebookMenu.feedback.suggestion')}</span>
-                    {feedbackType === 'product_suggestion' && <Check className="h-4 w-4 text-[var(--brand)]" />}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setFeedbackType('usage_issue')} className="flex h-8 items-center justify-between rounded-lg px-2 hover:bg-[var(--hover-bg)]">
-                    <span>{t('memo.list.notebookMenu.feedback.issue')}</span>
-                    {feedbackType === 'usage_issue' && <Check className="h-4 w-4 text-[var(--brand)]" />}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <label className="block space-y-1.5 text-sm">
-              <span>{t('memo.list.notebookMenu.feedback.content')}<span className="ml-1 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs text-[var(--success)]">{t('memo.list.notebookMenu.feedback.required')}</span></span>
-              <textarea required maxLength={2000} disabled={feedbackBusy} value={feedbackText} onChange={(event) => setFeedbackText(event.target.value)} rows={6} className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)] disabled:opacity-50" placeholder={t('memo.list.notebookMenu.feedback.placeholder')} />
-            </label>
-            <div className="block space-y-1.5 text-sm">
-              <div className="flex items-center gap-2">
-                <span>{t('memo.list.notebookMenu.feedback.attachments')}</span>
-                <span className="text-sm text-[var(--muted-foreground)]">{t('memo.list.notebookMenu.feedback.imageHint')}</span>
+          <form onSubmit={(event) => void submitFeedback(event)}>
+            <div className="space-y-4">
+              <div className="space-y-1.5 text-sm">
+                <span className="block">{t('memo.list.notebookMenu.feedback.type')}<span className="ml-1 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs text-[var(--success)]">{t('memo.list.notebookMenu.feedback.required')}</span></span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(event) => setFeedbackTypeTriggerWidth(event.currentTarget.getBoundingClientRect().width)}>
+                    <button type="button" aria-required="true" disabled={feedbackBusy} className="flex h-9 w-1/2 items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-left text-sm hover:bg-[var(--hover-bg)] disabled:opacity-50">
+                      <span>{t(`memo.list.notebookMenu.feedback.${feedbackType === 'product_suggestion' ? 'suggestion' : 'issue'}`)}</span>
+                      <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)]" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" sideOffset={4} style={{ width: feedbackTypeTriggerWidth ?? undefined }} className="min-w-0 space-y-0.5 rounded-xl border-[var(--border-popup)] p-1 shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+                    <DropdownMenuItem onClick={() => setFeedbackType('product_suggestion')} className="flex h-8 items-center justify-between rounded-lg px-2 hover:bg-[var(--hover-bg)]">
+                      <span>{t('memo.list.notebookMenu.feedback.suggestion')}</span>
+                      {feedbackType === 'product_suggestion' && <Check className="h-4 w-4 text-[var(--brand)]" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFeedbackType('usage_issue')} className="flex h-8 items-center justify-between rounded-lg px-2 hover:bg-[var(--hover-bg)]">
+                      <span>{t('memo.list.notebookMenu.feedback.issue')}</span>
+                      {feedbackType === 'usage_issue' && <Check className="h-4 w-4 text-[var(--brand)]" />}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-              <input ref={feedbackFileInputRef} type="file" disabled={feedbackBusy} aria-label={t('memo.list.notebookMenu.feedback.attachments')} accept="image/png,image/jpeg,image/webp,image/gif" multiple className="sr-only" onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                addFeedbackFiles(files);
-                event.target.value = '';
-              }} />
-              <div className="flex flex-wrap gap-2 pt-1">
-                {feedbackPreviews.map(({ file, url }, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className="relative h-[100px] w-[100px] shrink-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
-                  <img src={url} alt={file.name} className="h-full w-full object-cover" />
-                  <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-1 text-[10px] text-white" title={file.name}>{file.name}</span>
-                  <button type="button" disabled={feedbackBusy} onClick={() => setFeedbackFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={t('memo.list.notebookMenu.feedback.removeImage')} title={t('memo.list.notebookMenu.feedback.removeImage')} className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/75">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>)}
-                {feedbackFiles.length < 3 && <button type="button" disabled={feedbackBusy} onClick={() => feedbackFileInputRef.current?.click()} aria-label={t('memo.list.notebookMenu.feedback.addImage')} title={t('memo.list.notebookMenu.feedback.addImage')} className="flex h-[100px] w-[100px] shrink-0 items-center justify-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] transition-colors hover:border-[var(--brand)] hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)] disabled:opacity-50">
-                  <Plus className="h-7 w-7" />
-                </button>}
+              <label className="block space-y-1.5 text-sm">
+                <span>{t('memo.list.notebookMenu.feedback.content')}<span className="ml-1 rounded-md bg-[color-mix(in_oklch,var(--success)_15%,transparent)] px-1.5 py-0.5 text-xs text-[var(--success)]">{t('memo.list.notebookMenu.feedback.required')}</span></span>
+                <textarea required maxLength={2000} disabled={feedbackBusy} value={feedbackText} onChange={(event) => setFeedbackText(event.target.value)} rows={6} className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)] disabled:opacity-50" placeholder={t('memo.list.notebookMenu.feedback.placeholder')} />
+              </label>
+              <div className="block space-y-1.5 text-sm">
+                <div className="flex items-center gap-2">
+                  <span>{t('memo.list.notebookMenu.feedback.attachments')}</span>
+                  <span className="text-sm text-[var(--muted-foreground)]">{t('memo.list.notebookMenu.feedback.imageHint')}</span>
+                </div>
+                <input ref={feedbackFileInputRef} type="file" disabled={feedbackBusy} aria-label={t('memo.list.notebookMenu.feedback.attachments')} accept="image/png,image/jpeg,image/webp,image/gif" multiple className="sr-only" onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  addFeedbackFiles(files);
+                  event.target.value = '';
+                }} />
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {feedbackPreviews.map(({ file, url }, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className="relative h-[100px] w-[100px] shrink-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
+                    <img src={url} alt={file.name} className="h-full w-full object-cover" />
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-1 text-[10px] text-white" title={file.name}>{file.name}</span>
+                    <button type="button" disabled={feedbackBusy} onClick={() => setFeedbackFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={t('memo.list.notebookMenu.feedback.removeImage')} title={t('memo.list.notebookMenu.feedback.removeImage')} className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/75">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>)}
+                  {feedbackFiles.length < 3 && <button type="button" disabled={feedbackBusy} onClick={() => feedbackFileInputRef.current?.click()} aria-label={t('memo.list.notebookMenu.feedback.addImage')} title={t('memo.list.notebookMenu.feedback.addImage')} className="flex h-[100px] w-[100px] shrink-0 items-center justify-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] transition-colors hover:border-[var(--brand)] hover:bg-[var(--hover-bg)] hover:text-[var(--foreground)] disabled:opacity-50">
+                    <Plus className="h-7 w-7" />
+                  </button>}
+                </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" disabled={feedbackBusy} onClick={() => setFeedbackOpen(false)} className="h-9 rounded-lg border border-[var(--border)] px-3 text-sm">{t('memo.list.notebookMenu.feedback.cancel')}</button>
-              <button type="submit" disabled={feedbackBusy || !feedbackText.trim()} className="h-9 rounded-lg bg-[var(--brand)] px-4 text-sm text-white disabled:opacity-50">{feedbackBusy ? t('memo.list.notebookMenu.feedback.submitting') : t('memo.list.notebookMenu.feedback.submit')}</button>
-            </div>
+            <DialogFooter>
+              <Button type="button" disabled={feedbackBusy} onClick={() => setFeedbackOpen(false)} variant="outline">{t('memo.list.notebookMenu.feedback.cancel')}</Button>
+              <Button type="submit" disabled={feedbackBusy || !feedbackText.trim()} variant="default">{feedbackBusy ? t('memo.list.notebookMenu.feedback.submitting') : t('memo.list.notebookMenu.feedback.submit')}</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

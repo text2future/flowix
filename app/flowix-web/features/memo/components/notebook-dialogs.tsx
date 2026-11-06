@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from '@shared/ui/button';
+
 import { Input } from '@shared/ui/input';
 import {
   Dialog,
@@ -22,6 +24,12 @@ import {
   NotebookAgentLibraryHint,
   NotebookStorageLocationList,
 } from '@features/memo/components/notebook-create-form';
+import {
+  NOTEBOOK_FORM_DIALOG_CONTENT_CLASS,
+  NOTEBOOK_FORM_DIALOG_BODY_CLASS,
+  NOTEBOOK_FORM_DIALOG_TITLE_CLASS,
+  NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS,
+} from '@features/memo/components/notebook-form-dialog-styles';
 import type { Notebook } from '@features/memo/store/note-store';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
@@ -40,7 +48,6 @@ import { WindowsTitlebarControls } from '@shared/window-titlebar-controls';
 import { isMac } from '@features/shortcuts';
 import { OnboardingTitlebarMac } from '@features/onboarding/onboarding-titlebar-mac';
 
-const NOTEBOOK_FORM_DIALOG_CONTENT_CLASS = 'max-h-[min(720px,calc(100dvh-2rem))] w-[min(576px,calc(90vw-1.8rem))] max-w-none overflow-y-auto rounded-[28px] border border-[var(--border-popup)] bg-[var(--card)] p-0 text-[var(--foreground)] shadow-[0_22px_70px_rgba(15,23,42,0.16)] [&>button]:top-6 [&>button]:right-5';
 const NOTEBOOK_DIALOG_THEME_CLASS = '[--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)] [--onboarding-panel:color-mix(in_oklch,var(--card)_96%,var(--background))] [--onboarding-line:color-mix(in_oklch,var(--border)_78%,transparent)] [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--ring)] [&_button:focus-visible]:outline-offset-[3px]';
 
 interface NotebookDialogsProps {
@@ -218,8 +225,8 @@ export function NotebookDialogs({
     <>
       <Dialog open={createOpen} onOpenChange={onCreateOpenChange}>
         <DialogContent
-          showCloseButton={createMode === 'create'}
-          overlayClassName={createMode === 'create' ? 'bg-white/65 backdrop-blur-[14px] dark:bg-black/45' : undefined}
+          closeDisabled={isCreatingNotebook}
+          overlayClassName={createMode === 'create' ? NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS : undefined}
           aria-busy={isCreatingNotebook}
           aria-labelledby={createMode === 'create'
             ? 'flowix-create-notebook-form-title'
@@ -234,10 +241,9 @@ export function NotebookDialogs({
           {createMode !== 'create' && isMac() && <OnboardingTitlebarMac />}
           {createMode !== 'create' && <WindowsTitlebarControls reserveSpace />}
           <main className={cn(
-            'relative z-[1] w-full',
             createMode === 'create'
-              ? 'px-5 py-3'
-              : 'flex min-h-0 flex-1 flex-col overflow-hidden p-0',
+              ? NOTEBOOK_FORM_DIALOG_BODY_CLASS
+              : 'relative z-[1] flex min-h-0 w-full flex-1 flex-col overflow-hidden p-0',
           )}>
             <div className={cn(
               createMode === 'create'
@@ -293,11 +299,11 @@ export function NotebookDialogs({
                                     {t('notebook.cloudImport.synced')}
                                   </span>
                                 ) : (
-                                  <button
+                                  <Button
                                     type="button"
                                     disabled={remoteNotebookSyncingId !== null}
                                     onClick={() => onSelectRemoteNotebook(notebook)}
-                                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm text-[var(--primary-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                                    variant="default" className="shrink-0 gap-1.5"
                                   >
                                     {syncing ? (
                                       <Loader2 className="h-4 w-4 flowix-spin" />
@@ -305,7 +311,7 @@ export function NotebookDialogs({
                                       <CloudDownload className="h-4 w-4" />
                                     )}
                                     {t('notebook.cloudImport.sync')}
-                                  </button>
+                                  </Button>
                                 )}
                               </div>
                             );
@@ -360,6 +366,7 @@ export function NotebookDialogs({
             {createMode === 'create' ? (
               <NotebookCreateFooter
                 variant="dialog"
+                submitTone="brand"
                 formId="flowix-create-notebook-form"
                 disabled={!newNotebookName.trim()}
                 isBusy={isCreatingNotebook}
@@ -367,16 +374,16 @@ export function NotebookDialogs({
                 onCancel={onCancelCreate}
               />
             ) : (
-              <div className="absolute bottom-0 left-0 z-[4] m-0 flex min-h-20 w-full items-center justify-end border-t border-[var(--onboarding-line)] bg-[var(--frame-bg)] px-[clamp(28px,6vw,96px)] pb-[calc(16px+env(safe-area-inset-bottom))] pt-4 max-[600px]:flex-wrap max-[600px]:gap-2 max-[600px]:px-5 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:pt-3">
+              <div className="absolute bottom-0 left-0 z-[4] m-0 flex min-h-20 w-full items-center justify-end border-t border-[var(--onboarding-line)] bg-[var(--frame-bg)] px-[clamp(28px,6vw,96px)] pb-[calc(16px+env(safe-area-inset-bottom))] max-[600px]:flex-wrap max-[600px]:gap-2 max-[600px]:px-5 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] pt-4">
                 <div className="mx-auto flex w-full max-w-[780px] items-center justify-end gap-2">
-                  <button
+                  <Button
                     type="button"
                     onClick={onCancelCreate}
                     disabled={isCreatingNotebook}
-                    className="inline-flex h-8 min-h-8 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-transparent px-[15px] text-xs font-medium text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:opacity-50"
+                    variant="outline" className="gap-2"
                   >
                     {t('notebook.create.cancel')}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -385,16 +392,16 @@ export function NotebookDialogs({
       </Dialog>
       <Dialog open={editOpen} onOpenChange={onEditOpenChange}>
         <DialogContent
-          overlayClassName="bg-white/65 backdrop-blur-[14px] dark:bg-black/45"
+          overlayClassName={NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS}
           aria-busy={editSaving}
           aria-labelledby="flowix-edit-notebook-form-title"
           className={cn(NOTEBOOK_FORM_DIALOG_CONTENT_CLASS, NOTEBOOK_DIALOG_THEME_CLASS)}
         >
-          <main className="relative z-[1] w-full px-5 py-3">
+          <main className={NOTEBOOK_FORM_DIALOG_BODY_CLASS}>
             <section className="w-full">
               <h1
                 id="flowix-edit-notebook-form-title"
-                className="mt-4 mb-6 text-xl font-semibold leading-tight tracking-[-0.025em] text-[var(--onboarding-ink)]"
+                className={NOTEBOOK_FORM_DIALOG_TITLE_CLASS}
               >
                 {t('notebook.edit.title')}
               </h1>
@@ -419,7 +426,7 @@ export function NotebookDialogs({
                         disabled={editSaving}
                         onChange={(event) => onEditNotebookNameChange(event.target.value)}
                         autoFocus
-                        className="h-10 bg-[var(--card)] pl-10"
+                        className="pl-10"
                       />
                       <div className="absolute left-1 top-1 z-10 h-8 w-8">
                         <NotebookIconPopover
@@ -483,7 +490,7 @@ export function NotebookDialogs({
               cancelLabel={t('notebook.edit.cancel')}
               onCancel={onCancelEdit}
               leadingAction={editingNotebook ? (
-                <button
+                <Button
                   type="button"
                   disabled={editSaving}
                   onClick={() => {
@@ -495,10 +502,10 @@ export function NotebookDialogs({
                       new CustomEvent<Notebook>('flowix:request-delete-notebook', { detail: target })
                     );
                   }}
-                  className="inline-flex h-[38px] items-center justify-center rounded-[9px] border border-[var(--border)] bg-[var(--card)] px-[15px] text-sm text-[var(--foreground)] hover:border-[var(--destructive)] hover:text-[var(--destructive)] disabled:cursor-not-allowed disabled:opacity-50"
+                  variant="outline"
                 >
                   {t('notebook.edit.remove')}
-                </button>
+                </Button>
               ) : undefined}
             />
           </main>

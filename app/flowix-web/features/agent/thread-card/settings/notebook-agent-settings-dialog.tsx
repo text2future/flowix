@@ -1,3 +1,7 @@
+import { DialogCloseButton } from '@shared/ui/dialog-close-button';
+import { INPUT_CLASS, DIALOG_INPUT_CLASS } from '@shared/ui/input-styles';
+import { DIALOG_HEADING_CLASS, DIALOG_OVERLAY_CLASS, DIALOG_SURFACE_CLASS } from '@shared/ui/dialog-styles';
+import { DialogAppearanceContext } from '@shared/ui/dialog-appearance-context';
 import { useCallback, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EjectIcon } from "@phosphor-icons/react";
@@ -48,8 +52,7 @@ const EMPTY_WORKSPACE: NotebookAgentWorkspace = {
   agents: [],
 };
 
-const inputClass =
-  "h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_oklch,var(--primary)_16%,transparent)]";
+const inputClass = cn(INPUT_CLASS, DIALOG_INPUT_CLASS);
 const textareaClass =
   "min-h-32 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm leading-6 text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_oklch,var(--primary)_16%,transparent)]";
 
@@ -343,7 +346,7 @@ function McpList({
 }) {
   const entries = Object.entries(workspace.mcpServers);
   if (!entries.length) {
-    return <EmptyState icon={EjectIcon} title="还没有 MCP 服务" description="添加一个外部工具或数据源，让笔记本里的 Agent 可以按需使用。" action={<Button variant="default" className="gap-[3px] rounded-lg px-3" onClick={onAdd}><Plus />添加 MCP 服务</Button>} />;
+    return <EmptyState icon={EjectIcon} title="还没有 MCP 服务" description="添加一个外部工具或数据源，让笔记本里的 Agent 可以按需使用。" action={<Button variant="default" className="gap-[3px]" onClick={onAdd}><Plus />添加 MCP 服务</Button>} />;
   }
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--card)_82%,var(--background))]">
@@ -380,7 +383,7 @@ function FileList({
 }) {
   const isSkill = kind === "skill";
   if (!items.length) {
-    return <EmptyState icon={isSkill ? Sparkles : Bot} title={isSkill ? "还没有 Skills" : "还没有子 Agent"} description={isSkill ? "把重复的工作步骤保存下来，之后可以被不同 Agent 复用。" : "创建一个专门角色，让主 Agent 可以把任务交给它处理。"} action={<Button variant="default" className="gap-[3px] rounded-lg px-3" onClick={onAdd}><Plus />{isSkill ? "创建 Skill" : "创建子 Agent"}</Button>} />;
+    return <EmptyState icon={isSkill ? Sparkles : Bot} title={isSkill ? "还没有 Skills" : "还没有子 Agent"} description={isSkill ? "把重复的工作步骤保存下来，之后可以被不同 Agent 复用。" : "创建一个专门角色，让主 Agent 可以把任务交给它处理。"} action={<Button variant="default" className="gap-[3px]" onClick={onAdd}><Plus />{isSkill ? "创建 Skill" : "创建子 Agent"}</Button>} />;
   }
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--card)_82%,var(--background))]">
@@ -1155,86 +1158,98 @@ function NotebookAgentSettingsDialog({ notebookPath, onClose }: { notebookPath: 
   };
 
   if (loading) {
-    return <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/50 p-3"><div role="dialog" aria-modal="true" aria-label="项目 AI 设置" className="notebook-agent-settings-dialog flex h-[min(760px,calc(100vh-80px))] w-full max-w-[980px] items-center justify-center rounded-2xl bg-[var(--background)] text-sm text-[var(--muted-foreground)] shadow-2xl">加载中…</div></div>;
+    return (
+      <div className={cn("fixed inset-0 z-[135] flex items-center justify-center p-3", DIALOG_OVERLAY_CLASS)}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="项目 AI 设置"
+          className={cn("notebook-agent-settings-dialog relative flex h-[min(760px,calc(100vh-80px))] w-full max-w-[980px] items-center justify-center text-sm text-[var(--muted-foreground)]", DIALOG_SURFACE_CLASS)}
+        >
+          <DialogCloseButton onClick={requestClose} />
+          加载中…
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/50 p-3" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label="项目 AI 设置" className="notebook-agent-settings-dialog relative flex h-[min(820px,calc(100vh-80px))] w-full max-w-[980px] flex-col overflow-hidden rounded-2xl bg-[var(--background)] shadow-2xl">
-        <header className="flex shrink-0 items-center gap-4 border-b border-[var(--divider)] pl-4 pr-4 py-1.5">
-          <h1 className="min-w-0 flex-1 truncate whitespace-nowrap text-base font-semibold tracking-[-0.02em] text-[var(--foreground)]">项目 AI 设置</h1>
-          <button type="button" aria-label="关闭" className="ml-auto flex h-8 w-8 shrink-0 translate-x-1 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]" onClick={requestClose}>
-            <X className="h-4 w-4" strokeWidth={1.8} />
-          </button>
-        </header>
+    <DialogAppearanceContext.Provider value={true}>
+      <div className={cn("fixed inset-0 z-[135] flex items-center justify-center p-3", DIALOG_OVERLAY_CLASS)} onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+        <div role="dialog" aria-modal="true" aria-label="项目 AI 设置" className={cn("notebook-agent-settings-dialog relative flex h-[min(820px,calc(100vh-80px))] w-full max-w-[980px] flex-col overflow-hidden", DIALOG_SURFACE_CLASS)}>
+          <header className="flex shrink-0 items-center gap-4 border-b border-[var(--divider)] px-5 py-6">
+            <h1 className={cn("min-w-0 flex-1 truncate whitespace-nowrap text-[var(--foreground)]", DIALOG_HEADING_CLASS)}>项目 AI 设置</h1>
+            <DialogCloseButton className="static ml-auto shrink-0" onClick={requestClose} />
+          </header>
 
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <nav className="flex shrink-0 border-b border-[var(--divider)] bg-[color-mix(in_oklch,var(--card)_45%,transparent)] p-2 md:w-48 md:flex-col md:border-b-0 md:border-r md:p-3" aria-label="项目 AI 设置导航">
-            <div className="flex gap-1 md:flex-col md:gap-0 md:space-y-1" role="tablist">
-              <TabButton active={tab === "mcp"} icon={EjectIcon} label="MCP" onClick={() => { setTab("mcp"); closeEditor(); }} />
-              <TabButton active={tab === "skills"} icon={Sparkles} label="技能" onClick={() => { setTab("skills"); closeEditor(); }} />
-              <TabButton active={tab === "agents"} icon={Bot} label="智能体" onClick={() => { setTab("agents"); closeEditor(); }} />
-              <TabButton active={tab === "plugins"} icon={Puzzle} label="插件" onClick={() => { setTab("plugins"); closeEditor(); }} />
-              <TabButton active={tab === "other"} icon={Settings2} label="其他" onClick={() => { setTab("other"); closeEditor(); }} />
-              <TabButton active={tab === "memory"} icon={Brain} label="记忆" onClick={() => { setTab("memory"); closeEditor(); }} />
-            </div>
-            <div className="mt-auto hidden rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 md:flex md:items-center md:gap-2.5">
-              <p className="min-w-0 whitespace-normal break-words text-xs font-medium leading-5 text-[var(--foreground)]">配置内容对当前笔记本生效</p>
-            </div>
-          </nav>
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            <nav className="flex shrink-0 border-b border-[var(--divider)] bg-[color-mix(in_oklch,var(--card)_45%,transparent)] p-2 md:w-48 md:flex-col md:border-b-0 md:border-r md:p-3" aria-label="项目 AI 设置导航">
+              <div className="flex gap-1 md:flex-col md:gap-0 md:space-y-1" role="tablist">
+                <TabButton active={tab === "mcp"} icon={EjectIcon} label="MCP" onClick={() => { setTab("mcp"); closeEditor(); }} />
+                <TabButton active={tab === "skills"} icon={Sparkles} label="技能" onClick={() => { setTab("skills"); closeEditor(); }} />
+                <TabButton active={tab === "agents"} icon={Bot} label="智能体" onClick={() => { setTab("agents"); closeEditor(); }} />
+                <TabButton active={tab === "plugins"} icon={Puzzle} label="插件" onClick={() => { setTab("plugins"); closeEditor(); }} />
+                <TabButton active={tab === "other"} icon={Settings2} label="其他" onClick={() => { setTab("other"); closeEditor(); }} />
+                <TabButton active={tab === "memory"} icon={Brain} label="记忆" onClick={() => { setTab("memory"); closeEditor(); }} />
+              </div>
+              <div className="mt-auto hidden rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 md:flex md:items-center md:gap-2.5">
+                <p className="min-w-0 whitespace-normal break-words text-xs font-medium leading-5 text-[var(--foreground)]">配置内容对当前笔记本生效</p>
+              </div>
+            </nav>
 
-          <main className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-            <div className="px-5 py-6">
-              {error && <InlineError message={error} />}
-              {tab === "mcp" && <>
-                <SectionHeader title="MCP 服务" description="为这个笔记本里的 Agent 添加可调用的外部工具与数据源。" action={mcpAgent === "general" ? <Button variant="default" className="gap-[3px] px-3" onClick={() => openMcp(null)} disabled={!!editor}><Plus />添加</Button> : null} />
-                <AgentTabs active={mcpAgent} ariaLabel="MCP Agent" onChange={(agentKey) => { setMcpAgent(agentKey); closeEditor(); }} />
-                {mcpAgent === "codex" ? <CodexMcpList notebookPath={notebookPath} /> : mcpAgent === "dsh" ? <DeepSeekHarnessMcpList /> : <>
-                  {editor?.kind === "mcp" && mcpForm && <McpEditor form={mcpForm} onChange={(patch) => setMcpForm((current) => current ? { ...current, ...patch } : current)} onCancel={closeEditor} onSave={saveMcpDraft} error={formError} saving={false} />}
-                  <McpList workspace={workspace ?? EMPTY_WORKSPACE} onAdd={() => openMcp(null)} onEdit={openMcp} onDelete={deleteMcp} onToggle={toggleMcp} />
+            <main className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+              <div className="px-5 py-6">
+                {error && <InlineError message={error} />}
+                {tab === "mcp" && <>
+                  <SectionHeader title="MCP 服务" description="为这个笔记本里的 Agent 添加可调用的外部工具与数据源。" action={mcpAgent === "general" ? <Button variant="default" className="gap-[3px]" onClick={() => openMcp(null)} disabled={!!editor}><Plus />添加</Button> : null} />
+                  <AgentTabs active={mcpAgent} ariaLabel="MCP Agent" onChange={(agentKey) => { setMcpAgent(agentKey); closeEditor(); }} />
+                  {mcpAgent === "codex" ? <CodexMcpList notebookPath={notebookPath} /> : mcpAgent === "dsh" ? <DeepSeekHarnessMcpList /> : <>
+                    {editor?.kind === "mcp" && mcpForm && <McpEditor form={mcpForm} onChange={(patch) => setMcpForm((current) => current ? { ...current, ...patch } : current)} onCancel={closeEditor} onSave={saveMcpDraft} error={formError} saving={false} />}
+                    <McpList workspace={workspace ?? EMPTY_WORKSPACE} onAdd={() => openMcp(null)} onEdit={openMcp} onDelete={deleteMcp} onToggle={toggleMcp} />
+                  </>}
                 </>}
-              </>}
-              {tab === "skills" && <>
-                <SectionHeader title="Skills" description="把可复用的工作流程保存为 Markdown Skill，之后可被不同 Agent 使用。" action={skillAgent === "general" ? <Button variant="default" className="gap-[3px] px-3" onClick={() => openFile("skill", null)} disabled={!!editor}><Plus />创建</Button> : null} />
-                <AgentTabs active={skillAgent} ariaLabel="Skill Agent" onChange={(agentKey) => { setSkillAgent(agentKey); closeEditor(); }} />
-                {skillAgent === "codex" ? <CodexSkillsList notebookPath={notebookPath} /> : skillAgent === "dsh" ? <DeepSeekHarnessSkillsList /> : <div className="space-y-3">
-                  {editor?.kind === "file" && editor.fileKind === "skill" && fileForm && <FileEditor kind="skill" form={fileForm} onChange={(patch) => setFileForm((current) => current ? { ...current, ...patch } : current)} onCancel={closeEditor} onSave={saveFileDraft} error={formError} />}
-                  <FileList kind="skill" items={(workspace ?? EMPTY_WORKSPACE).skills} onAdd={() => openFile("skill", null)} onEdit={(id) => openFile("skill", id)} onDelete={(id) => deleteFile("skill", id)} onToggle={(id, enabled) => toggleFile("skill", id, enabled)} />
+                {tab === "skills" && <>
+                  <SectionHeader title="Skills" description="把可复用的工作流程保存为 Markdown Skill，之后可被不同 Agent 使用。" action={skillAgent === "general" ? <Button variant="default" className="gap-[3px]" onClick={() => openFile("skill", null)} disabled={!!editor}><Plus />创建</Button> : null} />
+                  <AgentTabs active={skillAgent} ariaLabel="Skill Agent" onChange={(agentKey) => { setSkillAgent(agentKey); closeEditor(); }} />
+                  {skillAgent === "codex" ? <CodexSkillsList notebookPath={notebookPath} /> : skillAgent === "dsh" ? <DeepSeekHarnessSkillsList /> : <div className="space-y-3">
+                    {editor?.kind === "file" && editor.fileKind === "skill" && fileForm && <FileEditor kind="skill" form={fileForm} onChange={(patch) => setFileForm((current) => current ? { ...current, ...patch } : current)} onCancel={closeEditor} onSave={saveFileDraft} error={formError} />}
+                    <FileList kind="skill" items={(workspace ?? EMPTY_WORKSPACE).skills} onAdd={() => openFile("skill", null)} onEdit={(id) => openFile("skill", id)} onDelete={(id) => deleteFile("skill", id)} onToggle={(id, enabled) => toggleFile("skill", id, enabled)} />
+                  </div>}
+                </>}
+                {tab === "agents" && <>
+                  <SectionHeader title="子 Agent" description="创建专门角色，让主 Agent 可以把任务交给更合适的处理者。" action={childAgent === "general" ? <Button variant="default" className="gap-[3px]" onClick={() => openFile("agent", null)} disabled={!!editor}><Plus />创建</Button> : null} />
+                  <AgentTabs active={childAgent} ariaLabel="子 Agent" onChange={(agentKey) => { setChildAgent(agentKey); closeEditor(); }} />
+                  {childAgent === "codex" ? <CodexAgentsList notebookPath={notebookPath} /> : childAgent === "dsh" ? <DeepSeekHarnessAgentsList /> : <div className="space-y-3">
+                    {editor?.kind === "file" && editor.fileKind === "agent" && fileForm && <FileEditor kind="agent" form={fileForm} onChange={(patch) => setFileForm((current) => current ? { ...current, ...patch } : current)} onCancel={closeEditor} onSave={saveFileDraft} error={formError} />}
+                    <FileList kind="agent" items={(workspace ?? EMPTY_WORKSPACE).agents} onAdd={() => openFile("agent", null)} onEdit={(id) => openFile("agent", id)} onDelete={(id) => deleteFile("agent", id)} onToggle={(id, enabled) => toggleFile("agent", id, enabled)} />
+                  </div>}
+                </>}
+                {tab === "plugins" && <>
+                  <SectionHeader title="插件" description="查看当前笔记本项目可用的 Codex 插件。" />
+                  <AgentTabs active="codex" keys={CODEX_RESOURCE_KEYS} ariaLabel="插件 Agent" onChange={() => undefined} />
+                  <CodexPluginsList notebookPath={notebookPath} />
+                </>}
+                {tab === "other" && <>
+                  <SectionHeader title="其他" description="查看 Codex 当前项目的模型与权限配置。" />
+                  <AgentTabs active="codex" keys={CODEX_RESOURCE_KEYS} ariaLabel="其他 Agent" onChange={() => undefined} />
+                  <CodexOtherSettings notebookPath={notebookPath} />
+                </>}
+                {tab === "memory" && <div className="flex min-h-full flex-col items-center justify-center py-16 text-center">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_oklch,var(--muted)_72%,var(--background))] text-[var(--muted-foreground)]"><Brain className="h-5 w-5" strokeWidth={1.7} /></span>
+                  <h2 className="mt-4 text-base font-semibold tracking-[-0.02em] text-[var(--foreground)]">记忆管理</h2>
+                  <p className="mt-1 max-w-[34ch] text-sm leading-6 text-[var(--muted-foreground)]">当前还没有可管理的笔记本记忆。</p>
                 </div>}
-              </>}
-              {tab === "agents" && <>
-                <SectionHeader title="子 Agent" description="创建专门角色，让主 Agent 可以把任务交给更合适的处理者。" action={childAgent === "general" ? <Button variant="default" className="gap-[3px] px-3" onClick={() => openFile("agent", null)} disabled={!!editor}><Plus />创建</Button> : null} />
-                <AgentTabs active={childAgent} ariaLabel="子 Agent" onChange={(agentKey) => { setChildAgent(agentKey); closeEditor(); }} />
-                {childAgent === "codex" ? <CodexAgentsList notebookPath={notebookPath} /> : childAgent === "dsh" ? <DeepSeekHarnessAgentsList /> : <div className="space-y-3">
-                  {editor?.kind === "file" && editor.fileKind === "agent" && fileForm && <FileEditor kind="agent" form={fileForm} onChange={(patch) => setFileForm((current) => current ? { ...current, ...patch } : current)} onCancel={closeEditor} onSave={saveFileDraft} error={formError} />}
-                  <FileList kind="agent" items={(workspace ?? EMPTY_WORKSPACE).agents} onAdd={() => openFile("agent", null)} onEdit={(id) => openFile("agent", id)} onDelete={(id) => deleteFile("agent", id)} onToggle={(id, enabled) => toggleFile("agent", id, enabled)} />
-                </div>}
-              </>}
-              {tab === "plugins" && <>
-                <SectionHeader title="插件" description="查看当前笔记本项目可用的 Codex 插件。" />
-                <AgentTabs active="codex" keys={CODEX_RESOURCE_KEYS} ariaLabel="插件 Agent" onChange={() => undefined} />
-                <CodexPluginsList notebookPath={notebookPath} />
-              </>}
-              {tab === "other" && <>
-                <SectionHeader title="其他" description="查看 Codex 当前项目的模型与权限配置。" />
-                <AgentTabs active="codex" keys={CODEX_RESOURCE_KEYS} ariaLabel="其他 Agent" onChange={() => undefined} />
-                <CodexOtherSettings notebookPath={notebookPath} />
-              </>}
-              {tab === "memory" && <div className="flex min-h-full flex-col items-center justify-center py-16 text-center">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_oklch,var(--muted)_72%,var(--background))] text-[var(--muted-foreground)]"><Brain className="h-5 w-5" strokeWidth={1.7} /></span>
-                <h2 className="mt-4 text-base font-semibold tracking-[-0.02em] text-[var(--foreground)]">记忆管理</h2>
-                <p className="mt-1 max-w-[34ch] text-sm leading-6 text-[var(--muted-foreground)]">当前还没有可管理的笔记本记忆。</p>
-              </div>}
-            </div>
-          </main>
-        </div>
+              </div>
+            </main>
+          </div>
 
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--divider)] bg-[color-mix(in_oklch,var(--background)_92%,var(--card))] px-5 py-3 sm:px-6">
-          <div className="min-w-0 text-xs text-[var(--muted-foreground)]">{dirty ? <span className="text-[var(--primary)]">有未保存更改</span> : <span className="inline-flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-[var(--primary)]" /></span>}</div>
-          <div className="flex items-center gap-2"><Button type="button" variant="ghost" onClick={requestClose}>取消</Button><Button type="button" disabled={!dirty || saving} onClick={() => void saveWorkspace()}>{saving ? <Loader2 className="flowix-spin" /> : null}保存</Button></div>
-        </footer>
+          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--divider)] bg-[color-mix(in_oklch,var(--background)_92%,var(--card))] px-5 pb-3 pt-4 sm:px-6">
+            <div className="min-w-0 text-xs text-[var(--muted-foreground)]">{dirty ? <span className="text-[var(--primary)]">有未保存更改</span> : <span className="inline-flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-[var(--primary)]" /></span>}</div>
+            <div className="flex items-center gap-2"><Button type="button" variant="ghost" onClick={requestClose}>取消</Button><Button type="button" disabled={!dirty || saving} onClick={() => void saveWorkspace()}>{saving ? <Loader2 className="flowix-spin" /> : null}保存</Button></div>
+          </footer>
+        </div>
       </div>
-    </div>
+    </DialogAppearanceContext.Provider>
   );
 }
 

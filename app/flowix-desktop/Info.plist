@@ -5,7 +5,13 @@
   放 Flowix 特有的:
     - CFBundleURLTypes: 注册 `flowix://` URL scheme, 让 OS 把浏览器 / 终端里
       `flowix://memo/<id>` 链接路由到 Flowix (launchd / LaunchServices 机制)
-    - Markdown 文件打开关联由 fileAssociations 声明
+    - CFBundleDocumentTypes: Markdown 文件打开关联。tauri.conf.json 的
+      `bundle.fileAssociations` 也会生成这个键，但 overlay 在 bundler 里最后
+      合并、且是整键覆盖，所以这里必须写全量条目 —— 只为补一个 bundler 不
+      支持的 CFBundleTypeIconFile（Finder / 桌面里 .md 的图标）。
+      图标资源 icons/md.icns 由 tauri.macos.conf.json 的 bundle.resources 映射
+      到 Contents/Resources/md.icns，生成脚本 scripts/gen-md-icns.mjs。
+      改 fileAssociations 时必须同步这里，否则新增的关联会被静默丢掉。
 
   dev (`tauri dev`) 不会把它作为 app bundle plist 读取；`build.rs` 会把其中的
   本地化字段嵌入调试二进制。打包后由 `tauri-build` 合并进 app bundle。跟
@@ -41,6 +47,28 @@
 	<array>
 		<string>zh-Hans</string>
 		<string>en</string>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>md</string>
+				<string>markdown</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>md.icns</string>
+		</dict>
 	</array>
 </dict>
 </plist>

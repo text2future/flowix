@@ -53,7 +53,6 @@ export interface ProjectSkillArchive {
 
 export interface NotebookTemplateArchive {
   url: string;
-  targetDirectory?: string;
 }
 
 export interface ProjectSkillResourceFile {

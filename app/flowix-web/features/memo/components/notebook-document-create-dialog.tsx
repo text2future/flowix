@@ -1,3 +1,6 @@
+
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Input } from '@shared/ui/input';
 import { useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/lib/toast';
@@ -80,15 +83,15 @@ export function NotebookDocumentCreateDialog({ request, onClose }: {
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-base">{title}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <form className="mt-4 space-y-4" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-          <input autoFocus value={name} disabled={saving} onChange={(event) => setName(event.target.value)} placeholder={defaultName} className="h-9 w-full rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm outline-none focus:border-[var(--brand)]" />
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={saving} onClick={onClose}>{t('dialog.cancel')}</Button>
-            <Button type="submit" size="sm" className="rounded-lg" disabled={!name.trim() || saving}>{saving ? t('memo.create.creating') : t('memo.create.confirm')}</Button>
-          </div>
+        <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          <Input autoFocus value={name} disabled={saving} onChange={(event) => setName(event.target.value)} placeholder={defaultName} />
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>{t('dialog.cancel')}</Button>
+            <Button type="submit" disabled={!name.trim() || saving}>{saving ? t('memo.create.creating') : t('memo.create.confirm')}</Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

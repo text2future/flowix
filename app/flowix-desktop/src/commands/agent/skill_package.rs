@@ -72,13 +72,7 @@ pub(super) fn validate_skill_archive_request(
         return Err("Skill ZIP manifest is invalid".to_string());
     }
     let url = url::Url::parse(&archive.url).map_err(|_| "Skill ZIP URL is invalid".to_string())?;
-    let production = url.scheme() == "https"
-        && url.host_str() == Some("skills.flowix.cc")
-        && url.port_or_known_default() == Some(443);
-    let local = cfg!(debug_assertions)
-        && url.scheme() == "http"
-        && matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
-    if (!production && !local)
+    if !crate::commands::market_package::is_market_archive_origin(&url)
         || !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
@@ -803,6 +797,16 @@ mod skill_install_tests {
             fs::read(folder.join("references/existing.md")).unwrap(),
             b"keep"
         );
+    }
+
+    #[test]
+    fn official_website_skill_archive_is_accepted() {
+        let mut request = ProjectSkillArchive {
+            url: "https://flowix.cc/skills/archives/example.zip".into(), source: None,
+        };
+        assert!(validate_skill_archive_request("example", &request).is_ok());
+        request.url = "https://flowix.cc.evil.test/skills/archives/example.zip".into();
+        assert!(validate_skill_archive_request("example", &request).is_err());
     }
 
     #[test]

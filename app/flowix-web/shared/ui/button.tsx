@@ -1,4 +1,7 @@
 import type * as React from "react"
+import { useContext } from "react"
+import { DialogAppearanceContext } from "./dialog-appearance-context"
+import { dialogActionClasses, type DialogActionTone } from "./dialog-styles"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -60,10 +63,18 @@ function Button({
     tooltipSideOffset?: number
     tooltipClassName?: string
   }) {
+  const inDialog = useContext(DialogAppearanceContext)
+  const modalAction = inDialog && !size?.startsWith("icon") && variant !== "link"
+  const dialogTone: DialogActionTone = variant === "default" ? "info"
+    : variant === "destructive" ? "error" : "secondary"
   const button = (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({ variant, size }),
+        modalAction && dialogActionClasses(dialogTone),
+        className,
+      )}
       {...props}
     />
   )

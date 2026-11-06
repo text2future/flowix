@@ -25,6 +25,9 @@
     ],
     "macOS": {
       "infoPlist": "Info.plist"
+    },
+    "resources": {
+      "icons/md.icns": "md.icns"
     }
   }
 }

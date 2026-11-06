@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight, Folder, Laptop, LoaderCircle, Plus, X } from 'lucide-react';
 import { Button } from '@shared/ui/button';
+import { dialogActionClasses } from '@shared/ui/dialog-styles';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +16,7 @@ import { Input } from '@shared/ui/input';
 import { NotebookIconPopover } from '@features/memo/components/notebook-icon-popover';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import { NOTEBOOK_FORM_DIALOG_TITLE_CLASS } from './notebook-form-dialog-styles';
 
 export function NotebookAgentLibraryHint() {
   const { t } = useI18n();
@@ -67,6 +69,7 @@ export interface NotebookCreateFormProps {
 
 export interface NotebookCreateFooterProps {
   variant?: 'page' | 'dialog';
+  submitTone?: 'info' | 'brand';
   formId: string;
   disabled: boolean;
   isBusy: boolean;
@@ -79,6 +82,7 @@ export interface NotebookCreateFooterProps {
 
 export function NotebookCreateFooter({
   variant = 'page',
+  submitTone = 'info',
   formId,
   disabled,
   isBusy,
@@ -91,7 +95,7 @@ export function NotebookCreateFooter({
   return (
     <div className={cn(
       variant === 'dialog'
-        ? 'flex w-full items-center gap-3 py-4'
+        ? 'flex w-full items-center gap-3 pt-4'
         : 'sticky bottom-0 z-[2] mx-auto flex min-h-[62px] w-[min(100%,680px)] flex-[0_0_auto] items-center gap-[18px] border-t border-[var(--onboarding-line)] bg-[var(--frame-bg)] pt-[18px] max-[760px]:min-h-[58px] max-[760px]:pt-[14px]',
       leadingAction ? 'justify-between' : 'justify-end',
     )}>
@@ -105,7 +109,12 @@ export function NotebookCreateFooter({
             type="button"
             onClick={onCancel}
             disabled={isBusy}
-            className="inline-flex h-[38px] min-h-[38px] items-center justify-center gap-2 rounded-[9px] border border-[var(--border)] bg-transparent px-[15px] text-sm font-medium text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:opacity-50"
+            className={cn(
+              'inline-flex items-center justify-center gap-2',
+              variant === 'dialog'
+                ? dialogActionClasses('secondary')
+                : 'h-[38px] min-h-[38px] rounded-[9px] border border-[var(--border)] bg-transparent px-[15px] text-sm font-medium text-[var(--onboarding-subtle)] hover:text-[var(--onboarding-ink)] disabled:opacity-50',
+            )}
           >
             {cancelLabel}
           </button>
@@ -113,7 +122,12 @@ export function NotebookCreateFooter({
         <button
           type="submit"
           form={formId}
-          className="inline-flex min-h-[38px] items-center justify-center gap-1 rounded-[9px] border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-sm font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-[0.46] max-[760px]:flex-1"
+          className={cn(
+            'inline-flex items-center justify-center gap-1 max-[760px]:flex-1',
+            variant === 'dialog'
+              ? dialogActionClasses(submitTone)
+              : 'min-h-[38px] rounded-[9px] border border-[var(--brand)] bg-[var(--brand)] px-[15px] text-sm font-semibold text-[var(--primary-foreground)] shadow-[0_8px_18px_color-mix(in_oklch,var(--brand)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-[0.46]',
+          )}
           disabled={disabled || isBusy}
           aria-busy={isBusy}
         >
@@ -296,7 +310,7 @@ export function NotebookCreateForm({
   return (
     <div className="w-full">
       <h1 id={`${formId}-title`} className={isDialog
-        ? 'mt-4 mb-6 text-xl font-semibold leading-tight tracking-[-0.025em] text-[var(--onboarding-ink)]'
+        ? NOTEBOOK_FORM_DIALOG_TITLE_CLASS
         : 'mb-10 text-4xl font-light leading-tight tracking-[-0.04em] text-[var(--onboarding-ink)] max-[760px]:text-3xl'}>
         {title}
       </h1>

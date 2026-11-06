@@ -1,5 +1,8 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Button } from '@shared/ui/button';
+
 import { collectionIndexPathForFolder } from '@features/collection/public/folder-api';
 import { CollectionResourceIcon } from '@features/collection/public/appearance-api';
 
@@ -847,47 +850,47 @@ export const NotebookTreeRow = memo(function NotebookTreeRow({
       </ContextMenuContent>
       </ContextMenu>
       <Dialog open={confirmDelete} onOpenChange={(open) => { if (!open && !deleting) setConfirmDelete(false); }}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('memo.fileTree.deleteFolderTitle')}</DialogTitle>
             <DialogDescription>{t('memo.fileTree.deleteFolderDescription')}</DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" disabled={deleting} onClick={() => setConfirmDelete(false)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">
+          <DialogFooter>
+            <Button type="button" disabled={deleting} onClick={() => setConfirmDelete(false)} variant="outline">
               {t('dialog.cancel')}
-            </button>
-            <button type="button" disabled={deleting} onClick={() => void confirmFolderDelete()} className="h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90 disabled:opacity-50">
+            </Button>
+            <Button type="button" disabled={deleting} onClick={() => void confirmFolderDelete()} variant="destructive">
               {t('memo.fileTree.delete')}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={confirmFileDelete} onOpenChange={(open) => {
         if (!open && !deleting) setConfirmFileDelete(false);
       }}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('document.external.deleteFileTitle')}</DialogTitle>
             <DialogDescription>{onDeleteSelected ? t('memo.fileTree.deleteSelectedDescription') : t('document.external.deleteFileDescription', { name: item.name })}</DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button
+          <DialogFooter>
+            <Button
               type="button"
               disabled={deleting}
               onClick={() => setConfirmFileDelete(false)}
-              className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]"
+              variant="outline"
             >
               {t('dialog.cancel')}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               disabled={deleting}
               onClick={() => void confirmFileDeleteAction()}
-              className="h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90 disabled:opacity-50"
+              variant="destructive"
             >
               {t('memo.fileTree.delete')}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

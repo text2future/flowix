@@ -25,9 +25,10 @@ export function FileBrowserRenderer({ surface: data, context }: {
     surface.scopePath,
     fileSurfaceKind === 'unavailable',
   );
+  // The table renderer hosts the shared CollectionShell, including hybrids without a notes domain.
   const fileKind = surface.collectionType === 'media_library'
     ? 'media-library'
-    : surface.collectionType === 'table'
+    : surface.collectionType === 'table' || surface.collectionType === 'hybrid'
       ? 'table'
       : surface.collectionType === 'work_documents'
         ? 'work-documents'

@@ -69,7 +69,7 @@ function parseBrowserColumnTarget(value: unknown): BrowserColumnTarget | null {
       return nonEmptyString(value.folderPath) || nonEmptyString(value.activeFilePath)
         ? {
             kind: 'file-browser',
-            ...(value.collectionType === 'table' || value.collectionType === 'media_library' || value.collectionType === 'work_documents' ? { collectionType: value.collectionType } : {}),
+            ...(value.collectionType === 'table' || value.collectionType === 'media_library' || value.collectionType === 'work_documents' || value.collectionType === 'hybrid' ? { collectionType: value.collectionType } : {}),
             ...(collectionDisplay ? { collectionDisplay } : {}),
             folderPath: nonEmptyString(value.folderPath) ? value.folderPath : null,
             notebookId: nonEmptyString(value.notebookId) ? value.notebookId : null,

@@ -39,6 +39,15 @@ export function getWorkspaceAgentRepositories(
     }));
 }
 
+/** Return the last validated repository settings, including when a refresh failed. */
+export function getCachedWorkspaceAgentRepositories(
+  notebookId: string | null,
+): WorkspaceAgentRepository[] | null {
+  const state = useAgentWorkspaceStore.getState();
+  if (!state.workspace.validatedAt) return null;
+  return getWorkspaceAgentRepositories(notebookId);
+}
+
 export function attachNotebookFolder(notebookId: string, path: string) {
   return useAgentWorkspaceStore.getState().workspaceActions.attachFolderToNotebook(notebookId, path);
 }

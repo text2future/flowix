@@ -1,3 +1,6 @@
+
+import { DialogFooter } from '@shared/ui/dialog-footer';
+import { Button } from '@shared/ui/button';
 import { useState } from 'react';
 import { isHtmlFilePath } from '@features/content/public/content-api';
 import { Code2, Ellipsis } from 'lucide-react';
@@ -172,21 +175,21 @@ export function DocumentTitlebarActions({
               {t(indexable ? 'memo.delete.description' : 'document.external.deleteFileDescription', { name: filePath.split(/[\\/]/).pop() ?? filePath })}
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setConfirmDelete(false)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)]">
+          <DialogFooter>
+            <Button type="button" onClick={() => setConfirmDelete(false)} variant="outline">
               {t('dialog.cancel')}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => {
                 setConfirmDelete(false);
                 void onDeleteExternalFile();
               }}
-              className="h-8 rounded-lg border border-[var(--destructive)] bg-[var(--destructive)] px-3 text-sm text-white hover:opacity-90"
+              variant="destructive"
             >
               {t(indexable ? 'memo.delete.confirm' : 'document.external.deleteFileConfirm')}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>}
       <Dialog open={!!confirmVersion} onOpenChange={(open) => !open && setConfirmVersion(null)}>
@@ -197,14 +200,14 @@ export function DocumentTitlebarActions({
               time: confirmVersion ? formatVersionTime(confirmVersion.createdAt, language) : '',
             } satisfies I18nParams)}</DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" disabled={!!restoringVersionId} onClick={() => setConfirmVersion(null)} className="h-8 rounded-lg px-3 text-sm hover:bg-[var(--muted)] disabled:opacity-60">
+          <DialogFooter>
+            <Button type="button" disabled={!!restoringVersionId} onClick={() => setConfirmVersion(null)} variant="outline">
               {t('document.version.cancel')}
-            </button>
-            <button type="button" disabled={!!restoringVersionId} onClick={() => { void restorePathVersion(); }} className="h-8 rounded-lg bg-[var(--primary)] px-3 text-sm text-[var(--primary-foreground)] disabled:opacity-60">
+            </Button>
+            <Button type="button" disabled={!!restoringVersionId} onClick={() => { void restorePathVersion(); }} variant="destructive">
               {t('document.version.confirm')}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </DropdownMenu>

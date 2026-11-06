@@ -193,11 +193,9 @@ export function useLocalHtmlPreview(
         const archiveOrigin = import.meta.env.DEV ? 'http://localhost:8088' : 'https://skills.flowix.cc';
         void agent.installNotebookTemplateZip(scopePath, templateId, {
           url: `${archiveOrigin}/templates/archives/${templateId}.zip`,
-          // This guide action explicitly installs its featured example. Market installs use manifest metadata.
-          targetDirectory: '小红书运营工作台',
         }).then((result) => respond(true, result)).catch((error: unknown) => {
           const failure = marketInstallFailure(error);
-          const message = failure.code === 'already_exists' ? '同名模板目录已存在，本次没有覆盖任何内容。'
+          const message = failure.code === 'already_exists' ? '模板已安装或与现有文件冲突，请检查后重试。'
             : failure.code === 'permission_denied' ? '笔记本目录无写入权限。'
               : failure.code === 'installation_unsupported' ? '请升级 Flowix 后重试。' : '模板安装失败，请检查网络后重试。';
           respond(false, undefined, message);

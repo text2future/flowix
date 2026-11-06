@@ -137,7 +137,7 @@ export function getWorkspaceSurfaceRendererDefinition(surface: WorkspaceSurfaceR
   const definition = workspaceSurfaceRendererRegistry[surface.kind];
   if (surface.kind !== 'file-browser' || !surface.props.activeFilePath) return definition;
   const props = surface.props;
-  const fileKind = props.collectionType === 'table' ? 'table'
+  const fileKind = props.collectionType === 'table' || props.collectionType === 'hybrid' ? 'table'
     : props.collectionType === 'media_library' ? 'media-library'
     : props.collectionType === 'work_documents' ? 'work-documents'
     : resolveWorkspaceFileSurfaceKind(props.activeFilePath!);
@@ -154,7 +154,7 @@ function initialSurfaceSkeleton(surface: WorkspaceSurfaceRendererData): InitialS
   if (surface.kind === 'file-work-documents') return 'work-documents';
   if (surface.kind === 'collection') return null;
   if (surface.kind !== 'file-browser' || !surface.props.activeFilePath) return null;
-  const fileKind = surface.props.collectionType === 'table' ? 'table'
+  const fileKind = surface.props.collectionType === 'table' || surface.props.collectionType === 'hybrid' ? 'table'
     : surface.props.collectionType === 'media_library' ? 'media-library'
     : surface.props.collectionType === 'work_documents' ? 'work-documents'
     : resolveWorkspaceFileSurfaceKind(surface.props.activeFilePath);

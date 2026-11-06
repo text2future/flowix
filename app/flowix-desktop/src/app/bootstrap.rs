@@ -225,6 +225,13 @@ pub fn run() {
                 let shutdown_app = app.handle().clone();
                 flowix_installer_helper::listen_for_shutdown(move || shutdown_app.exit(0));
             }
+            // Linux file managers take a file's icon from its MIME type, not
+            // from the handler, so owning the `.md` icon means installing a
+            // `text-markdown` icon into the user's hicolor theme. Background
+            // thread: first launch writes 16 small files, every later launch
+            // is a read-and-compare no-op.
+            #[cfg(target_os = "linux")]
+            super::mime_icon::spawn_install();
             record_startup_stage(&startup_coordinator, "native-setup-start");
             // Registry import and notebook inspection run in the startup
             // initialization worker after AppState exists.

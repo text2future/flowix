@@ -3,6 +3,7 @@
 import { useSessionWebRuntime } from '@features/workspace/public/session-web-api';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ArrowUpRight, ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
+import { createLogger } from '@/lib/logger';
 import { canonicalUrl } from '@/lib/url';
 import {
   createWorkspaceWebRuntime,
@@ -14,12 +15,13 @@ import {
 import type { WorkspaceWebRuntime } from '@features/workspace/public/surface-runtime-api';
 import { useI18n } from '@/lib/i18n';
 import { openUrl } from '@platform/tauri/opener';
-import { SkillMarketLoadingSkeleton } from '@shared/ui/skill-market-loading-skeleton';
 import { connectWebFrameScrollbar } from '@shared/ui/web-frame-scrollbar';
 import type { WorkspaceSurfaceRendererData, WorkspaceSurfaceRenderContext, WorkspaceWebNavigationPort } from './workspace-surface-renderer-contract';
 
 import { skillMarketLanguageForUrl, skillMarketOriginForUrl, skillMarketUrlForLanguage } from './skill-market-origin';
 import { useMarketBridge } from './use-market-bridge';
+
+const marketLogger = createLogger('skill-market');
 
 /** Work owns a view-local web session; Browser injects its tab runtime port. */
 function useLocalWebNavigation(url: string) {
@@ -98,6 +100,11 @@ export function WebRenderer({ surface, context }: {
   }, [currentUrl, language, port]);
 
   const onMarketReady = useCallback(() => {
+    if (embedTimeoutRef.current !== null) window.clearTimeout(embedTimeoutRef.current);
+    embedTimeoutRef.current = null;
+    setShowEmbedTimeout(false);
+    const current = port.getRuntime();
+    if (current) port.setRuntime({ ...current, isLoading: false, error: null });
     const title = language === 'en-US' ? 'Skill Market' : '技能市场';
     setPageTitle(title);
     port.updateMetadata({ title, icon: browserFaviconForUrl(currentUrl) });
@@ -136,14 +143,17 @@ export function WebRenderer({ surface, context }: {
   useEffect(() => {
     setShowEmbedTimeout(false);
     embedTimeoutRef.current = window.setTimeout(() => {
-      setShowEmbedTimeout(true);
-      reportRuntime({ isLoading: false, error: '网页可能禁止嵌入或加载超时' });
-    }, 6_000);
+      setShowEmbedTimeout(!isSkillMarket);
+      if (isSkillMarket) marketLogger.warn('Market navigation timed out', { origin: skillMarketOrigin, reloadToken });
+      reportRuntime({ isLoading: false, error: isSkillMarket
+        ? (isEnglishMarket ? 'Market did not respond. Please retry.' : '技能市场未响应，请重试')
+        : '网页可能禁止嵌入或加载超时' });
+    }, isSkillMarket ? 15_000 : 6_000);
     return () => {
       if (embedTimeoutRef.current !== null) window.clearTimeout(embedTimeoutRef.current);
       embedTimeoutRef.current = null;
     };
-  }, [currentUrl, reloadToken, reportRuntime]);
+  }, [currentUrl, reloadToken, reportRuntime, isSkillMarket, isEnglishMarket, skillMarketOrigin]);
 
   const handleNavigate = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -209,15 +219,16 @@ export function WebRenderer({ surface, context }: {
       icon: browserFaviconForUrl(loadedUrl),
     });
     setPageTitle(resolvedPageTitle);
-  }, [currentUrl, pageTitle, reportRuntime, port]);
+  }, [currentUrl, reportRuntime, port]);
 
+  const reportPresentation = context.reportPresentation;
   useEffect(() => {
     const error = runtime?.error;
     const isLoading = runtime?.isLoading ?? true;
-    context.reportPresentation?.({
+    reportPresentation?.({
       title: pageTitle,
       icon: browserFaviconForUrl(currentUrl) ?? undefined,
-      state: error
+      state: error && !isSkillMarket
         ? {
             status: 'error',
             message: { key: 'error.unexpected', fallbackText: error },
@@ -231,7 +242,7 @@ export function WebRenderer({ surface, context }: {
             }
           : { status: 'ready' },
     });
-  }, [context.reportPresentation, currentUrl, isSkillMarket, pageTitle, port.reload, runtime?.error, runtime?.isLoading]);
+  }, [reportPresentation, currentUrl, isSkillMarket, pageTitle, port.reload, runtime?.error, runtime?.isLoading]);
 
   const handleOpenInSystemBrowser = useCallback(() => {
     void openUrl(currentUrl).catch(() => {
@@ -311,13 +322,17 @@ export function WebRenderer({ surface, context }: {
           onLoad={handleIframeLoad}
           onError={() => {
             reportRuntime({ isLoading: false, error: isEnglishMarket ? 'Unable to load this page' : '网页加载失败' });
-            setShowEmbedTimeout(true);
+            setShowEmbedTimeout(!isSkillMarket);
           }}
           className="h-full w-full border-0"
           referrerPolicy="no-referrer"
         />
-        {isSkillMarket && (runtime?.isLoading ?? true) && !runtime?.error && !showEmbedTimeout && (
-          <div className="absolute inset-0 z-10"><SkillMarketLoadingSkeleton /></div>
+        {isSkillMarket && runtime?.error && (
+          <div role="status" className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs shadow-sm">
+            <span>{isEnglishMarket ? 'Loading is taking longer than expected.' : '网页加载较慢，可继续等待或重试。'}</span>
+            <button type="button" onClick={() => port.reload()} className="shrink-0 underline">{isEnglishMarket ? 'Retry' : '重试'}</button>
+            <button type="button" onClick={handleOpenInSystemBrowser} className="shrink-0 underline">{isEnglishMarket ? 'Open in browser' : '浏览器打开'}</button>
+          </div>
         )}
         {showEmbedTimeout && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/90 px-6 backdrop-blur-sm">
@@ -331,7 +346,11 @@ export function WebRenderer({ surface, context }: {
               >
                 <X className="h-4 w-4" />
               </button>
-              <p className="text-sm text-[var(--muted-foreground)]">{isEnglishMarket ? 'This page may block embedding or may have timed out.' : '网页可能禁止嵌入或加载超时'}</p>
+              <p className="text-sm text-[var(--muted-foreground)]">{isSkillMarket ? (isEnglishMarket ? 'The market did not respond. Retry or open it in your browser.' : '技能市场未响应，请重试或在系统浏览器中打开。') : '网页可能禁止嵌入或加载超时'}</p>
+              <button type="button" onClick={() => port.reload()}
+                className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-xs text-[var(--foreground)]">
+                {isEnglishMarket ? 'Retry' : '重试'}
+              </button>
               <button
                 type="button"
                 onClick={handleOpenInSystemBrowser}

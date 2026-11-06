@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useStartedLiveThreads } from './use-started-live-threads';
 
 import { removeAgentConversation } from '@features/agent/use-cases/remove-conversation';
@@ -569,7 +570,7 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
         />
       </ListSurfaceViewport>
       <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && !renameSaving && setRenameTarget(null)}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('agent.chat.conversation.rename')}</DialogTitle>
           </DialogHeader>
@@ -578,7 +579,6 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
               event.preventDefault();
               void submitRename();
             }}
-            className="space-y-4"
           >
             <Input
               autoFocus
@@ -587,14 +587,14 @@ export function AgentConversationList({ isActive = true, onBack }: AgentConversa
               placeholder={t('agent.chat.conversation.renamePrompt')}
               disabled={renameSaving}
             />
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={renameSaving}>
                 {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={renameSaving || !renameDraft.trim()}>
                 {t('document.version.confirm')}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

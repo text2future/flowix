@@ -35,6 +35,7 @@ export const MEDIA_COLUMN_GAP = 2;
 const MEDIA_CARD_ESTIMATED_HEIGHT = 320;
 export const WORK_DOCUMENT_CARD_MIN_WIDTH = 200;
 export const WORK_DOCUMENT_CARD_HEIGHT = 164;
+export const WORK_DOCUMENT_GRID_GAP = 14;
 
 export function cardPlaceholder(item: DocumentPageItem): string {
   if (item.resourceKind === 'folder') return folderCardPlaceholder;

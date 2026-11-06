@@ -52,7 +52,10 @@
     "verify:flowix-package": "node scripts/verify-flowix-package.mjs",
     "icons:phosphor:bold": "node scripts/extract-phosphor-bold-paths.mjs",
     "icons:sync": "node scripts/sync-property-icons.mjs",
-    "icons:sync:mochi": "node scripts/sync-mochi-icons.mjs"
+    "icons:sync:mochi": "node scripts/sync-mochi-icons.mjs",
+    "icons:md-icns": "node scripts/gen-md-icns.mjs",
+    "icons:md-ico": "node scripts/gen-md-ico.mjs",
+    "icons:md-linux": "node scripts/gen-md-linux-icons.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useEffect, useState } from 'react';
 import { boot, product, relaunch, type CloudEnvironment, type ProductInfo } from '@platform/tauri/client';
 import { Button } from '@shared/ui/button';
@@ -173,7 +174,7 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
               {t('preferences.environmentConfig.cloudEnvironment.prodConfirm.description')}
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
+          <DialogFooter>
             <Button
               variant="ghost"
               disabled={switchingCloudEnvironment}
@@ -182,12 +183,13 @@ export function EnvironmentConfigSection({ productInfo }: EnvironmentConfigSecti
               {t('dialog.cancel')}
             </Button>
             <Button
+              variant="destructive"
               disabled={switchingCloudEnvironment}
               onClick={() => void applyCloudEnvironment('prod')}
             >
               {t('preferences.environmentConfig.cloudEnvironment.prodConfirm.confirm')}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

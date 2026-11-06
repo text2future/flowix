@@ -55,3 +55,9 @@ describe('skill market product language routing', () => {
     expect(moveWorkspaceWebHistory(redirected, -1)?.currentUrl).toBe('https://example.com');
   });
 });
+
+
+it('connects the official website market without forcing the skills subdomain', () => {
+  expect(skillMarketOriginForUrl('https://flowix.cc/i/?view=templates')).toBe('https://flowix.cc');
+  expect(skillMarketUrlForLanguage('https://flowix.cc/i/?view=templates', 'en-US')).toBe('https://flowix.cc/i/en/index?view=templates');
+});

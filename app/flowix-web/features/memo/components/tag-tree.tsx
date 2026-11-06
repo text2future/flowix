@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useNotebookBackgroundStore } from '@features/memo/store/notebook-background-store';
 
 import {
@@ -892,7 +893,7 @@ export function TagTree({
               })()}
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-2">
+          <DialogFooter>
             <Button
               variant="ghost"
               onClick={() => setDeletingTag(null)}
@@ -910,7 +911,7 @@ export function TagTree({
             >
               {t('memo.tag.deleteConfirm')}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

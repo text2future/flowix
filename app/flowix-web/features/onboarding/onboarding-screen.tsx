@@ -9,6 +9,11 @@ import {
   createNotebookRegistration, notebookRepository, useNoteStore,
   DEFAULT_NOTEBOOK_ICON_ID,
 } from '@features/memo/public/onboarding-api';
+import {
+  NOTEBOOK_FORM_DIALOG_CONTENT_CLASS,
+  NOTEBOOK_FORM_DIALOG_BODY_CLASS,
+  NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS,
+} from '@features/memo/public/notebook-dialog-api';
 import { dialogs, notebooks, type NotebookRecord, type ObsidianVaultRecord } from '@platform/tauri/client';
 import { useI18n } from '@/lib/i18n';
 import { Dialog, DialogContent } from '@shared/ui/dialog';
@@ -16,13 +21,16 @@ import { useTauriRpc } from '@platform/tauri/use-tauri-rpc';
 import { attachNotebookFolder } from '@features/agent/public/workspace-api';
 import { useShortcutScope } from '@features/shortcuts';
 import { toast } from '@/lib/toast';
+import { cn } from '@/lib/utils';
 
 interface OnboardingScreenProps {
+  onClose?(): void;
   onFinish(notebook: NotebookRecord, options: { startImport: boolean }): Promise<void>;
 }
 
-export function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
+export function OnboardingScreen({ onFinish, onClose }: OnboardingScreenProps) {
   const { t, language } = useI18n();
+  const [open, setOpen] = useState(true);
   useShortcutScope('dialog');
   const { request } = useTauriRpc();
   const inFlight = useRef(false);
@@ -131,14 +139,19 @@ export function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
   };
 
   return (
-    <Dialog open onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (nextOpen || inFlight.current || isCreatingNotebook || isFinishing) return;
+      setOpen(false);
+      onClose?.();
+    }}>
       <DialogContent
-        showCloseButton={false}
+        closeDisabled={isCreatingNotebook || isFinishing}
         trapFocus
-        overlayClassName="bg-white/65 backdrop-blur-[14px] dark:bg-black/45"
-        className="max-h-[min(720px,calc(100dvh-2rem))] w-[min(576px,calc(90vw-1.8rem))] max-w-none overflow-y-auto rounded-[28px] border border-[var(--border-popup)] bg-[var(--card)] p-0 text-[var(--foreground)] shadow-[0_22px_70px_rgba(15,23,42,0.16)] [--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)]"
+        overlayClassName={NOTEBOOK_FORM_DIALOG_OVERLAY_CLASS}
+        aria-labelledby="flowix-onboarding-notebook-form-title"
+        className={cn(NOTEBOOK_FORM_DIALOG_CONTENT_CLASS, '[--onboarding-ink:var(--foreground)] [--onboarding-subtle:var(--muted-foreground)]')}
       >
-        <div role="dialog" aria-modal="true" aria-labelledby="flowix-onboarding-notebook-form-title" className="px-5 py-3">
+        <div className={NOTEBOOK_FORM_DIALOG_BODY_CLASS}>
           <NotebookCreateForm
             variant="dialog"
             title="创建笔记本"
@@ -185,6 +198,7 @@ export function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
           {error && <div className="mt-5 flex items-start gap-2 text-xs text-[var(--destructive)]" role="alert"><CircleAlert size={15} aria-hidden="true" />{error}</div>}
           <NotebookCreateFooter
             variant="dialog"
+            submitTone="brand"
             formId="flowix-onboarding-notebook-form"
             disabled={!notebookName.trim()}
             isBusy={isCreatingNotebook || isFinishing}

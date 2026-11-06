@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogFooter } from '@shared/ui/dialog-footer';
 import { useStartedLiveThreads } from './use-started-live-threads';
 
 import { removeAgentConversation } from '@features/agent/use-cases/remove-conversation';
@@ -486,9 +487,9 @@ export function AgentTasksSection({
         />
       ))}
       <Dialog open={conversationLimitDialogOpen} onOpenChange={setConversationLimitDialogOpen}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DialogContent>
           <DialogHeader><DialogTitle>{t('memo.fileTree.configureConversationCount')}</DialogTitle></DialogHeader>
-          <form onSubmit={saveConversationLimit} className="space-y-4">
+          <form onSubmit={saveConversationLimit}>
             <label className="block space-y-2 text-sm text-[var(--muted-foreground)]">
               <span>{t('memo.fileTree.conversationCountLabel')}</span>
               <Input
@@ -503,22 +504,22 @@ export function AgentTasksSection({
               />
               <span className="block text-xs">{t('memo.fileTree.conversationCountHint')}</span>
             </label>
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setConversationLimitDialogOpen(false)}>{t('common.cancel')}</Button>
               <Button type="submit">{t('document.version.confirm')}</Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
       <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && !renameSaving && setRenameTarget(null)}>
-        <DialogContent className="rounded-xl border border-[var(--border-popup)] bg-[var(--card)] shadow-[0_4px_24px_-3px_rgb(0_0_0_/_0.24)]">
+        <DialogContent>
           <DialogHeader><DialogTitle>{t('agent.chat.conversation.rename')}</DialogTitle></DialogHeader>
-          <form onSubmit={(event) => { event.preventDefault(); void submitRename(); }} className="space-y-4">
+          <form onSubmit={(event) => { event.preventDefault(); void submitRename(); }}>
             <Input autoFocus value={renameDraft} onChange={(event) => setRenameDraft(event.target.value)} placeholder={t('agent.chat.conversation.renamePrompt')} disabled={renameSaving} />
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={renameSaving}>{t('common.cancel')}</Button>
               <Button type="submit" disabled={renameSaving || !renameDraft.trim()}>{t('document.version.confirm')}</Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

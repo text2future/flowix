@@ -137,10 +137,10 @@
 	--success: oklch(0.740 0.115 145);
 	--destructive: oklch(0.620 0.165 22);
 	--warning: oklch(0.800 0.105 75);
-	/* 信息提示: 标准天蓝, hue 235 — 与 destructive/warning 语义区分,
+	/* 信息提示: 标准蓝色 #0085E6 — 与 destructive/warning 语义区分,
 	 * 用于 "新版本" 等可点击信息块. 各主题统一, 跨主题切换时信息块
 	 * 视觉一致. */
-	--info: oklch(0.52 0.165 235);
+	--info: #0085e6;
 	--info-foreground: oklch(1 0 0);
 
 	color-scheme: light;
