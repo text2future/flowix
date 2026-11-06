@@ -15,6 +15,7 @@ mod cli_link;
 mod commands;
 pub mod config;
 mod connection_probe;
+mod daily_activity;
 mod device_registration;
 mod document_mutation;
 mod document_io;

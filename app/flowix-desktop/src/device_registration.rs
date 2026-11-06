@@ -3,14 +3,16 @@
 //!
 //! 这里只上报版本和平台所需的最小字段，不读取 hostname、系统 machine ID、
 //! locale 或 timezone，也不构造稳定机器指纹。
-//! - 启动登记使用 fire-and-forget 异步任务，不阻塞主线程。
-//! - 启动后等待 `REGISTRATION_DELAY_SECS`，避开启动早期资源竞争。
 //! - 本地状态写入 `~/.flowix/boot/boot.json`。
-//! - 每次启动按 `device_id` 登记：首次写入，后续只刷新
+//! - 上报只由 `daily_activity` 的单条异步循环驱动：启动一次，运行中每次跨本地
+//!   04:00 再报一次。`boot.json` 因此只有一个写者，不阻塞启动链。
+//! - 每次按 `device_id` 登记：首次写入，后续只刷新
 //!   `last_seen_at`、`app_version`、`os` 和 `arch`。
+//! - payload 可附带 `activity`（当天活跃标记），服务端按
+//!   `(device_id, activity_day)` 幂等 upsert；老服务端忽略该字段。
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -24,8 +26,6 @@ const BOOT_FILE_NAME: &str = "boot.json";
 /// 的全部字段�?后续若有更�?�?��期元数据, �?sibling 即可 (例�?
 /// `featureFlags: {...}`), 涓嶄簰鐩歌鐩栥€?
 const BOOT_SCHEMA_VERSION: u32 = 2;
-/// �?��后等多久再上�? 让其它资�?(日志、目录�?账、sidecar spawn) 先稳定�?
-const REGISTRATION_DELAY_SECS: u64 = 10;
 /// 单�? HTTP 请求超时�?
 const REQUEST_TIMEOUT_SECS: u64 = 8;
 /// 默�? Supabase Edge Function URL (�?`commands/product.rs` 同一 project)�?
@@ -130,15 +130,6 @@ impl DeviceRegistry {
         registry
     }
 
-    /// 异�?上报入口�?Fire-and-forget: �?�� `tauri::async_runtime::spawn`,
-    /// 涓荤嚎绋嬬户缁€?
-    pub fn spawn_startup_registration(self: Arc<Self>) {
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(REGISTRATION_DELAY_SECS)).await;
-            self.try_register_once().await;
-        });
-    }
-
     /// Whether this client exposes experimental product features.
     /// Missing `experimental` in an existing v2 boot.json deserializes as false.
     pub fn experimental(&self) -> bool {
@@ -212,31 +203,26 @@ impl DeviceRegistry {
             .map_err(|error| format!("persist boot.json: {error}"))
     }
 
-    /// 真�?的上报流�? 收集�?��字�? �?POST �?根据结果写回 boot.json�?    /// 失败�?��日志 / boot.json 里留�? 不抛回启动链�?
-    async fn try_register_once(&self) {
+    /// 上报一次设备登记（可带日活）。
+    ///
+    /// 全进程只有 `daily_activity` 的循环调用它，`boot.json` 因此只有一个写者。
+    /// 失败只记账并返回错误，重试节奏由调用方决定。
+    pub(crate) async fn report(&self, activity: Option<ActivityPayload>) -> Result<(), String> {
         let payload = {
             let boot = self.read();
-            collect_payload(&boot, &self.app_version)
+            collect_payload(&boot, &self.app_version, activity)
         };
-        let client = match build_http_client() {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("[device-reg] failed to build http client: {e}");
-                return;
-            }
-        };
-        let endpoint = match registration_endpoint() {
-            Some(url) => url,
-            None => {
-                tracing::debug!(
-                    "[device-reg] no registration endpoint configured; skipping (default endpoint overridden to empty)"
-                );
-                return;
-            }
+        let client = build_http_client()?;
+        let Some(endpoint) = registration_endpoint() else {
+            tracing::debug!(
+                "[device-reg] no registration endpoint configured; skipping (default endpoint overridden to empty)"
+            );
+            // 显式禁用视为「无需上报」而非失败：返回 Ok 让日活循环把今天记为已报，
+            // 否则会按失败退避一直重试一个永远不存在的接口。
+            return Ok(());
         };
 
-        let result = post_registration(&client, &endpoint, &payload).await;
-        match result {
+        match post_registration(&client, &endpoint, &payload).await {
             Ok(resp) => {
                 let snapshot = {
                     let mut boot = self.write();
@@ -256,7 +242,6 @@ impl DeviceRegistry {
                         tracing::error!(
                             "[device-reg] succeeded but failed to persist boot.json: {e}"
                         );
-                        return;
                     }
                     (device_id, attempts, resp.first_seen.unwrap_or(false))
                 };
@@ -274,6 +259,7 @@ impl DeviceRegistry {
                         snapshot.0, snapshot.2, snapshot.1
                     ),
                 );
+                Ok(())
             }
             Err(err) => {
                 let attempts = {
@@ -287,6 +273,7 @@ impl DeviceRegistry {
                     attempts
                 };
                 tracing::warn!("[device-reg] attempt {attempts} failed: {err}");
+                Err(err)
             }
         }
     }
@@ -374,7 +361,7 @@ impl DeviceRegistry {
     }
 }
 
-/// 上报 payload 结构 ── Edge Function �?��这个 schema 反序列化�?
+/// 上报 payload 结构 ── Edge Function 按这个 schema 反序列化。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DevicePayload {
@@ -383,6 +370,23 @@ struct DevicePayload {
     arch: String,
     app_version: String,
     installed_at: DateTime<Utc>,
+    /// 日活信息。为 `None` 时字段整体省略，payload 与旧版逐键同形。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    activity: Option<ActivityPayload>,
+}
+
+/// 随设备登记一起上送的当天活跃标记。这是线上协议的一部分，故与
+/// `DevicePayload` 同处；「何时上报」的决策全在 `daily_activity::DayState`。
+///
+/// `client_day` 是客户端按本地 04:00 边界算出的日 key；服务端以
+/// `(device_id, activity_day)` 唯一约束 upsert，重复上报自然收敛成一行。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActivityPayload {
+    pub client_day: String,
+    /// `launch`（启动那次）/ `rollover`（运行中跨日）。
+    /// 两个字面量的唯一来源是 `daily_activity::DayState::trigger`。
+    pub trigger: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -393,7 +397,11 @@ struct RegistrationResponse {
     first_seen: Option<bool>,
 }
 
-fn collect_payload(boot: &BootFile, app_version: &str) -> DevicePayload {
+fn collect_payload(
+    boot: &BootFile,
+    app_version: &str,
+    activity: Option<ActivityPayload>,
+) -> DevicePayload {
     let os = std::env::consts::OS.to_string();
     let arch = std::env::consts::ARCH.to_string();
     let app_version = app_version.to_string();
@@ -403,6 +411,7 @@ fn collect_payload(boot: &BootFile, app_version: &str) -> DevicePayload {
         arch,
         app_version,
         installed_at: boot.user_info.installed_at,
+        activity,
     }
 }
 
@@ -568,7 +577,7 @@ mod tests {
     #[test]
     fn collect_payload_contains_only_random_id_and_platform_fields() {
         let boot = fresh_boot();
-        let payload = collect_payload(&boot, "9.8.7");
+        let payload = collect_payload(&boot, "9.8.7", None);
         assert_eq!(payload.os, std::env::consts::OS);
         assert_eq!(payload.arch, std::env::consts::ARCH);
         assert_eq!(payload.device_id, boot.user_info.device_id);
@@ -595,11 +604,40 @@ mod tests {
         boot.user_info.registered = true;
         boot.user_info.registered_at = Some(Utc::now());
 
-        let payload = collect_payload(&boot, "2.0.0");
+        let payload = collect_payload(&boot, "2.0.0", None);
 
         assert_eq!(payload.device_id, original_device_id);
         assert_eq!(payload.app_version, "2.0.0");
         assert_eq!(payload.installed_at, boot.user_info.installed_at);
+    }
+
+    #[test]
+    fn activity_is_additive_and_omitted_when_absent() {
+        let boot = fresh_boot();
+        let with_activity = collect_payload(
+            &boot,
+            "9.8.7",
+            Some(ActivityPayload {
+                client_day: "2026-11-07".into(),
+                trigger: "rollover",
+            }),
+        );
+        let json = serde_json::to_value(&with_activity).unwrap();
+        assert_eq!(json["activity"]["clientDay"], "2026-11-07");
+        assert_eq!(json["activity"]["trigger"], "rollover");
+
+        // 不带日活时 payload 与旧版逐键同形：老 edge function 看不到新字段。
+        let plain = serde_json::to_value(collect_payload(&boot, "9.8.7", None)).unwrap();
+        assert!(plain.get("activity").is_none());
+        assert_eq!(
+            plain
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["appVersion", "arch", "deviceId", "installedAt", "os"]
+        );
     }
 
     fn tempdir_path() -> PathBuf {

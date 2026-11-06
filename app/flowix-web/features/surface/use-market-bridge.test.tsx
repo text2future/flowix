@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   installCodexProjectSkillZip: vi.fn().mockResolvedValue({}), installNotebookTemplateZip: vi.fn(),
   notify: vi.fn(), show: vi.fn(),
 }));
-vi.mock('@platform/tauri/client', () => ({ agent: mocks, product: { getInfo: async () => ({ version: '1.5.17' }) } }));
+vi.mock('@platform/tauri/client', () => ({ agent: mocks, product: { getInfo: async () => ({ version: '1.5.18' }) } }));
 vi.mock('@features/memo/public/selected-notebook-api', () => ({
   getSelectedNotebookSnapshot: () => ({ id: 'A', name: 'A', path: '/A' }),
   subscribeSelectedNotebook: () => () => {},

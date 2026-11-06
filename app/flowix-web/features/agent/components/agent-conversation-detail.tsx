@@ -536,8 +536,9 @@ function AgentConversationDetailContent({
         composerControllerRef.current?.openSlashMenu();
       },
       toast: (kind, message) => toast[kind](message),
-      // A signed-out Cloud model in the picker cannot be bound; the card is the
-      // only feedback, and it lands in the transcript like a failed turn's.
+      // A Cloud entry the account cannot run has to say so: without this the
+      // picker closed as if applied and the next send quietly used the local
+      // model, which reads as "the switch did not work".
       onCloudAccessBlocked: (kind) => {
         const key = threadIdRef.current ?? instanceRef.current?.instanceId;
         if (key) useAgentCloudAccessStore.getState().setAccess(key, kind);

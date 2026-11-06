@@ -50,6 +50,20 @@ describe("initial runtime from unified Agent preferences", () => {
     expect(useAgentDataStore.getState().agents.codex.user.model?.id).toBe("global");
   });
 
+  it("lets the shared Pi model outrank a stale conversation snapshot", () => {
+    const store = useAgentDataStore.getState();
+    store.setUserPreference("pi", { model: { id: "cloud-model", providerId: "flowix-cloud" } });
+    // A conversation frozen on the previous pick must not win the next run: the
+    // picker writes the shared preference, and the run reads it back.
+    expect(resolveAgentPreferenceRuntimeConfig("pi", {
+      model: { key: "byok-model", providerId: "byok" },
+    }).model).toEqual({ key: "cloud-model", providerId: "flowix-cloud" });
+    // Other Agents keep their per-conversation override.
+    expect(resolveAgentPreferenceRuntimeConfig("claudecode", {
+      model: { key: "conversation-model" },
+    }).model).toEqual({ key: "conversation-model" });
+  });
+
   it("does not read legacy runtime defaults outside migration", () => {
     expect(buildInitialInstanceRuntimeConfig().model).toBeUndefined();
   });

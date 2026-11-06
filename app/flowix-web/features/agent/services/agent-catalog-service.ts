@@ -3,6 +3,7 @@ import { getFallbackAgentModelOptions } from "@features/agent/config/agent-model
 import { formatModelDisplayLabel } from "@features/agent/config/codex-options";
 import { listCodexSkillCatalog } from "@features/agent/services/codex-slash-command-service";
 import { listPiSkills } from "@features/agent/services/pi-slash-command-service";
+import { withCachedGuestCloudModels } from "@features/agent/services/pi-public-catalog";
 import {
   type AgentCatalogModel,
   type AgentCatalogSkill,
@@ -123,11 +124,15 @@ async function fetchAgentModelCatalog(agentType: AgentTypeKey): Promise<AgentMod
         providerName: provider?.displayName ?? providerId,
       }];
     });
-    return {
+    const catalog: AgentModelCatalog = {
       items,
       defaultModel: defaultProvider?.defaultModelId ?? "",
       defaultProviderId: defaultProvider?.id,
     };
+    // Signed out, the Cloud provider is not installed, so the native list has no
+    // Cloud model to offer. The guest overlay keeps that section in the picker,
+    // where choosing one asks for a sign-in instead of silently doing nothing.
+    return piCloudAccountId ? catalog : withCachedGuestCloudModels(catalog);
   }
 
   if (agentType === "dsh") {

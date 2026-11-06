@@ -1685,18 +1685,19 @@ export class ExternalAgentSettingsController {
   }
 
   private getExternalAgentModelProviderId(): string | undefined {
+    const typeKey = this.getTypeKey();
+    const preferenceProvider = useAgentDataStore.getState().agents[typeKey].user.model?.providerId;
+    // Pi's model is shared (like mode), so a stale conversation snapshot must not
+    // decide the provider shown for the current pick.
+    if (typeKey === "pi" && preferenceProvider?.trim()) return preferenceProvider.trim();
     const instanceId = this.getInstanceId();
-    if (instanceId) {
-      const providerId = useAgentSessionStore
-        .getState()
-        .getInstance(instanceId)
-        ?.runtimeConfig?.model?.providerId;
-      if (providerId?.trim()) return providerId.trim();
-    }
-    const preferenceProvider = useAgentDataStore.getState().agents[this.getTypeKey()].user.model?.providerId;
+    const instanceProvider = instanceId
+      ? useAgentSessionStore.getState().getInstance(instanceId)?.runtimeConfig?.model?.providerId
+      : undefined;
+    if (instanceProvider?.trim()) return instanceProvider.trim();
     if (preferenceProvider?.trim()) return preferenceProvider.trim();
-    if (this.getTypeKey() === "dsh") return this.dshDefaultProviderId;
-    if (this.getTypeKey() === "pi") return this.piDefaultProviderId;
+    if (typeKey === "dsh") return this.dshDefaultProviderId;
+    if (typeKey === "pi") return this.piDefaultProviderId;
     return undefined;
   }
 
