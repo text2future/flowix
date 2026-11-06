@@ -5,9 +5,9 @@ import type { ThreadProjection } from "@features/agent/store/session-reducer";
 import { emptyProjection } from "@features/agent/store/session-reducer";
 
 // describe 里的第一条用例，其 `beforeEach` 要独自承担整条 agent-session 模块图的
-// 动态 import 开销（后续用例只是复用缓存）。在 Windows 上这一次冷启动稳定超过
-// 默认的 10s hookTimeout —— 放宽的是模块图冷启动的预算，不是容忍逻辑死等。
-vi.setConfig({ hookTimeout: 60_000 });
+// 动态 import 开销（后续用例只是复用缓存）。实测：空闲时 19.4s，全量并发跑时
+// 超过 60s。放宽的是模块图冷启动的预算，不是容忍逻辑死等。
+vi.setConfig({ hookTimeout: 180_000 });
 
 async function seedProjection(threadId: string, updater: (projection: ThreadProjection) => ThreadProjection) {
   const { useAgentSessionStore } = await import("@features/agent/store/agent-session-store");
