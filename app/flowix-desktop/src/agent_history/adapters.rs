@@ -8,10 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use super::{
-    ExternalRuntimeKind, HistoryAdapter, HistoryPageRequest, HistoryPolicy, journal_policy,
-    provider_policy,
-};
+use super::{ExternalRuntimeKind, HistoryAdapter, HistoryPageRequest};
 use crate::agent_external::{
     codex::CodexAppServerManager, deepseek_harness::DeepSeekHarnessManager,
     opencode::OpenCodeAcpManager,
@@ -48,9 +45,6 @@ impl HistoryAdapter for CodexHistoryAdapter {
     fn runtime(&self) -> ExternalRuntimeKind {
         ExternalRuntimeKind::Codex
     }
-    fn policy(&self) -> HistoryPolicy {
-        provider_policy()
-    }
     async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
         self.client.list_threads().await
     }
@@ -84,9 +78,6 @@ impl HistoryAdapter for DshHistoryAdapter {
     fn runtime(&self) -> ExternalRuntimeKind {
         ExternalRuntimeKind::DeepSeekHarness
     }
-    fn policy(&self) -> HistoryPolicy {
-        provider_policy()
-    }
     async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
         self.client.list_threads().await
     }
@@ -114,9 +105,6 @@ impl HistoryAdapter for OpenCodeHistoryAdapter {
     fn runtime(&self) -> ExternalRuntimeKind {
         ExternalRuntimeKind::OpenCode
     }
-    fn policy(&self) -> HistoryPolicy {
-        provider_policy()
-    }
     async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
         self.client.list_threads().await
     }
@@ -138,9 +126,6 @@ struct ClaudeHistoryAdapter {
 impl HistoryAdapter for ClaudeHistoryAdapter {
     fn runtime(&self) -> ExternalRuntimeKind {
         ExternalRuntimeKind::Claude
-    }
-    fn policy(&self) -> HistoryPolicy {
-        journal_policy()
     }
     async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
         self.threads
@@ -181,9 +166,6 @@ struct HermesHistoryAdapter {
 impl HistoryAdapter for HermesHistoryAdapter {
     fn runtime(&self) -> ExternalRuntimeKind {
         ExternalRuntimeKind::Hermes
-    }
-    fn policy(&self) -> HistoryPolicy {
-        journal_policy()
     }
     async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
         self.threads

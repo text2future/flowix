@@ -54,10 +54,6 @@ pub struct BootFile {
     pub notebook_storage_reset_version: u32,
     #[serde(default)]
     pub experimental: bool,
-    /// Whether the first-run DeepSeek Harness introduction has been shown.
-    /// Keep the on-disk key in snake_case for the boot.json contract.
-    #[serde(default, rename = "is_introduct_displayed")]
-    pub is_introduct_displayed: bool,
     #[serde(default)]
     pub user_info: UserInfo,
 }
@@ -216,19 +212,6 @@ impl DeviceRegistry {
             .map_err(|error| format!("persist boot.json: {error}"))
     }
 
-    /// Whether the DeepSeek Harness introduction has already been displayed.
-    pub fn is_introduct_displayed(&self) -> bool {
-        self.read().is_introduct_displayed
-    }
-
-    /// Persist the DeepSeek Harness introduction display state.
-    pub fn set_introduct_displayed(&self, displayed: bool) -> Result<(), String> {
-        let mut boot = self.write();
-        boot.is_introduct_displayed = displayed;
-        self.flush(&boot)
-            .map_err(|error| format!("persist boot.json: {error}"))
-    }
-
     /// 真�?的上报流�? 收集�?��字�? �?POST �?根据结果写回 boot.json�?    /// 失败�?��日志 / boot.json 里留�? 不抛回启动链�?
     async fn try_register_once(&self) {
         let payload = {
@@ -376,7 +359,6 @@ impl DeviceRegistry {
             last_successful_app_version: None,
             notebook_storage_reset_version: 0,
             experimental: false,
-            is_introduct_displayed: false,
             user_info: UserInfo {
                 device_id: Uuid::new_v4(),
                 installed_at: Utc::now(),
@@ -508,7 +490,6 @@ mod tests {
         let b = fresh_boot();
         assert_eq!(b.schema_version, BOOT_SCHEMA_VERSION);
         assert!(!b.experimental);
-        assert!(!b.is_introduct_displayed);
         assert!(!b.user_info.registered);
         assert_eq!(b.user_info.attempts, 0);
         assert!(b.user_info.registered_at.is_none());
@@ -520,10 +501,8 @@ mod tests {
         let mut b = fresh_boot();
         b.experimental = true;
         let s = serde_json::to_string(&b).unwrap();
-        assert!(s.contains("\"is_introduct_displayed\":false"));
         let v: BootFile = serde_json::from_str(&s).unwrap();
         assert!(v.experimental);
-        assert!(!v.is_introduct_displayed);
         assert_eq!(b.user_info.device_id, v.user_info.device_id);
         assert_eq!(b.user_info.installed_at, v.user_info.installed_at);
         assert_eq!(
@@ -538,29 +517,6 @@ mod tests {
         value.as_object_mut().unwrap().remove("experimental");
         let boot: BootFile = serde_json::from_value(value).unwrap();
         assert!(!boot.experimental);
-    }
-
-    #[test]
-    fn missing_intro_displayed_defaults_to_false() {
-        let mut value = serde_json::to_value(fresh_boot()).unwrap();
-        value
-            .as_object_mut()
-            .unwrap()
-            .remove("is_introduct_displayed");
-        let boot: BootFile = serde_json::from_value(value).unwrap();
-        assert!(!boot.is_introduct_displayed);
-    }
-
-    #[test]
-    fn intro_displayed_survives_reload() {
-        // 必须用独立临时目录, 不能复用 `tempdir_path()`。
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path();
-        let registry = DeviceRegistry::load(dir, "test-version");
-        assert!(!registry.is_introduct_displayed());
-
-        registry.set_introduct_displayed(true).unwrap();
-        assert!(DeviceRegistry::load(dir, "test-version").is_introduct_displayed());
     }
 
     #[test]

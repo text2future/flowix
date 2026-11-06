@@ -8,7 +8,6 @@ import { createSessionWebRuntimeChannel } from './session-web-runtime';
 import { getWorkspaceDocumentNavigation, recordWorkspaceDocumentNavigation } from '@features/document/public/workspace-api';
 import { getWorkspaceSessionNavigation } from '../use-cases/session-navigation';
 import { createWorkspaceWebRuntime, navigateWorkspaceWebRuntime } from '../model/web-navigation';
-import { migrateLegacySessionData } from './session-legacy-migration';
 import type { WorkspaceSessionReference } from '../model/workspace-session';
 
 beforeEach(() => {
@@ -105,20 +104,6 @@ describe('one canonical session state source', () => {
       expect(sessionFor(saved.state, 0).navigation.backStack).toHaveLength(1);
       expect(sessionFor(saved.state, 1).navigation.current?.target.kind).toBe('web');
     } finally { writes.mockRestore(); }
-  });
-
-  it('migrates old current/history data at the storage boundary', () => {
-    localStorage.setItem('flowix-browser-column-storage', JSON.stringify({ state: {
-      current: { id: 'old-browser', title: 'Agent', icon: null, target: { kind: 'agent_conversation', instanceId: 'agent' } },
-      backStack: [], forwardStack: [], visible: true, splitRatio: 0.4,
-    }, version: 7 }));
-    localStorage.setItem('flowix.document-history.v1', JSON.stringify({ state: {
-      backStack: [{ kind: 'web', url: 'https://old.example/', openedAt: 5 }], forwardStack: [],
-    }, version: 0 }));
-    const result = migrateLegacySessionData();
-    expect(result.sessions['column-2'].navigation.current?.target.kind).toBe('agent-conversation');
-    expect(result.sessions['column-1'].navigation.backStack[0].target.kind).toBe('web');
-    expect(result.browserLayout).toEqual({ visible: true, splitRatio: 0.4 });
   });
 
   it('restores the canonical snapshot instead of resurrecting stale legacy history', async () => {

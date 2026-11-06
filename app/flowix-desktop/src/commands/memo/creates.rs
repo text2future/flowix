@@ -13,7 +13,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::commands::helpers::FileOperationFailure;
 use crate::lock_utils::read_lock;
 use crate::USER_CONFIG_DIR_NAME;
-use flowix_core::memo_file::{atomic_write_bytes, extract_body_content, Memo, MemoFile};
+use flowix_core::memo_file::{atomic_write_bytes, extract_body_content, MemoFile};
 use flowix_core::NoteService;
 
 use crate::app::state::AppState;
@@ -358,15 +358,6 @@ pub fn import_external_document_by_path(
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RenameMemoTitleResult {
-    pub notebook_change: super::super::path_change::NotebookPathMove,
-    pub memo: Option<Memo>,
-    pub path: String,
-    pub filename: String,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MoveMemoResult {
     pub notebook_change: super::super::path_change::NotebookPathMove,
     pub path: String,
@@ -443,136 +434,5 @@ pub fn move_memo_to_directory(
     Ok(MoveMemoResult {
         notebook_change,
         path: moved.path.to_string_lossy().into_owned(),
-    })
-}
-
-/// Rename a memo independently from its Markdown content.
-#[tauri::command]
-pub async fn rename_memo_title(
-    operation_id: Option<String>,
-    file_path: String,
-    title: String,
-    expected_filename: Option<String>,
-    expected_content: Option<String>,
-    app: AppHandle,
-    window: tauri::WebviewWindow,
-) -> Result<RenameMemoTitleResult, String> {
-    crate::commands::document_operations::run(
-        "rename",
-        operation_id,
-        window.label().to_owned(),
-        move || {
-            let state = app.state::<AppState>();
-            rename_memo_title_blocking(
-                file_path,
-                title,
-                expected_filename,
-                expected_content,
-                state,
-                app.clone(),
-                window,
-            )
-        },
-    )
-    .await
-    .map_err(|error| error.to_string())
-}
-
-fn rename_memo_title_blocking(
-    file_path: String,
-    title: String,
-    expected_filename: Option<String>,
-    expected_content: Option<String>,
-    state: State<AppState>,
-    app: AppHandle,
-    _window: tauri::WebviewWindow,
-) -> Result<RenameMemoTitleResult, String> {
-    let title = title.trim().trim_end_matches(".md").trim();
-    if title.is_empty() {
-        return Err("memo title cannot be empty".to_string());
-    }
-
-    let requested_path = Path::new(&file_path);
-    if !requested_path.is_absolute() {
-        return Err("absolute document path required".into());
-    }
-    let _watch_move =
-        crate::commands::external_document_watch::begin_path_move(&app, requested_path);
-    let (renamed, old_relative, old_path) = {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        let (notebook_id, relative_path) = notebook_note_address(&memo_file, requested_path)?
-            .ok_or_else(|| {
-                "document is not a Markdown note inside a registered notebook".to_string()
-            })?;
-        if expected_filename.as_deref().is_some_and(|expected| {
-            expected != relative_path.rsplit('/').next().unwrap_or(&relative_path)
-        }) {
-            return Err("note filename changed before rename".into());
-        }
-        let mut service = NoteService::new(&memo_file);
-        let original = service
-            .get(&notebook_id, &relative_path)
-            .map_err(|error| error.to_string())?;
-        if expected_content.as_deref().is_some_and(|expected| {
-            !super::helpers::cas_content_matches(&original.body, expected, expected)
-        }) {
-            return Err("note changed before rename".into());
-        }
-        mark_self_write_for(&app, &original.path);
-        let renamed = service
-            .rename(
-                &notebook_id,
-                &relative_path,
-                title,
-                expected_content.as_deref(),
-            )
-            .map_err(|error| error.to_string())?;
-        mark_self_write_for(&app, &renamed.path);
-        (renamed, relative_path, original.path)
-    };
-    crate::commands::external_document_watch::rebase_path(&app, requested_path, &renamed.path);
-    {
-        let memo_file = read_lock(&state.memo_file, "memo_file");
-        crate::commands::document_list::rebase_collection_paths(
-            &memo_file,
-            &renamed.notebook.id,
-            &old_relative,
-            &renamed.entry.relative_path,
-        );
-    }
-    if let Err(error) = state.thread_manager.rebase_agent_note_paths(
-        &renamed.notebook.id,
-        &renamed.notebook.id,
-        &old_relative,
-        &renamed.entry.relative_path,
-        &old_path.to_string_lossy(),
-        &renamed.path.to_string_lossy(),
-    ) {
-        tracing::warn!(
-            notebook_id = %renamed.notebook.id,
-            old_relative = %old_relative,
-            new_relative = %renamed.entry.relative_path,
-            "note was renamed but agent note references could not be rebased: {error}"
-        );
-    }
-    let path = renamed.path.to_string_lossy().into_owned();
-    let notebook_change = super::super::path_change::NotebookPathMove::new(
-        renamed.notebook.id.clone(),
-        old_relative,
-        renamed.entry.relative_path.clone(),
-        false,
-    );
-    notebook_change.emit(&app);
-    Ok(RenameMemoTitleResult {
-        notebook_change,
-        memo: None,
-        path,
-        filename: renamed
-            .entry
-            .relative_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&renamed.entry.relative_path)
-            .to_owned(),
     })
 }

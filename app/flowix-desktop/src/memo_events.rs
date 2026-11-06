@@ -21,13 +21,14 @@ pub enum MemoChangeSource {
     UserNew,
     /// "Save to Memo" 鎸夐挳瀵煎叆澶栭儴鏂囦欢
     UserImport,
-    /// 用户在编辑器保存或改名 (`write_document` / `rename_memo_title`).
+    /// 用户在编辑器保存或改名 (`write_document` / `rename_file`).
     UserEdit,
     /// User explicitly deleted a note.
     UserDelete,
-    /// Reserved for external-tool writes that still produce a MemoEvent.
-    /// Path-based Agent/CLI writes instead publish notebook path changes;
-    /// they do not fabricate a legacy Memo row.
+    /// Part of the serialized contract for external-tool writes: a writer that
+    /// changes files out-of-band may report this source. Nothing in this
+    /// process constructs it today — path-based Agent/CLI writes publish
+    /// notebook path changes instead — so only the wire-format test covers it.
     ExternalTool,
     /// Flowix Cloud pull applied this write locally. Automatic push scheduling
     /// must ignore this source to avoid a sync loop.

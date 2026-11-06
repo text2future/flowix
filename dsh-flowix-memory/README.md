@@ -23,8 +23,8 @@ local notebook data directory.
  [flowix-main](https://github.com/text2future/flowix) repository  
  (`app/flowix-cli`, binary `flowix-cli`).
 2. Access to the Flowix notebook data the CLI should manage. Defaults to the  
- user config directory (`~/.flowix`); override with `FLOWIX_HOME` /  
- `FLOWIX_DATA` when the data lives elsewhere.
+ user config directory (`~/.flowix`); override with `FLOWIX_HOME` when the  
+ data lives elsewhere.
 
 ## Install
 

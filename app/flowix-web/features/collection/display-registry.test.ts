@@ -1,5 +1,3 @@
-import { migrateLegacySessionData } from '@features/workspace/store/session-legacy-migration';
-import { useWorkspaceSessionStore } from '@features/workspace/public/session-api';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ensureCollectionDisplay, bindCollectionDisplayPath, findCollectionDisplayPath, reconcileCollectionDisplays, pinCollectionDisplay } from '@/lib/collection-display-registry';
 import { useDocumentHistoryStore, documentHistoryEntryKey } from '@features/document/store/document-history-store';
@@ -38,18 +36,6 @@ describe('collection displays and navigation history', () => {
     expect(useDocumentHistoryStore.getState().backStack).toEqual([]);
     reconcileCollectionDisplays([{ ...target, viewId: 'b', displayId: 'legacy-b' }]);
     expect(ensureCollectionDisplay(target).displayId).toBe(first.displayId);
-  });
-  it('collapses consecutive legacy view history when persisted state is restored', async () => {
-    const entry = { kind: 'collection', notebookId: 'book', collectionId: 'col_test', openedAt: 1 };
-    localStorage.setItem('flowix.document-history.v1', JSON.stringify({ state: { backStack: [
-      { ...entry, displayId: 'old-view-a', viewId: 'a' },
-      { ...entry, displayId: 'old-view-b', viewId: 'b' },
-    ], forwardStack: [] }, version: 0 }));
-    const migrated = migrateLegacySessionData();
-    useWorkspaceSessionStore.getState().updateSession('column-1', () => migrated.sessions['column-1']);
-    expect(useDocumentHistoryStore.getState().backStack).toHaveLength(1);
-    expect(useDocumentHistoryStore.getState().peekBack()).toMatchObject({ viewId: 'b', displayId: 'old-view-a' });
-    expect(documentHistoryEntryKey(useDocumentHistoryStore.getState().peekBack())).toBe('old-view-a');
   });
   it('retains an in-flight operation even after its surface leaves the workspace', () => {
     const display = ensureCollectionDisplay({ notebookId: 'book', collectionId: 'col_test', viewId: null });

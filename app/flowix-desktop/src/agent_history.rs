@@ -1,6 +1,6 @@
 //! External-agent history application service.
 //!
-//! The service owns pagination and source-selection policy. Runtime adapters
+//! The service owns pagination and adapter selection. Runtime adapters
 //! own provider protocols and legacy transcript details. Tauri commands only
 //! select a runtime and forward the product request.
 
@@ -20,18 +20,6 @@ use crate::agent_session::{ChatMessage, ThreadInfo, ThreadManager, ThreadMessage
 
 use self::adapters::builtin_adapters;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HistoryAuthority {
-    Provider,
-    Journal,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HistoryPolicy {
-    pub authority: HistoryAuthority,
-    pub legacy_fallback: bool,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct HistoryPageRequest<'a> {
     pub thread_id: &'a str,
@@ -45,7 +33,6 @@ pub struct HistoryPageRequest<'a> {
 #[async_trait]
 pub trait HistoryAdapter: Send + Sync {
     fn runtime(&self) -> ExternalRuntimeKind;
-    fn policy(&self) -> HistoryPolicy;
     async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String>;
     async fn read_page(
         &self,
@@ -82,10 +69,6 @@ impl AgentHistoryService {
             }
         }
         Ok(Self { adapters: registry })
-    }
-
-    pub fn policy(&self, runtime: ExternalRuntimeKind) -> Result<HistoryPolicy, String> {
-        Ok(self.adapter(runtime)?.policy())
     }
 
     pub async fn list_threads(
@@ -168,20 +151,6 @@ impl AgentHistoryService {
     }
 }
 
-pub(super) const fn provider_policy() -> HistoryPolicy {
-    HistoryPolicy {
-        authority: HistoryAuthority::Provider,
-        legacy_fallback: false,
-    }
-}
-
-pub(super) const fn journal_policy() -> HistoryPolicy {
-    HistoryPolicy {
-        authority: HistoryAuthority::Journal,
-        legacy_fallback: true,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +158,6 @@ mod tests {
 
     struct FakeAdapter {
         runtime: ExternalRuntimeKind,
-        policy: HistoryPolicy,
         pages: Mutex<Vec<ThreadMessagesPage>>,
     }
 
@@ -197,9 +165,6 @@ mod tests {
     impl HistoryAdapter for FakeAdapter {
         fn runtime(&self) -> ExternalRuntimeKind {
             self.runtime
-        }
-        fn policy(&self) -> HistoryPolicy {
-            self.policy
         }
         async fn list_threads(&self) -> Result<Vec<ThreadInfo>, String> {
             Ok(Vec::new())
@@ -226,26 +191,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn adapters_expose_history_policy_through_the_registry() {
-        let adapter = Arc::new(FakeAdapter {
-            runtime: ExternalRuntimeKind::Claude,
-            policy: journal_policy(),
-            pages: Mutex::new(Vec::new()),
-        }) as Arc<dyn HistoryAdapter>;
-        let service = AgentHistoryService::try_from_adapters([adapter]).unwrap();
-        assert_eq!(
-            service.policy(ExternalRuntimeKind::Claude).unwrap(),
-            journal_policy()
-        );
-        assert!(service.policy(ExternalRuntimeKind::Codex).is_err());
-    }
-
     #[tokio::test]
     async fn read_all_rejects_a_non_advancing_cursor() {
         let adapter = Arc::new(FakeAdapter {
             runtime: ExternalRuntimeKind::Codex,
-            policy: provider_policy(),
             pages: Mutex::new(vec![empty_page(Some(10), true), empty_page(Some(10), true)]),
         }) as Arc<dyn HistoryAdapter>;
         let service = AgentHistoryService::try_from_adapters([adapter]).unwrap();
@@ -276,12 +225,10 @@ mod tests {
     fn duplicate_runtime_registration_is_rejected() {
         let first = Arc::new(FakeAdapter {
             runtime: ExternalRuntimeKind::Codex,
-            policy: provider_policy(),
             pages: Mutex::new(Vec::new()),
         }) as Arc<dyn HistoryAdapter>;
         let second = Arc::new(FakeAdapter {
             runtime: ExternalRuntimeKind::Codex,
-            policy: provider_policy(),
             pages: Mutex::new(Vec::new()),
         }) as Arc<dyn HistoryAdapter>;
 

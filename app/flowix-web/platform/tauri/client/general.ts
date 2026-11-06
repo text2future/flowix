@@ -12,7 +12,6 @@ export const preferences = {
 
 export interface BootFeatures {
   experimental: boolean;
-  isIntroductDisplayed: boolean;
 }
 
 export const boot = {
