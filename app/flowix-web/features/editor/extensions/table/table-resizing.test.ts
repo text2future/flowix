@@ -3,9 +3,15 @@ import StarterKit from '@tiptap/starter-kit';
 import { columnResizingPluginKey, TableMap } from '@tiptap/pm/tables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTablePlugin } from './table-plugin';
+import { TABLE_RESIZE_HINT_DELAY_MS } from './table-resize-indicator';
 import type { TableStyleId } from './table-presentation';
 
 const editors: Editor[] = [];
+
+function edgeLine(editor: Editor): HTMLElement | null {
+  const line = editor.view.dom.querySelector<HTMLElement>('.table-resize-indicator');
+  return line && !line.hidden ? line : null;
+}
 
 function createEditor(editable = true, styleId: TableStyleId = 'default') {
   const element = document.createElement('div');
@@ -66,6 +72,32 @@ describe('table column resizing', () => {
       expect(editor.view.dom.classList.contains('resize-cursor')).toBe(false);
     },
   );
+
+  it('reveals the column edge line only after the pointer rests on it', () => {
+    const { editor, cell } = createEditor();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      hover(cell);
+      expect(edgeLine(editor)).toBeNull();
+      vi.advanceTimersByTime(TABLE_RESIZE_HINT_DELAY_MS - 1);
+      expect(edgeLine(editor)).toBeNull();
+      vi.advanceTimersByTime(1);
+      expect(edgeLine(editor)).not.toBeNull();
+      hover(cell, 150);
+      expect(edgeLine(editor)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the edge line while dragging, without waiting for the dwell timer', () => {
+    const { editor, cell } = createEditor();
+    hover(cell);
+    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 198, clientY: 60 }));
+    expect(edgeLine(editor)).not.toBeNull();
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 228, clientY: 60 }));
+    expect(edgeLine(editor)).not.toBeNull();
+  });
 
   it('updates the column width on drag after switching from read-only to editable', () => {
     const { editor, cell } = createEditor(false);

@@ -6,6 +6,7 @@ import { Markdown } from '@tiptap/markdown';
 import { TextSelection } from '@tiptap/pm/state';
 import { createTablePlugin } from '@features/editor/extensions/table/table-plugin';
 import { setTableBackground } from '@features/editor/extensions/table/table-background-commands';
+import { TABLE_RESIZE_HINT_DELAY_MS } from '@features/editor/extensions/table/table-resize-indicator';
 import { TABLE_STYLE_IDS } from '@features/editor/extensions/table/table-presentation';
 import { check, checkAsync, assert, assertEqual, installCrashGuard, report, sleep } from './harness.js';
 
@@ -40,6 +41,15 @@ const settle = async () => {
 const hover = async cell => {
   const rect = cell.getBoundingClientRect();
   cell.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.left + 12, clientY: rect.top + 12 }));
+  await settle();
+};
+// Resize hover is gated on a dwell, so holding the pointer on an edge means
+// staying there past the reveal delay, not just sending one mousemove.
+const restOnEdge = async cell => {
+  const rect = cell.getBoundingClientRect();
+  cell.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.right - 1, clientY: rect.top + rect.height / 2 }));
+  await settle();
+  await sleep(TABLE_RESIZE_HINT_DELAY_MS + 40);
   await settle();
 };
 const click = button => button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
@@ -332,9 +342,7 @@ for (const styleId of ['default', 'striped', 'comparison']) {
   await checkAsync(`${styleId}: continuous resize indicator across row borders`, async () => {
     for (const column of [0, 2]) {
       const cell = table().rows[1].cells[column];
-      const rect = cell.getBoundingClientRect();
-      cell.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.right - 1, clientY: rect.top + rect.height / 2 }));
-      await settle();
+      await restOnEdge(cell);
       const indicator = root.querySelector('.table-resize-indicator:not([hidden])');
       assert(indicator, 'Column resize overlay visible');
       const box = indicator.getBoundingClientRect();
